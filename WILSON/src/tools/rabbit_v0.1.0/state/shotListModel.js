@@ -246,9 +246,10 @@ export function activeShotsOf({ project, shotLists, shotListItems, shots }) {
 }
 
 /**
- * Scenes that belong to no LIVE list: S3b's "Not in any list (N)" entry at
- * the end of the Scenes tab's list picker (Audrey, 2026-09-30), shown only
- * when there are any; each row offers "Add to list…". An ARCHIVED or
+ * Scenes that belong to no LIVE list: S3b's "Not in any list (N)" entry near
+ * the end of the Scenes tab's list picker, just above "Archived…" (Audrey,
+ * 2026-09-30, in the preview she picked), shown only when there are any;
+ * each row offers "Add to list…". An ARCHIVED or
  * WITHDRAWN list does not count as a home: to the person who withdrew it the
  * list is gone ("my most recently deleted list"), so the scenes only it held
  * must not vanish with it. Pass shotLists; without it every item counts.
@@ -374,6 +375,12 @@ export const ARCHIVE_SEAT_REFUSAL_LIST =
   'only a project manager or a workspace admin can archive or restore a shot list'
 export const ARCHIVE_SEAT_REFUSAL_EDIT =
   'only a project manager or a workspace admin can archive or restore an edit'
+// 0086's answer to a maker restoring a SAVED row they archived (as a manager
+// who has since lost the seat, review R2): a withdraw never leaves one.
+export const RESTORE_SAVED_LIST_REFUSAL =
+  'a Saved shot list you archived can be restored only by a project manager or a workspace admin'
+export const RESTORE_SAVED_EDIT_REFUSAL =
+  'a Saved edit you archived can be restored only by a project manager or a workspace admin'
 
 function isEmptyObject(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0
@@ -442,17 +449,22 @@ export function editWithdrawRefusal({ edit, edits, userId }) {
 /**
  * Why this person may NOT restore this withdrawn row (kind 'shot_list' |
  * 'edit') — or null. The maker restores what THEY set aside (archived_by is
- * theirs), touched or not since: a restore only un-hides. Someone else's row,
- * or one a manager archived, gets 0084's seat sentence. A live row is
- * nothing to restore (null; the provider treats it as a no-op).
+ * theirs) while it is not Saved — what every withdraw left (an archived row
+ * cannot be Saved) — whatever landed on it since: a restore only un-hides.
+ * Someone else's row, or one a manager archived, gets 0084's seat sentence;
+ * a Saved one 0086's. A live row is nothing to restore (null; the provider
+ * treats it as a no-op).
  */
 export function withdrawnRestoreRefusal({ row, kind, userId }) {
   const isEdit = kind === 'edit'
   if (!row) return isEdit ? 'edit not found' : 'shot list not found'
   if (!row.archived_at) return null
-  if (userId !== undefined && (!userId || row.created_by !== userId || row.archived_by !== userId)) {
+  if (userId === undefined) return null
+  if (!userId || row.created_by !== userId || row.archived_by !== userId) {
     return isEdit ? ARCHIVE_SEAT_REFUSAL_EDIT : ARCHIVE_SEAT_REFUSAL_LIST
   }
+  const saved = isEdit ? row.snapshot != null : (row.snapshot != null && !isEmptyObject(row.snapshot))
+  if (saved) return isEdit ? RESTORE_SAVED_EDIT_REFUSAL : RESTORE_SAVED_LIST_REFUSAL
   return null
 }
 

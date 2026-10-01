@@ -33,14 +33,18 @@
 --    auth.uid()), may still write shot lists on the project
 --    (can_edit_shot_lists — a maker who lost their seat loses this too), and
 --    the row is untouched. RESTORE: the caller made the row, may still write
---    shot lists there, and set it aside THEMSELVES (archived_by =
---    auth.uid()); a restore only un-hides, so it is not limited to untouched
---    rows (review R1: requiring that made the maker's own "Restore" fail once
---    a newer edit continued the withdrawn one, and protected nothing).
+--    shot lists there, set it aside THEMSELVES (archived_by = auth.uid()),
+--    and it is not Saved. A restore only un-hides, so a live edit that
+--    landed on (or continued) the row meanwhile does not block it (review
+--    R1: that made the maker's own "Restore" fail once a newer edit
+--    continued the withdrawn one). "Not Saved" is what every withdraw left
+--    (an archived row cannot be Saved — 0084's guard freezes it), and it
+--    keeps a Saved row a manager or admin archived, then lost the seat, out
+--    of their hands as a member (review R2).
 --    Everything else in both bodies is 0084's, restated whole (the 0059
 --    lesson: a CREATE OR REPLACE that drops an arm is a privilege
---    escalation); §3's post-conditions check every arm with comments stripped
---    (0077 §3c).
+--    escalation); §3's post-conditions check each arm's text with comments
+--    stripped (0077 §3c), and suite 88 checks what each arm does.
 -- 2. archive_shot_list now LOCKS the list row (FOR NO KEY UPDATE, review R1):
 --    a Save racing a withdraw is serialised, so the withdraw sees the Save.
 --    NO KEY, so it does not wait on the FOR KEY SHARE an edit insert's FK
@@ -53,10 +57,11 @@
 --
 -- WHAT IS DELIBERATELY NOT CHANGED
 -- --------------------------------
--- * Who archives or restores a TOUCHED row, or someone else's: still a
---   project manager or a workspace admin (D8). Someone else's row is refused
---   with 0084's sentence; the maker's own touched row with this file's new
---   one ("only an untouched … you made can be withdrawn — …").
+-- * Who withdraws (archives) a TOUCHED row, archives or restores someone
+--   else's, restores what a manager archived, or restores a Saved row: still
+--   a project manager or a workspace admin (D8). Someone else's row and a
+--   manager's archive get 0084's sentence; the maker's own touched row and a
+--   Saved row they archived get this file's (withdraw / restore).
 -- * The ACTIVE list is never archived, by anyone (D4): the maker path reaches
 --   that refusal like every other caller.
 -- * 0084's chain indexes (one root, one child): a withdrawn edit keeps its
@@ -72,9 +77,10 @@
 -- * The D11 backfill's lists have no maker (created_by NULL — they were made
 --   by the migration), so the maker path can never reach them.
 -- * The Local Server has no roles (D8: there both actions are labels) and the
---   dev fixtures run as a workspace admin, so neither backend changes; the
---   provider checks the same rules itself before every withdraw and restore,
---   on every backend.
+--   dev fixtures run as a workspace admin, so neither backend changes. The
+--   provider checks the row rules itself before every withdraw (on every
+--   backend) and every restore (on a backend with users, once the signed-in
+--   user is known; until then the database decides).
 --
 -- ORDERING: after 0084 (it restates 0084's archive_shot_list / archive_edit and
 -- adds a trigger to 0084's two tables; the pre-flight refuses to run without
@@ -201,8 +207,7 @@ BEGIN
       RAISE EXCEPTION 'only a project manager or a workspace admin can archive or restore a shot list'
         USING ERRCODE = '42501';
     END IF;
-    -- …and a WITHDRAW only while it is untouched: not Saved, no live edit on
-    -- it. A restore only un-hides, so it has no such limit.
+    -- …a WITHDRAW only while it is untouched: not Saved, no live edit on it…
     IF v_archive THEN
       v_untouched := v_list.snapshot = '{}'::jsonb
         AND NOT EXISTS (SELECT 1 FROM public.edits e
@@ -211,6 +216,11 @@ BEGIN
         RAISE EXCEPTION 'only an untouched shot list you made can be withdrawn — a project manager or a workspace admin can archive it'
           USING ERRCODE = '42501';
       END IF;
+    -- …and a RESTORE only of an unsaved row (what every withdraw left; a live
+    -- edit that landed meanwhile does not block it — a restore only un-hides).
+    ELSIF NOT COALESCE(v_list.snapshot = '{}'::jsonb, false) THEN
+      RAISE EXCEPTION 'a Saved shot list you archived can be restored only by a project manager or a workspace admin'
+        USING ERRCODE = '42501';
     END IF;
   END IF;
 
@@ -234,7 +244,7 @@ REVOKE EXECUTE ON FUNCTION public.archive_shot_list(UUID, BOOLEAN) FROM PUBLIC, 
 GRANT  EXECUTE ON FUNCTION public.archive_shot_list(UUID, BOOLEAN) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.archive_shot_list(UUID, BOOLEAN) IS
-  '0084 (D4/D8/D18) + 0086: archive (p_archived true, the default) or restore (false) a shot list. A workspace admin or project manager may do either. The list''s MAKER (created_by, still able to write shot lists here) may withdraw it while it is untouched (not Saved, no live edit on it) and restore it after setting it aside themselves. Refuses to archive the project''s ACTIVE list, for everyone. Locks the project row and the list row. Lists are never deleted. SECURITY DEFINER with its own read gate (workspace, live, membership, passes_project_privacy). Returns the row.';
+  '0084 (D4/D8/D18) + 0086: archive (p_archived true, the default) or restore (false) a shot list. A workspace admin or project manager may do either. The list''s MAKER (created_by, still able to write shot lists here) may withdraw it while it is untouched (not Saved, no live edit on it) and restore it after setting it aside themselves, while it is not Saved. Refuses to archive the project''s ACTIVE list, for everyone. Locks the project row and the list row. Lists are never deleted. SECURITY DEFINER with its own read gate (workspace, live, membership, passes_project_privacy). Returns the row.';
 
 -- ── 2b. archive_edit ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.archive_edit(p_edit UUID, p_archived BOOLEAN DEFAULT true)
@@ -276,8 +286,8 @@ BEGIN
       RAISE EXCEPTION 'only a project manager or a workspace admin can archive or restore an edit'
         USING ERRCODE = '42501';
     END IF;
-    -- …and a WITHDRAW only while it is untouched: not Saved, no live edit
-    -- continues it. A restore has no such limit.
+    -- …a WITHDRAW only while it is untouched: not Saved, no live edit
+    -- continues it…
     IF v_archive THEN
       v_untouched := v_edit.snapshot IS NULL
         AND NOT EXISTS (SELECT 1 FROM public.edits c
@@ -286,6 +296,11 @@ BEGIN
         RAISE EXCEPTION 'only an untouched edit you made can be withdrawn — a project manager or a workspace admin can archive it'
           USING ERRCODE = '42501';
       END IF;
+    -- …and a RESTORE only of an unsaved edit (a live edit that continued it
+    -- meanwhile does not block it).
+    ELSIF v_edit.snapshot IS NOT NULL THEN
+      RAISE EXCEPTION 'a Saved edit you archived can be restored only by a project manager or a workspace admin'
+        USING ERRCODE = '42501';
     END IF;
   END IF;
 
@@ -305,7 +320,7 @@ REVOKE EXECUTE ON FUNCTION public.archive_edit(UUID, BOOLEAN) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.archive_edit(UUID, BOOLEAN) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.archive_edit(UUID, BOOLEAN) IS
-  '0084 (D4/D8) + 0086: archive (default) or restore an edit. A workspace admin or project manager may do either. The edit''s MAKER (created_by, still able to write shot lists here) may withdraw it while it is untouched (not Saved, no live edit continues it) and restore it after setting it aside themselves. Locks the edit row. SECURITY DEFINER with its own read gate (workspace, live, membership, passes_project_privacy). Returns the row.';
+  '0084 (D4/D8) + 0086: archive (default) or restore an edit. A workspace admin or project manager may do either. The edit''s MAKER (created_by, still able to write shot lists here) may withdraw it while it is untouched (not Saved, no live edit continues it) and restore it after setting it aside themselves, while it is not Saved. Locks the edit row. SECURITY DEFINER with its own read gate (workspace, live, membership, passes_project_privacy). Returns the row.';
 
 
 -- =============================================================================
@@ -322,13 +337,19 @@ BEGIN
   --     (tgtype 1 ROW + 2 BEFORE + 4 INSERT + 16 UPDATE = 23), enabled, calling
   --     the pin function; that function is no client's to call.
   IF (SELECT count(*) FROM pg_trigger
-       WHERE tgrelid IN ('public.shot_lists'::regclass, 'public.edits'::regclass)
-         AND tgname IN ('trg_shot_lists_pin_maker', 'trg_edits_pin_maker')
+       WHERE ((tgrelid = 'public.shot_lists'::regclass AND tgname = 'trg_shot_lists_pin_maker')
+           OR (tgrelid = 'public.edits'::regclass      AND tgname = 'trg_edits_pin_maker'))
          AND NOT tgisinternal
          AND tgtype = 23
          AND tgenabled = 'O'
          AND tgfoid = 'public.fn_shot_list_pin_maker()'::regprocedure) <> 2 THEN
-    RAISE EXCEPTION '0086 post-condition failed: a pin-maker trigger is missing or not BEFORE INSERT OR UPDATE FOR EACH ROW on fn_shot_list_pin_maker';
+    RAISE EXCEPTION '0086 post-condition failed: a pin-maker trigger is missing, on the wrong table, or not BEFORE INSERT OR UPDATE FOR EACH ROW on fn_shot_list_pin_maker';
+  END IF;
+  v_body := pg_get_functiondef('public.fn_shot_list_pin_maker()'::regprocedure);
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.fn_shot_list_pin_maker()'::regprocedure AND prosecdef)
+     OR v_body NOT LIKE '%IF auth.uid() IS NOT NULL THEN%NEW.created_by := auth.uid();%'
+     OR v_body NOT LIKE '%NEW.created_by := OLD.created_by;%' THEN
+    RAISE EXCEPTION '0086 post-condition failed: fn_shot_list_pin_maker lost its body or became SECURITY DEFINER';
   END IF;
   IF has_function_privilege('authenticated', 'public.fn_shot_list_pin_maker()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fn_shot_list_pin_maker()', 'EXECUTE') THEN
@@ -352,13 +373,13 @@ BEGIN
     IF v_body NOT LIKE '%has_active_membership(v_ws)%'
        OR v_body NOT LIKE '%p.deleted_at IS NULL%'
        OR v_body NOT LIKE '%p.workspace_id = v_ws%'
-       OR v_body NOT LIKE '%current_app_role() = ''admin''%'
-       OR v_body NOT LIKE '%project_role_for(%) = ''manager''%'
-       OR v_body NOT LIKE '%created_by = auth.uid()%'
-       OR v_body NOT LIKE '%can_edit_shot_lists(%'
-       OR v_body NOT LIKE '%archived_by = auth.uid()%'
+       OR v_body NOT LIKE '%IF NOT COALESCE(public.current_app_role() = ''admin''%'
+       OR v_body NOT LIKE '%project_role_for(%) = ''manager'', false) THEN%'
+       OR v_body NOT LIKE '%created_by IS NOT NULL%created_by = auth.uid()%can_edit_shot_lists(%'
+       OR v_body NOT LIKE '%(v_archive OR v_%.archived_at IS NULL OR v_%.archived_by = auth.uid()),%false) THEN%'
        OR v_body NOT LIKE '%IF v_archive THEN%'
-       OR v_body NOT LIKE '%IF NOT COALESCE(v_untouched, false) THEN%'
+       OR v_body NOT LIKE '%IF NOT COALESCE(v_untouched, false) THEN%RAISE EXCEPTION ''only an untouched%'
+       OR v_body NOT LIKE '%ELSIF %RAISE EXCEPTION ''a Saved % you archived can be restored only by a project manager or a workspace admin''%'
        OR v_body NOT LIKE '%set_config(%' THEN
       RAISE EXCEPTION '0086 post-condition failed: % lost an arm of its read gate, its seat check or its maker path', t;
     END IF;
@@ -373,19 +394,19 @@ BEGIN
               '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
   IF v_body NOT LIKE '%FOR UPDATE OF p%'
      OR v_body NOT LIKE '%WHERE id = p_list FOR NO KEY UPDATE%'
-     OR v_body NOT LIKE '%the active shot list cannot be archived%'
-     OR v_body NOT LIKE '%snapshot = ''{}''::jsonb%'
-     OR v_body NOT LIKE '%e.shot_list_id = v_list.id AND e.archived_at IS NULL%'
-     OR v_body NOT LIKE '%only an untouched shot list you made can be withdrawn%' THEN
+     OR v_body NOT LIKE '%IF v_archive AND v_active IS NOT DISTINCT FROM p_list THEN%RAISE EXCEPTION ''the active shot list cannot be archived%'
+     OR v_body NOT LIKE '%v_untouched := v_list.snapshot = ''{}''::jsonb%'
+     OR v_body NOT LIKE '%AND NOT EXISTS (SELECT 1 FROM public.edits e%WHERE e.shot_list_id = v_list.id AND e.archived_at IS NULL)%'
+     OR v_body NOT LIKE '%ELSIF NOT COALESCE(v_list.snapshot = ''{}''::jsonb, false) THEN%' THEN
     RAISE EXCEPTION '0086 post-condition failed: archive_shot_list lost a lock, the active-list refusal or the untouched test';
   END IF;
   v_body := regexp_replace(regexp_replace(
               pg_get_functiondef('public.archive_edit(uuid, boolean)'::regprocedure),
               '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
   IF v_body NOT LIKE '%FOR UPDATE OF e%'
-     OR v_body NOT LIKE '%snapshot IS NULL%'
-     OR v_body NOT LIKE '%c.parent_edit_id = v_edit.id AND c.archived_at IS NULL%'
-     OR v_body NOT LIKE '%only an untouched edit you made can be withdrawn%' THEN
+     OR v_body NOT LIKE '%v_untouched := v_edit.snapshot IS NULL%'
+     OR v_body NOT LIKE '%AND NOT EXISTS (SELECT 1 FROM public.edits c%WHERE c.parent_edit_id = v_edit.id AND c.archived_at IS NULL)%'
+     OR v_body NOT LIKE '%ELSIF v_edit.snapshot IS NOT NULL THEN%' THEN
     RAISE EXCEPTION '0086 post-condition failed: archive_edit lost its lock or the untouched test';
   END IF;
 
@@ -397,5 +418,5 @@ BEGIN
     RAISE EXCEPTION '0086 post-condition failed: 0084''s archive guard is missing';
   END IF;
 
-  RAISE NOTICE '0086 OK: created_by pinned on shot_lists and edits; archive_shot_list / archive_edit keep every 0084 arm, lock their rows and add the maker''s withdraw of an untouched row and restore of their own';
+  RAISE NOTICE '0086 OK: created_by pinned on shot_lists and edits; archive_shot_list / archive_edit keep every 0084 arm, lock their rows and add the maker''s withdraw of an untouched row and restore of an unsaved one they set aside';
 END $$;

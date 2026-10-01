@@ -3417,8 +3417,9 @@ action.
 > loop from both ends.
 > (0084: `can_edit_shot_lists`'s comment names the file; the three RPCs'
 > comments do not, so this box is where their seat check is found.)
-> (0086: the two archive RPCs' MAKER path is per row — `created_by`, an
-> untouched row, and `can_edit_shot_lists` — so it has no matrix action.
+> (0086: the two archive RPCs' MAKER path is per row — `created_by` and
+> `can_edit_shot_lists`, plus an untouched row to withdraw, or `archived_by`
+> = the caller and an unsaved row to restore — so it has no matrix action.
 > `shotListModel.js`'s `shotListWithdrawRefusal` / `editWithdrawRefusal` /
 > `withdrawnRestoreRefusal` mirror its row tests with the database's
 > sentences; the seat is `project.shotlist.write`, which the caller asks.)
@@ -3564,15 +3565,18 @@ UPDATE policies cannot do either. **Withdraw (0086, Audrey 2026-09-30):** the
 two archive RPCs also let a row's MAKER, while they may still write shot
 lists there, set it aside while it is untouched — a list not Saved, with no
 live edit on it and not the active one; an edit not Saved and continued by
-no live edit — and restore what they set aside themselves (touched or not
-since: a restore only un-hides). The undo of "New list" / "New edit" is that
-withdraw, so a member or reviewer can take back what they just made; right
+no live edit — and restore what they set aside themselves while it is not
+Saved (what every withdraw left; a live edit that landed on it since does not
+block a restore, which only un-hides). The undo of "New list" / "New edit" is
+that withdraw, so a member or reviewer can take back what they just made; right
 after, the provider's `recentlyWithdrawn` lets the Scenes tab show it as
 "Recently removed" (openable, restorable) until the person leaves the tab.
 0086's trigger pins `created_by` to the inserting user and freezes it,
 because that right rests on it (`fn_audit_touch` kept whatever a client
 sent). No new column: a withdrawn row is one whose `archived_by` equals its
-`created_by` (as is a list a manager archived after making it).
+`created_by` (as is a list a manager archived after making it). The undo of a
+Save goes back only while the stored Save is still the one it left, so a
+teammate's later Save is never erased by it.
 Same-project composite FKs keep every link
 (items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
 the active pointer) inside its own project. ⚠️ `0034_tasks_without_assets.sql`'s

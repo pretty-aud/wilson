@@ -17,7 +17,7 @@
 //   0086 (2026-09-30) adds a MAKER path to archive_shot_list() and
 //   archive_edit(): the row's maker, while project.shotlist.write still
 //   holds for them, may withdraw it (archive it) while it is untouched, and
-//   restore what they withdrew. That is a rule about ONE ROW, so it is
+//   restore what they withdrew while it is not Saved. That is a rule about ONE ROW, so it is
 //   deliberately NOT an action here: shotListModel's
 //   shotListWithdrawRefusal / editWithdrawRefusal / withdrawnRestoreRefusal
 //   mirror its row tests with the database's sentences, the provider's

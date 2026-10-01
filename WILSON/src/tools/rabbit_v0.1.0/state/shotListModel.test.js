@@ -42,6 +42,8 @@ import {
   withdrawnRestoreRefusal,
   ARCHIVE_SEAT_REFUSAL_LIST,
   ARCHIVE_SEAT_REFUSAL_EDIT,
+  RESTORE_SAVED_LIST_REFUSAL,
+  RESTORE_SAVED_EDIT_REFUSAL,
   planAddToList,
   planRemoveFromList,
   planReorderList,
@@ -382,10 +384,17 @@ describe('withdraw (0086): the maker takes back an untouched new list or edit', 
     expect(editWithdrawRefusal({ edit: null, edits: [], userId: 'u-me' })).toBe('edit not found')
   })
 
-  it('a restore: the maker restores what THEY set aside, touched or not since; anything else reads the seat sentence', () => {
+  it('a restore: the maker restores an unsaved row THEY set aside; someone else\'s reads the seat sentence, a Saved one 0086\'s', () => {
     const mine = { ...list, archived_at: 'x', archived_by: 'u-me' }
     expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: 'u-me' })).toBe(null)
-    expect(withdrawnRestoreRefusal({ row: { ...mine, snapshot: { kind: 'shot_list' } }, kind: 'shot_list', userId: 'u-me' })).toBe(null)
+    // a Saved row they archived (as a manager who has since lost the seat)
+    expect(withdrawnRestoreRefusal({ row: { ...mine, snapshot: { kind: 'shot_list' } }, kind: 'shot_list', userId: 'u-me' })).toBe(RESTORE_SAVED_LIST_REFUSAL)
+    expect(withdrawnRestoreRefusal({ row: { ...edit, archived_at: 'x', archived_by: 'u-me', snapshot: { kind: 'edit' } }, kind: 'edit', userId: 'u-me' })).toBe(RESTORE_SAVED_EDIT_REFUSAL)
+    expect(withdrawnRestoreRefusal({ row: { ...edit, archived_at: 'x', archived_by: 'u-me' }, kind: 'edit', userId: 'u-me' })).toBe(null)
+    // the seat sentence comes first, as in the database
+    expect(withdrawnRestoreRefusal({ row: { ...mine, archived_by: 'u-boss', snapshot: { kind: 'shot_list' } }, kind: 'shot_list', userId: 'u-me' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    // no users: nothing is refused
+    expect(withdrawnRestoreRefusal({ row: { ...mine, snapshot: { kind: 'shot_list' } }, kind: 'shot_list', userId: undefined })).toBe(null)
     expect(withdrawnRestoreRefusal({ row: { ...mine, archived_by: 'u-boss' }, kind: 'shot_list', userId: 'u-me' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
     expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: 'u-other' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
     expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: null })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
@@ -401,7 +410,7 @@ describe('withdraw (0086): the maker takes back an untouched new list or edit', 
       expect(sql84.includes(`'${sentence}'`), sentence).toBe(true)
       expect(sql86.includes(`'${sentence}'`), sentence).toBe(true)
     }
-    for (const sentence of [WITHDRAW_LIST_REFUSAL, WITHDRAW_EDIT_REFUSAL]) {
+    for (const sentence of [WITHDRAW_LIST_REFUSAL, WITHDRAW_EDIT_REFUSAL, RESTORE_SAVED_LIST_REFUSAL, RESTORE_SAVED_EDIT_REFUSAL]) {
       expect(sql86.includes(`'${sentence}'`), sentence).toBe(true)
     }
   })

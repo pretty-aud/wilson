@@ -192,6 +192,7 @@ export function RabbitProvider({ children }) {
   // composite operations (e.g. drag a phase + N children) commit
   // as ONE undo step instead of N+1.
   const HISTORY_CAP = 10;
+  const HISTORY_STEP_WAIT_MS = 20000;
   const historyRef = useRef({ undo: [], redo: [], suspended: false, batch: null });
   const [historyVersion, setHistoryVersion] = useState(0);
   const bundleRef = useRef(bundle);
@@ -262,10 +263,19 @@ export function RabbitProvider({ children }) {
   // stack — the list could never be taken back by Ctrl+Z again. It is also
   // the "two un-awaited Ctrl+Z presses push a spurious entry" limit S3a
   // recorded. A press while one is running now waits its turn.
+  // A step that never settles (a dropped request) must not wedge every later
+  // press for the rest of the session (review R2): the queue waits for one
+  // step at most HISTORY_STEP_WAIT_MS, then lets the next run beside it.
+  // Tests shorten the wait through the global named below.
   const historyQueueRef = useRef(Promise.resolve());
   function inHistoryQueue(fn) {
     const run = historyQueueRef.current.then(fn, fn);
-    historyQueueRef.current = run.catch(() => {});
+    let timer;
+    const cap = new Promise(resolve => {
+      timer = setTimeout(resolve, globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS ?? HISTORY_STEP_WAIT_MS);
+    });
+    historyQueueRef.current = Promise.race([run.then(() => {}, () => {}), cap])
+      .finally(() => clearTimeout(timer));
     return run;
   }
 
@@ -442,8 +452,12 @@ export function RabbitProvider({ children }) {
     // Deferring with setTimeout(…, 0) lets the callback return immediately;
     // the lock is released, and the queries run a tick later against a
     // settled session. Same work, same order, no re-entrancy.
-    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange((event) => {
+    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange((event, session) => {
       setTimeout(async () => {
+        // Who is signed in, on every backend (review R2 of 0086): the
+        // withdraw maker test must never run as the previous account.
+        if (event === 'SIGNED_OUT') setAuthUserId(null);
+        else if (event === 'SIGNED_IN' && session?.user?.id) setAuthUserId(session.user.id);
         if (!adapterRef.current) return;
         if (adapterRef.current.mode !== 'supabase') return;
         // Drop the adapter's cached client reference so getClient() re-reads
@@ -459,7 +473,6 @@ export function RabbitProvider({ children }) {
             setProjectsIndex({});
             setBundle(EMPTY_BUNDLE);
             setActiveProjectIdState(null);
-            setAuthUserId(null);
           }
         } catch (err) {
           setAdapterStatus({ online: false, lastSyncAt: null, error: err.message || String(err) });
@@ -756,6 +769,7 @@ export function RabbitProvider({ children }) {
         return null;
       }
       setBundle({ ...EMPTY_BUNDLE, ...next });
+      unmarkIfServerShowsLive(next.shotLists, next.edits);
       // Callers (revert's restore path) inspect the fresh bundle
       // directly — bundleRef only catches up after the next commit.
       return next;
@@ -1698,6 +1712,8 @@ export function RabbitProvider({ children }) {
     // (Ctrl+Z taking back "New list" right after "New edit") must see this
     // row now (review R1 of 0086), as refreshShotListsNow already does.
     bundleRef.current = merge(bundleRef.current);
+    if (key === 'shotLists') unmarkIfServerShowsLive([row], null);
+    else if (key === 'edits') unmarkIfServerShowsLive(null, [row]);
   }
 
   // Re-read the three collections from the backend (after a refused or
@@ -1706,6 +1722,8 @@ export function RabbitProvider({ children }) {
   // Every membership write bumps this; a refresh that started before a write
   // finished must not land over it (review round 2: the convergence refresh
   // replaced all three collections and could erase a later successful write).
+  // Since 0086's review R2 every ROW write (a list or edit created, changed,
+  // archived, withdrawn or restored) bumps it too.
   const shotListWriteSeqRef = useRef(0);
 
   async function refreshShotListsNow() {
@@ -1724,6 +1742,7 @@ export function RabbitProvider({ children }) {
     // bundleRef trails setBundle by a render; the caller that awaited this
     // (addScene placing a row in a list it just learned of) reads it NOW.
     bundleRef.current = { ...bundleRef.current, ...next };
+    unmarkIfServerShowsLive(next.shotLists, next.edits);
     return { lists, items, edits };
   }
 
@@ -1731,6 +1750,40 @@ export function RabbitProvider({ children }) {
     setError(err?.message || String(err));
     // Converge: whatever the server kept is what this client should show.
     refreshShotListsNow().catch(() => {});
+  }
+
+  // "Save" writes a snapshot that carries saved_at. Two snapshots are the
+  // same Save when both are empty or both carry the same saved_at.
+  function sameSave(a, b) {
+    const empty = (v) => v == null || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+    if (empty(a) || empty(b)) return empty(a) && empty(b);
+    return !!a.saved_at && a.saved_at === b.saved_at;
+  }
+
+  // The undo (and the redo) of a Save writes `values` back only while the
+  // stored snapshot is still `expected` — what that Save, or its undo, left.
+  // A teammate's Save in between is never erased (review R2 of 0086: the
+  // erase also made the row read untouched, so a further Ctrl+Z could
+  // withdraw what a teammate had Saved). Lists and edits are not broadcast,
+  // so it re-reads them first; if it cannot, it changes nothing.
+  async function rewriteSaveIfStill(kind, id, expected, values) {
+    const isEdit = kind === 'edit';
+    const fresh = await refreshShotListsNow();
+    if (!fresh) {
+      throw new Error(isEdit
+        ? 'the edit could not be re-read to check its Save — nothing was changed; try again'
+        : 'the shot list could not be re-read to check its Save — nothing was changed; try again');
+    }
+    const row = isEdit ? findEdit(id) : findShotList(id);
+    if (!row) throw new Error(isEdit ? 'edit not found' : 'shot list not found');
+    if (!sameSave(row.snapshot, expected)) {
+      throw new Error(isEdit
+        ? 'this edit has been Saved again since — going back would erase that Save'
+        : 'this shot list has been Saved again since — going back would erase that Save');
+    }
+    return isEdit
+      ? mutationsRef.current.updateEdit(id, values)
+      : mutationsRef.current.updateShotList(id, values);
   }
 
   // Write ONLY these rows of one list (insert new ids, update this list's).
@@ -1932,8 +1985,9 @@ export function RabbitProvider({ children }) {
   //     refuses the same things behind them (0086's maker path).
   //   * UNTIL THEY LEAVE THE SCENES TAB — S3b calls clearRecentlyWithdrawn()
   //     when the person leaves the tab (it unmounts, or R.A.B.B.I.T. stops
-  //     being the page shown); switching project clears it here; closing the
-  //     app ends it (it is never stored).
+  //     being the page shown — App passes Rabbit an isActive prop that
+  //     Rabbit.jsx does not read yet) and when the tab mounts; switching
+  //     project clears it here; closing the app ends it (it is never stored).
   // The maker test needs the signed-in user on a backend with users
   // (adapterMode 'supabase', which the dev fixtures report too; null until
   // the session is read). Elsewhere there are no users and it is skipped, as
@@ -1956,6 +2010,19 @@ export function RabbitProvider({ children }) {
   // archive of the same row (a manager's) would read as "Recently removed".
   function unmarkIfRestored(id) {
     if (recentlyWithdrawnRef.current && recentlyWithdrawnRef.current.id === id) markRecentlyWithdrawn(null);
+  }
+  // …and so does SERVER data showing the marked row live: a write's returned
+  // row, a list re-read, a project reload. Never an optimistic flip or a
+  // rollback — a failed Restore's flip used to end the mark, leaving nothing
+  // to try again from (review R2). A re-read that started before a write to
+  // these rows is discarded (shotListWriteSeqRef), so a stale one cannot.
+  function unmarkIfServerShowsLive(lists, edits) {
+    const m = recentlyWithdrawnRef.current;
+    if (!m) return;
+    const pool = m.kind === 'edit' ? edits : lists;
+    if (!pool) return;
+    const row = pool.find(r => r && r.id === m.id);
+    if (row && !row.archived_at) markRecentlyWithdrawn(null);
   }
   // A write that started before a project switch must not mark (or record
   // history) after it — even when the person has switched BACK (p1 → p2 →
@@ -2011,7 +2078,7 @@ export function RabbitProvider({ children }) {
     return runBatch(async () => {
       const created = await optimistic(
         prev => ({ ...prev, shotLists: [...(prev.shotLists || []), row] }),
-        () => a.upsertShotList(row),
+        () => (++shotListWriteSeqRef.current, a.upsertShotList(row)),
       );
       const listRow = created || row;
       if (activeProjectIdRef.current !== pid) return listRow;
@@ -2036,8 +2103,12 @@ export function RabbitProvider({ children }) {
     });
   }, [optimistic, runBatch]);
 
-  /** Title / version / summary (and, for undo, snapshot). Refused on an archived list. */
-  const updateShotList = useCallback(async (id, patch = {}) => {
+  /**
+   * Title / version / summary (and, for undo, snapshot). Refused on an
+   * archived list. { guardSave: true } is saveShotListSnapshot's: its undo
+   * and redo go through rewriteSaveIfStill.
+   */
+  const updateShotList = useCallback(async (id, patch = {}, opts = {}) => {
     const list = requireEditableShotList(id);
     const pid = activeProjectIdRef.current;
     const allowed = {};
@@ -2060,13 +2131,18 @@ export function RabbitProvider({ children }) {
     if (!Object.prototype.hasOwnProperty.call(allowed, 'snapshot')) delete wire.snapshot;
     const res = await optimistic(
       prev => ({ ...prev, shotLists: (prev.shotLists || []).map(l => (l.id === id ? nextRow : l)) }),
-      () => a.upsertShotList(wire),
+      () => (++shotListWriteSeqRef.current, a.upsertShotList(wire)),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('shotLists', res, pid);
+    const guardSave = opts.guardSave === true && Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
     pushHistory({
-      undoOps: [() => mutationsRef.current.updateShotList(id, oldValues)],
-      redoOps: [() => mutationsRef.current.updateShotList(id, allowed)],
+      undoOps: [guardSave
+        ? surfaced(() => rewriteSaveIfStill('shot_list', id, allowed.snapshot, oldValues))
+        : () => mutationsRef.current.updateShotList(id, oldValues)],
+      redoOps: [guardSave
+        ? surfaced(() => rewriteSaveIfStill('shot_list', id, oldValues.snapshot, allowed))
+        : () => mutationsRef.current.updateShotList(id, allowed)],
     });
     return res || nextRow;
   }, [optimistic]);
@@ -2087,7 +2163,7 @@ export function RabbitProvider({ children }) {
     });
     const patch = { snapshot };
     if (Object.prototype.hasOwnProperty.call(opts, 'summary')) patch.summary = opts.summary;
-    return mutationsRef.current.updateShotList(id, patch);
+    return mutationsRef.current.updateShotList(id, patch, { guardSave: true });
   }, []);
 
   /** Make a list the project's active list (null clears it). Manager/admin (D8). */
@@ -2146,7 +2222,7 @@ export function RabbitProvider({ children }) {
           ? { ...l, archived_at: want ? (l.archived_at || new Date().toISOString()) : null, archived_by: want ? l.archived_by : null }
           : l)),
       }),
-      () => a.archiveShotList(pid, listId, want),
+      () => (++shotListWriteSeqRef.current, a.archiveShotList(pid, listId, want)),
     );
     if (activeProjectIdRef.current !== pid) return res || list;
     if (res) putRow('shotLists', res, pid);
@@ -2279,7 +2355,7 @@ export function RabbitProvider({ children }) {
     try {
       created = await optimistic(
         prev => ({ ...prev, edits: [...(prev.edits || []), row] }),
-        () => a.upsertEdit(row),
+        () => (++shotListWriteSeqRef.current, a.upsertEdit(row)),
       );
     } catch (err) {
       // Most likely another window extended the chain (its tip moved): re-read
@@ -2299,8 +2375,11 @@ export function RabbitProvider({ children }) {
     return finalRow;
   }, [optimistic]);
 
-  /** Title / version / summary / items / snapshot of an edit. Refused when archived. */
-  const updateEdit = useCallback(async (id, patch = {}) => {
+  /**
+   * Title / version / summary / items / snapshot of an edit. Refused when
+   * archived. { guardSave: true } is saveEdit's (see updateShotList).
+   */
+  const updateEdit = useCallback(async (id, patch = {}, opts = {}) => {
     const edit = findEdit(id);
     if (!edit) throw new Error('edit not found');
     if (edit.archived_at) throw new Error('this edit is archived — restore it before changing it');
@@ -2326,13 +2405,18 @@ export function RabbitProvider({ children }) {
     }
     const res = await optimistic(
       prev => ({ ...prev, edits: (prev.edits || []).map(e => (e.id === id ? nextRow : e)) }),
-      () => a.upsertEdit(wire),
+      () => (++shotListWriteSeqRef.current, a.upsertEdit(wire)),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('edits', res, pid);
+    const guardSave = opts.guardSave === true && Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
     pushHistory({
-      undoOps: [() => mutationsRef.current.updateEdit(id, oldValues)],
-      redoOps: [() => mutationsRef.current.updateEdit(id, allowed)],
+      undoOps: [guardSave
+        ? surfaced(() => rewriteSaveIfStill('edit', id, allowed.snapshot, oldValues))
+        : () => mutationsRef.current.updateEdit(id, oldValues)],
+      redoOps: [guardSave
+        ? surfaced(() => rewriteSaveIfStill('edit', id, oldValues.snapshot, allowed))
+        : () => mutationsRef.current.updateEdit(id, allowed)],
     });
     return res || nextRow;
   }, [optimistic]);
@@ -2355,7 +2439,7 @@ export function RabbitProvider({ children }) {
       }),
     };
     if (summary !== undefined) patch.summary = summary;
-    return mutationsRef.current.updateEdit(editId, patch);
+    return mutationsRef.current.updateEdit(editId, patch, { guardSave: true });
   }, []);
 
   /**
@@ -2379,7 +2463,7 @@ export function RabbitProvider({ children }) {
           ? { ...e, archived_at: want ? (e.archived_at || new Date().toISOString()) : null, archived_by: want ? e.archived_by : null }
           : e)),
       }),
-      () => a.archiveEdit(pid, editId, want),
+      () => (++shotListWriteSeqRef.current, a.archiveEdit(pid, editId, want)),
     );
     if (activeProjectIdRef.current !== pid) return res || edit;
     if (res) putRow('edits', res, pid);
@@ -2428,10 +2512,10 @@ export function RabbitProvider({ children }) {
   }, []);
 
   /**
-   * WITHDRAW an edit (0086): the same for an untouched edit — never Saved,
-   * no live edit continues it. Also the undo of New edit. A withdrawn edit
-   * keeps its place in its list's chain (D6): the next new edit continues
-   * from it, with the same items (it was never Saved).
+   * WITHDRAW an edit (0086): the same for an untouched edit — not Saved
+   * now, no live edit continues it. Also the undo of New edit. A withdrawn
+   * edit keeps its place in its list's chain (D6): the next new edit
+   * continues from it, taking its items as any next edit does.
    */
   const withdrawEdit = useCallback(async (editId) => {
     const edit = findEdit(editId);
@@ -2453,18 +2537,30 @@ export function RabbitProvider({ children }) {
 
   /**
    * Put a withdrawn list or edit back: `target` ({ kind: 'shot_list' | 'edit',
-   * id }), or ctx.recentlyWithdrawn when omitted (anything that is not such
-   * an object — a click event wired straight to onClick — means the marked
-   * row). The maker restores what THEY set aside, touched or not since (a
-   * restore only un-hides); on a backend with users anything else is refused
-   * before any write with 0084's seat sentence (a manager restores with
+   * id } or the row itself), or ctx.recentlyWithdrawn when omitted (anything
+   * without a string id — a click event wired straight to onClick — means
+   * the marked row). The maker restores what THEY set aside while it is not Saved —
+   * what every withdraw left — whatever landed on it since (a restore only
+   * un-hides). On a backend with users, once the signed-in user is known,
+   * anything else is refused before any write: someone else's row with
+   * 0084's seat sentence, a Saved one with 0086's (a manager restores with
    * archiveShotList(id, false)). Restoring the marked row ends the mark; the
    * restore's own undo withdraws the row again.
    */
   const restoreWithdrawn = useCallback(async (target) => {
-    const named = !!target && typeof target === 'object' && typeof target.id === 'string'
-      && (target.kind === 'shot_list' || target.kind === 'edit');
-    const t = named ? target : recentlyWithdrawnRef.current;
+    // { kind, id } — or a list / edit ROW, its kind inferred (an edit has
+    // shot_list_id) — names the row; anything without a string id (nothing,
+    // or a click event) means the marked row. Review R2: a row passed
+    // without `kind` used to fall through to the mark and restore THAT.
+    let t = null;
+    if (target && typeof target === 'object' && typeof target.id === 'string') {
+      const k = target.kind === 'edit' || target.kind === 'shot_list'
+        ? target.kind
+        : (Object.prototype.hasOwnProperty.call(target, 'shot_list_id') ? 'edit' : 'shot_list');
+      t = { kind: k, id: target.id };
+    } else {
+      t = recentlyWithdrawnRef.current;
+    }
     if (!t || !t.id) return null;
     const kind = t.kind === 'edit' ? 'edit' : 'shot_list';
     const row = kind === 'edit' ? findEdit(t.id) : findShotList(t.id);
@@ -2487,7 +2583,11 @@ export function RabbitProvider({ children }) {
     return res;
   }, []);
 
-  /** End the "Recently removed" mark (S3b: when the Scenes tab unmounts). The row stays set aside. */
+  /**
+   * End the "Recently removed" mark; the row stays set aside. S3b calls it
+   * when the person leaves the Scenes tab (it unmounts, or R.A.B.B.I.T. stops
+   * being the page shown) and when the tab mounts.
+   */
   const clearRecentlyWithdrawn = useCallback(() => { markRecentlyWithdrawn(null); }, []);
 
   // ── Scenes ─────────────────────────────────────────────
@@ -4622,7 +4722,8 @@ export function RabbitProvider({ children }) {
   // now; S3b and S3c offer the verb only then.
   // On a backend with users the mark shows only while the row is still set
   // aside BY THIS PERSON (a manager may have restored and archived it since,
-  // review R1); once the row is seen live, the mark ends.
+  // review R1). It ends when server data shows the row live
+  // (unmarkIfServerShowsLive); while a write is in flight it is only hidden.
   const recentlyWithdrawn = useMemo(() => {
     const m = recentlyWithdrawnMark;
     if (!m || m.projectId !== activeProjectId) return null;
@@ -4632,14 +4733,6 @@ export function RabbitProvider({ children }) {
     if (typeof withdrawUserId === 'string' && row.archived_by !== withdrawUserId) return null;
     return { kind: m.kind, id: m.id, row };
   }, [recentlyWithdrawnMark, activeProjectId, bundle.edits, bundle.shotLists, withdrawUserId]);
-  useEffect(() => {
-    const m = recentlyWithdrawnRef.current;
-    if (!m) return;
-    const pool = m.kind === 'edit' ? bundle.edits : bundle.shotLists;
-    const row = (pool || []).find(r => r.id === m.id);
-    if (row && !row.archived_at) markRecentlyWithdrawn(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bundle.edits, bundle.shotLists]);
   // A read-only backend (Drive) can withdraw nothing.
   const withdrawWritable = adapterSupportsWrites(adapterMode);
   const canWithdrawShotList = useCallback((listId) => {
