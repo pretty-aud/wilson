@@ -410,12 +410,15 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 74. **Live with the lesson page's ragged right edge (the prose stops at about 613px while the Key Takeaways and Practice Exercise cards run full width) until lane A3, or pull the cards' narrowing forward?**
    Look at: O.T.T.E.R.'s lesson pane: the prose against the orange-bordered cards below it (t1-after-otter-lesson-1280x700.png). Choices: Live with it until A3 (recommended: 'the reading win is worth more than the alignment cost'), or pull it forward. (WT33 Q2)
+   Q74: answered by the one-length rule (A3, kept by post-overhaul S2b, 2026-09-30): every edge on the lesson page — the breadcrumb, the title, the prose, both cards, the foot row, and since S2b the code blocks and tables too — reads the one length, so there is one right edge (measured: all at 1241.3px at 1440x900). See walkthrough 50.
 
 75. **Keep lesson lines at about 63 measured letters, or follow the plan's '60 to 66ch' to the letter, which in the app's font gives 86–95 letters?**
    Look at: O.T.T.E.R.: a long lesson (course → subject → lesson) at 1440x900; and Help → D.O.G. → Slide layouts, whose 13px lists run up to 113 letters a line under Help's 668px cap (P1 review round two). Choices: About 63 letters (current), or the plan's 60–66ch; it is one number, and it would set Help's measure too. (WT41 Q1)
+   Q75: 66ch ceiling, 720 cap dropped (2026-09-30, post-overhaul ruling C4: "66-character ceiling, cap dropped, both pages, 14px, centred"). Done by post-overhaul S2b, 2026-09-30, on the lesson page and the outline page; Help keeps its own measure. Measured on her real lessons: 83–96 letters a line at 1440 and 1280. The number is final once she confirms it from the screenshots; see walkthrough 50.
 
 76. **Keep lesson text at 14px, or make it 16px for reading?**
    Look at: O.T.T.E.R.: a lesson's body text. Choices: 14px (current, the September type pass), or 16px (one line). (WT41 Q2, WT33 Q1)
+   Q76: 14px kept (2026-09-30, post-overhaul ruling C4). Recorded by post-overhaul S2b, 2026-09-30; see walkthrough 50.
 
 77. **The course labels (Standard, Shared by you, From someone, Yours) are one grey told apart by icon and word: is that enough, or should Standard stand out?**
    Look at: O.T.T.E.R.: the Course library cards and a course's page. Choices: One grey with icon and word (current), or make Standard stand out. (WT41 Q3)

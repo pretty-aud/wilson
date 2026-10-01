@@ -1,7 +1,9 @@
 // =============================================================================
-// otter.js — one O.T.T.E.R. course: "DaVinci Resolve 19", four subjects, each
+// otter.js — two O.T.T.E.R. courses. "DaVinci Resolve 19", four subjects, each
 // two sections of two or three lessons, with hotkey and function documents,
-// a reference list, progress for the reviewer and two quiz attempts.
+// a reference list, progress for the reviewer and two quiz attempts; and
+// (post-overhaul S2b, at the end of this file) "C#", a coding language with a
+// function library, one generated subject and one stub.
 //
 // Rows are shaped like otter_courses / otter_subjects (0022) so the fixtures
 // route handler can hand them to the same wire mappers the cloud adapter
@@ -206,3 +208,131 @@ export const QUIZ_ATTEMPTS = [
   { id: fid('quiz', 1), taken_at: stamp(21, 21, 30), score: 7,  total: 10, courses: ['DaVinci Resolve 19'], question_types: ['hotkeys', 'functions'] },
   { id: fid('quiz', 2), taken_at: stamp(37, 22, 40), score: 9,  total: 10, courses: ['DaVinci Resolve 19'], question_types: ['hotkeys'] },
 ]
+
+// =============================================================================
+// Post-overhaul S2b: a second course, a CODING LANGUAGE ("C#"). The course
+// above is 'software', so with fixtures alone the Functions reference had
+// never rendered, nor the subject page before its content is generated (no
+// stub subject), nor a code fence in a lesson (A3 hand-off §5, trap 17).
+//
+// Its function library is the GENERATOR's shape after the client's mapping
+// (Otter.jsx posts `{ category, functions: [{ name, syntax, parameters,
+// returns, description, example }] }`), with one example longer than any
+// well so the wrapping shows. The name is "C#" on purpose, and its stored
+// slug is what slugify('C#') gives, 'c' — a slug that would read as C. On
+// this wire (as in the cloud) a course's slug is its id, so in the app the
+// language comes from the name; otterLanguage.test.js proves the name wins
+// over a slug of 'c' as well. One generated subject — its first lesson's title is
+// long enough that the breadcrumb must shorten its middle at the smallest
+// window — and one stub, which the outline page draws.
+// =============================================================================
+export const CODING_COURSE_ID = fid('course', 2)
+
+export const CODING_COURSE = {
+  id: CODING_COURSE_ID,
+  workspace_id: WORKSPACE_ID,
+  owner_id: MEMBER_ID.sofia,
+  slug: 'c',
+  name: 'C#',
+  course_type: 'coding_language',
+  skill_level: 'beginner',
+  visibility: 'company_standard',
+  source_course_id: null,
+  created_at: stamp(-20, 10),
+  updated_at: stamp(30, 10),
+  hotkeys: { categories: [] },
+  functions: {
+    categories: [
+      { category: 'Strings', functions: [
+        { name: 'string.Join', syntax: 'public static string Join(string separator, IEnumerable<string> values)',
+          parameters: 'separator (string) — placed between each value\nvalues (IEnumerable<string>) — the strings to join',
+          returns: 'string — the values, in order, with the separator between them',
+          description: 'Joins a sequence of strings into one, with a separator between each pair.',
+          example: 'var shots = new List<string> { "010", "020", "030" };\nstring label = string.Join(", ", shots); // "010, 020, 030"' },
+        { name: 'string.IsNullOrWhiteSpace', syntax: 'public static bool IsNullOrWhiteSpace(string? value)',
+          parameters: 'value (string?) — the string to test',
+          returns: 'bool — true when the value is null, empty, or only white space',
+          description: 'The safe test for "nothing was typed": a field of spaces counts as empty.',
+          example: 'if (string.IsNullOrWhiteSpace(sceneName))\n{\n    sceneName = $"Scene {sceneNumber:00}";\n}' },
+      ] },
+      { category: 'Collections', functions: [
+        { name: 'Dictionary<TKey, TValue>.TryGetValue', syntax: 'public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)',
+          parameters: 'key (TKey) — the key to look up\nvalue (out TValue) — the value found, or the default when the key is missing',
+          returns: 'bool — true when the dictionary holds the key',
+          description: 'Looks a key up once and hands back its value, without throwing when the key is missing.',
+          example: 'var takes = new Dictionary<string, int> { ["010"] = 3, ["020"] = 5 };\nif (takes.TryGetValue("020", out int count))\n{\n    Console.WriteLine($"Shot 020 has {count} takes."); // Shot 020 has 5 takes.\n}' },
+        { name: 'Enumerable.Where', syntax: 'public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate)',
+          parameters: 'source (IEnumerable<TSource>) — the values to filter\npredicate (Func<TSource, bool>) — true for the values to keep',
+          returns: 'IEnumerable<TSource> — the values the predicate kept, evaluated lazily',
+          description: 'LINQ\'s filter: keeps the values a condition holds for. Nothing runs until the result is enumerated.',
+          example: 'var goodTakes = takes.Where(t => t.Rating >= 4 && !t.IsFalseStart).OrderByDescending(t => t.Rating).Select(t => t.Name).ToList(); // one long line, wrapped by the well' },
+      ] },
+      { category: 'Math', functions: [
+        { name: 'Math.Clamp', syntax: 'public static double Clamp(double value, double min, double max)',
+          parameters: 'value (double) — the number to limit\nmin (double) — the lowest it may be\nmax (double) — the highest it may be',
+          returns: 'double — the value, held between min and max',
+          description: 'Holds a number inside a range: anything under min becomes min, anything over max becomes max.',
+          example: 'double volume = Math.Clamp(requested, 0.0, 1.0);\nconst int MaxTakes = 99;\nint take = (int)Math.Clamp(next, 1, MaxTakes);' },
+      ] },
+    ],
+  },
+  nodes: { systems: [] },
+  reference_urls: { urls: [{ title: 'C# language reference', url: 'https://docs.example/csharp/reference' }] },
+  corrections: { corrections: [] },
+}
+
+const CODING_SUBJECT_ROWS = [
+  {
+    n: 5, slug: 'types-and-variables', title: 'Types and variables', skill_level: 'beginner', estimated_hours: 2, is_stub: false,
+    description: 'Value types and reference types, and what assignment really copies.',
+    sections: [
+      { id: 'section_1', title: 'Value types and reference types', description: 'What a variable holds.', estimated_minutes: 40, lessons: [
+        lesson('lesson_1_1', 'Value types, reference types, and why a struct copies itself when you assign it',
+          '## What a variable holds\n\nA **value type** (`int`, `double`, a `struct`) holds its data. A **reference type** (a `class`, a `string`, a `List<T>`) holds a reference to data that lives elsewhere, so two variables can point at the same object and a change through one is seen through the other.\n\n```csharp\nstruct ShotFrame { public int In; public int Out; }\n\nvar a = new ShotFrame { In = 1001, Out = 1048 };\nvar b = a;      // a copy: b is its own frame range\nb.Out = 1060;   // a.Out is still 1048\n```\n\nAssigning a struct copies every field. Assigning a class copies the reference, which is why a list handed to a method can come back changed.\n\n```csharp\nvar takes = new List<string> { "A001" };\nAddTake(takes);                 // the method sees the same list\nConsole.WriteLine(takes.Count); // 2\n\nstatic void AddTake(List<string> list) => list.Add("A002");\n```',
+          ['A struct is copied on assignment; a class is shared.', 'Strings are reference types that behave like values: they never change in place.'],
+          'Write a struct for a frame range and a class for a shot; assign each to a second variable, change the copy, and print both.'),
+        lesson('lesson_1_2', 'Nullable values',
+          'A value type cannot be `null` unless you ask for it with `?`: `int? rating` is "a rating, or none yet". Test it with `rating.HasValue`, or read it with a fallback: `rating ?? 0`.',
+          ['`int?` is an int that may be missing.']),
+      ] },
+      { id: 'section_2', title: 'var, const and readonly', description: 'Saying what may change.', estimated_minutes: 30, lessons: [
+        lesson('lesson_2_1', 'var is still strongly typed',
+          '`var` lets the compiler write the type for you; the variable still has exactly one type, decided at compile time.\n\n```csharp\nvar count = 3;          // int\nvar name = "Salt Hours"; // string\n// count = "three";     // does not compile\n```',
+          ['var is inference, not dynamic typing.']),
+      ] },
+    ],
+  },
+  {
+    n: 6, slug: 'classes-structs-and-records', title: 'Classes, structs and records', skill_level: 'beginner', estimated_hours: 3, is_stub: true,
+    description: 'Three ways to define a type, and when each one fits game and production data.',
+    sections: [],
+    section_outlines: [
+      { id: 'section_1', title: 'Classes and objects', description: 'Fields, properties, constructors, and what `new` does.', lesson_count: 3 },
+      { id: 'section_2', title: 'Structs and records', description: 'Value semantics, `with` expressions, and equality you get for free.', lesson_count: 2 },
+    ],
+  },
+]
+
+export const CODING_SUBJECTS = CODING_SUBJECT_ROWS.map(({ n, slug, title, skill_level, estimated_hours, is_stub, description, sections, section_outlines }, i) => ({
+  id: fid('subject', n),
+  workspace_id: WORKSPACE_ID,
+  course_id: CODING_COURSE_ID,
+  owner_id: MEMBER_ID.sofia,
+  slug,
+  title,
+  description,
+  skill_level,
+  is_stub,
+  subject_order: i,
+  estimated_hours,
+  sections,
+  section_outlines: section_outlines ?? sections.map(s => ({ id: s.id, title: s.title, lesson_count: s.lessons.length })),
+  sources: is_stub ? [] : [{ title: 'C# language reference', url: 'https://docs.example/csharp/reference' }],
+  prerequisites: i === 0 ? [] : [CODING_SUBJECT_ROWS[i - 1].slug],
+  deleted_at: null,
+  deleted_by: null,
+  created_at: stamp(-19 + i, 10),
+  created_by: MEMBER_ID.sofia,
+  updated_at: stamp(30 - i, 10),
+  updated_by: MEMBER_ID.sofia,
+}))

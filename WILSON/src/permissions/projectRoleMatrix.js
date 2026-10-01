@@ -14,6 +14,15 @@
 //                               archive_shot_list() and archive_edit():
 //                               current_app_role() = 'admin'
 //                               OR project_role_for() = 'manager'
+//   0086 (2026-09-30) adds a MAKER path to archive_shot_list() and
+//   archive_edit(): the row's maker, while project.shotlist.write still
+//   holds for them, may withdraw it (archive it) while it is untouched, and
+//   restore what they withdrew while it is not Saved. That is a rule about ONE ROW, so it is
+//   deliberately NOT an action here: shotListModel's
+//   shotListWithdrawRefusal / editWithdrawRefusal / withdrawnRestoreRefusal
+//   mirror its row tests with the database's sentences, the provider's
+//   canWithdrawShotList / canWithdrawEdit answer them, and the seat stays
+//   project.shotlist.write (S3b asks both).
 // Any change here must ship with the matching SQL change (and vice versa);
 // the table COMMENT on project_members and the function COMMENT on
 // can_edit_shot_lists point back at this file.

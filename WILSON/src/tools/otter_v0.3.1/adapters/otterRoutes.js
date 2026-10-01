@@ -282,16 +282,86 @@ export function mergeHotkeys(existing, incoming) {
   return out
 }
 
+/**
+ * A function category's name, whichever key holds it — the one reading the
+ * merge below, the Functions reference and the Search dialog share.
+ *
+ * Post-overhaul S2b (C10): until S2b the merge keyed categories on `name`
+ * and created `{ name: inCat.name }`, while the client posts
+ * `{ category, functions }`. `inCat.name` was undefined, so every incoming
+ * category matched the first nameless one and a generated library collapsed
+ * into ONE category with no name — written to disk as `{ functions: [...] }`
+ * (Audrey's Python library is exactly that: one keyless category of 46).
+ * Stored libraries therefore hold all three shapes: `category`, `name`, or
+ * neither. A category with neither reads as "General", and the merge keys
+ * on the same reading, so an incoming "General" lands in it rather than
+ * beside it under a second "General" heading.
+ *
+ * A name is a non-empty string, trimmed, with invisible characters dropped:
+ * a number, an object, blank spaces or a lone zero-width space is no name
+ * (review rounds 1 and 2 — a `category: 5` threw in normKey on every later
+ * merge, and `'  '` drew the empty heading C10 is about).
+ */
+const cleanName = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '')
+export const functionCategoryName = (cat) => cleanName(cat?.category) || cleanName(cat?.name) || 'General'
+
+/**
+ * The function library's merge — the SAME rules, line for line, as the
+ * Local Server's `mergeFunctionsDoc` in electron/main.cjs;
+ * functionsMerge.test.js replays both on its cases and on 600 seeded random
+ * documents and demands the same document every time.
+ *  - Categories match on functionCategoryName with case and punctuation
+ *    aside — letters of any script, digits, '#' and '+' kept (normKey made
+ *    "文字列" and "数学" one category, and "C" and "C++" another).
+ *  - A function is not added again where it already is: under the same
+ *    heading by its exact name, or anywhere in a NAMELESS category — the
+ *    collapsed library the old keying wrote (hers holds 46), so a
+ *    generation that files `len` under "Built-ins" does not put a second
+ *    `len` beside the first. Functions that differ in case, or sit under
+ *    different headings, are different (`map` and `Map`, `split` in "String
+ *    methods" and in "os.path" — review round 2 measured round 1's
+ *    library-wide, case-blind rule losing both); a function with no name is
+ *    never taken for another.
+ *  - Stored categories are kept exactly as stored: only a category a
+ *    function is added to is rewritten (a copy, the new functions after its
+ *    own). A new category is written `{ category, functions }` when it
+ *    brings a function, or when it was sent with none (a fork's empty
+ *    category moves on approval, as before) — never when every function it
+ *    brought was already there, which would draw an empty heading. Entries
+ *    that are not categories (null, a string, `functions` not a list) are
+ *    carried over untouched and never matched; the document's other keys
+ *    are kept; a stored document that is not a library (an array,
+ *    `categories` not a list) is left exactly as it is.
+ */
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || name.toLowerCase()
+const functionKey = (fn) => cleanName(fn?.name)
+const isCategory = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions))
+const isNamed = (c) => !!(cleanName(c.category) || cleanName(c.name))
+
 export function mergeFunctions(existing, incoming) {
-  const out = { categories: (existing?.categories || []).map(c => ({
-    ...c, functions: [...(c.functions || [])],
-  })) }
-  for (const inCat of incoming || []) {
-    let cat = out.categories.find(c => c.name === inCat.name)
-    if (!cat) { cat = { name: inCat.name, functions: [] }; out.categories.push(cat) }
-    for (const fn of (inCat.functions || [])) {
-      if (!cat.functions.some(f => f.name === fn.name)) cat.functions.push(fn)
+  const doc = existing == null ? {} : existing
+  if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return existing
+  const out = { ...doc, categories: [...(doc.categories || [])] }
+  const unfiled = new Set()
+  for (const c of out.categories) if (isCategory(c) && !isNamed(c)) for (const f of (c.functions || [])) if (functionKey(f)) unfiled.add(functionKey(f))
+  for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+    if (!isObj(inCat)) continue
+    const name = functionCategoryName(inCat)
+    const i = out.categories.findIndex(c => isCategory(c) && categoryKey(functionCategoryName(c)) === categoryKey(name))
+    const into = i < 0 ? null : out.categories[i]
+    const have = new Set((into ? into.functions || [] : []).map(functionKey).filter(Boolean))
+    const add = []
+    for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
+      if (!isObj(fn)) continue
+      const k = functionKey(fn)
+      if (k && (have.has(k) || unfiled.has(k))) continue
+      if (k) { have.add(k); if (into && !isNamed(into)) unfiled.add(k) }
+      add.push(fn)
     }
+    const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length)
+    if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }) }
+    else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] }
   }
   return out
 }
