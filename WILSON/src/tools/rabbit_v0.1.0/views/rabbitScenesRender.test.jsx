@@ -449,7 +449,7 @@ describe('surface 6a', () => {
     let dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
     expect(dialog.getAttribute('data-width')).toBe('confirm')
-    expect(dialog.textContent).toContain('This will permanently delete "Lighthouse, dawn" and all its shots.')
+    expect(dialog.textContent).toContain('This will permanently delete “Lighthouse, dawn” and its 2 shots from the project. It will be gone from “Shot list 1 · v1” too. To take it out of “Shot list 1 · v1” only, use “Remove from this list” in its shot-list menu.')
     expect(document.activeElement.textContent).toBe('Cancel')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -480,7 +480,7 @@ describe('surface 6a', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Delete' }))
     let dialog = screen.getByRole('dialog', { name: 'Delete scenes' })
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
-    expect(dialog.textContent).toContain('Delete 2 scenes and their shots?')
+    expect(dialog.textContent).toContain('This will permanently delete 2 scenes and their 2 shots from the project. They will be gone from “Shot list 1 · v1” too. To take them out of “Shot list 1 · v1” only, use “Remove from list” in the selection bar.')
     // window.confirm had no outside to click: the backdrop keeps the question.
     fireEvent.mouseDown(dialog.closest('.ui-dialog-backdrop'))
     expect(screen.getByRole('dialog', { name: 'Delete scenes' })).toBeTruthy()
@@ -515,7 +515,7 @@ describe('surface 6a', () => {
     fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
     let dialog = screen.getByRole('dialog', { name: 'Delete shots' })
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
-    expect(dialog.textContent).toContain('Delete 1 shot?')
+    expect(dialog.textContent).toContain('This will permanently delete shot “The door” from the project. It will be gone from “Shot list 1 · v1” too. To take it out of “Shot list 1 · v1” only, use “Remove from list” in the selection bar.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(ctx.deleteShot).not.toHaveBeenCalled()
@@ -541,7 +541,7 @@ describe('surface 6a', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Delete' }))
     let dialog = screen.getByRole('dialog', { name: 'Delete shots' })
     expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
-    expect(dialog.textContent).toContain('Delete 2 shots?')
+    expect(dialog.textContent).toContain('This will permanently delete 2 shots from the project. They will be gone from “Shot list 1 · v1” too. To take them out of “Shot list 1 · v1” only, use “Remove from list” in the selection bar.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(ctx.deleteShot).not.toHaveBeenCalled()
@@ -690,7 +690,7 @@ describe('surface 6b', () => {
     expect([del.classList.contains('ui-iconbtn'), del.getAttribute('data-danger'), del.getAttribute('data-size')]).toEqual([true, 'true', 'sm'])
     fireEvent.click(del)
     const dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
-    expect(dialog.textContent).toContain('This will permanently delete "Lighthouse, dawn" and all its shots.')
+    expect(dialog.textContent).toContain('This will permanently delete “Lighthouse, dawn” and its 2 shots from the project. It will be gone from “Shot list 1 · v1” too. To take it out of “Shot list 1 · v1” only, use “Remove from this list” in its shot-list menu.')
     expect(screen.queryByText('Scene name')).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(ctx.deleteScene).not.toHaveBeenCalled()
@@ -704,7 +704,7 @@ describe('surface 6b', () => {
     toGallery()
     const door = cardOf('The door')
     fireEvent.click(within(door.querySelector('.ui-hover-actions')).getByRole('button', { name: 'Delete The door' }))
-    expect(screen.getByRole('dialog', { name: 'Delete shot?' }).textContent).toContain('"The door"')
+    expect(screen.getByRole('dialog', { name: 'Delete shot?' }).textContent).toContain('delete shot “The door” from the project.')
     expect(screen.queryByText('Shot name')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     fireEvent.click(door)
@@ -1094,7 +1094,7 @@ describe('surface 6c', () => {
     }
     for (const [way, close] of Object.entries(closes)) {
       const question = ask()
-      expect(question.textContent, way).toContain('This will permanently delete "Lighthouse, dawn" and all its shots.')
+      expect(question.textContent, way).toContain('This will permanently delete “Lighthouse, dawn” and its 2 shots from the project. It will be gone from “Shot list 1 · v1” too. To take it out of “Shot list 1 · v1” only, use “Remove from this list” in its shot-list menu.')
       // On Cancel — not on the question's ✕, where the popup's close sent it.
       expect(document.activeElement, way).toBe(within(question.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' }))
       close(question)
@@ -1608,13 +1608,13 @@ describe('S3b step 2: the list on screen', () => {
 
   it('Move up / Move down, in each row\'s shot-list menu: a scene among the list\'s scenes, a shot among its scene\'s shots — the whole group\'s new order written', async () => {
     const { ctx } = page(TWO_LISTS())
-    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', false]])
+    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', false], ['Remove from this list', false]])
     fireEvent.click(menuItem('Move down'))
     await waitFor(() => expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(1))
     expect(ctx.reorderShotListItems).toHaveBeenLastCalledWith('list-a', ['sc2', 'sc1'])
     expect(document.querySelector('.ui-menu')).toBeNull()
     openScene('Lighthouse, dawn')
-    expect(openMore('The cold lamp')).toEqual([['Move up', false], ['Move down', true]])
+    expect(openMore('The cold lamp')).toEqual([['Move up', false], ['Move down', true], ['Remove from this list', false]])
     fireEvent.click(menuItem('Move up'))
     await waitFor(() => expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(2))
     expect(ctx.reorderShotListItems).toHaveBeenLastCalledWith('list-a', ['sh2', 'sh1'])
@@ -1633,16 +1633,18 @@ describe('S3b step 2: the list on screen', () => {
   it('no move in any other sort, and none for a scene shown only because one of its shots is in the list', () => {
     page(TWO_LISTS())
     fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
-    expect(screen.queryByRole('button', { name: 'Shot list actions for Lighthouse, dawn' })).toBeNull()
+    // S3b step 6: the menu holds the removal alone — no move.
+    expect(openMore('Lighthouse, dawn')).toEqual([['Remove from this list', false]])
     cleanup()
     // Pickups without Harbour café's own item: the scene is there for The kettle.
     remember('list-b')
     const two = TWO_LISTS()
     page({ ...two, shotListItems: two.shotListItems.filter((i) => i.scene_id !== 'sc3') })
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
-    expect(screen.queryByRole('button', { name: 'Shot list actions for Harbour café' })).toBeNull()
+    expect(openMore('Harbour café')).toEqual([['Remove from this list', false]])
+    fireEvent.keyDown(document, { key: 'Escape' })
     // …and it is never a neighbour: Lighthouse has nothing to move past.
-    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', true]])
+    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', true], ['Remove from this list', false]])
   })
 })
 
@@ -1776,7 +1778,7 @@ describe('S3b step 3: the list bar', () => {
   it('the More menu: Clear only on a list never Saved, Withdraw only where S3a says this person may, Archive for a manager — each asks first', async () => {
     remember('list-b')
     const { ctx } = page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
-    expect(barMenu()).toEqual([['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
+    expect(barMenu()).toEqual([['Add from another list…', false], ['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
     fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
     let dialog = screen.getByRole('dialog', { name: 'Clear this list?' })
     expect(dialog.textContent).toContain('Takes 2 scenes and 2 shots out of “Pickups · v1”. Nothing is deleted: each stays in the project and in any other list that holds it.')
@@ -1798,7 +1800,7 @@ describe('S3b step 3: the list bar', () => {
     // Saved: never cleared (D4). The active list: never archived, nor withdrawn.
     const two = TWO_LISTS()
     page({ ...two, shotLists: two.shotLists.map((l) => (l.id === 'list-a' ? { ...l, snapshot: savedNow(two, 'list-a') } : l)) })
-    expect(barMenu()).toEqual([['Edit details…', false]])
+    expect(barMenu()).toEqual([['Add from another list…', false], ['Edit details…', false]])
   })
 
   it('"Recently removed": the list this person withdrew, with Open (read-only, "Withdrawn") and Restore; the mark ends when the tab mounts, unmounts, or R.A.B.B.I.T. leaves the screen', async () => {
@@ -2202,5 +2204,364 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     fireEvent.change(titleField(dialog), { target: { value: 'Pickups, nights' } })
     fireEvent.click(create(dialog, 'Save details'))
     await waitFor(() => expect(ctx.updateShotList).toHaveBeenLastCalledWith('list-b', { title: 'Pickups, nights' }))
+  })
+})
+
+/* ── post-overhaul S3b, step 6: the membership verbs ────────────────────────
+   A scene or shot is ONE row many lists may hold (D1 + D3). Remove from this
+   list takes it out of the list on screen and deletes nothing; Delete takes
+   it out of the project and so out of every list. Each question says which,
+   and names the lists. Add from another list… links rows in; a name's title
+   lists its lists (D10, live lists only). */
+const removeDialog = () => screen.getByRole('dialog', { name: 'Remove from this list?' })
+const bulkBarOf = (cls = '.rb-scene-bulk') => document.querySelector(cls)
+/** The words of a question, without its title and buttons. */
+const askWords = (dialog) => dialog.querySelector('.ui-dialog-body').textContent
+
+describe('S3b step 6: Remove from this list', () => {
+  it('asks first on the kit Dialog in <body>, Cancel focused, and names the lists that keep the scene; then takes it — and its shots — out of THIS list only: nothing is deleted', async () => {
+    const { ctx } = page(TWO_LISTS())
+    expect(openMore('Lighthouse, dawn').map(([w]) => w)).toEqual(['Move up', 'Move down', 'Remove from this list'])
+    fireEvent.click(menuItem('Remove from this list'))
+    const dialog = removeDialog()
+    expect([dialog.getAttribute('data-width'), dialog.closest('.ui-dialog-backdrop').parentElement]).toEqual(['confirm', document.body])
+    expect(document.activeElement.textContent).toBe('Cancel')
+    expect(askWords(dialog)).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”.')
+    // The verb says what it does; it is not Delete.
+    expect([...dialog.querySelectorAll('.ui-dialog-foot button')].map((b) => b.textContent)).toEqual(['Cancel', 'Remove from list'])
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctx.removeFromShotList).not.toHaveBeenCalled()
+    openMore('Lighthouse, dawn')
+    fireEvent.click(menuItem('Remove from this list'))
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(ctx.removeFromShotList.mock.calls).toEqual([['list-a', { sceneIds: ['sc1'] }]])
+    expect(ctx.deleteScene).not.toHaveBeenCalled()
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
+  })
+
+  it('a row no other list holds: the question says where it will be found — "Not in any list" — and a shot is named as one', async () => {
+    const { ctx } = page(TWO_LISTS())
+    openMore('Cliff path')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toBe('Takes “Cliff path” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Cancel' }))
+    openScene('Lighthouse, dawn')
+    openMore('The door')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toBe('Takes shot “The door” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-a', { shotIds: ['sh1'] }))
+  })
+
+  it('every bulk bar has "Remove from list" beside Delete, not in the danger ink: the same question for the selection, which clears once the rows are out', async () => {
+    const { ctx } = page(TWO_LISTS())
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
+    const verbs = [...bulkBarOf().querySelectorAll('.ui-btn')].map((b) => [b.textContent, b.getAttribute('data-variant')])
+    expect(verbs).toEqual([['Remove from list', 'secondary'], ['Delete', 'danger']])
+    fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Remove from list' }))
+    expect(askWords(removeDialog())).toBe('Takes 2 scenes and their 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. 1 of them is in no other shot list, so Shot lists… will show it under “Not in any list”. The other one is still in “Pickups · v1”.')
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(bulkBarOf()).toBeNull())
+    expect(ctx.removeFromShotList.mock.calls).toEqual([['list-a', { sceneIds: ['sc1', 'sc2'] }]])
+    // The nested shots' bar.
+    openScene('Lighthouse, dawn')
+    fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
+    fireEvent.click(within(bulkBarOf('.rb-scene-nest-bulk')).getByRole('button', { name: 'Remove from list' }))
+    expect(askWords(removeDialog())).toBe('Takes 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. No other shot list holds them, so Shot lists… will show them under “Not in any list”.')
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(bulkBarOf('.rb-scene-nest-bulk')).toBeNull())
+    expect(ctx.removeFromShotList).toHaveBeenLastCalledWith('list-a', { shotIds: ['sh1', 'sh2'] })
+    // The shot table's.
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
+    fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Remove from list' }))
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenLastCalledWith('list-a', { shotIds: ['sh2'] }))
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
+  })
+
+  it('a refusal stays in the question, word for word, and the selection with it; the Banner does not say it again', async () => {
+    const refusal = 'this shot list is archived — restore it before changing it'
+    const { ctx, rerender } = page({ ...TWO_LISTS(), removeFromShotList: vi.fn().mockRejectedValue(new Error(refusal)) })
+    fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
+    fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Remove from list' }))
+    const dialog = removeDialog()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toBe(refusal))
+    expect(removeDialog()).toBe(dialog)
+    rabbit.current = { ...ctx, error: refusal }
+    rerender(<ScenesView pageActive />)
+    expect(document.querySelector('.ui-banner')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(rowOf('Cliff path').getAttribute('data-selected')).toBe('true')
+  })
+
+  it('offered only on a live list this person may change: not on an archived list (read-only), not without a list seat; "Not in any list" offers Add to list instead', async () => {
+    // A staffed project and no seat on it: no list verbs on a row or a selection.
+    page({ ...TWO_LISTS(), ...seat(null) })
+    expect(screen.queryByRole('button', { name: 'Shot list actions for Lighthouse, dawn' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    expect(within(bulkBarOf()).queryByRole('button', { name: 'Remove from list' })).toBeNull()
+    cleanup()
+    perms.current = null
+    // An archived list, opened from the picker: read, not changed.
+    const two = TWO_LISTS()
+    page({ ...two, shotLists: [two.shotLists[0], { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }] })
+    const picker = openPicker()
+    fireEvent.click(within(picker).getByRole('button', { name: /^Archived…/ }))
+    fireEvent.doubleClick(pickerRow(screen.getByRole('dialog'), 'Pickups'))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(screen.queryByRole('button', { name: 'Shot list actions for Lighthouse, dawn' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    expect(within(bulkBarOf()).queryByRole('button', { name: 'Remove from list' })).toBeNull()
+    cleanup()
+    // "Not in any list": each live list, one click, under its header.
+    const { ctx } = page(WITH_UNLISTED())
+    const p = openPicker()
+    fireEvent.click(within(p).getByRole('button', { name: /^Not in any list/ }))
+    fireEvent.click(within(p).getByRole('button', { name: 'Open' }))
+    expect(openMore('The jetty')).toEqual([['Pickups · v1', false], ['Shoot · v1', false]])
+    expect(document.querySelector('.ui-menu .ui-menu-header').textContent).toBe('Add to list')
+    fireEvent.click(menuItem('Shoot · v1'))
+    await waitFor(() => expect(ctx.addToShotList).toHaveBeenCalledWith('list-a', { sceneId: 'sc4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select The jetty' }))
+    expect(within(bulkBarOf()).queryByRole('button', { name: 'Remove from list' })).toBeNull()
+  })
+})
+
+describe('S3b step 6: a name says which lists hold it (D10)', () => {
+  it('in the tables and on the cards: "In: …", live lists only, sorted; "In no shot list" for a row none holds; nothing in a project with no lists', () => {
+    page(TWO_LISTS())
+    const nameTitle = (name) => rowOf(name).querySelector('.rb-scene-name-cell .rb-scene-inline').getAttribute('title')
+    expect(nameTitle('Lighthouse, dawn')).toBe('In: Pickups · v1, Shoot · v1')
+    expect(nameTitle('Cliff path')).toBe('In: Shoot · v1')
+    openScene('Lighthouse, dawn')
+    expect(nameTitle('The door')).toBe('In: Shoot · v1')
+    toShots()
+    expect(nameTitle('The cold lamp')).toBe('In: Shoot · v1')
+    toGallery()
+    expect(cardsOf().map((c) => c.querySelector('.rb-scene-card-name').getAttribute('title'))).toEqual(['In: Shoot · v1', 'In: Shoot · v1'])
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    expect(cardOf('Lighthouse, dawn').querySelector('.rb-scene-card-name').getAttribute('title')).toBe('In: Pickups · v1, Shoot · v1')
+    cleanup()
+    // An archived list is no list a row is "in" (S3a's "Not in any list" agrees).
+    const two = WITH_UNLISTED()
+    page({ ...two, shotLists: [two.shotLists[0], { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }] })
+    expect(nameTitle('Lighthouse, dawn')).toBe('In: Shoot · v1')
+    const p = openPicker()
+    fireEvent.click(within(p).getByRole('button', { name: /^Not in any list/ }))
+    fireEvent.click(within(p).getByRole('button', { name: 'Open' }))
+    // The far lamp is in no live list now: its scene heads it, in number order.
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café', 'The jetty'])
+    expect(nameTitle('The jetty')).toBe('In no shot list')
+    expect(nameTitle('Lighthouse, dawn')).toBe('In: Shoot · v1')
+    cleanup()
+    page({ ...WITH_UNLISTED(), shotLists: [], shotListItems: [], activeListId: null })
+    expect(rowOf('The jetty').querySelector('.rb-scene-name-cell .rb-scene-inline').hasAttribute('title')).toBe(false)
+  })
+})
+
+describe('S3b step 6: Delete says it is the project\'s, and every list\'s', () => {
+  it('a scene: every shot it has in the project, every list that holds it — an archived one too, marked — and, with a list on screen, the verb that takes it out of that list alone', async () => {
+    const two = TWO_LISTS()
+    const old = { ...LIST_1, id: 'list-o', title: 'Old cut', archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    const { ctx } = page({ ...two, shotLists: [...two.shotLists, old], shotListItems: [...two.shotListItems, ...itemsFor('list-o', [{ scene_id: 'sc1', position: 0 }])] })
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
+    expect(askWords(dialog)).toBe('This will permanently delete “Lighthouse, dawn” and its 3 shots from the project. It will be gone from all 3 shot lists that hold it: “Old cut · v1” (archived), “Pickups · v1” and “Shoot · v1”. To take it out of “Shoot · v1” only, use “Remove from this list” in its shot-list menu.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
+    cleanup()
+    page(TWO_LISTS())
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “Lighthouse, dawn” and its 3 shots from the project. It will be gone from both shot lists that hold it: “Pickups · v1” and “Shoot · v1”. To take it out of “Shoot · v1” only, use “Remove from this list” in its shot-list menu.')
+  })
+
+  it('no "Remove" hint where it would not work: a row the list on screen does not hold (its popup, from another tab), the "Not in any list" view, a person without a list seat', () => {
+    page(TWO_LISTS())
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', shotId: 'sh3' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'The kettle' })).getByRole('button', { name: 'Delete shot' }))
+    expect(askWords(screen.getByRole('dialog', { name: 'Delete shot?' }))).toBe('This will permanently delete shot “The kettle” from the project. It will be gone from “Pickups · v1” too.')
+    cleanup()
+    page(WITH_UNLISTED())
+    const p = openPicker()
+    fireEvent.click(within(p).getByRole('button', { name: /^Not in any list/ }))
+    fireEvent.click(within(p).getByRole('button', { name: 'Open' }))
+    fireEvent.click(within(rowOf('The jetty')).getByRole('button', { name: 'Delete scene' }))
+    expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “The jetty” from the project.')
+    cleanup()
+    page({ ...TWO_LISTS(), ...seat(null) })
+    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete scene' }))
+    expect(askWords(screen.getByRole('dialog', { name: 'Delete scene?' }))).toBe('This will permanently delete “Cliff path” from the project. It will be gone from “Shoot · v1” too.')
+  })
+})
+
+/** Add from another list…, opened from the bar's More menu. */
+const openAddFrom = () => {
+  fireEvent.click(within(bar()).getByRole('button', { name: 'More shot list actions' }))
+  fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Add from another list…'))
+  return screen.getByRole('dialog', { name: 'Add from another list' })
+}
+/** The dialog's rows: [kind, words, checked ('mixed' when indeterminate), disabled, note]. */
+const addRows = (dialog) => [...dialog.querySelectorAll('.rb-scene-addfrom-row')].map((r) => {
+  const box = r.querySelector('input[type="checkbox"]')
+  return [r.classList.contains('rb-scene-addfrom-scene') ? 'scene' : 'shot', r.querySelector('.rb-scene-addfrom-name').textContent, box.indeterminate ? 'mixed' : box.checked, box.disabled, r.querySelector('.rb-scene-addfrom-note').textContent]
+})
+const addRow = (dialog, words) => [...dialog.querySelectorAll('.rb-scene-addfrom-row')].find((r) => r.querySelector('.rb-scene-addfrom-name').textContent === words)
+const addButton = (dialog) => dialog.querySelector('.ui-dialog-foot .ui-btn[data-variant="primary"]')
+
+describe('S3b step 6: Add from another list…', () => {
+  it('the bar\'s More menu leads with it; the kit Dialog at the reading width, from another live list by default: scene → shots, what the list already holds ticked and greyed', () => {
+    page(TWO_LISTS())
+    const dialog = openAddFrom()
+    expect([dialog.getAttribute('data-width'), dialog.closest('.ui-dialog-backdrop').parentElement]).toEqual(['reading', document.body])
+    expect(dialog.querySelector('.ui-dialog-subtitle').textContent).toBe('Into “Shoot · v1”: the same scenes and shots, linked — not copied. Renaming one, or changing its status, changes it in every list.')
+    const from = within(dialog).getByRole('combobox')
+    expect([...from.options].map((o) => o.textContent)).toEqual(['Pickups · v1', 'Not in any list', 'Every scene and shot in this project'])
+    expect(from.value).toBe('list-b')
+    expect(document.activeElement).toBe(within(dialog).getByRole('textbox', { name: 'Search scenes and shots' }))
+    expect(addRows(dialog)).toEqual([
+      ['scene', 'Sc 1 · Lighthouse, dawn', false, false, '1 shot'],
+      ['shot', 'The far lamp', false, false, ''],
+      ['scene', 'Sc 3 · Harbour café', false, false, '1 shot'],
+      ['shot', 'The kettle', false, false, ''],
+    ])
+    expect([addButton(dialog).textContent, addButton(dialog).disabled]).toEqual(['Add', true])
+    fireEvent.change(from, { target: { value: 'all' } })
+    expect(addRows(dialog)).toEqual([
+      ['scene', 'Sc 1 · Lighthouse, dawn', false, false, '3 shots'],
+      ['shot', 'The door', true, true, 'In this list'],
+      ['shot', 'The cold lamp', true, true, 'In this list'],
+      ['shot', 'The far lamp', false, false, ''],
+      ['scene', 'Sc 2 · Cliff path', true, true, 'In this list'],
+      ['scene', 'Sc 3 · Harbour café', false, false, '1 shot'],
+      ['shot', 'The kettle', false, false, ''],
+    ])
+  })
+
+  it('a scene\'s box ticks it and every shot under it that can be added — mixed while only some are; the button counts what will be added, and Add links them through addToShotList', async () => {
+    const { ctx } = page(TWO_LISTS())
+    const dialog = openAddFrom()
+    fireEvent.click(addRow(dialog, 'The kettle').querySelector('input'))
+    // A shot whose scene the list lacks brings its scene (S3a): counted.
+    expect(addButton(dialog).textContent).toBe('Add 1 scene and 1 shot')
+    expect(addRows(dialog)[2]).toEqual(['scene', 'Sc 3 · Harbour café', 'mixed', false, '1 shot'])
+    fireEvent.click(addRow(dialog, 'Sc 3 · Harbour café').querySelector('input'))
+    expect(addRows(dialog)[2]).toEqual(['scene', 'Sc 3 · Harbour café', true, false, '1 shot'])
+    fireEvent.click(addRow(dialog, 'Sc 1 · Lighthouse, dawn').querySelector('input'))
+    expect(addRows(dialog)[1]).toEqual(['shot', 'The far lamp', true, false, ''])
+    expect(addButton(dialog).textContent).toBe('Add 1 scene and 2 shots')
+    // Unticking the scene's box takes back all it ticked.
+    fireEvent.click(addRow(dialog, 'Sc 3 · Harbour café').querySelector('input'))
+    expect(addRows(dialog).slice(2)).toEqual([['scene', 'Sc 3 · Harbour café', false, false, '1 shot'], ['shot', 'The kettle', false, false, '']])
+    expect(addButton(dialog).textContent).toBe('Add 1 shot')
+    fireEvent.click(addRow(dialog, 'Sc 3 · Harbour café').querySelector('input'))
+    fireEvent.click(addButton(dialog))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(ctx.addToShotList.mock.calls).toEqual([['list-a', { sceneIds: ['sc3'], shotIds: ['sh4', 'sh3'] }]])
+  })
+
+  it('the search narrows by name or number — a scene that matches keeps its shots — and its first Escape only clears it; ticks survive a change of source', () => {
+    page(WITH_UNLISTED())
+    const dialog = openAddFrom()
+    const search = within(dialog).getByRole('textbox', { name: 'Search scenes and shots' })
+    fireEvent.change(search, { target: { value: 'kettle' } })
+    expect(addRows(dialog).map((r) => r[1])).toEqual(['Sc 3 · Harbour café', 'The kettle'])
+    fireEvent.change(search, { target: { value: 'harbour' } })
+    expect(addRows(dialog).map((r) => r[1])).toEqual(['Sc 3 · Harbour café', 'The kettle'])
+    fireEvent.change(search, { target: { value: '30' } })
+    expect(addRows(dialog).map((r) => r[1])).toEqual(['Sc 1 · Lighthouse, dawn', 'The far lamp'])
+    fireEvent.change(search, { target: { value: 'zzz' } })
+    expect(dialog.querySelector('.ui-empty-title').textContent).toBe('Nothing matches “zzz”')
+    fireEvent.keyDown(search, { key: 'Escape' })
+    expect(search.value).toBe('')
+    expect(screen.getByRole('dialog', { name: 'Add from another list' })).toBe(dialog)
+    fireEvent.click(addRow(dialog, 'The far lamp').querySelector('input'))
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'unlisted' } })
+    expect(addRows(dialog)).toEqual([['scene', 'Sc 4 · The jetty', false, false, '0 shots']])
+    fireEvent.click(addRow(dialog, 'Sc 4 · The jetty').querySelector('input'))
+    expect(addButton(dialog).textContent).toBe('Add 1 scene and 1 shot')
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a refusal stays in the Dialog, word for word, with the ticks; a person without a list seat finds it greyed', async () => {
+    const refusal = 'Only this project\'s managers, members and reviewers can change its shot lists and edits.'
+    page({ ...TWO_LISTS(), addToShotList: vi.fn().mockRejectedValue(new Error(refusal)) })
+    const dialog = openAddFrom()
+    fireEvent.click(addRow(dialog, 'The kettle').querySelector('input'))
+    fireEvent.click(addButton(dialog))
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toBe(refusal))
+    expect(addRow(dialog, 'The kettle').querySelector('input').checked).toBe(true)
+    cleanup()
+    page({ ...TWO_LISTS(), ...seat(null) })
+    expect(barMenu().find(([w]) => w === 'Add from another list…')).toEqual(['Add from another list…', true])
+  })
+})
+
+describe('S3b step 6: the edges', () => {
+  it('an archived list is no home for a removed row: "No other shot list holds it"; and the question closes, removing nothing, if the list on screen changes under it', async () => {
+    const two = TWO_LISTS()
+    // Cliff path is also in an ARCHIVED list.
+    const old = { ...LIST_1, id: 'list-o', title: 'Old cut', archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    const data = { ...two, shotLists: [...two.shotLists, old], shotListItems: [...two.shotListItems, ...itemsFor('list-o', [{ scene_id: 'sc2', position: 0 }])] }
+    remember('list-b')
+    const { ctx, rerender } = page(data)
+    // Viewing Pickups: The far lamp, only there.
+    openScene('Lighthouse, dawn')
+    openMore('The far lamp')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toBe('Takes shot “The far lamp” out of “Pickups · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+    // Someone archives Pickups meanwhile: the tab falls back to the active
+    // list, and a question about Pickups must not now act on Shoot.
+    rabbit.current = { ...ctx, ...listContext({ project: ctx.project, scenes: data.scenes, shots: data.shots, shotLists: data.shotLists.map((l) => (l.id === 'list-b' ? { ...l, archived_at: '2026-10-01T10:00:00Z', archived_by: 'u-9' } : l)), shotListItems: data.shotListItems }) }
+    rerender(<ScenesView pageActive />)
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
+    expect(screen.queryByRole('dialog', { name: 'Remove from this list?' })).toBeNull()
+    expect(ctx.removeFromShotList).not.toHaveBeenCalled()
+    cleanup()
+    localStorage.clear()
+    page(data)
+    openMore('Cliff path')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toContain('No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+  })
+
+  it('Add from another list… opens on the first source with something to add — never an empty "Not in any list", nor a list the one on screen holds whole — and offers no archived list', () => {
+    // One list holding every row: nothing to add anywhere; every row, greyed.
+    page()
+    let dialog = openAddFrom()
+    const from = () => within(dialog).getByRole('combobox')
+    expect([...from().options].map((o) => o.value)).toEqual(['unlisted', 'all'])
+    expect(from().value).toBe('all')
+    expect(addRows(dialog).every(([, , checked, disabled]) => checked === true && disabled === true)).toBe(true)
+    cleanup()
+    // Pickups holds only Lighthouse, which Shoot holds too; Harbour café is
+    // in no list; and an archived list is no source.
+    const two = TWO_LISTS()
+    const old = { ...LIST_1, id: 'list-o', title: 'Old cut', archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    page({
+      ...two,
+      shotLists: [...two.shotLists, old],
+      shotListItems: [...two.shotListItems.filter((i) => i.shot_list_id === 'list-a'), ...itemsFor('list-b', [{ scene_id: 'sc1', position: 0 }]), ...itemsFor('list-o', [{ scene_id: 'sc3', position: 0 }])],
+    })
+    dialog = openAddFrom()
+    expect([...from().options].map((o) => o.textContent)).toEqual(['Pickups · v1', 'Not in any list', 'Every scene and shot in this project'])
+    expect(from().value).toBe('unlisted')
+    expect(addRows(dialog).map((r) => r[1])).toEqual(['Sc 1 · Lighthouse, dawn', 'The far lamp', 'Sc 3 · Harbour café', 'The kettle'])
+  })
+
+  it('adds to the list ON SCREEN, which need not be the active one', async () => {
+    remember('list-b')
+    const { ctx } = page(TWO_LISTS())
+    const dialog = openAddFrom()
+    expect(within(dialog).getByRole('combobox').value).toBe('list-a')
+    fireEvent.click(addRow(dialog, 'Sc 2 · Cliff path').querySelector('input'))
+    fireEvent.click(addButton(dialog))
+    await waitFor(() => expect(ctx.addToShotList).toHaveBeenCalledWith('list-b', { sceneIds: ['sc2'], shotIds: [] }))
   })
 })

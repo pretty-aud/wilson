@@ -87,6 +87,8 @@ export function resolveViewedList({ remembered, session, shotLists, activeId }) 
  * scene of every shot in no live list whose own scene IS listed elsewhere —
  * the heading that shot sits under (S3a's "implied" scene, the same rule a
  * list follows), so every unlisted shot is reachable in the Scenes mode too.
+ * The bucket has no order of its own: scene number order, as "Every scene
+ * and shot" is — a heading is not left at the end (S3b step 6).
  */
 export function unlistedSceneRows({ unlistedScenes, unlistedShots, sceneById }) {
   const out = [...(unlistedScenes || [])]
@@ -96,7 +98,9 @@ export function unlistedSceneRows({ unlistedScenes, unlistedShots, sceneById }) 
     const sc = sceneById?.(sh.scene_id)
     if (sc) { out.push(sc); seen.add(sc.id) }
   }
-  return out
+  // Unnumbered last, each group in the order it came (the sort is stable).
+  const rank = (s) => (s.scene_number == null ? 1 : 0)
+  return out.sort((a, b) => rank(a) - rank(b) || (rank(a) ? 0 : a.scene_number - b.scene_number))
 }
 
 export function useViewedShotList({ ctx, personKey }) {

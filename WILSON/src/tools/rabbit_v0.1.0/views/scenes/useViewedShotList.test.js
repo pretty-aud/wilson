@@ -59,4 +59,12 @@ describe('unlistedSceneRows', () => {
   it('a shot whose scene is gone, or with none, adds no heading', () => {
     expect(unlistedSceneRows({ unlistedScenes: [], unlistedShots: [{ id: 'h1', scene_id: 'zz' }, { id: 'h2', scene_id: null }], sceneById: byId })).toEqual([])
   })
+  it('in scene number order — a heading is not left at the end — the unnumbered last, in the order they came (S3b step 6)', () => {
+    const n = { a: { id: 'a', scene_number: 4 }, b: { id: 'b', scene_number: 1 }, c: { id: 'c', scene_number: null }, d: { id: 'd' }, e: { id: 'e', scene_number: 2 } }
+    expect(unlistedSceneRows({
+      unlistedScenes: [n.c, n.a, n.d],
+      unlistedShots: [{ id: 'h1', scene_id: 'b' }, { id: 'h2', scene_id: 'e' }],
+      sceneById: (id) => n[id] || null,
+    }).map((s) => s.id)).toEqual(['b', 'e', 'a', 'c', 'd'])
+  })
 })

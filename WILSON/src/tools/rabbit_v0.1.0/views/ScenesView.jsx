@@ -29,7 +29,7 @@ import {
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
   Sun, FolderOpen, ImagePlus, ImageOff,
-  ArrowUp, ArrowDown,
+  ArrowUp, ArrowDown, ListMinus,
 } from 'lucide-react'
 // Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
 // on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
@@ -47,6 +47,9 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { useViewedShotList } from './scenes/useViewedShotList'
 import ShotLists from './scenes/ShotLists'
 import MenuButton from './scenes/MenuButton'
+import ListConfirm from './scenes/ListConfirm'
+import { deleteQuestion } from './scenes/membershipCopy'
+import { sortShotLists } from '../state/shotListModel'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -656,17 +659,93 @@ export default function ScenesView({ pageActive = false } = {}) {
 
   // A row's shot-list verbs, for its More menu (RowMore): null when none
   // applies (no list on screen, or an archived one — read-only).
+  // S3b step 6: in a list, Remove from this list (it asks first, naming the
+  // lists that keep the row — a removal is not a Delete, D1 + D3; ShotLists
+  // asks it, with the other list questions); in the "Not in any list" view,
+  // Add to list — each live list, one click.
+  // removeAsk: { kind, ids, done } — `done` clears a bulk selection.
+  const [removeAsk, setRemoveAsk] = useState(null)
+  const closeRemoveAsk = useCallback(() => setRemoveAsk(null), [])
+  // A question about the list on screen does not outlive it.
+  useEffect(() => { setRemoveAsk(null) }, [viewed.id, viewed.mode])
+  // In the lists' one order (S3a's sortShotLists), as the names' titles are.
+  const liveLists = useMemo(() => sortShotLists((ctx?.shotLists || []).filter(l => !l.archived_at)), [ctx?.shotLists])
+  const listLabel = useCallback((row) => ctx?.formatShotListLabel?.(row) || '', [ctx])
+  const addRowToList = useCallback(async (kind, row, listId) => {
+    try {
+      await ctx?.addToShotList?.(listId, kind === 'scene' ? { sceneId: row.id } : { shotId: row.id })
+    } catch (err) { setListError(err?.message || String(err)) }
+  }, [ctx])
   const rowListMenu = useCallback((kind, row, visibleIds) => {
+    if (viewed.mode === 'unlisted' && canListWrite && liveLists.length) {
+      return [
+        { header: 'Add to list' },
+        ...liveLists.map(l => ({ label: listLabel(l), onClick: () => addRowToList(kind, row, l.id) })),
+      ]
+    }
     if (viewed.mode !== 'list' || !canListWrite) return null
     const items = []
     if (listOrder && (kind !== 'scene' || ownSceneIds.has(row.id))) {
       items.push(
         { label: 'Move up', Icon: ArrowUp, disabled: !moveTarget(kind, row.id, -1, visibleIds), onClick: () => moveInList(kind, row.id, -1, visibleIds) },
         { label: 'Move down', Icon: ArrowDown, disabled: !moveTarget(kind, row.id, 1, visibleIds), onClick: () => moveInList(kind, row.id, 1, visibleIds) },
+        { divider: true },
       )
     }
-    return items.length ? items : null
-  }, [viewed.mode, canListWrite, listOrder, ownSceneIds, moveTarget, moveInList])
+    items.push({ label: 'Remove from this list', Icon: ListMinus, onClick: () => setRemoveAsk({ kind, ids: [row.id] }) })
+    return items
+  }, [viewed.mode, canListWrite, liveLists, listLabel, addRowToList, listOrder, ownSceneIds, moveTarget, moveInList])
+  // The bulk bars' Remove from list: the same question, for the selection
+  // (`done` clears it once the rows are out).
+  const bulkRemove = useMemo(() => (viewed.mode === 'list' && canListWrite
+    ? (kind, ids, done) => setRemoveAsk({ kind, ids, done })
+    : undefined), [viewed.mode, canListWrite])
+
+  // D10: a scene's or shot's name carries the lists it belongs to in its
+  // title — "In: Shoot · v1, Pickups · v2" — LIVE lists only (S3a's
+  // listsContaining counts archived and withdrawn ones; to the people who
+  // set those aside they are gone, and "Not in any list" agrees). Built once
+  // per change of the lists, not per row: a scene is in a list that names it
+  // or one of its shots (S3a's rule, through scenesOf / shotsOf).
+  const scenesOf = ctx?.scenesOf
+  const shotsOf = ctx?.shotsOf
+  const inListsTitle = useMemo(() => {
+    if (!(ctx?.shotLists || []).length) return () => undefined
+    const byId = new Map()
+    const add = (id, l) => { if (!byId.has(id)) byId.set(id, []); byId.get(id).push(l) }
+    for (const l of liveLists) {
+      for (const s of scenesOf?.(l.id) || []) add(s.id, l)
+      for (const sh of shotsOf?.(l.id) || []) add(sh.id, l)
+    }
+    return (id) => {
+      const ls = byId.get(id)
+      return ls ? `In: ${sortShotLists(ls).map(listLabel).join(', ')}` : 'In no shot list'
+    }
+  }, [ctx?.shotLists, liveLists, scenesOf, shotsOf, listLabel])
+
+  // Delete's words (S3b step 6, membershipCopy): from the project, and so
+  // from every list that holds the rows — archived ones too, which lose them
+  // as well — and, while the live list on screen holds them and this person
+  // may write lists, the verb that takes them out of it alone. `where` is
+  // where that verb is: a row's (or card's) menu, or the selection bar.
+  const describeDelete = useCallback((kind, ids, where = 'row') => {
+    const rowOf = kind === 'scene' ? sceneById : shotById
+    const holding = new Map()
+    let allOnScreen = ids.length > 0
+    for (const id of ids) {
+      const ls = ctx?.listsContaining?.(id) || []
+      for (const l of ls) holding.set(l.id, l)
+      if (!ls.some(l => l.id === viewed.id)) allOnScreen = false
+    }
+    return deleteQuestion({
+      kind,
+      names: ids.map(id => rowOf?.(id)?.name || 'Untitled'),
+      shotCount: kind === 'scene' ? ids.reduce((n, id) => n + (allShotsByScene[id] || []).length, 0) : 0,
+      lists: sortShotLists([...holding.values()]).map(l => ({ label: listLabel(l), archived: !!l.archived_at })),
+      onScreen: viewed.mode === 'list' && canListWrite && viewed.list && allOnScreen ? listLabel(viewed.list) : null,
+      removeWhere: where,
+    }).join(' ')
+  }, [ctx, sceneById, shotById, allShotsByScene, viewed.mode, viewed.id, viewed.list, canListWrite, listLabel])
 
   // ── Saved views ──
   function saveCurrentView() {
@@ -926,6 +1005,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         userId={userId}
         error={listError}
         onError={setListError}
+        remove={{ ask: removeAsk, close: closeRemoveAsk }}
       />
 
       {/* ── Toolbar: the kit's, the same sixteen controls in the same order
@@ -1165,6 +1245,9 @@ export default function ScenesView({ pageActive = false } = {}) {
               thumbRevision={thumbRevision}
               onThumbChanged={() => setThumbRevision(r => r + 1)}
               rowMenu={rowListMenu}
+              nameTitle={inListsTitle}
+              onBulkRemove={bulkRemove}
+              describeDelete={describeDelete}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
               onNewShot={handleNewShot}
@@ -1178,6 +1261,8 @@ export default function ScenesView({ pageActive = false } = {}) {
               ctx={ctx}
               takes={takesApi}
               thumbRevision={thumbRevision}
+              rowMenu={rowListMenu}
+              nameTitle={inListsTitle}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
               onRequestDelete={setConfirmDelete}
@@ -1218,6 +1303,9 @@ export default function ScenesView({ pageActive = false } = {}) {
                       onThumbChanged={() => setThumbRevision(r => r + 1)}
                       ctx={ctx}
                       rowMenu={rowListMenu}
+                      nameTitle={inListsTitle}
+                      onBulkRemove={bulkRemove}
+                      describeDelete={describeDelete}
                       onOpenDetail={setDetailSceneId}
                       onOpenShotDetail={setDetailShotId}
                       onNewShot={handleNewShot}
@@ -1240,6 +1328,9 @@ export default function ScenesView({ pageActive = false } = {}) {
                 thumbSize={thumbSize}
                 ctx={ctx}
                 rowMenu={rowListMenu}
+                nameTitle={inListsTitle}
+                onBulkRemove={bulkRemove}
+                describeDelete={describeDelete}
                 onOpenDetail={setDetailSceneId}
                 onOpenShotDetail={setDetailShotId}
                 onNewShot={handleNewShot}
@@ -1253,6 +1344,8 @@ export default function ScenesView({ pageActive = false } = {}) {
               sceneTotals={sceneTotals}
               gallerySize={gallerySize}
               fps={fps}
+              rowMenu={rowListMenu}
+              nameTitle={inListsTitle}
               onOpenDetail={setDetailSceneId}
               onRequestDelete={setConfirmDelete}
             />
@@ -1345,11 +1438,8 @@ export default function ScenesView({ pageActive = false } = {}) {
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete ${confirmDelete.type}?`}
-          message={
-            confirmDelete.type === 'scene'
-              ? `This will permanently delete "${confirmDelete.name}" and all its shots.`
-              : `This will permanently delete shot "${confirmDelete.name}".`
-          }
+          // From the project and every list that holds it (S3b step 6).
+          message={describeDelete(confirmDelete.type, [confirmDelete.id])}
           onConfirm={() => {
             if (confirmDelete.type === 'scene') handleDeleteScene(confirmDelete.id)
             else handleDeleteShot(confirmDelete.id)
@@ -1392,7 +1482,10 @@ function RowMore({ name, items }) {
 // one row that spans the table and holds a table of the shots, indented as
 // before, opened and closed by the same toggle. Widths are the sheet's
 // (`.rb-scene-table-wrap`), each column's thumbnail box its size's.
-function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, rowMenu, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+// S3b: `rowMenu` (a row's shot-list menu), `nameTitle` (a name's lists, D10)
+// and `onBulkRemove` (the bulk bars' Remove from list, while a list is on
+// screen and this person writes lists) come from ScenesView.
+function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
@@ -1456,6 +1549,11 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
           <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
           <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
           <span className="rb-scene-divider" aria-hidden="true" />
+          {onBulkRemove && (
+            <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('scene', [...selected], clearSelection)}>
+              Remove from list
+            </Button>
+          )}
           <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk('scenes')}>
             Delete
           </Button>
@@ -1570,6 +1668,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                       placeholder="Untitled scene"
                       strong
                       label={`Name for ${name}`}
+                      title={nameTitle?.(sc.id)}
                       onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
                     />
                   </span>
@@ -1663,6 +1762,11 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
                             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
                             <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                            {onBulkRemove && (
+                              <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', [...selectedNestedShots], clearNestedSelection)}>
+                                Remove from list
+                              </Button>
+                            )}
                             <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
                               Delete
                             </Button>
@@ -1733,6 +1837,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                 <Td className="rb-scene-name-cell">
                                   <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
                                     label={`Name for ${shotName}`}
+                                    title={nameTitle?.(shot.id)}
                                     onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
                                 </Td>
                                 {/* Takes (milestone 2) */}
@@ -1828,7 +1933,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
       {confirmBulk === 'scenes' && (
         <ConfirmDialog
           title="Delete scenes"
-          message={`Delete ${selected.size} scene${selected.size === 1 ? '' : 's'} and their shots?`}
+          message={describeDelete('scene', [...selected], 'bar')}
           dismissOnBackdrop={false}
           onCancel={() => setConfirmBulk(null)}
           onConfirm={() => { setConfirmBulk(null); bulkDelete() }}
@@ -1837,7 +1942,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
       {confirmBulk === 'shots' && (
         <ConfirmDialog
           title="Delete shots"
-          message={`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`}
+          message={describeDelete('shot', [...selectedNestedShots], 'bar')}
           dismissOnBackdrop={false}
           onCancel={() => setConfirmBulk(null)}
           onConfirm={() => { setConfirmBulk(null); bulkDeleteNestedShots() }}
@@ -1864,7 +1969,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
 // well said it twice in statusColor's hues; the bar goes, as the Assets
 // cards' did) — and the shot count and runtime in the mono, in the third
 // ink (R3-13: #57534e, 2.3:1). The whole card opens the scene, as it did.
-function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onOpenDetail, onRequestDelete }) {
+function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, rowMenu, nameTitle, onOpenDetail, onRequestDelete }) {
   if (scenes.length === 0) {
     // The kit's empty state (R3-19), in the same words.
     return <EmptyState Icon={Film} title="No scenes yet" />
@@ -1883,12 +1988,13 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
               <div className="rb-scene-card-media">
                 <Film className="rb-scene-card-glyph" aria-hidden="true" />
                 <HoverActions className="rb-scene-card-acts">
+                  <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
                   <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
                     onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name }) }} />
                 </HoverActions>
               </div>
               <div className="rb-scene-card-body">
-                <span className="rb-scene-card-name">
+                <span className="rb-scene-card-name" title={nameTitle?.(sc.id)}>
                   {sc.name || 'Untitled scene'}
                 </span>
                 {sc.description && (
@@ -1933,7 +2039,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, rowMenu, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -1983,6 +2089,11 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
           <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
           <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
           <span className="rb-scene-divider" aria-hidden="true" />
+          {onBulkRemove && (
+            <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', [...selected], clearSelection)}>
+              Remove from list
+            </Button>
+          )}
           <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk(true)}>
             Delete
           </Button>
@@ -2135,6 +2246,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         placeholder="Untitled shot"
                         strong
                         label={`Name for ${shotName}`}
+                        title={nameTitle?.(shot.id)}
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
                     </Td>
@@ -2300,7 +2412,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
       {confirmBulk && (
         <ConfirmDialog
           title="Delete shots"
-          message={`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`}
+          message={describeDelete('shot', [...selected], 'bar')}
           dismissOnBackdrop={false}
           onCancel={() => setConfirmBulk(false)}
           onConfirm={() => { setConfirmBulk(false); bulkDelete() }}
@@ -2323,7 +2435,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 // A group's head is the shot table's band in the gallery's shape: the glyph
 // and the count in the third ink, the name at 600 in the ink (they were
 // orange), the named kit IconButton for Scene details, then a hairline.
-function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
   // The sheet sizes the cards (`.rb-scene-gallery[data-card]`, the same three
   // widths and their 16:9 heights); these are what BinPoster is handed.
   const sizeMap = { sm: 160, md: 220, lg: 300 }
@@ -2383,13 +2495,14 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                       <Clapperboard className="rb-scene-card-glyph" aria-hidden="true" />
                     )}
                     <HoverActions className="rb-scene-card-acts">
+                      <RowMore name={name} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
                       <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
                         onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name }) }} />
                     </HoverActions>
                   </div>
                   {/* Info */}
                   <div className="rb-scene-card-body">
-                    <span className="rb-scene-card-name">
+                    <span className="rb-scene-card-name" title={nameTitle?.(shot.id)}>
                       {shot.name || 'Untitled shot'}
                     </span>
                     {shot.description && (
@@ -3608,7 +3721,8 @@ function SceneBulkSelect({ label, options, onPick }) {
 // shot's description in the scene popup is inside the kit Dialog, which
 // stands down on a handled Escape, so the first press only reverts (review
 // round one, R1-02: it reverted AND closed the popup).
-function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label }) {
+// `title` (S3b, D10): the words' tooltip — a name's lists ("In: …").
+function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label, title }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3637,6 +3751,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
       className="rb-scene-inline"
       data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
       data-empty={value ? undefined : 'true'}
+      title={title}
       onClick={e => { e.stopPropagation(); setEditing(true) }}
     >
       {value || placeholder}

@@ -25,18 +25,24 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil } from 'lucide-react'
+import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus } from 'lucide-react'
 import { Banner, IconButton } from '../../../../ui'
+import { sortShotLists } from '../../state/shotListModel'
 import ShotListBar from './ShotListBar'
 import ShotListPicker from './ShotListPicker'
 import ShotListForm from './ShotListForm'
+import AddFromListDialog from './AddFromListDialog'
 import ListConfirm from './ListConfirm'
 import { listSaveState, restoreRouteFor } from './shotListState'
-import { UNLISTED } from './useViewedShotList'
+import { removeQuestion } from './membershipCopy'
+import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
 import '../rabbitScenes.css'
 
 const OTHER_TABS = 'the Timeline, Budget, Tasks, Assets, Bins and every other tab'
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+const ALL = 'all'
+// "Not in any list" and every row: in number order, as the tables sort them.
+const byNumber = (field) => (a, b) => (a[field] ?? Infinity) - (b[field] ?? Infinity) || String(a.name || '').localeCompare(String(b.name || ''))
 
 /**
  * ctx      useRabbit()
@@ -44,8 +50,10 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
  * gate     { write, writeReason, activate, activateReason }
  * userId   the signed-in user (usePermissions), for the maker's restore
  * error / onError   the Banner's sentence, owned by ScenesView
+ * remove   { ask: { kind, ids, done } | null, close } — a row's or a
+ *          selection's Remove from this list, asked here (step 6)
  */
-export default function ShotLists({ ctx, viewed, gate, userId, error, onError }) {
+export default function ShotLists({ ctx, viewed, gate, userId, error, onError, remove }) {
   // The picker, and over it (or alone) one question or form: { kind, row }.
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerError, setPickerError] = useState(null)
@@ -124,11 +132,18 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
   // screen: `onScreen`, whose Set active is on the bar itself) and a picker
   // row's menu. A verb that only asks to be sure has no ellipsis; one that
   // opens a form for more (Edit details…, Add from another list…) has one.
+  // Add from another list… leads the bar's menu: filling the list on screen
+  // is what the menu is most often opened for (step 6).
   const listVerbs = (row, { onScreen }) => {
     const out = []
     const rowActive = row.id === activeId
     const rowSave = onScreen ? saveState : listSaveState({ list: row, scenes: allScenes || [], shots: allShots || [], items: items || [] })
     const held = (items || []).some(i => i.shot_list_id === row.id)
+    if (onScreen) {
+      out.push(gate.write
+        ? { label: 'Add from another list…', Icon: ListPlus, onClick: () => setDialog({ kind: 'addFrom', row }) }
+        : { label: 'Add from another list…', Icon: ListPlus, disabled: true, hint: 'read-only' })
+    }
     if (!onScreen && !rowActive) {
       out.push(gate.activate
         ? { label: 'Set active', Icon: CheckCircle2, onClick: () => setDialog({ kind: 'setActive', row }) }
@@ -211,6 +226,61 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
       onError(`“${label(made)}” was made, but not made active: ${notActive}`)
     }
   }
+
+  // ── Add from another list… (step 6) ──
+  // Where rows may come from: every other LIVE list (an archived one is set
+  // aside; restore it to take from it), then the rows no live list holds,
+  // then every row of the project — S3a's selectors, each in its own order.
+  const addFromOpen = dialog?.kind === 'addFrom' && viewed.mode === 'list' && !!list
+  const addSources = useMemo(() => {
+    if (!addFromOpen) return []
+    return [
+      ...sortShotLists(lists.filter(l => !l.archived_at && l.id !== list.id)).map(l => ({ key: l.id, label: label(l) })),
+      { key: UNLISTED, label: 'Not in any list' },
+      { key: ALL, label: 'Every scene and shot in this project' },
+    ]
+  }, [addFromOpen, lists, list, label])
+  const unlistedScenes = ctx?.unlistedScenes
+  const unlistedShots = ctx?.unlistedShots
+  const scenesOf = ctx?.scenesOf
+  const shotsOf = ctx?.shotsOf
+  const sceneById = ctx?.sceneById
+  const addRowsOf = useCallback((key) => {
+    // The tab's own "Not in any list" rows: a heading for each unlisted shot
+    // whose scene a list holds, in scene number order.
+    if (key === UNLISTED) return { scenes: unlistedSceneRows({ unlistedScenes, unlistedShots, sceneById }), shots: [...(unlistedShots || [])].sort(byNumber('shot_number')) }
+    if (key === ALL) return { scenes: [...(allScenes || [])].sort(byNumber('scene_number')), shots: [...(allShots || [])].sort(byNumber('shot_number')) }
+    return { scenes: scenesOf?.(key) || [], shots: shotsOf?.(key) || [] }
+  }, [unlistedScenes, unlistedShots, sceneById, allScenes, allShots, scenesOf, shotsOf])
+  const onScreenSets = useMemo(() => ({
+    scenes: new Set(viewed.scenes.map(s => s.id)),
+    shots: new Set(viewed.shots.map(s => s.id)),
+  }), [viewed.scenes, viewed.shots])
+  // It opens on the first source with something to add — not on an empty
+  // "Not in any list", nor on a list the one on screen already holds whole;
+  // with nothing to add anywhere, on every row (each ticked and greyed).
+  const addDefault = useMemo(() => {
+    const addable = (key) => {
+      const r = addRowsOf(key)
+      return r.scenes.some(s => !onScreenSets.scenes.has(s.id)) || r.shots.some(s => !onScreenSets.shots.has(s.id))
+    }
+    return (addSources.find(s => addable(s.key)) || addSources[addSources.length - 1])?.key ?? null
+  }, [addSources, addRowsOf, onScreenSets])
+
+  // ── Remove from this list (step 6) ──
+  // Asked here, with the other list questions, so its refusal is said once:
+  // in the question. The words (membershipCopy) name where each row stays —
+  // the OTHER live lists that hold it — or that none does.
+  const removeAsk = remove?.ask && viewed.mode === 'list' && list ? remove.ask : null
+  const removeWords = removeAsk ? removeQuestion({
+    kind: removeAsk.kind,
+    rows: removeAsk.ids.map(id => ({
+      name: (removeAsk.kind === 'scene' ? ctx?.sceneById?.(id) : ctx?.shotById?.(id))?.name || 'Untitled',
+      homes: (ctx?.listsContaining?.(id) || []).filter(l => !l.archived_at && l.id !== list.id).map(label),
+    })),
+    shotCount: removeAsk.kind === 'scene' ? viewed.shots.filter(s => removeAsk.ids.includes(s.scene_id)).length : 0,
+    listLabel: label(list),
+  }).join(' ') : ''
 
   return (
     <>
@@ -337,6 +407,35 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
           })}
         >
           {`Takes ${plural(rowsOf(target).scenes, 'scene')} and ${plural(rowsOf(target).shots, 'shot')} out of “${label(target)}”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved.`}
+        </ListConfirm>
+      )}
+
+      {addFromOpen && (
+        <AddFromListDialog
+          targetLabel={label(list)}
+          sources={addSources}
+          defaultFrom={addDefault}
+          rowsOf={addRowsOf}
+          inList={onScreenSets}
+          sceneById={ctx?.sceneById}
+          shotById={ctx?.shotById}
+          onAdd={(what) => inDialog(async () => { await ctx.addToShotList(list.id, what); close() })}
+          onClose={close}
+        />
+      )}
+
+      {removeAsk && (
+        <ListConfirm
+          title="Remove from this list?"
+          confirmLabel="Remove from list"
+          onCancel={remove.close}
+          onConfirm={() => inDialog(async () => {
+            await ctx.removeFromShotList(list.id, removeAsk.kind === 'scene' ? { sceneIds: removeAsk.ids } : { shotIds: removeAsk.ids })
+            remove.close()
+            removeAsk.done?.()
+          })}
+        >
+          {removeWords}
         </ListConfirm>
       )}
     </>

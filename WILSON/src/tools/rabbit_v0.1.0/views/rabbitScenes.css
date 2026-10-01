@@ -893,16 +893,20 @@
      `.bn-poster`, which may load after this. */
   .rb-scene-card-media > .rb-scene-poster { border: 0; }
   /* The delete, over the well's corner: the kit's HoverActions shows it on
-     the card's hover and focus (the card is a `ui-hover-host`). */
+     the card's hover and focus (the card is a `ui-hover-host`). S3b: the
+     card's shot-list menu sits before it, as in a table row. */
   .rb-scene-card-acts { position: absolute; top: 6px; right: 6px; }
-  /* A frame can hold a picture, so there the delete sits on the paper with
-     the hairline (B4b's media buttons) and reads over one. (0,4,0) over the
-     kit's hover (0,3,0), and its own hover over that. */
-  .rb-scene-card .rb-scene-card-frame .ui-iconbtn.rb-scene-card-delete {
+  /* A frame can hold a picture, so there the delete — and the shot-list menu
+     beside it (S3b) — sits on the paper with the hairline (B4b's media
+     buttons) and reads over one. (0,4,0) over the kit's hover (0,3,0), and
+     its own hover over that. */
+  .rb-scene-card .rb-scene-card-frame .ui-iconbtn.rb-scene-card-delete,
+  .rb-scene-card .rb-scene-card-frame .rb-scene-card-acts > .ui-iconbtn {
     background-color: var(--color-paper);
     border-color: var(--color-rule);
   }
-  .rb-scene-card .rb-scene-card-frame .ui-iconbtn.rb-scene-card-delete:hover { background-color: var(--color-paper-raised); }
+  .rb-scene-card .rb-scene-card-frame .ui-iconbtn.rb-scene-card-delete:hover,
+  .rb-scene-card .rb-scene-card-frame .rb-scene-card-acts > .ui-iconbtn:hover { background-color: var(--color-paper-raised); }
   .rb-scene-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 12px; }
   /* The name at 600 in the ink, the description in the second ink (they were
      #d6d3d1 and #57534e, 2.3:1), each on one line. */
@@ -1516,6 +1520,86 @@
   .rb-scene-listform-option[data-disabled="true"] .rb-scene-listform-option-note { color: var(--color-ink-3); }
   /* D3, said where a list is made: one row in every list. */
   .rb-scene-listform-shared { max-width: 60ch; margin: 8px 0 0; font-size: var(--text-caption); color: var(--color-ink-2); }
+
+  /* ═══ Add from another list… (post-overhaul S3b, step 6) ═════════════════
+     views/scenes/AddFromListDialog.jsx: the kit Dialog at the reading width.
+     The source and the search on one line, the search taking what is left;
+     under them the rows, scene → shots, in a hairline well that scrolls on
+     its own so the footer stays in reach. A row is a label: its native
+     checkbox in the signal (the kit has none), a glyph, the name at the
+     dense step. A scene's row is the band, on the paper a step below the
+     Dialog's raised one, its name at 600; its shots indented under it. A
+     row the list already holds keeps its tick, greyed, its name in the third
+     ink (4.66:1 on the raised paper, 5.04 on the band), and says so. The
+     hover is a screen over whatever paper is under it, and lifts the quiet
+     ink, as the tables' rows do. */
+  .rb-scene-addfrom-bar { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+  .rb-scene-addfrom-from { display: flex; flex-direction: column; gap: 4px; flex: 0 0 280px; min-width: 0; }
+  .rb-scene-addfrom-search { position: relative; display: inline-flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+  .rb-scene-addfrom-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  .rb-scene-addfrom-search > .ui-input.rb-scene-addfrom-search-input { width: 100%; padding-left: 28px; padding-right: 28px; }
+  .rb-scene-addfrom-search-clear { position: absolute; right: 0; }
+  .rb-scene-addfrom-list {
+    max-height: 48vh;
+    overflow-y: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-scene-addfrom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--control-md);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+    cursor: pointer;
+  }
+  .rb-scene-addfrom-row:hover { background-image: linear-gradient(var(--color-hover), var(--color-hover)); }
+  .rb-scene-addfrom-scene { background-color: var(--color-paper); }
+  .rb-scene-addfrom-shot { padding-left: 36px; }
+  .rb-scene-addfrom-group:last-child > .rb-scene-addfrom-row:last-child { border-bottom: 0; }
+  .rb-scene-addfrom-row > input {
+    flex-shrink: 0;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    margin: 0;
+    accent-color: var(--color-signal);
+    cursor: inherit;
+  }
+  .rb-scene-addfrom-glyph { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-scene-addfrom-num {
+    flex-shrink: 0;
+    min-width: 32px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-scene-addfrom-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+  }
+  .rb-scene-addfrom-scene > .rb-scene-addfrom-name { font-weight: 600; }
+  .rb-scene-addfrom-row > .ui-status { flex-shrink: 0; }
+  .rb-scene-addfrom-note { flex-shrink: 0; font-size: var(--text-caption); color: var(--color-ink-3); }
+  .rb-scene-addfrom-row:hover > .rb-scene-addfrom-note,
+  .rb-scene-addfrom-row:hover > .rb-scene-addfrom-glyph { color: var(--color-ink-2); }
+  .rb-scene-addfrom-row[data-locked="true"] { cursor: default; }
+  .rb-scene-addfrom-row[data-locked="true"]:hover { background-image: none; }
+  .rb-scene-addfrom-row[data-locked="true"] > .rb-scene-addfrom-name { color: var(--color-ink-3); }
 
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's

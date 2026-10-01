@@ -27,6 +27,7 @@ import {
   undefinedProperties, readAwayFromSetter, colourLiterals, inlineStateTernaries, stateLeaks,
   cssCode, selectorsOf, spreadAttributes, paletteLeaks, variableAttributes, unmatchedValues,
   arrayValues, scriptedLeaks, declaredValue, withDeclaration, kitRing, ringInset,
+  specificity, gt,
 } from '../rabbitCssGuards.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -72,6 +73,13 @@ const FILES = {
   // …and New shot list / Save as… / Edit details.
   form: {
     file: './scenes/ShotListForm.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
+  // …and Add from another list… (step 6).
+  addFrom: {
+    file: './scenes/AddFromListDialog.jsx',
     prefix: 'rb-scene-',
     min: 3000,
     staged: [],
@@ -472,6 +480,7 @@ const NEAR_MISSES = {
   bar: [],
   picker: [],
   form: [],
+  addFrom: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
@@ -651,6 +660,33 @@ describe('R2-07: the inset rings, the "+ takes" lift and the table scroller\'s s
     expect(top(headOnly).head && top(headOnly).px >= ring.reach).toBe(false)
     const noBottom = withDeclaration(sheet, SCROLLER, 'scroll-padding-bottom', null)
     expect(padding(declaredValue(noBottom, SCROLLER, 'scroll-padding-bottom')).px >= ring.reach).toBe(false)
+  })
+})
+
+/* ── 7f. S3b step 6: the card's shot-list menu, and Add from another list ──
+   CSS the mounted tests cannot see: the card's new menu button must read
+   over a picture as its delete does, and the Add-from rows must scroll in
+   their own well, tick in the signal, and grey what the list holds. */
+describe('S3b step 6: the card\'s shot-list menu over a picture; the Add-from rows', () => {
+  const FRAME_BTN = '.rb-scene-card .rb-scene-card-frame .rb-scene-card-acts > .ui-iconbtn'
+  it('every button over a frame — the delete and the shot-list menu — on the paper with the hairline, over the kit\'s hover, its own hover over that', () => {
+    expect([declaredValue(sheet, FRAME_BTN, 'background-color'), declaredValue(sheet, FRAME_BTN, 'border-color')]).toEqual(['var(--color-paper)', 'var(--color-rule)'])
+    expect(declaredValue(sheet, `${FRAME_BTN}:hover`, 'background-color')).toBe('var(--color-paper-raised)')
+    expect(gt(specificity(FRAME_BTN), specificity('.ui-iconbtn:hover:not(:disabled)'))).toBeGreaterThan(0)
+  })
+  const ROWS = [
+    ['.rb-scene-addfrom-list', 'overflow-y', 'auto'],
+    ['.rb-scene-addfrom-list', 'max-height', '48vh'],
+    ['.rb-scene-addfrom-row > input', 'accent-color', 'var(--color-signal)'],
+    ['.rb-scene-addfrom-row[data-locked="true"] > .rb-scene-addfrom-name', 'color', 'var(--color-ink-3)'],
+    ['.rb-scene-addfrom-row[data-locked="true"]:hover', 'background-image', 'none'],
+  ]
+  it('the rows scroll in their own well, so the footer stays in reach; a box ticks in the signal; a row the list holds is greyed and does not light on hover', () => {
+    for (const [sel, prop, value] of ROWS) expect(declaredValue(sheet, sel, prop), sel).toBe(value)
+  })
+  it('CONTROL: each reading fails on the sheet without its declaration', () => {
+    expect(declaredValue(withDeclaration(sheet, FRAME_BTN, 'background-color', null), FRAME_BTN, 'background-color')).toBe(null)
+    for (const [sel, prop] of ROWS) expect(declaredValue(withDeclaration(sheet, sel, prop, null), sel, prop), sel).toBe(null)
   })
 })
 
