@@ -106,7 +106,7 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye, Lock } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
@@ -117,10 +117,11 @@ import GatedAction from '../../permissions/GatedAction'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import FileEditor from './FileEditor'
+import { LEGAL_ADD_HINT, LEGAL_AT_ADD_REASON, LEGAL_LOCAL_NOTE, LEGAL_UNAVAILABLE } from '../../tools/rabbit_v0.1.0/fileTags'
 import FilePreviewDialog from './FilePreviewDialog'
 import { desktopBridge, diskSourceFor, downloadCloudFile, downloadName } from './fileActions'
 import {
-  Banner, Button, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
+  Banner, Button, Card, Dialog, EmptyState, IconButton, Input, Loading, Row, Select, Table,
   Tabs, Td, Th, Toolbar,
 } from '../../ui'
 // `type="search"` is deliberate: the field was a `<input type="search">` and
@@ -410,6 +411,70 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     }
   }, [uploadFile, projectId])
 
+  // ── Post-overhaul S4b: Add as Legal (Audrey, 2026-10-01) ─────────────────
+  // "its just the folder that is locked": a Legal file goes into the
+  // project's LEGAL folder WHEN IT IS ADDED, and only the people who see the
+  // project's money see it (can_access_project_money, migration 0088). So
+  // the control is drawn only for them (canSeeMoney) — a member or reviewer
+  // is not shown a door they cannot use — and nowhere else: not a tag chip
+  // (fileTags.tagSettable), not a menu, not a mode on Add files.
+  //
+  // The picker opens first; the confirmation comes AFTER it, naming the
+  // picked files and who will see them, at the one moment that cannot be
+  // taken back short of adding the file again (Cognitive Bias, Working
+  // Memory). Cancelling the picker shows nothing. Once confirmed it uploads
+  // exactly as Add files does — same refusal banner (Law of Similarity) —
+  // with `legal: true`, which the adapter files under LEGAL.
+  //
+  // Where the database lacks 0088 the control stays, greyed, with the reason
+  // (LEGAL_UNAVAILABLE): a manager learns why, instead of finding nothing.
+  const legalOffered = onTab && canSeeMoney
+  const [legalSupported, setLegalSupported] = useState(false)
+  useEffect(() => {
+    if (!legalOffered) { setLegalSupported(false); return undefined }
+    let off = false
+    const a = getAdapter?.()
+    if (typeof a?.supportsLegalFiles !== 'function') { setLegalSupported(false); return undefined }
+    Promise.resolve(a.supportsLegalFiles())
+      .then((v) => { if (!off) setLegalSupported(!!v) })
+      .catch(() => { if (!off) setLegalSupported(false) })
+    return () => { off = true }
+  }, [legalOffered, getAdapter, ctx?.adapterMode])
+  const legalAllowed = canWrite && legalSupported
+  const legalReason = !canWrite ? writeReason : LEGAL_UNAVAILABLE
+  const legalInputRef = useRef(null)
+  const [legalPicked, setLegalPicked] = useState(null) // { projectId, files } awaiting the confirm
+  const [legalUploading, setLegalUploading] = useState(false)
+  // Another project: a pick made for the last one is not offered for this one.
+  useEffect(() => { setLegalPicked(null) }, [projectId])
+  const clearLegalInput = useCallback(() => { if (legalInputRef.current) legalInputRef.current.value = '' }, [])
+  const handleLegalPick = useCallback((e) => {
+    const picked = Array.from(e.target.files || [])
+    if (picked.length === 0) return
+    setLegalPicked({ projectId, files: picked })
+  }, [projectId])
+  const cancelLegal = useCallback(() => {
+    setLegalPicked(null)
+    clearLegalInput()
+  }, [clearLegalInput])
+  const confirmLegal = useCallback(async () => {
+    const pick = legalPicked
+    setLegalPicked(null)
+    if (!pick || pick.projectId !== projectId || !legalAllowed) { clearLegalInput(); return }
+    const forProject = pick.projectId
+    setLegalUploading(true)
+    setUploadError('')
+    try {
+      for (const file of pick.files) await uploadFile?.(file, { type: 'project', legal: true })
+    } catch (err) {
+      if (projectNowRef.current === forProject) setUploadError(err?.message || 'Upload failed.')
+    } finally {
+      setLegalUploading(false)
+      clearLegalInput()
+    }
+  }, [legalPicked, projectId, legalAllowed, uploadFile, clearLegalInput])
+  const legalCount = legalPicked?.files.length ?? 0
+
   // The missing-files census (Session 14), moved with its banner. Local
   // Server only — where folders actually move; a bucket path does not drift,
   // so the cloud gets no false affordance. getAdapter is the provider's
@@ -676,6 +741,25 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                 File activity
               </Button>
             )}
+            {/* S4b: Add as Legal — only for the people who will see the
+                files; secondary, so Add files stays the one primary at the
+                right end (Von Restorff). Its hidden input sits AFTER Add
+                files' in the DOM. */}
+            {legalOffered && (
+              <GatedAction allowed={legalAllowed} reason={legalReason}>
+                <Button
+                  size="sm"
+                  Icon={Lock}
+                  onClick={() => { if (legalAllowed) legalInputRef.current?.click() }}
+                  loading={legalUploading}
+                  loadingLabel="Adding…"
+                  title={legalAllowed ? LEGAL_ADD_HINT : undefined}
+                  data-add-legal
+                >
+                  Add as Legal
+                </Button>
+              </GatedAction>
+            )}
             {onTab && (
               <GatedAction allowed={canWrite} reason={writeReason}>
                 <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="fx-file-input" tabIndex={-1} aria-hidden="true" />
@@ -691,6 +775,9 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                   Add files
                 </Button>
               </GatedAction>
+            )}
+            {legalOffered && legalAllowed && (
+              <input ref={legalInputRef} type="file" multiple onChange={handleLegalPick} className="fx-file-input" tabIndex={-1} aria-hidden="true" data-legal-input />
             )}
           </>
         )}
@@ -825,6 +912,31 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           onClose={() => setRelinkOpen(false)}
           onApplied={() => { refreshMissing(); setReloads(n => n + 1) }}
         />
+      )}
+      {legalPicked && legalPicked.projectId === projectId && (
+        <Dialog
+          title={legalCount === 1 ? 'Add this file as Legal?' : `Add these ${legalCount} files as Legal?`}
+          width="confirm"
+          dismissOnBackdrop
+          onClose={cancelLegal}
+          data-legal-confirm
+          footer={(
+            <>
+              <Button onClick={cancelLegal}>Cancel</Button>
+              <Button variant="primary" Icon={Lock} onClick={confirmLegal} data-legal-confirm-button>
+                {legalCount === 1 ? 'Add as Legal' : `Add ${legalCount} as Legal`}
+              </Button>
+            </>
+          )}
+        >
+          <ul className="fx-legal-names" data-legal-names>
+            {legalPicked.files.slice(0, 5).map((f, i) => <li key={`${i}:${f.name}`} title={f.name}>{f.name}</li>)}
+            {legalCount > 5 && <li className="fx-legal-more">and {legalCount - 5} more</li>}
+          </ul>
+          <p className="fx-legal-who" data-legal-who>{LEGAL_ADD_HINT}</p>
+          <p className="fx-legal-fixed">{LEGAL_AT_ADD_REASON} To change it later, add the file again.</p>
+          {noRoles && <p className="fx-legal-local" data-legal-local>{LEGAL_LOCAL_NOTE}</p>}
+        </Dialog>
       )}
       {auditOpen && selectedFile && (
         <FileAuditDrawer

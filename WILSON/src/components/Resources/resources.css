@@ -420,6 +420,42 @@
   /* The nine chips wrap as one group: 4px apart, so they read as one set. */
   .fx-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 
+  /* ── Add as Legal's confirmation (S4b) ─────────────────────────────────
+     The kit Dialog at `confirm` (400). The picked names first, in the mono
+     the table names files in, one per line and cut with an ellipsis rather
+     than wrapped (the whole name is the item's title); then who will see
+     them, in the second ink — the sentence the dialog exists to say — and
+     the line that it is fixed, in the third. Proximity: 4px inside the list,
+     12px between the three parts. */
+  .fx-legal-names {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .fx-legal-names li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-legal-names .fx-legal-more { font-family: inherit; color: var(--color-ink-3); }
+  .fx-legal-who {
+    margin: 0 0 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .fx-legal-fixed,
+  .fx-legal-local {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .fx-legal-local { margin-top: 8px; }
+
   /* ── The preview (FilePreviewDialog.jsx, S4a, E9) ──────────────────────
      The kit Dialog at `workbench` (960). A bar of two clusters — the walk
      (previous / next) at the left, the file's actions at the right, one

@@ -778,3 +778,284 @@ describe('the Files table: its dates (V2)', () => {
     expect(cells('hero-shot')[heads.indexOf('Created')].hasAttribute('title')).toBe(false)
   })
 })
+
+// ── Post-overhaul S4b: Add as Legal ─────────────────────────────────────────
+// Audrey, 2026-10-01: a Legal file is seen by "same as money files for now"
+// (workspace admins and the project's managers), and Legal is chosen when the
+// file is ADDED — "its just the folder that is locked". The one control: a
+// secondary "Add as Legal" beside Add files, drawn only for those people; the
+// picker first, then a confirmation naming the files and who will see them;
+// then each upload carries `legal: true`. Where the database lacks 0088 the
+// control is greyed with the reason.
+describe('Add as Legal (S4b)', () => {
+  const LEGAL_ADD_HINT = 'Only project managers and workspace admins will see these files.'
+  const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+  const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
+  const legalAdapter = (supported = true) => () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => supported })
+
+  afterEach(() => {
+    ctx.activeProjectId = 'p1'
+    ctx.getAdapter = REAL_ADAPTER
+    delete ctx.uploadFile
+    delete ctx.adapterMode
+    delete ctx.myProjectRole
+    delete ctx.projectIsStaffed
+    perms.role = 'admin'
+  })
+
+  const onTab = (projectId = 'p1') => render(<ProjectFilesExplorer projectId={projectId} showPicker={false} />)
+  const legalButton = () => screen.queryByRole('button', { name: /Add as Legal/ })
+  const legalInput = () => document.querySelector('[data-legal-input]')
+  const pick = (names) => fireEvent.change(legalInput(), {
+    target: { files: names.map(n => new File([n], n, { type: 'application/pdf' })) },
+  })
+  /** A cloud seat on the open project. */
+  const seat = (appRole, projectRole) => {
+    ctx.adapterMode = 'supabase'
+    perms.role = appRole
+    ctx.myProjectRole = projectRole
+    ctx.projectIsStaffed = true
+  }
+  const settle = () => new Promise(r => setTimeout(r, 0))
+
+  it('a project manager has it; picking files asks first, naming them and who will see them', async () => {
+    seat('member', 'manager')
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    const button = legalButton()
+    expect(button.getAttribute('title')).toBe(LEGAL_ADD_HINT)
+    // The button opens the picker (the hidden input) and nothing else.
+    const opened = vi.spyOn(legalInput(), 'click')
+    fireEvent.click(button)
+    expect(opened).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    pick(['release_A.pdf', 'nda.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add these 2 files as Legal?' })
+    expect([...dialog.querySelectorAll('[data-legal-names] li')].map(li => li.textContent)).toEqual(['release_A.pdf', 'nda.pdf'])
+    expect(within(dialog).getByText(LEGAL_ADD_HINT)).toBeTruthy()
+    expect(within(dialog).getByText('Legal is chosen when a file is added. To change it later, add the file again.')).toBeTruthy()
+    // Nothing is uploaded before the confirm.
+    expect(calls).toEqual([])
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 2 as Legal' }))
+    await waitFor(() => expect(calls).toEqual([
+      ['release_A.pdf', { type: 'project', legal: true }],
+      ['nda.pdf', { type: 'project', legal: true }],
+    ]))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('CONTROL: Add files beside it still uploads plain files, never `legal`', async () => {
+    seat('member', 'manager')
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    // The first file input in the page is Add files' (the Legal one sits after it).
+    const plain = document.querySelector('input[type="file"]')
+    expect(plain.hasAttribute('data-legal-input')).toBe(false)
+    fireEvent.change(plain, { target: { files: [new File(['a'], 'a.pdf')] } })
+    await waitFor(() => expect(calls).toEqual([['a.pdf', { type: 'project' }]]))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('one file: the singular title and button', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['release_A.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add this file as Legal?' })
+    expect(within(dialog).getByRole('button', { name: 'Add as Legal' })).toBeTruthy()
+  })
+
+  it('many files: five names, then how many more', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['1.pdf', '2.pdf', '3.pdf', '4.pdf', '5.pdf', '6.pdf', '7.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add these 7 files as Legal?' })
+    const items = [...dialog.querySelectorAll('[data-legal-names] li')].map(li => li.textContent)
+    expect(items).toEqual(['1.pdf', '2.pdf', '3.pdf', '4.pdf', '5.pdf', 'and 2 more'])
+    expect(within(dialog).getByRole('button', { name: 'Add 7 as Legal' })).toBeTruthy()
+  })
+
+  it('Cancel uploads nothing, and the same files can be picked again', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    // A browser fires no change for the same file picked twice unless the
+    // input is emptied; jsdom keeps a file input's value '' whatever happens,
+    // so the emptying is recorded at the setter (planted fault M5-12).
+    const emptied = []
+    Object.defineProperty(legalInput(), 'value', { configurable: true, get: () => '', set: (v) => { emptied.push(v) } })
+    pick(['nda.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add this file as Legal?' })
+    expect(emptied).toEqual([])
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(calls).toEqual([])
+    expect(emptied).toEqual([''])
+    pick(['nda.pdf'])
+    expect(await screen.findByRole('dialog', { name: 'Add this file as Legal?' })).toBeTruthy()
+  })
+
+  it('a confirmed upload empties the picker too', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    const emptied = []
+    Object.defineProperty(legalInput(), 'value', { configurable: true, get: () => '', set: (v) => { emptied.push(v) } })
+    pick(['nda.pdf'])
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Add as Legal' }))
+    await waitFor(() => expect(calls.length).toBe(1))
+    await waitFor(() => expect(emptied).toEqual(['']))
+  })
+
+  it('a refusal is READ on screen, in the same banner as Add files\'', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    ctx.uploadFile = async () => { throw new Error('Only project managers and workspace admins can add Legal files.') }
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['nda.pdf'])
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Add as Legal' }))
+    const banner = await screen.findByText('Only project managers and workspace admins can add Legal files.')
+    expect(banner.closest('[data-upload-error]')).toBeTruthy()
+  })
+
+  it('a member, a reviewer, and a workspace manager without a manager seat are not shown it at all', async () => {
+    for (const [appRole, projectRole] of [['member', 'member'], ['member', 'reviewer'], ['manager', 'member'], ['manager', null]]) {
+      seat(appRole, projectRole)
+      let probed = false
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { probed = true; return true } })
+      const { unmount } = onTab()
+      await screen.findByRole('tab', { name: 'Table' })
+      await settle()
+      expect(legalButton(), `${appRole}/${projectRole}`).toBeNull()
+      expect(legalInput(), `${appRole}/${projectRole}`).toBeNull()
+      expect(document.querySelector('[data-add-legal]'), `${appRole}/${projectRole}`).toBeNull()
+      // Not even asked: the page does not probe for a control it will not draw.
+      expect(probed, `${appRole}/${projectRole}`).toBe(false)
+      // CONTROL: Add files is still there for them (a member writes plain files).
+      expect(screen.getByRole('button', { name: /Add files/ })).toBeTruthy()
+      unmount()
+    }
+  })
+
+  it('CONTROL: a project manager and a workspace admin ARE shown it', async () => {
+    for (const [appRole, projectRole] of [['member', 'manager'], ['manager', 'manager'], ['admin', null], ['admin', 'member']]) {
+      seat(appRole, projectRole)
+      ctx.getAdapter = legalAdapter(true)
+      const { unmount } = onTab()
+      await waitFor(() => expect(legalInput(), `${appRole}/${projectRole}`).toBeTruthy())
+      expect(legalButton()).toBeTruthy()
+      unmount()
+    }
+  })
+
+  it('where the database lacks 0088 it is greyed, says why, and opens nothing', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(false)
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    const gate = legalButton().closest('[aria-disabled="true"]')
+    expect(gate?.getAttribute('title')).toBe(LEGAL_UNAVAILABLE)
+    expect(legalInput()).toBeNull()
+    fireEvent.click(legalButton())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('…and so does a backend with no Legal probe at all (fail closed)', async () => {
+    seat('admin', null)
+    ctx.getAdapter = REAL_ADAPTER
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(LEGAL_UNAVAILABLE)
+  })
+
+  it('a probe that throws is "not available", not "available"', async () => {
+    seat('admin', null)
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { throw new Error('network') } })
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(LEGAL_UNAVAILABLE)
+  })
+
+  it('a read-only backend greys it with the write reason first', async () => {
+    perms.role = 'admin'
+    ctx.adapterMode = 'google_drive'
+    ctx.getAdapter = legalAdapter(true)
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title')).toBe('This backend is read-only.')
+  })
+
+  it('on the Local Server it is there (no roles) and the confirm says Legal is a folder there, not a lock', async () => {
+    ctx.adapterMode = 'local_server'
+    perms.role = 'member'
+    ctx.getAdapter = legalAdapter(true)
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['nda.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add this file as Legal?' })
+    expect(within(dialog).getByText(LEGAL_LOCAL_NOTE)).toBeTruthy()
+  })
+
+  it('CONTROL: the cloud\'s confirm carries no Local Server note', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['nda.pdf'])
+    const dialog = await screen.findByRole('dialog', { name: 'Add this file as Legal?' })
+    expect(dialog.querySelector('[data-legal-local]')).toBeNull()
+  })
+
+  it('the Resources page never has it, even for an admin', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    render(<ProjectFilesExplorer />)
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton()).toBeNull()
+    expect(legalInput()).toBeNull()
+  })
+
+  it('a pick made on one project is not offered on the next, nor on coming back', async () => {
+    seat('admin', null)
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    const { rerender } = onTab('p1')
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['nda.pdf'])
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    ctx.activeProjectId = 'p2'
+    rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // Back on p1: the pick was dropped, not hidden (planted fault M5-19).
+    ctx.activeProjectId = 'p1'
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(calls).toEqual([])
+  })
+})

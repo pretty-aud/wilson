@@ -55,7 +55,7 @@ describe('the "Files" help page (E13)', () => {
   it('names the controls the explorer draws, by the explorer\'s own labels', () => {
     const text = page()
     const explorer = read('../../components/Resources/ProjectFilesExplorer.jsx')
-    for (const name of ['Add files', 'File activity', 'Preview', 'Download', 'Show in folder']) {
+    for (const name of ['Add files', 'Add as Legal', 'File activity', 'Preview', 'Download', 'Show in folder']) {
       expect(text, name).toContain(name)
       expect(explorer, `the explorer no longer says "${name}"`).toMatch(new RegExp(`>\\s*${name}\\s*<|title="${name}"`))
     }
