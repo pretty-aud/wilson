@@ -242,7 +242,10 @@ export default function Rabbit({ currentPage } = {}) {
             {activeView === 'assets'   && <ProjectAssetsView  />}
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}
-            {activeView === 'scenes'      && <ScenesView />}
+            {/* pageActive (post-overhaul S3b, S4a-07): Scenes' Ctrl+Z / Ctrl+Y
+                act only while R.A.B.B.I.T. is on screen, and its "Recently
+                removed" mark ends when the person leaves it. */}
+            {activeView === 'scenes'      && <ScenesView pageActive={currentPage === 'rabbit'} />}
             {activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}
             {activeView === 'levels'      && <LevelsView />}
             {activeView === 'experiences' && <ExperiencesView />}

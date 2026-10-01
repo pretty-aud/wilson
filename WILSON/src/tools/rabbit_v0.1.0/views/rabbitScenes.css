@@ -107,6 +107,51 @@
   .rb-scene-toolbar .ui-tabs > .ui-tab { padding: 0 6px; }
   .rb-scene-tool-group { display: inline-flex; align-items: center; gap: 4px; }
 
+  /* ═══ The shot-list bar (post-overhaul S3b, step 3; D7) ═══════════════════
+     The kit Toolbar between the tiles and the toolbar (views/scenes/
+     ShotListBar.jsx): the list on screen at its left, the verbs at its right.
+     The kit's right slot never gives way; the left one does, and in it only
+     the list's name: it truncates (the whole label, and its summary, in its
+     title) while the eyebrow, the badges and the notes keep their width. */
+  .rb-scene-lists > .ui-toolbar-slot:first-child { flex: 1 1 auto; }
+  /* "SHOT LIST": the Label step, the eyebrow's job (SectionTitle's), in the
+     third ink (5.04:1 on the paper). */
+  .rb-scene-lists-eyebrow {
+    flex-shrink: 0;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* "Title · v3": the H3 step, 600 in the ink — what the person is looking
+     at, the bar's first thing to read. No list to name ("No shot list yet",
+     "Not in any list"): 400 in the second ink. */
+  .rb-scene-lists-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .rb-scene-lists-name[data-tone="quiet"] { font-weight: 400; color: var(--color-ink-2); }
+  /* The list's state in words, at the Caption step: unsaved in the second
+     ink (worth reading), saved in the third. */
+  .rb-scene-lists-note {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+  }
+  .rb-scene-lists-note[data-state="saved"] { color: var(--color-ink-3); }
+  /* "Recently removed: Title · vN" with its Open and Restore. */
+  .rb-scene-lists-recent { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; }
+  .rb-scene-lists-recent-words { white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-2); }
+
   /* The two size triples (one shows at a time, as before): three kit
      IconButtons in one bordered group, the chosen one the kit's selected
      treatment — the signal tint and edge, never the orange fill (R3-18).

@@ -55,7 +55,18 @@ const FILES = {
     min: 3000,
     staged: [],
   },
+  // Post-overhaul S3b: the shot-list bar, between the tiles and the toolbar.
+  bar: {
+    file: './scenes/ShotListBar.jsx',
+    prefix: 'rb-scene-',
+    min: 2000,
+    staged: [],
+  },
 }
+/** S3b's shot-list files that write NO lane class (each draws only kit
+    components): the class checks above have nothing to read in them, so
+    they get the leak checks alone (section 7e). */
+const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx']
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. The file
     writes none: every size is the sheet's, keyed on `data-thumb` (the
@@ -444,6 +455,7 @@ const NEAR_MISSES = {
   // S3b: the gate's destructure gained the shot-list seats; it is still a
   // renaming destructure, the `{ style: s } =` spelling's near miss.
   scenes: ['width="confirm"', 'onConfirm={', 'setConfirmBulk(', '<ConfirmDialog', 'data-width="confirm"', 'const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()'],
+  bar: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
@@ -462,6 +474,38 @@ describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches 
       const plant = (text) => `${whole.slice(0, at)}${text} ${whole.slice(at)}`
       for (const [text, caught] of PLANTED) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([caught].flat())
       for (const text of READS) expect(scriptedLeaks(plant(text), SCRIPTED[key]), `${file}: ${text}`).toEqual([])
+    }
+  })
+})
+
+/* ── 7e. S3b's shot-list files that write no lane class ─────────────────────
+   ShotLists.jsx (the container) and ListConfirm.jsx (its questions) draw
+   only kit components. The class checks have nothing to read in them; the
+   leak checks do: no style written inline or from script, no palette
+   utility, no confirm(, no state in a className — and no lane class either,
+   or the file belongs in FILES, where its classes are checked. */
+describe('S3b: the shot-list files that draw only kit components leak nothing', () => {
+  for (const file of PLAIN) {
+    it(`${file}: no lane class, no style, no state in a className, no palette utility, no scripted style or confirm`, () => {
+      const src = read(file)
+      expect(src.length, file).toBeGreaterThan(1000)
+      expect([...classesWritten(jsCode(src), LANE)], file).toEqual([])
+      expect(inlineStateTernaries(src), file).toEqual([])
+      expect(stateLeaks(src, [], []), file).toEqual([])
+      expect(paletteLeaks(src), file).toEqual([])
+      expect(scriptedLeaks(src), file).toEqual([])
+    })
+  }
+  it('CONTROL: in each, a planted inline colour, a palette utility, a lane class and a confirm( are each caught', () => {
+    for (const file of PLAIN) {
+      const src = read(file)
+      const at = src.indexOf('return ')
+      expect(at, file).toBeGreaterThan(0)
+      const plant = (text) => `${src.slice(0, at)}${text}\n${src.slice(at)}`
+      expect(stateLeaks(plant("const x = <b style={{ color: '#fb923c' }} />"), [], []).length, file).toBeGreaterThan(0)
+      expect(paletteLeaks(plant('const x = <b className="text-stone-400" />')), file).toEqual(['text-stone-400'])
+      expect([...classesWritten(jsCode(plant('const x = <b className="rb-scene-x" />')), LANE)], file).toEqual(['rb-scene-x'])
+      expect(scriptedLeaks(plant("if (!window.confirm('Sure?')) return")), file).toEqual(['confirm: window.confirm'])
     }
   })
 })

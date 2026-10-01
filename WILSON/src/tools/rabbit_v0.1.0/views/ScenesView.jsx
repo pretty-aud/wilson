@@ -45,6 +45,7 @@ import { useRabbit } from '../state/RabbitProvider'
 // Post-overhaul S3b: the list the tab is viewing (D2), and who is viewing it.
 import { usePermissions } from '../../../permissions/usePermissions'
 import { useViewedShotList } from './scenes/useViewedShotList'
+import ShotLists from './scenes/ShotLists'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -380,6 +381,21 @@ export default function ScenesView({ pageActive = false } = {}) {
   // 🚨 ctx through a ref: its identity changes on every provider update.
   const ctxRef = useRef(ctx)
   ctxRef.current = ctx
+  // S3a's "Recently removed" mark lasts while the person stays here (Audrey,
+  // 2026-09-30, confirmed 2026-10-01): it ends when the tab mounts (a Ctrl+Z
+  // on another tab is not "right after"), when it unmounts, and when
+  // R.A.B.B.I.T. stops being the page shown (pageActive, Rabbit.jsx's
+  // `currentPage === 'rabbit'`; every page stays mounted).
+  useEffect(() => {
+    ctxRef.current?.clearRecentlyWithdrawn?.()
+    return () => ctxRef.current?.clearRecentlyWithdrawn?.()
+  }, [])
+  useEffect(() => {
+    if (!pageActive) ctxRef.current?.clearRecentlyWithdrawn?.()
+  }, [pageActive])
+  // The shot lists' one place to say what was refused (ShotLists' Banner):
+  // the bar's verbs, a row's list verbs, and ctx.error.
+  const [listError, setListError] = useState(null)
   useEffect(() => {
     const c = ctxRef.current
     if (!supportsBins || !project?.id || c?.binsInfo?.loadedFor === project.id) return
@@ -634,7 +650,7 @@ export default function ScenesView({ pageActive = false } = {}) {
   const moveInList = useCallback(async (kind, id, dir, visibleIds) => {
     const next = moveTarget(kind, id, dir, visibleIds)
     if (!next) return
-    try { await ctx?.reorderShotListItems?.(viewed.id, next) } catch (err) { console.error('Failed to move:', err) }
+    try { await ctx?.reorderShotListItems?.(viewed.id, next) } catch (err) { setListError(err?.message || String(err)) }
   }, [ctx, moveTarget, viewed.id])
 
   // A row's shot-list verbs, for its More menu (RowMore): null when none
@@ -893,6 +909,23 @@ export default function ScenesView({ pageActive = false } = {}) {
         <BigTile label="Scenes" value={grandTotals.scenes} />
         <BigTile label="Shots" value={grandTotals.shots} />
       </div>
+
+      {/* ── The shot-list bar (post-overhaul S3b, D7): a new row between the
+          tiles and the toolbar — what you are viewing, and its verbs; the
+          toolbar below is unchanged. ── */}
+      <ShotLists
+        ctx={ctx}
+        viewed={viewed}
+        gate={{
+          write: canListWrite,
+          writeReason: reasonFor('project.shotlist.write'),
+          activate: canListActivate,
+          activateReason: reasonFor('project.shotlist.activate'),
+        }}
+        userId={userId}
+        error={listError}
+        onError={setListError}
+      />
 
       {/* ── Toolbar: the kit's, the same sixteen controls in the same order
           at the 28px height (C1). One row at 1440, as it was; narrower, its

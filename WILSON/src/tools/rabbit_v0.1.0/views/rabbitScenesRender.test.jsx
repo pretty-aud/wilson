@@ -26,7 +26,9 @@ import { VIEWED_LISTS_KEY } from './scenes/useViewedShotList'
 import {
   backfillItems, activeShotListOf, activeScenesOf, activeShotsOf, scenesOfList, shotsOfList,
   listsContainingOf, unlistedScenesOf, unlistedShotsOf, nextShotListVersion, formatShotListLabel, isWithdrawn,
+  buildShotListSnapshot,
 } from '../state/shotListModel'
+import { showDate } from '../dates'
 
 // ScenesView's module graph reaches the cloud client and the permission hook
 // at import.
@@ -1639,5 +1641,226 @@ describe('S3b step 2: the list on screen', () => {
     expect(screen.queryByRole('button', { name: 'Shot list actions for Harbour café' })).toBeNull()
     // …and it is never a neighbour: Lighthouse has nothing to move past.
     expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', true]])
+  })
+})
+
+/* ── post-overhaul S3b, step 3: the list bar (D7) ───────────────────────────
+   One row between the tiles and the toolbar: what you are viewing on the
+   left, the verbs on the right in the brief's order. */
+const bar = () => document.querySelector('.ui-toolbar.rb-scene-lists')
+/** The bar's controls, by name, in order (a greyed one by its own words). */
+const barControls = () => [...bar().querySelectorAll('button')].map((b) => b.getAttribute('title') || b.textContent.trim())
+/** The GatedAction wrapper a greyed control sits in, or null when it is live. */
+const greyed = (words) => within(bar()).getByText(words).closest('[aria-disabled="true"]')
+const barMenu = () => {
+  fireEvent.click(within(bar()).getByRole('button', { name: 'More shot list actions' }))
+  return [...document.querySelectorAll('.ui-menu .ui-menu-item')].map((b) => [b.querySelector('.ui-menu-item-label').textContent, b.disabled])
+}
+/** A seat on a staffed project (D8), not a workspace admin. */
+const seat = (projectRole) => {
+  perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
+  return { myProjectRole: projectRole, projectIsStaffed: true }
+}
+/** The snapshot a Save of `listId` would write now (S3a's own builder). */
+const savedNow = (data, listId, savedAt = '2026-09-30T15:00:00.000Z') => buildShotListSnapshot({
+  list: data.shotLists.find((l) => l.id === listId), scenes: data.scenes, shots: data.shots, items: data.shotListItems, savedAt,
+})
+
+describe('S3b step 3: the list bar', () => {
+  it('sits between the tiles and the toolbar on the kit Toolbar, named "Shot list": the list on screen, its Active badge and its state; the brief\'s verbs in her order', () => {
+    page()
+    const b = bar()
+    expect(b.previousElementSibling.classList.contains('rb-scene-stats')).toBe(true)
+    expect(b.nextElementSibling.classList.contains('rb-scene-toolbar')).toBe(true)
+    expect([b.getAttribute('role'), b.getAttribute('aria-label')]).toEqual(['group', 'Shot list'])
+    expect(b.querySelector('.rb-scene-lists-eyebrow').textContent).toBe('Shot list')
+    expect(b.querySelector('.rb-scene-lists-name').textContent).toBe('Shot list 1 · v1')
+    // The summary on hover.
+    expect(b.querySelector('.rb-scene-lists-name').getAttribute('title')).toBe('Created from existing scenes')
+    expect(b.querySelector('.ui-status').getAttribute('data-status')).toBe('active')
+    expect(b.querySelector('.rb-scene-lists-note').textContent).toBe('Never saved')
+    // Set active is hidden on the active list; no button on the bar is filled.
+    expect(barControls()).toEqual(['New shot list', 'Shot lists…', 'Save', 'Save as…', 'More shot list actions'])
+    expect([...b.querySelectorAll('.ui-btn')].map((x) => x.getAttribute('data-variant'))).toEqual(['secondary', 'secondary', 'ghost', 'ghost'])
+  })
+
+  it('beside a list that is not the active one: no badge, "Active: Shoot · v1" shows that list, and Set active is offered', () => {
+    remember('list-b')
+    page(TWO_LISTS())
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(bar().querySelector('.ui-status')).toBeNull()
+    expect(barControls()).toEqual(['Show the active list', 'New shot list', 'Shot lists…', 'Save', 'Save as…', 'Set active', 'More shot list actions'])
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Active: Shoot · v1' }))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    // …and remembered: the next visit opens it.
+    expect(JSON.parse(localStorage.getItem(VIEWED_LISTS_KEY))).toEqual({ 'local|p1': 'list-a' })
+  })
+
+  it('says whether the list has changed since its last Save — on the content, whatever order the stored keys came back in', () => {
+    const two = TWO_LISTS()
+    const snap = savedNow(two, 'list-a')
+    // jsonb hands the keys back in its own order: reversed here.
+    const reversed = JSON.parse(JSON.stringify(snap, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).reverse()) : v)))
+    const saved = { ...two, shotLists: two.shotLists.map((l) => (l.id === 'list-a' ? { ...l, snapshot: reversed } : l)) }
+    page(saved)
+    expect(bar().querySelector('.rb-scene-lists-note').textContent).toBe(`Saved ${showDate('2026-09-30T15:00:00.000Z')}`)
+    expect(bar().querySelector('.rb-scene-lists-note').getAttribute('data-state')).toBe('saved')
+    // Saving an unchanged list would record the same point: greyed, and why.
+    expect(greyed('Save').getAttribute('title')).toBe(`Nothing has changed since it was saved on ${showDate('2026-09-30T15:00:00.000Z')}.`)
+    cleanup()
+    // A shot renamed since (D3: the row is shared, so the list changed).
+    page({ ...saved, shots: saved.shots.map((s) => (s.id === 'sh1' ? { ...s, name: 'The door, wide' } : s)) })
+    expect(bar().querySelector('.rb-scene-lists-note').textContent).toBe('Not saved since changes')
+    expect(greyed('Save')).toBeNull()
+  })
+
+  it('Save records a version point of the list on screen; a refusal is said in the Banner under the bar, word for word', async () => {
+    const refusal = 'this shot list is archived — restore it before changing it'
+    const { ctx } = page({ saveShotListSnapshot: vi.fn().mockResolvedValueOnce({ id: 'list-1' }).mockRejectedValueOnce(new Error(refusal)) })
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(ctx.saveShotListSnapshot).toHaveBeenCalledWith('list-1'))
+    expect(document.querySelector('.ui-banner')).toBeNull()
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save' }))
+    const banner = await screen.findByRole('alert')
+    expect([banner.classList.contains('ui-banner'), banner.getAttribute('data-tone'), banner.textContent]).toEqual([true, 'danger', refusal])
+    expect(bar().nextElementSibling).toBe(banner)
+    fireEvent.click(within(banner).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('Set active asks first, Cancel focused — what every other tab will show — and only then makes the list active; a refusal stays in the question', async () => {
+    remember('list-b')
+    const refusal = 'only a project manager or a workspace admin can change the active shot list'
+    const { ctx, rerender } = page({ ...TWO_LISTS(), setActiveShotList: vi.fn().mockRejectedValueOnce(new Error(refusal)).mockResolvedValue('list-b') })
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Set active' }))
+    let dialog = screen.getByRole('dialog', { name: 'Make this the active list?' })
+    expect(dialog.getAttribute('data-width')).toBe('confirm')
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(document.activeElement.textContent).toBe('Cancel')
+    expect(dialog.textContent).toContain('“Pickups · v1” becomes the list the Timeline, Budget, Tasks, Assets, Bins and every other tab show.')
+    expect(dialog.textContent).toContain('“Shoot · v1” is not changed, and can be made active again.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(ctx.setActiveShotList).not.toHaveBeenCalled()
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Set active' }))
+    dialog = screen.getByRole('dialog', { name: 'Make this the active list?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make active' }))
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toBe(refusal))
+    expect(screen.getByRole('dialog', { name: 'Make this the active list?' })).toBe(dialog)
+    // The provider puts a backend refusal in ctx.error too (optimistic()):
+    // said in the question, it is not said again in the Banner.
+    rabbit.current = { ...ctx, error: refusal }
+    rerender(<ScenesView pageActive />)
+    expect(document.querySelector('.ui-banner')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make active' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(ctx.setActiveShotList.mock.calls).toEqual([['list-b'], ['list-b']])
+  })
+
+  it('a member writes lists but may not make one active or archive it: both are greyed with the reason (D8); a reviewer the same', () => {
+    for (const role of ['member', 'reviewer']) {
+      // Their own memory: the seat signs in as u-1.
+      remember('list-b', 'u-1')
+      page({ ...TWO_LISTS(), ...seat(role) })
+      expect(greyed('New shot list'), role).toBeNull()
+      expect(greyed('Save as…'), role).toBeNull()
+      expect(greyed('Set active').getAttribute('title'), role).toBe('Only a project manager or a workspace admin can make a shot list active or archive one.')
+      expect(barMenu().find(([w]) => w === 'Archive…'), role).toEqual(['Archive…', true])
+      cleanup()
+      localStorage.clear()
+    }
+  })
+
+  it('the More menu: Clear only on a list never Saved, Withdraw only where S3a says this person may, Archive for a manager — each asks first', async () => {
+    remember('list-b')
+    const { ctx } = page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
+    expect(barMenu()).toEqual([['Clear this list…', false], ['Withdraw…', false], ['Archive…', false]])
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list…'))
+    let dialog = screen.getByRole('dialog', { name: 'Clear this list?' })
+    expect(dialog.textContent).toContain('Takes 2 scenes and 2 shots out of “Pickups · v1”. Nothing is deleted: each stays in the project and in any other list that holds it.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear list' }))
+    await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-b', { sceneIds: ['sc1', 'sc3'], shotIds: ['sh4', 'sh3'] }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    barMenu()
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw…'))
+    dialog = screen.getByRole('dialog', { name: 'Withdraw this list?' })
+    expect(document.activeElement.textContent).toBe('Cancel')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }))
+    await waitFor(() => expect(ctx.withdrawShotList).toHaveBeenCalledWith('list-b'))
+    barMenu()
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Archive…'))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive this list?' })).getByRole('button', { name: 'Archive' }))
+    await waitFor(() => expect(ctx.archiveShotList).toHaveBeenCalledWith('list-b', true))
+    cleanup()
+    localStorage.clear()
+    // Saved: never cleared (D4). The active list: never archived, nor withdrawn.
+    const two = TWO_LISTS()
+    page({ ...two, shotLists: two.shotLists.map((l) => (l.id === 'list-a' ? { ...l, snapshot: savedNow(two, 'list-a') } : l)) })
+    expect(within(bar()).queryByRole('button', { name: 'More shot list actions' })).toBeNull()
+  })
+
+  it('"Recently removed": the list this person withdrew, with Open (read-only, "Withdrawn") and Restore; the mark ends when the tab mounts, unmounts, or R.A.B.B.I.T. leaves the screen', async () => {
+    const two = TWO_LISTS()
+    const withdrawn = { ...two.shotLists[1], created_by: 'u-1', archived_by: 'u-1', archived_at: '2026-10-01T09:00:00Z' }
+    const recent = { kind: 'shot_list', id: 'list-b', row: withdrawn }
+    const { ctx, rerender } = page({ ...two, shotLists: [two.shotLists[0], withdrawn], recentlyWithdrawn: recent, isWithdrawn: (r) => r.archived_by === r.created_by })
+    expect(ctx.clearRecentlyWithdrawn).toHaveBeenCalledTimes(1)
+    const line = bar().querySelector('.rb-scene-lists-recent')
+    expect(line.querySelector('.rb-scene-lists-recent-words').textContent).toBe('Recently removed: Pickups · v1')
+    fireEvent.click(within(line).getByRole('button', { name: 'Open' }))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(bar().querySelector('.ui-status').textContent).toBe('Withdrawn')
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    // Read-only: no Save, no Set active; Save as… may start a new list from
+    // it, and the More menu restores it. The mark's line is still there.
+    expect(barControls()).toEqual(['Open', 'Restore', 'New shot list', 'Shot lists…', 'Save as…', 'More shot list actions'])
+    fireEvent.click(within(line).getByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(ctx.restoreWithdrawn).toHaveBeenCalledTimes(1))
+    // R.A.B.B.I.T. leaves the screen; then the tab unmounts.
+    rerender(<ScenesView pageActive={false} />)
+    expect(ctx.clearRecentlyWithdrawn).toHaveBeenCalledTimes(2)
+    cleanup()
+    expect(ctx.clearRecentlyWithdrawn).toHaveBeenCalledTimes(3)
+  })
+
+  it('an archived list on screen offers Restore by the seat\'s own route: a manager archives it back, its maker restores what they withdrew', async () => {
+    const two = TWO_LISTS()
+    const withdrawn = { ...two.shotLists[1], created_by: 'u-1', archived_by: 'u-1', archived_at: '2026-10-01T09:00:00Z' }
+    const data = { ...two, shotLists: [two.shotLists[0], withdrawn], recentlyWithdrawn: { kind: 'shot_list', id: 'list-b', row: withdrawn } }
+    let { ctx } = page(data)
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Open' }))
+    expect(barMenu()).toEqual([['Restore', false]])
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Restore'))
+    await waitFor(() => expect(ctx.archiveShotList).toHaveBeenCalledWith('list-b', false))
+    cleanup()
+    ;({ ctx } = page({ ...data, ...seat('member'), adapterMode: 'supabase' }))
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Open' }))
+    fireEvent.click(within(bar()).getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Restore'))
+    await waitFor(() => expect(ctx.restoreWithdrawn).toHaveBeenCalledWith({ kind: 'shot_list', id: 'list-b' }))
+    expect(ctx.archiveShotList).not.toHaveBeenCalled()
+    cleanup()
+    // Someone else's: nothing to offer this member.
+    page({ ...data, ...seat('member'), adapterMode: 'supabase', shotLists: [two.shotLists[0], { ...withdrawn, created_by: 'u-9', archived_by: 'u-9' }] })
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Open' }))
+    expect(within(bar()).queryByRole('button', { name: 'More shot list actions' })).toBeNull()
+  })
+
+  it('ctx.error that arrives while the tab is open is said in the Banner; the one it held before it opened is not', () => {
+    const { ctx, rerender } = page({ error: 'an older failure on the Timeline' })
+    expect(screen.queryByRole('alert')).toBeNull()
+    rabbit.current = { ...ctx, error: 'you cannot change this shot list' }
+    rerender(<ScenesView pageActive />)
+    expect(screen.getByRole('alert').textContent).toBe('you cannot change this shot list')
+  })
+
+  it('a project with no list at all reads as today: every scene and shot, "No shot list yet", and only New shot list and Shot lists… on the bar', () => {
+    page({ shotLists: [], shotListItems: [], activeListId: null })
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('No shot list yet')
+    expect(bar().querySelector('.rb-scene-lists-name').getAttribute('data-tone')).toBe('quiet')
+    expect(barControls()).toEqual(['New shot list', 'Shot lists…'])
+    expect(screen.getByRole('combobox', { name: 'Sort' }).selectedOptions[0].textContent).toBe('Sort…')
+    expect(screen.queryByRole('button', { name: /^Shot list actions for/ })).toBeNull()
   })
 })
