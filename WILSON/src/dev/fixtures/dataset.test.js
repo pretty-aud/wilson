@@ -32,7 +32,7 @@ import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS, EXPENSES, PROJECT_RATE_OVERRIDES,
 } from './data/money'
 import { NOTES, NOTE_SUBJECTS } from './data/notes'
-import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS } from './data/otter'
+import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS, CODING_COURSE, CODING_SUBJECTS } from './data/otter'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const ids = (rows) => new Set(rows.map((r) => r.id))
@@ -453,6 +453,20 @@ describe('the O.T.T.E.R. course', () => {
     }
     expect(QUIZ_ATTEMPTS.length).toBe(2)
   })
+
+  it('S2b: the C# course — a coding language, a function library with parameters and returns, one subject and one stub', () => {
+    expect(CODING_COURSE.course_type).toBe('coding_language')
+    expect(CODING_SUBJECTS.every((s) => s.course_id === CODING_COURSE.id)).toBe(true)
+    expect(CODING_SUBJECTS.map((s) => [s.subject_order, s.is_stub])).toEqual([[0, false], [1, true]])
+    const [full, stub] = CODING_SUBJECTS
+    for (const sec of full.sections) for (const l of sec.lessons) expect(l.content.length).toBeGreaterThan(40)
+    expect(stub.sections).toEqual([])
+    expect(stub.section_outlines.length).toBeGreaterThan(0)
+    for (const c of CODING_COURSE.functions.categories) {
+      expect(typeof c.category).toBe('string')
+      for (const f of c.functions) expect(Object.keys(f)).toEqual(['name', 'syntax', 'parameters', 'returns', 'description', 'example'])
+    }
+  })
 })
 
 describe('ids', () => {
@@ -463,7 +477,7 @@ describe('ids', () => {
       ...SHOT_TAKES, ...SHOT_LISTS, ...SHOT_LIST_ITEMS, ...EDITS,
       ...FOLDERS, ...FILES, ...FILE_EVENTS, ...RATE_CARDS, ...RATE_CARD_ENTRIES, ...BUDGET_LINES,
       ...BUDGET_ACTUALS, ...BUDGET_VERSIONS, ...EXPENSES, ...PROJECT_RATE_OVERRIDES, ...NOTES, ...NOTE_SUBJECTS,
-      COURSE, ...SUBJECTS, ...QUIZ_ATTEMPTS, PROJECT,
+      COURSE, ...SUBJECTS, ...QUIZ_ATTEMPTS, PROJECT, CODING_COURSE, ...CODING_SUBJECTS,
     ].map((r) => r.id).concat(MEMBERS.map((m) => m.user_id))
     expect(all.length).toBeGreaterThan(250)
     expect(new Set(all).size).toBe(all.length)
