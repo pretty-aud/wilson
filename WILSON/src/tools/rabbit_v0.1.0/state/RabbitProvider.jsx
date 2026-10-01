@@ -87,6 +87,7 @@ import {
   buildEditSnapshot,
   shotListWithdrawRefusal,
   editWithdrawRefusal,
+  withdrawnRestoreRefusal,
   isWithdrawn,
 } from './shotListModel';
 
@@ -253,7 +254,22 @@ export function RabbitProvider({ children }) {
     }
   }, []);
 
-  const undo = useCallback(async () => {
+  // Undo, redo and the toast's targeted undo run ONE AT A TIME (review R1 of
+  // 0086). Two quick Ctrl+Z presses used to run their ops concurrently: the
+  // second (taking back "New list") checked the list while the first (taking
+  // back "New edit" on it) was still in flight, was refused for a reason that
+  // was about to stop being true, and its entry still moved to the redo
+  // stack — the list could never be taken back by Ctrl+Z again. It is also
+  // the "two un-awaited Ctrl+Z presses push a spurious entry" limit S3a
+  // recorded. A press while one is running now waits its turn.
+  const historyQueueRef = useRef(Promise.resolve());
+  function inHistoryQueue(fn) {
+    const run = historyQueueRef.current.then(fn, fn);
+    historyQueueRef.current = run.catch(() => {});
+    return run;
+  }
+
+  const undo = useCallback(() => inHistoryQueue(async () => {
     if (historyRef.current.undo.length === 0) return;
     const entry = historyRef.current.undo.pop();
     historyRef.current.suspended = true;
@@ -267,9 +283,9 @@ export function RabbitProvider({ children }) {
     historyRef.current.redo.push(entry);
     if (historyRef.current.redo.length > HISTORY_CAP) historyRef.current.redo.shift();
     setHistoryVersion(v => v + 1);
-  }, []);
+  }), []);
 
-  const redo = useCallback(async () => {
+  const redo = useCallback(() => inHistoryQueue(async () => {
     if (historyRef.current.redo.length === 0) return;
     const entry = historyRef.current.redo.pop();
     historyRef.current.suspended = true;
@@ -283,13 +299,13 @@ export function RabbitProvider({ children }) {
     historyRef.current.undo.push(entry);
     if (historyRef.current.undo.length > HISTORY_CAP) historyRef.current.undo.shift();
     setHistoryVersion(v => v + 1);
-  }, []);
+  }), []);
 
   // Targeted undo — used by the undo toast so a toast click and a
   // Ctrl+Z can't double-fire the same entry. If the entry is still in
   // the undo stack, remove it and run its undoOps; if it has already
   // been undone (or aged past HISTORY_CAP), no-op.
-  const undoHistoryEntry = useCallback(async (token) => {
+  const undoHistoryEntry = useCallback((token) => inHistoryQueue(async () => {
     if (token == null) return;
     const idx = historyRef.current.undo.findIndex(e => e.token === token);
     if (idx === -1) return;
@@ -310,7 +326,7 @@ export function RabbitProvider({ children }) {
     historyRef.current.redo.push(entry);
     if (historyRef.current.redo.length > HISTORY_CAP) historyRef.current.redo.shift();
     setHistoryVersion(v => v + 1);
-  }, []);
+  }), []);
 
   const clearHistory = useCallback(() => {
     // Preserve `suspended`: clearHistory can fire (remote project trash,
@@ -443,6 +459,7 @@ export function RabbitProvider({ children }) {
             setProjectsIndex({});
             setBundle(EMPTY_BUNDLE);
             setActiveProjectIdState(null);
+            setAuthUserId(null);
           }
         } catch (err) {
           setAdapterStatus({ online: false, lastSyncAt: null, error: err.message || String(err) });
@@ -561,13 +578,19 @@ export function RabbitProvider({ children }) {
     try {
       // The signed-in auth uid rides along so myProjectRole can be
       // derived — same shared-session read the other cloud code uses.
-      const [{ data: sess }, rows] = await Promise.all([
+      // allSettled (review R1 of 0086): a failed roster read must not leave
+      // the user unknown — the withdraw maker test reads authUserId too.
+      const [sessRes, rowsRes] = await Promise.allSettled([
         sharedAuthedClient.auth.getSession(),
         adapterRef.current.listProjectMembers(activeProjectId),
       ]);
       if (!rosterMountedRef.current || seq !== rosterReqSeqRef.current) return;
-      // Dev fixtures (dev builds only): there is no session; the reviewer's id is the dataset's.
-      setAuthUserId(sess?.session?.user?.id ?? (import.meta.env.DEV ? (devFixtures()?.permissions?.userId ?? null) : null));
+      if (sessRes.status === 'fulfilled') {
+        const sess = sessRes.value?.data;
+        // Dev fixtures (dev builds only): there is no session; the reviewer's id is the dataset's.
+        setAuthUserId(sess?.session?.user?.id ?? (import.meta.env.DEV ? (devFixtures()?.permissions?.userId ?? null) : null));
+      }
+      const rows = rowsRes.status === 'fulfilled' ? rowsRes.value : null;
       setProjectMembers(Array.isArray(rows) ? rows : []);
     } catch {
       if (rosterMountedRef.current && seq === rosterReqSeqRef.current) setProjectMembers([]);
@@ -1602,7 +1625,7 @@ export function RabbitProvider({ children }) {
   //   D6       an edit is one step of ONE linear chain per list.
   //   D8       set active and archive are a project manager's or a workspace
   //            admin's (the database refuses anyone else; the Local Server has
-  //            no roles, so there it is a label). 0085: a row's MAKER may also
+  //            no roles, so there it is a label). 0086: a row's MAKER may also
   //            WITHDRAW it (archive it) while it is untouched — withdrawShotList
   //            / withdrawEdit below.
   //
@@ -1622,10 +1645,11 @@ export function RabbitProvider({ children }) {
   // only the moved rows' positions are put back.
   //
   // Creating a list or an edit cannot be undone by deleting it (nothing is
-  // ever deleted): its undo WITHDRAWS it (0085, Audrey 2026-09-30) — the
+  // ever deleted): its undo WITHDRAWS it (0086, Audrey 2026-09-30) — the
   // maker sets the new row aside while it is untouched, which the database
-  // allows the maker whatever their seat, so a member's Ctrl+Z works too and
-  // nobody needs { undoable: false } for it any more. Right after, the row is
+  // allows the maker while they may still write shot lists there (any seat
+  // that writes lists, reviewers included), so a member's Ctrl+Z works too
+  // and nobody needs { undoable: false } for it any more. Right after, the row is
   // ctx.recentlyWithdrawn ("Recently removed": openable, restorable) until
   // the Scenes tab calls clearRecentlyWithdrawn(). See "Withdraw" below.
   //
@@ -1664,11 +1688,16 @@ export function RabbitProvider({ children }) {
   function putRow(key, row, pid) {
     if (!row || !row.id) return;
     if (pid && activeProjectIdRef.current !== pid) return;
-    setBundle(prev => {
-      const arr = prev[key] || [];
+    const merge = (b) => {
+      const arr = b[key] || [];
       const i = arr.findIndex(r => r.id === row.id);
-      return { ...prev, [key]: i < 0 ? [...arr, row] : arr.map(r => (r.id === row.id ? row : r)) };
-    });
+      return { ...b, [key]: i < 0 ? [...arr, row] : arr.map(r => (r.id === row.id ? row : r)) };
+    };
+    setBundle(prev => merge(prev));
+    // bundleRef trails setBundle by a render; the next step of the same flow
+    // (Ctrl+Z taking back "New list" right after "New edit") must see this
+    // row now (review R1 of 0086), as refreshShotListsNow already does.
+    bundleRef.current = merge(bundleRef.current);
   }
 
   // Re-read the three collections from the backend (after a refused or
@@ -1887,7 +1916,7 @@ export function RabbitProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundle.project?.active_shot_list_id, bundle.shotLists]);
 
-  // ── Withdraw (0085, Audrey 2026-09-30) ────────────────────────────────
+  // ── Withdraw (0086, Audrey 2026-09-30) ────────────────────────────────
   //
   // "allow users to view their most recently deleted list. only right after
   // they deleted." Her rulings, from the options put to her:
@@ -1900,17 +1929,23 @@ export function RabbitProvider({ children }) {
   //     continuing) it, not the active list. shotListModel's
   //     shotListWithdrawRefusal / editWithdrawRefusal refuse in the
   //     database's words before any write, on every backend; the cloud
-  //     refuses the same things behind them (0085's maker path).
+  //     refuses the same things behind them (0086's maker path).
   //   * UNTIL THEY LEAVE THE SCENES TAB — S3b calls clearRecentlyWithdrawn()
-  //     when the tab unmounts; switching project clears it here; closing the
+  //     when the person leaves the tab (it unmounts, or R.A.B.B.I.T. stops
+  //     being the page shown); switching project clears it here; closing the
   //     app ends it (it is never stored).
   // The maker test needs the signed-in user on a backend with users
   // (adapterMode 'supabase', which the dev fixtures report too; null until
-  // the roster read has named them). Elsewhere there are no users and it is
-  // skipped, as D8's roles are.
+  // the session is read). Elsewhere there are no users and it is skipped, as
+  // D8's roles are. While the user is not known, the selectors say no (never
+  // offer what may be refused) but the mutators let the database decide.
   const withdrawUserId = adapterMode === 'supabase' ? (authUserId || null) : undefined;
   const withdrawUserRef = useRef(withdrawUserId);
   useEffect(() => { withdrawUserRef.current = withdrawUserId; }, [withdrawUserId]);
+  function makerTestUserId() {
+    const u = withdrawUserRef.current;
+    return u === null ? undefined : u;
+  }
   const [recentlyWithdrawnMark, setRecentlyWithdrawnMark] = useState(null);
   const recentlyWithdrawnRef = useRef(null);
   function markRecentlyWithdrawn(mark) {
@@ -1922,7 +1957,12 @@ export function RabbitProvider({ children }) {
   function unmarkIfRestored(id) {
     if (recentlyWithdrawnRef.current && recentlyWithdrawnRef.current.id === id) markRecentlyWithdrawn(null);
   }
+  // A write that started before a project switch must not mark (or record
+  // history) after it — even when the person has switched BACK (p1 → p2 →
+  // p1, review R1): a generation, not the project id, says "same visit".
+  const projectVisitRef = useRef(0);
   useEffect(() => {
+    projectVisitRef.current += 1;
     markRecentlyWithdrawn(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
@@ -1943,7 +1983,7 @@ export function RabbitProvider({ children }) {
    *   fromAll   — every scene and shot of the project, in number order (the
    *               D11 set; for a project that has no list yet)
    *   undoable  — false keeps the creation off the undo stack. Its undo
-   *               WITHDRAWS the list (0085), which its maker may do while it
+   *               WITHDRAWS the list (0086), which its maker may do while it
    *               is untouched, so a member needs no special case.
    * version defaults to the next free version of the title (D14). Not made
    * active — that is setActiveShotList, a manager's decision (D8).
@@ -1978,7 +2018,7 @@ export function RabbitProvider({ children }) {
       putRow('shotLists', listRow, pid);
       // Pushed BEFORE the items are copied: if the copy fails, the list still
       // exists and its undo (withdraw) must still be on the stack. Copied
-      // membership is not a touch (0085), so that undo still works.
+      // membership is not a touch (0086), so that undo still works.
       if (opts.undoable !== false) {
         pushHistory({
           undoOps: [surfaced(() => mutationsRef.current.withdrawShotList(listRow.id))],
@@ -2011,9 +2051,16 @@ export function RabbitProvider({ children }) {
     const oldValues = {};
     for (const k of Object.keys(allowed)) oldValues[k] = list[k];
     const a = shotListAdapter();
+    // The snapshot is sent only when THIS change writes it (Save, or its
+    // undo). Lists are not broadcast, so the cached copy can be a session
+    // old, and re-sending it with a rename erased a collaborator's newer Save
+    // (review R1 of 0086) — and, since 0086, made the list look untouched.
+    // Unsent, every backend keeps the stored value.
+    const wire = { ...nextRow };
+    if (!Object.prototype.hasOwnProperty.call(allowed, 'snapshot')) delete wire.snapshot;
     const res = await optimistic(
       prev => ({ ...prev, shotLists: (prev.shotLists || []).map(l => (l.id === id ? nextRow : l)) }),
-      () => a.upsertShotList(nextRow),
+      () => a.upsertShotList(wire),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('shotLists', res, pid);
@@ -2187,7 +2234,7 @@ export function RabbitProvider({ children }) {
    * edits; the first edit of a list has none. items default to the parent's
    * (same item ids, so S3c can compare versions item by item) or [].
    * undoable: false keeps it off the undo stack; its undo WITHDRAWS the new
-   * edit (0085), which its maker may do while it is untouched.
+   * edit (0086), which its maker may do while it is untouched.
    */
   const createEditFrom = useCallback(async (opts = {}) => {
     const pid = activeProjectIdRef.current;
@@ -2270,9 +2317,16 @@ export function RabbitProvider({ children }) {
     const oldValues = {};
     for (const k of Object.keys(allowed)) oldValues[k] = edit[k];
     const a = shotListAdapter();
+    // items and snapshot go only when THIS change writes them (as in
+    // updateShotList: a rename from a stale view must not overwrite a newer
+    // Save or a collaborator's items).
+    const wire = { ...nextRow };
+    for (const k of ['items', 'snapshot']) {
+      if (!Object.prototype.hasOwnProperty.call(allowed, k)) delete wire[k];
+    }
     const res = await optimistic(
       prev => ({ ...prev, edits: (prev.edits || []).map(e => (e.id === id ? nextRow : e)) }),
-      () => a.upsertEdit(nextRow),
+      () => a.upsertEdit(wire),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('edits', res, pid);
@@ -2340,11 +2394,15 @@ export function RabbitProvider({ children }) {
   }, [optimistic]);
 
   /**
-   * WITHDRAW a list (0085): its maker sets an UNTOUCHED new list aside —
+   * WITHDRAW a list (0086): its maker sets an UNTOUCHED new list aside —
    * archived, never deleted — and it becomes ctx.recentlyWithdrawn. Refused
-   * before any write, in the database's words: someone else's list (on a
-   * backend with users), a Saved list, one with a live edit on it, the active
-   * list. Withdrawing an archived list is a no-op. Also the undo of New list.
+   * before any write, with the database's sentence for each condition:
+   * someone else's list (on a backend with users), a Saved list, one with a
+   * live edit on it, the active list. Not checked here: the seat (S3b also
+   * asks can('project.shotlist.write')). Withdrawing an archived list is a
+   * no-op. Also the undo of New list. A refusal before any write is thrown
+   * (show it where the action was); a backend refusal also lands in
+   * ctx.error, like every other mutator's.
    */
   const withdrawShotList = useCallback(async (listId) => {
     const list = findShotList(listId);
@@ -2354,12 +2412,13 @@ export function RabbitProvider({ children }) {
       list,
       edits: bundleRef.current.edits,
       activeListId: bundleRef.current.project?.active_shot_list_id || null,
-      userId: withdrawUserRef.current,
+      userId: makerTestUserId(),
     });
     if (refusal) throw new Error(refusal);
     const pid = activeProjectIdRef.current;
+    const visit = projectVisitRef.current;
     const res = await mutationsRef.current.archiveShotList(listId, true, { history: false });
-    if (activeProjectIdRef.current !== pid) return res;
+    if (activeProjectIdRef.current !== pid || projectVisitRef.current !== visit) return res;
     markRecentlyWithdrawn({ kind: 'shot_list', id: listId, projectId: pid });
     pushHistory({
       undoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'shot_list', id: listId }))],
@@ -2369,7 +2428,7 @@ export function RabbitProvider({ children }) {
   }, []);
 
   /**
-   * WITHDRAW an edit (0085): the same for an untouched edit — never Saved,
+   * WITHDRAW an edit (0086): the same for an untouched edit — never Saved,
    * no live edit continues it. Also the undo of New edit. A withdrawn edit
    * keeps its place in its list's chain (D6): the next new edit continues
    * from it, with the same items (it was never Saved).
@@ -2378,11 +2437,12 @@ export function RabbitProvider({ children }) {
     const edit = findEdit(editId);
     if (!edit) throw new Error('edit not found');
     if (edit.archived_at) return edit;
-    const refusal = editWithdrawRefusal({ edit, edits: bundleRef.current.edits, userId: withdrawUserRef.current });
+    const refusal = editWithdrawRefusal({ edit, edits: bundleRef.current.edits, userId: makerTestUserId() });
     if (refusal) throw new Error(refusal);
     const pid = activeProjectIdRef.current;
+    const visit = projectVisitRef.current;
     const res = await mutationsRef.current.archiveEdit(editId, true, { history: false });
-    if (activeProjectIdRef.current !== pid) return res;
+    if (activeProjectIdRef.current !== pid || projectVisitRef.current !== visit) return res;
     markRecentlyWithdrawn({ kind: 'edit', id: editId, projectId: pid });
     pushHistory({
       undoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: editId }))],
@@ -2393,23 +2453,30 @@ export function RabbitProvider({ children }) {
 
   /**
    * Put a withdrawn list or edit back: `target` ({ kind: 'shot_list' | 'edit',
-   * id }), or ctx.recentlyWithdrawn when omitted. The cloud lets a maker
-   * restore only what they set aside themselves, still untouched (a manager
-   * or admin may restore anything). Ends the "Recently removed" mark; its own
-   * undo withdraws the row again.
+   * id }), or ctx.recentlyWithdrawn when omitted (anything that is not such
+   * an object — a click event wired straight to onClick — means the marked
+   * row). The maker restores what THEY set aside, touched or not since (a
+   * restore only un-hides); on a backend with users anything else is refused
+   * before any write with 0084's seat sentence (a manager restores with
+   * archiveShotList(id, false)). Restoring the marked row ends the mark; the
+   * restore's own undo withdraws the row again.
    */
   const restoreWithdrawn = useCallback(async (target) => {
-    const t = target || recentlyWithdrawnRef.current;
+    const named = !!target && typeof target === 'object' && typeof target.id === 'string'
+      && (target.kind === 'shot_list' || target.kind === 'edit');
+    const t = named ? target : recentlyWithdrawnRef.current;
     if (!t || !t.id) return null;
     const kind = t.kind === 'edit' ? 'edit' : 'shot_list';
     const row = kind === 'edit' ? findEdit(t.id) : findShotList(t.id);
-    if (!row) throw new Error(kind === 'edit' ? 'edit not found' : 'shot list not found');
+    const refusal = withdrawnRestoreRefusal({ row, kind, userId: makerTestUserId() });
+    if (refusal) throw new Error(refusal);
     if (!row.archived_at) { unmarkIfRestored(t.id); return row; }
     const pid = activeProjectIdRef.current;
+    const visit = projectVisitRef.current;
     const res = kind === 'edit'
       ? await mutationsRef.current.archiveEdit(t.id, false, { history: false })
       : await mutationsRef.current.archiveShotList(t.id, false, { history: false });
-    if (activeProjectIdRef.current !== pid) return res;
+    if (activeProjectIdRef.current !== pid || projectVisitRef.current !== visit) return res;
     unmarkIfRestored(t.id);
     pushHistory({
       undoOps: [surfaced(() => (kind === 'edit'
@@ -4537,7 +4604,7 @@ export function RabbitProvider({ children }) {
       nextEditVersion: (listId, title) => nextEditVersionOf(edits, listId, title),
       editChainTip: (listId) => editChainTipOf(edits, listId),
       editItemsFromList: (listId) => editItemsFromListOf({ scenes, shots, items, listId, newId: uuidv4 }),
-      // "Not in any list" counts LIVE lists only (0085: a withdrawn list is
+      // "Not in any list" counts LIVE lists only (0086: a withdrawn list is
       // gone to the person who withdrew it; its scenes must not vanish).
       unlistedScenes: unlistedScenesOf({ shotLists: lists, shotListItems: items, scenes, shots }),
       unlistedShots: unlistedShotsOf({ shotLists: lists, shotListItems: items, shots }),
@@ -4548,30 +4615,47 @@ export function RabbitProvider({ children }) {
     };
   }, [activeShotListId, bundle.shotLists, bundle.shotListItems, bundle.edits, bundle.scenes, bundle.shots]);
 
-  // Withdraw (0085), resolved against the rows on screen. recentlyWithdrawn
+  // Withdraw (0086), resolved against the rows on screen. recentlyWithdrawn
   // is { kind: 'shot_list' | 'edit', id, row } while the marked row is still
   // set aside in the open project, else null. canWithdrawShotList(id) /
   // canWithdrawEdit(id) say whether THIS person may withdraw that live row
   // now; S3b and S3c offer the verb only then.
+  // On a backend with users the mark shows only while the row is still set
+  // aside BY THIS PERSON (a manager may have restored and archived it since,
+  // review R1); once the row is seen live, the mark ends.
   const recentlyWithdrawn = useMemo(() => {
     const m = recentlyWithdrawnMark;
     if (!m || m.projectId !== activeProjectId) return null;
     const pool = m.kind === 'edit' ? bundle.edits : bundle.shotLists;
     const row = (pool || []).find(r => r.id === m.id) || null;
-    return row && row.archived_at ? { kind: m.kind, id: m.id, row } : null;
-  }, [recentlyWithdrawnMark, activeProjectId, bundle.edits, bundle.shotLists]);
+    if (!row || !row.archived_at) return null;
+    if (typeof withdrawUserId === 'string' && row.archived_by !== withdrawUserId) return null;
+    return { kind: m.kind, id: m.id, row };
+  }, [recentlyWithdrawnMark, activeProjectId, bundle.edits, bundle.shotLists, withdrawUserId]);
+  useEffect(() => {
+    const m = recentlyWithdrawnRef.current;
+    if (!m) return;
+    const pool = m.kind === 'edit' ? bundle.edits : bundle.shotLists;
+    const row = (pool || []).find(r => r.id === m.id);
+    if (row && !row.archived_at) markRecentlyWithdrawn(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bundle.edits, bundle.shotLists]);
+  // A read-only backend (Drive) can withdraw nothing.
+  const withdrawWritable = adapterSupportsWrites(adapterMode);
   const canWithdrawShotList = useCallback((listId) => {
+    if (!withdrawWritable) return false;
     const list = (bundle.shotLists || []).find(l => l.id === listId);
     return !!list && !list.archived_at && shotListWithdrawRefusal({
       list, edits: bundle.edits, activeListId: activeShotListId, userId: withdrawUserId,
     }) === null;
-  }, [bundle.shotLists, bundle.edits, activeShotListId, withdrawUserId]);
+  }, [withdrawWritable, bundle.shotLists, bundle.edits, activeShotListId, withdrawUserId]);
   const canWithdrawEdit = useCallback((editId) => {
+    if (!withdrawWritable) return false;
     const edit = (bundle.edits || []).find(e => e.id === editId);
     return !!edit && !edit.archived_at && editWithdrawRefusal({
       edit, edits: bundle.edits, userId: withdrawUserId,
     }) === null;
-  }, [bundle.edits, withdrawUserId]);
+  }, [withdrawWritable, bundle.edits, withdrawUserId]);
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -4650,7 +4734,7 @@ export function RabbitProvider({ children }) {
     sceneById:       shotListView.sceneById,
     shotById:        shotListView.shotById,
     formatShotListLabel,
-    // Withdraw (0085): the maker's take-back of an untouched new list or edit.
+    // Withdraw (0086): the maker's take-back of an untouched new list or edit.
     recentlyWithdrawn,
     canWithdrawShotList,
     canWithdrawEdit,

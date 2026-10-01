@@ -39,6 +39,9 @@ import {
   isWithdrawn,
   shotListWithdrawRefusal,
   editWithdrawRefusal,
+  withdrawnRestoreRefusal,
+  ARCHIVE_SEAT_REFUSAL_LIST,
+  ARCHIVE_SEAT_REFUSAL_EDIT,
   planAddToList,
   planRemoveFromList,
   planReorderList,
@@ -163,6 +166,8 @@ describe('selectors (D10)', () => {
     const liveL2 = [...lists, { id: 'L2', title: 'Alt', version: 1, archived_at: null }]
     expect(unlistedScenesOf({ shotLists: liveL2, shotListItems: moved, scenes: SCENES, shots: SHOTS })).toEqual([])
     expect(unlistedShotsOf({ shotLists: liveL2, shotListItems: moved, shots: SHOTS })).toEqual([])
+    // A list this client has not loaded still counts as a home (review R1).
+    expect(unlistedScenesOf({ shotLists: lists, shotListItems: moved, scenes: SCENES, shots: SHOTS })).toEqual([])
   })
 
   it('after the backfill the active list equals every row (nothing visible changes)', () => {
@@ -311,11 +316,12 @@ describe('snapshots and edits', () => {
   })
 })
 
-describe('withdraw (0085): the maker takes back an untouched new list or edit', () => {
+describe('withdraw (0086): the maker takes back an untouched new list or edit', () => {
   const list = { id: 'L1', created_by: 'u-me', snapshot: {}, archived_at: null }
   const edit = { id: 'E1', shot_list_id: 'L1', created_by: 'u-me', parent_edit_id: null, snapshot: null, archived_at: null }
+  const SQL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../supabase/migrations')
 
-  it('a list is untouched while never Saved and no LIVE edit is on it; membership does not count', () => {
+  it('a list is untouched while not Saved and no LIVE edit is on it; membership does not count', () => {
     expect(isShotListUntouched(list, [])).toBe(true)
     expect(isShotListUntouched({ ...list, snapshot: undefined }, [])).toBe(true)
     expect(isShotListUntouched({ ...list, snapshot: { kind: 'shot_list' } }, [])).toBe(false)
@@ -325,7 +331,7 @@ describe('withdraw (0085): the maker takes back an untouched new list or edit', 
     expect(isShotListUntouched(null, [])).toBe(false)
   })
 
-  it('an edit is untouched while never Saved and no LIVE edit continues it', () => {
+  it('an edit is untouched while not Saved and no LIVE edit continues it', () => {
     const child = { ...edit, id: 'E2', parent_edit_id: 'E1' }
     expect(isEditUntouched(edit, [edit])).toBe(true)
     expect(isEditUntouched({ ...edit, snapshot: {} }, [edit])).toBe(false)
@@ -340,15 +346,20 @@ describe('withdraw (0085): the maker takes back an untouched new list or edit', 
     expect(isWithdrawn({ id: 'L', created_by: null, archived_at: 'x', archived_by: null })).toBe(false)
   })
 
-  it('a list: the maker, untouched, then the active list, in the database\'s words', () => {
+  it('a list: each condition gets the database\'s sentence for it, in the database\'s order', () => {
     const base = { list, edits: [], activeListId: null }
     expect(shotListWithdrawRefusal({ ...base, userId: 'u-me' })).toBe(null)
-    expect(shotListWithdrawRefusal({ ...base, userId: 'u-other' })).toBe(WITHDRAW_LIST_REFUSAL)
-    expect(shotListWithdrawRefusal({ ...base, userId: null })).toBe(WITHDRAW_LIST_REFUSAL)
-    expect(shotListWithdrawRefusal({ ...base, list: { ...list, created_by: null }, userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    // not the maker (or no maker, or an unknown user): 0084's seat sentence
+    expect(shotListWithdrawRefusal({ ...base, userId: 'u-other' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    expect(shotListWithdrawRefusal({ ...base, userId: null })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    expect(shotListWithdrawRefusal({ ...base, list: { ...list, created_by: null }, userId: 'u-me' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    // the maker check comes first: someone else's Saved list reads the seat sentence
+    expect(shotListWithdrawRefusal({ ...base, list: { ...list, snapshot: { kind: 'shot_list' } }, userId: 'u-other' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    // touched: 0086's sentence
     expect(shotListWithdrawRefusal({ ...base, edits: [edit], userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, list: { ...list, snapshot: { kind: 'shot_list' } }, userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    // the active list, last (untouched is checked before it)
     expect(shotListWithdrawRefusal({ ...base, activeListId: 'L1', userId: 'u-me' })).toBe(ACTIVE_LIST_ARCHIVE_REFUSAL)
-    // the database checks "untouched" before the active list
     expect(shotListWithdrawRefusal({ ...base, edits: [edit], activeListId: 'L1', userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
     expect(shotListWithdrawRefusal({ ...base, list: null, userId: 'u-me' })).toBe('shot list not found')
   })
@@ -359,22 +370,39 @@ describe('withdraw (0085): the maker takes back an untouched new list or edit', 
     expect(shotListWithdrawRefusal({ ...base, edits: [edit] })).toBe(WITHDRAW_LIST_REFUSAL)
     expect(shotListWithdrawRefusal({ ...base, activeListId: 'L1' })).toBe(ACTIVE_LIST_ARCHIVE_REFUSAL)
     expect(editWithdrawRefusal({ edit: { ...edit, created_by: null }, edits: [edit], userId: undefined })).toBe(null)
+    expect(withdrawnRestoreRefusal({ row: { ...list, created_by: null, archived_at: 'x', archived_by: null }, kind: 'shot_list', userId: undefined })).toBe(null)
   })
 
   it('an edit: the maker, then untouched', () => {
     const child = { ...edit, id: 'E2', parent_edit_id: 'E1' }
     expect(editWithdrawRefusal({ edit, edits: [edit], userId: 'u-me' })).toBe(null)
-    expect(editWithdrawRefusal({ edit, edits: [edit], userId: 'u-other' })).toBe(WITHDRAW_EDIT_REFUSAL)
+    expect(editWithdrawRefusal({ edit, edits: [edit], userId: 'u-other' })).toBe(ARCHIVE_SEAT_REFUSAL_EDIT)
     expect(editWithdrawRefusal({ edit, edits: [edit, child], userId: 'u-me' })).toBe(WITHDRAW_EDIT_REFUSAL)
     expect(editWithdrawRefusal({ edit: { ...edit, snapshot: { kind: 'edit' } }, edits: [edit], userId: 'u-me' })).toBe(WITHDRAW_EDIT_REFUSAL)
     expect(editWithdrawRefusal({ edit: null, edits: [], userId: 'u-me' })).toBe('edit not found')
   })
 
-  it('the three sentences are the database\'s, word for word (0085)', () => {
-    const sql = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),
-      '../../../../supabase/migrations/0085_shot_list_withdraw.sql'), 'utf8')
-    for (const sentence of [WITHDRAW_LIST_REFUSAL, WITHDRAW_EDIT_REFUSAL, ACTIVE_LIST_ARCHIVE_REFUSAL]) {
-      expect(sql.includes(`'${sentence}'`), sentence).toBe(true)
+  it('a restore: the maker restores what THEY set aside, touched or not since; anything else reads the seat sentence', () => {
+    const mine = { ...list, archived_at: 'x', archived_by: 'u-me' }
+    expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: 'u-me' })).toBe(null)
+    expect(withdrawnRestoreRefusal({ row: { ...mine, snapshot: { kind: 'shot_list' } }, kind: 'shot_list', userId: 'u-me' })).toBe(null)
+    expect(withdrawnRestoreRefusal({ row: { ...mine, archived_by: 'u-boss' }, kind: 'shot_list', userId: 'u-me' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: 'u-other' })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    expect(withdrawnRestoreRefusal({ row: mine, kind: 'shot_list', userId: null })).toBe(ARCHIVE_SEAT_REFUSAL_LIST)
+    expect(withdrawnRestoreRefusal({ row: { ...edit, archived_at: 'x', archived_by: 'u-boss' }, kind: 'edit', userId: 'u-me' })).toBe(ARCHIVE_SEAT_REFUSAL_EDIT)
+    expect(withdrawnRestoreRefusal({ row: list, kind: 'shot_list', userId: 'u-other' })).toBe(null) // live: nothing to restore
+    expect(withdrawnRestoreRefusal({ row: null, kind: 'edit', userId: 'u-me' })).toBe('edit not found')
+  })
+
+  it('every sentence is the database\'s, word for word (0084\'s seat sentences, 0086\'s withdraw sentences)', () => {
+    const sql84 = readFileSync(path.join(SQL_DIR, '0084_shot_lists_and_edits.sql'), 'utf8')
+    const sql86 = readFileSync(path.join(SQL_DIR, '0086_shot_list_withdraw.sql'), 'utf8')
+    for (const sentence of [ARCHIVE_SEAT_REFUSAL_LIST, ARCHIVE_SEAT_REFUSAL_EDIT, ACTIVE_LIST_ARCHIVE_REFUSAL]) {
+      expect(sql84.includes(`'${sentence}'`), sentence).toBe(true)
+      expect(sql86.includes(`'${sentence}'`), sentence).toBe(true)
+    }
+    for (const sentence of [WITHDRAW_LIST_REFUSAL, WITHDRAW_EDIT_REFUSAL]) {
+      expect(sql86.includes(`'${sentence}'`), sentence).toBe(true)
     }
   })
 })
