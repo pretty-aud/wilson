@@ -3576,7 +3576,8 @@ because that right rests on it (`fn_audit_touch` kept whatever a client
 sent). No new column: a withdrawn row is one whose `archived_by` equals its
 `created_by` (as is a list a manager archived after making it). The undo of a
 Save goes back only while the stored Save is still the one it left, so a
-teammate's later Save is never erased by it.
+teammate's later Save is not erased by it, unless it lands between the
+undo's re-read and its write (the hand-off's known limits).
 Same-project composite FKs keep every link
 (items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
 the active pointer) inside its own project. ⚠️ `0034_tasks_without_assets.sql`'s

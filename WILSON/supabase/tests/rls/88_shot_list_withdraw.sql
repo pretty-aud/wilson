@@ -16,7 +16,8 @@
 --     list a live edit landed on, and a withdrawn edit a live edit now
 --     continues (22-25). It restores only what is not Saved — what every
 --     withdraw left — so a manager demoted to member cannot restore a Saved
---     list or edit they archived as manager, but can an unsaved one (49-51).
+--     list or edit they archived as manager, but can an unsaved one (53-55).
+--     A maker's restore of a LIVE row, Saved or not, is a no-op (50-52).
 --  3. Every refusal the path keeps: someone else's row, for withdraw and
 --     restore (15-16, 44 — 44's edit is also Saved: the maker check answers
 --     first); a Saved list or edit (17, 42); a list with a live edit, the
@@ -24,9 +25,10 @@
 --     withdrawable once that edit is withdrawn first (20-21, Ctrl+Z's order);
 --     an edit a live edit continues, the maker's own (41) or someone else's
 --     (43); the ACTIVE list (26-27, D4 for everyone); what a manager archived,
---     a list (28-29) and an edit (47-48); a list with no maker (32); a private
---     project the maker cannot see (52: the read gate comes first); a maker
---     who lost their seat, for withdraw and restore (53-55).
+--     a list (28-29, and 49: Saved too — the seat sentence answers first) and
+--     an edit (47-48); a list with no maker (32); a private project the maker
+--     cannot see (56: the read gate comes first); a maker who lost their seat,
+--     for withdraw and restore (57-59).
 --  4. The manager path is unchanged: a project manager still archives a
 --     touched list (33-34) and a touched edit (47).
 --
@@ -36,7 +38,7 @@
 -- =========================================================================
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(59);
 
 SELECT * FROM tests.rls_setup();
 
@@ -561,7 +563,7 @@ SELECT lives_ok(
   'the project manager still archives a TOUCHED (Saved) edit');
 
 
--- ── 48: archive_edit's restore arm (review R2: no probe held it) ─────────
+-- ── 48-52: what a manager archived; a LIVE row's restore (reviews R2, R3) ─
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -576,8 +578,37 @@ SELECT throws_ok(
   '42501', 'only a project manager or a workspace admin can archive or restore an edit',
   'the maker cannot restore an edit a manager archived');
 
+-- a4 is the member's Saved list the manager archived (33): the seat sentence
+-- answers before "Saved" does, as for edits (review R3).
+SELECT throws_ok(
+  $$SELECT public.archive_shot_list('88880000-0000-0000-0000-0000000000a4', false)$$,
+  '42501', 'only a project manager or a workspace admin can archive or restore a shot list',
+  'nor a Saved list a manager archived (the seat sentence, not the Saved one)');
 
--- ── 49-51: a manager who archived their own Saved rows, then lost the seat
+-- A maker's restore of a LIVE row is the no-op it always was, Saved or not.
+INSERT INTO public.shot_lists (id, project_id, title, version)
+VALUES ('88880000-0000-0000-0000-000000000a15', 'aaaa1111-0000-0000-0000-000000000001', 'Live saved', 1);
+UPDATE public.shot_lists SET snapshot = '{"kind":"shot_list"}'::jsonb
+ WHERE id = '88880000-0000-0000-0000-000000000a15';
+INSERT INTO public.edits (id, project_id, shot_list_id, title, version, snapshot)
+VALUES ('88880000-0000-0000-0000-000000000e12', 'aaaa1111-0000-0000-0000-000000000001',
+        '88880000-0000-0000-0000-000000000a15', 'Live cut', 1, '{"kind":"edit"}'::jsonb);
+
+SELECT lives_ok(
+  $$SELECT public.archive_shot_list('88880000-0000-0000-0000-000000000a15', false)$$,
+  'the maker''s restore of a LIVE Saved list is a no-op, not a refusal');
+
+SELECT ok(
+  (SELECT archived_at IS NULL AND snapshot = '{"kind":"shot_list"}'::jsonb
+     FROM public.shot_lists WHERE id = '88880000-0000-0000-0000-000000000a15'),
+  'and changes nothing');
+
+SELECT lives_ok(
+  $$SELECT public.archive_edit('88880000-0000-0000-0000-000000000e12', false)$$,
+  'the same for a LIVE Saved edit');
+
+
+-- ── 53-55: a manager who archived their own Saved rows, then lost the seat
 -- (review R2): the maker path restores only what is not Saved — what every
 -- withdraw left — so a Saved list or edit they archived as manager stays a
 -- manager's to restore; an unsaved one they archived is theirs again.
@@ -635,7 +666,7 @@ SELECT lives_ok(
   'but restores an unsaved list they archived (the maker path: what a withdraw leaves)');
 
 
--- ── 52: the read gate comes BEFORE the maker path ────────────────────────
+-- ── 56: the read gate comes BEFORE the maker path ────────────────────────
 -- A private project (0072) is seen by its creator and workspace admins only
 -- (0082's passes_project_privacy). user_d is SEATED on it as a member, so
 -- can_edit_shot_lists says yes — the only arm left to refuse is privacy. The
@@ -670,7 +701,7 @@ SELECT throws_ok(
   'a maker cannot withdraw their list on a private project they cannot see (passes_project_privacy first)');
 
 
--- ── 53-55: a maker who lost their seat loses the maker path ──────────────
+-- ── 57-59: a maker who lost their seat loses the maker path ──────────────
 
 SELECT lives_ok(
   $$SELECT public.archive_shot_list('88880000-0000-0000-0000-000000000a12')$$,

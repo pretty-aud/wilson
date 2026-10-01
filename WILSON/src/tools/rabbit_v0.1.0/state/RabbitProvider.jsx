@@ -265,17 +265,19 @@ export function RabbitProvider({ children }) {
   // recorded. A press while one is running now waits its turn.
   // A step that never settles (a dropped request) must not wedge every later
   // press for the rest of the session (review R2): the queue waits for one
-  // step at most HISTORY_STEP_WAIT_MS, then lets the next run beside it.
+  // step at most HISTORY_STEP_WAIT_MS, counted from when THAT step starts
+  // (review R3: counted from the press, the steps queued behind a slow one
+  // got a shrunken wait and ran beside each other), then lets the next run.
   // Tests shorten the wait through the global named below.
   const historyQueueRef = useRef(Promise.resolve());
   function inHistoryQueue(fn) {
-    const run = historyQueueRef.current.then(fn, fn);
-    let timer;
-    const cap = new Promise(resolve => {
-      timer = setTimeout(resolve, globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS ?? HISTORY_STEP_WAIT_MS);
-    });
-    historyQueueRef.current = Promise.race([run.then(() => {}, () => {}), cap])
-      .finally(() => clearTimeout(timer));
+    const prev = historyQueueRef.current; // never rejects
+    const run = prev.then(fn);
+    historyQueueRef.current = prev.then(() => new Promise(resolve => {
+      const timer = setTimeout(resolve, globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS ?? HISTORY_STEP_WAIT_MS);
+      const done = () => { clearTimeout(timer); resolve(); };
+      run.then(done, done);
+    }));
     return run;
   }
 
@@ -456,7 +458,10 @@ export function RabbitProvider({ children }) {
       setTimeout(async () => {
         // Who is signed in, on every backend (review R2 of 0086): the
         // withdraw maker test must never run as the previous account.
-        if (event === 'SIGNED_OUT') setAuthUserId(null);
+        if (event === 'SIGNED_OUT') {
+          // Dev fixtures (dev builds only): no session; the user is the dataset's.
+          setAuthUserId(import.meta.env.DEV ? (devFixtures()?.permissions?.userId ?? null) : null);
+        }
         else if (event === 'SIGNED_IN' && session?.user?.id) setAuthUserId(session.user.id);
         if (!adapterRef.current) return;
         if (adapterRef.current.mode !== 'supabase') return;
@@ -760,6 +765,11 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectIdRef.current;
     if (!adapterRef.current || !pid) return null;
     const loadSeq = ++bundleLoadSeqRef.current;
+    // A shot-list or edit write that lands while this load is in flight makes
+    // the load's three collections stale: keep the ones on screen (review R3
+    // of 0086 — a reload begun before a withdraw showed the list live again
+    // and ended the "Recently removed" mark).
+    const listWriteSeq = shotListWriteSeqRef.current;
     try {
       const next = await adapterRef.current.loadProject(pid);
       // The user may have switched projects (or a newer load started)
@@ -768,8 +778,11 @@ export function RabbitProvider({ children }) {
       if (activeProjectIdRef.current !== pid || loadSeq !== bundleLoadSeqRef.current) {
         return null;
       }
-      setBundle({ ...EMPTY_BUNDLE, ...next });
-      unmarkIfServerShowsLive(next.shotLists, next.edits);
+      const listsStale = listWriteSeq !== shotListWriteSeqRef.current;
+      setBundle(prev => (listsStale
+        ? { ...EMPTY_BUNDLE, ...next, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }
+        : { ...EMPTY_BUNDLE, ...next }));
+      if (!listsStale) unmarkIfServerShowsLive(next.shotLists, next.edits);
       // Callers (revert's restore path) inspect the fresh bundle
       // directly — bundleRef only catches up after the next commit.
       return next;
@@ -1723,27 +1736,45 @@ export function RabbitProvider({ children }) {
   // finished must not land over it (review round 2: the convergence refresh
   // replaced all three collections and could erase a later successful write).
   // Since 0086's review R2 every ROW write (a list or edit created, changed,
-  // archived, withdrawn or restored) bumps it too.
+  // archived, withdrawn or restored) bumps it too. Only writes bump it.
+  //
+  // Review R3: a read that a write overtook used to return null, and its
+  // callers took that as final (the unknown-active effect never retried, a
+  // new scene landed in no list). Now a read a write overtook is read AGAIN
+  // (three tries in all); the newest read started wins, and an older one
+  // hands back the newer one's result instead of landing.
   const shotListWriteSeqRef = useRef(0);
+  const shotListReadSeqRef = useRef(0);
+  const shotListReadRef = useRef(null);
 
-  async function refreshShotListsNow() {
+  function refreshShotListsNow() {
     const pid = activeProjectIdRef.current;
     const a = adapterRef.current;
-    if (!pid || !a || typeof a.listShotLists !== 'function') return null;
-    const seq = ++shotListWriteSeqRef.current;
-    const [lists, items, edits] = await Promise.all([
-      a.listShotLists(pid),
-      a.listShotListItems(pid),
-      typeof a.listEdits === 'function' ? a.listEdits(pid) : Promise.resolve(bundleRef.current.edits || []),
-    ]);
-    if (activeProjectIdRef.current !== pid || seq !== shotListWriteSeqRef.current) return null;
-    const next = { shotLists: lists || [], shotListItems: items || [], edits: edits || [] };
-    setBundle(prev => ({ ...prev, ...next }));
-    // bundleRef trails setBundle by a render; the caller that awaited this
-    // (addScene placing a row in a list it just learned of) reads it NOW.
-    bundleRef.current = { ...bundleRef.current, ...next };
-    unmarkIfServerShowsLive(next.shotLists, next.edits);
-    return { lists, items, edits };
+    if (!pid || !a || typeof a.listShotLists !== 'function') return Promise.resolve(null);
+    const readSeq = ++shotListReadSeqRef.current;
+    const run = (async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const writeSeq = shotListWriteSeqRef.current;
+        const [lists, items, edits] = await Promise.all([
+          a.listShotLists(pid),
+          a.listShotListItems(pid),
+          typeof a.listEdits === 'function' ? a.listEdits(pid) : Promise.resolve(bundleRef.current.edits || []),
+        ]);
+        if (activeProjectIdRef.current !== pid) return null;
+        if (readSeq !== shotListReadSeqRef.current) return shotListReadRef.current;
+        if (writeSeq !== shotListWriteSeqRef.current) continue;
+        const next = { shotLists: lists || [], shotListItems: items || [], edits: edits || [] };
+        setBundle(prev => ({ ...prev, ...next }));
+        // bundleRef trails setBundle by a render; the caller that awaited this
+        // (addScene placing a row in a list it just learned of) reads it NOW.
+        bundleRef.current = { ...bundleRef.current, ...next };
+        unmarkIfServerShowsLive(next.shotLists, next.edits);
+        return { lists, items, edits };
+      }
+      return null;
+    })();
+    shotListReadRef.current = run;
+    return run;
   }
 
   function reportShotListError(err) {
@@ -1762,17 +1793,20 @@ export function RabbitProvider({ children }) {
 
   // The undo (and the redo) of a Save writes `values` back only while the
   // stored snapshot is still `expected` — what that Save, or its undo, left.
-  // A teammate's Save in between is never erased (review R2 of 0086: the
-  // erase also made the row read untouched, so a further Ctrl+Z could
-  // withdraw what a teammate had Saved). Lists and edits are not broadcast,
-  // so it re-reads them first; if it cannot, it changes nothing.
+  // A teammate's Save in between is not erased (review R2 of 0086: the erase
+  // also made the row read untouched, so a further Ctrl+Z could withdraw
+  // what a teammate had Saved). Lists and edits are not broadcast, so it
+  // re-reads them first; if it cannot, it changes nothing. The check and the
+  // write are two requests: a Save that lands between them is still
+  // overwritten (review R3; closing that needs a conditional write in each
+  // backend — recorded in the hand-off's known limits).
   async function rewriteSaveIfStill(kind, id, expected, values) {
     const isEdit = kind === 'edit';
     const fresh = await refreshShotListsNow();
     if (!fresh) {
       throw new Error(isEdit
-        ? 'the edit could not be re-read to check its Save — nothing was changed; try again'
-        : 'the shot list could not be re-read to check its Save — nothing was changed; try again');
+        ? 'the edit could not be re-read to check its Save, so nothing was changed'
+        : 'the shot list could not be re-read to check its Save, so nothing was changed');
     }
     const row = isEdit ? findEdit(id) : findShotList(id);
     if (!row) throw new Error(isEdit ? 'edit not found' : 'shot list not found');
@@ -1965,7 +1999,10 @@ export function RabbitProvider({ children }) {
     if (!id || (bundle.shotLists || []).some(l => l.id === id)) { unknownActiveRef.current = null; return; }
     if (unknownActiveRef.current === id) return;
     unknownActiveRef.current = id;
-    refreshShotListsNow().catch(() => {});
+    // A read that came back with nothing must not end the search for good
+    // (review R3): the next change to the lists or the pointer tries again.
+    const forget = () => { if (unknownActiveRef.current === id) unknownActiveRef.current = null; };
+    refreshShotListsNow().then(r => { if (!r) forget(); }, forget);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundle.project?.active_shot_list_id, bundle.shotLists]);
 
@@ -2012,10 +2049,11 @@ export function RabbitProvider({ children }) {
     if (recentlyWithdrawnRef.current && recentlyWithdrawnRef.current.id === id) markRecentlyWithdrawn(null);
   }
   // …and so does SERVER data showing the marked row live: a write's returned
-  // row, a list re-read, a project reload. Never an optimistic flip or a
-  // rollback — a failed Restore's flip used to end the mark, leaving nothing
-  // to try again from (review R2). A re-read that started before a write to
-  // these rows is discarded (shotListWriteSeqRef), so a stale one cannot.
+  // row, a list re-read, a project reload. Never an optimistic flip, a
+  // rollback or an early return on what is on screen — a failed Restore's
+  // flip used to end the mark, leaving nothing to try again from (reviews R2,
+  // R3). A re-read or reload that a write to these rows overtook is not
+  // landed (shotListWriteSeqRef), so a stale one cannot.
   function unmarkIfServerShowsLive(lists, edits) {
     const m = recentlyWithdrawnRef.current;
     if (!m) return;
@@ -2105,10 +2143,10 @@ export function RabbitProvider({ children }) {
 
   /**
    * Title / version / summary (and, for undo, snapshot). Refused on an
-   * archived list. { guardSave: true } is saveShotListSnapshot's: its undo
-   * and redo go through rewriteSaveIfStill.
+   * archived list. A change that writes the snapshot (a Save, or its undo)
+   * is undone and redone through rewriteSaveIfStill.
    */
-  const updateShotList = useCallback(async (id, patch = {}, opts = {}) => {
+  const updateShotList = useCallback(async (id, patch = {}) => {
     const list = requireEditableShotList(id);
     const pid = activeProjectIdRef.current;
     const allowed = {};
@@ -2135,7 +2173,7 @@ export function RabbitProvider({ children }) {
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('shotLists', res, pid);
-    const guardSave = opts.guardSave === true && Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
+    const guardSave = Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
     pushHistory({
       undoOps: [guardSave
         ? surfaced(() => rewriteSaveIfStill('shot_list', id, allowed.snapshot, oldValues))
@@ -2163,7 +2201,7 @@ export function RabbitProvider({ children }) {
     });
     const patch = { snapshot };
     if (Object.prototype.hasOwnProperty.call(opts, 'summary')) patch.summary = opts.summary;
-    return mutationsRef.current.updateShotList(id, patch, { guardSave: true });
+    return mutationsRef.current.updateShotList(id, patch);
   }, []);
 
   /** Make a list the project's active list (null clears it). Manager/admin (D8). */
@@ -2209,10 +2247,9 @@ export function RabbitProvider({ children }) {
     if (want && bundleRef.current.project?.active_shot_list_id === listId) {
       throw new Error('the active shot list cannot be archived — make another list active first');
     }
-    if (!!list.archived_at === want) {
-      if (!want) unmarkIfRestored(listId);
-      return list;
-    }
+    // Already as asked, on screen — which may be optimistic: no write, and the
+    // mark is left alone (only server data ends it, review R3).
+    if (!!list.archived_at === want) return list;
     const a = shotListAdapter();
     const pid = activeProjectIdRef.current;
     const res = await optimistic(
@@ -2377,9 +2414,10 @@ export function RabbitProvider({ children }) {
 
   /**
    * Title / version / summary / items / snapshot of an edit. Refused when
-   * archived. { guardSave: true } is saveEdit's (see updateShotList).
+   * archived. A change that writes the snapshot is guarded as in
+   * updateShotList.
    */
-  const updateEdit = useCallback(async (id, patch = {}, opts = {}) => {
+  const updateEdit = useCallback(async (id, patch = {}) => {
     const edit = findEdit(id);
     if (!edit) throw new Error('edit not found');
     if (edit.archived_at) throw new Error('this edit is archived — restore it before changing it');
@@ -2409,7 +2447,7 @@ export function RabbitProvider({ children }) {
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('edits', res, pid);
-    const guardSave = opts.guardSave === true && Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
+    const guardSave = Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
     pushHistory({
       undoOps: [guardSave
         ? surfaced(() => rewriteSaveIfStill('edit', id, allowed.snapshot, oldValues))
@@ -2439,7 +2477,7 @@ export function RabbitProvider({ children }) {
       }),
     };
     if (summary !== undefined) patch.summary = summary;
-    return mutationsRef.current.updateEdit(editId, patch, { guardSave: true });
+    return mutationsRef.current.updateEdit(editId, patch);
   }, []);
 
   /**
@@ -2450,10 +2488,7 @@ export function RabbitProvider({ children }) {
     const edit = findEdit(editId);
     if (!edit) throw new Error('edit not found');
     const want = archived !== false;
-    if (!!edit.archived_at === want) {
-      if (!want) unmarkIfRestored(editId);
-      return edit;
-    }
+    if (!!edit.archived_at === want) return edit;
     const a = shotListAdapter();
     const pid = activeProjectIdRef.current;
     const res = await optimistic(
@@ -2566,7 +2601,7 @@ export function RabbitProvider({ children }) {
     const row = kind === 'edit' ? findEdit(t.id) : findShotList(t.id);
     const refusal = withdrawnRestoreRefusal({ row, kind, userId: makerTestUserId() });
     if (refusal) throw new Error(refusal);
-    if (!row.archived_at) { unmarkIfRestored(t.id); return row; }
+    if (!row.archived_at) return row;
     const pid = activeProjectIdRef.current;
     const visit = projectVisitRef.current;
     const res = kind === 'edit'

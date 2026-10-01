@@ -218,7 +218,8 @@ BEGIN
       END IF;
     -- …and a RESTORE only of an unsaved row (what every withdraw left; a live
     -- edit that landed meanwhile does not block it — a restore only un-hides).
-    ELSIF NOT COALESCE(v_list.snapshot = '{}'::jsonb, false) THEN
+    -- Restoring a LIVE row stays the no-op it always was (review R3).
+    ELSIF v_list.archived_at IS NOT NULL AND NOT COALESCE(v_list.snapshot = '{}'::jsonb, false) THEN
       RAISE EXCEPTION 'a Saved shot list you archived can be restored only by a project manager or a workspace admin'
         USING ERRCODE = '42501';
     END IF;
@@ -297,8 +298,8 @@ BEGIN
           USING ERRCODE = '42501';
       END IF;
     -- …and a RESTORE only of an unsaved edit (a live edit that continued it
-    -- meanwhile does not block it).
-    ELSIF v_edit.snapshot IS NOT NULL THEN
+    -- meanwhile does not block it). Restoring a LIVE edit stays a no-op.
+    ELSIF v_edit.archived_at IS NOT NULL AND v_edit.snapshot IS NOT NULL THEN
       RAISE EXCEPTION 'a Saved edit you archived can be restored only by a project manager or a workspace admin'
         USING ERRCODE = '42501';
     END IF;
@@ -397,7 +398,7 @@ BEGIN
      OR v_body NOT LIKE '%IF v_archive AND v_active IS NOT DISTINCT FROM p_list THEN%RAISE EXCEPTION ''the active shot list cannot be archived%'
      OR v_body NOT LIKE '%v_untouched := v_list.snapshot = ''{}''::jsonb%'
      OR v_body NOT LIKE '%AND NOT EXISTS (SELECT 1 FROM public.edits e%WHERE e.shot_list_id = v_list.id AND e.archived_at IS NULL)%'
-     OR v_body NOT LIKE '%ELSIF NOT COALESCE(v_list.snapshot = ''{}''::jsonb, false) THEN%' THEN
+     OR v_body NOT LIKE '%ELSIF v_list.archived_at IS NOT NULL AND NOT COALESCE(v_list.snapshot = ''{}''::jsonb, false) THEN%' THEN
     RAISE EXCEPTION '0086 post-condition failed: archive_shot_list lost a lock, the active-list refusal or the untouched test';
   END IF;
   v_body := regexp_replace(regexp_replace(
@@ -406,7 +407,7 @@ BEGIN
   IF v_body NOT LIKE '%FOR UPDATE OF e%'
      OR v_body NOT LIKE '%v_untouched := v_edit.snapshot IS NULL%'
      OR v_body NOT LIKE '%AND NOT EXISTS (SELECT 1 FROM public.edits c%WHERE c.parent_edit_id = v_edit.id AND c.archived_at IS NULL)%'
-     OR v_body NOT LIKE '%ELSIF v_edit.snapshot IS NOT NULL THEN%' THEN
+     OR v_body NOT LIKE '%ELSIF v_edit.archived_at IS NOT NULL AND v_edit.snapshot IS NOT NULL THEN%' THEN
     RAISE EXCEPTION '0086 post-condition failed: archive_edit lost its lock or the untouched test';
   END IF;
 
