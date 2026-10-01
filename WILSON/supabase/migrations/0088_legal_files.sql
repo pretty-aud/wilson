@@ -107,6 +107,29 @@
 --       read its name and note). trg_files_legal_fixed (§3d): whether a row's
 --       path is under LEGAL never changes after the row is added, in either
 --       direction — Audrey's "Legal is chosen when the file is added".
+-- 7. FROM REVIEW ROUND 2 (measured the same way, against round 1's 0088):
+--    a. The hourly sweep (sweep_abandoned_uploads, 0073) writes its
+--       'upload_abandoned' certificate WITHOUT is_financial, so an abandoned
+--       upload of a large Legal file (or, since 0078, an invoice) named the
+--       file, its key, its size and its uploader to every project reader.
+--       trg_file_events_money (§9b): every file_events row is flagged at
+--       INSERT by 0074's one definition, whoever writes it, and the rows
+--       already written are corrected (monotone: a flag is only ever set).
+--    b. rabbit_petal_storage_ok's path argument (0073) left out of the
+--       weighing whichever reservation matched it, WHOSEVER it was: anyone
+--       signed in could confirm a manager's large Legal upload in flight at
+--       a guessed key, and read its size. workspace_upload_reserved_bytes
+--       (§5c) leaves out only the CALLER's own reservation.
+--    c. NOT changed, put to Audrey: a money-cleared person can rename a
+--       Legal OBJECT out of LEGAL through the Storage API (permissive
+--       policies OR: the old key passes rabbit_files_money_update's USING,
+--       the new one rabbit_files_update's WITH CHECK). The row stays Legal
+--       (§3d); the moved object is ordinary. The same person can always
+--       download and re-add the file, so this hands nobody anything they
+--       could not already give away; the validated fix — a RESTRICTIVE
+--       UPDATE policy on both buckets — may refuse Storage's own updates
+--       of a Legal object (a resumable upload, a thumbnail regenerated), and
+--       cannot be smoke-tested from a session.
 --
 -- I6, THE QUOTA, DECIDED: Legal inherits 0078's bounded exemption unchanged.
 -- Legal bodies must live in Supabase whatever storage the workspace chose
@@ -131,8 +154,10 @@
 --   0012 reverts edit_history_select; 0016 / 0061 / 0077 revert the realtime
 --   skip; 0014 / 0067 / 0082 revert fn_trash_authz; 0038 / 0083 revert the
 --   files policies to the flag-only arm; 0047 / 0074 / 0083 revert
---   log_file_downloaded; 0027 / 0074 revert file_events_select. After ANY of
---   those, re-run 0088. Its post-conditions are the tripwire for each.
+--   log_file_downloaded; 0027 / 0074 revert file_events_select; 0073 / 0078 /
+--   0083 revert reserve_upload_bytes (review round 1); 0073 reverts
+--   workspace_upload_reserved_bytes (review round 2). After ANY of those,
+--   re-run 0088. Its post-conditions are the tripwire for each.
 --
 -- WHAT IT DELIBERATELY DOES NOT DO
 -- --------------------------------
@@ -145,10 +170,10 @@
 -- * fn_edit_history_capture (0012/0061), shared by fourteen tables, is not
 --   restated; the snapshot is a separate BEFORE INSERT trigger on
 --   edit_history, scoped to entity_type 'files'.
--- * reserve_upload_bytes is unchanged: a small Legal key is reservation-
---   exempt exactly like an invoice (no row written, nothing answered but
---   NULL), a large one is weighed; upload_reservations is readable by its
---   maker only.
+-- * reserve_upload_bytes keeps 0083's behaviour for the money-cleared: a
+--   small Legal key is reservation-exempt exactly like an invoice (no row
+--   written, NULL), a large one is weighed; upload_reservations is readable
+--   by its maker only. (§5b adds one arm, for everyone else.)
 -- * The Edge Function storage-presign carries its own copy of the list
 --   (_shared/moneySegments.ts); it gains LEGAL in the same commit and is
 --   deployed by Audrey (refusal in depth: the client never presigns a money
@@ -386,8 +411,9 @@ COMMENT ON CONSTRAINT files_money_key_chk ON public.files IS
 --     satisfied it — and the row, with its name and note, was every member's
 --     again (measured). Whether a row's path is under LEGAL is fixed at
 --     INSERT: an UPDATE may not change it, in either direction, for anyone.
---     (The object cannot be renamed across either: rabbit_files_money_update's
---     WITH CHECK.) 23514, as the CHECK beside it answers.
+--     23514, as the CHECK beside it answers. (The OBJECT is another matter:
+--     review round 2 measured that a money-cleared person can rename it out
+--     through the Storage API, the policies ORing — see the header, 7c.)
 CREATE OR REPLACE FUNCTION public.fn_files_legal_fixed()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -696,6 +722,60 @@ COMMENT ON FUNCTION public.reserve_upload_bytes(TEXT, BIGINT) IS
   'carries the private-project arm (0083) and, since 0088, the money gate for a '
   'key under a locked folder (INVOICES / FINANCE / LEGAL), so a reservation can '
   'never test whether a money key exists.';
+
+
+-- =============================================================================
+-- 5c. workspace_upload_reserved_bytes — only the caller's reservation is set
+--     aside (0073's body; review round 2, see the header, 7b)
+-- =============================================================================
+-- 0073's body word for word but for the exclusion. The uploader's own object
+-- is still weighed without its own reservation (petal_storage_quota_insert
+-- runs as the uploader), and reserve_upload_bytes's weighing is unchanged
+-- (the reservation it would set aside does not exist yet). Grants unchanged
+-- (service_role only); post-condition 19.
+
+CREATE OR REPLACE FUNCTION public.workspace_upload_reserved_bytes(
+  ws            UUID,
+  p_except_path TEXT DEFAULT NULL
+)
+RETURNS BIGINT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(SUM(r.bytes), 0)::bigint
+    FROM public.upload_reservations r
+   WHERE r.workspace_id = ws
+     AND r.released_at IS NULL
+     AND r.expires_at > now()
+     -- The reservation for the object being weighed is not counted against
+     -- that object: NULL-safe because storage_path is NOT NULL.
+     -- 0088 (review round 2): and only the CALLER's own — whoever's it was,
+     -- any signed-in user could ask rabbit_petal_storage_ok whether a
+     -- guessed key (a manager's Legal upload in flight) was reserved, and
+     -- for how many bytes.
+     AND (p_except_path IS NULL OR r.storage_path <> p_except_path
+          OR r.created_by IS DISTINCT FROM auth.uid())
+     -- 🚨 A reservation whose object has landed stops counting THAT INSTANT, so
+     -- the committed object and its own reservation are never both in `used`.
+     -- storage.objects has a unique index on (bucket_id, name); this is an
+     -- index probe per active reservation.
+     AND NOT EXISTS (
+       SELECT 1 FROM storage.objects o
+        WHERE o.bucket_id = 'rabbit-files'
+          AND o.name = r.storage_path
+     );
+$$;
+
+COMMENT ON FUNCTION public.workspace_upload_reserved_bytes(UUID, TEXT) IS
+  'Track C / 0073, 0088: bytes reserved by ACTIVE upload reservations in this '
+  'workspace (unreleased, unexpired, and whose object has not yet landed in '
+  'rabbit-files), excluding the CALLER''s own reservation for p_except_path '
+  '(0088: anyone else''s still counts, so the answer never says whether '
+  'another person''s key is reserved). COALESCEd to 0: a NULL here denies '
+  'every upload under the RESTRICTIVE policy. Takes an arbitrary workspace '
+  'id, so like workspace_petal_bytes it is service_role only.';
 
 
 -- =============================================================================
@@ -1065,6 +1145,45 @@ COMMENT ON POLICY file_events_select ON public.file_events IS
   'Track C / 0074 restating 0027, and 0088: project readers and workspace admins read the stream; a financial row (is_financial — an invoice, receipt or Legal file) is hidden from non-money readers except an invoice''s purged certificate (ruling 22); a Legal file''s certificate is hidden too (0088). Every arm is in this one definition — re-run 0088 after any replay of 0027 or 0074.';
 
 
+-- 9b. Every file_events row is flagged at INSERT by 0074's one definition,
+--     whoever writes it (review round 2, see the header, 7a): the hourly
+--     sweep wrote its 'upload_abandoned' certificate with the flag at its
+--     default, false. The writer's own flag is kept and ORed (monotone);
+--     the rows already written are corrected the same way.
+CREATE OR REPLACE FUNCTION public.fn_file_events_money_snapshot()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $$
+BEGIN
+  NEW.is_financial := public.file_event_is_financial(NEW.is_financial, NEW.old_path, NEW.new_path);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_file_events_money_snapshot() FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.fn_file_events_money_snapshot() IS
+  '0088 (review round 2): BEFORE INSERT on file_events — sets is_financial from file_event_is_financial (0074) for every row, whoever writes it, ORed with the writer''s own flag. Trigger-only.';
+
+DROP TRIGGER IF EXISTS trg_file_events_money ON public.file_events;
+CREATE TRIGGER trg_file_events_money
+  BEFORE INSERT ON public.file_events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_file_events_money_snapshot();
+
+DO $$
+DECLARE
+  v_flagged INT;
+BEGIN
+  UPDATE public.file_events
+     SET is_financial = true
+   WHERE NOT is_financial
+     AND public.file_event_is_financial(false, old_path, new_path);
+  GET DIAGNOSTICS v_flagged = ROW_COUNT;
+  RAISE NOTICE '0088: flagged % file_events row(s) whose path is under a locked folder', v_flagged;
+END $$;
+
+
 -- =============================================================================
 -- 10. COMMENTS that are now false
 -- =============================================================================
@@ -1417,5 +1536,40 @@ BEGIN
     RAISE EXCEPTION '0088 post-condition 17 failed: fn_files_legal_fixed no longer compares the OLD and NEW path''s Legal-ness and refuses';
   END IF;
 
-  RAISE NOTICE '0088 OK: LEGAL locked; four files policies on file_row_is_money; tag and folder tied, fixed at add, never core; one money path; realtime, edit history, trash, download log, reservations and certificates gated.';
+  -- 18. trg_file_events_money: BEFORE INSERT, FOR EACH ROW, enabled, on its
+  --     function, which ORs 0074's definition into the flag; and no row
+  --     under a locked folder is unflagged.
+  SELECT tg.tgtype INTO v_tgtype FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
+   WHERE tg.tgrelid = 'public.file_events'::regclass AND tg.tgname = 'trg_file_events_money'
+     AND p.proname = 'fn_file_events_money_snapshot' AND tg.tgenabled = 'O';
+  IF v_tgtype IS NULL OR (v_tgtype & 1) = 0 OR (v_tgtype & 2) = 0 OR (v_tgtype & 4) = 0 OR (v_tgtype & 8) <> 0 OR (v_tgtype & 16) <> 0 THEN
+    RAISE EXCEPTION '0088 post-condition 18 failed: trg_file_events_money is missing, disabled, or not BEFORE INSERT FOR EACH ROW (tgtype %)', v_tgtype;
+  END IF;
+  v_body := regexp_replace(regexp_replace(
+              pg_get_functiondef('public.fn_file_events_money_snapshot()'::regprocedure),
+              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+  IF strpos(v_body, 'NEW.is_financial := public.file_event_is_financial(NEW.is_financial, NEW.old_path, NEW.new_path);') = 0 THEN
+    RAISE EXCEPTION '0088 post-condition 18 failed: fn_file_events_money_snapshot no longer flags by file_event_is_financial';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.file_events
+              WHERE NOT is_financial AND public.file_event_is_financial(false, old_path, new_path)) THEN
+    RAISE EXCEPTION '0088 post-condition 18 failed: a file_events row under a locked folder is not flagged';
+  END IF;
+
+  -- 19. workspace_upload_reserved_bytes sets aside only the caller's own
+  --     reservation, and is still service_role only, STABLE DEFINER, pinned.
+  v_body := regexp_replace(regexp_replace(
+              pg_get_functiondef('public.workspace_upload_reserved_bytes(uuid, text)'::regprocedure),
+              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+  IF strpos(v_body, 'OR r.created_by IS DISTINCT FROM auth.uid())') = 0
+     OR strpos(v_body, 'AND r.released_at IS NULL') = 0
+     OR strpos(v_body, 'AND r.expires_at > now()') = 0
+     OR strpos(v_body, 'SELECT 1 FROM storage.objects o') = 0
+     OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.workspace_upload_reserved_bytes(uuid, text)'::regprocedure
+                     AND prosecdef AND provolatile = 's' AND proconfig @> ARRAY['search_path=public'])
+     OR has_function_privilege('authenticated', 'public.workspace_upload_reserved_bytes(uuid, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '0088 post-condition 19 failed: workspace_upload_reserved_bytes sets aside another person''s reservation again, lost a filter, or changed its shape or grants';
+  END IF;
+
+  RAISE NOTICE '0088 OK: LEGAL locked; four files policies on file_row_is_money; tag and folder tied, fixed at add, never core; one money path; realtime, edit history, trash, download log, reservations, the sweep''s certificates and the quota meter gated.';
 END $$;

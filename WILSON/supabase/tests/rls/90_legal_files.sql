@@ -34,6 +34,9 @@
 --   * Review round 1 (§K): a Legal path is fixed when the file is added (no
 --     move in or out, for anyone); a locked third segment is always a real
 --     projects/… key; a reservation for a locked key needs the money gate.
+--   * Review round 2 (§L): the quota meter never tells anyone whether
+--     another person's key is reserved; the hourly sweep's certificate for an
+--     abandoned Legal upload is flagged, so a member never reads it.
 --
 -- Every absence probe has a presence control, so an empty answer cannot pass
 -- by accident. Proven by breakers against 0088 before it was applied
@@ -46,7 +49,7 @@
 
 BEGIN;
 
-SELECT plan(100);
+SELECT plan(108);
 
 SELECT * FROM tests.rls_setup();
 
@@ -906,6 +909,85 @@ SELECT ok(
            '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g'),
          'OR (public.rabbit_money_key(p_path)') > 0,
   'reserve_upload_bytes carries the money arm in its comment-stripped body');                             -- 100
+
+
+-- ══ L. Review round 2 — the quota meter, and the sweep's certificate ════════
+-- Measured on dev against round 1's 0088: rabbit_petal_storage_ok(project,
+-- bytes, path) set aside whichever reservation matched `path`, so a member
+-- could confirm a manager's large Legal upload in flight at a guessed key and
+-- read its size; and sweep_abandoned_uploads wrote 'upload_abandoned' with
+-- is_financial false, so the abandoned Legal upload's name, key and size
+-- reached every project reader.
+--
+-- The reservations used here were made in §K: user_d's large Legal key
+-- (probe 96) and user_c's large ordinary key (probe 89). Both are still open.
+-- workspace_upload_reserved_bytes is service_role only, so it is asked as
+-- postgres with the person's claims in place (auth.uid() reads them).
+
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+RESET ROLE;
+SELECT is(
+  public.workspace_upload_reserved_bytes('11111111-1111-1111-1111-111111111111',
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-pm.pdf'),
+  public.workspace_upload_reserved_bytes('11111111-1111-1111-1111-111111111111',
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-a-wrong-guess.pdf'),
+  '🚨 for the member, the manager''s Legal key and a wrong guess weigh the same — no oracle (0088 §5c)');   -- 101
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+RESET ROLE;
+SELECT is(
+  public.workspace_upload_reserved_bytes('11111111-1111-1111-1111-111111111111',
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-a-wrong-guess.pdf')
+  - public.workspace_upload_reserved_bytes('11111111-1111-1111-1111-111111111111',
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-pm.pdf'),
+  27262976::bigint,
+  'CONTROL: the uploader''s OWN reservation is still set aside when their object is weighed');           -- 102
+SELECT set_config('request.jwt.claims', '', true);
+
+-- The sweep, as cron runs it (postgres), over the two reservations made to
+-- look expired.
+UPDATE public.upload_reservations
+   SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day'
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+   AND storage_path IN (
+     'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-pm.pdf',
+     'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-big-plain.mov');
+SELECT * FROM public.sweep_abandoned_uploads('11111111-1111-1111-1111-111111111111');
+
+SELECT ok(
+  (SELECT is_financial FROM public.file_events
+    WHERE event = 'upload_abandoned'
+      AND new_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-pm.pdf'),
+  'the sweep''s certificate for the abandoned Legal upload is flagged (trg_file_events_money)');           -- 103
+
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE event = 'upload_abandoned' AND new_path LIKE '%9-big-pm.pdf'),
+  0, '🚨 the member does not read the abandoned Legal upload''s certificate — measured open in round 2');  -- 104
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE event = 'upload_abandoned' AND new_path LIKE '%9-big-plain.mov'),
+  1, 'PRESENCE CONTROL: the member reads the abandoned ordinary upload''s certificate');                 -- 105
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE event = 'upload_abandoned' AND new_path LIKE '%9-big-pm.pdf'),
+  1, 'CONTROL: the project manager reads it');                                                           -- 106
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
+           WHERE tg.tgrelid = 'public.file_events'::regclass AND tg.tgname = 'trg_file_events_money'
+             AND p.proname = 'fn_file_events_money_snapshot' AND tg.tgenabled = 'O'
+             AND (tg.tgtype & 1) <> 0 AND (tg.tgtype & 2) <> 0 AND (tg.tgtype & 4) <> 0),
+  'trg_file_events_money is BEFORE INSERT, FOR EACH ROW, enabled');                                      -- 107
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'public.fn_file_events_money_snapshot()', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.workspace_upload_reserved_bytes(uuid, text)', 'EXECUTE'),
+  'the trigger function and the reserved-bytes meter stay closed to client roles');                      -- 108
 
 SELECT * FROM finish();
 ROLLBACK;
