@@ -197,6 +197,24 @@ export function visibleOverlayOpen({ dialogsOnly = false } = {}) {
   return false
 }
 
+// Post-overhaul S4a (S2a-01, and review round 1's R1-UI-03): what the kit's
+// overlay stack cannot see. Both Bins document handlers — BinsView's keys and
+// the inspector's Space — stand down for these.
+/** Where focus belongs to a window over the view, not to the view. */
+export const OVER_THE_VIEW = '.ui-drawer, [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
+/**
+ * A kit Drawer with a backdrop ON SCREEN (not one left open on a hidden
+ * page: visibleOverlayOpen's reasoning). The kit Drawer is not on the
+ * overlay stack, so visibleOverlayOpen cannot see it.
+ */
+export function drawerOnScreen() {
+  if (typeof document === 'undefined') return false
+  for (const n of document.querySelectorAll('.ui-drawer-backdrop')) {
+    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
+  }
+  return false
+}
+
 // ── Bins-specific data components ──────────────────────────────────────────
 
 // binMedia's two grey hues are the retired stone inks (#a8a29e; #78716c, which

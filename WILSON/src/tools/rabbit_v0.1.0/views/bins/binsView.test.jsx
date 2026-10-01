@@ -237,6 +237,31 @@ describe('S2a-01 — the Bins keys act only on R.A.B.B.I.T.\'s own page, with no
     expect(state.ctx.removeBinFiles).toHaveBeenCalledWith(['f0'])
   })
 
+  it('the inspector beside the files gets the page too: its Space plays on R.A.B.B.I.T., and not on another page (round 1, R1-UI-03)', async () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      state.ctx = { ...makeCtx(1), binsInfo: { ffmpeg: true }, binFileStreamUrl: (id) => `blob:${id}` }
+      state.ctx.binFiles = [{ ...state.ctx.binFiles[0], original_name: 'c0.mp4', extension: '.mp4' }]
+      const { rerender } = render(<BinsView pageActive />)
+      await act(async () => {})
+      fireEvent.keyDown(document.body, { key: 'ArrowDown' }) // the clip selected: the inspector previews it
+      await act(async () => {})
+      expect(document.querySelector('video')).toBeTruthy()
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+      rerender(<BinsView pageActive={false} />) // she opens D.O.G.
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
+
   it('closed by default: a host that does not say R.A.B.B.I.T. is on screen gets no keys', async () => {
     state.ctx = makeCtx(3)
     render(<BinsView />)

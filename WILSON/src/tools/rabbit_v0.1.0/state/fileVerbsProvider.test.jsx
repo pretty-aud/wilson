@@ -81,10 +81,14 @@ describe('the file verbs take the file\'s project (S4a)', () => {
 
   it('another project\'s file: the write names THAT project and the open bundle is untouched', async () => {
     await mount()
+    const before = ctxRef.files
     await act(async () => { await ctxRef.patchFile('f9', { tags: ['shots'] }, 'p2') })
     expect(holder.adapter.calls).toEqual([['updateFile', 'f9', { tags: ['shots'], project_id: 'p2' }]])
+    // UNTOUCHED, not merely unchanged in content (review round 1, R1-TST-15:
+    // a write to f9 left f1 alone on any code path): no optimistic update and
+    // no landing of the answer ran on the open bundle at all.
+    expect(ctxRef.files).toBe(before)
     expect(ctxRef.files.map(f => f.id)).toEqual(['f1'])
-    expect(ctxRef.files[0].tags).toEqual([])
   })
 
   it('markFileCoreDefiner and updateManagedFile follow the same rule', async () => {

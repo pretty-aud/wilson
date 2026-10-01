@@ -163,8 +163,8 @@ export function RabbitHelpContent({ helpPage, theme }) {
         <p className={`${T.bodyText} mb-4`}>
           The Files tab holds the open project's files. It is the same
           explorer as Files on the Resources page, without the project
-          picker: Table lists every file, Columns walks the folders, and the
-          filter matches a file's name, its path or its tags.
+          picker: Table lists every file and Columns walks the folders. In
+          Table, the filter matches a file's name, its path or its tags.
         </p>
         <div className="space-y-3">
           <div className={T.card}>
@@ -181,8 +181,8 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Click a file's name to open its details beside the list; Close
               puts them away. What you change there is saved as you go: a
               note when you leave the box (Escape puts the old note back),
-              everything else at once. Each change is kept in the file's
-              edit history.
+              everything else at once. On the cloud each change is also
+              kept in the edit history, as every edit is.
             </p>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Notes</span> — Anything worth knowing about the file.</li>
@@ -206,7 +206,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• Video and audio wait for you to press play.</li>
               <li>• HTML and SVG show as their text, never as a page; a Markdown file's links and pictures are not opened.</li>
               <li>• A format WILSON cannot draw here (Photoshop, EXR, TIFF, 3D) says so and offers the file's own action. A text file over 2 MB is not read.</li>
-              <li>• Opening a preview is recorded in File activity as a download; looking again soon after is not recorded twice.</li>
+              <li>• A preview is recorded in File activity as a download once the file has loaded; looking again soon after is not recorded twice.</li>
             </ul>
           </div>
           <div className={T.card}>

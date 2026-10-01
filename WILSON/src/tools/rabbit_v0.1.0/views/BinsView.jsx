@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useProjectAccess } from '../state/useProjectAccess'
-import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen } from './bins/binUi'
+import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
 import BinFileGrid from './bins/BinFileGrid'
@@ -53,19 +53,6 @@ import { useNavigateTarget } from '../state/rabbitNavigate'
 // step), which turned "camera-original" into "#CAMERA-ORIGINAL" (review round
 // 1). The words are the Caption step, sentence as written.
 const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
-
-// Where focus belongs to a window over the view, not to the view.
-const OVER_THE_VIEW = '.ui-drawer, [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
-// A kit Drawer with a backdrop ON SCREEN (not one left open on a hidden page:
-// the reasoning visibleOverlayOpen follows). The kit Drawer is not on the
-// overlay stack, so visibleOverlayOpen cannot see it.
-function drawerUp() {
-  if (typeof document === 'undefined') return false
-  for (const n of document.querySelectorAll('.ui-drawer-backdrop')) {
-    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
-  }
-  return false
-}
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -559,7 +546,7 @@ export default function BinsView({ pageActive = false } = {}) {
     // its buttons removed the selected files behind it, and Escape cleared
     // the selection instead of closing it: the Drawer listens on `window`,
     // after this, and leaves a key that was already handled.
-    if (drawerUp() || (t && typeof t.closest === 'function' && t.closest(OVER_THE_VIEW))) return
+    if (drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest(OVER_THE_VIEW))) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -883,7 +870,7 @@ export default function BinsView({ pageActive = false } = {}) {
         <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
-          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} />
+          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive} />
       </div>
 
       {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys

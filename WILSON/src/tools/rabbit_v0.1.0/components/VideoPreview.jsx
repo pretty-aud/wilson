@@ -117,11 +117,21 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
   // playback from the beginning, mid-view, for a reason the viewer cannot see.
   // The useCallback'd method is stable.
   const signFileUrl = ctx?.fileUrl
+  // …and on what IDENTIFIES the body, not on the row object (post-overhaul
+  // S4a review round 1, R1-UI-04, measured): the Files explorer rebuilds its
+  // tree on every change to the project's files, which gives every row a new
+  // identity, so a clip playing in its preview re-minted and rewound to 0:00
+  // whenever a teammate saved anything. The row itself is read from a ref.
+  const fileRef = useRef(file)
+  fileRef.current = file
+  const fileId = file?.id
+  const filePath = file?.storage_path
   const resolveSrc = useCallback(async () => {
+    const file = fileRef.current
     if (managed) return managedStreamUrl(projectId, file.id)
     if (!signFileUrl) return null
     return await signFileUrl(file)
-  }, [managed, projectId, file, signFileUrl])
+  }, [managed, projectId, fileId, filePath, signFileUrl])
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -136,7 +146,6 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
         return
       }
       setSrc(url)
-      onSourceReadyRef.current?.(url)
     } catch (err) {
       setStatus('unavailable')
       // A signing refusal is a real answer and must not be dressed up as a
@@ -208,7 +217,10 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
             // budget for the whole modal session: one early hiccup and the
             // NEXT expiry — an hour into a long cut — is reported to the
             // viewer as a codec problem, which it is not.
-            onLoadedData={() => { remints.current = 0; setStatus('playing') }}
+            // …and it is the moment the bytes were READ: the Files preview
+            // logs its E13 read here, not when a URL was minted (S4a review
+            // round 1, R1-UI-10: a URL that 404s logged a download).
+            onLoadedData={() => { remints.current = 0; setStatus('playing'); onSourceReadyRef.current?.(src) }}
             className="rb-vid-player"
           />
         ) : (

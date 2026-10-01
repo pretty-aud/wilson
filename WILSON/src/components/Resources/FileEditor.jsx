@@ -38,7 +38,7 @@
 //     fields, and the value returns to what is stored.
 // =============================================================================
 
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Banner, CellSelect, Chip, Switch, TextArea } from '../../ui'
 import { KIND_OPTIONS } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import {
@@ -71,11 +71,32 @@ export default function FileEditor({
   // The draft is per FILE: keyed by the node so another file starts clean
   // (the parent remounts this with key={node.id}).
   const [draft, setDraft] = useState(stored)
+  // 🚨 Review round 1, R1-UI-01 (HIGH, measured): pages stay mounted, so the
+  // box outlives the note it was drawn with. A newer note (written on the
+  // other host, a teammate's realtime edit, a save landing) never reached
+  // it, and commitNote compared the draft with the STORED note — so focusing
+  // and leaving the box wrote the stale draft over the newer note. Now:
+  //   · while the box is not being edited it shows what is stored;
+  //   · only what was TYPED during this focus is a change — leaving the box
+  //     as it was when it took focus writes nothing, and shows the store;
+  //   · a refused save puts the stored note back (R1-UI-02), unless the
+  //     person is already typing in the box again.
+  const storedRef = useRef(stored)
+  storedRef.current = stored
+  const editingRef = useRef(false)
+  const atFocusRef = useRef(stored)
+  useEffect(() => { if (!editingRef.current) setDraft(stored) }, [stored])
 
   const commitNote = () => {
+    editingRef.current = false
     const next = draft.slice(0, NOTE_MAX)
-    if (next === stored) return
-    onSave?.({ [noteKey]: next === '' ? null : next })
+    if (next === atFocusRef.current || next === storedRef.current) {
+      setDraft(storedRef.current)
+      return
+    }
+    Promise.resolve(onSave?.({ [noteKey]: next === '' ? null : next }))
+      .then((saved) => { if (saved === false && !editingRef.current) setDraft(storedRef.current) })
+      .catch(() => { if (!editingRef.current) setDraft(storedRef.current) })
   }
 
   const shown = new Set(displayTags(row))
@@ -94,7 +115,15 @@ export default function FileEditor({
           rows={4}
           value={draft}
           onChange={(v) => setDraft(String(v ?? '').slice(0, NOTE_MAX))}
+          onFocus={(e) => { editingRef.current = true; atFocusRef.current = e.target.value }}
           onCommit={commitNote}
+          // Escape reverts and blurs WITHOUT committing (the kit's
+          // useEscapeRevert); the box is not being edited after it either,
+          // and what it reverted to may be older than the store by now.
+          onBlur={() => {
+            editingRef.current = false
+            setDraft((d) => (d === atFocusRef.current ? storedRef.current : d))
+          }}
           maxLength={NOTE_MAX}
           placeholder={canWrite ? 'Add a note about this file' : 'No notes'}
           disabled={!canWrite}

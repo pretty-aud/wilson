@@ -28,8 +28,9 @@ not on any database yet. The commands are in the S4a hand-off under
 everything else here works; the Tags field says *"Tags need a database
 update that has not reached this workspace yet."* On the Local Server tags
 work now. On the test data (the development copy's fixtures) a preview says
-there is nothing to show, because the test files have no contents: use the
-desktop app or a cloud project to see previews.
+*"The dev fixtures hold no file bytes, so there is nothing to preview
+here."*, because the test files have no contents: use the desktop app or a
+cloud project to see previews.
 
 ---
 
@@ -41,11 +42,11 @@ desktop app or a cloud project to see previews.
 | 2 | Click **Files** | The explorer for this project, in Columns view: no project picker. On the right of the toolbar: the filter (*Filter by name, path or tag*), Refresh, the count line (*N folders · M files · title*), **File activity** and **Add files**. |
 | 3 | Click **Table** | Every folder and file in one flat table, as before (E7 kept it as shipped). **No panel on the right** while nothing is selected: the table has the full width. |
 | 4 | Click a file's **name** | The file window opens on the right: **Details** with a close ×, the eight facts (Name, Type, Size, Created, Modified, Duration, Location, Stored), then **Notes**, **Core project file**, **Kind** and **Tags**, and at the bottom **Preview** with the file's own actions. The name is a button, so Tab reaches it too. |
-| 5 | Type in **Notes**, then click elsewhere | The note is saved when you leave the box. Type again and press **Escape** instead: the old note comes back. |
+| 5 | Type in **Notes**, then click elsewhere | The note is saved when you leave the box. Type again and press **Escape** instead: the old note comes back. Clicking in and out without typing saves nothing, and a note written meanwhile somewhere else (on the Resources page, or by a teammate) is what the box shows. |
 | 6 | Turn **Core project file** on | Saved at once. The sentence under it is your definition: the files that give context about the project (the script, the treatment, storyboards, mood boards), which Intake and D.O.G. read. |
 | 7 | Pick a **Kind** | Saved at once. Kind is what the document is (script, treatment, deck …), from the same list Intake uses. |
 | 8 | Click two **tags**, then one of them again | Each tag lights up as it is added and goes dark when you click it again; a file can carry several. **Finance** cannot be clicked: it is on when the file was added as a money file. **Legal** carries the line *"Legal is not restricted yet: anyone who can open the file can still see it."* |
-| 9 | Type a tag's name (for example *creative*) in the filter | The list narrows to files with that tag, beside the names and paths that match. |
+| 9 | In **Table**, type a tag's name (for example *creative*) in the filter | The list narrows to files with that tag, beside the names and paths that match. (The filter narrows the Table; the Columns view shows every file, as it always has.) |
 | 10 | Click **File activity** | The selected file's history in a side panel: uploaded, moved, relinked, downloaded, trashed, restored. |
 | 11 | **Double-click** a file, or press **Enter** on its name, or click **Preview** | The preview opens over the list: the file's name and *"3 of 12 · Document · PDF · 2 MB"* at the top, the previous and next arrows on the left, the file's actions on the right. An image is drawn whole, a video and audio wait for you to press play, a PDF opens in the viewer, Markdown is drawn as a page, code is coloured, text is shown as typed. |
 | 12 | Press **→**, then **←** | The next file, then back: the same files, in the same order, as the list you were looking at. **Esc** closes the preview. |
@@ -54,7 +55,7 @@ desktop app or a cloud project to see previews.
 | 15 | On the cloud, click **Download** in the file window | The browser saves a copy under the file's own name. |
 | 16 | In the desktop app, on a file stored on this computer, click **Show in folder**, then the arrow-out icon beside it (**Open in default app**) | File Explorer opens with the file selected; then the file opens in the program Windows uses for it. Only documents, pictures, video, audio and 3D files open this way. A program or script is refused with *"WILSON does not open programs or scripts. Use Show in folder to see it."*; anything else off the list (a Maya or Nuke scene, say) with *"WILSON opens documents, pictures, video, audio and 3D files in their own app. Use Show in folder for this one."* |
 | 17 | Open **Summary** | No file list any more. The Control panel's **Files & storage** keeps the project folder and says *"The project's files are in the Files tab: add files, relink missing ones and see each file's activity there."* |
-| 18 | In **Bins**, select a file. Open **D.O.G.**, click an empty part of the page and press **Delete**. Go back to Bins | The file is still there and still selected. Bins' keys only act while R.A.B.B.I.T. is on screen. |
+| 18 | In **Bins**, select a clip. Open **D.O.G.**, click an empty part of the page and press **Delete**, then **Space**. Go back to Bins | The clip is still there and still selected, and nothing played on D.O.G. Bins' keys, its preview's Space included, only act while R.A.B.B.I.T. is on screen. |
 | 19 | In Bins with a file selected, open R.A.B.B.I.T.'s settings (the gear) and press **Escape** | The settings panel closes; the selection stays. Before this, Escape cleared the selection and the panel stayed open, and Delete on one of its buttons removed the selected files behind it. |
 
 **What the words mean.** **Kind** is the document's sub-type, from Intake's
@@ -66,10 +67,13 @@ notes and tags; Core and Kind are for the project's own files, and the
 window says *"Core files are project files; add it to the project to mark it
 core."*
 
-**What gets recorded.** Each edit to a note, the Core flag, the Kind or the
-tags is kept in the file's edit history, as edits already were. Opening a
-preview is recorded in File activity as one *Downloaded*. On the cloud that
-is once per file per session. On the Local Server it is once per file per
+**What gets recorded.** On the cloud, each edit to a note, the Core flag,
+the Kind or the tags is kept in the database's edit history, as every edit
+already is; nothing in the Files tab shows that history yet. The Local Server
+keeps no edit history. Opening a preview is recorded in File activity as one
+*Downloaded* once the file has actually loaded (a picture drawn, a video's
+first frame), never for a preview that failed. On the cloud that is once per
+file per person per session. On the Local Server it is once per file per
 minute, so a video's many small reads count once.
 
 **Who can edit.** Anyone who can edit the project. Someone who cannot sees

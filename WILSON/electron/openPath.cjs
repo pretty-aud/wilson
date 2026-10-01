@@ -97,4 +97,44 @@ function refuseToOpen(diskPath) {
   return OPEN_ALLOWED_EXT.has(ext) ? null : OFF_THE_LIST;
 }
 
-module.exports = { OPEN_ALLOWED_EXT, OPEN_REFUSED_EXT, resolveOpenTarget, refuseToOpen };
+/**
+ * The whole rabbit:open-path IPC, with the shell injected (review round 1,
+ * R1-TST-02: as three substrings of main.cjs a refusal that was computed and
+ * ignored, a reveal that fell through to open, and a wrong row all passed).
+ * Reveal shows the named path in its folder and never opens it. Open judges
+ * the REAL target (and the name) and opens exactly what it judged.
+ */
+async function openOrReveal(req, deps) {
+  const target = resolveOpenTarget(req, deps);
+  if (!target.ok) return target;
+  if (req && req.reveal) {
+    deps.shell.showItemInFolder(target.diskPath);
+    return { ok: true };
+  }
+  const refusal = refuseToOpen(target.realPath) || refuseToOpen(target.diskPath);
+  if (refusal) return { ok: false, error: refusal };
+  const err = await deps.shell.openPath(target.realPath);
+  return err ? { ok: false, error: err } : { ok: true };
+}
+
+/**
+ * main's row locator: the path of ONE row of the bundle, through main's own
+ * contained resolvers (the download and stream routes' code). A row the user
+ * deleted (a soft-deleted managed file) resolves to nothing, as the stream
+ * route's does.
+ */
+function makeRowLocator({ readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir }) {
+  return (projectId, fileId, source) => {
+    const bundle = readRabbitBundle(projectId);
+    if (!bundle) return null;
+    if (source === 'managed') {
+      const mf = (bundle.managedFiles || []).find(f => f.id === fileId && !f.deleted_at);
+      return mf ? resolveManagedFileDiskPath(bundle, mf) : null;
+    }
+    const file = (bundle.files || []).find(f => f.id === fileId);
+    if (!file) return null;
+    return resolveContainedFilePath(resolveFileBaseDir(bundle, projectId, file), file.storage_path);
+  };
+}
+
+module.exports = { OPEN_ALLOWED_EXT, OPEN_REFUSED_EXT, resolveOpenTarget, refuseToOpen, openOrReveal, makeRowLocator };

@@ -177,8 +177,13 @@ describe('ProjectFilesTable — its callers (four until post-overhaul S4a; two s
       expect(section, gone).not.toContain(gone)
     }
     expect(section).toContain('data-files-moved')
-    // …and the Summary's own read-only card with it.
-    expect(summary).not.toMatch(/<Card title="Project files"/)
+    // …and the Summary's own read-only card with it — in any attribute order
+    // or quoting (review round 1, R1-TST-16: the first cut read one spelling).
+    const PROJECT_FILES_CARD = /<Card\b[^>]*\btitle=(?:"|'|\{\s*["'`])Project files/
+    expect(summary).not.toMatch(PROJECT_FILES_CARD)
+    for (const card of ['<Card title="Project files">', '<Card pad={false} title="Project files">', "<Card title={'Project files'}>", '<Card\n  icon={X}\n  title={`Project files`}>']) {
+      expect(card, card).toMatch(PROJECT_FILES_CARD)
+    }
   })
   it('CONTROL: a variant after an arrow prop is read (the first cut missed it)', () => {
     const src = '<ProjectFilesTable files={f} onUpdate={(id, p) => save(id, p)} variant="warm" maxHeight={300} />'

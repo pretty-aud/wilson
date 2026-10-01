@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, visibleOverlayOpen } from './binUi'
+import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -59,6 +59,10 @@ export default function BinInspector({
   onPatch, onOpen, onProbe, onRemove, binPathFor, width = 320,
   // Shot takes (milestone 2): usage is Map fileId → [{ take, shot, scene }].
   usage = null, onAssign = null, onUnassign = null, projectId = null,
+  // R.A.B.B.I.T. is the page on screen (BinsView's own `pageActive`, S2a-01).
+  // Closed by default, as BinsView's is: the preview's Space plays nothing
+  // for a host that does not say so.
+  pageActive = false,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -132,7 +136,7 @@ export default function BinInspector({
       <div className="flex-1 overflow-y-auto">
         {single && (
           <Section title="Preview" open={previewOpen} onToggle={() => setPreviewOpen(o => !o)}>
-            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={streamUrlFor?.(single.id)} ffmpeg={ffmpeg} onOpen={onOpen} />
+            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={streamUrlFor?.(single.id)} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive} />
           </Section>
         )}
 
@@ -293,24 +297,32 @@ function TechRows({ row, fps, binPath, ffmpeg }) {
   )
 }
 
-function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
+function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false }) {
   const kind = previewKindFor(row)
   const [failed, setFailed] = useState(null)
   const [playing, setPlaying] = useState(false)
   const mediaRef = useRef(null)
+  const pageActiveRef = useRef(pageActive)
+  pageActiveRef.current = pageActive
   useEffect(() => { setFailed(null); setPlaying(false) }, [row.id, streamUrl])
 
   // Space toggles play/pause when the preview is a video or audio — and only
   // then: never while a modal or menu is up, never when Space is a control's
   // own activation (review round 2: it paged nothing in the add dialog's list,
   // cancelled every button's Space, and played the clip behind the backdrop).
+  // And never from another page or under a drawer (post-overhaul S4a review
+  // round 1, R1-UI-03, measured: on D.O.G. or Help, Space played the hidden
+  // clip, with sound, and no page scrolled on Space; under R.A.B.B.I.T.'s
+  // settings drawer it played the clip behind it) — BinsView's S2a-01 gate.
   useEffect(() => {
     const onKey = (e) => {
       if (e.code !== 'Space' || e.defaultPrevented || e.repeat) return
+      if (!pageActiveRef.current) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
       if (visibleOverlayOpen()) return
+      if (drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest(OVER_THE_VIEW))) return
       const m = mediaRef.current
       if (!m) return
       e.preventDefault()

@@ -25,6 +25,10 @@
 --   * E2, CORE IN HER WORDS (probes 9-10): the comment carries her definition
 --     and the column kept NOT NULL DEFAULT false (0075's tripwire).
 --
+--   * THE NINE AND NOTHING ELSE (probes 29-30, review round 1, R1-TST-17):
+--     a word outside the vocabulary that is not 'notes' is refused, and the
+--     CHECK's definition holds exactly nine quoted words.
+--
 --   * ONE DIMENSION (probes 25-28, review round 1, R1-SEC-04): the flat
 --     CHECK by definition; a 2-D array — which `<@` and cardinality() both
 --     flatten, so the other two checks let it in — is refused; the same
@@ -37,7 +41,7 @@
 
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(30);
 
 SELECT * FROM tests.rls_setup();
 
@@ -265,6 +269,21 @@ SELECT lives_ok($$
   UPDATE public.files SET tags = '{}'
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
 $$, 'the empty array (no dimensions) is still accepted');                   -- 28
+
+-- ══ 4. The nine and nothing else (R1-TST-17) ═══════════════════════════════
+
+SELECT throws_ok($$
+  UPDATE public.files SET tags = ARRAY['misc']
+   WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
+$$, '23514', NULL, 'a word outside the nine (not only ''notes'') is refused'); -- 29
+
+SELECT is(
+  (SELECT count(*)::INT
+     FROM pg_constraint c,
+          regexp_matches(pg_get_constraintdef(c.oid), '''[a-z]+''', 'g') AS w
+    WHERE c.conrelid = 'public.files'::regclass AND c.conname = 'files_tags_known_chk'),
+  9,
+  'files_tags_known_chk''s definition lists exactly nine words');             -- 30
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -2915,17 +2915,9 @@ function startLocalServer(distPath) {
     // same contained resolvers the download and stream routes use — never
     // taken from the page. A row the user deleted (a soft-deleted managed
     // file) resolves to nothing, as the stream route's does.
-    rabbitFileLocator = (projectId, fileId, source) => {
-      const bundle = readRabbitBundle(projectId);
-      if (!bundle) return null;
-      if (source === 'managed') {
-        const mf = (bundle.managedFiles || []).find(f => f.id === fileId && !f.deleted_at);
-        return mf ? resolveManagedFileDiskPath(bundle, mf) : null;
-      }
-      const file = (bundle.files || []).find(f => f.id === fileId);
-      if (!file) return null;
-      return resolveContainedFilePath(resolveFileBaseDir(bundle, projectId, file), file.storage_path);
-    };
+    rabbitFileLocator = require('./openPath.cjs').makeRowLocator({
+      readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir,
+    });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
@@ -2968,72 +2960,19 @@ function startLocalServer(distPath) {
       // means guarding whatever outranks it") pointed the other way.
       res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      // S4a: `?download=1` makes it an ATTACHMENT under the file's own name —
-      // what localServerAdapter.downloadUrl asks for, so an <a href> click
-      // saves the file instead of navigating the window to it.
-      if (req.query.download === '1') {
-        res.setHeader('Content-Disposition', require('./localMedia.cjs').contentDisposition(file.name));
-      }
+      // S4a: `?download=1` makes it an ATTACHMENT under the file's own name
+      // (fileReads.cjs, served for real in fileReads.test.js).
+      require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);
       res.sendFile(diskPath);
     });
 
     // ── Post-overhaul S4a: stream a project file's bytes, with Range ─────────
-    //
-    // The managed-files stream route's twin (below), for `files` rows, so a
-    // Local Server project has an INLINE URL at last (localServerAdapter's
-    // fileUrl) and the Files explorer can preview it: an <img>, a <video>
-    // that seeks (Range, from sendFile), an <audio>, a text fetch, a PDF.
-    // Its rules are that route's, for its reasons:
-    //   · one 'downloaded' event per file per MINUTE (a <video> issues dozens
-    //     of Range requests; rabbitLogFileEvent evicts real history at 2000) —
-    //     the same throttle, namespaced `f:` so a file and a managed file
-    //     never share a window — and none for `?probe=1`, a machine read;
-    //   · the Content-Type is allowlisted media (safeMediaContentType) and
-    //     sniffing is off: this server is the renderer's own origin, and
-    //     `mime_type` is client-written;
-    //   · the completion callback, because a cancelled range is the normal
-    //     shape of playback.
-    // And the bins' gate (rabbitBins.cjs): same-origin only, failing closed —
-    // the page's own <img>, <video> and fetch carry `Sec-Fetch-Site:
-    // same-origin`; a page on another local origin cannot forge it.
-    expressApp.get('/api/rabbit/projects/:projectId/files/:id/stream', (req, res) => {
-      const site = req.headers['sec-fetch-site'];
-      const origin = req.headers.origin;
-      const sameOrigin = site ? site === 'same-origin'
-        : (!!origin && !!req.headers.host && (origin === `http://${req.headers.host}` || origin === `https://${req.headers.host}`));
-      if (!sameOrigin) return res.status(403).json({ error: 'file streams answer WILSON only', code: 'cross_origin' });
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const file = (bundle.files || []).find(f => f.id === req.params.id);
-      if (!file) return rabbitNotFound(res, 'file');
-      const diskPath = resolveContainedFilePath(
-        resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
-      if (!diskPath) return res.status(400).json({ error: 'invalid storage path' });
-      if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
-      const isProbe = req.query.probe === '1';
-      if (!isProbe && shouldLogManagedRead(`f:${file.id}`)) {
-        try {
-          rabbitLogFileEvent(bundle, {
-            file_id:          file.id,
-            project_id:       req.params.projectId,
-            file_name:        file.name,
-            storage_provider: file.storage_provider,
-            event:            'downloaded',
-            old_path:         file.storage_path,
-            size_bytes:       file.size_bytes ?? null,
-          });
-          writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-        } catch (e) {
-          console.warn('file read not logged:', e?.message || e);
-        }
-      }
-      res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(diskPath, (err) => {
-        if (!err) return;
-        if (res.headersSent || res.writableEnded) return;
-        res.status(500).json({ error: 'stream failed' });
-      });
+    // The managed-files stream route's twin for `files` rows: the explorer's
+    // inline previews. Same-origin only, one read a minute, probes unlogged,
+    // media types only — fileReads.cjs, served for real in fileReads.test.js.
+    require('./fileReads.cjs').mountFileStreamRead(expressApp, {
+      fs, readRabbitBundle, rabbitNotFound, resolveContainedFilePath, resolveFileBaseDir,
+      rabbitLogFileEvent, writeRabbitBundle, safeMediaContentType, shouldLogManagedRead,
     });
 
     expressApp.patch('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
@@ -4680,25 +4619,21 @@ ipcMain.handle('rabbit:open-in-explorer', (_event, { filePath }) => {
 // regular file, and refuses to OPEN a program or a script (their default app
 // runs them; revealing them is fine). Returns { ok, error? }.
 ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
-  const { resolveOpenTarget, refuseToOpen } = require('./openPath.cjs');
+  // The whole decision is openPath.cjs's openOrReveal, served with a fake
+  // shell in openPath.test.js: reveal never opens; open judges the REAL
+  // target (a link named brief.pdf that leads to an .exe is refused) and
+  // opens exactly what it judged.
+  const { openOrReveal } = require('./openPath.cjs');
   const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
-  const target = resolveOpenTarget(req, {
+  return openOrReveal(req, {
     fs,
+    shell,
     locateRow: rabbitFileLocator,
     mediaRoot: () => getLocalMediaRoot({ create: false }),
     checkMediaKey,
     resolveContainedFilePath,
     insideByRealPath,
   });
-  if (!target.ok) return target;
-  if (req.reveal) { shell.showItemInFolder(target.diskPath); return { ok: true }; }
-  // The REAL target is judged and opened (review round 1, R1-SEC-01): a
-  // link named brief.pdf that leads to an .exe is refused, and what opens is
-  // exactly what was judged. The link's own name must pass too.
-  const refusal = refuseToOpen(target.realPath) || refuseToOpen(target.diskPath);
-  if (refusal) return { ok: false, error: refusal };
-  const err = await shell.openPath(target.realPath);
-  return err ? { ok: false, error: err } : { ok: true };
 });
 
 // Pick an image file for asset thumbnail

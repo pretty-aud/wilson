@@ -94,6 +94,17 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(SHOT_LIST_SURFACE.filter((k) => typeof fx[k] !== 'function')).toEqual([])
   })
 
+  it('the fake cloud refuses tags as 0085\'s CHECKs do (post-overhaul S4a; review round 1, mutant 31)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const [first] = await fx.listFiles(PROJECT_ID)
+    for (const tags of [['notes'], ['Production'], [null], 'shots', Array(10).fill('code'), [['code', 'legal']]]) {
+      await expect(fx.updateFile(first.id, { tags }), JSON.stringify(tags)).rejects.toThrow(/files_tags_known_chk/)
+    }
+    // CONTROL: the nine are accepted, and so is none.
+    await expect(fx.updateFile(first.id, { tags: ['shots', 'legal'] })).resolves.toMatchObject({ tags: ['shots', 'legal'] })
+    await expect(fx.updateFile(first.id, { tags: [] })).resolves.toMatchObject({ tags: [] })
+  })
+
   it('"fixtures" is NOT a selectable mode — the adapter substitutes for the cloud slot', () => {
     expect(ADAPTER_MODES).not.toContain('fixtures')
     expect(() => selectAdapter('fixtures')).toThrow(/unknown adapter mode/)

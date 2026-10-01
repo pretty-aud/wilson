@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
-const { resolveOpenTarget, refuseToOpen, OPEN_REFUSED_EXT, OPEN_ALLOWED_EXT } = require(resolve(here, '../../../../electron/openPath.cjs'))
+const { resolveOpenTarget, refuseToOpen, OPEN_REFUSED_EXT, OPEN_ALLOWED_EXT, openOrReveal, makeRowLocator } = require(resolve(here, '../../../../electron/openPath.cjs'))
 const PROGRAMS = 'WILSON does not open programs or scripts. Use Show in folder to see it.'
 const OFF_THE_LIST = 'WILSON opens documents, pictures, video, audio and 3D files in their own app. Use Show in folder for this one.'
 const real = (p) => fs.realpathSync(p)
@@ -93,10 +93,14 @@ describe('rabbit:open-path resolves a ROW to a file on this disk', () => {
     }
   })
 
-  it('a junction inside the media root that leads OUT is refused by the real-path check', () => {
+  it('a junction inside the media root that leads OUT is refused by the real-path check', (ctx) => {
     const viaJunction = 'projects/aaaa1111-0000-0000-0000-000000000001/project/jx/secret.txt'
     const lexical = resolveContainedFilePath(media, viaJunction.split('/').join('\\'))
-    if (!lexical || !fs.existsSync(lexical)) return // no junction support here: nothing to prove
+    // Windows makes a junction without any privilege, so there it MUST exist
+    // (round 1, R1-TST-15: a bare `return` passed silently); elsewhere the
+    // test says it was skipped.
+    if (process.platform === 'win32') expect(lexical && fs.existsSync(lexical), 'the junction was not made').toBeTruthy()
+    else if (!lexical || !fs.existsSync(lexical)) { ctx.skip(); return }
     expect(resolveOpenTarget({ source: 'media', mediaKey: viaJunction }, deps()).ok).toBe(false)
     // CONTROL: without the real-path check the same key would have resolved.
     const naive = resolveOpenTarget({ source: 'media', mediaKey: viaJunction }, deps({ insideByRealPath: () => true }))
@@ -149,11 +153,13 @@ describe('a link is judged by where it LEADS (round 1, R1-SEC-01)', () => {
     expect(refuseToOpen(plain.realPath)).toBeNull()
   })
 
-  it('a real file symlink, where this machine lets a test make one', () => {
+  it('a real file symlink, where this machine lets a test make one', (ctx) => {
     const exe = join(outside, 'tool.exe')
     writeFileSync(exe, 'MZ')
     const link = join(base, 'files', 'linked-brief.pdf')
-    try { symlinkSync(exe, link, 'file') } catch { return } // no symlink privilege here: the injected case above stands
+    // A file symlink needs a privilege Windows may not grant: then this test
+    // reports itself SKIPPED, and the injected case above stands.
+    try { symlinkSync(exe, link, 'file') } catch { ctx.skip(); return }
     const t = resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'lnk' },
       deps({ locateRow: (p, f) => (p === 'p1' && f === 'lnk' ? link : null) }))
     expect(t.ok).toBe(true)
@@ -167,29 +173,109 @@ describe('a link is judged by where it LEADS (round 1, R1-SEC-01)', () => {
   })
 })
 
+describe('openOrReveal: the whole IPC, with a fake shell (round 1, R1-TST-02)', () => {
+  const fakeShell = () => {
+    const calls = []
+    return {
+      calls,
+      showItemInFolder: (p) => { calls.push(['reveal', p]) },
+      openPath: async (p) => { calls.push(['open', p]); return '' },
+    }
+  }
+  const exeRow = () => {
+    const exe = join(base, 'files', 'setup.exe')
+    writeFileSync(exe, 'MZ')
+    return deps({ locateRow: (p, f) => (p === 'p1' && f === 'x1' ? exe : null) })
+  }
+
+  it('a program is never handed to the shell to open; its refusal is the answer', async () => {
+    const shell = fakeShell()
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'x1' }, { ...exeRow(), shell })).toEqual({ ok: false, error: PROGRAMS })
+    expect(shell.calls).toEqual([])
+  })
+
+  it('a link named brief.pdf that leads to an .exe is refused, and nothing opens', async () => {
+    const shell = fakeShell()
+    const exe = join(outside, 'calc.exe')
+    const linked = deps({ fs: { ...fs, realpathSync: (p) => (p === projectFile ? exe : fs.realpathSync(p)) } })
+    expect((await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'f1' }, { ...linked, shell })).ok).toBe(false)
+    expect(shell.calls).toEqual([])
+  })
+
+  it('Show in folder reveals the named path and NEVER opens it — not even a program', async () => {
+    const shell = fakeShell()
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'x1', reveal: true }, { ...exeRow(), shell })).toEqual({ ok: true })
+    expect(shell.calls).toEqual([['reveal', join(base, 'files', 'setup.exe')]])
+  })
+
+  it('CONTROL: a PDF opens, once, by its real path', async () => {
+    const shell = fakeShell()
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'f1' }, { ...deps(), shell })).toEqual({ ok: true })
+    expect(shell.calls).toEqual([['open', real(projectFile)]])
+  })
+
+  it('the shell\'s own failure is the answer', async () => {
+    const shell = { ...fakeShell(), openPath: async () => 'No application is associated with the specified file' }
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'f1' }, { ...deps(), shell }))
+      .toEqual({ ok: false, error: 'No application is associated with the specified file' })
+  })
+
+  it('a row that does not resolve touches nothing', async () => {
+    const shell = fakeShell()
+    expect((await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'nope', reveal: true }, { ...deps(), shell })).ok).toBe(false)
+    expect(shell.calls).toEqual([])
+  })
+})
+
+describe('makeRowLocator: one row of the bundle, through main\'s resolvers', () => {
+  const bundle = {
+    files: [
+      { id: 'f1', name: 'brief.pdf', storage_path: '1-brief.pdf' },
+      { id: 'f2', name: 'other.pdf', storage_path: '2-other.pdf' },
+    ],
+    managedFiles: [
+      { id: 'm1', stored_name: 'take.mov' },
+      { id: 'm2', stored_name: 'gone.mov', deleted_at: '2026-09-30T10:00:00Z' },
+    ],
+  }
+  const locate = makeRowLocator({
+    readRabbitBundle: (pid) => (pid === 'p1' ? bundle : null),
+    resolveManagedFileDiskPath: (_b, mf) => `M:\\managed\\${mf.stored_name}`,
+    resolveContainedFilePath: (dir, rel) => `${dir}\\${rel}`,
+    resolveFileBaseDir: () => 'F:\\project',
+  })
+  it('a files row resolves to ITS path, not another row\'s', () => {
+    expect(locate('p1', 'f1', 'files')).toBe('F:\\project\\1-brief.pdf')
+    expect(locate('p1', 'f2', 'files')).toBe('F:\\project\\2-other.pdf')
+  })
+  it('a managed file resolves; a soft-deleted one resolves to nothing', () => {
+    expect(locate('p1', 'm1', 'managed')).toBe('M:\\managed\\take.mov')
+    expect(locate('p1', 'm2', 'managed')).toBeNull()
+  })
+  it('an unknown row, an unknown project, or a managed id asked as a file: nothing', () => {
+    expect(locate('p1', 'nope', 'files')).toBeNull()
+    expect(locate('p2', 'f1', 'files')).toBeNull()
+    expect(locate('p1', 'm1', 'files')).toBeNull()
+  })
+})
+
 describe('the wiring: main resolves, the page names a row', () => {
-  it('the IPC goes through openPath.cjs with main\'s locator and the media root, reveals before it refuses', () => {
+  it('the IPC is openOrReveal with main\'s shell, locator and media root — nothing decided in main', () => {
     const at = mainCjs.indexOf("ipcMain.handle('rabbit:open-path'")
     expect(at).toBeGreaterThan(-1)
     const body = mainCjs.slice(at, mainCjs.indexOf('\n});', at))
-    expect(body).toContain("require('./openPath.cjs')")
+    expect(body).toContain("const { openOrReveal } = require('./openPath.cjs');")
+    expect(body).toContain('return openOrReveal(req, {')
+    expect(body).toMatch(/\n\s+shell,\r?\n/)
     expect(body).toContain('locateRow: rabbitFileLocator')
     expect(body).toContain('mediaRoot: () => getLocalMediaRoot({ create: false })')
-    expect(body).not.toMatch(/filePath/)
-    expect(body.indexOf('shell.showItemInFolder')).toBeLessThan(body.indexOf('refuseToOpen('))
-    expect(body.indexOf('refuseToOpen(')).toBeLessThan(body.indexOf('shell.openPath'))
-    // The real target is judged, AND it is what opens (round 1, R1-SEC-01).
-    expect(body).toContain('const refusal = refuseToOpen(target.realPath) || refuseToOpen(target.diskPath);')
-    expect(body).toContain('await shell.openPath(target.realPath)')
+    expect(body).not.toMatch(/filePath|shell\.openPath|shell\.showItemInFolder|refuseToOpen/)
   })
 
-  it('the locator lives in the server closure and uses the download route\'s resolvers', () => {
-    const at = mainCjs.indexOf('rabbitFileLocator = (projectId, fileId, source) =>')
+  it('the locator is makeRowLocator over the download route\'s resolvers, in the server closure', () => {
+    const at = mainCjs.indexOf("rabbitFileLocator = require('./openPath.cjs').makeRowLocator({")
     expect(at).toBeGreaterThan(mainCjs.indexOf('function startLocalServer('))
-    const body = mainCjs.slice(at, mainCjs.indexOf('};', at))
-    expect(body).toContain('resolveManagedFileDiskPath(bundle, mf)')
-    expect(body).toContain('resolveContainedFilePath(resolveFileBaseDir(bundle, projectId, file), file.storage_path)')
-    expect(body).toContain('!f.deleted_at')
+    expect(mainCjs.slice(at, mainCjs.indexOf('});', at))).toContain('readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir,')
   })
 
   it('the preload exposes it as rabbit.openPath', () => {

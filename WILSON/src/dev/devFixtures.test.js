@@ -159,9 +159,16 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     }
     // The S4a loosening, proven: the module added above imports NOTHING, so it
     // cannot carry the fixtures to the network, storage or the client.
-    const tags = read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js'))
-    expect(tags).not.toMatch(/^\s*import\s/m)
-    expect(tags).not.toMatch(/\brequire\(/)
+    // No import of any kind, read from the CODE (comments stripped): a static
+    // import, a dynamic import(), a re-export and a require each count (review
+    // round 1, R1-TST-16: `export … from` and `import()` passed the first cut).
+    const codeOf = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const importsSomething = (s) => /\bimport\b|\bexport\b[^;\n]*\bfrom\b|\brequire\s*\(/.test(codeOf(s))
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js')))).toBe(false)
+    for (const planted of ["import x from './y'", "export { a } from './b'", "const m = await import('./c')", "const z = require('z')"]) {
+      expect(importsSomething(planted), planted).toBe(true)
+    }
+    expect(importsSomething('// import nothing\nexport const A = 1')).toBe(false)
   })
 
   it('a built dist/, when one is present, carries none of the fixture text', () => {

@@ -68,6 +68,17 @@ const kitRule = (selector) => {
 const ALL = ['Intake', 'Summary', 'Files', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins', 'Levels', 'Experiences']
 const ELEVEN = ['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins', 'Levels', 'Experiences']
 const tabLabels = (container) => [...container.querySelectorAll('[role="tab"]')].map((b) => b.textContent.trim())
+/**
+ * What is wrong with a tab list, or '' — the ONE reader the real tests and the
+ * control share (post-overhaul S4a review round 1, R1-TST-15: the control
+ * compared two literals and never read RABBIT_VIEWS).
+ */
+const orderProblem = (labels) => {
+  const missing = ALL.filter((l) => !labels.includes(l))
+  if (missing.length) return `missing: ${missing.join(', ')}`
+  if (labels.join('|') !== ALL.join('|')) return `out of order: ${labels.join(' ')}`
+  return ''
+}
 
 describe('ViewTabs: the active view', () => {
   it('exactly one tab is selected, and it is the active view', () => {
@@ -106,8 +117,8 @@ describe('ViewTabs: the active view', () => {
 describe('ViewTabs: twelve peers since S4a (eleven kept, Files added), grouped, none removed', () => {
   it('renders all twelve views, in their order, when nothing is hidden', () => {
     const { container } = render(<ViewTabs activeView="summary" onChange={() => {}} />)
-    expect(tabLabels(container)).toEqual(ALL)
-    expect(RABBIT_VIEWS.map((v) => v.label)).toEqual(ALL)
+    expect(orderProblem(tabLabels(container))).toBe('')
+    expect(orderProblem(RABBIT_VIEWS.map((v) => v.label))).toBe('')
     // Files sits right after Summary, in the project group (E8).
     expect(RABBIT_VIEWS.find((v) => v.id === 'files')).toMatchObject({ label: 'Files', group: 'project' })
   })
@@ -116,10 +127,11 @@ describe('ViewTabs: twelve peers since S4a (eleven kept, Files added), grouped, 
     expect(RABBIT_VIEWS.map((v) => v.label).filter((l) => l !== 'Files')).toEqual(ELEVEN)
   })
 
-  it('CONTROL: the order check sees a tab that moved or vanished', () => {
+  it('CONTROL: the same reader sees a tab that moved or vanished', () => {
     const moved = [...ELEVEN.slice(0, 2), 'Team', 'Files', ...ELEVEN.slice(3)]
-    expect(moved).not.toEqual(ALL)
-    expect(ALL.filter((l) => l !== 'Team')).not.toEqual(ALL)
+    expect(orderProblem(moved)).toMatch(/^out of order: Intake Summary Team Files/)
+    expect(orderProblem(ALL.filter((l) => l !== 'Team'))).toBe('missing: Team')
+    expect(orderProblem(RABBIT_VIEWS.map((v) => v.label).filter((l) => l !== 'Files'))).toBe('missing: Files')
   })
 
   it('draws a hairline between the three groups: project | plan | material', () => {

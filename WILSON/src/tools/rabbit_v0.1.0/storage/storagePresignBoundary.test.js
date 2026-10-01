@@ -317,6 +317,11 @@ describe('the wiring is real — every link in the presign chain has a caller', 
       expect(src, name).toContain('setUploadError(err?.message')
       expect(src, name).toContain('{uploadError}')
     }
-    expect(read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')).not.toMatch(/uploadFile\?\.\(/)
+    // Any call spelling (post-overhaul S4a review round 1, R1-TST-16: the
+    // first cut read only `uploadFile?.(`, and `ctx.uploadFile(` passed).
+    const CALLS_UPLOAD = /\buploadFile\s*(?:\?\.\s*)?\(/
+    expect(read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')).not.toMatch(CALLS_UPLOAD)
+    for (const call of ['uploadFile?.(f)', 'ctx.uploadFile(f)', 'await uploadFile (f)', 'x.uploadFile ?. (f)']) expect(call, call).toMatch(CALLS_UPLOAD)
+    expect('const { uploadFile } = ctx').not.toMatch(CALLS_UPLOAD)
   })
 })

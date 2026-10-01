@@ -1950,8 +1950,8 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
 - **S4a-01 · Migration 0085 (`files.tags`) is written and NOT applied to
   any environment.** The desktop app's classifier refuses DDL writes to dev
   from a session, so the migration was proven by the hosted shim in a
-  rolled-back run (suite 87: 24 planned / 24 collected / 24 passed) and by
-  CI. The client tolerates a database without the column, as it does for
+  rolled-back run (suite 87, after review round 1: 30 planned / 30
+  collected / 30 passed) and by CI. The client tolerates a database without the column, as it does for
   0081: tags read as none, the file window says "Tags need a database
   update that has not reached this workspace yet.", and a tags-only save
   is refused with nothing changed. The
@@ -1971,9 +1971,10 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   (`docs/sessions/handoffs/img/po-s4a-localserver-preview-pdf-*.png`).
   Cosmetic. Owner: the next session on previews.
 - **S4a-04 · The preview is the workbench Dialog, not a lightbox.** The
-  kit has no full-window Dialog, so a video or PDF is capped at
-  `min(64vh, 620px)` high. Owner: the kit (S4a-KR-1, "a lightbox-sized
-  Dialog").
+  kit has no full-window Dialog, so the preview is 960px wide. A PDF, a
+  picture or a text is capped at `min(64vh, 620px)` high; a video stage has
+  no fixed height and stops at the player's own limit. Owner: the kit
+  (S4a-KR-1, "a lightbox-sized Dialog").
 - ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
   test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
   "the task form hands focus back to 'Add new task'…". Measured red in 4

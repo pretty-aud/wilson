@@ -188,6 +188,17 @@ function safeList(fn, id) {
 //      edit a project that is not open, which has no provider rows at all).
 // And when the open project's files, folders or managed files change, the
 // page reads them again — an upload from the toolbar, a teammate's rename.
+//
+// The provider's copy wins UNLESS the adapter's is strictly newer by
+// `updated_at` (review round 1, R1-UI-09, measured): Refresh could not show a
+// change the provider had missed (realtime down, another writer), and the
+// window stitched a row from two versions. A stale answer to a refetch is
+// older than the provider's saved row, so it still loses.
+function strictlyNewer(a, b) {
+  const ta = Date.parse(a?.updated_at || '')
+  const tb = Date.parse(b?.updated_at || '')
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta > tb
+}
 function mergeById(base, fresh) {
   if (!Array.isArray(fresh) || fresh.length === 0) return base
   const byId = new Map(fresh.filter(Boolean).map(r => [r.id, r]))
@@ -196,7 +207,7 @@ function mergeById(base, fresh) {
     const f = byId.get(r.id)
     if (!f) return r
     seen.add(r.id)
-    return { ...r, ...f }
+    return strictlyNewer(r, f) ? { ...f, ...r } : { ...r, ...f }
   })
   for (const f of byId.values()) if (!seen.has(f.id)) out.push(f)
   return out
@@ -368,6 +379,8 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  // Another project: its own uploads, its own refusals (round 1, R1-UI-11).
+  useEffect(() => { setUploadError('') }, [projectId])
   const uploadFile = ctx?.uploadFile
   const handleUpload = useCallback(async (e) => {
     const picked = Array.from(e.target.files || [])
@@ -438,9 +451,16 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const patchFile = ctx?.patchFile
   const markCore = ctx?.markFileCoreDefiner
   const updateManaged = ctx?.updateManagedFile
+  // Answers true when the change was stored, false when it was not (the
+  // editor puts the note back on false — round 1, R1-UI-02).
   const saveFile = useCallback(async (node, patch) => {
     const row = node?.row
-    if (!row || !patch) return
+    if (!row || !patch) return false
+    // The greyed controls are not the only gate (round 1, R1-TST-06): the
+    // Resources page fails closed for a project it shows without opening,
+    // and a row-level policy may still accept the write it promised to
+    // refuse. Nothing is sent without the seat.
+    if (!canWrite) { setSaveError(writeReason || 'You cannot change this file.'); return false }
     const id = row.id
     const managed = node.meta?.source === 'managed'
     const v = (overlayVersions.current.get(id) || 0) + 1
@@ -457,15 +477,17 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
       setLoaded((prev) => (prev && prev.projectId === projectId
         ? { ...prev, [key]: prev[key].map((r) => (r.id === id ? { ...r, ...patch, ...(landed || {}) } : r)) }
         : prev))
+      return true
     } catch (err) {
       setSaveError(err?.message || 'the change was refused')
+      return false
     } finally {
       if (overlayVersions.current.get(id) === v) {
         overlayVersions.current.delete(id)
         setOverlay((prev) => { if (!prev.has(id)) return prev; const next = new Map(prev); next.delete(id); return next })
       }
     }
-  }, [patchFile, markCore, updateManaged, projectId])
+  }, [patchFile, markCore, updateManaged, projectId, canWrite, writeReason])
 
   // E9: Download, Show in folder, Open in default app. A row whose bytes are
   // on THIS computer reveals or opens through rabbit:open-path (main resolves
@@ -529,14 +551,34 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // E13: one 'downloaded' per file per session through the cloud's RPC
   // (best-effort, the module-level set below). The Local Server's stream
   // route records the read itself, throttled — so nothing is sent from here.
+  // Keyed by WHO read it too (round 1, R1-TST-04): signing out does not
+  // reload the window, and the next person's first read of a file the last
+  // one had previewed must still be recorded.
+  const readerId = perms?.userId || ''
   const logPreviewRead = useCallback((row) => {
     if (!row?.id || adapterMode === 'local_server') return
     const a = getAdapter?.()
     if (typeof a?.logFileDownloaded !== 'function') return
-    if (PREVIEW_READS_LOGGED.has(row.id)) return
-    PREVIEW_READS_LOGGED.add(row.id)
+    const key = `${readerId}:${row.id}`
+    if (PREVIEW_READS_LOGGED.has(key)) return
+    PREVIEW_READS_LOGGED.add(key)
     Promise.resolve(a.logFileDownloaded(row)).catch(() => {})
-  }, [adapterMode, getAdapter])
+  }, [adapterMode, getAdapter, readerId])
+  // The preview's "no preview" sentence names the dev fixtures by the
+  // adapter's own mode: the provider reports the fixtures as 'supabase'
+  // (round 1, R1-TST-05 / R1-UI-12, measured).
+  const previewMode = getAdapter?.()?.mode === 'fixtures' ? 'fixtures' : adapterMode
+  // Focus goes back to a file's own name (Table) or item (Columns) when the
+  // window or the preview over it closes — not to <body>, and not to the file
+  // the preview was OPENED on after ← → walked away from it (round 1,
+  // R1-UI-06 / R1-UI-07, measured). After the kit Dialog's own restore.
+  const focusFileName = useCallback((id) => {
+    if (!id) return
+    setTimeout(() => {
+      const el = [...document.querySelectorAll('[data-files-explorer] [data-node-id]')].find((e) => e.getAttribute('data-node-id') === id)
+      el?.focus?.()
+    }, 0)
+  }, [])
   // The file's actions, in the file window's footer and the preview's bar.
   // The on-disk pair is ONE unit: the footer is too narrow for Preview and
   // both, so the pair wraps whole instead of stranding the icon on a line
@@ -713,7 +755,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
               </div>
               <DetailsPanel
                 node={selectedFile}
-                onClose={() => setSelectedFileId(null)}
+                onClose={() => { const id = selectedFile?.id; setSelectedFileId(null); focusFileName(id) }}
                 editor={selectedFile && (
                   <FileEditor
                     key={selectedFile.id}
@@ -768,10 +810,11 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           items={previewItems}
           index={previewIndex}
           onIndex={stepPreview}
-          onClose={() => setPreviewId(null)}
+          onClose={() => { const id = previewId; setPreviewId(null); focusFileName(id) }}
           projectId={projectId}
-          adapterMode={adapterMode}
+          adapterMode={previewMode}
           actionsFor={fileActions}
+          actionError={actionError}
           onRead={logPreviewRead}
           onReveal={(node) => revealOrOpen(node, true)}
         />
@@ -908,6 +951,7 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, onOpen, selectedId 
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); onOpen?.(node) } }}
                       title={node.name}
                       data-file-name
+                      data-node-id={node.id}
                     >
                       <FileIcon className="fx-name-icon" aria-hidden="true" />
                       <span className="fx-name-text">{node.name}</span>
@@ -962,6 +1006,7 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile, o
                   onOpenFile?.(node)
                 }}
                 data-node-kind={node.kind}
+                data-node-id={node.id}
                 data-selected={isSel || undefined}
               >
                 {isFolder

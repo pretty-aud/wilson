@@ -156,6 +156,14 @@ BEGIN
   ) THEN
     RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk admits ''notes'', which E3 removed';
   END IF;
+  --    …and NOTHING ELSE (S4a review round 1, R1-TST-17): exactly nine quoted
+  --    words in the definition, so a widened list fails even without 'notes'.
+  IF (SELECT count(*)
+        FROM pg_constraint c,
+             regexp_matches(pg_get_constraintdef(c.oid), '''[a-z]+''', 'g') AS w
+       WHERE c.conrelid = 'public.files'::regclass AND c.conname = 'files_tags_known_chk') <> 9 THEN
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk lists something besides the nine';
+  END IF;
 
   -- 3. 🚨 THE POLICIES ON files ARE UNTOUCHED — 0075's post-condition 4,
   --    repeated here because this is the same kind of migration: a column

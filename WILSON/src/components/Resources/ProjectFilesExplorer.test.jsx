@@ -23,7 +23,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor, act } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -106,6 +106,7 @@ vi.mock('../../permissions/usePermissions', () => ({
 }))
 
 const { default: ProjectFilesExplorer } = await import('./ProjectFilesExplorer')
+const { navigateTo } = await import('../../tools/rabbit_v0.1.0/state/rabbitNavigate')
 
 afterEach(cleanup)
 
@@ -507,6 +508,40 @@ describe('one explorer, two hosts (S4a, E8)', () => {
     expect(row().hasAttribute('data-selected'), 'the selection survives the read').toBe(true)
   })
 
+  it('reads again when the open project\'s FOLDERS or MANAGED files change too (round 1, mutants 8 and 9)', async () => {
+    const a = countingAdapter()
+    ctx.getAdapter = a.make
+    ctx.folders = [FOLDERS[0]]
+    ctx.managedFiles = []
+    const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(a.calls.length).toBe(1)
+    ctx.folders = [...FOLDERS]
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await waitFor(() => expect(a.calls.length).toBe(2))
+    ctx.managedFiles = [{ id: 'm9', file_name: 'take.mov', stored_name: 'take.mov', folder_path: '' }]
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await waitFor(() => expect(a.calls.length).toBe(3))
+  })
+
+  it('Refresh shows a change the provider MISSED: the adapter\'s row wins when it is newer (round 1, R1-UI-09)', async () => {
+    ctx.files = [{ ...FILES[0], updated_at: '2026-09-01T10:00:00Z' }]
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFiles: async () => [{ ...FILES[0], name: 'brief_RENAMED.pdf', updated_at: '2026-09-05T10:00:00Z' }, FILES[1]] })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    expect(fileNames()).toContain('brief_RENAMED.pdf')
+    expect(fileNames()).not.toContain('brief.pdf')
+  })
+
+  it('CONTROL: an adapter answer OLDER than the provider\'s row (a refetch racing a save) still loses', async () => {
+    ctx.files = [{ ...FILES[0], name: 'brief-saved.pdf', updated_at: '2026-09-05T10:00:00Z' }]
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFiles: async () => [{ ...FILES[0], updated_at: '2026-09-01T10:00:00Z' }, FILES[1]] })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    expect(fileNames()).toContain('brief-saved.pdf')
+    expect(fileNames()).not.toContain('brief.pdf')
+  })
+
   it('lays the open project\'s provider rows over the adapter\'s, by id', async () => {
     ctx.files = [{ ...FILES[0], name: 'brief-final.pdf' }]
     render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
@@ -522,6 +557,16 @@ describe('one explorer, two hosts (S4a, E8)', () => {
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
     expect(fileNames()).toContain('brief.pdf')
     expect(fileNames()).not.toContain('brief-final.pdf')
+  })
+
+  it('"Show in Files" before the files have loaded stays PENDING, then selects the file (round 1, R1-TST-19)', async () => {
+    let release
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFiles: () => new Promise((r) => { release = () => r(FILES) }) })
+    navigateTo({ view: 'files', fileId: '2', projectId: 'p1' })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await new Promise((r) => setTimeout(r, 0)) // mounted, the tree not loaded: declined, kept
+    await act(async () => { release() })
+    await waitFor(() => expect(document.querySelector('[data-file-details]')?.getAttribute('data-file-details')).toBe('f:2'))
   })
 
   it('drops an answer that arrives after a newer one', async () => {
@@ -626,6 +671,43 @@ describe('the Files tab\'s toolbar: Add files, Relink, File activity (E1)', () =
     expect(notice.closest('.ui-banner')?.getAttribute('data-tone')).toBe('warning')
     fireEvent.click(screen.getByRole('button', { name: /Relink…/ }))
     expect(await screen.findByRole('dialog', { name: 'Relink missing files' })).toBeTruthy()
+  })
+
+  it('after a relink is applied the census runs again, and the notice goes (round 1, mutant 10)', async () => {
+    ctx.adapterMode = 'local_server'
+    const row = { id: '1', name: 'brief.pdf', storage_path: 'old/brief.pdf', size_bytes: 10_240 }
+    let applied = false
+    ctx.getAdapter = () => ({
+      ...REAL_ADAPTER(),
+      relinkScan: async (_pid, dir) => (applied
+        ? { missing: [], candidates: [] }
+        : { missing: [row], candidates: dir ? [{ relPath: 'brief.pdf', name: 'brief.pdf', size: 10_240 }] : [] }),
+      relinkApply: async () => { applied = true; return { relinked: 1, filesDir: 'D:\\moved' } },
+    })
+    window.electronAPI = { rabbit: { pickDirectory: async () => 'D:\\moved' } }
+    try {
+      onTab()
+      expect(await screen.findByText(/1 file can.t be found on disk/)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: /Relink…/ }))
+      const dialog = await screen.findByRole('dialog', { name: 'Relink missing files' })
+      fireEvent.click(await within(dialog).findByRole('button', { name: /Choose folder/ }))
+      fireEvent.click(await within(dialog).findByRole('button', { name: 'Relink 1 file' }))
+      await waitFor(() => expect(screen.queryByText(/can.t be found on disk/)).toBeNull())
+    } finally {
+      delete window.electronAPI
+    }
+  })
+
+  it('an upload refusal belongs to its project: another project does not inherit it (round 1, R1-UI-11)', async () => {
+    ctx.adapterMode = 'supabase'
+    ctx.uploadFile = async () => { throw new Error('This workspace stores files on its own server.') }
+    const { rerender } = onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [new File(['a'], 'a.pdf')] } })
+    expect(await screen.findByText('This workspace stores files on its own server.')).toBeTruthy()
+    ctx.activeProjectId = 'p2'
+    rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+    await waitFor(() => expect(screen.queryByText('This workspace stores files on its own server.')).toBeNull())
   })
 
   it('CONTROL: a backend with no relinkScan (the cloud) draws no notice at all', async () => {

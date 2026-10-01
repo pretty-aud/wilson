@@ -22,8 +22,11 @@
 // sharing.
 //
 // E13: a preview is a read. The cloud logs it through log_file_downloaded,
-// once per file per session (the explorer's onRead); the Local Server's
-// stream route logs it itself, throttled to one a minute.
+// once per file per session (the explorer's onRead), when the bytes have
+// actually arrived — an image drawn, a video's first frame, the audio's data,
+// the PDF's blob, the text read — never on minting a URL that might 404
+// (review round 1, R1-UI-10). The Local Server's stream route logs it
+// itself, throttled to one a minute.
 //
 // The per-URL error memory and the one re-mint are VideoPreview's: a signed
 // URL EXPIRES, so a failure re-mints once before it is called a format
@@ -45,7 +48,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { Dialog, EmptyState, IconButton, Spinner } from '../../ui'
+import { Banner, Dialog, EmptyState, IconButton, Spinner } from '../../ui'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { VideoStage } from '../../tools/rabbit_v0.1.0/components/VideoPreview'
 import { managedStreamUrl } from '../../tools/rabbit_v0.1.0/storage/managedVideoThumbnail'
@@ -71,6 +74,7 @@ export default function FilePreviewDialog({
   projectId,
   adapterMode,
   actionsFor,
+  actionError = '',
   onRead,
   onReveal,
 }) {
@@ -79,6 +83,13 @@ export default function FilePreviewDialog({
   const go = useCallback((step) => {
     if (count < 2) return
     onIndex?.((index + step + count) % count)
+    // The stage remounts on a step, so focus on one of ITS controls (the
+    // card's Download) falls to <body>, where ← → no longer reach this
+    // dialog (review round 1, R1-UI-08, measured). Hand it to the surface.
+    setTimeout(() => {
+      const surface = document.querySelector('.fx-pv-dialog')
+      if (surface && !surface.contains(document.activeElement)) surface.focus?.()
+    }, 0)
   }, [count, index, onIndex])
 
   if (!node) return null
@@ -113,6 +124,11 @@ export default function FilePreviewDialog({
         </div>
         <div className="fx-pv-actions">{actionsFor?.(node)}</div>
       </div>
+      {/* A refusal from this preview's own buttons (Open in default app, a
+          refused Download) is shown HERE: the file window's footer, where it
+          used to land, sits under this dialog's backdrop (review round 1,
+          R1-UI-05, measured). */}
+      {actionError && <Banner tone="danger" data-pv-action-error>{actionError}</Banner>}
       <div className="fx-pv-stage" data-kind={kind}>
         <PreviewStage
           key={node.id}
@@ -196,7 +212,6 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
         return
       }
       setState({ status: 'ready', url, detail: null })
-      onReadRef.current?.(rowRef.current)
     } catch (err) {
       // A signing refusal is a real answer, not a format problem.
       setState({ status: 'unavailable', url: null, detail: err?.message || 'Could not open this file.' })
@@ -219,7 +234,8 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
         : 'Preview isn\'t available for this file. Download it to view it.',
     })
   }, [managed, load])
-  const ok = useCallback(() => { remints.current = 0 }, [])
+  // The bytes arrived: the budget refills, and THIS is the read E13 records.
+  const ok = useCallback(() => { remints.current = 0; onReadRef.current?.(rowRef.current) }, [])
 
   if (state.status === 'loading') return <div className="fx-pv-center"><Spinner size="lg" /></div>
   if (state.status === 'unavailable') return <NoPreview reason={state.detail} actions={actions} />
@@ -235,7 +251,7 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
       </div>
     )
   }
-  if (pk.kind === 'pdf') return <PdfStage url={url} name={node.name} onFail={fail} actions={actions} />
+  if (pk.kind === 'pdf') return <PdfStage url={url} name={node.name} onFail={fail} onOk={ok} actions={actions} />
   if (readsWhole(pk.kind)) return <TextStage url={url} pk={pk} name={node.name} onFail={fail} onOk={ok} actions={actions} />
   return <NoPreview reason="There is no preview for this kind of file." actions={actions} />
 }
@@ -251,7 +267,7 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
  *    opaque download (safeMediaContentType — a same-origin execution
  *    defence), and the blob leaves that rule as it is.
  */
-function PdfStage({ url, name, onFail, actions }) {
+function PdfStage({ url, name, onFail, onOk, actions }) {
   const [frameSrc, setFrameSrc] = useState(null)
   const [tooLarge, setTooLarge] = useState(false)
   useEffect(() => {
@@ -268,6 +284,7 @@ function PdfStage({ url, name, onFail, actions }) {
         if (blob.size > PREVIEW_PDF_BLOB_MAX) { setTooLarge(true); return }
         made = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
         setFrameSrc(made)
+        onOk?.()
       } catch (err) {
         if (err?.name !== 'AbortError') onFail()
       }

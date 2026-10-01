@@ -47,6 +47,7 @@ describe('the vocabulary: one list, in three places', () => {
     expect(checkList(migration)).toEqual([...FILE_TAG_IDS])
     expect(cjs.FILE_TAG_MAX).toBe(9)
     expect(migration).toMatch(/CHECK \(cardinality\(tags\) <= 9\)/)
+    expect(migration).toMatch(/CHECK \(COALESCE\(array_ndims\(tags\), 1\) = 1\)/)
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS tags TEXT\[\] NOT NULL DEFAULT '\{\}'/)
   })
 
@@ -118,17 +119,24 @@ describe('the Local Server refuses what the cloud refuses (electron/fileTags.cjs
     { tags: null },                     // not a list
     { tags: 'shots' },                  // not a list
     { tags: [...NINE, 'code'] },        // a tenth element
+    { tags: [['code', 'legal']] },      // two dimensions (0085's files_tags_flat_chk)
   ]
   const ACCEPTED = [{}, { description: 'x' }, { tags: [] }, { tags: [...NINE] }, { tags: ['shots', 'shots'] }]
+  /** Where `check` disagrees with the database: [] when it agrees. */
+  const disagreements = (check) => [
+    ...REFUSED.filter((body) => check(body).ok !== false),
+    ...ACCEPTED.filter((body) => check(body).ok !== true),
+  ].map((body) => JSON.stringify(body))
 
-  it('answers like files_tags_known_chk and files_tags_len_chk', () => {
-    for (const body of REFUSED) expect(cjs.checkFileTags(body).ok, JSON.stringify(body)).toBe(false)
-    for (const body of ACCEPTED) expect(cjs.checkFileTags(body).ok, JSON.stringify(body)).toBe(true)
+  it('answers like files_tags_known_chk, files_tags_len_chk and files_tags_flat_chk', () => {
+    expect(disagreements(cjs.checkFileTags)).toEqual([])
   })
 
-  it('CONTROL: a check that passes everything fails the same table', () => {
-    const naive = () => ({ ok: true })
-    expect(REFUSED.some((body) => naive(body).ok === false)).toBe(false)
+  it('CONTROL: the same reader catches a check that passes everything, and one that refuses everything', () => {
+    // Round 1, R1-TST-15: this control used to assert something no checker
+    // could fail. It runs the test's own reader now.
+    expect(disagreements(() => ({ ok: true }))).toHaveLength(REFUSED.length)
+    expect(disagreements(() => ({ ok: false, error: 'x' }))).toHaveLength(ACCEPTED.length)
   })
 
   it('both PATCH routes run it BEFORE they merge the body', () => {
@@ -146,7 +154,11 @@ describe('the Local Server refuses what the cloud refuses (electron/fileTags.cjs
       const merge = body.search(/\.\.\.patch,/)
       expect(check, `${sig} does not check tags`).toBeGreaterThan(-1)
       expect(check, `${sig} merges before it checks`).toBeLessThan(merge)
-      expect(body).toMatch(/res\.status\(400\)\.json\(\{ error: tagCheck\.error, code: 'bad_tags' \}\)/)
+      // The exact refusal, acting on the check's verdict (round 1, mutant 30:
+      // `if (!tagCheck)` computed the check and let every tag through).
+      expect(body).toContain("const tagCheck = checkFileTags(patch);")
+      expect(body).toContain("if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });")
+      expect(body.indexOf('if (!tagCheck.ok) return')).toBeLessThan(merge)
     }
     expect(mainCjs).toContain("const { checkFileTags } = require('./fileTags.cjs');")
   })

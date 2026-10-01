@@ -1294,7 +1294,16 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
     if (!m) return 'site not found';
     // S4a: a sentence that is the kit Banner's own text — the match is the
     // Banner's opening through the sentence, and nothing in it may set mono.
-    if (want === 'kit-banner') return /font-mono/.test(m[0]) ? 'mono inside the Banner' : 'ok';
+    // DIRECTLY in it (review round 1, R1-TST-14): the last tag before the
+    // sentence is the Banner's own opening or a CLOSING tag (its action
+    // prop's </Button>), never an element opened around the sentence — a
+    // wrapper could set the mono through a class (`fx-col-meta`).
+    if (want === 'kit-banner') {
+      if (/font-mono/.test(m[0])) return 'mono inside the Banner';
+      const before = m[0].slice(0, m[0].lastIndexOf('{missingCount}'));
+      const lastTag = (before.match(/<\/?[A-Za-z][^<]*$/) || [''])[0];
+      return lastTag.startsWith('<Banner') || lastTag.startsWith('</') ? 'ok' : 'wrapped inside the Banner';
+    }
     const cls = m[1].split(/\s+/);
     if (want === 'no-mono') return cls.includes('font-mono') ? `mono: "${m[1]}"` : 'ok';
     return cls.includes('font-sans') ? 'ok' : `no sans: "${m[1]}"`;
@@ -1314,6 +1323,14 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
             <span className="font-mono">{missingCount} file{missingCount === 1 ? '' : 's'}`;
     expect(judge(banner, SITES[0][1], 'kit-banner')).toBe('mono inside the Banner');
     expect(judge(`<p>{missingCount} file{missingCount === 1 ? '' : 's'}</p>`, SITES[0][1], 'kit-banner')).toBe('site not found');
+    // Round 1's mutant: the mono through a CSS class on a wrapper.
+    const wrapped = `<Banner tone="warning" action={(<Button>Relink…</Button>)}>
+            <span className="fx-col-meta">{missingCount} file{missingCount === 1 ? '' : 's'}`;
+    expect(judge(wrapped, SITES[0][1], 'kit-banner')).toBe('wrapped inside the Banner');
+    // …and the shape that ships (the action's </Button>, then the sentence) passes.
+    const direct = `<Banner tone="warning" action={(<Button>Relink…</Button>)}>
+            {missingCount} file{missingCount === 1 ? '' : 's'}`;
+    expect(judge(direct, SITES[0][1], 'kit-banner')).toBe('ok');
     const toast = `<div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0`;

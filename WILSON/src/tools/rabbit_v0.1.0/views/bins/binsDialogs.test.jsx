@@ -16,7 +16,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { useState } from 'react'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { overlayOpen, Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
-import { overlayOpen as kitOverlayOpen, Dialog, Switch } from '../../../../ui'
+import { overlayOpen as kitOverlayOpen, Dialog, Switch, Drawer } from '../../../../ui'
 import BinInspector from './BinInspector'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -351,7 +351,9 @@ describe('🚨 one overlay stack, the kit\'s (review part 5, risk 3)', () => {
     try {
       const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
       const inspector = render(
-        <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg
+        // pageActive: R.A.B.B.I.T. on screen (post-overhaul S4a, R1-UI-03 —
+        // the inspector's Space is closed without it).
+        <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive
           thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />,
       )
       expect(inspector.container.querySelector('video')).toBeTruthy()
@@ -360,6 +362,37 @@ describe('🚨 one overlay stack, the kit\'s (review part 5, risk 3)', () => {
       expect(play).not.toHaveBeenCalled()
       dialog.unmount()
       fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
+
+  it('post-overhaul S4a (R1-UI-03): the inspector\'s Space plays nothing from another page, or under a drawer', () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
+      const inspector = (pageActive) => (
+        <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive={pageActive}
+          thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />
+      )
+      const space = () => fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      // She is on D.O.G.: R.A.B.B.I.T. is mounted but not on screen.
+      const { rerender } = render(<>{inspector(false)}</>)
+      expect(space()).toBe(true) // not cancelled: a page's own Space still scrolls
+      expect(play).not.toHaveBeenCalled()
+      // R.A.B.B.I.T.'s settings drawer is open over the view.
+      rerender(<>{inspector(true)}<Drawer open onClose={() => {}} backdrop title="Settings"><p>x</p></Drawer></>)
+      space()
+      expect(play).not.toHaveBeenCalled()
+      // CONTROL: on the page, nothing over it — Space plays.
+      rerender(<>{inspector(true)}</>)
+      space()
       expect(play).toHaveBeenCalledTimes(1)
     } finally {
       proto.play = saved.play

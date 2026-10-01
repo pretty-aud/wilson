@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -95,6 +95,14 @@ describe('the file window: collapsed at rest, opened by a file (E10, Q60)', () =
     expect(panel()).toBeNull()
   })
 
+  it('closing the window puts focus back on the file\'s name, not on <body> (round 1, R1-UI-07)', async () => {
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => within(panel()).getByRole('button', { name: 'Close details' }).focus())
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Close details' }))
+    await waitFor(() => expect(document.activeElement).toBe(nameButton('treatment.pdf')))
+  })
+
   it('the Name cell of a FILE is a button (the keyboard reaches it); a folder\'s is not; the row stays a plain <tr>', async () => {
     await mount()
     const btn = nameButton('treatment.pdf')
@@ -153,6 +161,96 @@ describe('notes (E2: the note IS files.description; E11: a managed file\'s notes
     expect(panel().querySelector('[data-file-core]')).toBeNull()
     expect(panel().querySelector('[data-file-kind]')).toBeNull()
     expect(panel().querySelector('[data-core-reason]').textContent).toBe('Core files are project files; add it to the project to mark it core.')
+  })
+})
+
+// Review round 1: `fireEvent.focus` focuses nothing in jsdom, so the kit's
+// Escape (`e.currentTarget.blur()`) fired no blur and the "saves nothing"
+// half above could not fail (R1-TST-01). These focus the box FOR REAL.
+describe('notes, with the box really focused (review round 1)', () => {
+  const box = () => panel().querySelector('textarea[data-file-notes]')
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  const tab = () => <ProjectFilesExplorer projectId="p1" showPicker={false} />
+
+  it('🚨 Escape reverts, LEAVES the box, and saves nothing (R1-TST-01)', async () => {
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    expect(document.activeElement).toBe(box())
+    fireEvent.change(box(), { target: { value: 'oops' } })
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    expect(document.activeElement).not.toBe(box())
+    expect(box().value).toBe('First pass')
+    await tick()
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+  })
+
+  it('CONTROL: the same focus, a change and a real blur DO save', async () => {
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    fireEvent.change(box(), { target: { value: 'Second pass' } })
+    act(() => box().blur())
+    await waitFor(() => expect(ctx.patchFile).toHaveBeenCalledWith('1', { description: 'Second pass' }, 'p1'))
+  })
+
+  it('focusing the box and leaving it as it was writes nothing (no PATCH, no history row)', async () => {
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    act(() => box().blur())
+    await tick()
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+  })
+
+  it('🚨 a newer note reaches the box, and a click in and out does NOT write the old one over it (R1-UI-01)', async () => {
+    const { rerender } = await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    expect(box().value).toBe('First pass')
+    // Written on the Resources page (or by a teammate): the provider's row changes.
+    ctx.files = [{ ...FILES[0], description: 'Written on Resources' }, ...FILES.slice(1)]
+    rerender(tab())
+    await waitFor(() => expect(box().value).toBe('Written on Resources'))
+    act(() => box().focus())
+    act(() => box().blur())
+    await tick()
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+  })
+
+  it('a newer note that lands WHILE the box is focused shows once it is left untouched', async () => {
+    const { rerender } = await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    ctx.files = [{ ...FILES[0], description: 'Teammate: final boards' }, ...FILES.slice(1)]
+    rerender(tab())
+    await tick()
+    expect(box().value).toBe('First pass') // not pulled from under her while she is in it
+    act(() => box().blur())
+    await waitFor(() => expect(box().value).toBe('Teammate: final boards'))
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+  })
+
+  it('Escape after a newer note landed shows the NEWER note, not what the box held when it took focus', async () => {
+    const { rerender } = await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    ctx.files = [{ ...FILES[0], description: 'Teammate: final boards' }, ...FILES.slice(1)]
+    rerender(tab())
+    fireEvent.change(box(), { target: { value: 'half a thought' } })
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    await waitFor(() => expect(box().value).toBe('Teammate: final boards'))
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+  })
+
+  it('a refused note goes back to what is stored, and says why (R1-UI-02)', async () => {
+    ctx.patchFile = vi.fn(async () => { throw new Error('permission denied for table files') })
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    fireEvent.change(box(), { target: { value: 'REFUSE me' } })
+    act(() => box().blur())
+    expect(await within(panel()).findByText('Could not save: permission denied for table files')).toBeTruthy()
+    await waitFor(() => expect(box().value).toBe('First pass'))
   })
 })
 
@@ -259,6 +357,31 @@ describe('the change shows at once, and a refusal goes back (Doherty)', () => {
     expect(panel().querySelector('[data-save-error]').textContent).toBe('Could not save: permission denied for table files')
   })
 
+  it('a refusal does not follow you onto the next file you select', async () => {
+    ctx.patchFile = vi.fn(async () => { throw new Error('permission denied for table files') })
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    fireEvent.click(panel().querySelector('[data-tag="shots"]'))
+    expect(await within(panel()).findByText(/Could not save/)).toBeTruthy()
+    fireEvent.click(nameButton('mood.png'))
+    expect(panel().querySelector('[data-save-error]')).toBeNull()
+  })
+
+  it('an OLDER write\'s answer does not clear a NEWER edit still in flight (the per-row version)', async () => {
+    const pending = []
+    ctx.patchFile = vi.fn((id, patch) => new Promise((resolve) => { pending.push(() => resolve({ id, ...FILES.find(f => f.id === id), ...patch })) }))
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    fireEvent.click(panel().querySelector('[data-tag="shots"]')) // write 1: creative, shots
+    fireEvent.click(panel().querySelector('[data-tag="code"]'))  // write 2: creative, code, shots
+    expect(ctx.patchFile.mock.calls.map(c => c[1].tags)).toEqual([['creative', 'shots'], ['creative', 'code', 'shots']])
+    await act(async () => { pending[0]() })
+    // Write 1 has answered; write 2 has not: Code is still lit.
+    expect(panel().querySelector('[data-tag="code"]').getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { pending[1]() })
+    expect(panel().querySelector('[data-tag="code"]').getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('CONTROL: a write that succeeds stays lit after it returns', async () => {
     await mount()
     fireEvent.click(nameButton('treatment.pdf'))
@@ -288,7 +411,40 @@ describe('who may edit, and for which project', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
     expect(panel().querySelector('textarea[data-file-notes]').disabled).toBe(true)
     expect(panel().querySelector('[data-tag="shots"]').disabled).toBe(true)
+    // …and Core and Kind too (round 1, mutants 3 and 4: only the box and one
+    // chip were read).
+    expect(panel().querySelector('[data-file-core]').disabled).toBe(true)
+    expect(panel().querySelector('select[data-file-kind]').disabled).toBe(true)
     expect(panel().querySelector('[data-write-reason]').textContent).toMatch(/^Open this project in R\.A\.B\.B\.I\.T\. to change its files/)
+  })
+
+  it('🚨 nothing is SENT without the seat, even by a control that fires anyway (R1-TST-06)', async () => {
+    perms.role = 'user'
+    ctx.activeProjectId = 'p2'
+    await mount({ host: 'resources' })
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
+    // A disabled <select> still dispatches a change event: the save path is the gate.
+    fireEvent.change(panel().querySelector('select[data-file-kind]'), { target: { value: 'treatment' } })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+    expect(panel().querySelector('[data-save-error]').textContent).toMatch(/Open this project in R\.A\.B\.B\.I\.T\./)
+  })
+
+  it('Legal on a project the Resources page shows WITHOUT opening it: a workspace admin only, not a manager', async () => {
+    perms.role = 'manager'
+    ctx.activeProjectId = 'p2'
+    await mount({ host: 'resources' })
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
+    expect(panel().querySelector('[data-tag="shots"]').disabled).toBe(false) // a manager may write…
+    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(true)  // …but not Legal, unopened
+    cleanup()
+    perms.role = 'admin'
+    await mount({ host: 'resources' })
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
+    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(false) // CONTROL: an admin may
   })
 
   it('CONTROL: the same person on the OPEN, unstaffed project may edit', async () => {
@@ -320,6 +476,24 @@ describe('the actions (E9)', () => {
     expect(click).toHaveBeenCalled()
     expect(within(panel()).queryByRole('button', { name: /Show in folder/ })).toBeNull()
     click.mockRestore()
+  })
+
+  it('where nothing can sign (an s3 body), the Blob downloads under the file\'s OWN name', async () => {
+    const made = []
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () { made.push({ href: this.href, download: this.download }) })
+    const created = URL.createObjectURL
+    URL.createObjectURL = vi.fn(() => 'blob:dl-1')
+    ctx.downloadUrl = vi.fn(async () => null)
+    ctx.downloadFile = vi.fn(async () => new Blob(['pdf']))
+    try {
+      await mount()
+      fireEvent.click(nameButton('treatment.pdf'))
+      fireEvent.click(within(panel()).getByRole('button', { name: /Download/ }))
+      await waitFor(() => expect(made).toEqual([{ href: 'blob:dl-1', download: 'treatment.pdf' }]))
+    } finally {
+      click.mockRestore()
+      URL.createObjectURL = created
+    }
   })
 
   it('a refusal to download is shown, not swallowed', async () => {

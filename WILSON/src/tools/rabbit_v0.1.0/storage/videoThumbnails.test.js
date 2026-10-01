@@ -1144,7 +1144,13 @@ describe('wiring: generation and playback reach the screen', () => {
     // finding S39's review made about FileManager's signing effect.
     const player = executable(read('components', 'VideoPreview.jsx'))
     expect(player).toMatch(/const signFileUrl = ctx\?\.fileUrl/)
-    expect(player).toMatch(/\}, \[managed, projectId, file, signFileUrl\]\)/)
+    // Narrowed by post-overhaul S4a's review round 1 (R1-UI-04): not the row
+    // object either, which the Files explorer rebuilds on every change — the
+    // body's id and path, with the row read from a ref. FilePreview.test.jsx
+    // proves it in behaviour (a rebuilt row does not re-mint).
+    expect(player).toMatch(/\}, \[managed, projectId, fileId, filePath, signFileUrl\]\)/)
+    expect(player).toMatch(/const fileId = file\?\.id/)
+    expect(player).toMatch(/const filePath = file\?\.storage_path/)
   })
 
   it('🚨 the player is KEYED on the file — a useRef budget must not carry over', () => {

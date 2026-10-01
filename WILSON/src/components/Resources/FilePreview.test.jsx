@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -29,6 +29,7 @@ vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => perms
 
 const { default: ProjectFilesExplorer, _resetPreviewReadsForTests } = await import('./ProjectFilesExplorer')
 const { localServerAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/localServerAdapter')
+const { managedStreamUrl } = await import('../../tools/rabbit_v0.1.0/storage/managedVideoThumbnail')
 
 const FOLDERS = [{ id: 'root', kind: 'root', path: '', name: 'Project' }]
 const row = (id, name, mime, extra = {}) => ({
@@ -92,8 +93,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); delete window.electronAPI })
 
 async function mountTable() {
-  render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+  const utils = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
   fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+  return utils
 }
 const openByDoubleClick = (name) => {
   const btn = screen.getByRole('button', { name })
@@ -263,7 +265,11 @@ describe('the preview dialog (E9)', () => {
   })
 
   it('no URL is a sentence, never a spinner (the fixtures, an s3 body)', async () => {
-    ctx.adapterMode = 'fixtures'
+    // As the app really is (round 1, R1-TST-05): the provider reports the
+    // fixtures as 'supabase'; the ADAPTER's own mode says 'fixtures'.
+    ctx.adapterMode = 'supabase'
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({ ...base, mode: 'fixtures' })
     ctx.fileUrl = vi.fn(async () => null)
     await mountTable()
     openByDoubleClick('a-still.png')
@@ -303,6 +309,184 @@ describe('the preview dialog (E9)', () => {
     const a = await waitFor(() => { const x = dialog().querySelector('audio'); expect(x).not.toBeNull(); return x })
     fireEvent.keyDown(a, { key: 'ArrowRight' })
     expect(screen.getByRole('dialog', { name: 'c-voice.mp3' })).toBeTruthy()
+  })
+})
+
+describe('review round 1: the walk, the chevrons, the Columns view', () => {
+  const sortedNames = () => [...FILES].map(f => f.name).sort((a, b) => a.localeCompare(b))
+  const subtitle = () => dialog().querySelector('.ui-dialog-subtitle, [data-dialog-subtitle]')?.textContent || dialog().textContent
+
+  it('the chevrons: Next goes FORWARD, Previous back, and the position counts from one', async () => {
+    await mountTable()
+    openByDoubleClick('a-still.png')
+    await screen.findByRole('dialog', { name: 'a-still.png' })
+    expect(within(dialog()).getByText(`1 of ${FILES.length} · Image · PNG · 1000 B`)).toBeTruthy()
+    fireEvent.click(dialog().querySelector('[data-pv-next]'))
+    expect(await screen.findByRole('dialog', { name: sortedNames()[1] })).toBeTruthy()
+    expect(within(dialog()).getByText(new RegExp(`^2 of ${FILES.length} · `))).toBeTruthy()
+    fireEvent.click(dialog().querySelector('[data-pv-prev]'))
+    expect(await screen.findByRole('dialog', { name: 'a-still.png' })).toBeTruthy()
+    expect(subtitle()).toBeTruthy()
+  })
+
+  it('the table walk honours the FILTER (it never steps onto a file the filter hides)', async () => {
+    await mountTable()
+    fireEvent.change(screen.getByLabelText('Filter'), { target: { value: 'mp' } }) // b-clip.mp4, c-voice.mp3
+    openByDoubleClick('b-clip.mp4')
+    await screen.findByRole('dialog', { name: 'b-clip.mp4' })
+    fireEvent.keyDown(dialog(), { key: 'ArrowLeft' }) // wraps within the two
+    expect(await screen.findByRole('dialog', { name: 'c-voice.mp3' })).toBeTruthy()
+    expect(within(dialog()).getByText(/^2 of 2 · /)).toBeTruthy()
+  })
+
+  it('in the Columns view (the default) a double-click previews, and the walk is that FOLDER\'s files', async () => {
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({
+      ...base,
+      listFolders: async () => [...FOLDERS, { id: 'sub', kind: 'entity', path: 'ASSETS/sub', name: 'sub', parent_id: 'root' }],
+      listFiles: async () => FILES.map(f => (f.id === 'e5' || f.id === 'f6' ? { ...f, folder_id: 'sub' } : f)),
+    })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    // Columns is the default view: open the folder, then double-click a file in it.
+    fireEvent.click(await screen.findByRole('button', { name: /sub/ }))
+    fireEvent.doubleClick(await screen.findByRole('button', { name: /e-notes\.md/ }))
+    expect(await screen.findByRole('dialog', { name: 'e-notes.md' })).toBeTruthy()
+    expect(within(dialog()).getByText(/^1 of 2 · /)).toBeTruthy()
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' })
+    expect(await screen.findByRole('dialog', { name: 'f-tool.js' })).toBeTruthy()
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' }) // wraps inside the folder, not onto a root file
+    expect(await screen.findByRole('dialog', { name: 'e-notes.md' })).toBeTruthy()
+  })
+
+  it('an arrow pressed on a focused VIDEO seeks it and does not change the file', async () => {
+    await mountTable()
+    openByDoubleClick('b-clip.mp4')
+    const v = await waitFor(() => { const x = dialog().querySelector('video'); expect(x).toBeTruthy(); return x })
+    fireEvent.keyDown(v, { key: 'ArrowRight' })
+    expect(screen.getByRole('dialog', { name: 'b-clip.mp4' })).toBeTruthy()
+  })
+
+  it('a step from a control INSIDE the stage keeps ← → working (focus goes to the dialog, R1-UI-08)', async () => {
+    await mountTable()
+    openByDoubleClick('h-board.psd')
+    await within(dialog()).findByText('No preview available')
+    const inStage = within(dialog().querySelector('.fx-pv-stage')).getAllByRole('button')[0]
+    act(() => inStage.focus())
+    fireEvent.keyDown(inStage, { key: 'ArrowRight' })
+    expect(await screen.findByRole('dialog', { name: sortedNames()[sortedNames().indexOf('h-board.psd') + 1] })).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(dialog()))
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' })
+    expect(await screen.findByRole('dialog', { name: sortedNames()[sortedNames().indexOf('h-board.psd') + 2] })).toBeTruthy()
+  })
+
+  it('closing after a walk puts focus on the CURRENT file\'s name, not the one it opened on (R1-UI-06)', async () => {
+    await mountTable()
+    act(() => screen.getByRole('button', { name: 'a-still.png' }).focus())
+    fireEvent.keyDown(screen.getByRole('button', { name: 'a-still.png' }), { key: 'Enter' })
+    await screen.findByRole('dialog', { name: 'a-still.png' })
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' })
+    await screen.findByRole('dialog', { name: 'b-clip.mp4' })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'b-clip.mp4' })))
+  })
+
+  it('a refusal from the preview\'s own button is shown INSIDE the preview (R1-UI-05)', async () => {
+    ctx.downloadUrl = vi.fn(async () => { throw new Error('Downloading a file is refused on the dev fixtures.') })
+    await mountTable()
+    openByDoubleClick('h-board.psd')
+    await within(dialog()).findByText('No preview available')
+    fireEvent.click(within(dialog().querySelector('.fx-pv-bar')).getByRole('button', { name: /Download/ }))
+    const shown = await waitFor(() => { const x = dialog().querySelector('[data-pv-action-error]'); expect(x).toBeTruthy(); return x })
+    expect(shown.textContent).toBe('Downloading a file is refused on the dev fixtures.')
+  })
+
+  it('a managed file previews from ITS row id\'s stream (not the tree node\'s m: id)', async () => {
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({
+      ...base,
+      listManagedFiles: async () => [{ id: 'mm1', project_id: 'p1', file_name: 'z-hero.png', stored_name: 'z-hero.png', folder_path: '', mime_type: 'image/png', size_bytes: 10 }],
+    })
+    await mountTable()
+    openByDoubleClick('z-hero.png')
+    const img = await waitFor(() => { const i = dialog().querySelector('img[data-pv-image]'); expect(i).toBeTruthy(); return i })
+    expect(img.getAttribute('src')).toBe(managedStreamUrl('p1', 'mm1'))
+  })
+
+  it('a cloud video does not re-mint (and rewind) when the tree is rebuilt under it (R1-UI-04)', async () => {
+    const { rerender } = await mountTable()
+    openByDoubleClick('b-clip.mp4')
+    await waitFor(() => expect(dialog().querySelector('video')).toBeTruthy())
+    expect(ctx.fileUrl).toHaveBeenCalledTimes(1)
+    ctx.files = FILES.map(f => ({ ...f })) // a teammate's save: every row a new object
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(ctx.fileUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('review round 1: what a read is, and how it is fetched', () => {
+  it('a cloud text read carries NO credentials (the signed URL is the grant)', async () => {
+    await mountTable()
+    openByDoubleClick('e-notes.md')
+    await waitFor(() => expect(dialog().querySelector('[data-pv-markdown]')).toBeTruthy())
+    expect(globalThis.fetch).toHaveBeenCalledWith('https://signed.example/e5?token=1', expect.objectContaining({ credentials: 'omit' }))
+  })
+
+  it('the 2 MB bound holds at READ time too: a Content-Length over it, or a body over it', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('x', { status: 200, headers: { 'content-length': String(PREVIEW_TEXT_MAX + 1) } }))
+    await mountTable()
+    openByDoubleClick('j-plain.txt')
+    expect(await within(dialog()).findByText(/too large to preview here/)).toBeTruthy()
+    cleanup()
+    globalThis.fetch = vi.fn(async () => new Response('x'.repeat(PREVIEW_TEXT_MAX + 1), { status: 200 }))
+    await mountTable()
+    openByDoubleClick('j-plain.txt')
+    expect(await within(dialog()).findByText(/too large to preview here/)).toBeTruthy()
+  })
+
+  it('an image is logged when it has LOADED, not when its URL was minted (R1-UI-10)', async () => {
+    await mountTable()
+    openByDoubleClick('a-still.png')
+    const img = await waitFor(() => { const i = dialog().querySelector('img[data-pv-image]'); expect(i).toBeTruthy(); return i })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(logged).not.toContain('a1')
+    fireEvent.load(img)
+    await waitFor(() => expect(logged).toContain('a1'))
+  })
+
+  it('a cloud video is logged when its first frame has loaded (it was never logged)', async () => {
+    await mountTable()
+    openByDoubleClick('b-clip.mp4')
+    const v = await waitFor(() => { const x = dialog().querySelector('video'); expect(x).toBeTruthy(); return x })
+    expect(logged).not.toContain('b2')
+    fireEvent.loadedData(v)
+    await waitFor(() => expect(logged).toContain('b2'))
+  })
+
+  it('the log is per SESSION, not per mount: coming back to the tab does not log the file again', async () => {
+    await mountTable()
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(logged).toContain('l1'))
+    cleanup()
+    await mountTable()
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(dialog().querySelector('pre[data-pv-text]')).toBeTruthy())
+    expect(logged.filter(x => x === 'l1')).toEqual(['l1'])
+  })
+
+  it('…and per PERSON: the next one signed in at this window has their own first read (R1-TST-04)', async () => {
+    await mountTable()
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(logged).toContain('l1'))
+    cleanup()
+    perms.userId = 'u2'
+    try {
+      await mountTable()
+      openByDoubleClick('l-log-once.txt')
+      await waitFor(() => expect(logged.filter(x => x === 'l1')).toEqual(['l1', 'l1']))
+    } finally {
+      perms.userId = 'u1'
+    }
   })
 })
 
@@ -352,27 +536,11 @@ describe('the Local Server has URLs at last (localServerAdapter, main.cjs)', () 
     expect(await a.downloadUrl({ id: 'f1', project_id: 'p1' })).toBe('/api/rabbit/projects/p1/files/f1/download?download=1')
     expect(await a.fileUrl({ id: 'f1' })).toBeNull()
   })
-  it('the stream route: same-origin only, Range by sendFile, one read a minute (namespaced), probes skipped, media types only', () => {
-    const at = main.indexOf("expressApp.get('/api/rabbit/projects/:projectId/files/:id/stream'")
-    expect(at).toBeGreaterThan(-1)
-    const body = main.slice(at, main.indexOf('\n    });', at))
-    expect(body).toMatch(/site === 'same-origin'/)
-    expect(body).toMatch(/res\.status\(403\)\.json\(\{ error: 'file streams answer WILSON only', code: 'cross_origin' \}\)/)
-    expect(body).toContain("const isProbe = req.query.probe === '1';")
-    // The probe check GUARDS the log (a declared-but-unused flag would pass a
-    // presence check — planted fault, S4a).
-    expect(body).toContain('if (!isProbe && shouldLogManagedRead(`f:${file.id}`)) {')
-    expect(body).toContain('resolveContainedFilePath(')
-    expect(body).toContain("res.setHeader('Content-Type', safeMediaContentType(file.mime_type));")
-    expect(body).toContain("res.setHeader('X-Content-Type-Options', 'nosniff');")
-    expect(body).toMatch(/res\.sendFile\(diskPath, \(err\) => \{/)
-    // …and it is the stream's twin, mounted beside the download route.
-    expect(at).toBeGreaterThan(main.indexOf("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'"))
-  })
-  it('the download route answers ?download=1 as an attachment under the file\'s name', () => {
-    const at = main.indexOf("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'")
-    const body = main.slice(at, main.indexOf('\n    });', at))
-    expect(body).toContain("if (req.query.download === '1') {")
-    expect(body).toContain("require('./localMedia.cjs').contentDisposition(file.name)")
+  // The stream route and ?download=1 are SERVED in src/lib/fileReads.test.js
+  // (round 1, R1-TST-09: the source pins that stood here passed a gate that
+  // admitted same-site, a misspelled header and a dropped bundle write).
+  it('the routes the adapter names are fileReads.cjs\'s, mounted by main', () => {
+    expect(main).toContain("require('./fileReads.cjs').mountFileStreamRead(expressApp, {")
+    expect(main).toContain("require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);")
   })
 })
