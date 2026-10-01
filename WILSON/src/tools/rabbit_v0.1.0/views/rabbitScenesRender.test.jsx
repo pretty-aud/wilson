@@ -20,6 +20,7 @@ import { ToastProvider } from '../../../ui/Toast'
 import { STATUS } from '../../../ui/StatusDot'
 import { formatSceneCode, formatShotCode } from '../entityNaming'
 import { navigateTo } from '../state/rabbitNavigate'
+import { VIEWED_LISTS_KEY } from './scenes/useViewedShotList'
 // Post-overhaul S3b: the context's shot-list selectors are S3a's own pure
 // functions over the mock's rows, so the page meets what the provider gives.
 import {
@@ -133,6 +134,18 @@ function page({ scenes = SCENES(), shots = SHOTS(), shotLists, shotListItems, ac
     deleteShot: vi.fn(async () => {}),
     addScene: vi.fn(async () => {}),
     addShot: vi.fn(async () => {}),
+    // S3a's shot-list mutators (S3b calls them; each resolves as the provider's do).
+    addShotList: vi.fn(async (opts) => ({ ...LIST_1, id: 'list-new', title: opts?.title, version: opts?.version ?? 1, summary: opts?.summary ?? null })),
+    updateShotList: vi.fn(async (id, patch) => ({ id, ...patch })),
+    saveShotListSnapshot: vi.fn(async (id) => ({ id })),
+    setActiveShotList: vi.fn(async (id) => id),
+    archiveShotList: vi.fn(async (id) => ({ id })),
+    addToShotList: vi.fn(async () => []),
+    removeFromShotList: vi.fn(async () => []),
+    reorderShotListItems: vi.fn(async () => []),
+    withdrawShotList: vi.fn(async (id) => ({ id })),
+    restoreWithdrawn: vi.fn(async () => null),
+    clearRecentlyWithdrawn: vi.fn(),
     ...extra,
   }
   rabbit.current = ctx
@@ -385,10 +398,14 @@ describe('surface 6a', () => {
     }
     expect(within(document.querySelector('.rb-scene-bulk')).getByText('1 selected')).toBeTruthy()
     const acts = (name) => rowOf(name).querySelector(':scope > td.rb-scene-acts-cell > .ui-hover-actions')
-    expect(within(acts('Lighthouse, dawn')).getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual(['View details', 'Delete scene'])
-    expect(within(acts('The door')).getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual(['View details', 'Delete shot'])
-    // The slot is one width in every table: the sheet's one column.
-    expect(read('./rabbitScenes.css')).toMatch(/--rb-scene-col-acts: 84px;/)
+    // S3b: the row's shot-list menu sits between View details and Delete.
+    expect(within(acts('Lighthouse, dawn')).getAllByRole('button').map((b) => b.getAttribute('title')))
+      .toEqual(['View details', 'Shot list actions for Lighthouse, dawn', 'Delete scene'])
+    expect(within(acts('The door')).getAllByRole('button').map((b) => b.getAttribute('title')))
+      .toEqual(['View details', 'Shot list actions for The door', 'Delete shot'])
+    // The slot is one width in every table: the sheet's one column, three
+    // 28px buttons since S3b (it was two, 84px).
+    expect(read('./rabbitScenes.css')).toMatch(/--rb-scene-col-acts: 112px;/)
     expect([...sceneTable().querySelectorAll('thead th')].at(-1).style.width).toBe('var(--rb-scene-col-acts)')
   })
 
@@ -1174,7 +1191,8 @@ describe('surface 6c', () => {
     expect(screen.queryByRole('dialog', { name: 'The door' })).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add shot' }))
-    expect(ctx.addShot).toHaveBeenCalledWith(expect.objectContaining({ scene_id: 'sc1' }))
+    // S3b: into the list on screen.
+    expect(ctx.addShot).toHaveBeenCalledWith(expect.objectContaining({ scene_id: 'sc1' }), { listId: 'list-1' })
     escape()
     const empty = openScenePopup('Cliff path').querySelector('.rb-scene-detail-main .ui-empty.rb-scene-detail-empty')
     expect(empty.textContent).toBe('No shots yet')
@@ -1479,5 +1497,147 @@ describe('S3b step 1: the tab is safe with more than one list', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'The kettle' })).getByRole('button', { name: /Add takes/ }))
     const picker = screen.getByRole('dialog', { name: 'Add takes to "The kettle"' })
     expect(picker.querySelector('.ui-dialog-subtitle').textContent).toMatch(/^Harbour café · /)
+  })
+})
+
+/* ── post-overhaul S3b, step 2: the list on screen ──────────────────────────
+   D2: the tab shows the list THIS PERSON is viewing (remembered per person
+   and project; the active list by default and when the remembered one is
+   archived or gone); D20: the tiles and the count total it; "List order" is
+   the default sort, with Move up / Move down in each row's shot-list menu. */
+/** Remember a list for a person (the Local Server's one key by default) in Salt Hours. */
+const remember = (listId, person = 'local') => localStorage.setItem(VIEWED_LISTS_KEY, JSON.stringify({ [`${person}|p1`]: listId }))
+const tileValues = () => [...document.querySelectorAll('.rb-scene-stats .ui-stat-value')].map((v) => v.textContent)
+const moreButton = (name) => screen.getByRole('button', { name: `Shot list actions for ${name}` })
+/** Open a row's shot-list menu; its items as [words, disabled]. */
+const openMore = (name) => {
+  fireEvent.click(moreButton(name))
+  return [...document.querySelectorAll('.ui-menu .ui-menu-item')].map((b) => [b.textContent, b.disabled])
+}
+const menuItem = (words) => [...document.querySelectorAll('.ui-menu .ui-menu-item')].find((b) => b.textContent === words)
+// One list holding three scenes in number order — for the moves.
+const THREE_SCENES = () => {
+  const scenes = TWO_LISTS().scenes
+  const shots = SHOTS()
+  return { scenes, shots, shotLists: [LIST_1], shotListItems: itemsFor('list-1', backfillItems(scenes, shots)), activeListId: 'list-1' }
+}
+
+describe('S3b step 2: the list on screen', () => {
+  it('a remembered list is the one on screen — its rows in its order, the tiles and the count its own (D20); the other tabs still read the active list', () => {
+    remember('list-b')
+    const { ctx } = page(TWO_LISTS())
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    // Pickups holds The far lamp (24 frames) and The kettle (48): 72 frames, 3 seconds.
+    expect(tileValues()).toEqual(['00:00:03:00', '72', '2', '2'])
+    expect(document.querySelector('.rb-scene-count').textContent).toBe('2/2')
+    // ctx.scenes, what every other tab reads, is still the active list's.
+    expect(ctx.scenes.map((s) => s.id)).toEqual(['sc1', 'sc2'])
+    openScene('Lighthouse, dawn')
+    expect(rowNames(rowOf('Lighthouse, dawn').nextElementSibling.querySelector('table'))).toEqual(['The far lamp'])
+  })
+
+  it('remembered per person: another person on the same machine gets the active list', () => {
+    remember('list-b', 'u-1')
+    perms.current = { ...perms.admin, userId: 'u-2' }
+    page(TWO_LISTS())
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    cleanup()
+    perms.current = { ...perms.admin, userId: 'u-1' }
+    page(TWO_LISTS())
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+  })
+
+  it('a remembered list that has been archived, or is gone, falls back to the active list', () => {
+    remember('list-b')
+    const two = TWO_LISTS()
+    page({ ...two, shotLists: [two.shotLists[0], { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }] })
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    cleanup()
+    remember('list-gone')
+    page(TWO_LISTS())
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+  })
+
+  it('New scene and New shot join the list on screen, not the active one', async () => {
+    remember('list-b')
+    const { ctx } = page(TWO_LISTS())
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    await waitFor(() => expect(ctx.addScene).toHaveBeenCalledTimes(1))
+    expect(ctx.addScene.mock.calls[0][1]).toEqual({ listId: 'list-b' })
+    openScene('Harbour café')
+    fireEvent.click(within(rowOf('Harbour café').nextElementSibling).getByRole('button', { name: 'Add shot' }))
+    await waitFor(() => expect(ctx.addShot).toHaveBeenCalledTimes(1))
+    expect(ctx.addShot.mock.calls[0]).toEqual([expect.objectContaining({ scene_id: 'sc3', shot_number: 11 }), { listId: 'list-b' }])
+  })
+
+  it('"List order" is the default sort: the list\'s own positions, scenes and each scene\'s shots; another sort orders by number as before', () => {
+    const two = TWO_LISTS()
+    // Shoot, reordered: Cliff path first, and Lighthouse's shots The cold lamp then The door.
+    const items = two.shotListItems.map((i) => (i.shot_list_id !== 'list-a' ? i
+      : { ...i, position: { sc1: 1, sc2: 0, sh1: 1, sh2: 0 }[i.scene_id || i.shot_id] }))
+    page({ ...two, shotListItems: items })
+    const sort = screen.getByRole('combobox', { name: 'Sort' })
+    expect([sort.value, sort.selectedOptions[0].textContent]).toEqual(['', 'List order'])
+    // The scene table's own rows (an open nest's rows are its own table's).
+    const sceneRows = () => [...sceneTable().querySelectorAll(':scope > tbody > tr.rb-scene-row > td > .rb-scene-check')].map((b) => b.getAttribute('aria-label').replace(/^Select /, ''))
+    expect(sceneRows()).toEqual(['Cliff path', 'Lighthouse, dawn'])
+    openScene('Lighthouse, dawn')
+    const nest = () => rowOf('Lighthouse, dawn').nextElementSibling.querySelector('table')
+    expect(rowNames(nest())).toEqual(['The cold lamp', 'The door'])
+    fireEvent.change(sort, { target: { value: 'scene_number' } })
+    expect(sceneRows()).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    expect(rowNames(nest())).toEqual(['The door', 'The cold lamp'])
+  })
+
+  it('in the Shots mode, grouped by scene, List order follows the list\'s scenes and shots', () => {
+    remember('list-b')
+    const two = TWO_LISTS()
+    // Pickups, reordered: Harbour café before Lighthouse.
+    const items = two.shotListItems.map((i) => (i.shot_list_id === 'list-b' && i.scene_id ? { ...i, position: i.scene_id === 'sc3' ? 0 : 1 } : i))
+    page({ ...two, shotListItems: items })
+    toShots()
+    const bands = () => [...shotTable().querySelectorAll('tr.rb-scene-group-row .rb-scene-group-label')].map((l) => l.textContent)
+    expect(bands()).toEqual(['Harbour café', 'Lighthouse, dawn'])
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
+    expect(bands()).toEqual(['Lighthouse, dawn', 'Harbour café'])
+  })
+
+  it('Move up / Move down, in each row\'s shot-list menu: a scene among the list\'s scenes, a shot among its scene\'s shots — the whole group\'s new order written', async () => {
+    const { ctx } = page(TWO_LISTS())
+    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', false]])
+    fireEvent.click(menuItem('Move down'))
+    await waitFor(() => expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(1))
+    expect(ctx.reorderShotListItems).toHaveBeenLastCalledWith('list-a', ['sc2', 'sc1'])
+    expect(document.querySelector('.ui-menu')).toBeNull()
+    openScene('Lighthouse, dawn')
+    expect(openMore('The cold lamp')).toEqual([['Move up', false], ['Move down', true]])
+    fireEvent.click(menuItem('Move up'))
+    await waitFor(() => expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(2))
+    expect(ctx.reorderShotListItems).toHaveBeenLastCalledWith('list-a', ['sh2', 'sh1'])
+  })
+
+  it('a move passes the neighbour on SCREEN: with Cliff path hidden by a search, Lighthouse moves down past Harbour café', async () => {
+    const { ctx } = page(THREE_SCENES())
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search' }), { target: { value: 'ou' } })
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    openMore('Lighthouse, dawn')
+    fireEvent.click(menuItem('Move down'))
+    await waitFor(() => expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(1))
+    expect(ctx.reorderShotListItems).toHaveBeenLastCalledWith('list-1', ['sc2', 'sc3', 'sc1'])
+  })
+
+  it('no move in any other sort, and none for a scene shown only because one of its shots is in the list', () => {
+    page(TWO_LISTS())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
+    expect(screen.queryByRole('button', { name: 'Shot list actions for Lighthouse, dawn' })).toBeNull()
+    cleanup()
+    // Pickups without Harbour café's own item: the scene is there for The kettle.
+    remember('list-b')
+    const two = TWO_LISTS()
+    page({ ...two, shotListItems: two.shotListItems.filter((i) => i.scene_id !== 'sc3') })
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    expect(screen.queryByRole('button', { name: 'Shot list actions for Harbour café' })).toBeNull()
+    // …and it is never a neighbour: Lighthouse has nothing to move past.
+    expect(openMore('Lighthouse, dawn')).toEqual([['Move up', true], ['Move down', true]])
   })
 })

@@ -441,7 +441,9 @@ const READS = [
 /** The near misses each real file holds, in its code: a clean scan of the
     file (below) is a clean scan of these. */
 const NEAR_MISSES = {
-  scenes: ['width="confirm"', 'onConfirm={', 'setConfirmBulk(', '<ConfirmDialog', 'data-width="confirm"', 'const { canWrite: canWriteProject } = useProjectAccess()'],
+  // S3b: the gate's destructure gained the shot-list seats; it is still a
+  // renaming destructure, the `{ style: s } =` spelling's near miss.
+  scenes: ['width="confirm"', 'onConfirm={', 'setConfirmBulk(', '<ConfirmDialog', 'data-width="confirm"', 'const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()'],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
@@ -495,6 +497,24 @@ describe('R1-03: the nested shots end inside the window they did', () => {
     try {
       expect(52 + px('var(--rb-scene-nest-min)') + px('var(--rb-scene-col-nest-takes)')).toBeGreaterThan(1440)
     } finally { own['--rb-scene-nest-min'] = was }
+  })
+
+  // Post-overhaul S3b: the actions slot grew from two buttons to three (the
+  // row's shot-list menu), 84 to 112px. The scene table's fixed columns and
+  // its description's floor must still fit 1280 inside the gutters, or the
+  // table scrolls sideways there; the nest above keeps its 1440 by giving
+  // its name column the same 28px.
+  const sceneTableMin = () => rulesOf(sheet).find(({ sel }) => sel === '.ui-table.rb-scene-table-scenes').body.match(/min-width:\s*([^;]+);/)[1]
+  it('S3b: the scene table, its description at its floor, fits a 1280px window inside the two gutters', () => {
+    expect(px('var(--rb-scene-col-acts)')).toBe(112)
+    expect(px(sceneTableMin()) + 2 * px('var(--spacing-gutter)')).toBeLessThanOrEqual(1280)
+  })
+  it('CONTROL: with the description\'s floor back at 128px beside the 112px slot, the table passes 1280', () => {
+    const was = own['--rb-scene-col-desc']
+    own['--rb-scene-col-desc'] = '128px'
+    try {
+      expect(px(sceneTableMin()) + 2 * px('var(--spacing-gutter)')).toBeGreaterThan(1280)
+    } finally { own['--rb-scene-col-desc'] = was }
   })
 })
 

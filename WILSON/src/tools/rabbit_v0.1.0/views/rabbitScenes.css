@@ -281,10 +281,13 @@
                 digits at 100fps and up)                             -> 120
        frames   the 64px field                                       ->  88
        date     the date field and its picker glyph (120)            -> 144
-       acts     two 28px IconButtons 2px apart: one reserved slot,
-                the same width in every row of all three tables (R3-24) -> 84
-     The description takes the rest: in the scene table never under 128px
-     (its sum, 1216px, fits 1280 with room for a scrollbar); in the shot
+       acts     three 28px IconButtons 2px apart — View details, the
+                row's shot-list menu (post-overhaul S3b) and Delete — one
+                reserved slot, the same width in every row of all three
+                tables (R3-24); it was two, 84                       -> 112
+     The description takes the rest: in the scene table never under 100px
+     (its sum, 1216px, fits 1280 with room for a scrollbar — S3b took the
+     28px the actions slot grew by from the description's floor, 128); in the shot
      table, as the old flex row's did, whatever is left, down to its padding
      at 1440, so Duration and Frames stay in view there as they were (the
      shot table's fixed columns are 1756px with Takes; below a table's sum it
@@ -299,7 +302,8 @@
      1620 at 1440 with Takes, Frames and the row actions past the window's
      edge; the old row overflowed by 16):
        num      "9999" in the 13px mono (31)                          ->  56
-       name     the old row's 160 and its gap                         -> 172
+       name     the old row's 160 and its gap, less the 28px the
+                actions slot grew by in S3b (R1-03's 1440 holds)      -> 144
        takes    three 22px posters and the count (143)                -> 172
        type     "Exterior" (46) with its caret                        ->  88
        framing  "EWS" at the Label step (27) with its caret; no
@@ -320,7 +324,7 @@
     --rb-scene-col-num: 56px;
     --rb-scene-col-nest-num: 56px;
     --rb-scene-col-name: 216px;
-    --rb-scene-col-nest-name: 172px;
+    --rb-scene-col-nest-name: 144px;
     --rb-scene-col-takes: 200px;
     --rb-scene-col-nest-takes: 172px;
     --rb-scene-col-status: 160px;
@@ -330,11 +334,11 @@
     --rb-scene-col-framing: 88px;
     --rb-scene-col-nest-framing: 72px;
     --rb-scene-col-move: 128px;
-    --rb-scene-col-desc: 128px;
+    --rb-scene-col-desc: 100px;
     --rb-scene-col-runtime: 120px;
     --rb-scene-col-frames: 88px;
     --rb-scene-col-date: 144px;
-    --rb-scene-col-acts: 84px;
+    --rb-scene-col-acts: 112px;
     --rb-scene-nest-min: calc(var(--rb-scene-col-check) + var(--rb-scene-col-mark) + var(--rb-scene-col-nest-thumb)
       + var(--rb-scene-col-nest-num) + var(--rb-scene-col-nest-name) + var(--rb-scene-col-status)
       + var(--rb-scene-col-time) + var(--rb-scene-col-nest-type) + var(--rb-scene-col-nest-framing)
@@ -630,7 +634,7 @@
   .ui-input.rb-scene-date[data-empty="true"] { color: var(--color-ink-3); }
 
   /* The actions' slot as a block (the kit's is inline-flex, and a line box
-     would grow the row), its two buttons at the cell's right edge. */
+     would grow the row), its buttons at the cell's right edge. */
   .rb-scene-acts-cell > .ui-hover-actions.rb-scene-acts { display: flex; justify-content: flex-end; }
 
   /* A hovered or ticked row lifts its quiet ink: the third measures 4.34:1

@@ -29,6 +29,7 @@ import {
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
   Sun, FolderOpen, ImagePlus, ImageOff,
+  MoreHorizontal, ArrowUp, ArrowDown,
 } from 'lucide-react'
 // Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
 // on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
@@ -37,10 +38,13 @@ import {
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
-  SectionTitle,
+  SectionTitle, Menu,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
+// Post-overhaul S3b: the list the tab is viewing (D2), and who is viewing it.
+import { usePermissions } from '../../../permissions/usePermissions'
+import { useViewedShotList } from './scenes/useViewedShotList'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -238,14 +242,16 @@ function fmtNumber(n) {
 
 // Shots keyed by their scene (unlinked ones under '__unlinked__'), each
 // scene's in shot-number order — for the list on screen and, since S3b, for
-// every shot of the project.
-function groupShotsByScene(shots) {
+// every shot of the project. `keepOrder` keeps the order they came in: a
+// list's own, in List order (S3b step 2).
+function groupShotsByScene(shots, { keepOrder = false } = {}) {
   const map = {}
   for (const s of shots) {
     const key = s.scene_id || '__unlinked__'
     if (!map[key]) map[key] = []
     map[key].push(s)
   }
+  if (keepOrder) return map
   for (const key of Object.keys(map)) {
     map[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
   }
@@ -281,11 +287,20 @@ const DETAIL_TASK_WIDTH = 400 + 1
 // ─────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────
-export default function ScenesView() {
+export default function ScenesView({ pageActive = false } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
-  const scenes = ctx?.scenes || []
-  const shots = ctx?.shots || []
+  // Post-overhaul S3b, step 2 (D2): the tab shows the list THIS PERSON is
+  // viewing — remembered per person and project, the active list by default
+  // — and every table, gallery, group, tile and count reads its rows (D20).
+  // The other tabs keep reading the active list (D10).
+  const { userId } = usePermissions()
+  const viewed = useViewedShotList({ ctx, personKey: userId })
+  const scenes = viewed.scenes
+  const shots = viewed.shots
+  // A list on screen (live, or archived and opened on purpose): its order is
+  // its own, and its rows can move.
+  const viewingList = viewed.mode === 'list' || viewed.mode === 'archived'
   // Post-overhaul S3b, step 1: `scenes` / `shots` are one LIST's rows (S3a,
   // D10), so a fact about the whole PROJECT — the next scene or shot number,
   // every shot of a scene a delete takes with it — reads every row. A scene
@@ -320,6 +335,11 @@ export default function ScenesView() {
   const [thumbRevision, setThumbRevision] = useState(0)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  // S3b step 2: "List order" — the list's own positions — is the default
+  // sort while a list is on screen. It is the sort select's empty value, so
+  // a saved view that never chose a sort opens in it; the other sorts are
+  // as they were. Move up / Move down are offered only in it.
+  const listOrder = viewingList && !sortField
 
   // ── Saved views ──
   const [savedViews, setSavedViews] = useState(() => {
@@ -336,7 +356,12 @@ export default function ScenesView() {
   const shotPickerRef = useRef(null)
 
   // ── Shot takes (milestone 2) ──
-  const { canWrite: canWriteProject } = useProjectAccess()
+  // …and, since S3b, the shot-list seats (D8): managers, members AND
+  // reviewers write lists; set active and archive are a project manager's
+  // or a workspace admin's; on the Local Server (no roles) both are open.
+  const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()
+  const canListWrite = canOn('project.shotlist.write')
+  const canListActivate = canOn('project.shotlist.activate')
   const supportsBins = !!ctx?.supportsBins
   const shotTakes = ctx?.shotTakes || []
   const binFiles = ctx?.binFiles || []
@@ -462,7 +487,9 @@ export default function ScenesView() {
     return map
   }, [tasks])
 
-  const shotsByScene = useMemo(() => groupShotsByScene(shots), [shots])
+  // In List order a scene's shots keep the list's order (S3b step 2); in any
+  // other sort, shot-number order as before.
+  const shotsByScene = useMemo(() => groupShotsByScene(shots, { keepOrder: listOrder }), [shots, listOrder])
   // Every shot of each scene, in every list (S3b step 1): what a scene's
   // delete takes with it, and what its next shot number counts past.
   const allShotsByScene = useMemo(() => groupShotsByScene(allShots), [allShots])
@@ -515,6 +542,11 @@ export default function ScenesView() {
   )
 
   // ── CRUD handlers ──
+  // S3b step 2: a new scene or shot joins the list on SCREEN (S3a's
+  // `{ listId }`), not the active one, so it appears where it was made. With
+  // no list on screen the provider's own rule stands (the active list, if
+  // the project has one: 'pending' is that list before it has loaded).
+  const newRowOpts = useMemo(() => (viewed.mode === 'list' ? { listId: viewed.id } : undefined), [viewed.mode, viewed.id])
   const handleNewScene = useCallback(async () => {
     const num = nextSceneNumber
     const name = formatSceneCode(num)
@@ -524,9 +556,9 @@ export default function ScenesView() {
         scene_number: num,
         status: 'not_started',
         type: 'interior',
-      })
+      }, newRowOpts)
     } catch (err) { console.error('Failed to create scene:', err) }
-  }, [ctx, nextSceneNumber, formatSceneCode])
+  }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts])
 
   const handleNewShot = useCallback(async (sceneId) => {
     const scene = sceneById?.(sceneId)
@@ -540,9 +572,9 @@ export default function ScenesView() {
         status: 'not_started',
         type: 'other',
         frame_count: 0,
-      })
+      }, newRowOpts)
     } catch (err) { console.error('Failed to create shot:', err) }
-  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode])
+  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts])
 
   // Every shot of the scene, in every list (S3b step 1), each deleted on its
   // own first so each has its own undo; the database's cascade would take a
@@ -565,6 +597,59 @@ export default function ScenesView() {
     } catch (err) { console.error('Failed to delete shot:', err) }
     setConfirmDelete(null)
   }, [ctx])
+
+  // ── The list's own order (S3b step 2) ──
+  // Move up / Move down in List order, the takes panel's pattern (drag
+  // handles are S3c's). A scene moves among the list's scenes; a shot among
+  // its own scene's shots (positions restart per scene, S3a). Each moves past
+  // the neighbour the person SEES — under a search or a filter, the next row
+  // on screen, not a hidden one — and the whole group's order is written
+  // (S3a's reorderShotListItems writes only the rows whose position changed).
+  // A scene shown only because one of its shots is in the list has no
+  // position of its own: it does not move, and is never a neighbour.
+  const shotListItems = ctx?.shotListItems
+  const ownSceneIds = useMemo(() => {
+    if (!viewingList) return new Set()
+    return new Set((shotListItems || []).filter(i => i.shot_list_id === viewed.id && i.scene_id).map(i => i.scene_id))
+  }, [shotListItems, viewingList, viewed.id])
+  const moveGroup = useCallback((kind, id, visibleIds) => {
+    if (kind === 'scene') {
+      const own = (x) => ownSceneIds.has(x)
+      return { full: scenes.map(s => s.id).filter(own), visible: visibleIds.filter(own) }
+    }
+    const sceneOf = (x) => shotById?.(x)?.scene_id || null
+    const same = (x) => sceneOf(x) === sceneOf(id)
+    return { full: shots.map(s => s.id).filter(same), visible: visibleIds.filter(same) }
+  }, [ownSceneIds, scenes, shots, shotById])
+  const moveTarget = useCallback((kind, id, dir, visibleIds) => {
+    const { full, visible } = moveGroup(kind, id, visibleIds)
+    const at = visible.indexOf(id)
+    const neighbour = at < 0 ? undefined : visible[at + dir]
+    if (!neighbour) return null
+    const next = full.filter(x => x !== id)
+    const n = next.indexOf(neighbour)
+    next.splice(dir < 0 ? n : n + 1, 0, id)
+    return next
+  }, [moveGroup])
+  const moveInList = useCallback(async (kind, id, dir, visibleIds) => {
+    const next = moveTarget(kind, id, dir, visibleIds)
+    if (!next) return
+    try { await ctx?.reorderShotListItems?.(viewed.id, next) } catch (err) { console.error('Failed to move:', err) }
+  }, [ctx, moveTarget, viewed.id])
+
+  // A row's shot-list verbs, for its More menu (RowMore): null when none
+  // applies (no list on screen, or an archived one — read-only).
+  const rowListMenu = useCallback((kind, row, visibleIds) => {
+    if (viewed.mode !== 'list' || !canListWrite) return null
+    const items = []
+    if (listOrder && (kind !== 'scene' || ownSceneIds.has(row.id))) {
+      items.push(
+        { label: 'Move up', Icon: ArrowUp, disabled: !moveTarget(kind, row.id, -1, visibleIds), onClick: () => moveInList(kind, row.id, -1, visibleIds) },
+        { label: 'Move down', Icon: ArrowDown, disabled: !moveTarget(kind, row.id, 1, visibleIds), onClick: () => moveInList(kind, row.id, 1, visibleIds) },
+      )
+    }
+    return items.length ? items : null
+  }, [viewed.mode, canListWrite, listOrder, ownSceneIds, moveTarget, moveInList])
 
   // ── Saved views ──
   function saveCurrentView() {
@@ -706,7 +791,9 @@ export default function ScenesView() {
       return [{ key: '__all__', label: null, groupType: 'none', shots: sortedShots }]
     }
 
-    // Group by scene (original behavior)
+    // Group by scene (original behavior). In List order (S3b step 2) the
+    // groups follow the list's scene order and each keeps the list's shot
+    // order; unlinked shots stay last.
     if (shotGroupBy === 'scene') {
       const buckets = {}
       for (const sh of sortedShots) {
@@ -714,13 +801,19 @@ export default function ScenesView() {
         if (!buckets[key]) buckets[key] = []
         buckets[key].push(sh)
       }
-      for (const key of Object.keys(buckets)) {
-        buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+      let keys
+      if (listOrder) {
+        const rank = new Map(scenes.map((s, i) => [s.id, i]))
+        keys = Object.keys(buckets).sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity))
+      } else {
+        for (const key of Object.keys(buckets)) {
+          buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+        }
+        keys = Object.keys(buckets).sort((a, b) => {
+          const scA = sceneMap[a]; const scB = sceneMap[b]
+          return (scA?.scene_number ?? 9999) - (scB?.scene_number ?? 9999)
+        })
       }
-      const keys = Object.keys(buckets).sort((a, b) => {
-        const scA = sceneMap[a]; const scB = sceneMap[b]
-        return (scA?.scene_number ?? 9999) - (scB?.scene_number ?? 9999)
-      })
       return keys.map(key => ({
         key,
         sceneId: key,
@@ -751,7 +844,7 @@ export default function ScenesView() {
       groupType: 'field',
       shots: buckets[key],
     }))
-  }, [sortedShots, sceneMap, shotGroupBy])
+  }, [sortedShots, sceneMap, shotGroupBy, listOrder, scenes])
 
   const totalFilteredShots = useMemo(() => shotGroups.reduce((n, g) => n + g.shots.length, 0), [shotGroups])
 
@@ -888,7 +981,9 @@ export default function ScenesView() {
             className="ui-input rb-scene-tool"
             data-size="sm"
             data-active={sortField ? 'true' : 'false'}>
-            <option value="">Sort…</option>
+            {/* S3b step 2: with a list on screen the empty choice is the
+                list's own order, the default; with none it is "Sort…" as before. */}
+            <option value="">{viewingList ? 'List order' : 'Sort…'}</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           <IconButton
@@ -1035,6 +1130,7 @@ export default function ScenesView() {
               thumbSize={thumbSize}
               thumbRevision={thumbRevision}
               onThumbChanged={() => setThumbRevision(r => r + 1)}
+              rowMenu={rowListMenu}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
               onNewShot={handleNewShot}
@@ -1087,6 +1183,7 @@ export default function ScenesView() {
                       thumbRevision={thumbRevision}
                       onThumbChanged={() => setThumbRevision(r => r + 1)}
                       ctx={ctx}
+                      rowMenu={rowListMenu}
                       onOpenDetail={setDetailSceneId}
                       onOpenShotDetail={setDetailShotId}
                       onNewShot={handleNewShot}
@@ -1108,6 +1205,7 @@ export default function ScenesView() {
                 fps={fps}
                 thumbSize={thumbSize}
                 ctx={ctx}
+                rowMenu={rowListMenu}
                 onOpenDetail={setDetailSceneId}
                 onOpenShotDetail={setDetailShotId}
                 onNewShot={handleNewShot}
@@ -1241,13 +1339,46 @@ function BigTile({ label, value }) {
 }
 
 
+// ─── A row's shot-list menu (post-overhaul S3b) ───
+// One named button between View details and Delete that holds the row's
+// shot-list verbs as WORDS — Move up / Move down in List order, Remove from
+// this list, Add to list… in the "Not in any list" view — so the trash keeps
+// its place and a removal is never a second lookalike icon beside a delete.
+// The kit Menu, PORTALLED into <body>: inside the row's HoverActions it
+// would fade out with the slot's opacity the moment the pointer left the
+// row. Nothing to offer, no button: the slot keeps its width.
+function RowMore({ name, items }) {
+  const [at, setAt] = useState(null)
+  if (!items || items.length === 0) return null
+  return (
+    <>
+      <IconButton
+        size="sm"
+        Icon={MoreHorizontal}
+        title={`Shot list actions for ${name}`}
+        aria-expanded={!!at}
+        onClick={e => {
+          e.stopPropagation()
+          const r = e.currentTarget.getBoundingClientRect()
+          setAt({ x: r.right - 200, y: r.bottom + 4 })
+        }}
+      />
+      {at && createPortal(
+        <Menu x={at.x} y={at.y} items={items} onClose={() => setAt(null)} />,
+        document.body,
+      )}
+    </>
+  )
+}
+
+
 // ─── Scene table ───
 // The kit Table (R3-20): a real <table>, the same columns in the same order,
 // the header one row of the kit's Th. A scene's shots stay nested under it —
 // one row that spans the table and holds a table of the shots, indented as
 // before, opened and closed by the same toggle. Widths are the sheet's
 // (`.rb-scene-table-wrap`), each column's thumbnail box its size's.
-function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, rowMenu, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
@@ -1494,6 +1625,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                   <HoverActions className="rb-scene-acts">
                     <IconButton size="sm" Icon={Eye} title="View details"
                       onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
+                    <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
                     <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
                       onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
                   </HoverActions>
@@ -1654,6 +1786,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                 <Td align="right" className="rb-scene-acts-cell">
                                   <HoverActions className="rb-scene-acts">
                                     <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                                    <RowMore name={shotName} items={rowMenu?.('shot', shot, sceneShots.map(s => s.id))} />
                                     <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
                                       onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
                                   </HoverActions>
@@ -1786,7 +1919,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, rowMenu, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -2124,6 +2257,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                     <Td align="right" className="rb-scene-acts-cell">
                       <HoverActions className="rb-scene-acts">
                         <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
+                        <RowMore name={shotName} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
                         <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
                           onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
                       </HoverActions>
