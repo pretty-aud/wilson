@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs'
 import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve, dirname } from 'node:path'
+import { join, resolve, dirname, sep } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
@@ -31,6 +31,7 @@ const mainCjs = readFileSync(resolve(here, '../../../../electron/main.cjs'), 'ut
 const preload = readFileSync(resolve(here, '../../../../electron/preload.cjs'), 'utf8')
 
 let base, media, outside, projectFile, managedFile
+let junctionMade = false
 const KEY = 'projects/aaaa1111-0000-0000-0000-000000000001/project/p/1-brief.pdf'
 
 beforeAll(() => {
@@ -47,7 +48,10 @@ beforeAll(() => {
   writeFileSync(projectFile, 'pdf')
   writeFileSync(managedFile, 'mov')
   // A junction INSIDE the media root that leads out of it.
-  try { symlinkSync(outside, join(media, 'projects', 'aaaa1111-0000-0000-0000-000000000001', 'project', 'jx'), 'junction') } catch { /* platform without junctions: the probe below says so */ }
+  try {
+    symlinkSync(outside, join(media, 'projects', 'aaaa1111-0000-0000-0000-000000000001', 'project', 'jx'), 'junction')
+    junctionMade = true
+  } catch { /* platform without junctions: the probe below says so */ }
 })
 afterAll(() => { rmSync(base, { recursive: true, force: true }) })
 
@@ -95,12 +99,13 @@ describe('rabbit:open-path resolves a ROW to a file on this disk', () => {
 
   it('a junction inside the media root that leads OUT is refused by the real-path check', (ctx) => {
     const viaJunction = 'projects/aaaa1111-0000-0000-0000-000000000001/project/jx/secret.txt'
-    const lexical = resolveContainedFilePath(media, viaJunction.split('/').join('\\'))
+    const lexical = resolveContainedFilePath(media, viaJunction.split('/').join(sep))
     // Windows makes a junction without any privilege, so there it MUST exist
-    // (round 1, R1-TST-15: a bare `return` passed silently); elsewhere the
-    // test says it was skipped.
-    if (process.platform === 'win32') expect(lexical && fs.existsSync(lexical), 'the junction was not made').toBeTruthy()
-    else if (!lexical || !fs.existsSync(lexical)) { ctx.skip(); return }
+    // (round 1, R1-TST-15: a bare `return` passed silently), and so must any
+    // link this machine said it made (round 2, R2-TST-07); otherwise the test
+    // says it was skipped. The path is built with this platform's separator.
+    if (process.platform === 'win32' || junctionMade) expect(lexical && fs.existsSync(lexical), 'the junction was not made').toBeTruthy()
+    else { ctx.skip(); return }
     expect(resolveOpenTarget({ source: 'media', mediaKey: viaJunction }, deps()).ok).toBe(false)
     // CONTROL: without the real-path check the same key would have resolved.
     const naive = resolveOpenTarget({ source: 'media', mediaKey: viaJunction }, deps({ insideByRealPath: () => true }))
@@ -216,6 +221,32 @@ describe('openOrReveal: the whole IPC, with a fake shell (round 1, R1-TST-02)', 
     expect(shell.calls).toEqual([['open', real(projectFile)]])
   })
 
+  // Round 2 (R2-TST, M01 / M02): the CONTROL above opens a plain file whose
+  // real path IS its path, so it could not tell which of the two was opened,
+  // and no case had a name that fails over a target that passes.
+  it('a link to an ALLOWED file opens the REAL target it judged, not the link', async () => {
+    const shell = fakeShell()
+    const target = join(outside, 'real-target.pdf')
+    writeFileSync(target, 'pdf')
+    const linked = deps({ fs: { ...fs, realpathSync: (p) => (p === projectFile ? target : fs.realpathSync(p)) } })
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'f1' }, { ...linked, shell })).toEqual({ ok: true })
+    expect(shell.calls).toEqual([['open', target]])
+  })
+
+  it('a link NAMED as a program is refused even though it leads to a PDF (both the name and the target are judged)', async () => {
+    const shell = fakeShell()
+    const named = join(base, 'files', 'run.exe')
+    writeFileSync(named, 'MZ')
+    const pdf = join(outside, 'leads-here.pdf')
+    writeFileSync(pdf, 'pdf')
+    const linked = deps({
+      locateRow: (p, f) => (p === 'p1' && f === 'x2' ? named : null),
+      fs: { ...fs, realpathSync: (p) => (p === named ? pdf : fs.realpathSync(p)) },
+    })
+    expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'x2' }, { ...linked, shell })).toEqual({ ok: false, error: PROGRAMS })
+    expect(shell.calls).toEqual([])
+  })
+
   it('the shell\'s own failure is the answer', async () => {
     const shell = { ...fakeShell(), openPath: async () => 'No application is associated with the specified file' }
     expect(await openOrReveal({ source: 'files', projectId: 'p1', fileId: 'f1' }, { ...deps(), shell }))
@@ -259,6 +290,22 @@ describe('makeRowLocator: one row of the bundle, through main\'s resolvers', () 
     expect(locate('p2', 'f1', 'files')).toBeNull()
     expect(locate('p1', 'm1', 'files')).toBeNull()
   })
+
+  // Round 2 (R2-TST, M15): the stand-in above ignored the row, so a locator
+  // that dropped it passed — and the download route picks an invoice's folder
+  // BY the row (is_financial), so Show in folder would say "not on this
+  // computer" for every invoice.
+  it('the ROW reaches resolveFileBaseDir: an invoice resolves under the folder chosen for it', () => {
+    const withInvoice = { files: [{ id: 'i1', storage_path: 'INV-1.pdf', is_financial: true }, { id: 'f1', storage_path: 'a.pdf' }] }
+    const byRow = makeRowLocator({
+      readRabbitBundle: () => withInvoice,
+      resolveManagedFileDiskPath: () => null,
+      resolveContainedFilePath: (dir, rel) => `${dir}\\${rel}`,
+      resolveFileBaseDir: (b, pid, file) => (b === withInvoice && pid === 'p1' && file?.is_financial ? 'F:\\invoices' : 'F:\\files'),
+    })
+    expect(byRow('p1', 'i1', 'files')).toBe('F:\\invoices\\INV-1.pdf')
+    expect(byRow('p1', 'f1', 'files')).toBe('F:\\files\\a.pdf')
+  })
 })
 
 describe('the wiring: main resolves, the page names a row', () => {
@@ -272,6 +319,14 @@ describe('the wiring: main resolves, the page names a row', () => {
     expect(body).toContain('locateRow: rabbitFileLocator')
     expect(body).toContain('mediaRoot: () => getLocalMediaRoot({ create: false })')
     expect(body).not.toMatch(/filePath|shell\.openPath|shell\.showItemInFolder|refuseToOpen/)
+    // The media key's three checks are localMedia's own, passed whole (round
+    // 2, R2-TST, M03: `insideByRealPath: () => true` let a junction under the
+    // media root lead out, and nothing here said so).
+    expect(body).toContain("const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');")
+    for (const dep of ['checkMediaKey', 'resolveContainedFilePath', 'insideByRealPath']) {
+      expect(body, dep).toMatch(new RegExp(`[\\s{,]${dep},`))
+      expect(body, dep).not.toMatch(new RegExp(`${dep}\\s*:`))
+    }
   })
 
   it('the locator is makeRowLocator over the download route\'s resolvers, in the server closure', () => {

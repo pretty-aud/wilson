@@ -196,6 +196,9 @@ function PreviewStage({ node, projectId, adapterMode, onRead, onReveal, onClose,
           onClose={onClose}
           onOpenExternally={managed ? () => onReveal?.(node) : undefined}
           onSourceReady={() => onRead?.(row)}
+          // No URL at all: the sentence every other kind uses, so the dev
+          // fixtures are named and not a bucket (round 2, R2-UI-06).
+          nullSourceDetail={unavailableSentence(row, adapterMode)}
         />
       </div>
     )

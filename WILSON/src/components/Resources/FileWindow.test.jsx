@@ -103,6 +103,17 @@ describe('the file window: collapsed at rest, opened by a file (E10, Q60)', () =
     await waitFor(() => expect(document.activeElement).toBe(nameButton('treatment.pdf')))
   })
 
+  it('…and in the COLUMNS view (the default), on the file\'s item (round 2, R2-TST-06)', async () => {
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await screen.findByRole('tab', { name: 'Table' }) // the Columns view is showing
+    fireEvent.click(await screen.findByRole('button', { name: /treatment\.pdf/ }))
+    const close = within(panel()).getByRole('button', { name: 'Close details' })
+    act(() => close.focus())
+    fireEvent.click(close)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /treatment\.pdf/ })))
+    expect(document.activeElement.classList.contains('fx-col-item')).toBe(true)
+  })
+
   it('the Name cell of a FILE is a button (the keyboard reaches it); a folder\'s is not; the row stays a plain <tr>', async () => {
     await mount()
     const btn = nameButton('treatment.pdf')
@@ -242,6 +253,34 @@ describe('notes, with the box really focused (review round 1)', () => {
     expect(ctx.patchFile).not.toHaveBeenCalled()
   })
 
+  it('a note that lands AFTER an Escape still reaches the box (round 2, R2-TST-02)', async () => {
+    const { rerender } = await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    act(() => box().focus())
+    fireEvent.change(box(), { target: { value: 'scrap' } })
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    expect(box().value).toBe('First pass')
+    ctx.files = [{ ...FILES[0], description: 'Written after the Escape' }, ...FILES.slice(1)]
+    rerender(tab())
+    await waitFor(() => expect(box().value).toBe('Written after the Escape'))
+  })
+
+  it('🚨 one newer note before focus, another DURING it: leaving the box untouched writes nothing (R2-TST-02)', async () => {
+    const { rerender } = await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    ctx.files = [{ ...FILES[0], description: 'S2' }, ...FILES.slice(1)]
+    rerender(tab())
+    await waitFor(() => expect(box().value).toBe('S2'))
+    act(() => box().focus())
+    ctx.files = [{ ...FILES[0], description: 'S3' }, ...FILES.slice(1)]
+    rerender(tab())
+    await tick()
+    act(() => box().blur())
+    await tick()
+    expect(ctx.patchFile).not.toHaveBeenCalled() // S2 was never written over S3
+    await waitFor(() => expect(box().value).toBe('S3'))
+  })
+
   it('a refused note goes back to what is stored, and says why (R1-UI-02)', async () => {
     ctx.patchFile = vi.fn(async () => { throw new Error('permission denied for table files') })
     await mount()
@@ -355,6 +394,18 @@ describe('the change shows at once, and a refusal goes back (Doherty)', () => {
     fail()
     await waitFor(() => expect(panel().querySelector('[data-tag="shots"]').getAttribute('aria-pressed')).toBe('false'))
     expect(panel().querySelector('[data-save-error]').textContent).toBe('Could not save: permission denied for table files')
+  })
+
+  it('…nor does a refusal that ARRIVES after you moved to the next file (round 2, R2-TST-12)', async () => {
+    let refuse
+    ctx.patchFile = vi.fn(() => new Promise((_, reject) => { refuse = () => reject(new Error('permission denied for table files')) }))
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    fireEvent.click(panel().querySelector('[data-tag="shots"]'))
+    fireEvent.click(nameButton('mood.png'))
+    await act(async () => { refuse() })
+    expect(panel().getAttribute('data-file-details')).toBe('f:3')
+    expect(panel().querySelector('[data-save-error]')).toBeNull()
   })
 
   it('a refusal does not follow you onto the next file you select', async () => {
@@ -537,6 +588,32 @@ describe('the actions (E9)', () => {
     fireEvent.click(nameButton('treatment.pdf'))
     fireEvent.click(within(panel()).getByRole('button', { name: 'Open in default app' }))
     expect(await within(panel()).findByText('WILSON does not open programs or scripts. Use Show in folder to see it.')).toBeTruthy()
+  })
+
+  it('…but not on the NEXT file, when it arrives after you selected that one (round 2, R2-UI-03)', async () => {
+    let answer
+    window.electronAPI = { rabbit: { openPath: () => new Promise((r) => { answer = r }) } }
+    ctx.adapterMode = 'local_server'
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Open in default app' }))
+    fireEvent.click(nameButton('mood.png'))
+    await act(async () => { answer({ ok: false, error: 'WILSON does not open programs or scripts. Use Show in folder to see it.' }) })
+    expect(panel().getAttribute('data-file-details')).toBe('f:3')
+    expect(panel().querySelector('[data-action-error]')).toBeNull()
+  })
+
+  it('…and a download refusal that arrives late is not shown on the next file either', async () => {
+    let refuse
+    ctx.downloadUrl = vi.fn(() => new Promise((_, reject) => { refuse = () => reject(new Error('Downloading a file is refused on the dev fixtures.')) }))
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    fireEvent.click(within(panel()).getByRole('button', { name: /Download/ }))
+    await waitFor(() => expect(ctx.downloadUrl).toHaveBeenCalled())
+    fireEvent.click(nameButton('mood.png'))
+    await act(async () => { refuse() })
+    expect(panel().getAttribute('data-file-details')).toBe('f:3')
+    expect(panel().querySelector('[data-action-error]')).toBeNull()
   })
 
   it('Show in folder and Open are ONE unit that wraps whole, and Preview fills its line (no stray icon in a narrow footer)', async () => {

@@ -53,7 +53,9 @@ function makeAdapter() {
     calls,
     status: async () => ({ online: true, lastSyncAt: null }),
     listProjects: async () => [{ id: 'p1', title: 'One' }, { id: 'p2', title: 'Two' }],
-    loadProject: async () => ({ project: { id: 'p1', title: 'One' }, files: files.map(f => ({ ...f })), managedFiles: managed.map(f => ({ ...f })) }),
+    loadProject: async (id = 'p1') => (id === 'p1'
+      ? { project: { id: 'p1', title: 'One' }, files: files.map(f => ({ ...f })), managedFiles: managed.map(f => ({ ...f })) }
+      : { project: { id, title: 'Two' }, files: [{ id: 'f2', project_id: id, name: 'c.pdf', description: null, tags: [] }], managedFiles: [] }),
     updateFile: async (id, patch) => { calls.push(['updateFile', id, patch]); return { id, ...patch } },
     updateManagedFile: async (id, patch) => { calls.push(['updateManagedFile', id, patch]); return { id, ...patch } },
   }
@@ -105,5 +107,84 @@ describe('the file verbs take the file\'s project (S4a)', () => {
     ])
     expect(ctxRef.files[0].is_core_definer).toBe(true)
     expect(ctxRef.managedFiles[0].tags).toEqual(['shots'])
+  })
+})
+
+// Review round 2 (R2-UI-01, measured in a browser with two hosts): the
+// optimistic write kept the row's OLD updated_at, so an explorer whose own copy
+// carried the server's newer one kept it — the other host showed the note from
+// before the write, and a line added there wrote the older note back. The
+// server's row now lands in the bundle when the write does.
+describe('the saved row lands in the bundle (review round 2, R2-UI-01)', () => {
+  const at = (s) => `2026-10-01T10:00:${String(s).padStart(2, '0')}.000Z`
+  function deferredWrites(method) {
+    const pending = []
+    holder.adapter[method] = (id, patch) => new Promise((resolve, reject) => {
+      pending.push({ id, patch, resolve, reject })
+    })
+    return pending
+  }
+
+  it('each verb: the row takes the SERVER\'s row once the write lands, not only the patch', async () => {
+    holder.adapter.updateFile = async (id, patch) => ({ id, ...patch, description: patch.description && `${patch.description} (as saved)`, updated_at: at(1) })
+    holder.adapter.updateManagedFile = async (id, patch) => ({ id, ...patch, updated_at: at(2) })
+    await mount()
+    await act(async () => { await ctxRef.patchFile('f1', { description: 'note' }) })
+    expect(ctxRef.files[0]).toMatchObject({ id: 'f1', name: 'a.pdf', description: 'note (as saved)', updated_at: at(1) })
+    holder.adapter.updateFile = async (id, patch) => ({ id, ...patch, updated_at: at(3) })
+    await act(async () => { await ctxRef.markFileCoreDefiner('f1', true) })
+    expect(ctxRef.files[0]).toMatchObject({ is_core_definer: true, updated_at: at(3) })
+    await act(async () => { await ctxRef.updateManagedFile('m1', { notes: 'n' }) })
+    expect(ctxRef.managedFiles[0]).toMatchObject({ id: 'm1', file_name: 'b.mov', notes: 'n', updated_at: at(2) })
+  })
+
+  it('only the latest write for a row lands: an earlier answer, early or late, never undoes a later edit', async () => {
+    await mount()
+    const pending = deferredWrites('updateFile')
+    let a, b
+    act(() => { a = ctxRef.patchFile('f1', { description: 'A' }) })
+    act(() => { b = ctxRef.patchFile('f1', { description: 'AB' }) })
+    await waitFor(() => expect(pending.length).toBe(2))
+    expect(ctxRef.files[0].description).toBe('AB')
+    // A answers first, while B is still out: the box must not fall back to 'A'.
+    await act(async () => { pending[0].resolve({ id: 'f1', description: 'A', updated_at: at(1) }); await a })
+    expect(ctxRef.files[0].description).toBe('AB')
+    expect(ctxRef.files[0].updated_at).toBeUndefined()
+    await act(async () => { pending[1].resolve({ id: 'f1', description: 'AB', updated_at: at(2) }); await b })
+    expect(ctxRef.files[0]).toMatchObject({ description: 'AB', updated_at: at(2) })
+
+    // And the other order: the later write answers first, the earlier one after.
+    let c, d
+    act(() => { c = ctxRef.patchFile('f1', { description: 'C' }) })
+    act(() => { d = ctxRef.patchFile('f1', { description: 'CD' }) })
+    await waitFor(() => expect(pending.length).toBe(4))
+    await act(async () => { pending[3].resolve({ id: 'f1', description: 'CD', updated_at: at(4) }); await d })
+    await act(async () => { pending[2].resolve({ id: 'f1', description: 'C', updated_at: at(3) }); await c })
+    expect(ctxRef.files[0]).toMatchObject({ description: 'CD', updated_at: at(4) })
+  })
+
+  it('an answer that is not this row (none, or another id) lands nothing', async () => {
+    await mount()
+    holder.adapter.updateFile = async () => ({ id: 'f-other', description: 'not mine', updated_at: at(5) })
+    await act(async () => { await ctxRef.patchFile('f1', { description: 'mine' }) })
+    expect(ctxRef.files[0]).toMatchObject({ id: 'f1', description: 'mine' })
+    expect(ctxRef.files[0].updated_at).toBeUndefined()
+    holder.adapter.updateManagedFile = async () => undefined
+    await act(async () => { await ctxRef.updateManagedFile('m1', { notes: 'kept' }) })
+    expect(ctxRef.managedFiles[0]).toMatchObject({ id: 'm1', notes: 'kept' })
+  })
+
+  it('a project opened while the write was out: the answer leaves the new project\'s bundle untouched', async () => {
+    await mount()
+    const pending = deferredWrites('updateFile')
+    let w
+    act(() => { w = ctxRef.patchFile('f1', { description: 'late' }) })
+    await waitFor(() => expect(pending.length).toBe(1))
+    await act(async () => { await ctxRef.setActiveProject('p2', false) })
+    await waitFor(() => expect(ctxRef.project?.id).toBe('p2'))
+    await waitFor(() => expect(ctxRef.files.map(f => f.id)).toEqual(['f2']))
+    const before = ctxRef.files
+    await act(async () => { pending[0].resolve({ id: 'f1', description: 'late', updated_at: at(6) }); await w })
+    expect(ctxRef.files).toBe(before)
   })
 })

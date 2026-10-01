@@ -320,8 +320,16 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     // Any call spelling (post-overhaul S4a review round 1, R1-TST-16: the
     // first cut read only `uploadFile?.(`, and `ctx.uploadFile(` passed).
     const CALLS_UPLOAD = /\buploadFile\s*(?:\?\.\s*)?\(/
-    expect(read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')).not.toMatch(CALLS_UPLOAD)
+    const summary = read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')
+    expect(summary).not.toMatch(CALLS_UPLOAD)
     for (const call of ['uploadFile?.(f)', 'ctx.uploadFile(f)', 'await uploadFile (f)', 'x.uploadFile ?. (f)']) expect(call, call).toMatch(CALLS_UPLOAD)
     expect('const { uploadFile } = ctx').not.toMatch(CALLS_UPLOAD)
+    // …and no mention at all in its CODE (round 2, R2-TST-09: an alias,
+    // `const up = ctx.uploadFile; up(f)`, or `ctx['uploadFile'](f)` passed
+    // the call's shape). A comment may still name it.
+    const codeOf = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(codeOf(summary)).not.toContain('uploadFile')
+    for (const planted of ["const up = ctx.uploadFile\nup(f)", "ctx['uploadFile'](f)"]) expect(codeOf(planted), planted).toContain('uploadFile')
+    expect(codeOf('// the Files tab calls uploadFile now\nconst x = 1')).not.toContain('uploadFile')
   })
 })

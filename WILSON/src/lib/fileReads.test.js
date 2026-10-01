@@ -6,9 +6,13 @@
 // that also admitted `same-site`, a misspelled header and a dropped bundle
 // write each passed).
 //
-// Only the bundle store is a stand-in (readRabbitBundle / writeRabbitBundle /
-// rabbitLogFileEvent record what they are given) and the throttle is a Set,
-// so each assertion says what reached the disk and the bundle.
+// Real: Express, the route module, the file on disk and the containment
+// resolver. Stand-ins, each recording what it is given (round 2, R2-TST-08:
+// this header said only the bundle store was one): the bundle store
+// (readRabbitBundle / writeRabbitBundle / rabbitLogFileEvent), the base-folder
+// resolver (a row may name its own), the media-type allowlist, the 404, and
+// the throttle — a Set that keeps the keys it was asked about. So each
+// assertion says what reached the disk, the bundle and the throttle.
 // =============================================================================
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
@@ -29,6 +33,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const BODY = 'S4a: twenty-six bytes, ok.'
 let dir, bundle, writes, logged, server, port
 const seen = new Set() // the throttle's window, emptied per test
+const asked = [] // every key the throttle was asked about, emptied per test
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 's4a-filereads-'))
@@ -45,7 +50,7 @@ beforeAll(async () => {
     rabbitLogFileEvent: (b, evt) => { logged.push(evt); (b.fileEvents ||= []).push(evt) },
     writeRabbitBundle: (pid, b, opts) => { writes.push([pid, opts]) },
     safeMediaContentType: (m) => (/^(image|video|audio)\//.test(m || '') ? m : 'application/octet-stream'),
-    shouldLogManagedRead: (key) => (seen.has(key) ? false : (seen.add(key), true)),
+    shouldLogManagedRead: (key) => { asked.push(key); return seen.has(key) ? false : (seen.add(key), true) },
     warn: () => {},
   })
   // The download route's own use of the helper, as main.cjs calls it.
@@ -66,6 +71,7 @@ beforeEach(() => {
   writes = []
   logged = []
   seen.clear()
+  asked.length = 0
 })
 
 const url = (p) => `http://127.0.0.1:${port}${p}`
@@ -135,6 +141,10 @@ describe('the stream route: E13, one read a minute, written to the bundle', () =
     expect(writes).toEqual([['p1', { touch: false }]])
     await (await stream('f1', { ...SAME, range: 'bytes=4-9' })).text()
     expect(logged).toHaveLength(1)
+    // The window is keyed in the files' own namespace: main's one throttle
+    // also serves the managed-file stream, whose ids are another table's
+    // (round 2, R2-TST, M14).
+    expect(asked).toEqual(['f:f1', 'f:f1'])
   })
   it('a probe (?probe=1) is a machine read: nothing recorded', async () => {
     bundle.files.push({ id: 'f4', name: 'p.txt', mime_type: 'text/plain', storage_path: '1-notes.txt', storage_provider: 'local' })

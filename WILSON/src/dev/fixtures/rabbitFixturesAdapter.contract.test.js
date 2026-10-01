@@ -97,8 +97,21 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
   it('the fake cloud refuses tags as 0085\'s CHECKs do (post-overhaul S4a; review round 1, mutant 31)', async () => {
     const fx = buildDevFixtures().rabbitAdapter()
     const [first] = await fx.listFiles(PROJECT_ID)
-    for (const tags of [['notes'], ['Production'], [null], 'shots', Array(10).fill('code'), [['code', 'legal']]]) {
-      await expect(fx.updateFile(first.id, { tags }), JSON.stringify(tags)).rejects.toThrow(/files_tags_known_chk/)
+    // Each refusal names the CHECK Postgres would (it tests them in
+    // alphabetical order: flat, known, len), not one name for all (round 2,
+    // R2-TST-14).
+    const refusals = [
+      [['notes'], /check constraint "files_tags_known_chk"/],
+      [['Production'], /check constraint "files_tags_known_chk"/],
+      [[null], /check constraint "files_tags_known_chk"/],
+      [Array(10).fill('code'), /check constraint "files_tags_len_chk"/],
+      [[...Array(9).fill('code'), 'notes'], /check constraint "files_tags_known_chk"/],
+      [[['code', 'legal']], /check constraint "files_tags_flat_chk"/],
+      [[['notes']], /check constraint "files_tags_flat_chk"/],
+      ['shots', /malformed array literal: "shots"/],
+    ]
+    for (const [tags, says] of refusals) {
+      await expect(fx.updateFile(first.id, { tags }), JSON.stringify(tags)).rejects.toThrow(says)
     }
     // CONTROL: the nine are accepted, and so is none.
     await expect(fx.updateFile(first.id, { tags: ['shots', 'legal'] })).resolves.toMatchObject({ tags: ['shots', 'legal'] })

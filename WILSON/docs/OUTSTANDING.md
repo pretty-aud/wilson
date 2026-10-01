@@ -1950,7 +1950,7 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
 - **S4a-01 · Migration 0085 (`files.tags`) is written and NOT applied to
   any environment.** The desktop app's classifier refuses DDL writes to dev
   from a session, so the migration was proven by the hosted shim in a
-  rolled-back run (suite 87, after review round 1: 30 planned / 30
+  rolled-back run (suite 87, after review round 2: 30 planned / 30
   collected / 30 passed) and by CI. The client tolerates a database without the column, as it does for
   0081: tags read as none, the file window says "Tags need a database
   update that has not reached this workspace yet.", and a tags-only save
@@ -1964,16 +1964,19 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   Legal is limited to people past the money gate. Owner: S4b, after
   Audrey rules on Legal's audience (E4a).
 - **S4a-03 · Electron's PDF viewer titles a previewed PDF with a blob's
-  id.** A same-origin PDF is handed to the viewer as a typed blob (so
-  `safeMediaContentType` stays as it is), and the viewer's toolbar shows
-  the blob's UUID. The preview's own head carries the file's name.
+  id.** Every PDF, the Local Server's and the cloud's, is fetched and handed
+  to the viewer as a typed blob (so `safeMediaContentType` stays as it is,
+  and a cloud body is never framed by its signed URL — review round 1), and
+  the viewer's toolbar shows the blob's UUID. The preview's own head carries
+  the file's name.
   MEASURED in Electron 33
   (`docs/sessions/handoffs/img/po-s4a-localserver-preview-pdf-*.png`).
   Cosmetic. Owner: the next session on previews.
 - **S4a-04 · The preview is the workbench Dialog, not a lightbox.** The
-  kit has no full-window Dialog, so the preview is 960px wide. A PDF, a
-  picture or a text is capped at `min(64vh, 620px)` high; a video stage has
-  no fixed height and stops at the player's own limit. Owner: the kit
+  kit has no full-window Dialog, so the preview is 960px wide. It is the
+  kit's cap high (88vh) and every kind, a video with its controls
+  included, fits the stage the bar and a refusal leave (review round 2,
+  R2-UI-04, measured at 1280x700 and 1440x900). Owner: the kit
   (S4a-KR-1, "a lightbox-sized Dialog").
 - **S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**
   S4a's review round 2 measured that `send` refuses an absolute path
@@ -1988,6 +1991,22 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   likely answers 500 while a demo folder is open. INFERRED from the same
   mechanism. Would settle it: open a demo folder and load a thumbnail.
   Owner: the next session on thumbnails (the same one-argument fix).
+- **S4a-07 · Ctrl+Z on another page undoes R.A.B.B.I.T.'s last edit.**
+  Every page stays mounted, and three of R.A.B.B.I.T.'s tabs bind the undo
+  keys on the whole window with no page gate: the Timeline
+  (`TimelineView.jsx`, `window`), Scenes (`ScenesView.jsx`, `document`)
+  and Budget (`BudgetView.jsx`, `window`). MEASURED by S4a's review round 2
+  and again by S4a (Playwright, the dev fixtures, 1440x900): with
+  R.A.B.B.I.T. left on Scenes, Ctrl+Z on D.O.G. (focus on the page, not a
+  field) turned a scene renamed "RENAMED BY PROBE" back to "Lighthouse,
+  dawn"; left on the Timeline, the same key changed the renamed task; left
+  on Summary, which binds no keys (the control), nothing changed. Budget's
+  handler has the same shape: INFERRED. Same class as S2a-01 (Bins' keys),
+  and the same fix: `Rabbit.jsx` passes `pageActive={currentPage ===
+  'rabbit'}` and each handler returns while it is false. Not changed by
+  S4a: S3b, next on this branch, touches `ScenesView.jsx` and
+  `BudgetView.jsx` (S4a's brief). Owner: S3b (Scenes, Budget) and the next
+  session on `TimelineView.jsx` (S3c or S5).
 - ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
   test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
   "the task form hands focus back to 'Add new task'…". Measured red in 4

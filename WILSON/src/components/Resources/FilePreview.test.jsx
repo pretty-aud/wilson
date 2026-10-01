@@ -22,6 +22,10 @@ import {
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 
 const here = dirname(fileURLToPath(import.meta.url))
+// The first preview pulls react-markdown and the highlighter in: under a
+// loaded full-suite run it once took 6.3s against the 5s default (round 2,
+// R2-TST-14). The waits inside each test are what bound it.
+vi.setConfig({ testTimeout: 20_000 })
 const ctx = {}
 const perms = { role: 'admin', ready: true, workspaceId: 'w1', userId: 'u1' }
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => ctx }))
@@ -278,6 +282,17 @@ describe('the preview dialog (E9)', () => {
     expect(dialog().querySelector('.ui-spinner')).toBeNull()
   })
 
+  it('…a video\'s too: the fixtures are named, not "your own bucket" (round 2, R2-UI-06)', async () => {
+    ctx.adapterMode = 'supabase'
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({ ...base, mode: 'fixtures' })
+    ctx.fileUrl = vi.fn(async () => null)
+    await mountTable()
+    openByDoubleClick('b-clip.mp4')
+    expect(await within(dialog()).findByText(/dev fixtures hold no file bytes/)).toBeTruthy()
+    expect(within(dialog()).queryByText(/your own bucket/)).toBeNull()
+  })
+
   it('a failed image re-mints ONCE, then names the failure (VideoPreview\'s rule)', async () => {
     await mountTable()
     openByDoubleClick('a-still.png')
@@ -315,7 +330,6 @@ describe('the preview dialog (E9)', () => {
 
 describe('review round 1: the walk, the chevrons, the Columns view', () => {
   const sortedNames = () => [...FILES].map(f => f.name).sort((a, b) => a.localeCompare(b))
-  const subtitle = () => dialog().querySelector('.ui-dialog-subtitle, [data-dialog-subtitle]')?.textContent || dialog().textContent
 
   it('the chevrons: Next goes FORWARD, Previous back, and the position counts from one', async () => {
     await mountTable()
@@ -327,7 +341,7 @@ describe('review round 1: the walk, the chevrons, the Columns view', () => {
     expect(within(dialog()).getByText(new RegExp(`^2 of ${FILES.length} · `))).toBeTruthy()
     fireEvent.click(dialog().querySelector('[data-pv-prev]'))
     expect(await screen.findByRole('dialog', { name: 'a-still.png' })).toBeTruthy()
-    expect(subtitle()).toBeTruthy()
+    expect(within(dialog()).getByText(new RegExp(`^1 of ${FILES.length} · `))).toBeTruthy()
   })
 
   it('the table walk honours the FILTER (it never steps onto a file the filter hides)', async () => {
@@ -391,6 +405,39 @@ describe('review round 1: the walk, the chevrons, the Columns view', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'b-clip.mp4' })))
   })
 
+  it('…and in the COLUMNS view (the default): on the current file\'s item (round 2, R2-TST-06)', async () => {
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.doubleClick(await screen.findByRole('button', { name: /a-still\.png/ }))
+    await screen.findByRole('dialog', { name: 'a-still.png' })
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' })
+    await screen.findByRole('dialog', { name: 'b-clip.mp4' })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /b-clip\.mp4/ })))
+    expect(document.activeElement.classList.contains('fx-col-item')).toBe(true)
+  })
+
+  it('…in THIS explorer, when the other host\'s is mounted ahead of it and hidden (round 2, R2-UI-05)', async () => {
+    render(
+      <>
+        <div hidden><ProjectFilesExplorer projectId="p1" showPicker={false} /></div>
+        <ProjectFilesExplorer projectId="p1" showPicker={false} />
+      </>,
+    )
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    act(() => screen.getByRole('button', { name: 'a-still.png' }).focus())
+    fireEvent.keyDown(screen.getByRole('button', { name: 'a-still.png' }), { key: 'Enter' })
+    await screen.findByRole('dialog', { name: 'a-still.png' })
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' })
+    await screen.findByRole('dialog', { name: 'b-clip.mp4' })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'b-clip.mp4' })))
+    // CONTROL: the hidden explorer carries the same file, AHEAD in the document.
+    const same = [...document.querySelectorAll('[data-files-explorer] [data-node-id]')]
+      .filter((e) => e.getAttribute('data-node-id') === document.activeElement.getAttribute('data-node-id'))
+    expect(same.length).toBe(2)
+    expect(same[0].closest('[hidden]')).not.toBeNull()
+  })
+
   it('a refusal from the preview\'s own button is shown INSIDE the preview (R1-UI-05)', async () => {
     ctx.downloadUrl = vi.fn(async () => { throw new Error('Downloading a file is refused on the dev fixtures.') })
     await mountTable()
@@ -399,6 +446,44 @@ describe('review round 1: the walk, the chevrons, the Columns view', () => {
     fireEvent.click(within(dialog().querySelector('.fx-pv-bar')).getByRole('button', { name: /Download/ }))
     const shown = await waitFor(() => { const x = dialog().querySelector('[data-pv-action-error]'); expect(x).toBeTruthy(); return x })
     expect(shown.textContent).toBe('Downloading a file is refused on the dev fixtures.')
+  })
+
+  it('the dialog is one height and the stage takes what is left: a refusal or a 16:9 video never runs it past the kit\'s cap (round 2, R2-UI-04)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(resolve(here, 'resources.css'), 'utf8').replace(/\r\n/g, '\n')
+    const kit = readFileSync(resolve(here, '../../index.css'), 'utf8').replace(/\r\n/g, '\n')
+    const rule = (text, sel) => {
+      const m = new RegExp(`\\n\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(text)
+      return m ? m[1] : null
+    }
+    // Measured in Chromium at 1280x700 and 1440x900, with and without the
+    // Banner, a 16:9 video and a no-preview card: the body never scrolls and
+    // the player's controls are inside the stage. These pin how.
+    const cap = /max-height: (\d+vh);/.exec(rule(kit, '.ui-dialog'))[1]
+    expect(rule(css, '.ui-dialog.fx-pv-dialog')).toMatch(new RegExp(`height: ${cap};`))
+    expect(rule(css, '.fx-pv-dialog .ui-dialog-body')).toMatch(/display: flex; flex-direction: column;/)
+    expect(rule(css, '.fx-pv-dialog [data-pv-action-error]')).toMatch(/flex: none;/)
+    const stage = rule(css, '.fx-pv-stage')
+    expect(stage).toMatch(/flex: 1 1 0;/)
+    expect(stage).toMatch(/min-height: 0;/)
+    expect(stage).not.toMatch(/(?<!min-)height:/)
+    expect(css).not.toMatch(/\.fx-pv-stage\[data-kind="video"\]/)
+    expect(rule(css, '.fx-pv-video .rb-vid-stage')).toMatch(/min-width: 0; min-height: 0;/)
+    expect(rule(css, '.fx-pv-video .rb-vid-player')).toMatch(/max-width: 100%; max-height: 100%;/)
+  })
+
+  it('…but a refusal that ARRIVES after ← → stepped on is not shown on the next file (round 2, R2-UI-03)', async () => {
+    let refuse
+    ctx.downloadUrl = vi.fn(() => new Promise((_, reject) => { refuse = () => reject(new Error('Downloading a file is refused on the dev fixtures.')) }))
+    await mountTable()
+    openByDoubleClick('a-still.png')
+    await screen.findByRole('dialog', { name: 'a-still.png' })
+    fireEvent.click(within(dialog().querySelector('.fx-pv-bar')).getByRole('button', { name: /Download/ }))
+    await waitFor(() => expect(ctx.downloadUrl).toHaveBeenCalled())
+    fireEvent.keyDown(dialog(), { key: 'ArrowRight' })
+    await screen.findByRole('dialog', { name: 'b-clip.mp4' })
+    await act(async () => { refuse() })
+    expect(dialog().querySelector('[data-pv-action-error]')).toBeNull()
   })
 
   it('a managed file previews from ITS row id\'s stream (not the tree node\'s m: id)', async () => {
@@ -481,6 +566,23 @@ describe('review round 1: what a read is, and how it is fetched', () => {
     expect(logged).not.toContain('a1')
     fireEvent.load(img)
     await waitFor(() => expect(logged).toContain('a1'))
+  })
+
+  it('a cloud PDF is logged once its typed blob is made (round 2, R2-TST-03)', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('%PDF-1.4', { status: 200 }))
+    await mountTable()
+    openByDoubleClick('d-brief.pdf')
+    await waitFor(() => expect(dialog().querySelector('iframe[data-pv-pdf]')).toBeTruthy())
+    await waitFor(() => expect(logged).toEqual(['d4']))
+  })
+
+  it('cloud audio is logged on loadeddata, and not before (round 2, R2-TST-03)', async () => {
+    await mountTable()
+    openByDoubleClick('c-voice.mp3')
+    const a = await waitFor(() => { const x = dialog().querySelector('audio[data-pv-audio]'); expect(x).toBeTruthy(); return x })
+    expect(logged).not.toContain('c3')
+    fireEvent.loadedData(a)
+    await waitFor(() => expect(logged).toContain('c3'))
   })
 
   it('a cloud video is logged when its first frame has loaded (it was never logged)', async () => {

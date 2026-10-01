@@ -399,4 +399,37 @@ describe('🚨 one overlay stack, the kit\'s (review part 5, risk 3)', () => {
       if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
     }
   })
+
+  // Round 2 (R2-TST, M17): the test above fires Space at <body> only, so the
+  // focus-inside half of the gate was never read. A window over the view that
+  // is neither on the kit's stack nor a drawer WITH a backdrop — a drawer
+  // without one, a hand-rolled dialog — is only seen by where focus is.
+  it('…nor with focus inside a window over the view that has no backdrop (a drawer, a hand-rolled dialog)', () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
+      render(
+        <>
+          <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive
+            thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />
+          <Drawer open onClose={() => {}} backdrop={false} title="Settings"><div tabIndex={0} data-in-drawer>x</div></Drawer>
+          <div role="dialog" aria-label="Notes"><div tabIndex={0} data-in-dialog>y</div></div>
+        </>,
+      )
+      expect(document.querySelector('.ui-drawer-backdrop')).toBeNull()
+      fireEvent.keyDown(document.querySelector('[data-in-drawer]'), { code: 'Space', key: ' ' })
+      fireEvent.keyDown(document.querySelector('[data-in-dialog]'), { code: 'Space', key: ' ' })
+      expect(play).not.toHaveBeenCalled()
+      // CONTROL: the same page, focus on the page itself — Space plays.
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
 })

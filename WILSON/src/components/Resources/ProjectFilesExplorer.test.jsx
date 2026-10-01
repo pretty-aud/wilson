@@ -542,6 +542,15 @@ describe('one explorer, two hosts (S4a, E8)', () => {
     expect(fileNames()).not.toContain('brief.pdf')
   })
 
+  it('CONTROL: an adapter answer of the SAME age loses too — a save still in flight keeps the stamp it had (round 2, R2-TST, M07)', async () => {
+    ctx.files = [{ ...FILES[0], name: 'brief-SAVING.pdf', updated_at: '2026-09-01T10:00:00Z' }]
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFiles: async () => [{ ...FILES[0], updated_at: '2026-09-01T10:00:00Z' }, FILES[1]] })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    expect(fileNames()).toContain('brief-SAVING.pdf')
+    expect(fileNames()).not.toContain('brief.pdf')
+  })
+
   it('lays the open project\'s provider rows over the adapter\'s, by id', async () => {
     ctx.files = [{ ...FILES[0], name: 'brief-final.pdf' }]
     render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
@@ -708,6 +717,21 @@ describe('the Files tab\'s toolbar: Add files, Relink, File activity (E1)', () =
     ctx.activeProjectId = 'p2'
     rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
     await waitFor(() => expect(screen.queryByText('This workspace stores files on its own server.')).toBeNull())
+  })
+
+  it('…nor one that ARRIVES after the switch, from an upload still in flight (round 2, R2-TST-12)', async () => {
+    ctx.adapterMode = 'supabase'
+    let refuse
+    ctx.uploadFile = () => new Promise((_, reject) => { refuse = () => reject(new Error('This workspace stores files on its own server.')) })
+    const { rerender } = onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [new File(['a'], 'a.pdf')] } })
+    await waitFor(() => expect(refuse).toBeTypeOf('function'))
+    ctx.activeProjectId = 'p2'
+    rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+    await act(async () => { refuse() })
+    expect(screen.queryByText('This workspace stores files on its own server.')).toBeNull()
+    expect(document.querySelector('[data-upload-error]')).toBeNull()
   })
 
   it('CONTROL: a backend with no relinkScan (the cloud) draws no notice at all', async () => {

@@ -178,12 +178,17 @@ describe('ProjectFilesTable — its callers (four until post-overhaul S4a; two s
     }
     expect(section).toContain('data-files-moved')
     // …and the Summary's own read-only card with it — in any attribute order
-    // or quoting (review round 1, R1-TST-16: the first cut read one spelling).
-    const PROJECT_FILES_CARD = /<Card\b[^>]*\btitle=(?:"|'|\{\s*["'`])Project files/
-    expect(summary).not.toMatch(PROJECT_FILES_CARD)
-    for (const card of ['<Card title="Project files">', '<Card pad={false} title="Project files">', "<Card title={'Project files'}>", '<Card\n  icon={X}\n  title={`Project files`}>']) {
-      expect(card, card).toMatch(PROJECT_FILES_CARD)
+    // or quoting (review round 1, R1-TST-16: the first cut read one spelling),
+    // read as WHOLE tags (round 2, R2-TST, M13: `[^>]*` stopped at the `=>`
+    // of an arrow prop written before the title).
+    const PROJECT_FILES_TITLE = /\btitle=(?:"|'|\{\s*["'`])Project files/
+    const projectFilesCards = (src) => jsxTags(src).filter((t) => /^<Card(?![\w.])/.test(t) && PROJECT_FILES_TITLE.test(t))
+    expect(projectFilesCards(summary)).toEqual([])
+    for (const card of ['<Card title="Project files">', '<Card pad={false} title="Project files">', "<Card title={'Project files'}>", '<Card\n  icon={X}\n  title={`Project files`}>',
+      '<Card onClick={() => {}} title="Project files" icon={Layers}>']) {
+      expect(projectFilesCards(card), card).toHaveLength(1)
     }
+    expect(projectFilesCards('<Card title="Budget snapshot" icon={DollarSign}>')).toEqual([])
   })
   it('CONTROL: a variant after an arrow prop is read (the first cut missed it)', () => {
     const src = '<ProjectFilesTable files={f} onUpdate={(id, p) => save(id, p)} variant="warm" maxHeight={300} />'

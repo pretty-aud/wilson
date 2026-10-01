@@ -96,12 +96,18 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
 }
 
 /** The player itself: source, re-mint, named failure. Key it on the file.
- *  `onSourceReady(url)` (S4a) tells the Files preview a source exists, so it
- *  logs the read once (E13); held in a ref so it never re-mints the URL. */
-export function VideoStage({ file, projectId, managed, onClose, onOpenExternally, autoPlay = true, onSourceReady }) {
+ *  `onSourceReady(url)` (S4a) tells the Files preview the first frame's data
+ *  has LOADED (onLoadedData — not that a URL was minted), so it logs the read
+ *  once (E13); held in a ref so it never re-mints the URL.
+ *  `nullSourceDetail` (S4a review round 2, R2-UI-06) is the sentence for a
+ *  backend that mints no URL at all — the Files preview names the dev
+ *  fixtures with it; omitted, the bucket sentence below, as before. */
+export function VideoStage({ file, projectId, managed, onClose, onOpenExternally, autoPlay = true, onSourceReady, nullSourceDetail }) {
   const ctx = useRabbit()
   const onSourceReadyRef = useRef(onSourceReady)
   onSourceReadyRef.current = onSourceReady
+  const nullSourceDetailRef = useRef(nullSourceDetail)
+  nullSourceDetailRef.current = nullSourceDetail
   const [src, setSrc] = useState(null)
   const [status, setStatus] = useState('loading') // loading | playing | unavailable
   const [detail, setDetail] = useState(null)
@@ -142,7 +148,7 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
         setStatus('unavailable')
         // The s3 case, stated rather than mystifying. Same deferral as S44's
         // thumbnail display, and for the same two measured reasons.
-        setDetail('Playback isn\'t available yet for media stored in your own bucket.')
+        setDetail(nullSourceDetailRef.current || 'Playback isn\'t available yet for media stored in your own bucket.')
         return
       }
       setSrc(url)

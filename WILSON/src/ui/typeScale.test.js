@@ -1302,7 +1302,12 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
       if (/font-mono/.test(m[0])) return 'mono inside the Banner';
       const before = m[0].slice(0, m[0].lastIndexOf('{missingCount}'));
       const lastTag = (before.match(/<\/?[A-Za-z][^<]*$/) || [''])[0];
-      return lastTag.startsWith('<Banner') || lastTag.startsWith('</') ? 'ok' : 'wrapped inside the Banner';
+      if (!(lastTag.startsWith('<Banner') || lastTag.startsWith('</'))) return 'wrapped inside the Banner';
+      // …and the Banner's OWN props set nothing either (round 2, R2-TST,
+      // M11): a class or a style on it reaches its whole text. Its action
+      // prop is a button, not its text, so that is set aside first.
+      const own = before.replace(/action=\{\([\s\S]*?\)\}/, '');
+      return /\b(?:className|style)=/.test(own) ? 'a class or style on the Banner' : 'ok';
     }
     const cls = m[1].split(/\s+/);
     if (want === 'no-mono') return cls.includes('font-mono') ? `mono: "${m[1]}"` : 'ok';
@@ -1331,6 +1336,17 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
     const direct = `<Banner tone="warning" action={(<Button>Relink…</Button>)}>
             {missingCount} file{missingCount === 1 ? '' : 's'}`;
     expect(judge(direct, SITES[0][1], 'kit-banner')).toBe('ok');
+    // Round 2's mutant: the mono through a class (or a style) on the Banner itself.
+    const classed = `<Banner
+            tone="warning"
+            className="fx-col-meta"
+            Icon={FolderSearch}
+            action={(<Button size="sm" onClick={() => setRelinkOpen(true)}>Relink…</Button>)}
+          >
+            {missingCount} file{missingCount === 1 ? '' : 's'}`;
+    expect(judge(classed, SITES[0][1], 'kit-banner')).toBe('a class or style on the Banner');
+    expect(judge(classed.replace('className="fx-col-meta"', "style={{ fontFamily: 'ui-monospace' }}"), SITES[0][1], 'kit-banner'))
+      .toBe('a class or style on the Banner');
     const toast = `<div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0`;

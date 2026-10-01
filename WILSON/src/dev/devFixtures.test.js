@@ -163,12 +163,17 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // import, a dynamic import(), a re-export and a require each count (review
     // round 1, R1-TST-16: `export … from` and `import()` passed the first cut).
     const codeOf = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
-    const importsSomething = (s) => /\bimport\b|\bexport\b[^;\n]*\bfrom\b|\brequire\s*\(/.test(codeOf(s))
+    // A re-export is read by its shape, over as many lines as it takes (round
+    // 2, R2-TST, M12: prettier breaks `export { … } from` across lines, and
+    // the first cut's `[^;\n]*` stopped at the first one).
+    const importsSomething = (s) => /\bimport\b|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\b|\brequire\s*\(/.test(codeOf(s))
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js')))).toBe(false)
-    for (const planted of ["import x from './y'", "export { a } from './b'", "const m = await import('./c')", "const z = require('z')"]) {
+    for (const planted of ["import x from './y'", "export { a } from './b'", "const m = await import('./c')", "const z = require('z')",
+      "export {\n  showDate as _showDate,\n} from './dates'", "export * from './e'", "export * as f from './f'"]) {
       expect(importsSomething(planted), planted).toBe(true)
     }
     expect(importsSomething('// import nothing\nexport const A = 1')).toBe(false)
+    expect(importsSomething("export { A, B }\nexport const C = 'taken from the list'")).toBe(false)
   })
 
   it('a built dist/, when one is present, carries none of the fixture text', () => {

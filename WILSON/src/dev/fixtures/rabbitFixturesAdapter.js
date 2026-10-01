@@ -95,6 +95,21 @@ const ITEM = {
   repositionId: 'each item of a reorder needs an id',
 }
 
+// S4a (0085): which of its CHECKs refuses these tags, named as Postgres names
+// it — it tests a row's CHECKs in alphabetical order by name (the CREATE
+// TABLE docs, since 9.5), so a two-level list is flat_chk's, an unknown word
+// known_chk's, a tenth tag len_chk's (round 2, R2-TST-14: every refusal said
+// known_chk). A value that is not a list never reaches a CHECK: Postgres
+// cannot read it as text[].
+function fileTagsRefusal(tags) {
+  if (!Array.isArray(tags)) return `malformed array literal: ${JSON.stringify(String(tags))}`
+  const check = tags.some(t => Array.isArray(t)) ? 'files_tags_flat_chk'
+    : tags.some(t => !FILE_TAG_IDS.includes(t)) ? 'files_tags_known_chk'
+      : tags.length > 9 ? 'files_tags_len_chk'
+        : null
+  return check && `new row for relation "files" violates check constraint "${check}"`
+}
+
 function isPlainObject(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
   const proto = Object.getPrototypeOf(v)
@@ -436,10 +451,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async updateFile(id, fields) {
       // S4a (0085): the fake cloud refuses what the real CHECK refuses.
       if (fields && 'tags' in fields) {
-        const tags = fields.tags
-        if (!Array.isArray(tags) || tags.length > FILE_TAG_IDS.length || tags.some(t => !FILE_TAG_IDS.includes(t))) {
-          throw new Error('[fixtures] new row for relation "files" violates check constraint "files_tags_known_chk"')
-        }
+        const refused = fileTagsRefusal(fields.tags)
+        if (refused) throw new Error(`[fixtures] ${refused}`)
       }
       return clone(patch(store.files, id, stampBy(fields)))
     },

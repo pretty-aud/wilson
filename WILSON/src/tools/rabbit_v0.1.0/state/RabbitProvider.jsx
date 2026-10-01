@@ -3229,31 +3229,64 @@ export function RabbitProvider({ children }) {
   // builds the URL from it, and in the cloud project_id is a column: sending
   // the open project's id would move the row into it). Omitted, it is the
   // open project, exactly as before.
+  //
+  // Review round 2 (R2-UI-01, measured): the optimistic write kept the row's
+  // OLD updated_at, and an explorer whose own copy carried the server's newer
+  // one (from its last save or read) kept that copy over the provider's — so
+  // the other host showed the note from before this write, and a line added
+  // there wrote the older note back. When the write lands, the server's row
+  // replaces the optimistic one: only for the latest write sent for that row
+  // (an earlier write's answer would undo a later optimistic edit), and only
+  // while the project it was written in is still the one open.
+  const fileWriteSeqRef = useRef({ next: 0, latest: new Map() });
+  const writeFileRow = useCallback(async (key, id, projectId, mutator, write) => {
+    const seqs = fileWriteSeqRef.current;
+    const seqKey = `${key}:${id}`;
+    const seq = ++seqs.next;
+    seqs.latest.set(seqKey, seq);
+    let saved;
+    try {
+      saved = await optimistic(mutator, write);
+    } catch (err) {
+      if (seqs.latest.get(seqKey) === seq) seqs.latest.delete(seqKey);
+      throw err;
+    }
+    if (seqs.latest.get(seqKey) !== seq) return saved;
+    seqs.latest.delete(seqKey);
+    if (saved && typeof saved === 'object' && saved.id === id) {
+      setBundle(prev => (prev?.project?.id !== projectId || !Array.isArray(prev?.[key]) ? prev : {
+        ...prev,
+        [key]: prev[key].map(f => (f.id === id ? { ...f, ...saved } : f)),
+      }));
+    }
+    return saved;
+  }, [optimistic]);
+
   const markFileCoreDefiner = useCallback((fileId, isCore, projectId = activeProjectId) => {
     if (projectId && projectId !== activeProjectId) {
       return adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: projectId });
     }
-    return optimistic(
+    return writeFileRow('files', fileId, activeProjectId,
       prev => ({
         ...prev,
         files: prev.files.map(f => f.id === fileId ? { ...f, is_core_definer: isCore } : f),
       }),
       () => adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: activeProjectId }),
     );
-  }, [optimistic, activeProjectId]);
+  }, [writeFileRow, activeProjectId]);
 
   const patchFile = useCallback((fileId, patch, projectId = activeProjectId) => {
     if (projectId && projectId !== activeProjectId) {
       return adapterRef.current.updateFile(fileId, { ...patch, project_id: projectId });
     }
-    return optimistic(
+    return writeFileRow('files', fileId, activeProjectId,
       prev => ({
         ...prev,
         files: prev.files.map(f => f.id === fileId ? { ...f, ...patch } : f),
       }),
       () => adapterRef.current.updateFile(fileId, { ...patch, project_id: activeProjectId }),
     );
-  }, [optimistic, activeProjectId]);
+  }, [writeFileRow, activeProjectId]);
 
   // Session 27. `files` had upload and patch on the context but no delete and
   // no download, because the only consumer was a read-mostly table. FileManager
@@ -3340,12 +3373,12 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   // S4a (E11): managed files get notes and tags through this PATCH; the
-  // project id rule is patchFile's (above).
+  // project id rule and the landing of the saved row are patchFile's (above).
   const updateManagedFile = useCallback(async (id, patch, projectId = activeProjectId) => {
     if (projectId && projectId !== activeProjectId) {
       return adapterRef.current.updateManagedFile(id, { ...patch, project_id: projectId });
     }
-    return optimistic(
+    return writeFileRow('managedFiles', id, activeProjectId,
       prev => ({
         ...prev,
         managedFiles: (prev.managedFiles || []).map(f =>
@@ -3354,7 +3387,7 @@ export function RabbitProvider({ children }) {
       }),
       () => adapterRef.current.updateManagedFile(id, { ...patch, project_id: activeProjectId }),
     );
-  }, [optimistic, activeProjectId]);
+  }, [writeFileRow, activeProjectId]);
 
   const deleteManagedFile = useCallback(async (id, hard = false) => {
     if (hard) {

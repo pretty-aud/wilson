@@ -206,7 +206,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• Video and audio wait for you to press play.</li>
               <li>• HTML and SVG show as their text, never as a page; a Markdown file's links and pictures are not opened.</li>
               <li>• A format WILSON cannot draw here (Photoshop, EXR, TIFF, 3D) says so and offers the file's own action. A text file over 2 MB is not read.</li>
-              <li>• A preview is recorded in File activity as a download once the file has loaded; looking again soon after is not recorded twice.</li>
+              <li>• A preview is recorded in File activity as a download once its file has been read, never for one whose file could not be fetched; looking again soon after is not recorded twice.</li>
             </ul>
           </div>
           <div className={T.card}>

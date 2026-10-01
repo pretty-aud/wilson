@@ -71,16 +71,24 @@ core."*
 the Kind or the tags is kept in the database's edit history, as every edit
 already is; nothing in the Files tab shows that history yet. The Local Server
 keeps no edit history. Opening a preview is recorded in File activity as one
-*Downloaded* once the file has actually loaded (a picture drawn, a video's
-first frame), never for a preview that failed. On the cloud that is once per
-file per person per session. On the Local Server it is once per file per
-minute, so a video's many small reads count once.
+*Downloaded* once its file has been read, never for one whose file could not
+be fetched. On the cloud the record is made when the file has actually
+loaded (a picture drawn, a video's first frame), once per file per person
+per session. On the Local Server it is made when the file is sent, once per
+file per minute, so a video's many small reads count once; a file that is
+sent but cannot be drawn (a format the player does not know) still counts.
 
-**Who can edit.** Anyone who can edit the project. Someone who cannot sees
-the window read-only, with the reason above the fields. Only someone who can see the
-project's money (a workspace admin, or the project's manager) can set Legal,
-so it is already in the right hands when Legal starts to hide files (S4b,
-after your ruling). Google Drive files are read-only here, as before.
+**Who can edit.** On the Files tab, anyone who can edit the project. On the
+Resources page, a project that is not the one open in R.A.B.B.I.T. can be
+changed only by a workspace admin or manager; anyone else sees the window
+read-only with *"Open this project in R.A.B.B.I.T. to change its files;
+your seat on it is read when it is open."* Someone who cannot edit sees the
+window read-only, with the reason above the fields. Only someone who can see
+the project's money (a workspace admin, or the project's manager) can set
+Legal; on the Resources page, for a project that is not open, only a
+workspace admin. So it is already in the right hands when Legal starts to
+hide files (S4b, after your ruling). The Local Server has no seats, so there
+anyone can. Google Drive files are read-only here, as before.
 
 **Limits, stated.**
 - **No 3D viewer** (E6): an FBX or OBJ says *"There is no 3D preview yet.
@@ -113,11 +121,17 @@ app or a cloud project, not the test data.
 
 ## 3. The numbers, measured
 
-- **Tests:** 214 test files / 5,148 tests at the start; 221 files / 5,270
-  tests now, all passing. 73 deliberately broken versions of the code
-  were planted, and every one that changes what the app does was caught;
-  the 3 that change nothing a person could see are named in the
-  hand-off. The migration's own checks caught 3 broken versions of it.
+- **Tests:** 214 test files / 5,148 tests at the start; 224 files / 5,372
+  tests at the end of this bundle's branch, all passing. 179 deliberately
+  broken versions of the code were planted, by this session and by its two
+  rounds of reviewers, and every one that changes what the app does was
+  caught; the 4 that change nothing a person could see are named in the
+  hand-off. The migration and its checks refused all 8 broken versions of
+  them that were tried.
+- **The preview's fit** (the test data, a 16:9 video and a refused
+  download's message, 1280x700 and 1440x900): the window never scrolls,
+  the video's controls are inside it, and the message sits between the
+  arrows and the picture.
 - **The R.A.B.B.I.T. bar with twelve tabs** (`scripts/tool-strip-probe.mjs
   5277 --check`, before and after): Help and Settings sit at the same
   pixels as before at every size, the gear's right edge 24px in from the
@@ -177,8 +191,8 @@ Checked in the development copy with its test data at 1440x900 and
 1280x700, and in the desktop app (the development build, not the packaged
 one) against a real Local Server for every preview kind, Show in folder and
 Open in default app's refusals, and the stream's range reads. The migration
-was proven on the development database in a run that was rolled back (24 of
-24 checks) and by the automated checks on GitHub.
+was proven on the development database in a run that was rolled back (30 of
+30 checks) and by the automated checks on GitHub.
 
 **Not checked:** a cloud project's previews against real storage (the code
 uses the same signed address the downloads already use); the packaged

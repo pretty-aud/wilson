@@ -193,7 +193,11 @@ function safeList(fn, id) {
 // `updated_at` (review round 1, R1-UI-09, measured): Refresh could not show a
 // change the provider had missed (realtime down, another writer), and the
 // window stitched a row from two versions. A stale answer to a refetch is
-// older than the provider's saved row, so it still loses.
+// older than the provider's saved row — the provider lands the server's row,
+// stamp included, when its write does (round 2, R2-UI-01) — so it still
+// loses, and so does one of the same age. Only the cloud stamps `updated_at`:
+// a Local Server row carries none, so there the provider's copy always wins
+// (round 2, R2-TST-13).
 function strictlyNewer(a, b) {
   const ta = Date.parse(a?.updated_at || '')
   const tb = Date.parse(b?.updated_at || '')
@@ -379,12 +383,17 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
-  // Another project: its own uploads, its own refusals (round 1, R1-UI-11).
+  // Another project: its own uploads, its own refusals (round 1, R1-UI-11) —
+  // and a refusal that ARRIVES after the switch is not shown on the next
+  // project either (round 2, R2-TST-12).
   useEffect(() => { setUploadError('') }, [projectId])
+  const projectNowRef = useRef(projectId)
+  projectNowRef.current = projectId
   const uploadFile = ctx?.uploadFile
   const handleUpload = useCallback(async (e) => {
     const picked = Array.from(e.target.files || [])
     if (picked.length === 0) return
+    const forProject = projectId
     setUploading(true)
     setUploadError('')
     try {
@@ -394,12 +403,12 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     } catch (err) {
       // A refusal is READ, not logged (the S37 rule the Control Panel's
       // handler carried): storage refusals arrive as thrown sentences.
-      setUploadError(err?.message || 'Upload failed.')
+      if (projectNowRef.current === forProject) setUploadError(err?.message || 'Upload failed.')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [uploadFile])
+  }, [uploadFile, projectId])
 
   // The missing-files census (Session 14), moved with its banner. Local
   // Server only — where folders actually move; a bucket path does not drift,
@@ -446,6 +455,11 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // keeps an older answer from clearing a newer edit still in flight.
   const [saveError, setSaveError] = useState('')
   useEffect(() => { setSaveError('') }, [selectedFileId])
+  // A refusal that ARRIVES after another file was selected is that file's,
+  // not this one's (round 2, R2-TST-12: a slow PATCH's refusal landed on the
+  // next file's window).
+  const selectedNowRef = useRef(selectedFileId)
+  selectedNowRef.current = selectedFileId
   const overlayVersions = useRef(new Map())
   useEffect(() => { overlayVersions.current = new Map() }, [projectId])
   const patchFile = ctx?.patchFile
@@ -479,7 +493,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         : prev))
       return true
     } catch (err) {
-      setSaveError(err?.message || 'the change was refused')
+      if (selectedNowRef.current === node.id) setSaveError(err?.message || 'the change was refused')
       return false
     } finally {
       if (overlayVersions.current.get(id) === v) {
@@ -498,17 +512,23 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   useEffect(() => { setActionError('') }, [selectedFileId])
   const adapterMode = ctx?.adapterMode
   const onDiskOf = useCallback((node) => (bridge ? diskSourceFor(node, { adapterMode, projectId }) : null), [bridge, adapterMode, projectId])
+  // A refusal is the file's it was asked for: one that ARRIVES after ← → in
+  // the preview or a click in the list selected another file is not shown on
+  // that one (round 2, R2-UI-03, the save refusal's rule above).
+  const refuseFor = useCallback((node, sentence) => {
+    if (selectedNowRef.current === node?.id) setActionError(sentence)
+  }, [])
   const revealOrOpen = useCallback(async (node, reveal) => {
     const src = onDiskOf(node)
     if (!src) return
     setActionError('')
     try {
       const res = await bridge.openPath({ ...src, reveal })
-      if (res && res.ok === false) setActionError(res.error || 'That did not work.')
+      if (res && res.ok === false) refuseFor(node, res.error || 'That did not work.')
     } catch (err) {
-      setActionError(err?.message || 'That did not work.')
+      refuseFor(node, err?.message || 'That did not work.')
     }
-  }, [onDiskOf, bridge])
+  }, [onDiskOf, bridge, refuseFor])
   const downloadUrlFn = ctx?.downloadUrl
   const downloadFileFn = ctx?.downloadFile
   const download = useCallback(async (node) => {
@@ -517,10 +537,10 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     try {
       await downloadCloudFile({ downloadUrl: downloadUrlFn, downloadFile: downloadFileFn }, node.row, downloadName(node))
     } catch (err) {
-      setActionError(err?.message || 'The download did not start.')
+      refuseFor(node, err?.message || 'The download did not start.')
     }
     return undefined
-  }, [onDiskOf, revealOrOpen, downloadUrlFn, downloadFileFn])
+  }, [onDiskOf, revealOrOpen, downloadUrlFn, downloadFileFn, refuseFor])
 
   // ── E9: the preview ───────────────────────────────────────────────────────
   // Opened by Preview, by Enter on a file's name, by a double-click. Its
@@ -576,10 +596,14 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // window or the preview over it closes — not to <body>, and not to the file
   // the preview was OPENED on after ← → walked away from it (round 1,
   // R1-UI-06 / R1-UI-07, measured). After the kit Dialog's own restore.
+  // THIS explorer's name: both hosts stay mounted, so a search of the
+  // document found the hidden one's first and focus went nowhere visible
+  // (round 2, R2-UI-05, measured with R.A.B.B.I.T. left on Files).
+  const rootRef = useRef(null)
   const focusFileName = useCallback((id) => {
     if (!id) return
     setTimeout(() => {
-      const el = [...document.querySelectorAll('[data-files-explorer] [data-node-id]')].find((e) => e.getAttribute('data-node-id') === id)
+      const el = [...(rootRef.current?.querySelectorAll('[data-node-id]') || [])].find((e) => e.getAttribute('data-node-id') === id)
       el?.focus?.()
     }, 0)
   }, [])
@@ -601,7 +625,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   )), [onDiskOf, revealOrOpen, download])
 
   return (
-    <div className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
+    <div ref={rootRef} className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
       {/* One 44px toolbar, every child 28px, left and right slots. It replaced
           a wrapping flex row holding an 18px heading, two 38px fields, three
           27px buttons and a 12px string, in which nothing sat on a baseline
