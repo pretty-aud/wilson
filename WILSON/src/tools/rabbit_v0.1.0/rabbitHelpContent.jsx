@@ -48,6 +48,7 @@ export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-files',        label: 'Files' },
   { id: 'rabbit-intake',       label: 'Intake wizard' },
   { id: 'rabbit-assets',       label: 'Assets' },
+  { id: 'rabbit-scenes',       label: 'Scenes & shot lists' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
   { id: 'rabbit-phases',       label: 'Phases & tasks' },
   { id: 'rabbit-dependencies', label: 'Dependencies' },
@@ -264,6 +265,83 @@ export function RabbitHelpContent({ helpPage, theme }) {
       </section>
     </div>
   );
+
+  // Post-overhaul S3b: the Scenes tab's shot lists, in the controls' own
+  // words (rabbitScenesHelp.test.jsx holds them to the files that draw them).
+  if (helpPage === 'rabbit-scenes') {
+    const surface = theme === 'dark' ? 'dark' : 'light';
+    return (
+    <div className="space-y-5">
+      <section>
+        <h3 className={T.sectionTitle}>Scenes and shot lists</h3>
+        <p className={`${T.bodyText} mb-2`}>
+          A shot list is a version of the project's scenes and shots: which
+          of them it holds, and in what order. A project can have several,
+          and one of them is the active list.
+        </p>
+        <ul className={`${T.listItem} space-y-1 ml-2 mb-4`}>
+          <li>• <span className={T.listBold}>One row, many lists</span> — A scene or shot is one row shared by every shot list that holds it: rename a shot, or change its status, notes or thumbnail, in one list and it changes in every list. Only which scenes and shots a list holds, and their order, belong to the list.</li>
+          <li>• <span className={T.listBold}>Viewing and active</span> — The Scenes tab shows the list you are viewing, which can differ from the project's active list. The Timeline, Budget, Tasks, Assets, Bins and every other tab show only the active list's scenes and shots.</li>
+          <li>• <span className={T.listBold}>Who can do what</span> — Reviewers can make and change shot lists, but cannot add, rename or delete a scene or shot. Making a list active and archiving one are for project managers and workspace admins, except that whoever made a new list can withdraw it while nobody has saved it or started an edit on it. On the Local Server there are no roles, so everything is open.</li>
+        </ul>
+        <div className="space-y-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>The shot list bar</h4>
+            <p className={`${T.listItem} mb-2`}>
+              Between the totals and the toolbar: the list you are viewing,
+              marked Active when it is the project's active list (otherwise
+              "Active: …" takes you to that one), and whether it has changed
+              since it was last saved. Then:
+            </p>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>New shot list</span> — Starts a list from the one on screen, from every scene and shot, or empty.</li>
+              <li>• <span className={T.listBold}>Shot lists…</span> — Every list, to open one; also "Not in any list" (the scenes and shots no list holds) and Archived….</li>
+              <li>• <span className={T.listBold}>Save</span> — Records the list as it is now, a point you can come back to.</li>
+              <li>• <span className={T.listBold}>Save as…</span> — A new list from this one, by default the same title at the next version.</li>
+              <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
+              <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Linked, not copied</h4>
+            <p className={T.listItem}>
+              A new list made from another, and Add from another list…, link
+              the same scenes and shots: nothing is copied. Add from another
+              list… shows another list's scenes and shots, or the ones in no
+              list, or every one; tick a scene to take all its shots, and the
+              ones this list already holds are greyed.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Remove from this list, or delete</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Remove from this list</span> — In a row's shot-list menu (the … beside Delete), or Remove from list for a selection. Takes the scene or shot out of the list on screen only: nothing is deleted, and every other list keeps it. One no other list holds is found under "Not in any list".</li>
+              <li>• <span className={T.listBold}>Delete</span> — Deletes the scene or shot from the project, and so from every list that holds it. The question names those lists.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Order and names</h4>
+            <p className={T.listItem}>
+              While a list is on screen, List order is the default sort: the
+              list's own order, which Move up and Move down in a row's
+              shot-list menu change. Hover a scene's or shot's name to see
+              the lists that hold it.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Undo</h4>
+            <p className={T.listItem}>
+              On the Local Server, <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Z</Kbd> undoes
+              and <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Y</Kbd> redoes
+              on the Scenes tab, and in its scene and shot windows, but not
+              while a menu or another window is open over it.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+    );
+  }
 
   if (helpPage === 'rabbit-timeline') return (
     <div className="space-y-5">

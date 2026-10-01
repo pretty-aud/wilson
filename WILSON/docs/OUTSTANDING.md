@@ -1602,7 +1602,7 @@ defines them; a row's "owner" is who acts first.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
 - **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
 - **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22.
-- **P1-09 · Escape discards unsaved drafts** in the Scenes popups, `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d.
+- **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
 - **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
 - **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d. After S1 the minimap drag is a true no-op for a phase drawn over exactly its own dates (post-overhaul S1, 2026-09-30; the minimap draws phases only): its mouse-up writes the DRAWN dates back, and those are now the stored ones, so it no longer stores a day early on this machine. It still rewrites a phase drawn over a different span — one with no dates or one date (drawn over its tasks' span, or today to +14 / padded 14 days when it has none), or a parent widened to cover its sub-phases — with that drawn span. Why the drag moves nothing, confirmed in the running app by S1's review round 2: `OverviewBar`'s move handler writes to `e.currentTarget`, which React 19 sets to null after dispatch, so it throws ("Cannot set properties of null (setting '_draftStart')"), and the mouse-up then writes the unmoved drawn span.
 - **P1-12 · Two "Today" buttons** (minimap and gantt). MEASURED. Owner: Audrey. From B3d.
@@ -1618,11 +1618,11 @@ defines them; a row's "owner" is who acts first.
 - **P1-18 · Role slugs printed as labels** ("production_designer") in the client view's crew list and the By role report (`ClientViewTab` `crewByDept`). MEASURED. Owner: Audrey, then a session.
 - **P1-19 · A locked version's total reads $0** in the versions table and active-budget banner (the fixtures' snapshot has no `grandTotal`). MEASURED on the fixtures.
 - ~~**P1-20 · The Projects page shows a project's dates one day early** ("Aug 2 – Dec 17, 2026" against 08/03 – 12/18 in its fields): a time-zone parse. MEASURED.~~ — FIXED by post-overhaul S1 (2026-09-30, branch `po/s1-timeline`, ruling B5): the page reads its dates through `src/tools/rabbit_v0.1.0/dates.js`, the one helper the Timeline and the Tasks view use.
-- **P1-21 · A new scene thumbnail shows late** in the ungrouped scene table (never handed `thumbRevision` / `onThumbChanged`). MEASURED. From B5b-18.
-- **P1-22 · A shot row's delete inside the scene popup also opens that shot.** MEASURED. From B5b-19.
-- **P1-23 · A related asset's click in a scene, shot, Level or Experience popup opens nothing** (`RelationsPanel` `onOpenAsset`, R4-26). MEASURED. From B5b-20, B4c-3.
-- **P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.
-- (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1.)
+- ~~**P1-21 · A new scene thumbnail shows late** in the ungrouped scene table (never handed `thumbRevision` / `onThumbChanged`). MEASURED. From B5b-18.~~ — FIXED by post-overhaul S3b (2026-10-01, `po/s3b-shot-lists-ui`): the table is handed both.
+- ~~**P1-22 · A shot row's delete inside the scene popup also opens that shot.** MEASURED. From B5b-19.~~ — FIXED by post-overhaul S3b: its click stops at the button.
+- **P1-23 · A related asset's click in a scene, shot, Level or Experience popup opens nothing** (`RelationsPanel` `onOpenAsset`, R4-26). MEASURED. From B5b-20, B4c-3. **The scene and shot popups FIXED by post-overhaul S3b**: the asset opens in the Assets tab's own `AssetDetailPopup` (now exported) over the popup, as a task opens. Left: the Level and Experience popups (`EntityListView.jsx`, B4c's twin), which still set state nothing renders. Owner: that lane.
+- ~~**P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.~~ — FIXED by post-overhaul S3b: the popups' own label went; FileManager's head says it once.
+- (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1; walkthrough 47 Q192.)
 - **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
 - **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED.
 - **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
@@ -2049,6 +2049,12 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   S4a: S3b, next on this branch, touches `ScenesView.jsx` and
   `BudgetView.jsx` (S4a's brief). Owner: S3b (Scenes, Budget) and the next
   session on `TimelineView.jsx` (S3c or S5).
+  **Scenes FIXED by post-overhaul S3b** (2026-10-01): the handler acts only
+  while R.A.B.B.I.T. is the page on screen, and stands down under a kit
+  menu, the settings drawer (or focus in one) and any kit dialog while none
+  of the tab's own popups or takes dialogs is open (the Bins keys' rule;
+  the popups keep the keys, C1). **Budget and the Timeline are left**: S3b's
+  brief gave `BudgetView.jsx` and `TimelineView.jsx` to S3c. Owner: S3c.
 - ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
   test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
   "the task form hands focus back to 'Add new task'…". Measured red in 4
@@ -2060,3 +2066,37 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   hand-back. With the hook removed it still fails, on that line alone
   (proved with the earlier checks taken out). Green in the next 5 of 5
   full runs.
+
+## Post-overhaul S3b (`po/s3b-shot-lists-ui`) — left open (2026-10-01)
+
+What S3b (the Scenes tab's shot lists) built around or found and did not
+fix. P1-09 (the Scenes popups' part), P1-21, P1-22, P1-24, the Scenes popups'
+side of P1-23, and S4a-07's Scenes handler are closed above. Questions for
+Audrey are in walkthrough 51, not here.
+
+- **S3b-01 · The Scenes popups' sidebar offers a reviewer writes the
+  database refuses.** RelationsPanel's "Add new task", "Add asset relation"
+  and each relation's remove are ungated (`RelationsPanel.jsx` has no
+  permission check; INFERRED from the code). S3b gated every scene and shot
+  verb in `ScenesView.jsx`, but the panel is S3c's file. Owner: S3c.
+- **S3b-02 · FileManager in the scene and shot popups is ungated.** A
+  reviewer sees Add files and each file's delete (`FileManager.jsx` reads no
+  permission; INFERRED from the code). Owner: the Files lane, or S3c with
+  the popups.
+- **S3b-03 · The Scenes tab binds Ctrl+Z / Ctrl+Y only on the Local
+  Server.** The handler has returned early without `supportsBins` since
+  milestone 2, so on the cloud there is no undo key on the tab (the undo
+  toast still works). INFERRED from the code; unchanged by S3b. Owner:
+  Audrey (is the key wanted on the cloud?), then a session.
+- **S3b-04 · A popup's Delete drops a changed draft without asking.** Delete
+  scene / Delete shot closes the popup and then asks about the delete; a
+  description or notes draft is gone even if the delete is cancelled
+  (INFERRED from the code: the button calls `onClose` directly, past D21's
+  guard). Owner: a session (C1: the delete's own flow).
+- **S3b-05 · The popups' task form is dropped without asking.** D21 covers
+  the popups' own drafts; NewTaskSidePopup's (RelationsPanel's) closes with
+  the popup. INFERRED from the code. Owner: S3c.
+- **S3b-06 · The popup name's Escape reverts without asking.** A one-line
+  field reverting on Escape is the kit's convention (useEscapeRevert), so
+  D21 left it; recorded in case Audrey wants the question there too.
+  Owner: Audrey.
