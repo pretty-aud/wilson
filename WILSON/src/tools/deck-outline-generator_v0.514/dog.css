@@ -66,7 +66,15 @@
      gutter here would narrow the preview by 32px: measured in the app, with
      its 10px scrollbar, the slide already runs 5px into the preview's own
      padding at 1440 and is cut by 149px at 1280; 32 more comes off both.
-     Change any term and the probe fails. */
+     Change any term and the probe fails.
+
+     Post-overhaul S2a (2026-09-30): the header that reason was about has
+     gone — its title and its four buttons are the "Deck outline" bar below,
+     which runs ABOVE the sidebar-and-main row and so adds no horizontal
+     chrome. The Panel keeps md and the main column its 8px this bundle, so
+     every term above holds (dog-preview-probe --check, both sizes, before and
+     after); whether the sidebar may now go to sm is Audrey's (walkthrough
+     47, Q64). */
   .dog-root {
     background-color: var(--color-paper);
     color: var(--color-ink);
@@ -77,25 +85,40 @@
   }
   .dog-main > * + * { margin-top: 8px; }
 
-  /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════ */
-
-  /* kit request A1-KR-2: the Panel header cannot hold a title and four sm
-     icon buttons at md with its 8px gap (84px left, 86.5px needed). 4px here,
-     scoped to this panel, until the kit decides. The hairline makes the
-     header one treatment with the other five (D4). */
-  .dog-sidebar .ui-panel-head {
-    gap: 4px;
+  /* ═══ THE "DECK OUTLINE" BAR — post-overhaul S2a (Audrey's C1, C7) ══════
+     The sidebar Panel's header, lifted out to run the page's full width
+     (DeckOutlineGenerator.jsx says why). Its geometry is the tab strips', so
+     the gear is one control in one place in all three tools: rabbitShell.css's
+     `.rb-viewtabs` — paper, one hairline under it, 36px plus that hairline
+     (the kit tab's --control-md; NOT the kit Toolbar's 44), the right edge on
+     the 24px gutter, 16px on the left — and its right-hand group is
+     `.rb-viewtabs-right`. The leading label takes a tab's 8px side padding, so
+     its text sits on the 24px gutter, under the tool's title in the orange
+     bar. (The other strips' first labels do not all sit there: O.T.T.E.R.'s
+     "Edit" keeps the kit tab's 10px and sits at 26; R.A.B.B.I.T.'s first tab
+     shows its icon first at 1240 and wider — measured in S2a review round 1,
+     left as they were.) It is the Label step (`.dog-toolbar-label`).
+     The bar is ABOVE the sidebar-and-main row: no horizontal chrome for the
+     preview (C4, measured). Replaced the Panel header's two stand-ins for
+     kit request A1-KR-2 (a 4px head gap; an ellipsizing title), which had
+     nothing left to style. */
+  .dog-outline-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: calc(var(--control-md) + 1px);
+    padding: 0 var(--spacing-gutter) 0 calc(var(--spacing-gutter) - 8px);
+    background-color: var(--color-paper);
     border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
   }
-  /* The title fits with half a pixel to spare (86.5px in 87). Should the
-     face or the copy ever grow, it ellipsizes rather than pushing the
-     actions off the header. */
-  .dog-sidebar .ui-panel-title {
-    white-space: nowrap;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .dog-outline-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .dog-outline-label { padding: 0 8px; }
+  .dog-outline-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+  /* ═══ THE SIDEBAR — the kit's Panel ═════════════════════════════════════
+     No header since S2a (above); the list starts under the bar. */
 
   .dog-history-row {
     position: relative;
@@ -191,7 +214,10 @@
      The title ink is ink-2, not the kit's ink-3: inside a card the fields
      below are labelled at the Label step in ink-2 (`.ui-field-label`), and a
      header dimmer than its own fields inverts the hierarchy. Recorded in
-     A1-KR-3 for the kit to settle. */
+     A1-KR-3 for the kit to settle.
+
+     Post-overhaul S2a (2026-09-30): the sidebar's header became the
+     full-width "Deck outline" bar (above), so five headers remain here. */
   .dog-card-head {
     border-bottom: 1px solid var(--color-rule);
     flex-shrink: 0;
@@ -204,9 +230,26 @@
   @media (hover: hover) {
     .dog-card-head[data-collapsible='true']:hover { background-color: var(--color-hover); }
   }
-  .ui-panel-title.dog-card-title,
-  .dog-sidebar .ui-panel-title {
+  .ui-panel-title.dog-card-title {
     color: var(--color-ink-2);
+  }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C3 and C8 (2026-09-29).
+     The two numbered section titles ("1 Project documentation & deck
+     context", "2 Generate page outline") and their numerals are the signal
+     orange AS AN INK. It is recorded in UI_OVERHAUL_PLAN.md §3.2's signal row
+     as one of her named exceptions: a later reviewer must not "correct" it
+     back to the second ink. "Generated output" and every field label stay
+     grey; the generate buttons are unchanged (C2).
+     The pairs, pinned in tokens.test.js: the signal on the card's
+     paper-raised is 4.54:1 (legible at this Label step); on the header's
+     hover wash it is 3.86:1 (3.88 as the 8-bit wash paints) and FAILS — so on
+     the wash the text reverts to the ink (option c, below) and no orange ever
+     sits on it; selected, it is the ink too (the selection screen: about
+     2.8:1). Three classes, so it outranks the second-ink rule above whatever
+     the order; no rule here may use !important (dogCss.test.js). */
+  .ui-panel-title.dog-card-title.dog-step-title {
+    color: var(--color-signal);
+    transition: color var(--duration-state) ease-out;
   }
   .dog-card-title {
     display: flex;
@@ -236,6 +279,29 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
   }
+  /* The numeral takes the title's orange (C3); its ring is unchanged. */
+  .dog-step-title .dog-step {
+    color: var(--color-signal);
+    transition: color var(--duration-state) ease-out;
+  }
+  /* Option c: under the pointer the head takes the hover wash, where the
+     signal fails (3.86:1), so the title and its numeral revert to the ink
+     for exactly as long as the wash is there — the same media query, the
+     same state, the same 120ms. Four classes: it outranks the orange. */
+  @media (hover: hover) {
+    .dog-card-head[data-collapsible='true']:hover .dog-step-title,
+    .dog-card-head[data-collapsible='true']:hover .dog-step {
+      color: var(--color-ink);
+    }
+  }
+  /* Selected, the orange would sit on the selection screen (the signal at
+     35%, about 2.8:1 here): the ink, as on the wash (S2a review round 1,
+     V-R1-02) — naming every descendant, since Electron's Chromium 130 does
+     not inherit `::selection` (review round 2, V-R2-02), and only while the
+     title IS orange: Section 2 disabled in Full deck mode keeps its third
+     ink when selected (V-R2-03). */
+  .dog-card:not([data-full-deck='true']) .dog-step-title::selection,
+  .dog-card:not([data-full-deck='true']) .dog-step-title *::selection { color: var(--color-ink); }
   .dog-card-note {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
@@ -257,12 +323,18 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .dog-card-head[data-collapsible='true'] { transition: none; }
+    .ui-panel-title.dog-card-title.dog-step-title,
+    .dog-step-title .dog-step { transition: none; }
   }
 
   /* Section 2 in Full Deck mode is disabled: the disabled token (ink at
-     52 percent + not-allowed), never an opacity (§3.1). */
+     52 percent + not-allowed), never an opacity (§3.1). The disabled title
+     and numeral are the third ink, never the orange: S2a raised this rule to
+     four classes (the head's) so it outranks the orange (three) by
+     specificity, not by coming later. The head is not collapsible then, so
+     the hover revert never applies to it. */
   .dog-s2[data-full-deck='true'] .dog-card-head { cursor: not-allowed; }
-  .dog-s2[data-full-deck='true'] :is(.dog-card-title, .dog-step, .dog-chevron) {
+  .dog-s2[data-full-deck='true'] .dog-card-head :is(.dog-card-title, .dog-step, .dog-chevron) {
     color: var(--color-ink-3);
   }
 
@@ -572,7 +644,12 @@
     letter-spacing: var(--text-label--letter-spacing);
     font-weight: var(--text-label--font-weight);
     text-transform: uppercase;
-    /* Was orange-400, the accent as a label ink (review D9). */
+    /* Was orange-400, the accent as a label ink (review D9).
+       Post-overhaul S2a (2026-09-29): Audrey brought a little orange back
+       and named exactly where (UI_OVERHAUL_PLAN §3.2, the signal row): the
+       two section titles and their numerals (`.dog-step-title` above), not
+       this label, the "Deck outline" bar's label or any field label. They
+       stay the second ink; D9 still holds for them. */
     color: var(--color-ink-2);
   }
 

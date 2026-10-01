@@ -21,8 +21,10 @@ closes on the decision.
 **Record for every step:** the exact question you typed and the pet's full
 reply (copy the text; a screenshot is fine too).
 
-**How to open the pet's chat:** press Enter on any page when no text box has
-focus (Enter closes it again). The input's placeholder reads "Ask <pet name>
+**How to open the pet's chat:** tap Shift on its own (press and let go) on
+any page when no text box has focus; tap it again to close. (It was Enter
+until post-overhaul S2a, 2026-09-30; Enter now presses the focused button,
+walkthrough 49.) The input's placeholder reads "Ask <pet name>
 anything...". If your pet is still an egg it cannot chat — hatch it first, or
 record that you could not.
 
@@ -33,7 +35,7 @@ record that you could not.
    - **If instead** the library is empty or shows only company courses: you
      are signed in to a company. Sign out and reopen O.T.T.E.R.; if the six
      courses still do not show, stop here and record it.
-2. Go back to Home and press Enter.
+2. Go back to Home and tap Shift on its own.
    - **Expect:** the pet's chat popup opens with its input.
    - **If instead** nothing opens: record whether the pet is an egg and
      whether `Pet Mode` is on (Settings → `General`).
@@ -114,7 +116,7 @@ vault is TANGERINE".
 Walkthrough 01 — pet reads lessons — date:
 Part A (desktop, Local Server)   pet name:          hatched? Y/N
 1 library listed my courses: Y/N
-2 chat opened with Enter: Y/N
+2 chat opened with a Shift tap: Y/N
 3 Blender scaling — named the course and part? Y/N   reply:
 4 lesson-body question — named subject and lesson? Y/N   reply:
 5 Nuke — beat 1 (could not find) Y/N, beat 2 (brief, labelled) Y/N, beat 3 (New Course) Y/N   reply:

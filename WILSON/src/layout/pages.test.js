@@ -37,6 +37,8 @@ import {
 } from './pages'
 import { TM_COLUMN_WIDTHS } from '../components/TeamMembers/TeamMembersPage'
 import { sourceFiles, blankJsComments } from '../../scripts/ui-audit.mjs'
+import { parse } from '@babel/parser'
+import traverseModule from '@babel/traverse'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appSrc = readFileSync(resolve(here, '../App.jsx'), 'utf8')
@@ -127,14 +129,41 @@ describe('nav columns', () => {
     expect(PAGES.filter((p) => p.adminOnly).map((p) => p.id)).toEqual(['admin-terminal'])
   })
 
-  it('renames the two colliding SETTINGS items (Q7, ruled)', () => {
+  it('renames the two colliding SETTINGS items (Q7, ruled); the tool half has left the strip (S2a, C6)', () => {
     expect(PAGE_BY_ID.settings.navLabel).toBe('App settings')
     expect(PAGE_BY_ID.settings.title).toBe('App settings')
-    // The tool's own item is a trigger, not a page, so App.jsx builds it —
-    // but it must carry the other half of the rename.
-    expect(appSrc).toContain("label: 'Tool settings'")
     expect(appSrc).not.toContain("label: 'SYSTEM SETTINGS'")
     expect(appSrc).not.toContain("label: 'SETTINGS'")
+    // Post-overhaul S2a (Audrey's C6, 2026-09-29): "Tool settings" left the
+    // nav strip for all three tools. Each tool's gear is in its own bar (the
+    // block at the foot of this file); nothing in the shell builds the item
+    // or opens a tool's settings any more, and no tool listens for it.
+    expect(shellSettingsPlumbing(appSrc)).toEqual([])
+    for (const spec of TOOL_STRIPS) {
+      expect(shellSettingsPlumbing(readFileSync(resolve(here, spec.file), 'utf8'), { tool: true }), spec.tool).toEqual([])
+    }
+    // CONTROL: the shell keeps its own nav-strip state, which a TOOL may not
+    // take as a prop (D.O.G.'s two dead props).
+    expect(appSrc).toMatch(/const \[showNavMenu, setShowNavMenu\] = useState\(false\)/)
+  })
+  it('CONTROL: the plumbing reader finds the item, each counter, the setter path and a tool\'s effect, and skips a comment', () => {
+    const was = [
+      "      tail.push({ label: 'Tool settings', action: () => closeNavAndTrigger(toolSettingsTrigger) });",
+      '  const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);',
+      '          openSettingsTrigger={openRabbitSettingsTrigger}',
+      'export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, zoomLevel = 0 }) {',
+      '  const prevSettingsTrigger = useRef(openSettingsTrigger);',
+      '  // the old `openSettingsTrigger` counter and its "Tool settings" item',
+    ].join('\n')
+    expect(shellSettingsPlumbing(was, { tool: true })).toEqual([
+      "'Tool settings'", 'closeNavAndTrigger', 'toolSettingsTrigger',
+      'openOtterSettingsTrigger', 'setOpenOtterSettingsTrigger',
+      'openSettingsTrigger', 'openRabbitSettingsTrigger',
+      'showNavMenu', 'onToggleNavMenu',
+      'prevSettingsTrigger', 'openSettingsTrigger',
+    ])
+    // In the shell, `showNavMenu` is the strip's own open state, not plumbing.
+    expect(shellSettingsPlumbing('const [showNavMenu, setShowNavMenu] = useState(false);')).toEqual([])
   })
 
   // UI overhaul P1, review round two (R2-06): the rename reached the nav and
@@ -143,8 +172,10 @@ describe('nav columns', () => {
   // MANAGER". No string the app draws, or tells a companion, names a page or
   // tab by its retired name. Comments may keep the history; the dev fixtures
   // are exempt because their course quotes DaVinci Resolve's own "Project
-  // Manager" menu.
-  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab/
+  // Manager" menu. Post-overhaul S2a: "Tool settings" is retired too — the
+  // nav item left the strip (C6) and O.T.T.E.R.'s drawer tab of that name is
+  // "Storage & data" — so no string can send anyone looking for it.
+  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab|Tool [Ss]ettings|TOOL SETTINGS/
   const retiredIn = (src) => blankJsComments(src).split('\n').filter((line) => RETIRED.test(line))
   it('no string the app draws or tells a companion names a retired page or tab (Q7)', () => {
     const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
@@ -159,11 +190,14 @@ describe('nav columns', () => {
       "const b = 'Open System settings → RABBIT'",
       'context += `- PROJECT MANAGER: documents`',
       '<p>Change it in System Settings.</p>',
+      "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
+      '// the old Tool settings tab',
     ].join('\n')
     expect(retiredIn(planted)).toEqual([
       "const b = 'Open System settings → RABBIT'",
       'context += `- PROJECT MANAGER: documents`',
       '<p>Change it in System Settings.</p>',
+      "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
     ])
   })
 })
@@ -310,5 +344,360 @@ describe("the worked example's table columns add up", () => {
       .filter(([k]) => !['member', 'actions'].includes(k))
     const widest = data.reduce((a, b) => (pct(a[1]) >= pct(b[1]) ? a : b))[0]
     expect(widest).toBe('department')
+  })
+})
+
+// ── Each tool's Help and Settings, in its own strip (post-overhaul S2a) ─────
+// Audrey, 2026-09-29 (POST_OVERHAUL_PLAN §0.1, C6 and C7): "Tool settings"
+// leaves the WILSON nav strip, so each tool's gear lives at the right end of
+// the tool's OWN strip, Help beside it ("settings at the right end"), and the
+// in-page Help opens the tool's own Help dialog. R.A.B.B.I.T.'s ViewTabs slot
+// is the reference. Read from each file's JSX (no test here lays a tool out;
+// scripts/tool-strip-probe.mjs measures the one x and y in the running app).
+// Per tool: its strip (the element, or R.A.B.B.I.T.'s ViewTabs slot), the
+// group at its right end, the Settings title and setter, where the Help and
+// Settings state is DRAWN (so a button cannot open something else under the
+// right name), and the exact props at its render site and in its signature
+// (review round 1, G-R1-01/02: a new name for the old plumbing passed).
+const TOOL_STRIPS = [
+  {
+    tool: 'D.O.G.', file: '../tools/deck-outline-generator_v0.514/DeckOutlineGenerator.jsx',
+    strip: { className: 'dog-outline-bar', group: 'dog-outline-right' }, settings: 'D.O.G. settings', opens: 'setShowSettingsMenu',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[showSettingsMenu, setShowSettingsMenu\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<Dialog\s+title="Help & documentation"/,
+    settingsMount: /<Drawer\s+open=\{showSettingsMenu\}[\s\S]{0,300}?className="dog-settings-drawer"/,
+    site: 'DeckOutlineGenerator', siteAttrs: ['onNavigate', 'currentPage', 'zoomLevel'], props: ['onNavigate', 'currentPage', 'zoomLevel'],
+  },
+  {
+    tool: 'O.T.T.E.R.', file: '../tools/otter_v0.3.1/Otter.jsx',
+    strip: { className: 'otter-nav', group: 'otter-nav-right' }, settings: 'O.T.T.E.R. settings', opens: 'setSettingsOpen',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[settingsOpen, setSettingsOpen\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<Dialog\s+title="Help & documentation"/,
+    settingsMount: /\{settingsOpen && renderSettingsPanel\(\)\}[\s\S]*function renderSettingsPanel\(\) \{[\s\S]{0,900}?<Drawer[\s\S]{0,300}?className="otter-settings-drawer"/,
+    site: 'Otter', siteAttrs: ['onNavigate', 'currentPage', 'onContextChange'], props: ['onNavigate', 'currentPage', 'onContextChange'],
+  },
+  {
+    tool: 'R.A.B.B.I.T.', file: '../tools/rabbit_v0.1.0/Rabbit.jsx',
+    strip: { slotOf: 'ViewTabs', prop: 'rightSlot' }, settings: 'R.A.B.B.I.T. settings', opens: 'setSettingsOpen',
+    helpState: /const \[showHelpModal, setShowHelpModal\] = useState\(false\)/,
+    settingsState: /const \[settingsOpen, setSettingsOpen\] = useState\(false\)/,
+    helpMount: /\{showHelpModal && \(\s*<HelpModal\b/,
+    settingsMount: /\{settingsOpen && \(\s*<SettingsPanel\b/,
+    site: 'Rabbit', siteAttrs: ['onNavigate', 'isActive', 'currentPage'], props: ['currentPage'],
+  },
+]
+// Everything that built the tool half of the nav strip or carried it into a
+// tool (S2a, C6), read from code with its comments blanked — history may stay
+// in a comment. `tool` adds the nav-menu state as a PROP: D.O.G. took it and
+// its toggle and read neither; the shell still owns it as its own state.
+const PLUMBING = /'Tool settings'|"Tool settings"|\bcloseNavAndTrigger\b|\btoolSettingsTrigger\b|\b(?:set)?[oO]pen(?:Otter|Rabbit)?SettingsTrigger\b|\bprevSettingsTrigger\b|\bonToggleNavMenu\b/
+function shellSettingsPlumbing(src, { tool = false } = {}) {
+  const re = new RegExp(PLUMBING.source + (tool ? '|\\bshowNavMenu\\b' : ''), 'g')
+  return blankJsComments(src).match(re) || []
+}
+const traverse = traverseModule.default || traverseModule
+const attrOf =(el, name) => el.openingElement.attributes.find((a) => a.type === 'JSXAttribute' && a.name.name === name)
+const stringAttr = (el, name) => {
+  const a = attrOf(el, name)
+  if (!a?.value) return null
+  if (a.value.type === 'StringLiteral') return a.value.value
+  if (a.value.type === 'JSXExpressionContainer' && a.value.expression.type === 'StringLiteral') return a.value.expression.value
+  return null
+}
+const nameOf = (el) => el.openingElement.name.name
+const classesOf = (el) => (stringAttr(el, 'className') || '').split(/\s+/).filter(Boolean)
+/** A JSX child that renders something: an element, a non-empty expression,
+    or text that is not just white space. */
+const isContent = (c) => c.type === 'JSXElement' || c.type === 'JSXFragment'
+  || (c.type === 'JSXExpressionContainer' && c.expression.type !== 'JSXEmptyExpression')
+  || (c.type === 'JSXText' && c.value.trim() !== '')
+const jsxChildren = (el) => el.children.filter((c) => c.type === 'JSXElement')
+// What a person can operate: the kit's controls, the native ones, anything
+// with a handler of its own.
+const INTERACTIVE = new Set(['IconButton', 'Button', 'button', 'a', 'input', 'select', 'textarea', 'Chip', 'Switch', 'Link', 'Menu'])
+const operable = (el) => INTERACTIVE.has(nameOf(el))
+  || el.openingElement.attributes.some((a) => a.type === 'JSXAttribute' && /^on[A-Z]/.test(a.name.name))
+/** The right-hand group of a tool's strip and every operable element in it,
+    in source order. The group must be the strip's LAST element (its right
+    end) and the strip's own child (not inside the kit Tabs, not in an
+    `items` label). Problems come back as strings. */
+function stripGroup(src, strip) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  const problems = []
+  let group = null
+  if (strip.className) {
+    const strips = []
+    const groups = []
+    traverse(ast, {
+      JSXElement(p) {
+        if (classesOf(p.node).includes(strip.className)) strips.push(p)
+        if (classesOf(p.node).includes(strip.group)) groups.push(p)
+      },
+    })
+    if (strips.length !== 1) return { problems: [`${strips.length} .${strip.className} strips, not one`], controls: [] }
+    if (groups.length !== 1) return { problems: [`${groups.length} .${strip.group} groups, not one`], controls: [] }
+    const kids = jsxChildren(strips[0].node)
+    if (kids[kids.length - 1] !== groups[0].node) problems.push(`.${strip.group} is not the last element of .${strip.className}`)
+    // Nothing at all after it — not a conditional control, not a variable,
+    // not text (review round 2, G-R2-01: `{cond && <IconButton/>}` and
+    // `{exportButton}` after the group passed) — and nothing in it but two
+    // elements (an `<ExportMenu items>` with no handler passed too).
+    const all = strips[0].node.children
+    const after = all.slice(all.indexOf(groups[0].node) + 1)
+    if (after.some(isContent)) problems.push(`something follows .${strip.group} in .${strip.className}`)
+    const inside = groups[0].node.children
+    if (inside.some((c) => c.type !== 'JSXElement' && isContent(c))) problems.push(`.${strip.group} holds an expression or text`)
+    if (jsxChildren(groups[0].node).length !== 2) problems.push(`.${strip.group} holds ${jsxChildren(groups[0].node).length} elements, not 2`)
+    group = groups[0]
+  } else {
+    const slots = []
+    traverse(ast, {
+      JSXElement(p) {
+        if (nameOf(p.node) !== strip.slotOf) return
+        const slot = attrOf(p.node, strip.prop)
+        if (slot?.value?.type === 'JSXExpressionContainer') slots.push(p.get('openingElement').get('attributes').find((a) => a.node === slot))
+      },
+    })
+    if (slots.length !== 1) return { problems: [`${slots.length} ${strip.slotOf} ${strip.prop} slots, not one`], controls: [] }
+    group = slots[0]
+    // R.A.B.B.I.T.'s slot is a fragment: the Summary status group (shown on
+    // Summary only), then the two buttons, and nothing else (G-R2-01).
+    const frag = slots[0].node.value.expression
+    const parts = (frag?.type === 'JSXFragment' ? frag.children : []).filter(isContent)
+    const status = parts[0]
+    const statusOk = status?.type === 'JSXExpressionContainer'
+      && /^statusInTabBar && \(?\s*<span className="rb-ctx-status-group/.test(src.slice(status.expression.start, status.expression.end))
+    if (frag?.type !== 'JSXFragment' || parts.length !== 3 || !statusOk || parts.slice(1).some((p) => p.type !== 'JSXElement')) {
+      problems.push(`the ${strip.prop} is not exactly the status group then two elements`)
+    }
+  }
+  const controls = []
+  group.traverse({
+    JSXElement(p) {
+      if (!operable(p.node)) return
+      const attrs = p.node.openingElement.attributes
+      const click = attrOf(p.node, 'onClick')?.value?.expression
+      controls.push({
+        name: nameOf(p.node),
+        title: stringAttr(p.node, 'title'),
+        icon: (attrOf(p.node, 'Icon') || attrOf(p.node, 'icon'))?.value?.expression?.name ?? null,
+        size: stringAttr(p.node, 'size'),
+        onClick: click ? src.slice(click.start, click.end) : null,
+        spread: attrs.some((a) => a.type === 'JSXSpreadAttribute'),
+        handlers: attrs.filter((a) => a.type === 'JSXAttribute' && /^on[A-Z]/.test(a.name.name)).map((a) => a.name.name),
+        inTabs: !!p.findParent((q) => q.isJSXElement() && nameOf(q.node) === 'Tabs'),
+      })
+    },
+  })
+  return { problems, controls }
+}
+/** What is wrong with one tool's strip, against Audrey's rule. */
+function stripProblems(src, spec) {
+  const { problems, controls } = stripGroup(src, spec.strip)
+  if (problems.length && !controls.length) return problems
+  const out = [...problems]
+  if (controls.length !== 2) out.push(`${controls.length} operable controls in the group, not 2: ${controls.map((c) => c.title || c.name).join(', ')}`)
+  const [help, settings] = controls.slice(-2)
+  if (!help || !settings) return out
+  if (help.title !== 'Help & documentation') out.push(`second to last is "${help.title}", not Help`)
+  if (settings.title !== spec.settings) out.push(`last is "${settings.title}", not "${spec.settings}"`)
+  for (const b of [help, settings]) {
+    if (b.name !== 'IconButton') out.push(`"${b.title}" is a ${b.name}, not the kit IconButton`)
+    if (b.size !== 'sm') out.push(`"${b.title}" is size ${b.size}, not sm (28px)`)
+    if (b.spread) out.push(`"${b.title}" takes a spread of props`)
+    if (b.handlers.join() !== 'onClick') out.push(`"${b.title}" has handlers ${b.handlers.join(', ')}`)
+    if (b.inTabs) out.push(`"${b.title}" sits inside the kit Tabs`)
+  }
+  if (help.icon !== 'HelpCircle') out.push(`Help draws ${help.icon}`)
+  if (!/^Settings(Icon)?$/.test(settings.icon || '')) out.push(`Settings draws ${settings.icon}`)
+  if (help.onClick !== '() => setShowHelpModal(true)') out.push(`Help does ${help.onClick}, not the tool's own Help dialog`)
+  if (settings.onClick !== `() => ${spec.opens}(true)`) out.push(`Settings does ${settings.onClick}`)
+  // …and those two setters draw what their names say: the tool's own Help
+  // dialog and its settings drawer (comments blanked, so a commented-out
+  // mount cannot pass).
+  const code = blankJsComments(src)
+  for (const [what, re] of [['Help state', spec.helpState], ['Settings state', spec.settingsState], ['Help dialog', spec.helpMount], ['settings drawer', spec.settingsMount]]) {
+    if (!re.test(code)) out.push(`the ${what} is not where it should be`)
+  }
+  return out
+}
+/** Every JSX render site of a component: its attribute names, and whether
+    any is a spread. */
+function renderSites(src, component) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  const sites = []
+  traverse(ast, {
+    JSXElement(p) {
+      if (nameOf(p.node) !== component) return
+      const attrs = p.node.openingElement.attributes
+      sites.push({ attrs: attrs.filter((a) => a.type === 'JSXAttribute').map((a) => a.name.name), spread: attrs.some((a) => a.type === 'JSXSpreadAttribute') })
+    },
+  })
+  return sites
+}
+/** The names a component's default export destructures from its props. */
+function propsOf(src) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  let names = null
+  traverse(ast, {
+    ExportDefaultDeclaration(p) {
+      const param = p.node.declaration?.params?.[0]
+      const pattern = param?.type === 'AssignmentPattern' ? param.left : param
+      if (pattern?.type === 'ObjectPattern') names = pattern.properties.map((q) => (q.type === 'RestElement' ? '...rest' : q.key.name))
+    },
+  })
+  return names
+}
+/** getNavStripItems: what it pushes into its tail, and the rows it returns. */
+function navStripShape(src) {
+  const ast = parse(src, { sourceType: 'module', plugins: ['jsx'] })
+  let fn = null
+  traverse(ast, { VariableDeclarator(p) { if (p.node.id.name === 'getNavStripItems') fn = p } })
+  if (!fn) return null
+  const pushes = []
+  const labels = []
+  fn.traverse({
+    CallExpression(p) {
+      const c = p.node.callee
+      if (c.type === 'MemberExpression' && c.property.name === 'push') pushes.push(src.slice(c.object.start, c.object.end))
+    },
+    ObjectProperty(p) {
+      if (p.node.key.name === 'label' || p.node.key.value === 'label') labels.push(src.slice(p.node.value.start, p.node.value.end))
+    },
+  })
+  const ret = []
+  fn.traverse({ ReturnStatement(p) { ret.push(src.slice(p.node.argument.start, p.node.argument.end)) } })
+  // What `items` and `tail` START as: a row built elsewhere and put in either
+  // one passed the first cut (review round 2, G-R2-02).
+  const inits = {}
+  fn.traverse({ VariableDeclarator(p) { if (p.node.init) inits[p.node.id.name] = src.slice(p.node.init.start, p.node.init.end).replace(/\s+/g, ' ') } })
+  return { pushes, labels, ret, inits }
+}
+
+describe('each tool draws Help, then Settings, at the right end of its own strip (C1, C7)', () => {
+  for (const spec of TOOL_STRIPS) {
+    it(`${spec.tool}: Help & documentation, then "${spec.settings}" — the strip's last two controls, 28px kit IconButtons, opening the tool's own dialog and drawer`, () => {
+      const src = readFileSync(resolve(here, spec.file), 'utf8')
+      expect(stripProblems(src, spec)).toEqual([])
+    })
+  }
+  it('R.A.B.B.I.T.: ViewTabs draws its right-hand slot as the strip\'s last element, beside the kit Tabs, not in it', () => {
+    const view = blankJsComments(readFileSync(resolve(here, '../tools/rabbit_v0.1.0/components/ViewTabs.jsx'), 'utf8'))
+    // (a blanked JSX comment leaves an empty `{ }` behind)
+    expect(view).toMatch(/<div className="rb-viewtabs">\s*<Tabs[\s\S]*?\/>\s*(?:\{\s*\}\s*)*\{rightSlot && <div className="rb-viewtabs-right">\{rightSlot\}<\/div>\}\s*<\/div>/)
+  })
+  it('D.O.G.: the bar\'s left group is the label and the four history controls, with their handlers unchanged', () => {
+    const src = readFileSync(resolve(here, TOOL_STRIPS[0].file), 'utf8')
+    const { problems, controls } = stripGroup(src, { className: 'dog-outline-bar', group: 'dog-outline-right' })
+    expect(problems).toEqual([])
+    expect(controls).toHaveLength(2)
+    const left = stripGroup(src.replace('className="dog-outline-group"', 'className="dog-outline-group dog-probe-left"'), { className: 'dog-outline-bar', group: 'dog-probe-left' })
+    expect(left.controls.map((c) => [c.title, c.icon, c.onClick])).toEqual([
+      ['Undo delete', 'Undo2', 'undoHistoryDelete'],
+      ['Redo delete', 'Redo2', 'redoHistoryDelete'],
+      ['Import/export history', 'FolderUp', '() => setShowHistoryModal(true)'],
+      ['Clear history', 'Trash2', 'clearHistory'],
+    ])
+    expect(blankJsComments(src)).toMatch(/<div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">\s*<span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline<\/span>/)
+  })
+  it('CONTROL: the reader fails the strip as it was, and each way the first cut let through', () => {
+    const [dog, otter, rabbit] = TOOL_STRIPS
+    // R.A.B.B.I.T.'s slot before S2a: Settings first, titled "RABBIT settings".
+    const was = `const x = <ViewTabs rightSlot={(<>
+      <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
+      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+    </>)} />`
+    expect(stripProblems(was, rabbit)).toEqual(expect.arrayContaining([
+      'second to last is "RABBIT settings", not Help',
+      'last is "Help & documentation", not "R.A.B.B.I.T. settings"',
+    ]))
+    const pair = (help = "onClick={() => setShowHelpModal(true)}", extra = '') => `
+      <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" ${help} />
+      <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />${extra}`
+    const nav = (inner) => `const x = <nav className="otter-nav"><Tabs /><div className="otter-nav-right">${inner}</div></nav>`
+    // Help sent to the app's Help page.
+    expect(stripProblems(nav(pair("onClick={() => onNavigate('help')}")), otter)).toEqual(expect.arrayContaining(["Help does () => onNavigate('help'), not the tool's own Help dialog"]))
+    // A spread that swaps the handler behind the right text.
+    expect(stripProblems(nav(pair("onClick={() => setShowHelpModal(true)} {...{ onClick: () => onNavigate('help') }}")), otter)).toEqual(expect.arrayContaining(['"Help & documentation" takes a spread of props']))
+    // A third control after Settings.
+    expect(stripProblems(nav(pair(undefined, '<Button onClick={exportAll}>Export</Button>')), otter)).toEqual(expect.arrayContaining(['3 operable controls in the group, not 2: Help & documentation, O.T.T.E.R. settings, Button']))
+    // The group moved into the kit Tabs (a tab, and gone from the right end).
+    const inTabs = `const x = <nav className="otter-nav"><Tabs><div className="otter-nav-right">${pair()}</div></Tabs></nav>`
+    expect(stripProblems(inTabs, otter)).toEqual(expect.arrayContaining(['.otter-nav-right is not the last element of .otter-nav', '"Help & documentation" sits inside the kit Tabs']))
+    // D.O.G.'s group moved into "Generated output"'s head.
+    const moved = `const x = <><div className="dog-outline-bar"><div className="dog-outline-group" /></div><header className="dog-card-head"><div className="dog-outline-right">${pair().replace('O.T.T.E.R.', 'D.O.G.').replace('setSettingsOpen', 'setShowSettingsMenu')}</div></header></>`
+    expect(stripProblems(moved, dog)).toEqual(expect.arrayContaining(['.dog-outline-right is not the last element of .dog-outline-bar']))
+    // No group at all (O.T.T.E.R. before S2a).
+    expect(stripProblems('const x = <nav className="otter-nav"><Tabs /></nav>', otter)).toEqual(['0 .otter-nav-right groups, not one'])
+    // A mount that is commented out does not count.
+    expect(stripProblems(`${nav(pair())}\n// {showHelpModal && (<Dialog title="Help & documentation" />)}`, otter)).toEqual(expect.arrayContaining(['the Help dialog is not where it should be']))
+    // Round 2 (G-R2-01): a conditional control after the group, a variable
+    // after it, and a handler-less menu inside it.
+    const after = (extra) => `const x = <nav className="otter-nav"><Tabs /><div className="otter-nav-right">${pair()}</div>${extra}</nav>`
+    expect(stripProblems(after('{history.length > 0 && <IconButton size="sm" title="Export deck" onClick={exportAll} />}'), otter)).toEqual(expect.arrayContaining(['something follows .otter-nav-right in .otter-nav']))
+    expect(stripProblems(after('{exportButton}'), otter)).toEqual(expect.arrayContaining(['something follows .otter-nav-right in .otter-nav']))
+    expect(stripProblems(nav(`<ExportMenu items={menuItems} />${pair()}`), otter)).toEqual(expect.arrayContaining(['.otter-nav-right holds 3 elements, not 2']))
+    expect(stripProblems(nav(`{extraButton}${pair()}`), otter)).toEqual(expect.arrayContaining(['.otter-nav-right holds an expression or text']))
+    // R.A.B.B.I.T.'s slot: anything beyond the status group and the two buttons.
+    const slot = (inner) => `const x = <ViewTabs rightSlot={(<>${inner}</>)} />`
+    const rabbitPair = '<IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} /><IconButton size="sm" Icon={SettingsIcon} title="R.A.B.B.I.T. settings" onClick={() => setSettingsOpen(true)} />'
+    const status = '{statusInTabBar && (<span className="rb-ctx-status-group rb-tabbar-status" />)}'
+    expect(stripProblems(slot(`${status}${rabbitPair}{exportButton}`), rabbit)).toEqual(expect.arrayContaining(['the rightSlot is not exactly the status group then two elements']))
+    expect(stripProblems(slot(`${status}${rabbitPair}`), rabbit).filter((p) => p.includes('rightSlot'))).toEqual([])
+  })
+})
+
+describe('the nav strip\'s tail is Resources and App settings, and nothing carries a tool\'s settings to it (C6)', () => {
+  it('getNavStripItems pushes exactly two tail rows — the Resources toggle and App settings — and returns primary pages, one separator, the tail', () => {
+    const shape = navStripShape(appSrc)
+    expect(shape, 'no getNavStripItems in App.jsx').not.toBeNull()
+    expect(shape.pushes).toEqual(['tail', 'tail'])
+    expect(shape.labels).toEqual(['p.navLabel', "'Resources'", 'appSettings.navLabel'])
+    expect(shape.ret).toEqual(['[...items, { separator: true }, ...tail]'])
+    expect(shape.inits.tail).toBe('[]')
+    expect(shape.inits.items).toBe("primary .filter(p => p.id !== 'settings') .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }))")
+  })
+  it('each tool is rendered with exactly the props it reads, and reads exactly those', () => {
+    for (const spec of TOOL_STRIPS) {
+      const sites = renderSites(appSrc, spec.site)
+      expect(sites, spec.site).toHaveLength(1)
+      expect(sites[0].spread, spec.site).toBe(false)
+      expect([...sites[0].attrs].sort(), spec.site).toEqual([...spec.siteAttrs].sort())
+      expect(propsOf(readFileSync(resolve(here, spec.file), 'utf8')), spec.tool).toEqual(spec.props)
+    }
+  })
+  it('no string, wrapped over lines or not, in any case, names "Tool settings" (comments may keep the history)', () => {
+    const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
+    const hits = files.filter((f) => /tool\s+settings/i.test(blankJsComments(readFileSync(f, 'utf8'))))
+    expect(hits).toEqual([])
+  })
+  it('the three settings drawers keep their footer Help, titled as the strip\'s', () => {
+    const code = (f) => blankJsComments(readFileSync(resolve(here, f), 'utf8'))
+    expect(code(TOOL_STRIPS[0].file)).toMatch(/<div className="dog-settings-foot">[\s\S]{0,400}?title="Help & documentation" onClick=\{\(\) => setShowHelpModal\(true\)\}/)
+    expect(code(TOOL_STRIPS[1].file)).toMatch(/<div className="otter-settings-foot">[\s\S]{0,400}?title="Help & documentation" onClick=\{\(\) => setShowHelpModal\(true\)\}/)
+    expect(code('../tools/rabbit_v0.1.0/views/TimelineView.jsx')).toMatch(/onClick=\{onOpenHelp\}\s*title="Help & documentation"/)
+  })
+  it('CONTROL: the shape reader, the site reader and the wrapped-text check each fire on a renamed return of the item', () => {
+    const renamed = `const getNavStripItems = () => {
+      const items = primary.map(p => ({ label: p.navLabel }));
+      const tail = [];
+      if (isToolPage) tail.push({ label: 'Settings', action: () => setToolSettingsNonce(n => n + 1) });
+      tail.push({ label: 'Resources', isResourcesTrigger: true });
+      tail.push({ label: appSettings.navLabel });
+      return [...items, { separator: true }, ...tail];
+    };`
+    expect(navStripShape(renamed).pushes).toEqual(['tail', 'tail', 'tail'])
+    expect(navStripShape(renamed).labels).toContain("'Settings'")
+    // …and a row built elsewhere and started into `tail` or `items` (G-R2-02).
+    const smuggled = renamed.replace('const tail = [];', 'const tail = isToolPage ? [toolSettingsRow] : [];')
+      .replace("if (isToolPage) tail.push({ label: 'Settings', action: () => setToolSettingsNonce(n => n + 1) });\n", '')
+    expect(navStripShape(smuggled).inits.tail).toBe('isToolPage ? [toolSettingsRow] : []')
+    expect(navStripShape(smuggled).pushes).toEqual(['tail', 'tail'])
+    expect(renderSites('const x = <Otter onNavigate={go} currentPage={p} onContextChange={c} settingsNonce={n} />', 'Otter')[0].attrs).toContain('settingsNonce')
+    expect(renderSites('const x = <Otter {...props} />', 'Otter')[0].spread).toBe(true)
+    expect(propsOf('export default function Otter({ onNavigate, currentPage, onContextChange, settingsNonce = 0 }) {}')).toContain('settingsNonce')
+    expect(/tool\s+settings/i.test('<p>Open Tool\n        settings</p>')).toBe(true)
   })
 })

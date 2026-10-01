@@ -146,7 +146,8 @@ if (await visible(mini)) {
 } else skipped.push('22-minimap-frame-off-right', '23-hover-offscreen-arrow');
 
 // ── The settings panel (SettingsPanel) ─────────────────────────────────────
-if (await step('24-settings', page.locator('[aria-label="RABBIT settings"]'), 'click')) {
+// The strip's gear: "R.A.B.B.I.T. settings" since post-overhaul S2a, "RABBIT settings" before (a before run).
+if (await step('24-settings', page.locator('button[aria-label="R.A.B.B.I.T. settings"], button[aria-label="RABBIT settings"]'), 'click')) {
   // The kit Drawer since B3d (its tabs are the kit Tabs, its switches the
   // kit Switch); the old slide-out`s scrim wrapper for a before run.
   const panel = page.locator('aside.ui-drawer.rb-tl-settings, .fixed.inset-0').last();

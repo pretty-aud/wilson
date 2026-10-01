@@ -32,7 +32,7 @@
 // effect uses the `currentPage` prop passed down from App.jsx
 // — calling setActiveTool('rabbit') on visibility.
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
@@ -64,7 +64,7 @@ import { StatusDot } from '../../ui/StatusDot'
 import { StatusBadge } from '../../ui/StatusBadge'
 import './rabbitShell.css'
 
-export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
+export default function Rabbit({ currentPage } = {}) {
   const ctx = useRabbit()
   const agent = useAgent()
   const perms = usePermissions()
@@ -132,16 +132,9 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
     saveHolidays(next)
   }, [])
 
-  // When the WILSON nav strip "SETTINGS" item is clicked the parent
-  // bumps `openSettingsTrigger`. Now that settings live at the shell
-  // level we just open the panel directly — no tab switch needed.
-  const prevSettingsTrigger = useRef(openSettingsTrigger)
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger
-      setSettingsOpen(true)
-    }
-  }, [openSettingsTrigger])
+  // Settings open from the gear at the right end of the tab strip (below).
+  // The WILSON nav strip's "Tool settings" item, and the counter it bumped
+  // to open them from the shell, are gone (post-overhaul S2a, Audrey's C6).
 
   const adapterMode = ctx?.adapterMode
   const adapterStatus = ctx?.adapterStatus
@@ -221,8 +214,11 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
                 <span className="contents" data-slot="adapter">{adapterDot}</span>
               </span>
             )}
-            <IconButton size="sm" Icon={SettingsIcon} title="RABBIT settings" onClick={() => setSettingsOpen(true)} />
+            {/* Help, then Settings at the far right: one order, one title
+                pattern and one place in all three tools (post-overhaul S2a,
+                Audrey's C1/C7, 2026-09-29: "settings at the right end"). */}
             <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+            <IconButton size="sm" Icon={SettingsIcon} title="R.A.B.B.I.T. settings" onClick={() => setSettingsOpen(true)} />
           </>
         )}
       />

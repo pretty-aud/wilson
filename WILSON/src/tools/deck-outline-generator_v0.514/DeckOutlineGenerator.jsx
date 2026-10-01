@@ -26,6 +26,7 @@ import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import './dog.css';
 import HistoryModal from './modals/HistoryModal';
+import { enterIsDogs } from './enterGenerates';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Project attachments that live in the file store (Track C, bundle C3;
@@ -65,7 +66,7 @@ function blobToDogContent(blob, type) {
   });
 }
 
-export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -123,16 +124,10 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   // Settings Menu State
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts'); // 'prompts' or 'format'
-  // showNavMenu and onToggleNavMenu are now received as props from App.jsx
-
-  // Open settings panel when triggered from container nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setShowSettingsMenu(true);
-    }
-  }, [openSettingsTrigger]);
+  // Opened by the gear at the right end of the "Deck outline" bar. The WILSON
+  // nav strip's "Tool settings" item and the counter it bumped are gone
+  // (post-overhaul S2a, Audrey's C6), and with them the two nav props nothing
+  // here ever read.
 
   // Project Integration State — projects come from the unified
   // RabbitProvider store (same source as the Projects page and
@@ -3291,11 +3286,16 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
   // Global Enter key — triggers generation when outliner is empty and user is not in a text field
   useEffect(() => {
     const handler = (e) => {
-      if (e.key !== 'Enter') return;
+      // Post-overhaul S2a (Audrey's C12: Enter presses whatever has focus):
+      // the key is D.O.G.'s only on D.O.G.'s page, unmodified, not in a text
+      // field, not under a window (a drawer, a dialog, a kit overlay) and not
+      // on a control Enter presses by itself — D.O.G.'s own option toggles
+      // and Full deck switch excepted, as before. Whether another listener
+      // cancelled it first is deliberately NOT asked (review round 2,
+      // B-R2-01). enterGenerates.js says why; its test drives it with real
+      // elements.
+      if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;
       if (history.length > 0) return; // only when outliner is empty
-      if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
       if (isGenerating || !hasFileContent) return;
 
       e.preventDefault();
@@ -3307,7 +3307,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
+  }, [currentPage, history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
 
   // Save undo checkpoint on textarea change (debounced grouping)
   const handleTextareaChange = useCallback((e) => {
@@ -4075,23 +4075,42 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
       {/* Header and nav strip are now managed by App.jsx container */}
 
+      {/* ── The "Deck outline" bar (post-overhaul S2a; Audrey's C1) ──
+          It was the sidebar Panel's header: 32px tall and 240px wide, the one
+          D.O.G. bar that stopped short of the window's right edge. It now runs
+          the full width under the app's 4px band, at the tab strips' 36px +
+          hairline (not the kit Toolbar's 44), so its gear sits where
+          O.T.T.E.R.'s and R.A.B.B.I.T.'s do: left, "Deck outline" and the four
+          history controls with their handlers unchanged; right, Help then
+          Settings (C7: "settings at the right end"). The history controls are
+          a group named by the visible label; Help and Settings are not part of
+          it. Measured by scripts/tool-strip-probe.mjs; the preview box by
+          scripts/dog-preview-probe.mjs --check (C4), unchanged. */}
+      <div className="dog-outline-bar">
+        <div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">
+          <span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline</span>
+          <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
+          <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
+          <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
+          <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
+        </div>
+        <div className="dog-outline-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="D.O.G. settings" onClick={() => setShowSettingsMenu(true)} />
+        </div>
+      </div>
+
       <div className="flex-1 flex min-h-0">
-        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller).
-            md, not sm: the header has to hold a title and four 28px icon
-            buttons, and the main column gives back the 16px (C4 — see dog.css
-            `.dog-main`). */}
+        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller),
+            with no header since S2a: its title and its four controls are the
+            bar above. It keeps md (240) this bundle — the width was chosen to
+            fit that header, which has gone (walkthrough 47, Q64, is Audrey's
+            call) — and the main column's 8px padding with it (C4, dog.css
+            `.dog-main`). Named for a screen reader by the bar's label. */}
         <Panel
           width="md"
           className="dog-sidebar"
-          title="Deck outline"
-          actions={
-            <>
-              <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
-              <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
-              <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
-              <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
-            </>
-          }
+          aria-labelledby="dog-outline-label"
         >
           {sortedHistory.length === 0 ? (
             <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />
@@ -4155,7 +4174,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               data-collapsed={section1Collapsed}
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="ui-panel-title dog-card-title">
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">1</span>
                 Project documentation & deck context
               </h2>
@@ -4381,8 +4400,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <span className="dog-check-label">Use project assets</span>
                     </div>
                   </div>
-                  {/* Full Deck Toggle */}
+                  {/* Full Deck Toggle (`dog-full-deck`: enterGenerates.js
+                      keeps "Enter generates" on it, as before S2a) */}
                   <Switch
+                    className="dog-full-deck"
                     checked={fullDeckMode}
                     label="Full deck"
                     onChange={(newMode) => {
@@ -4451,7 +4472,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               data-collapsed={section2Collapsed || fullDeckMode}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="ui-panel-title dog-card-title">
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
                 <span className="dog-step">2</span>
                 Generate page outline
                 {fullDeckMode && <span className="dog-card-note">(Disabled in full deck mode)</span>}

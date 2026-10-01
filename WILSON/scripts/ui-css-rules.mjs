@@ -109,3 +109,41 @@ export function specificity(sel) {
 
 /** Sort order for two specificities: negative when `x` is weaker. */
 export const compareSpecificity = (x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+
+/** The custom properties `@theme` declares in a stylesheet, name (with its
+ *  `--`) → raw value (post-overhaul S2a, the orange guards). */
+export function themeValues(source) {
+  const theme = allRules(source).find((r) => /^@theme\b/.test(r.sel));
+  return new Map(theme ? decls(theme.body) : []);
+}
+
+/** Properties that paint a glyph's ink (text or an icon), in every spelling
+ *  the orange guards have been beaten by (S2a review rounds 1 and 2,
+ *  G-R1-04, G-R2-03: a shadow on transparent text, a stroke). */
+export const INK_PROPS = /^(color|-webkit-text-fill-color|fill|stroke|caret-color|text-emphasis-color|text-decoration-color|text-shadow|-webkit-text-stroke|-webkit-text-stroke-color)$/;
+
+/** True when ANY token named anywhere in the value — a fallback, a mix, a
+ *  shadow's colour — resolves through @theme to one of `hexes` (review round
+ *  2, G-R2-03: `var(--unset, var(--color-signal))` paints the fallback). */
+export function mentionsTokenHex(value, theme, hexes, vars = new Map()) {
+  for (const m of String(value).matchAll(/var\(\s*(--[\w-]+)/g)) {
+    const hex = resolveTokenHex(`var(${m[1]})`, theme, vars);
+    if (hex && hexes.has(hex)) return true;
+  }
+  return false;
+}
+
+/** A value's colour as a lower-case hex when it is exactly one token (or a
+ *  chain of tokens) that `@theme` defines as a hex; null otherwise. A mix, a
+ *  gradient or a literal is not resolved — the sheets' own guards forbid
+ *  literals, and a mix is not the token itself. `vars` holds custom
+ *  properties the sheet itself sets, which shadow the theme's. */
+export function resolveTokenHex(value, theme, vars = new Map(), depth = 0) {
+  if (depth > 8 || value == null) return null;
+  const v = String(value).trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(v)) return v.toLowerCase();
+  const m = v.match(/^var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)$/);
+  if (!m) return null;
+  const next = vars.get(m[1]) ?? theme.get(m[1]);
+  return resolveTokenHex(next, theme, vars, depth + 1);
+}

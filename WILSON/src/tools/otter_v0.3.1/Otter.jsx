@@ -146,22 +146,17 @@ function NodeTypeBadge({ type }) {
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
 // ═══════════════════════════════════════════════════════════════════
-export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
+export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // ── Navigation state ──
   const [currentView, setCurrentView] = useState('library');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts');
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [helpPage, setHelpPage] = useState('otter-overview');
-
-  // Open settings when triggered from WILSON nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setSettingsOpen(true);
-    }
-  }, [openSettingsTrigger]);
+  // Settings and Help open from the two buttons at the right end of the
+  // tool's strip. The WILSON nav strip's "Tool settings" item, and the
+  // counter it bumped to open the drawer from here, are gone (post-overhaul
+  // S2a, Audrey's C6).
 
   // ── Data state ──
   const [settings, setSettings] = useState(null);
@@ -3102,7 +3097,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           dialog) are not views, so they are not tabs; they wear the tab's
           class so the strip reads as one language, and keep the underline
           while their menu or dialog is open, as they always did. */}
-      <nav className="otter-nav" aria-label="O.T.T.E.R.">
+      <nav
+        className="otter-nav"
+        aria-label="O.T.T.E.R."
+        // A tab focused by Tab, the arrow keys or End is scrolled fully into
+        // view when the list is narrower than its tabs (it scrolls past
+        // ~700px of window): focus() alone leaves a half-shown tab half
+        // shown (post-overhaul S2a review round 2, V-R2-01; a kit Tabs
+        // request in the S2a hand-off would make this the kit's).
+        onFocus={(e) => { if (e.target.getAttribute?.('role') === 'tab') e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }}
+      >
         <button
           ref={editButtonRef}
           type="button"
@@ -3183,6 +3187,18 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           label="O.T.T.E.R. views"
           className="otter-nav-tabs"
         />
+        {/* Help, then Settings at the far right (post-overhaul S2a, Audrey's
+            C1/C7, 2026-09-29: "settings at the right end"): the same pair,
+            order and 28px size as R.A.B.B.I.T.'s `.rb-viewtabs-right`, so the
+            gear sits at one x and one y in all three tools. A SIBLING of the
+            kit Tabs, not an item in it: inside the tablist a button would be
+            a tab and join the arrow keys (the kit Tabs has no actions slot —
+            kit request "Tabs: an actions slot", S2a hand-off). Help opens
+            O.T.T.E.R.'s own Help dialog, as the drawer's footer button does. */}
+        <div className="otter-nav-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />
+        </div>
       </nav>
 
       {/* ── BODY — sidebars + content ── */}
@@ -4238,7 +4254,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           {renderLibrarySourceNotice()}
           <SectionTitle
             rule={false}
-            className="otter-view-title"
+            className="otter-view-title otter-library-title"
             actions={
               <>
                 <Select
@@ -5522,9 +5538,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         )}
       >
         {/* The two halves of the strip are the kit's Tabs, each still half
-            the strip wide (otter.css): the old buttons were `flex-1`. */}
+            the strip wide (otter.css): the old buttons were `flex-1`. The
+            second is "Storage & data" since post-overhaul S2a (Audrey's C6):
+            it holds the library's storage location and data management, and
+            "Tool settings" had become the name of the gear that opens this
+            drawer. */}
         <Tabs
-          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}
+          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Storage & data' }]}
           value={settingsTab}
           onChange={setSettingsTab}
           label="Settings sections"

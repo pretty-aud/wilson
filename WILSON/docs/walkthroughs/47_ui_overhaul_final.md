@@ -256,6 +256,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 33. **Enter on any focused button toggles the pet instead of pressing the button (Space works): fix it in P1?**
    Look at: Tab to any button and press Enter. Choices: Fix it in P1 / leave; it waits for Audrey because the pets are hers to change. The code is `App.jsx` about lines 1404–1417 (P1-01). (WT45 Q30, WT44 Q25, WT42 Q7, WT39 Q10)
+   Q33: answered 2026-09-29 (post-overhaul ruling C12): the pet's toggle moves from Enter to a bare Shift tap (never while typing in a field, never over a dialog), and Enter presses whatever is focused. Done by post-overhaul S2a, 2026-09-30 (P1-01 closed); see walkthrough 49.
 
 34. **The Undo toast now sits over menus as well as dialogs (the standard order), so a context menu opened near the bottom centre (Bins, Tasks) can sit under a live toast: keep?**
    Look at: Delete something in Bins, then right-click near the bottom centre while the Undo toast shows. Choices: Keep? yes / no; no recommendation. (WT45 Q32)
@@ -373,6 +374,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 64. **Keep D.O.G.'s main column 8px from the sidebar, where the rest of the app uses 24px, so the slide preview stays exactly where it was?**
    Look at: D.O.G. with a deck open, at 1440x900 and 1280x700: the gap between the sidebar and the output panel (a1-dog-preview-after-1440x900.png). Choices: Keep 8px (current) / a preview 32px narrower / a narrower sidebar with its four buttons moved onto a second row. (WT40 Q8a, WT36 Q1)
+   Q64: note 2026-09-30 (post-overhaul S2a, ruling C1): the "Deck outline" title and its four buttons left the sidebar for a full-width bar, so the reason the sidebar is 240px wide (a head holding five controls) is gone. The sidebar stays 240px and the gap 8px this bundle, and the slide preview is exactly where it was (`dog-preview-probe --check`, byte-identical). Whether the sidebar can now be 200px is walkthrough 49's question 1.
 
 65. **Are the "Full deck" switch label in normal-size text, and the Core / Ref file tags as the kit's toggle chips ("CORE" / "REF" in small capitals, an orange edge when on), fine?**
    Look at: D.O.G.'s sidebar: the Full deck switch, and a project's files with their Core / Ref tags. Choices: Fine / change. No alternative given. (WT36 Q3)
@@ -423,9 +425,11 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 80. **Are the progress bars (lessons completed, and the sweeping generation bar) right in grey, orange being kept for selected and current?**
    Look at: O.T.T.E.R.: a course's lessons-completed bar, and '+ New' while a course generates. Choices: Grey (current), or orange. (WT41 Q8)
+   Q80: unchanged, 2026-09-29 (post-overhaul ruling C8: the new orange is exactly the list she named, and the progress bars are not on it). Recorded by post-overhaul S2a, 2026-09-30; see walkthrough 49.
 
 81. **Are links in lessons right as white and underlined rather than orange?**
    Look at: O.T.T.E.R.: a lesson with a link. Choices: White and underlined (current), or orange. (WT41 Q9)
+   Q81: unchanged, 2026-09-29 (post-overhaul ruling C8: lesson links stay white and underlined; the new orange is exactly the list she named). Recorded by post-overhaul S2a, 2026-09-30; see walkthrough 49.
 
 82. **Do the kept node type colours match the host application's socket colours, and if not, should they become one warm family?**
    Look at: O.T.T.E.R.: a real node-system course's Nodes page in the packaged build, beside Blender's sockets (the test data has no nodes). Choices: Keep as written (Q9), or one warm family if they do not match. Plan Q9 kept them as an exempt ramp on the assumption that they mirror the host application's sockets; this asks you to confirm that assumption. (WT41 Q10)

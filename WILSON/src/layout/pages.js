@@ -116,11 +116,14 @@ const PAGE_LIST = [
   },
   {
     // Q7, ruled: "SETTINGS" (a tool's own) sat beside "SYSTEM SETTINGS" in the
-    // same column. The tool item becomes "Tool settings" (App.jsx builds it —
-    // it is a trigger, not a page) and this one "App settings". The page's own
-    // title follows the nav word: one name for one thing is the whole point,
-    // and a header that disagrees with the item that opened it is the defect
-    // Q7 names. The transition title says APP SETTINGS for the same reason.
+    // same column. The tool item became "Tool settings" (App.jsx built it —
+    // it was a trigger, not a page) and this one "App settings". The page's
+    // own title follows the nav word: one name for one thing is the whole
+    // point, and a header that disagrees with the item that opened it is the
+    // defect Q7 names. The transition title says APP SETTINGS for the same
+    // reason. Post-overhaul S2a (Audrey's C6, 2026-09-29): the tool half left
+    // the strip; each tool's gear is at the right end of its own strip, so
+    // this is the only settings item the nav strip holds.
     id: 'settings',
     title: 'App settings',
     // Q8(b) / W10, ruled 2026-09-11 ("if already said yes then yes"): the

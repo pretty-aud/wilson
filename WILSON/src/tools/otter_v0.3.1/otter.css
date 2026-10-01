@@ -63,13 +63,57 @@
   /* On the Tabs' own class: a kit part is reached only through the O.T.T.E.R.
      class on its component (otterCss.test.js, A4 review round 2). */
   .otter-nav-tabs .ui-tab { padding: 0 8px; }
+  /* Post-overhaul S2a: R.A.B.B.I.T.'s overflow rules (`.rb-viewtabs-list`)
+     and an icon drop, in steps, so the strip keeps one row and the Help and
+     Settings group never moves at any zoom a person can reach (Ctrl+= adds
+     0.5 to the zoom level, ×1.095 a press; the 1024x700 floor is 935, 853,
+     779 and 711px wide after one to four presses).
+       1. The tabs' icons go and the tabs tighten to 6px when the tab LIST is
+          under what its tabs need with icons: 630px with the seven cloud
+          tabs (a member's, "Requests", need 620; an admin's 601), 530px
+          with the six local ones (they need 519) — Audrey's own library is
+          local, so it keeps its icons as long as they fit (review round 2,
+          V-R2-05). The query is on the list, sized by the list itself.
+       2. Under 742px of window (144% on the floor window: 711) the Search
+          icon and Edit's chevron go as well, and every label set fits down
+          to ~700px (review round 2, V-R2-01, measured in Electron).
+     Narrower still, the list scrolls sideways and its "hidden" scrollbar
+     shows: `.wilson-dark-scroll *`'s unlayered `scrollbar-width: thin`
+     outranks any layered rule (R.A.B.B.I.T. too) — kit request in the S2a
+     hand-off. A tab that takes focus is scrolled fully into view (Otter.jsx,
+     the nav's onFocus), and a scroller clips what its tabs draw outside
+     themselves, so their ring is drawn inside — 5px in, clear of the active
+     tab's 2px underline, which is the same orange (V-R2-04). */
   .ui-tabs.otter-nav-tabs {
     flex: 1 1 auto;
     min-width: 0;
     flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    container: otter-nav-tabs / inline-size;
   }
   .ui-tabs.otter-nav-tabs > .ui-tab:last-child { margin-left: auto; }
+  .ui-tabs.otter-nav-tabs > .ui-tab:focus-visible { outline-offset: -5px; }
   .otter-nav-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  @container otter-nav-tabs (max-width: 630px) {
+    .otter-nav-tabs:has(> .ui-tab:nth-child(7)) .otter-nav-icon { display: none; }
+    .otter-nav-tabs:has(> .ui-tab:nth-child(7)) .ui-tab { padding: 0 6px; }
+  }
+  @container otter-nav-tabs (max-width: 530px) {
+    .otter-nav-tabs .otter-nav-icon { display: none; }
+    .otter-nav-tabs .ui-tab { padding: 0 6px; }
+  }
+  @media (max-width: 742px) {
+    .otter-nav-button .otter-nav-icon { display: none; }
+  }
+  /* Help, then Settings, at the strip's right end (Audrey's C1/C7,
+     2026-09-29): rabbitShell.css's `.rb-viewtabs-right` rule for rule, so the
+     gear is one control at one x and one y in all three tools — plus 8px on
+     its left, so the last VIEW (Validate) and these two dialog triggers read
+     as two groups, not one run (S2a review round 1, V-R1-04). R.A.B.B.I.T.'s
+     tabs never reach its pair, so it needs none. */
+  .otter-nav-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: 8px; }
 
   /* ═══ SIDEBAR 1 — courses and subjects, the kit's Panel (sm, 200) ══════
      Review O9, O21, O22, O35. The panel is the kit's: no fill, one hairline,
@@ -450,6 +494,28 @@
   .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: flex-start; }
   .otter-view-title .ui-section-actions { margin-top: calc((var(--text-h2) * var(--text-h2--line-height) - var(--control-md)) / 2); }
   .otter-view-title .ui-section-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the
+     library's title, "Course library", is the signal orange as an ink, on
+     the view's paper (4.91:1, tokens.test.js). Only this title: "Functions
+     reference", "Keyboard shortcuts", the quiz titles and every other view
+     title stay the ink. Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row; a
+     later reviewer must not correct it out. Nothing here takes the hover
+     wash, so no pair is at risk. */
+  .otter-library-title .ui-section-title { color: var(--color-signal); }
+  /* Selected, every one of Audrey's oranges sits on the selection screen
+     (the signal at 35%), where the signal is about 3:1; so selected, it is
+     the ink (8.86:1, tokens.test.js) — the same revert as D.O.G.'s on its
+     hover wash (S2a review round 1, V-R1-02). Each rule names its
+     descendants too: Electron's Chromium 130 does not inherit `::selection`
+     (Chromium 134 began to), so a span added inside one of these later
+     would otherwise stay orange there (review round 2, V-R2-02). A key cap
+     in a Search row that does not match keeps its dim (V-R2-03). */
+  .otter-library-title .ui-section-title::selection,
+  .otter-library-title .ui-section-title *::selection,
+  .otter-hk-card .ui-tr:not([data-inactive='true']) .ui-kbd::selection,
+  .otter-hk-card .ui-tr:not([data-inactive='true']) .ui-kbd *::selection,
+  .otter-lesson-card .ui-card-title::selection,
+  .otter-lesson-card .ui-card-title *::selection { color: var(--color-ink); }
   .otter-view-meta .otter-owner { margin-left: 8px; }
   .otter-count { font-variant-numeric: tabular-nums; }
   .ui-banner.otter-banner { margin-bottom: 16px; }
@@ -750,7 +816,8 @@
      the kit's Table in a flush Card (a real table, fixed layout, the Label
      step head) with the keys in the kit's Kbd; function cards and sources
      are the Card surface, code in the code well (paper-recessed). No orange
-     on any of it: names are the ink, notes and URLs the third ink. */
+     on any of it: names are the ink, notes and URLs the third ink — except
+     the key caps' text, since post-overhaul S2a (below). */
   .otter-center { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--color-ink-2); }
   .otter-search { position: relative; }
   .otter-search-icon {
@@ -778,6 +845,15 @@
   }
   .otter-ref-cards { display: flex; flex-direction: column; gap: 12px; }
   .ui-td.otter-hk-notes { color: var(--color-ink-3); }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the key
+     caps' TEXT is the signal orange, on the Kbd's own paper-recessed fill
+     (5.55:1, tokens.test.js); the cap's hairline and fill are unchanged.
+     The card class is shared, so this reaches both hotkey tables: the
+     Hotkeys view and the Search dialog's preview, where a row that does not
+     match the query still dims its caps to the third ink (the
+     `.otter-search-hk … [data-inactive]` rule below, four classes, wins).
+     Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row. */
+  .otter-hk-card .ui-kbd { color: var(--color-signal); }
   .otter-fn-card {
     padding: 16px;
     background-color: var(--color-paper-raised);
@@ -1143,8 +1219,14 @@
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
   }
-  .otter-lesson-card .ui-card-title { display: flex; align-items: center; gap: 8px; }
-  .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-ink-3); }
+  /* 🟠 AUDREY'S EXCEPTION — post-overhaul S2a, her C8 (2026-09-29): the two
+     lesson cards' titles ("Key takeaways", "Practice exercise") and their
+     icons are the signal orange, on the card's paper-raised (4.54:1 as text;
+     the icon needs 3:1). Their edges are unchanged; the progress bars and
+     the lesson's links are unchanged (walkthrough 47, Q80 and Q81).
+     Recorded in UI_OVERHAUL_PLAN.md §3.2's signal row. */
+  .otter-lesson-card .ui-card-title { display: flex; align-items: center; gap: 8px; color: var(--color-signal); }
+  .otter-card-icon { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--color-signal); }
   .otter-takeaways { display: flex; flex-direction: column; gap: 4px; color: var(--color-ink-2); }
   .otter-takeaways > li { display: flex; align-items: flex-start; gap: 8px; }
   /* The bullet's 14px glyph on its first line: (21 - 14) / 2 is 3.5, which
@@ -1637,7 +1719,8 @@
     .otter-settings-body[data-locked='true'] .otter-acc-head:hover .otter-acc-label { color: var(--color-ink-2); }
   }
 
-  /* Tool settings: two kit Cards (Library, Data management) on their own
+  /* The "Storage & data" tab (it was "Tool settings" until post-overhaul
+     S2a): two kit Cards (Library, Data management) on their own
      12px (the body is edge to edge for the accordions), 16px apart (mb-4).
      Track A A4 removed the dead "Storage location" field (decision 28b) and
      its two rules with it. */

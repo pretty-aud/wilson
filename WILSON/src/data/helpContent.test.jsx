@@ -113,8 +113,8 @@ describe('the help content is on the tokens, on both surfaces (P1-35)', () => {
 // nouns, acronyms and other products' own names do.
 const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slides', 'Google', 'AI', 'Nodes',
   'Midjourney', 'Flux', 'GPT', 'DALL-E', 'Tamagotchi', 'Markdown', 'Windows', 'Mac',
-  // key legends
-  'Enter', 'Up/Down',
+  // key legends ('Shift': the pet's key since post-overhaul S2a, C12)
+  'Enter', 'Up/Down', 'Shift',
   // the pet breeds, as src/components/sprites/index.jsx labels them (C5)
   'Otter', 'Bird', 'Octopus', 'Blob', 'Rabbit', 'Pig', 'Monkey'])
 // A tool's spelled-out name, a product's two-word name, a page's name as the
@@ -305,6 +305,177 @@ describe('the Help page names things as the app does, on every page it can show 
     expect(all).toMatch(/Pet lifecycle/)
     expect(all).toMatch(/About Wilson/)
     for (const old of [/System Settings/, /Project Manager/, /Pet Mode (?:ON|OFF)/]) expect(all).not.toMatch(old)
+  })
+})
+
+// Post-overhaul S2a (Audrey's C6 and C7): a tool's settings open from the
+// gear at the right end of the tool's OWN strip, with Help beside it; the
+// WILSON nav strip holds App settings only. Help that sends a reader to the
+// nav strip, the hamburger or a timeline header for a tool's settings points
+// at a control that no longer opens them.
+const THE_GEAR = "the gear at the right end of the tool's strip"
+// Every unit of text a reader meets as one — a list item, a paragraph, a
+// heading, a table row (its cells together), a term with its description —
+// split into sentences. Text nodes are joined with a space, so a key legend
+// in one element and its meaning in the next read "Enter Toggle the chat",
+// not "EnterToggle the chat"; and a sentence is read whole, in either order,
+// at any length (review round 1, G-R1-08: three exact phrases, a 40-character
+// window and textContent let real spellings through).
+function sentencesOf(root) {
+  const text = (el) => {
+    const parts = []
+    const walk = (n) => { for (const c of n.childNodes) { if (c.nodeType === 3) parts.push(c.textContent); else if (c.nodeType === 1) walk(c) } }
+    walk(el)
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+  }
+  const blocks = []
+  for (const tr of root.querySelectorAll('tr')) blocks.push(text(tr))
+  for (const dt of root.querySelectorAll('dt')) {
+    const dd = dt.nextElementSibling?.tagName === 'DD' ? dt.nextElementSibling : null
+    blocks.push(`${text(dt)} ${dd ? text(dd) : ''}`)
+  }
+  for (const el of root.querySelectorAll('li, p, h1, h2, h3, h4, h5, h6, blockquote, figcaption')) {
+    if (!el.closest('tr, dt, dd')) blocks.push(text(el))
+  }
+  // …and text in any other element (a div, a span) outside those blocks,
+  // read from its nearest container that is not an inline run, so a legend
+  // in a <kbd> and its meaning in the <span> beside it are one sentence
+  // (review round 2, G-R2-04: 34 text nodes in the help were never read).
+  const INLINE = new Set(['SPAN', 'KBD', 'STRONG', 'EM', 'B', 'I', 'CODE', 'A', 'SMALL', 'MARK', 'SUB', 'SUP', 'SVG'])
+  const BLOCKS = 'tr, dt, dd, li, p, h1, h2, h3, h4, h5, h6, blockquote, figcaption'
+  for (const el of root.querySelectorAll('*')) {
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+    if (el.closest(BLOCKS)) continue
+    let box = el
+    while (INLINE.has(box.tagName.toUpperCase()) && box !== root && box.parentElement) box = box.parentElement
+    blocks.push(text(box))
+  }
+  // A sentence ends at . ! or ? and a space — not after "e.g.", "i.e." or "etc.".
+  const sentences = blocks.flatMap((b) => b.split(/(?<!\b(?:e\.g|i\.e|etc)\.)(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean)
+  return [...new Set(sentences)]
+}
+/** Every sentence of every page of every tool's help, both surfaces, and of the Help page. */
+function allHelpSentences() {
+  const out = []
+  for (const [tool, items, Content, themes] of SURFACES) {
+    for (const theme of themes) {
+      for (const { id } of items) {
+        const { container } = render(<Content helpPage={id} theme={theme} />)
+        out.push(...sentencesOf(container).map((s) => [`${tool} ${theme || 'dialog'} ${id}`, s]))
+        cleanup()
+      }
+    }
+  }
+  eachHelpPage((where, pane) => out.push(...sentencesOf(pane).map((s) => [where, s])))
+  return out
+}
+// A tool's settings sent anywhere but its own strip: "Tool settings" in any
+// case or wrapping, or a sentence that puts "settings" in a shell place (the
+// nav strip, the navigation menu, the hamburger, a WILSON menu, a timeline
+// header) — App settings excepted, which IS in the menu.
+const SHELL_PLACES = /\bnav(?:igation)?\s+strip\b|\bnavigation\s+menu\b|\bhamburger\b|\bWILSON\s+(?:menu|nav)\b|\btimeline\s+header\b/i
+const wrongWayToSettings = (s) => /\btool\s+settings\b/i.test(s)
+  || (SHELL_PLACES.test(s) && /\bsettings\b/i.test(s) && !/\bApp settings\b/.test(s))
+function helpText(Content, items) {
+  const seen = []
+  for (const { id } of items) {
+    seen.push(render(<Content helpPage={id} />).container.textContent)
+    cleanup()
+  }
+  return seen.join('\n')
+}
+describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)', () => {
+  it('no help, on either surface, names the nav strip, the hamburger or a timeline header as the way to a tool\'s settings', () => {
+    const all = allHelpSentences()
+    expect(all.length, 'the reader found no sentences').toBeGreaterThan(300)
+    expect(all.filter(([, s]) => wrongWayToSettings(s)).map(([w, s]) => `${w}: ${s}`)).toEqual([])
+  })
+  it('the three passages that did now name the gear: O.T.T.E.R.\'s tip, R.A.B.B.I.T.\'s settings page, the Help page\'s navigation card', () => {
+    expect(helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)).toContain(THE_GEAR)
+    expect(helpText(RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS)).toContain(THE_GEAR)
+    // The Help page's own "Navigation menu" card, read from THAT page's pane:
+    // the Help page also draws O.T.T.E.R.'s help, whose tip names the gear,
+    // so the whole traversal's text would pass without the card (review of
+    // this guard's first cut, a surviving mutant).
+    const nav = []
+    eachHelpPage((where, pane) => { if (/"Navigation"$/.test(where)) nav.push(pane.textContent) })
+    expect(nav, 'the traversal never reached the Navigation page').toHaveLength(1)
+    expect(nav[0]).toMatch(/Navigation menu/)
+    expect(nav[0]).toContain(THE_GEAR)
+    // D.O.G.'s already said it the interface's way.
+    expect(helpText(DogHelpContent, DOG_HELP_SIDEBAR_ITEMS)).toContain('The Settings panel (gear icon)')
+  })
+  it('CONTROL: the old sentences, and the spellings the first cut missed, are caught; the new ones and App settings are not', () => {
+    for (const was of [
+      'You can customize the generation prompts in the O.T.T.E.R. settings panel (hamburger menu icon).',
+      'Click the gear icon in the timeline header (or the settings entry on the WILSON nav strip) to open the slide-out.',
+      'Open Tool settings from the menu.',
+      'Open tool settings from the menu.',
+      'The settings live in the WILSON menu.',
+      'Click the gear in the timeline header to change settings.',
+    ]) expect(wrongWayToSettings(was), was).toBe(true)
+    for (const ok of [
+      "Click the gear at the right end of the tool's strip (Help sits beside it) to open the slide-out, from any tab.",
+      "A tool's own settings — the gear at the right end of the tool's strip, with Help beside it; the menu holds App settings only",
+      'Quick access to Home, other tools, and App settings from any page',
+      'Click outside the nav strip to dismiss it',
+    ]) expect(wrongWayToSettings(ok), ok).toBe(false)
+    // A sentence wrapped over two lines of JSX is read as one.
+    const host = document.createElement('div')
+    host.innerHTML = '<p>Open Tool\n   settings from the strip.</p>'
+    expect(sentencesOf(host).some(wrongWayToSettings)).toBe(true)
+  })
+})
+
+// Post-overhaul S2a (Audrey's C12): the pet's key is a bare Shift tap, and
+// Enter presses whatever has focus. Help that still says Enter opens the pet
+// teaches the one key that no longer does it.
+// A sentence (sentencesOf) that names Enter and the pet at all — in any
+// order, at any distance, with any verb ("Press Enter to talk to your pet"
+// passed a verb list: review round 2, G-R2-04). No help sentence today names
+// both, so none needs excusing.
+const enterOpensPet = (s) => /\benter\b/i.test(s) && /\b(?:chat|companion|pet)\b/i.test(s)
+describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => {
+  it('no help, on either surface, says Enter opens or closes the pet', () => {
+    const all = allHelpSentences()
+    expect(all.length, 'the reader found no sentences').toBeGreaterThan(300)
+    expect(all.filter(([, s]) => enterOpensPet(s)).map(([w, s]) => `${w}: ${s}`)).toEqual([])
+  })
+  it('the three passages that taught Enter teach the Shift tap', () => {
+    const otter = helpText(OtterHelpContent, OTTER_HELP_SIDEBAR_ITEMS)
+    expect(otter).toContain('(or tap Shift on its own)')
+    expect(otter).toMatch(/Shift — Tap it on its own to toggle companion chat/)
+    // The Help page's own "Pet companion" page, read from its own pane.
+    const pet = []
+    eachHelpPage((where, pane) => { if (/"Pet companion"$/.test(where)) pet.push(pane.textContent) })
+    expect(pet, 'the traversal never reached the Pet companion page').toHaveLength(1)
+    expect(pet[0]).toMatch(/Tap Shift on its own to toggle the chat window/)
+  })
+  it('CONTROL: the old sentences and the spellings the first cut missed are caught; the new ones and D.O.G.\'s own Enter keys are not', () => {
+    for (const was of [
+      'Click the sprite to open/close the chat window (or press Enter)',
+      'Enter — Toggle companion chat (when not typing in an input)',
+      'Press Enter to toggle the chat window (when not typing in an input)',
+      'The chat opens and closes with Enter.',
+      'Press Enter, wherever you are in the app and whatever you were doing, to open the pet.',
+      'Press Enter to talk to your pet.',
+    ]) expect(enterOpensPet(was), was).toBe(true)
+    for (const ok of [
+      'Click the sprite to open/close the chat window (or tap Shift on its own)',
+      'Shift — Tap it on its own to toggle companion chat (not while typing in a field, and not over a dialog)',
+      'Enter — Presses the focused button, as anywhere else',
+      'Press Enter in the revision prompt field to trigger regeneration quickly',
+      'Enter — Go to selected search result',
+      'Enter presses the focused button.',
+    ]) expect(enterOpensPet(ok), ok).toBe(false)
+    // A key legend in one element and its meaning in the next is one row.
+    const host = document.createElement('div')
+    host.innerHTML = '<dl><dt>Enter</dt><dd>Toggle the companion chat</dd></dl><table><tr><td><kbd>Enter</kbd></td><td>Open the pet</td></tr></table>'
+    expect(sentencesOf(host).filter(enterOpensPet).sort()).toEqual(['Enter Open the pet', 'Enter Toggle the companion chat'])
+    // A legend and its meaning in plain divs and spans, and "etc." mid-sentence (G-R2-04).
+    const loose = document.createElement('div')
+    loose.innerHTML = '<div><kbd>Enter</kbd><span>Toggle the companion chat</span></div><div>Hit Enter etc. to open the pet.</div>'
+    expect(sentencesOf(loose).filter(enterOpensPet).sort()).toEqual(['Enter Toggle the companion chat', 'Hit Enter etc. to open the pet.'])
   })
 })
 

@@ -97,6 +97,26 @@ describe('rabbitShell.css writes no colour of its own, and paints no orange grou
       '.a [role="tab"] { color: var(--color-ink); }',
     ]) expect(tabReach(c), c).toHaveLength(1)
     expect(tabReach('.a .ui-tab { padding: 0 8px; margin-left: 2px; }')).toEqual([])
+    // Post-overhaul S2a loosened this by ONE property: the ring's offset
+    // (where it is drawn), never its colour, width or style.
+    expect(tabReach('.a .ui-tab:focus-visible { outline-offset: -3px; }')).toEqual([])
+    for (const c of [
+      '.a .ui-tab:focus-visible { outline-color: var(--color-ink); }',
+      '.a .ui-tab:focus-visible { outline: 2px solid var(--color-ink); }',
+      '.a .ui-tab:focus-visible { outline-width: 1px; }',
+    ]) expect(tabReach(c), c).toHaveLength(1)
+  })
+  it('S2a: the tab list scrolls, so the kit ring on its tabs is drawn inside, clear of the underline (V-R1-05, V-R2-04)', () => {
+    // The scroller that clips it…
+    expect(cssCode(shellCss)).toMatch(/\.rb-viewtabs-list\.ui-tabs \{[^}]*overflow-x: auto;/)
+    // …and the inset that keeps the ring whole and one row above the active
+    // tab's 2px underline (the same orange).
+    expect(cssCode(shellCss)).toMatch(/\.rb-viewtabs-list\.ui-tabs > \.ui-tab:focus-visible \{ outline-offset: -5px; \}/)
+    // TAB_SPACING admits outline-offset at any value, so the value is pinned
+    // here: every tab ring this sheet moves is moved to exactly -5px — a
+    // -40px offset on a 36px tab would hide the ring (round 2, G-R2-06).
+    const offsets = [...cssCode(shellCss).matchAll(/([^{}]*\.ui-tab[^{}]*)\{([^}]*outline-offset:\s*([^;]+);[^}]*)\}/g)].map((m) => m[3].trim())
+    expect(offsets).toEqual(['-5px'])
   })
 })
 
