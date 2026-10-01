@@ -113,49 +113,100 @@ describe('baseDirFor — where a Legal row is read from', () => {
   })
 })
 
-describe('stripStrayLegal — S4a\'s labels, removed on read (R1-BEH-03)', () => {
+describe('settleLegalLabels — S4a\'s labels, removed ONCE (R1-BEH-03; review round 2, R2-BEH-01)', () => {
+  const settle = (b) => filing().settleLegalLabels(b, PID)
+
   it('a real Legal file (body in LEGAL) keeps its tag; nothing changes', () => {
     const f = { id: 'a', storage_path: 'a.pdf', tags: ['legal', 'production'] }
     write(path.join(projectRoot, 'LEGAL'), f.storage_path)
     const b = bundle({ files: [f] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(0)
+    expect(settle(b)).toEqual({ settled: true, stripped: [] })
     expect(b.files[0].tags).toEqual(['legal', 'production'])
+  })
+
+  it('…even with a same-name copy in the files dir: LEGAL decides (planted fault R2-1)', () => {
+    const f = { id: 'a2', storage_path: 'a2.pdf', tags: ['legal'] }
+    write(path.join(projectRoot, 'LEGAL'), f.storage_path)
+    write(filesDir, f.storage_path)
+    const b = bundle({ files: [f] })
+    expect(settle(b).stripped).toEqual([])
+    expect(b.files[0].tags).toEqual(['legal'])
+  })
+
+  it('…and in the internal LEGAL (added while the project had no folder)', () => {
+    const f = { id: 'a3', storage_path: 'a3.pdf', tags: ['legal'] }
+    write(path.join(internalRoot, PID, 'LEGAL'), f.storage_path)
+    write(filesDir, f.storage_path)
+    const b = bundle({ files: [f] })
+    expect(settle(b).stripped).toEqual([])
   })
 
   it('a project file labelled Legal whose body is in the files dir loses the label, and only it', () => {
     const f = { id: 'b', storage_path: 'b.pdf', tags: ['legal', 'creative'] }
     write(filesDir, f.storage_path)
     const b = bundle({ files: [f] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(1)
+    expect(settle(b)).toEqual({ settled: true, stripped: ['b'] })
     expect(b.files[0].tags).toEqual(['creative'])
   })
 
   it('an invoice is never Legal: its label goes wherever the body is', () => {
     const f = { id: 'c', storage_path: 'c.pdf', tags: ['legal'], is_financial: true }
     const b = bundle({ files: [f] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(1)
+    expect(settle(b).stripped).toEqual(['c'])
     expect(b.files[0].tags).toEqual([])
   })
 
   it('a managed file (an asset\'s, a shot\'s, a scene\'s) is never Legal', () => {
     const m = { id: 'm', file_name: 'take.mov', tags: ['shots', 'legal'] }
     const b = bundle({ managedFiles: [m] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(1)
+    expect(settle(b).stripped).toEqual(['m'])
     expect(b.managedFiles[0].tags).toEqual(['shots'])
   })
 
   it('a Legal row whose body is missing everywhere stays Legal (fail closed)', () => {
     const f = { id: 'd', storage_path: 'gone.pdf', tags: ['legal'] }
     const b = bundle({ files: [f] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(0)
+    expect(settle(b)).toEqual({ settled: true, stripped: [] })
     expect(b.files[0].tags).toEqual(['legal'])
+  })
+
+  it('NOT settled, nothing touched, while the project\'s folder is configured but unreachable (a NAS offline)', () => {
+    hasFolder = false
+    const f = { id: 'n', storage_path: 'n.pdf', tags: ['legal'] }
+    // A relinked local copy in the fallback files dir: the round-2 scenario.
+    write(path.join(internalRoot, PID, 'files'), f.storage_path)
+    const b = bundle({ project: { id: PID, title: 'Salt Hours', folder_root: 'Z:\\nas\\Salt-Hours' }, files: [f] })
+    expect(settle(b)).toEqual({ settled: false, stripped: [] })
+    expect(b.files[0].tags).toEqual(['legal'])
+  })
+
+  it('CONTROL: a project with NO folder configured is settled (its LEGAL is the internal one)', () => {
+    hasFolder = false
+    const f = { id: 'o', storage_path: 'o.pdf', tags: ['legal'] }
+    write(path.join(internalRoot, PID, 'LEGAL'), f.storage_path)
+    const b = bundle({ files: [f] })
+    expect(settle(b)).toEqual({ settled: true, stripped: [] })
   })
 
   it('CONTROL: untagged rows and rows without tags are left alone', () => {
     const b = bundle({ files: [{ id: 'e', storage_path: 'e.pdf', tags: ['creative'] }, { id: 'f', storage_path: 'f.pdf' }], managedFiles: [{ id: 'g' }] })
-    expect(filing().stripStrayLegal(b, PID)).toBe(0)
+    expect(settle(b)).toEqual({ settled: true, stripped: [] })
     expect(b.files[0].tags).toEqual(['creative'])
     expect(b.files[1].tags).toBeUndefined()
+  })
+
+  it('resolves the folders once per call, not once per row (R2-BEH-03)', () => {
+    let roots = 0
+    const counted = createLegalFiling({
+      fs, path,
+      resolveProjectFolder: () => { roots += 1; return projectRoot },
+      resolveProjectFilesDir: () => filesDir,
+      getRabbitProjectDir: (pid) => path.join(internalRoot, pid),
+      resolveContainedFilePath,
+    })
+    const files = Array.from({ length: 50 }, (_, i) => ({ id: `r${i}`, storage_path: `r${i}.pdf`, tags: ['legal'] }))
+    counted.settleLegalLabels(bundle({ files }), PID)
+    expect(roots).toBeLessThanOrEqual(2)
   })
 })
 

@@ -49,10 +49,31 @@ async function fetchLocalProject(projectId) {
 // answered index.html with a 200, so every migrated "file" was the app's own
 // page (R1-BEH-01, found in passing). The download is a read, so the desktop
 // records one 'downloaded' event per file, as any other read does.
+//
+// Review round 2 (R2-BEH-02): a body the desktop cannot read (410 — the NAS
+// offline, the LEGAL folder locked to this account as LEGAL_LOCAL_NOTE asks;
+// any other refusal) is a FAILURE with its reason, never a quiet "skipped":
+// skipped reads as "already in the cloud", and a clean report offers to
+// archive and clear the desktop's copy.
 async function fetchLocalFileBlob(projectId, fileId) {
   const res = await localFetch(`${RABBIT_BASE}/projects/${projectId}/files/${fileId}/download`)
-  if (!res.ok) return null
-  return res.blob()
+  if (!res.ok) return { blob: null, status: res.status }
+  return { blob: await res.blob(), status: res.status }
+}
+
+// Already in the cloud? Asked BEFORE any byte moves (review round 2,
+// R2-BEH-06): a re-run used to upload the body again and only then meet the
+// row's 23505 — and for an invoice or a Legal file, whose key changed in
+// round 1, that left an orphan object at the new key. A row this person
+// cannot read (another's Legal file) answers nothing, and the upload is then
+// refused by the storage policies like any other write they may not make.
+async function cloudFileRow(fileId) {
+  try {
+    const { data } = await supabase.from('files').select('id, storage_path').eq('id', fileId).maybeSingle()
+    return data || null
+  } catch {
+    return null
+  }
 }
 
 // Post-overhaul S4b (0088): a Legal file may only land in the cloud under its
@@ -182,6 +203,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
       report.phaseLinks.total += links.phase
       note(`  ${plural((bundle.phases ?? []).length, 'phase')}, ${plural((bundle.tasks ?? []).length, 'task')}, ` +
            `${plural(links.task, 'task link')}, ${plural(links.phase, 'phase link')}`)
+      // S4b (review round 2, R2-BEH-07): the dry run promises what the real
+      // run will do with Legal files, asked of the same database.
+      const legalCount = (bundle.files ?? []).filter(isLegalFile).length
+      if (legalCount > 0) {
+        if (legalLocked === null) legalLocked = await cloudLocksLegal()
+        report.legalFiles = (report.legalFiles || 0) + legalCount
+        note(legalLocked
+          ? `  ${plural(legalCount, 'Legal file')} will go to the cloud's locked LEGAL folder`
+          : `  ${plural(legalCount, 'Legal file')} will stay on this computer: ${LEGAL_UNAVAILABLE}`)
+      }
       continue
     }
 
@@ -283,10 +314,25 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
             continue
           }
         }
-        const blob = await fetchLocalFileBlob(projectId, f.id)
-        if (!blob) { bumpSkipped(report.files); continue }
-
         const objectPath = cloudObjectPathFor(projectId, f)
+        const already = await cloudFileRow(f.id)
+        if (already) {
+          if (already.storage_path && already.storage_path !== objectPath) {
+            report.errors.push({
+              scope: 'file', projectId, id: f.id,
+              message: `already in the cloud at an older path (${already.storage_path}), not uploaded again — check that copy, and add the file again if it is wrong`,
+            })
+          }
+          bumpSkipped(report.files)
+          continue
+        }
+        const { blob, status } = await fetchLocalFileBlob(projectId, f.id)
+        if (!blob) {
+          report.errors.push({ scope: 'file', projectId, id: f.id, message: `the file's body could not be read on this computer (HTTP ${status})` })
+          bumpFailed(report.files)
+          continue
+        }
+
         const objectDir = objectPath.slice(0, objectPath.lastIndexOf('/'))
         const safeName = objectPath.slice(objectPath.lastIndexOf('/') + 1)
 

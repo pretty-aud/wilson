@@ -17,10 +17,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true }
+  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true, rpcError: null, existing: {} }
   const client = {
     from(table) {
+      let id = null
       return {
+        // The existence check before an upload (review round 2, R2-BEH-06).
+        select() { return this },
+        eq(_col, value) { id = value; return this },
+        maybeSingle: async () => ({ data: state.existing[table]?.[id] ?? null, error: null }),
         insert: async (row) => {
           state.log.push(table)
           const override = state.failWith?.(table, row)
@@ -40,7 +45,10 @@ const fake = vi.hoisted(() => {
     },
     rpc: async (fn, args) => {
       state.rpcs.push([fn, args])
-      if (fn === 'rabbit_money_segment') return { data: args?.seg === 'LEGAL' ? state.legalLocked : false, error: null }
+      if (fn === 'rabbit_money_segment') {
+        if (state.rpcError) return { data: null, error: state.rpcError }
+        return { data: args?.seg === 'LEGAL' ? state.legalLocked : false, error: null }
+      }
       return { data: null, error: null }
     },
   }
@@ -76,6 +84,8 @@ beforeEach(() => {
   fake.state.uploads = []
   fake.state.rpcs = []
   fake.state.legalLocked = true
+  fake.state.rpcError = null
+  fake.state.existing = {}
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   globalThis.fetch = vi.fn(async (url) => {
     if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -274,5 +284,79 @@ describe('files keep their gate on the way to the cloud (S4b)', () => {
   it('asks the database once per run (the answer is the same for every Legal file)', async () => {
     await runMigration({ workspaceId: 'ws1' })
     expect(fake.state.rpcs.filter(r => r[0] === 'rabbit_money_segment')).toHaveLength(1)
+  })
+})
+
+// ── Review round 2 (R2-BEH-02, 06, 07; planted faults R2-2, R2-3, R2-9) ─────
+describe('what a run cannot do, it says (S4b review round 2)', () => {
+  const FILES = [
+    { id: 'f-plain', project_id: 'p1', name: 'call sheet.pdf', storage_path: 'f-plain-call_sheet.pdf', storage_provider: 'local_server' },
+    { id: 'f-legal', project_id: 'p1', name: 'nda.pdf', storage_path: 'f-legal-nda.pdf', storage_provider: 'local_server', tags: ['legal'] },
+  ]
+  let bodyStatus
+  beforeEach(() => {
+    bodyStatus = {}
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') return { ok: true, json: async () => ({ ...bundle(), files: FILES }) }
+      const m = /^\/api\/rabbit\/projects\/p1\/files\/([^/]+)\/download$/.exec(url)
+      if (m) {
+        const status = bodyStatus[m[1]] ?? 200
+        return status === 200
+          ? { ok: true, status, blob: async () => new Blob([`body of ${m[1]}`]) }
+          : { ok: false, status }
+      }
+      return { ok: false, status: 404 }
+    })
+  })
+  const rowOf = (id) => (fake.state.inserts.files || []).find(r => r.id === id)
+
+  it('a body the desktop cannot read is a FAILURE with its reason — never "skipped" (R2-BEH-02)', async () => {
+    bodyStatus['f-plain'] = 410
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(rowOf('f-plain')).toBeUndefined()
+    expect(report.files.failed).toBe(1)
+    expect(report.errors.find(e => e.id === 'f-plain')?.message).toBe('the file\'s body could not be read on this computer (HTTP 410)')
+  })
+
+  it('a Legal file left behind counts as skipped, beside its reason (R2-9)', async () => {
+    fake.state.legalLocked = false
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.files).toMatchObject({ total: 2, inserted: 1, skipped: 1, failed: 0 })
+  })
+
+  it('a probe that ERRORS is "not locked": the Legal file stays behind (fail closed, R2-2)', async () => {
+    fake.state.rpcError = { message: 'boom' }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(rowOf('f-legal')).toBeUndefined()
+    expect(fake.state.uploads.some(u => u.includes('nda'))).toBe(false)
+    expect(report.errors.some(e => e.id === 'f-legal')).toBe(true)
+  })
+
+  it('a file already in the cloud is not uploaded again; at an older path, the report says so (R2-BEH-06)', async () => {
+    fake.state.existing.files = {
+      'f-plain': { id: 'f-plain', storage_path: 'projects/p1/files/f-plain/call_sheet.pdf' },
+      'f-legal': { id: 'f-legal', storage_path: 'projects/p1/files/f-legal/nda.pdf' },
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(fake.state.uploads).toEqual([])
+    expect(report.files).toMatchObject({ skipped: 2, inserted: 0 })
+    // Same path: nothing to say. An older path (the Legal file migrated by the
+    // pre-S4b code under files/): said, so the run is not called clean.
+    expect(report.errors.find(e => e.id === 'f-plain')).toBeUndefined()
+    expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^already in the cloud at an older path \(projects\/p1\/files\/f-legal\/nda\.pdf\)/)
+  })
+
+  it('the dry run says what will happen to Legal files, asked of the same database (R2-BEH-07)', async () => {
+    const lines = []
+    const report = await runMigration({ workspaceId: 'ws1', dryRun: true, onProgress: (m) => lines.push(m) })
+    expect(lines).toContain("  1 Legal file will go to the cloud's locked LEGAL folder")
+    expect(report.legalFiles).toBe(1)
+    fake.state.legalLocked = false
+    const later = []
+    await runMigration({ workspaceId: 'ws1', dryRun: true, onProgress: (m) => later.push(m) })
+    expect(later.some(l => l.startsWith('  1 Legal file will stay on this computer: Legal files need a database update (migration 0088)'))).toBe(true)
+    expect(fake.state.uploads).toEqual([])
+    expect(fake.state.inserts).toEqual({})
   })
 })

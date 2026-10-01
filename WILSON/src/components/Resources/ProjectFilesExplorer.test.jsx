@@ -995,6 +995,24 @@ describe('Add as Legal (S4b)', () => {
     expect(gate()).toBeNull()
   })
 
+  it('a seat that arrives after the page asks again, and says "Checking…" meanwhile (planted fault R2-4)', async () => {
+    seat('member', 'member')
+    let answer
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: () => new Promise((r) => { answer = r }) })
+    const { rerender } = onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton()).toBeNull()
+    // The manager seat loads: the control appears, and the database is asked.
+    ctx.myProjectRole = 'manager'
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await waitFor(() => expect(answer).toBeTypeOf('function'))
+    expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title'))
+      .toBe('Checking whether this workspace can keep Legal files…')
+    await act(async () => { answer(true) })
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+  })
+
   it('an answer that is not exactly true is "not available"', async () => {
     seat('admin', null)
     ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => 'yes' })

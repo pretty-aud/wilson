@@ -238,6 +238,14 @@ describe('POST …/files — the base64 transport, beside the stream (S4b review
     expect(readRabbitBundle(PID).files.find(f => f.id === row.id).tags).toEqual(['legal'])
   })
 
+  it('keeps a document kind and a description on the row (0075; planted fault R2-5)', async () => {
+    const row = await (await post(PID, { name: 'brief.pdf', base64: b64('b'), scope: { documentKind: 'brief', description: 'the v3 brief' } })).json()
+    expect(row).toMatchObject({ document_kind: 'brief', description: 'the v3 brief' })
+    const bare = await (await post(PID, { name: 'plate.png', base64: b64('p'), scope: {} })).json()
+    expect(bare.document_kind).toBe(null)
+    expect(bare.description).toBe(null)
+  })
+
   it('a financial scope goes to INVOICES (CONTROL: the third directory)', async () => {
     const row = await (await post(PID, { name: 'inv.pdf', base64: b64('inv'), scope: { financial: true } })).json()
     expect(row.is_financial).toBe(true)

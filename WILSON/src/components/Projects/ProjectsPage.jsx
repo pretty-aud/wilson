@@ -28,7 +28,7 @@ import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments'
-import { isLegalFile } from '../../tools/rabbit_v0.1.0/fileTags'
+import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../../tools/rabbit_v0.1.0/fileTags'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
 import { Banner, Button, Field, Input } from '../../ui'
@@ -209,9 +209,13 @@ export default function ProjectsPage({ onNavigate }) {
       // manager finding them mixed in with the project's ordinary documents.
       // Local Server mirrors is_financial on its own rows (0038's twin in
       // electron/main.cjs), so the one filter is right on both backends.
-      // S4b (0088): Legal files likewise — their home is the Files tab's
-      // LEGAL folder, and this table offers Core, which a Legal file never is.
-      setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial && !isLegalFile(f)))
+      // S4b (0088): Legal files are NOT filtered out. The database hands them
+      // only to the people who may see them (a member never receives the
+      // row), and this is the one page where a project file is deleted — a
+      // Legal file added by mistake must be removable, and "add it again" is
+      // how Legal is changed. Its Core box is locked (ProjectFilesTable), as
+      // a Legal file is never core.
+      setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))
     } catch {
       // A backend that cannot list files is not an error on this page; the
       // legacy arrays below still render.
@@ -323,6 +327,12 @@ export default function ProjectsPage({ onNavigate }) {
     // hid until the next listFiles(). The write is real now — FILE_COLUMNS
     // carries both names and columnAllowlist.test.js pins them.
     const storedRow = fileRows.find(f => f.id === fileId)
+    // S4b: a Legal file is never core — refused here too, not only by the
+    // locked box and the database's CHECK.
+    if (storedRow && patch?.is_core_definer && isLegalFile(storedRow)) {
+      setSaveError(LEGAL_NOT_CORE_REASON)
+      return
+    }
     if (storedRow) {
       // 🚨 Review round 2, §6 #31 trap (f) — the SAME defect D.O.G.'s Core
       // toggle had, on the sibling surface that finding was about, left

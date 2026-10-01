@@ -8,7 +8,10 @@
 // that hands rows on to something the whole project reads must leave it out:
 //
 //   * D.O.G.'s deck attachments (a deck is shared)      deckAttachments.js
-//   * the Projects page's Project Files table (Core)    ProjectsPage.jsx
+//   * the Projects page's Project Files table — since review round 2 it
+//     LISTS a Legal file (the one page where a file is deleted), its Core
+//     locked                                           ProjectsPage.jsx,
+//                                                      ProjectFilesTable.jsx
 //   * the entity file managers (an asset's files)       FileManager.jsx
 //   * Core itself (Intake and D.O.G. read core files)   RabbitProvider.jsx
 //   * the pet: its context reads NO file row at all     App.jsx, petKnowledge.js
@@ -47,10 +50,15 @@ const projectsFilter = (src) => only(/setFileRows\(\(rows \|\| \[\]\)\.filter\((
 /** FileManager's money exclusion line. */
 const managerFilter = (src) => only(/\n\s*if \((f\.is_financial[^\n]*?)\) return false/g, src)
 
-describe('the Projects page and the entity file managers leave Legal files out', () => {
-  it('the Projects page filters invoices AND Legal files out of its list', () => {
-    expect(projectsFilter(PROJECTS_PAGE)).toBe('f => !f.deleted_at && !f.is_financial && !isLegalFile(f)')
-    expect(PROJECTS_PAGE).toContain("import { isLegalFile } from '../../tools/rabbit_v0.1.0/fileTags'")
+describe('the Projects page lists a Legal file (Core locked); the entity file managers leave it out', () => {
+  // Review round 2 (found while writing the walkthrough): filtering Legal
+  // files out of the Projects page left a manager no way to DELETE one — the
+  // file window has no Delete, and "add it again" is how Legal is changed.
+  // The database already gives the row only to the people who may see it.
+  it('the Projects page keeps invoices out and Legal files IN, and refuses Core on one', () => {
+    expect(projectsFilter(PROJECTS_PAGE)).toBe('f => !f.deleted_at && !f.is_financial')
+    expect(code(PROJECTS_PAGE)).toMatch(/if \(storedRow && patch\?\.is_core_definer && isLegalFile\(storedRow\)\) \{\s*setSaveError\(LEGAL_NOT_CORE_REASON\)\s*return/)
+    expect(PROJECTS_PAGE).toContain("import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../../tools/rabbit_v0.1.0/fileTags'")
   })
 
   it('an entity file manager does the same', () => {
@@ -58,20 +66,20 @@ describe('the Projects page and the entity file managers leave Legal files out',
     expect(FILE_MANAGER).toContain("import { isLegalFile } from '../fileTags'")
   })
 
-  it('CONTROL: the readers see a filter that forgot Legal', () => {
-    const forgot = PROJECTS_PAGE.replace(' && !isLegalFile(f)', '')
+  it('CONTROL: the readers see a filter that changed', () => {
+    const forgot = PROJECTS_PAGE.replace(' && !f.is_financial))', '))')
     expect(projectsFilter(forgot)).not.toBe(projectsFilter(PROJECTS_PAGE))
     const forgotToo = FILE_MANAGER.replace(' || isLegalFile(f)', '')
     expect(managerFilter(forgotToo)).toBe('f.is_financial')
   })
 
   it('CONTROL: …and are not fooled by the right filter in a comment above a wrong one (planted fault R1-8)', () => {
-    const line = 'setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial && !isLegalFile(f)))'
+    const line = 'setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))'
     const at = PROJECTS_PAGE.indexOf(line)
     expect(at).toBeGreaterThan(-1)
     const commented = PROJECTS_PAGE.slice(0, at) + '// ' + line + '\n      '
-      + 'setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))' + PROJECTS_PAGE.slice(at + line.length)
-    expect(projectsFilter(commented)).toBe('f => !f.deleted_at && !f.is_financial')
+      + 'setFileRows((rows || []).filter(f => !f.deleted_at))' + PROJECTS_PAGE.slice(at + line.length)
+    expect(projectsFilter(commented)).toBe('f => !f.deleted_at')
   })
 })
 

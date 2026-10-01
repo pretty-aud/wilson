@@ -1466,9 +1466,23 @@ function startLocalServer(distPath) {
       // Ensure sub-folder structure exists on first access
       try { ensureProjectFolders(bundle); } catch {}
       // S4b: a `legal` LABEL from S4a's period (a managed file, an invoice,
-      // a project file whose body is not in a LEGAL folder) is removed, as
-      // 0088 §2 strips the cloud's — persisted by the dirty write below.
-      try { if (legalFiling.stripStrayLegal(bundle, projectId) > 0) dirty = true; } catch { /* next read */ }
+      // a project file whose body is not in a LEGAL folder) is removed ONCE
+      // per project, as 0088 §2 strips the cloud's once, and the ids are
+      // kept beside the bundle's other one-time migrations (review round 2:
+      // run on every read it could strip a real Legal file). Persisted by the
+      // dirty write below; not settled while the project's folder is offline.
+      if (!bundle.legalLabelsSettled) {
+        try {
+          const settled = legalFiling.settleLegalLabels(bundle, projectId);
+          if (settled.settled) {
+            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: settled.stripped };
+            dirty = true;
+            if (settled.stripped.length > 0) {
+              console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
+            }
+          }
+        } catch { /* next read */ }
+      }
       // Session 26: the tree, reconciled on read so a project that predates
       // 0041 gains its rows without anyone having to migrate anything. It
       // converges — once every planned folder has a row nothing changes, so

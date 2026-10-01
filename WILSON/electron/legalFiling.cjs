@@ -16,13 +16,21 @@
 //     LEGAL, then the internal LEGAL (a file added before a folder was set),
 //     then wherever the body actually is (the files directory — never the
 //     answer for a body added since S4b, kept so nothing becomes unreadable).
-//   * stripStrayLegal — S4a's label period (on the desktop anyone could tick
-//     Legal, and the PATCH accepted it): a `legal` tag on a managed file, on
-//     an invoice, or on a project file whose body is in the ordinary files
-//     directory is a LABEL, not a Legal file. It is removed on read, as 0088
-//     §2 strips the cloud's — otherwise the file sits in the LEGAL node with
-//     its body outside the folder the UI tells you to lock, and its tags can
-//     never be edited again (the PATCH refuses changing a Legal tag).
+//   * settleLegalLabels — S4a's label period (on the desktop anyone could
+//     tick Legal, and the PATCH accepted it): a `legal` tag on a managed file,
+//     on an invoice, or on a project file whose body is in the ordinary files
+//     directory is a LABEL, not a Legal file — otherwise it sits in the LEGAL
+//     node with its body outside the folder the UI tells you to lock, and its
+//     tags can never be edited again (the PATCH refuses changing a Legal tag).
+//     ONCE per project, as 0088 §2 strips the cloud's once and counts them:
+//     the caller records that the project is settled, with the ids it
+//     stripped, and never asks again (review round 2, R2-BEH-01: run on every
+//     read, it stripped a REAL Legal file whose body was moved by hand or
+//     whose NAS was offline beside a relinked copy — and the tag could never
+//     come back). Since S4b nothing can make a new label: the PATCH refuses
+//     adding `legal`, and every Legal upload writes its body into LEGAL. Not
+//     settled while the project's own folder is unreachable (a NAS offline):
+//     the LEGAL folder it would look in is not there to look in.
 //   * relinkable — the relink flow moves the project's ORDINARY files home;
 //     invoices (Session 24) and Legal files never take part, in the scan or
 //     in the apply (a crafted mapping must not re-point a Legal body).
@@ -85,28 +93,38 @@ function createLegalFiling({
   }
 
   /**
-   * Remove S4a-period `legal` LABELS (see the header). Returns how many rows
-   * changed; the caller persists the bundle when it is more than zero. A
+   * Remove S4a-period `legal` LABELS, once (see the header). Returns
+   * `{ settled, stripped }`: `stripped` the ids whose label was removed (the
+   * caller persists the bundle and the record); `settled` false — nothing
+   * touched — while the project's folder is configured but unreachable. A
    * Legal row whose body is in a LEGAL folder, or missing altogether, stays
    * Legal (fail closed: a missing body is no evidence it was a label).
+   * The folders are resolved once per call, not per row (R2-BEH-03).
    */
-  function stripStrayLegal(bundle, projectId) {
-    let changed = 0;
+  function settleLegalLabels(bundle, projectId) {
+    if (bundle?.project?.folder_root && !resolveProjectFolder(bundle)) {
+      return { settled: false, stripped: [] };
+    }
+    const stripped = [];
     const drop = (row) => {
       row.tags = row.tags.filter((t) => t !== LEGAL_TAG);
-      changed += 1;
+      stripped.push(row.id);
     };
     for (const m of bundle?.managedFiles || []) {
       if (Array.isArray(m?.tags) && m.tags.includes(LEGAL_TAG)) drop(m);
     }
-    for (const f of bundle?.files || []) {
-      if (!isLegalRow(f)) continue;
-      if (f.is_financial) { drop(f); continue; }
-      if (legalHome(bundle, projectId, f)) continue;
-      const filesDir = resolveProjectFilesDir(bundle, projectId);
-      if (filesDir && holds(filesDir, f.storage_path)) drop(f);
+    const labelled = (bundle?.files || []).filter((f) => isLegalRow(f));
+    if (labelled.length > 0) {
+      const dirs = legalDirs(bundle, projectId);
+      let filesDir;
+      for (const f of labelled) {
+        if (f.is_financial) { drop(f); continue; }
+        if (dirs.some((d) => holds(d, f.storage_path))) continue;
+        if (filesDir === undefined) filesDir = resolveProjectFilesDir(bundle, projectId) || null;
+        if (filesDir && holds(filesDir, f.storage_path)) drop(f);
+      }
     }
-    return changed;
+    return { settled: true, stripped };
   }
 
   /** May the relink flow scan or re-point this row? Never an invoice or a Legal file. */
@@ -114,7 +132,7 @@ function createLegalFiling({
     return !file?.is_financial && !isLegalRow(file);
   }
 
-  return { legalDir, legalDirs, legalHome, baseDirFor, stripStrayLegal, relinkable };
+  return { legalDir, legalDirs, legalHome, baseDirFor, settleLegalLabels, relinkable };
 }
 
 module.exports = { createLegalFiling };

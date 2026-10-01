@@ -100,7 +100,8 @@ function mountProjectFileStream(expressApp, {
 
   // ── Files: upload (base64 JSON payload) — moved from main.cjs (S4b) ──
   // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
-  // Server decodes and writes to {project_dir}/files/{file_id}-{name}.
+  // Server decodes and writes {file_id}-{name} into the directory
+  // uploadDirFor chooses (LEGAL, INVOICES or the project's files dir).
   // Multipart was the original spec but base64 keeps us off a new dep
   // (multer/formidable) and works fine inside the existing 50mb json limit.
   expressApp.post(POST_ROUTE, (req, res) => {

@@ -145,11 +145,17 @@ export function toggleTag(row, id, { legal = isLegalFile(row) } = {}) {
 export function isLegalFile(row) {
   if (!row || typeof row !== 'object') return false
   const key = typeof row.storage_path === 'string' ? row.storage_path : ''
-  if (row.storage_provider !== 'local_server' && key.startsWith('projects/')) {
+  // A private project's cloud rows carry storage_provider 'local_server' (the
+  // body is on this computer) and still a real projects/{uuid}/… key — the
+  // database judges THEIR row by its folder too (review round 2, R2-BEH-04).
+  const cloudKey = key.startsWith('projects/')
+    && (row.storage_provider !== 'local_server' || PROJECT_UUID_KEY.test(key))
+  if (cloudKey) {
     return (key.split('/')[2] || '').toUpperCase() === LEGAL_SEGMENT
   }
   return storedTags(row).includes(GATED_TAG)
 }
+const PROJECT_UUID_KEY = /^projects\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//i
 
 /**
  * The sentence for a refusal by one of 0088's Legal rules (the two CHECKs and

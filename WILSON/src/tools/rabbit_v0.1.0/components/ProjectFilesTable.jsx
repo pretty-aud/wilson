@@ -54,6 +54,7 @@
 import { useState, useEffect } from 'react'
 import { FileText, Trash2, Image as ImageIcon, FileClock } from 'lucide-react'
 import { Table, Row, Th, Td, CellSelect, IconButton, EmptyState } from '../../../ui'
+import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../fileTags'
 import '../views/rabbitFiles.css'
 
 export const DOCUMENT_KINDS = [
@@ -176,13 +177,17 @@ export default function ProjectFilesTable({
         {files.map((f) => {
           const name = fileName(f)
           const created = fmtDate(f.created_at || f.uploaded_at)
+          // S4b (0088): a Legal file is never core — its box is off and
+          // locked, with the reason (files_legal_not_core_chk).
+          const legal = isLegalFile(f)
           return (
             <Row key={f.id}>
               <Td align="center">
                 <input type="checkbox" className="rb-files-core"
-                  checked={!!f.is_core_definer}
-                  onChange={canEdit ? e => onUpdate(f.id, { is_core_definer: e.target.checked }) : undefined}
-                  disabled={!canEdit}
+                  checked={!!f.is_core_definer && !legal}
+                  onChange={canEdit && !legal ? e => onUpdate(f.id, { is_core_definer: e.target.checked }) : undefined}
+                  disabled={!canEdit || legal}
+                  title={legal ? LEGAL_NOT_CORE_REASON : undefined}
                   aria-label={`Core file: ${name}`} />
               </Td>
 

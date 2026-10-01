@@ -123,6 +123,14 @@ describe('what a row shows and what the client writes', () => {
     expect(isLegalFile({ storage_provider: 'supabase', storage_path: 'projects/p/LEGAL/p/1-a.pdf', tags: [] })).toBe(true)
   })
 
+  it('isLegalFile on a private project\'s cloud row (provider local_server, a projects/{uuid}/ key) is the folder too (R2-BEH-04)', () => {
+    const pid = '3f9b6a52-1c0e-4d7a-9a51-2b8c7d6e5f40'
+    expect(isLegalFile({ storage_provider: 'local_server', storage_path: `projects/${pid}/project/${pid}/1-a.pdf`, tags: ['legal'] })).toBe(false)
+    expect(isLegalFile({ storage_provider: 'local_server', storage_path: `projects/${pid}/LEGAL/${pid}/1-a.pdf`, tags: [] })).toBe(true)
+    // and toggleTag clears the label on such a row
+    expect(toggleTag({ storage_provider: 'local_server', storage_path: `projects/${pid}/project/${pid}/1-a.pdf`, tags: ['legal'] }, 'code')).toEqual(['code'])
+  })
+
   it('isLegalFile on a LOCAL SERVER row is the tag alone: a folder of the person\'s own called Legal is not (R1-BEH-06)', () => {
     expect(isLegalFile({ storage_provider: 'local_server', storage_path: 'Docs/2026/Legal/nda.pdf' })).toBe(false)
     expect(isLegalFile({ storage_provider: 'local_server', storage_path: 'projects/x/LEGAL/y/nda.pdf' })).toBe(false)
@@ -263,8 +271,10 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
 
   it('main.cjs: a LEGAL folder beside INVOICES, and every Legal decision handed to legalFiling.cjs', () => {
     // CODE, not comments: a line commented out must not satisfy a pin
-    // (review round 1, R1-1 and R1-5 survived on exactly that).
-    const code = mainCjs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    // (review round 1, R1-1 and R1-5 survived on exactly that) — nor one in a
+    // block comment (round 2, R2-11 and R2-12 survived on that).
+    const code = mainCjs.replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     // Made with the project, beside INVOICES (so a NAS can lock it).
     const dirs = code.slice(code.indexOf('function ensureProjectFolders(bundle)'), code.indexOf('for (const d of dirs)'))
     expect(dirs).toContain("path.join(root, 'INVOICES'),")
@@ -272,9 +282,11 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
     // The module is created with the host's helpers, before the first bundle read.
     expect(code).toMatch(/const legalFiling = require\('\.\/legalFiling\.cjs'\)\.createLegalFiling\(\{\s*fs, path, resolveProjectFolder, resolveProjectFilesDir, getRabbitProjectDir, resolveContainedFilePath,\s*\}\);/)
     expect(code.indexOf('const legalFiling = ')).toBeLessThan(code.indexOf('function readRabbitBundle('))
-    // Every read strips S4a-period labels, and persists the change.
+    // S4a-period labels are settled ONCE per project, recorded, persisted
+    // (review round 2, R2-BEH-01: every read could strip a real Legal file).
     const read = code.slice(code.indexOf('function readRabbitBundle('), code.indexOf('function writeRabbitBundle('))
-    expect(read).toContain('if (legalFiling.stripStrayLegal(bundle, projectId) > 0) dirty = true;')
+    expect(read).toMatch(/if \(!bundle\.legalLabelsSettled\) \{\s*try \{\s*const settled = legalFiling\.settleLegalLabels\(bundle, projectId\);\s*if \(settled\.settled\) \{\s*bundle\.legalLabelsSettled = \{ at: new Date\(\)\.toISOString\(\), stripped: settled\.stripped \};\s*dirty = true;/)
+    expect(read).not.toContain('stripStrayLegal')
     // A Legal body is written to, and read from, a LEGAL folder — never the files dir.
     const legalDirFn = code.slice(code.indexOf('function resolveProjectLegalDir('), code.indexOf('function resolveFileBaseDir('))
     expect(legalDirFn).toContain('return legalFiling.legalDir(bundle, projectId);')
@@ -289,8 +301,9 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
     const apply = code.slice(code.indexOf("'/api/rabbit/projects/:projectId/files/relink-apply'"))
     expect(apply.slice(0, apply.indexOf('if (changingBase)'))).toMatch(/if \(!legalFiling\.relinkable\(file\)\) \{\s*return res\.status\(400\)/)
     // The base64 POST lives beside the stream now (projectFileStream.test.js
-    // serves both for real); main.cjs registers it nowhere.
-    expect(code).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    // serves both for real); main.cjs registers it nowhere, in any quotes
+    // (round 2, R2-10: a second registration would shadow the module's).
+    expect(code).not.toMatch(/\.post\(\s*['"`]\/api\/rabbit\/projects\/:projectId\/files['"`]/)
     // The stream module is handed the LEGAL resolver.
     expect(code).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
   })
