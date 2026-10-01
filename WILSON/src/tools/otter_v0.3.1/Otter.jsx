@@ -4642,14 +4642,15 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return <EmptyState icon={BookOpen} title="Select a subject from the sidebar to begin studying." />;
     }
     if (activeSubject.is_stub) {
+      // S2b (C4, C5): the lesson page's width, and its one-line breadcrumb.
       return (
         <div className="otter-view">
-          <div className="otter-view-page" data-width="reading">
-            <nav className="otter-crumbs" aria-label="Where this subject sits">
-              <span>{activeSoftware?.name}</span>
+          <div className="otter-view-page" data-width="subject">
+            <nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+              <span className="otter-crumb-keep">{activeSoftware?.name}</span>
               <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
               <span className="otter-crumb-current">{activeSubject.title}</span>
-              <span>[outline]</span>
+              <span className="otter-crumb-keep">[outline]</span>
             </nav>
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
               {activeSubject.title}
@@ -4709,11 +4710,15 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       <div className="otter-study">
         {selectedLesson ? (
           <div className="otter-study-page">
-            <nav className="otter-crumbs" aria-label="Where this lesson sits">
-              <span>{activeSoftware?.name}</span>
-              <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
-              <span>{activeSubject?.title}</span>
-              {currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span>{currentSection.title}</span></>}
+            {/* One line (S2b, C5): the subject and the section — each with
+                its separator, so it leaves none behind — take only the room
+                the course and the lesson leave, ending in an ellipsis; the
+                lesson shortens only when it and the course alone overflow.
+                The whole path is the title. */}
+            <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+              <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+              <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}</span>
+              {currentSection && <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</span>}
               <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
               <span className="otter-crumb-current">{selectedLesson.title}</span>
             </nav>

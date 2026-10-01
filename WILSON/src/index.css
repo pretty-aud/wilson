@@ -142,8 +142,16 @@
      45ch is 418px on a paragraph, 492px on a 16px heading and 615px on the
      20px lesson title (A3 review round 1). Anything that must share the
      paragraph's edge reads `--measure-body-len` instead: the same 45ch,
-     resolved once at the Body step (registered beside `.lesson-content`). */
-  --measure-body: 45ch;
+     resolved once at the Body step (registered beside `.lesson-content`).
+     Post-overhaul S2b (2026-09-30), Audrey's C4: "66-character ceiling,
+     cap dropped, both pages, 14px, centred". 66ch is §3.1's upper bound —
+     613px at the Body step, about 95 letters of Geist a line — and it is a
+     CEILING: the lesson column grows with the window up to it. Both
+     subject pages (the lesson page and the outline page before content)
+     are that column plus the page gutters, centred; the 720px reading
+     width no longer frames them. Her confirmation of the number from the
+     1440 and 1280 screenshots is open (walkthrough 50). */
+  --measure-body: 66ch;
 
   /* ── Density (§3.3) ────────────────────────────────────────────────── */
   --control-sm: 28px;
@@ -2465,7 +2473,7 @@ select option {
 }
 /* The measure: A3-KR-1's --measure-body, 45ch, which is §3.1's 60-66
    CHARACTERS of Geist at the Body step (66ch held 95 — see @theme), resolved
-   once, above. On the prose only: a table or a code block is data and keeps
+   once, above. (S2b, 2026-09-30: 66ch, Audrey's C4 ceiling — see @theme.) On the prose only: a table or a code block is data and keeps
    the container. A list's and a quote's own inset comes out of the same
    width (border-box), so every right edge is the paragraph's. A word longer
    than the measure breaks rather than running past it: at 418px a long

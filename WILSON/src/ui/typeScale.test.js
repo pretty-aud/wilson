@@ -238,17 +238,32 @@ const CSS_SHORTHAND = /(?<![-\w])font\s*:/gi;
 /** §3.1: "Measure 60 to 66ch" — a count of CHARACTERS a line. A3 (2026-09-24)
  *  measured what the unit does in Geist: `ch` is the zero's width, 0.663em,
  *  against an average glyph of about 0.47em, so 60-66ch holds 86-95 characters
- *  — the defect review O4 named, not its fix. The lesson prose reads
+ *  — the defect review O4 named, not its fix. The lesson prose read
  *  `--measure-body`, 45ch, which holds 61-66 (63.5 on average, twelve lines of
- *  English at the Body step); a literal must sit in the same measured band,
- *  44-46ch. */
+ *  English at the Body step), and a literal had to sit in the band 44-46ch.
+ *  POST-OVERHAUL S2b (2026-09-30), Audrey's C4: "66-character ceiling, cap
+ *  dropped, both pages, 14px, centred" — she chose §3.1's number read as
+ *  `ch`, about 95 letters a line, as a CEILING the column grows to with the
+ *  window. The band is therefore 60-66ch (§3.1's own range, as `ch`): the
+ *  old 45ch now FAILS it, and so does anything past 66. Her confirmation of
+ *  the number from the 1440 and 1280 screenshots is open (walkthrough 50). */
 /* 🚨 A LOOKBEHIND, as CSS_SHORTHAND has: without it `--max-width:` — a custom
    property that sets nothing — read as the measure (A3 review round 1). */
 /* `--measure-body-len` is the same token resolved once at the Body step (see
    the ONLY-measure test below for why the lesson surface reads it). */
-const CSS_MEASURE = /(?<![-\w])max-width\s*:\s*(?:(?:4[4-6])ch\b|var\(--measure-body(?:-len)?\))/i;
+const CSS_MEASURE = /(?<![-\w])max-width\s*:\s*(?:(?:6[0-6])ch\b|var\(--measure-body(?:-len)?\))/i;
 /** The band itself, so the token cannot drift out of it unnoticed. */
-const MEASURE_TOKEN = /--measure-body:\s*(4[4-6])ch\s*;/;
+const MEASURE_TOKEN = /--measure-body:\s*(6[0-6])ch\s*;/;
+/** The width of BOTH subject pages since S2b (C4): the lesson column — the
+ *  length, resolved at the Body step on the page itself — plus the page
+ *  gutters, centred. It replaced the 720px reading width (`--width-reading`),
+ *  which would have let the page run wider than its column and left the
+ *  column off-centre. The one width on the lesson surface that is not the
+ *  length itself. */
+const SUBJECT_PAGE_WIDTH = 'calc(var(--measure-body-len) + 2 * var(--spacing-gutter))';
+/** The outline page (renderStudyView's stub branch) — not part of the lesson
+ *  branch's sweep, so pinned by its own selector. */
+const OUTLINE_PAGE = ".otter-view-page[data-width='subject']";
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
  *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
  *  drift either. */
@@ -322,7 +337,11 @@ function measureViolations(rules) {
     for (const [p, v] of d) {
       if (/^(?:max-|min-)?(?:width|inline-size)$/.test(p)) {
         if (v === 'var(--measure-body-len)') continue;
-        if (r.sel === '.otter-study-page' && p === 'max-width' && v === 'var(--width-reading)') continue;
+        if (r.sel === '.otter-study-page' && p === 'max-width' && v === SUBJECT_PAGE_WIDTH) continue;
+        // S2b (C5): a breadcrumb's middle segment grows from 0 into the room
+        // the course and the lesson leave, and stops at its own width — a
+        // cap that can only be narrower than the line, never a measure.
+        if (r.sel === '.otter-crumb' && p === 'max-width' && v === 'max-content') continue;
         if (p.startsWith('max-') || (p.startsWith('min-') && !/^(0|0px|auto|min-content)$/.test(v)) || /\dch\b|--measure/i.test(v)) bad.push(`${at}  ${p}: ${v}`);
       } else if (p === 'box-sizing') {
         bad.push(`${at}  box-sizing: ${v}`);
@@ -851,7 +870,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
         ? one.trim() : `.lesson-content ${one.trim()}`)));
     expect(prose.length, 'no .lesson-content rule selects paragraphs directly').toBeGreaterThan(0);
     expect(prose.some((r) => CSS_MEASURE.test(r)),
-      `no rule selecting p directly carries the Body measure (--measure-body, 44-46ch):\n${prose.map(selectorOf).join('\n')}`)
+      `no rule selecting p directly carries the Body measure (--measure-body, 60-66ch):\n${prose.map(selectorOf).join('\n')}`)
       .toBe(true);
     expect(readFileSync('src/index.css', 'utf8'), '--measure-body is outside the measured band')
       .toMatch(MEASURE_TOKEN);
@@ -900,13 +919,19 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     expect(seen['initial-value'], 'unset, it must cap nothing rather than collapse to 0').toBe('none');
     const lenDecls = PAGE_FILES.map((f) => lenDeclarations(readFileSync(f, 'utf8')));
     expect(lenDecls.flatMap((d) => d.bad), 'a --measure-body-len declaration that is not the token at the Body step').toEqual([]);
-    expect(lenDecls.map((d) => d.where), 'declared on the lesson block and the lesson page, and nowhere else')
-      .toEqual([['.lesson-content'], ['.otter-study-page']]);
+    // S2b (C4): and on the outline page, which is the lesson page's width.
+    expect(lenDecls.map((d) => d.where), 'declared on the lesson block, the lesson page and the outline page, and nowhere else')
+      .toEqual([['.lesson-content'], [OUTLINE_PAGE, '.otter-study-page']]);
     const defs = PAGE_FILES
       .map((f) => (readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').match(/--measure-body\s*:/g) || []).length);
     expect(defs, '--measure-body is declared once, in @theme, and nowhere else').toEqual([1, 0]);
     // CONTROL, through the REAL pipeline (pageRules -> measureViolations):
-    // nine planted violations, one apiece, and four clean rules.
+    // thirteen planted violations, one apiece, and six clean rules. S2b: the
+    // 720px reading width the page carried until C4 is now a violation, the
+    // page's own width beside a selector other than the page's is one, a
+    // crumb that does not wrap but has no ellipsis is one, and the middle
+    // crumb's `max-content` cap anywhere else is one; the new page width and
+    // the breadcrumb's shortening middle are clean.
     const planted = measureViolations(pageRules({ 'planted.css': `
       .otter-lesson-title { max-width: var(--measure-body); }
       .otter-lesson-foot { max-width: 45ch; }
@@ -918,11 +943,17 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       .otter-lesson-title { white-space: nowrap; }
       @media print { .otter-lesson-card { & { max-width: 66ch; } } }
       .otter-study-page { max-width: var(--width-reading); }
+      .otter-lesson-card { max-width: ${SUBJECT_PAGE_WIDTH}; }
+      .otter-crumb-current { white-space: nowrap; }
+      .otter-lesson-title { max-width: max-content; }
+      .otter-study-page { max-width: ${SUBJECT_PAGE_WIDTH}; }
       .lesson-content h2 { max-width: var(--measure-body-len); }
       .otter-card-icon { width: var(--icon-md); }
       .otter-crumbs { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    ` }));
-    expect(planted, planted.join('\n')).toHaveLength(9);
+      .otter-crumb { flex: 1 1 0; max-width: max-content; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .otter-crumb-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    ` }, [...LESSON_PAGE_CLASSES, 'otter-crumb', 'otter-crumb-current']));
+    expect(planted, planted.join('\n')).toHaveLength(13);
     expect(lenDeclarations(`
       .otter-lesson-card { --measure-body-len: var(--measure-body); }
       .lesson-content { font-size: var(--text-h2); --measure-body-len: var(--measure-body); }
@@ -961,9 +992,104 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       expect(LESSON_PAGE_CLASSES, `${sel} is no longer on the lesson page: update this list`).toContain(sel.split('.').pop());
       if (!has(sel, 'max-width', 'var(--measure-body-len)')) bad.push(`${sel} does not stop on the prose's edge`);
     }
-    if (!has('.otter-study-page', 'max-width', 'var(--width-reading)')) bad.push('.otter-study-page is not the reading container');
+    if (!has('.otter-study-page', 'max-width', SUBJECT_PAGE_WIDTH)) bad.push('.otter-study-page is not the column plus its gutters (S2b, C4)');
     if (!has('.otter-study-page', 'margin', /^0 auto$/)) bad.push('.otter-study-page is not centred like its sibling views');
     expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('both subject pages are one width — the column plus its gutters, centred — and the breadcrumb is one line (S2b, C4, C5)', () => {
+    /* Audrey's C4: "both pages … centred". The outline page (the subject
+       before its content) was the 720px reading width beside the lesson
+       page; it now IS the lesson page's width, declared the same way, and
+       centred by `.otter-view-page`'s margin. C5: the breadcrumb never
+       wraps — the middle shortens, the course and the lesson do not. */
+    const judge = (css) => {
+      const rules = allRules(css).filter((r) => r.parents.every((p) => /^@layer\b/.test(p)));
+      const value = (sel, prop) => rules.filter((r) => splitTop(r.sel).includes(sel))
+        .flatMap((r) => decls(r.body).filter(([p]) => p === prop).map(([, v]) => v)).pop();
+      const bad = [];
+      for (const sel of ['.otter-study-page', OUTLINE_PAGE]) {
+        if (value(sel, 'max-width') !== SUBJECT_PAGE_WIDTH) bad.push(`${sel} max-width is ${value(sel, 'max-width')}`);
+        if (value(sel, '--measure-body-len') !== 'var(--measure-body)') bad.push(`${sel} does not declare the length`);
+        if (value(sel, 'font-size') !== 'var(--text-body)') bad.push(`${sel} is not at the Body step`);
+      }
+      if (value('.otter-view-page', 'margin') !== '0 auto') bad.push('.otter-view-page is not centred');
+      if (value(".otter-view-page[data-width='reading']", 'max-width') !== 'var(--width-reading)') bad.push('the other reading views lost their width');
+      if (value('.otter-crumbs', 'flex-wrap') !== 'nowrap' || value('.otter-crumbs', 'overflow') !== 'hidden') bad.push('the breadcrumb can wrap');
+      if (value('.otter-crumbs', 'max-width') !== 'var(--measure-body-len)') bad.push('the breadcrumb is not on the column');
+      // No gap: a collapsed middle would leave its gaps behind. The
+      // separators carry the spacing, and a middle's is its own.
+      if (value('.otter-crumbs', 'gap') !== undefined) bad.push('the breadcrumb spaces its items with a gap');
+      if (value('.otter-crumb-sep', 'margin') !== '0 4px') bad.push('the separators do not carry the spacing');
+      // A middle takes only the room left (basis 0), up to its own width,
+      // and its chevron is inline and NOT first, so its ellipsis can take
+      // it: squeezed, it reads "…", never a bare "›".
+      for (const [p, v] of [['flex', '1 1 0'], ['max-width', 'max-content']]) {
+        if (value('.otter-crumb', p) !== v) bad.push(`a middle crumb: ${p} is ${value('.otter-crumb', p)}, want ${v}`);
+      }
+      if (value('.otter-crumb::before', 'content') !== "'\\200B'") bad.push('a middle crumb\'s chevron is the first thing on its line: it would be clipped, not ellipsed');
+      if (value('.otter-crumb > .otter-crumb-sep', 'display') !== 'inline-block') bad.push('a middle crumb\'s chevron is a block: its words go to a second line');
+      for (const sel of ['.otter-crumb', '.otter-crumb-current']) {
+        for (const [p, v] of [['min-width', '0'], ['overflow', 'hidden'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']]) {
+          if (value(sel, p) !== v) bad.push(`${sel}: ${p} is ${value(sel, p)}, want ${v}`);
+        }
+      }
+      if (value('.otter-crumb-keep', 'flex-shrink') !== '0') bad.push('the course can shrink');
+      // The lesson gives way last, with an ellipsis, never by a clipped word.
+      if (value('.otter-crumb-current', 'flex-shrink') === '0' || /^0 0\b/.test(value('.otter-crumb-current', 'flex') || '')) bad.push('the lesson can never give way: it would be clipped');
+      return bad;
+    };
+    const sheet = readFileSync(OTTER_CSS, 'utf8');
+    expect(judge(sheet)).toEqual([]);
+    // The JSX: the lesson's middle segments are `.otter-crumb`, the course and
+    // the lesson are not; the outline page is `data-width="subject"`; both
+    // breadcrumbs carry the whole path as their title.
+    const src = readFileSync(OTTER_JSX, 'utf8');
+    const lessonNav = lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '';
+    expect(lessonNav.match(/className="otter-crumb(?:-keep|-current)?"/g)).toEqual([
+      'className="otter-crumb-keep"', 'className="otter-crumb"', 'className="otter-crumb"', 'className="otter-crumb-current"',
+    ]);
+    expect(lessonNav.match(/<span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" \/>\{/g), 'each middle carries its separator, then its words').toHaveLength(2);
+    expect(lessonNav).toMatch(/^<nav className="otter-crumbs" aria-label="[^"]+" title=\{/);
+    const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
+    expect(stub).toMatch(/<div className="otter-view-page" data-width="subject">/);
+    expect(stub).toMatch(/<nav className="otter-crumbs" aria-label="[^"]+" title=\{/);
+    // CONTROL: the sheet before S2b, and one fault at a time.
+    const plant = (from, to) => { const s = sheet.replace(from, to); expect(s, `the plant did not apply: ${from}`).not.toBe(sheet); return judge(s); };
+    expect(plant(/(\.otter-view-page\[data-width='subject'\] \{\s*max-width: )calc\([^;]*\);/, '$1var(--width-reading);')).toHaveLength(1);
+    expect(plant(/(\.otter-study-page \{\s*max-width: )calc\([^;]*\);/, '$1var(--width-reading);')).toHaveLength(1);
+    expect(plant(/(\.otter-crumbs \{[^}]*?)flex-wrap: nowrap;/, '$1flex-wrap: wrap;')).toHaveLength(1);
+    expect(plant(/(\.otter-crumbs \{[^}]*?)overflow: hidden;/, '$1gap: 4px; overflow: hidden;')).toHaveLength(1);
+    expect(plant('.otter-crumb-current { color: var(--color-ink-2); }', '.otter-crumb-current { flex-shrink: 0; color: var(--color-ink-2); }')).toHaveLength(1);
+    expect(plant(/(\.otter-crumb \{[^}]*?)flex: 1 1 0;/, '$1flex: 0 1 auto;')).toHaveLength(1);
+    expect(plant(/(\.otter-crumb,\s*\.otter-crumb-current \{[^}]*?)text-overflow: ellipsis;/, '$1')).toHaveLength(2);
+    expect(plant(".otter-crumb::before { content: '\\200B'; }", '')).toHaveLength(1);
+    expect(plant('.otter-crumb > .otter-crumb-sep { display: inline-block;', '.otter-crumb > .otter-crumb-sep {')).toHaveLength(1);
+    expect(plant('.otter-crumb-keep { flex-shrink: 0; }', '.otter-crumb-keep { }')).toHaveLength(1);
+    expect(plant(/(\.otter-view-page\[data-width='subject'\] \{[^}]*?)font-size: var\(--text-body\);/, '$1')).toHaveLength(1);
+  });
+
+  it('the measure stays on the lesson: the pet\'s chat reads no lesson length and is no lesson surface (S2b, C4)', () => {
+    /* The chat bubble (PetCompanion.jsx, `.companion-chat-md` in index.css)
+       has never used `.lesson-content` nor read the measure, so widening the
+       lesson to 66ch cannot widen it; this keeps it that way. */
+    const judge = (css, pet) => {
+      const bad = [];
+      for (const r of allRules(css)) {
+        if (![...r.parents, r.sel].some((s) => /\.companion-chat-md\b/.test(s))) continue;
+        for (const [p, v] of decls(r.body)) if (/--measure-body|\dch\b/.test(`${p}: ${v}`)) bad.push(`${r.sel}  ${p}: ${v}`);
+      }
+      if (/\blesson-content\b|--measure-body|otter-study-page/.test(pet)) bad.push('PetCompanion.jsx reaches the lesson surface');
+      return bad;
+    };
+    const css = readFileSync('src/index.css', 'utf8');
+    const pet = readFileSync('src/components/PetCompanion.jsx', 'utf8');
+    expect(pet, 'the chat is .companion-chat-md').toMatch(/className="companion-chat-md"/);
+    expect(judge(css, pet)).toEqual([]);
+    // CONTROL
+    expect(judge(`${css}\n.companion-chat-md p { max-width: var(--measure-body-len); }`, pet)).toHaveLength(1);
+    expect(judge(`${css}\n.companion-chat-md { --measure-body-len: var(--measure-body); }`, pet)).toHaveLength(1);
+    expect(judge(css, pet.replace('className="companion-chat-md"', 'className="companion-chat-md lesson-content"'))).toHaveLength(1);
   });
 
   it('the markdown headings keep their steps in either sheet: h1 and h2 at H2, h3 at H3 (A3, O32)', () => {
@@ -1010,7 +1136,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
           const declares = d.some(([p]) => p === '--measure-body-len');
           const fs = d.filter(([p]) => p === 'font-size' || p === 'font');
           if (declares && (!fs.length || fs.at(-1)[0] !== 'font-size' || fs.at(-1)[1] !== 'var(--text-body)')) bad.push(`${f} ${r.sel}: its last font-size is not the Body step`);
-          const sizesTheElement = splitTop(r.sel).some((s) => /\.(otter-study-page|lesson-content)(\[[^\]]*\]|:[\w-]+(\([^)]*\))?)*$/.test(s));
+          // S2b: the outline page declares the length too.
+          const sizesTheElement = splitTop(r.sel).some((s) => /(\.(otter-study-page|lesson-content)|\.otter-view-page\[data-width='subject'\])(\[[^\]]*\]|:[\w-]+(\([^)]*\))?)*$/.test(s));
           if (!declares && sizesTheElement && fs.length) bad.push(`${f} ${r.sel}: sizes an element that declares the length`);
           if (/otter\.css$|planted/.test(f)) {
             for (const [p] of d) if (p.startsWith('--') && theme.has(p.slice(2))) bad.push(`${f} ${r.sel}: redefines @theme's ${p}`);
@@ -1023,13 +1150,15 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     expect(theme.has('text-body') && theme.has('color-ink'), 'the @theme names were read').toBe(true);
     const bad = judge(Object.fromEntries(CSS_FILES.map((f) => [f, readFileSync(f, 'utf8')])), theme);
     expect(bad, bad.join('\n')).toEqual([]);
-    // CONTROL: round two's four survivors.
+    // CONTROL: round two's four survivors, and S2b's outline page sized by
+    // a rule of its own.
     expect(judge({ 'planted.css': `
       .otter-study-page { font-size: var(--text-body); --measure-body-len: var(--measure-body); font-size: var(--text-h2); }
       .otter-study > .otter-study-page { font-size: var(--text-h2); }
       .otter-study .lesson-content { margin-bottom: 24px; font-size: var(--text-h2); }
       .otter-study { --text-body: 16px; }
-    ` }, theme)).toHaveLength(4);
+      .otter-view .otter-view-page[data-width='subject'] { font-size: var(--text-h2); }
+    ` }, theme)).toHaveLength(5);
   });
 
   it('the lesson branch renders no inline style and no utility class (A3 review round 2)', () => {
@@ -1193,20 +1322,24 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     }
 
     // The measure has a BAND, so both edges have to be checked: 74ch was the
-    // real before-value, and 66ch / 60ch — §3.1's number read as `ch` — hold
-    // 95 and 86 characters of Geist, which is the defect, not the fix (A3).
-    for (const s of ['max-width: 45ch;', 'max-width: 44ch;', 'max-width:46ch;',
+    // real before-value. Since S2b (Audrey's C4) the band is 60-66ch, §3.1's
+    // number read as `ch` (86-95 characters of Geist) — her ceiling; A3's
+    // 45ch, the band until then, now FAILS it.
+    for (const s of ['max-width: 66ch;', 'max-width: 60ch;', 'max-width:63ch;',
       'max-width: var(--measure-body);', 'max-width: var(--measure-body-len);']) {
       expect(CSS_MEASURE.test(s), s).toBe(true);
     }
-    for (const s of ['max-width: 74ch;', 'max-width: 66ch;', 'max-width: 60ch;', 'max-width: 43ch;',
-      'max-width: 4ch;', 'max-width: 145ch;', 'max-width: 45chx;', 'max-width: 45.5ch;',
+    for (const s of ['max-width: 74ch;', 'max-width: 45ch;', 'max-width: 59ch;', 'max-width: 67ch;',
+      'max-width: 6ch;', 'max-width: 166ch;', 'max-width: 66chx;', 'max-width: 66.5ch;',
       'max-width: var(--measure-reading);', '--max-width: var(--measure-body);',
       'max-width: var(--measure-body-lens);']) {
       expect(CSS_MEASURE.test(s), s).toBe(false);
     }
-    expect(MEASURE_TOKEN.test('  --measure-body: 45ch;')).toBe(true);
-    expect(MEASURE_TOKEN.test('  --measure-body: 66ch;')).toBe(false);
+    expect(MEASURE_TOKEN.test('  --measure-body: 66ch;')).toBe(true);
+    expect(MEASURE_TOKEN.test('  --measure-body: 60ch;')).toBe(true);
+    expect(MEASURE_TOKEN.test('  --measure-body: 45ch;')).toBe(false);
+    expect(MEASURE_TOKEN.test('  --measure-body: 67ch;')).toBe(false);
+    expect(MEASURE_TOKEN.test('  --measure-body: 59ch;')).toBe(false);
     expect(MEASURE_READING_TOKEN.test('  --measure-reading: 66ch;')).toBe(true);
     expect(MEASURE_READING_TOKEN.test('  --measure-reading: 74ch;')).toBe(false);
   });

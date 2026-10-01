@@ -491,6 +491,20 @@
   .otter-view-page { margin: 0 auto; padding: var(--spacing-gutter); }
   .otter-view-page[data-width='data'] { max-width: var(--width-data-max); }
   .otter-view-page[data-width='reading'] { max-width: var(--width-reading); }
+  /* The subject's page BEFORE its content is generated (renderStudyView's
+     stub branch: "Course › Subject [outline]"). Post-overhaul S2b, Audrey's
+     C4 ("both pages"): the lesson page's width exactly — the column, at the
+     Body step, plus the gutters — so the two views of one subject match.
+     It declares the length as the lesson page does (at the Body step: its
+     text all sets its own size, so the step moves nothing on it) and its
+     breadcrumb stops on the same edge. Sources, the quiz and Requests keep
+     the reading width. */
+  .otter-view-page[data-width='subject'] {
+    max-width: calc(var(--measure-body-len) + 2 * var(--spacing-gutter));
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    --measure-body-len: var(--measure-body);
+  }
   .ui-section.otter-view-title { padding-top: 0; margin-bottom: 24px; align-items: flex-start; }
   .otter-view-title .ui-section-actions { margin-top: calc((var(--text-h2) * var(--text-h2--line-height) - var(--control-md)) / 2); }
   .otter-view-title .ui-section-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1164,40 +1178,77 @@
   .otter-queue-cancelling { color: var(--color-danger); }
 
   /* ═══ THE LESSON PAGE (renderStudyView) ═══════════════════════════════
-     The reading surface (.lesson-content, in index.css) and its frame: a
-     720px reading container, centred on the page gutter like every sibling
-     view (Sources and the outline page are `.otter-view-page`; the lesson
-     sat 140px left of them — A3 review round 1), tables and code running to
-     it and everything else stopping on the prose's edge: the breadcrumb at
+     The reading surface (.lesson-content, in index.css) and its frame,
+     centred on the page gutter like every sibling view: the breadcrumb at
      Caption in the third ink with the current lesson in the second, the
      lesson's title at the H1 step, Key takeaways and the practice exercise
      as the kit's Card, and the foot row on the kit's Buttons.
      ONE RIGHT EDGE: the page declares `--measure-body-len` at the Body step
      (index.css registers it), so the title, the cards and the foot row
-     inherit the paragraph's 45ch as a length. Their own `ch` would be their
-     own font's: the title's was 615px against the paragraph's 418. */
+     inherit the paragraph's measure as a length. Their own `ch` would be
+     their own font's: the title's was 615px against the paragraph's 418.
+     Post-overhaul S2b (2026-09-30), Audrey's C4: the measure is a 66ch
+     ceiling (613px) and the 720px container is gone — the page IS the
+     column plus its gutters, so the column is centred in the pane (a
+     full-width page would have put a 613px column at its left edge), and
+     tables and code now stop on the prose's edge as well: one right edge
+     for everything, which also answers walkthrough 47 Q74. The outline
+     page (`[data-width='subject']`, above) is the same width. */
   .otter-study { height: 100%; overflow-y: auto; scrollbar-gutter: stable; background-color: var(--color-paper); }
   .otter-study-page {
-    max-width: var(--width-reading);
+    max-width: calc(var(--measure-body-len) + 2 * var(--spacing-gutter));
     margin: 0 auto;
     padding: var(--spacing-gutter);
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
     --measure-body-len: var(--measure-body);
   }
+  /* The breadcrumb is ONE line (post-overhaul S2b, Audrey's C5: it read as
+     three breadcrumbs when it wrapped; "the middle segments shorten with an
+     ellipsis and the current lesson is never cut"). The order is the flex
+     algorithm's, not a guess:
+       - each MIDDLE segment (the subject, the section) is `.otter-crumb`, its
+         separator inside it, with a flex basis of 0: it gets only the room
+         the course and the lesson leave, shared out and capped at its own
+         width, its text ending in an ellipsis; with none left it is gone,
+         separator and all, so no bare "› ›" is left behind;
+       - the course (`.otter-crumb-keep`) never shrinks;
+       - the lesson (`.otter-crumb-current`) shrinks only when the course and
+         the lesson alone are longer than the line — the middles are already
+         0 by then — and then with an ellipsis rather than a clipped word
+         (her library's longest pair is about 440px; the column is 613 at
+         1440 and 1280, 526 at the 1024 window, 355 at 1024 zoomed to 120%).
+     The whole path is the nav's `title`, and the lesson's own title is the
+     heading right under it. Separators carry the 4px either side that the
+     gap used to, so a collapsed middle takes its spacing with it. */
   .otter-crumbs {
     max-width: var(--measure-body-len);
-    overflow-wrap: anywhere;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 4px;
+    overflow: hidden;
     margin-bottom: 8px;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+  /* A middle is one line of inline content — its chevron, then its words —
+     so its ellipsis may take the chevron too: squeezed below a chevron's
+     width it reads "…", never a bare "›". The zero-width space in front is
+     what allows that: CSS clips, rather than ellipses, the FIRST character
+     or atomic inline on a line, so the chevron must not be first (measured
+     without it: "Python › › › Creating…" at the smallest window zoomed). */
+  .otter-crumb,
+  .otter-crumb-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The 4px before a middle is its margin, outside it, so a squeezed "…"
+     never sits against the course ("Python…" read as a cut course name). */
+  .otter-crumb { flex: 1 1 0; max-width: max-content; margin-left: 4px; }
+  .otter-crumb::before { content: '\200B'; }
+  .otter-crumb-keep { flex-shrink: 0; }
+  .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin: 0 4px; color: var(--color-ink-3); }
+  /* Inline, so the words stay on its line (the preflight makes every svg a
+     block) and the ellipsis can take it. */
+  .otter-crumb > .otter-crumb-sep { display: inline-block; vertical-align: middle; margin-left: 0; }
   .otter-crumb-current { color: var(--color-ink-2); }
   .otter-lesson-title {
     max-width: var(--measure-body-len);
