@@ -721,7 +721,12 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Create task' })).getByRole('button', { name: 'Create' }))
     await waitFor(() => expect(screen.queryByPlaceholderText('Task title…')).toBeNull())
     expect(ctx.addTask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Focus back', [p.link]: p.ids[0] }))
-    expect(document.activeElement).toBe(addTask)
+    // The form closes when addTask RESOLVES, outside any event, so React runs
+    // its effects (the hand-back among them) on the scheduler. A loaded runner
+    // can settle waitFor first, and this read <body> one tick early: measured
+    // red in 4 of 20 full-suite runs by post-overhaul S4a, never alone. Wait
+    // for the hand-back itself. Without it (the hook removed) this still fails.
+    await waitFor(() => expect(document.activeElement).toBe(addTask))
     // The in-panel picker's Close.
     const addRelation = within(dialog).getByRole('button', { name: 'Add asset relation' })
     addRelation.focus()
