@@ -81,7 +81,11 @@ function mountFileStreamRead(expressApp, deps) {
     }
     res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.sendFile(diskPath, (err) => {
+    // `dotfiles: 'allow'` (review round 2, R2-SEC-05, measured): `send`
+    // refuses an absolute path through any dot-folder — a demo folder's
+    // `.wilson\rabbit-data` — and the read answered 500. Containment was
+    // decided above by resolveContainedFilePath.
+    res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
       if (!err) return;
       if (res.headersSent || res.writableEnded) return;
       res.status(500).json({ error: 'stream failed' });

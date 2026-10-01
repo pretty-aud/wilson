@@ -95,6 +95,10 @@ after your ruling). Google Drive files are read-only here, as before.
   into the folder you are looking at, and it does not guess the Kind.
 - The file window has **no Delete**. Deleting a file stays on the Projects
   page and in each asset's, shot's or scene's own files panel.
+- **Bins' Open follows the same rule now.** A bin file opens in its own
+  app only if it is a document, picture, video, audio or 3D file (a script
+  named like a take, `Take3.mov.cmd`, used to run). Anything else, an After
+  Effects or Premiere project say, opens from Show in folder.
 
 ---
 

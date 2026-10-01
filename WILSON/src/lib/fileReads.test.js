@@ -40,7 +40,8 @@ beforeAll(async () => {
     readRabbitBundle: (pid) => (pid === 'p1' ? bundle : null),
     rabbitNotFound: (res, what = 'project') => res.status(404).json({ error: `${what} not found` }),
     resolveContainedFilePath,
-    resolveFileBaseDir: () => join(dir, 'files'),
+    // A row may name its own base (the dot-folder case); the rest live in files/.
+    resolveFileBaseDir: (_b, _pid, file) => file?.base || join(dir, 'files'),
     rabbitLogFileEvent: (b, evt) => { logged.push(evt); (b.fileEvents ||= []).push(evt) },
     writeRabbitBundle: (pid, b, opts) => { writes.push([pid, opts]) },
     safeMediaContentType: (m) => (/^(image|video|audio)\//.test(m || '') ? m : 'application/octet-stream'),
@@ -109,6 +110,16 @@ describe('the stream route: what it sends', () => {
     expect(r.status).toBe(206)
     expect(await r.text()).toBe(BODY.slice(0, 4))
   })
+  it('a project whose files live under a DOT-folder (a demo folder\'s .wilson) is still read (round 2, R2-SEC-05)', async () => {
+    const dotDir = join(dir, '.wilson', 'rabbit-data', 'projects', 'p1', 'files')
+    mkdirSync(dotDir, { recursive: true })
+    writeFileSync(join(dotDir, '9-under-dot.txt'), BODY)
+    bundle.files.push({ id: 'f9', name: 'under-dot.txt', mime_type: 'text/plain', storage_path: '9-under-dot.txt', storage_provider: 'local', base: dotDir })
+    const r = await stream('f9')
+    expect(r.status).toBe(200)
+    expect(await r.text()).toBe(BODY)
+  })
+
   it('an unknown row 404s, a body missing on disk 410s, a path that leaves the folder 400s', async () => {
     expect((await stream('nope')).status).toBe(404)
     expect((await stream('f2')).status).toBe(410)
@@ -158,6 +169,11 @@ describe('main.cjs mounts these and nothing of its own', () => {
     const at = MAIN.indexOf("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'")
     const body = MAIN.slice(at, MAIN.indexOf('\n    });', at))
     expect(body).toContain("require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);")
-    expect(body.indexOf('attachWhenAsked(')).toBeLessThan(body.indexOf('res.sendFile(diskPath)'))
+    expect(body.indexOf('attachWhenAsked(')).toBeLessThan(body.indexOf('res.sendFile(diskPath'))
+  })
+  it('the download and managed-file stream routes read through a dot-folder too (round 2, R2-SEC-05)', () => {
+    const route = (sig) => { const at = MAIN.indexOf(sig); expect(at, sig).toBeGreaterThan(-1); return MAIN.slice(at, MAIN.indexOf('\n    });', at)) }
+    expect(route("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'")).toContain("res.sendFile(diskPath, { dotfiles: 'allow' });")
+    expect(route("managed-files/:id/stream'")).toContain("res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {")
   })
 })

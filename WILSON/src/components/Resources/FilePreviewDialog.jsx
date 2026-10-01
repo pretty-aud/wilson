@@ -60,6 +60,38 @@ import {
 
 const MAX_REMINTS = 1
 
+/**
+ * Read a response's body, never holding more than `max` bytes (review round
+ * 2, R2-SEC-04, measured): a declared Content-Length is checked first, but a
+ * chunked or compressed answer declares nothing true — the whole decoded
+ * body used to be held before the bound refused it. So the bytes are
+ * COUNTED as they arrive, and the read is cancelled the moment they pass.
+ * @returns {Promise<{ tooLarge: true } | { tooLarge: false, blob: Blob }>}
+ */
+export async function readBounded(res, max, ctrl) {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > max) { ctrl?.abort(); return { tooLarge: true } }
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    const blob = await res.blob()
+    return blob.size > max ? { tooLarge: true } : { tooLarge: false, blob }
+  }
+  const reader = res.body.getReader()
+  const chunks = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      try { await reader.cancel() } catch { /* already closed */ }
+      ctrl?.abort()
+      return { tooLarge: true }
+    }
+    chunks.push(value)
+  }
+  return { tooLarge: false, blob: new Blob(chunks) }
+}
+
 /** Keys a focused control keeps for itself: arrows move the caret or seek. */
 function keepsArrows(target) {
   if (!target || typeof target.closest !== 'function') return false
@@ -278,11 +310,9 @@ function PdfStage({ url, name, onFail, onOk, actions }) {
       try {
         const res = await fetch(url, { credentials: sameOriginUrl(url) ? 'same-origin' : 'omit', signal: ctrl.signal })
         if (!res.ok) { onFail(); return }
-        const declared = Number(res.headers.get('content-length'))
-        if (Number.isFinite(declared) && declared > PREVIEW_PDF_BLOB_MAX) { setTooLarge(true); ctrl.abort(); return }
-        const blob = await res.blob()
-        if (blob.size > PREVIEW_PDF_BLOB_MAX) { setTooLarge(true); return }
-        made = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+        const read = await readBounded(res, PREVIEW_PDF_BLOB_MAX, ctrl)
+        if (read.tooLarge) { setTooLarge(true); return }
+        made = URL.createObjectURL(new Blob([read.blob], { type: 'application/pdf' }))
         setFrameSrc(made)
         onOk?.()
       } catch (err) {
@@ -306,11 +336,9 @@ function TextStage({ url, pk, name, onFail, onOk, actions }) {
       try {
         const res = await fetch(url, { credentials: sameOriginUrl(url) ? 'same-origin' : 'omit', signal: ctrl.signal })
         if (!res.ok) { onFail(); return }
-        const declared = Number(res.headers.get('content-length'))
-        if (Number.isFinite(declared) && declared > PREVIEW_TEXT_MAX) { setTooLarge(true); ctrl.abort(); return }
-        const blob = await res.blob()
-        if (blob.size > PREVIEW_TEXT_MAX) { setTooLarge(true); return }
-        setText(await blob.text())
+        const read = await readBounded(res, PREVIEW_TEXT_MAX, ctrl)
+        if (read.tooLarge) { setTooLarge(true); return }
+        setText(await read.blob.text())
         onOk()
       } catch (err) {
         if (err?.name !== 'AbortError') onFail()

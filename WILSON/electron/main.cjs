@@ -2963,7 +2963,10 @@ function startLocalServer(distPath) {
       // S4a: `?download=1` makes it an ATTACHMENT under the file's own name
       // (fileReads.cjs, served for real in fileReads.test.js).
       require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);
-      res.sendFile(diskPath);
+      // `dotfiles: 'allow'`: under a dot-folder (a demo folder's
+      // `.wilson\rabbit-data`) `send` refused the absolute path and the read
+      // answered "internal error" (S4a review round 2, R2-SEC-05, measured).
+      res.sendFile(diskPath, { dotfiles: 'allow' });
     });
 
     // ── Post-overhaul S4a: stream a project file's bytes, with Range ─────────
@@ -3454,7 +3457,11 @@ function startLocalServer(distPath) {
       // browser cannot execute.
       res.setHeader('Content-Type', safeMediaContentType(mf.mime_type));
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(diskPath, (err) => {
+      // `dotfiles: 'allow'` (post-overhaul S4a review round 2, R2-SEC-05,
+      // measured): `send` refused any absolute path through a dot-folder —
+      // a demo folder's `.wilson\rabbit-data` — and the read answered 500.
+      // Containment is resolveManagedFileDiskPath's, already decided above.
+      res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
         if (!err) return;
         // A cancelled range request is the normal shape of video playback.
         if (res.headersSent || res.writableEnded) return;

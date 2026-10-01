@@ -97,21 +97,20 @@ SELECT is(
   '''{}''::text[]',
   'files.tags defaults to the empty array');                                 -- 4
 
-SELECT ok(EXISTS (
-  SELECT 1 FROM pg_constraint
-   WHERE conrelid = 'public.files'::regclass AND contype = 'c'
-     AND conname = 'files_tags_known_chk'
-     AND pg_get_constraintdef(oid) LIKE '%tags <@%'),
-  'files_tags_known_chk is a CHECK on containment in the vocabulary');       -- 5
+-- 5, 6, 25: each CHECK's WHOLE definition as Postgres prints it (review round
+-- 2, R2-SEC-02, measured: a substring passed `OR true` appended, and a list
+-- widened with words outside [a-z]).
+SELECT is(
+  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conrelid = 'public.files'::regclass AND contype = 'c' AND conname = 'files_tags_known_chk'),
+  'CHECK ((tags <@ ARRAY[''production''::text, ''creative''::text, ''legal''::text, ''finance''::text, ''reference''::text, ''assets''::text, ''code''::text, ''shots''::text, ''documentation''::text]))',
+  'files_tags_known_chk is exactly containment in the nine');                -- 5
 
-SELECT ok(EXISTS (
-  SELECT 1 FROM pg_constraint
-   WHERE conrelid = 'public.files'::regclass AND contype = 'c'
-     AND conname = 'files_tags_len_chk'
-     -- The closing parenthesis is part of the pattern: without it '<= 99'
-     -- matched too (breaker B1, S4a).
-     AND pg_get_constraintdef(oid) LIKE '%cardinality(tags) <= 9)%'),
-  'files_tags_len_chk bounds a row at nine tags');                           -- 6
+SELECT is(
+  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conrelid = 'public.files'::regclass AND contype = 'c' AND conname = 'files_tags_len_chk'),
+  'CHECK ((cardinality(tags) <= 9))',
+  'files_tags_len_chk bounds a row at exactly nine tags');                   -- 6
 
 SELECT ok(EXISTS (
   SELECT 1 FROM pg_indexes
@@ -248,12 +247,11 @@ SELECT ok(EXISTS (
 
 -- ══ 3. One dimension (R1-SEC-04) ═══════════════════════════════════════════
 
-SELECT ok(EXISTS (
-  SELECT 1 FROM pg_constraint
-   WHERE conrelid = 'public.files'::regclass AND contype = 'c'
-     AND conname = 'files_tags_flat_chk'
-     AND pg_get_constraintdef(oid) LIKE '%array_ndims(tags)%= 1)%'),
-  'files_tags_flat_chk keeps tags one-dimensional');                         -- 25
+SELECT is(
+  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conrelid = 'public.files'::regclass AND contype = 'c' AND conname = 'files_tags_flat_chk'),
+  'CHECK ((COALESCE(array_ndims(tags), 1) = 1))',
+  'files_tags_flat_chk keeps tags one-dimensional, exactly');                 -- 25
 
 SELECT throws_ok($$
   UPDATE public.files SET tags = '{{code,legal},{shots,assets}}'::TEXT[]
@@ -277,13 +275,15 @@ SELECT throws_ok($$
    WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
 $$, '23514', NULL, 'a word outside the nine (not only ''notes'') is refused'); -- 29
 
+-- Any quoted literal, not only [a-z]+ (R2-SEC-02: 'post-production' and
+-- 'Notes' were not counted).
 SELECT is(
   (SELECT count(*)::INT
      FROM pg_constraint c,
-          regexp_matches(pg_get_constraintdef(c.oid), '''[a-z]+''', 'g') AS w
+          regexp_matches(pg_get_constraintdef(c.oid), '''[^'']*''', 'g') AS w
     WHERE c.conrelid = 'public.files'::regclass AND c.conname = 'files_tags_known_chk'),
   9,
-  'files_tags_known_chk''s definition lists exactly nine words');             -- 30
+  'files_tags_known_chk''s definition holds exactly nine literals');          -- 30
 
 SELECT * FROM finish();
 ROLLBACK;

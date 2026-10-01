@@ -134,35 +134,21 @@ BEGIN
     RAISE EXCEPTION '0085 post-condition failed: files.tags is missing, not text[], nullable, or not DEFAULT ''{}''';
   END IF;
 
-  -- 2. The vocabulary CHECK, asserted by DEFINITION rather than by name (a
-  --    widened body under the same name would pass a name-only test): every
-  --    one of the nine is in it, and 'notes' — the tenth tag E3 removed — is
-  --    not.
-  SELECT array_agg(t ORDER BY t) INTO v
-    FROM unnest(ARRAY['production','creative','legal','finance','reference',
-                      'assets','code','shots','documentation']) AS t
-   WHERE NOT EXISTS (
-     SELECT 1 FROM pg_constraint
-      WHERE conrelid = 'public.files'::regclass AND contype = 'c'
-        AND conname = 'files_tags_known_chk'
-        AND pg_get_constraintdef(oid) LIKE '%''' || t || '''%');
-  IF v IS NOT NULL THEN
-    RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk is missing or does not list %', v;
-  END IF;
-  IF EXISTS (
+  -- 2. The vocabulary CHECK, by its WHOLE definition as Postgres prints it
+  --    (S4a review round 2, R2-SEC-02, measured: substring tests passed a
+  --    list widened with 'post-production' and 'Notes', and a body with
+  --    `OR true` appended). Exactly the nine, 'notes' (the tenth tag E3
+  --    removed) not among them, nothing appended. Checks 8 and 9 below are
+  --    compared whole for the same reason.
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
-     WHERE conrelid = 'public.files'::regclass AND conname = 'files_tags_known_chk'
-       AND pg_get_constraintdef(oid) LIKE '%''notes''%'
+     WHERE conrelid = 'public.files'::regclass AND contype = 'c'
+       AND conname = 'files_tags_known_chk'
+       AND pg_get_constraintdef(oid) = 'CHECK ((tags <@ ARRAY[''production''::text, ''creative''::text, ''legal''::text, ''finance''::text, ''reference''::text, ''assets''::text, ''code''::text, ''shots''::text, ''documentation''::text]))'
   ) THEN
-    RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk admits ''notes'', which E3 removed';
-  END IF;
-  --    …and NOTHING ELSE (S4a review round 1, R1-TST-17): exactly nine quoted
-  --    words in the definition, so a widened list fails even without 'notes'.
-  IF (SELECT count(*)
-        FROM pg_constraint c,
-             regexp_matches(pg_get_constraintdef(c.oid), '''[a-z]+''', 'g') AS w
-       WHERE c.conrelid = 'public.files'::regclass AND c.conname = 'files_tags_known_chk') <> 9 THEN
-    RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk lists something besides the nine';
+    SELECT array_agg(pg_get_constraintdef(oid)) INTO v FROM pg_constraint
+     WHERE conrelid = 'public.files'::regclass AND conname = 'files_tags_known_chk';
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_known_chk is not exactly the nine (it reads %)', v;
   END IF;
 
   -- 3. 🚨 THE POLICIES ON files ARE UNTOUCHED — 0075's post-condition 4,
@@ -221,26 +207,25 @@ BEGIN
     RAISE EXCEPTION '0085 post-condition failed: files_tags_gin is missing or not a GIN index on tags';
   END IF;
 
-  -- 8. The size bound, by definition (review round 1, R1-SEC-03: the one
-  --    guard against an unbounded array on a column every member can UPDATE
-  --    was the one check this block did not make). The closing parenthesis
-  --    is part of the pattern, so '<= 99' does not pass.
+  -- 8. The size bound, whole (review round 1, R1-SEC-03: the one guard
+  --    against an unbounded array on a column every member can UPDATE was
+  --    the one check this block did not make; round 2, R2-SEC-02: whole).
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'public.files'::regclass AND contype = 'c'
        AND conname = 'files_tags_len_chk'
-       AND pg_get_constraintdef(oid) LIKE '%cardinality(tags) <= 9)%'
+       AND pg_get_constraintdef(oid) = 'CHECK ((cardinality(tags) <= 9))'
   ) THEN
-    RAISE EXCEPTION '0085 post-condition failed: files_tags_len_chk is missing or does not bound tags at nine';
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_len_chk is missing or is not exactly cardinality(tags) <= 9';
   END IF;
 
-  -- 9. One dimension, by definition (R1-SEC-04).
+  -- 9. One dimension, whole (R1-SEC-04; R2-SEC-02).
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'public.files'::regclass AND contype = 'c'
        AND conname = 'files_tags_flat_chk'
-       AND pg_get_constraintdef(oid) LIKE '%array_ndims(tags)%= 1)%'
+       AND pg_get_constraintdef(oid) = 'CHECK ((COALESCE(array_ndims(tags), 1) = 1))'
   ) THEN
-    RAISE EXCEPTION '0085 post-condition failed: files_tags_flat_chk is missing or does not keep tags one-dimensional';
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_flat_chk is missing or is not exactly COALESCE(array_ndims(tags), 1) = 1';
   END IF;
 END $$;

@@ -125,7 +125,9 @@ describe('a program or a script is never OPENED (its default app runs it)', () =
       expect(refuseToOpen(p), p).toBe(PROGRAMS)
     }
     // Not a known launcher, and not on the list: still refused.
-    for (const p of ['j/pkg.appx', 'k/thing.xyz', 'l/README', 'm/evil.exe.', 'n/evil.exe ', 'o/page.html', 'p/vector.svg', 'q/scene.ma', 'r/comp.nk', 's/a.docm']) {
+    // .xml / .fcpxml (round 2, R2-SEC-03): Windows hands XML to the browser,
+    // which runs script in XHTML- or SVG-namespaced XML from file://.
+    for (const p of ['j/pkg.appx', 'k/thing.xyz', 'l/README', 'm/evil.exe.', 'n/evil.exe ', 'o/page.html', 'p/vector.svg', 'q/scene.ma', 'r/comp.nk', 's/a.docm', 't/cut-list.xml', 'u/edit.fcpxml']) {
       expect(refuseToOpen(p), JSON.stringify(p)).toBe(OFF_THE_LIST)
     }
   })

@@ -1975,6 +1975,19 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   picture or a text is capped at `min(64vh, 620px)` high; a video stage has
   no fixed height and stops at the player's own limit. Owner: the kit
   (S4a-KR-1, "a lightbox-sized Dialog").
+- **S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**
+  S4a's review round 2 measured that `send` refuses an absolute path
+  through any dot-folder (`dotfiles: 'ignore'`, its default). That broke
+  the SPA fallback from a `.claude` worktree (fixed in `d3963c4`) and the
+  file stream, download and managed-file stream routes under a demo
+  folder's `.wilson\rabbit-data` (fixed in round 2, `dotfiles: 'allow'`).
+  The thumbnail routes call `res.sendFile(thumbPath)` the same way
+  (`main.cjs`'s asset, scene, shot and managed-file thumbnails;
+  `rabbitBins.cjs`'s bin thumbnails), and in demo mode the cache dir is
+  `<folder>\.wilson\rabbit-data\thumbnails`, so every cached thumbnail
+  likely answers 500 while a demo folder is open. INFERRED from the same
+  mechanism. Would settle it: open a demo folder and load a thumbnail.
+  Owner: the next session on thumbnails (the same one-argument fix).
 - ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
   test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
   "the task form hands focus back to 'Add new task'…". Measured red in 4

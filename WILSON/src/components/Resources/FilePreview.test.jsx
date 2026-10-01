@@ -30,6 +30,7 @@ vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => perms
 const { default: ProjectFilesExplorer, _resetPreviewReadsForTests } = await import('./ProjectFilesExplorer')
 const { localServerAdapter } = await import('../../tools/rabbit_v0.1.0/adapters/localServerAdapter')
 const { managedStreamUrl } = await import('../../tools/rabbit_v0.1.0/storage/managedVideoThumbnail')
+const { readBounded } = await import('./FilePreviewDialog')
 
 const FOLDERS = [{ id: 'root', kind: 'root', path: '', name: 'Project' }]
 const row = (id, name, mime, extra = {}) => ({
@@ -444,6 +445,34 @@ describe('review round 1: what a read is, and how it is fetched', () => {
     expect(await within(dialog()).findByText(/too large to preview here/)).toBeTruthy()
   })
 
+  it('🚨 a body with NO true length stops being read at the bound (round 2, R2-SEC-04): text and PDF', async () => {
+    // A chunked answer: 1 MB at a time, no Content-Length, up to 160 MB.
+    const pulled = { n: 0 }
+    const chunk = new Uint8Array(1024 * 1024)
+    const endless = () => new Response(new ReadableStream({
+      pull(c) { pulled.n += 1; if (pulled.n > 160) c.close(); else c.enqueue(chunk) },
+    }), { status: 200 })
+    globalThis.fetch = vi.fn(async () => endless())
+    await mountTable()
+    openByDoubleClick('j-plain.txt')
+    expect(await within(dialog()).findByText(/too large to preview here/)).toBeTruthy()
+    expect(pulled.n).toBeLessThanOrEqual(5) // 2 MB bound: stopped at the third megabyte, not the 160th
+    cleanup()
+    pulled.n = 0
+    await mountTable()
+    openByDoubleClick('d-brief.pdf')
+    expect(await within(dialog()).findByText(/This PDF is too large to preview here/)).toBeTruthy()
+    expect(pulled.n).toBeLessThanOrEqual(PREVIEW_PDF_BLOB_MAX / chunk.byteLength + 3)
+    expect(pulled.n).toBeLessThan(160)
+  })
+
+  it('CONTROL: readBounded returns the whole body when it fits', async () => {
+    const r = await readBounded(new Response('hello'), 10, new AbortController())
+    expect(r.tooLarge).toBe(false)
+    expect(await r.blob.text()).toBe('hello')
+    expect((await readBounded(new Response('x'.repeat(11)), 10, new AbortController())).tooLarge).toBe(true)
+  })
+
   it('an image is logged when it has LOADED, not when its URL was minted (R1-UI-10)', async () => {
     await mountTable()
     openByDoubleClick('a-still.png')
@@ -472,6 +501,22 @@ describe('review round 1: what a read is, and how it is fetched', () => {
     openByDoubleClick('l-log-once.txt')
     await waitFor(() => expect(dialog().querySelector('pre[data-pv-text]')).toBeTruthy())
     expect(logged.filter(x => x === 'l1')).toEqual(['l1'])
+  })
+
+  it('a read the server did NOT record is tried again next time (round 2, R2-SEC-06)', async () => {
+    const base = ctx.getAdapter()
+    let n = 0
+    ctx.getAdapter = () => ({ ...base, logFileDownloaded: async (r) => { n += 1; logged.push(r.id); return n > 1 } })
+    await mountTable()
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(logged).toEqual(['l1'])) // refused (false)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(logged).toEqual(['l1', 'l1'])) // tried again, recorded
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    openByDoubleClick('l-log-once.txt')
+    await waitFor(() => expect(dialog().querySelector('pre[data-pv-text]')).toBeTruthy())
+    expect(logged).toEqual(['l1', 'l1']) // recorded once: not again
   })
 
   it('…and per PERSON: the next one signed in at this window has their own first read (R1-TST-04)', async () => {

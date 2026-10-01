@@ -29,10 +29,13 @@ const path = require('node:path');
 
 /** What "Open in default app" may hand to the operating system. */
 const OPEN_ALLOWED_EXT = new Set([
-  // documents, scripts for the screen, sheets, decks, edit lists, subtitles
+  // documents, scripts for the screen, sheets, decks, edit lists, subtitles.
+  // NOT .xml / .fcpxml (review round 2, R2-SEC-03, measured): Windows opens
+  // XML in the browser, which runs script in XHTML- or SVG-namespaced XML
+  // from file:// — the active content .html and .svg are refused for.
   '.pdf', '.txt', '.md', '.markdown', '.rtf', '.doc', '.docx', '.odt', '.pages',
   '.xls', '.xlsx', '.ods', '.numbers', '.csv', '.tsv', '.ppt', '.pptx', '.odp', '.key',
-  '.fdx', '.fountain', '.json', '.xml', '.edl', '.ale', '.fcpxml', '.otio', '.srt', '.vtt',
+  '.fdx', '.fountain', '.json', '.edl', '.ale', '.otio', '.srt', '.vtt',
   // pictures, camera raw and the image formats of a pipeline
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.avif',
   '.psd', '.psb', '.ai', '.exr', '.dpx', '.tga', '.hdr', '.cr2', '.cr3', '.nef', '.arw', '.dng',

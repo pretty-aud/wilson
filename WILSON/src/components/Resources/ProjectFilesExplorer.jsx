@@ -562,7 +562,11 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     const key = `${readerId}:${row.id}`
     if (PREVIEW_READS_LOGGED.has(key)) return
     PREVIEW_READS_LOGGED.add(key)
-    Promise.resolve(a.logFileDownloaded(row)).catch(() => {})
+    // A read that was NOT recorded is forgotten, so the next one tries again
+    // (round 2, R2-SEC-06: one failed RPC silenced the file for the session).
+    Promise.resolve(a.logFileDownloaded(row))
+      .then((logged) => { if (logged === false) PREVIEW_READS_LOGGED.delete(key) })
+      .catch(() => { PREVIEW_READS_LOGGED.delete(key) })
   }, [adapterMode, getAdapter, readerId])
   // The preview's "no preview" sentence names the dev fixtures by the
   // adapter's own mode: the provider reports the fixtures as 'supabase'

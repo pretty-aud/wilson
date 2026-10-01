@@ -44,6 +44,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
+const { refuseToOpen } = require('./openPath.cjs');
 
 // ── Media tables ──────────────────────────────────────────────────────────────
 // The renderer carries the same tables in src/tools/rabbit_v0.1.0/bins/binMedia.js
@@ -1075,7 +1076,21 @@ function mountRabbitBins(expressApp, deps) {
     }
     try {
       if (reveal) { shell.showItemInFolder(target); return res.json({ ok: true }); }
-      const err = await shell.openPath(target);
+      // 🚨 Post-overhaul S4a review round 2 (R2-SEC-01, measured): this route
+      // handed ANY file to the operating system — a bin import walks a folder
+      // whole, and `Take3.mov.cmd` lists as "Take3.mov". It now keeps the
+      // Files explorer's rule (openPath.cjs, deny by default): a FILE opens
+      // only if it is a document, picture, video, audio or 3D file, judged by
+      // where it really leads, and what opens is what was judged. A folder
+      // (a sequence whose middle frame could not be found) opens in Explorer.
+      let opened = target;
+      if (isFile(target)) {
+        const real = fs.realpathSync(target);
+        const refusal = refuseToOpen(real) || refuseToOpen(target);
+        if (refusal) return res.status(422).json({ error: refusal, code: 'refused_type' });
+        opened = real;
+      }
+      const err = await shell.openPath(opened);
       if (err) return res.status(422).json({ error: String(err), code: 'open_failed' });
       res.json({ ok: true });
     } catch (e) {
