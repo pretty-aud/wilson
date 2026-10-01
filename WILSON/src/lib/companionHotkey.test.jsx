@@ -150,7 +150,7 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     expect(toggle).toHaveBeenCalledTimes(1)
   })
 
-  it('a tap with a checkbox, a radio, a range or a button input focused toggles — they take no typing (B-R1-05)', () => {
+  it('a tap with a checkbox, a radio, a range, a button input or a select focused toggles — they take no typing (B-R1-05, B-R2-06)', () => {
     const toggle = vi.fn()
     install(toggle)
     render(<>
@@ -158,9 +158,10 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
       <input type="radio" aria-label="Tier" />
       <input type="range" aria-label="Zoom" />
       <input type="button" aria-label="Go" value="Go" />
+      <select aria-label="Layout"><option>Title slide</option></select>
     </>)
     let n = 0
-    for (const label of ['Full-time', 'Tier', 'Zoom', 'Go']) {
+    for (const label of ['Full-time', 'Tier', 'Zoom', 'Go', 'Layout']) {
       screen.getByLabelText(label).focus()
       tap()
       n += 1
@@ -177,6 +178,32 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
       el.setAttribute('type', type)
       expect(typesText(el), type).toBe(false)
     }
+    expect(typesText(document.createElement('select'))).toBe(false)
+  })
+
+  it('Windows sends no keyup for the first-released of two Shifts: the last Shift up still clears the count, so the next tap works (B-R2-05)', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    key('keydown', 'Shift', { code: 'ShiftLeft', shiftKey: true })
+    key('keydown', 'Shift', { code: 'ShiftRight', shiftKey: true })
+    // ShiftLeft released: no event. ShiftRight released: the only keyup, and no Shift is down.
+    key('keyup', 'Shift', { code: 'ShiftRight', shiftKey: false })
+    expect(toggle).not.toHaveBeenCalled()
+    tap()
+    expect(toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('a backdrop with no box on screen (a drawer left open on a hidden page) does not stop the tap (G-R2-05)', () => {
+    const toggle = vi.fn()
+    install(toggle)
+    const hidden = document.createElement('div')
+    hidden.className = 'ui-drawer-backdrop'
+    document.body.appendChild(hidden)
+    try {
+      expect(hidden.getClientRects().length).toBe(0)
+      tap()
+      expect(toggle).toHaveBeenCalledTimes(1)
+    } finally { hidden.remove() }
   })
 
   it('CONTROL — no pet, or the sign-in overlay: a tap does nothing', () => {
@@ -201,16 +228,15 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     })
   }
 
-  it('Audrey: "the shift key works normally when in a text box selected and typing" — no toggle in an input, a textarea, a select or a contenteditable', () => {
+  it('Audrey: "the shift key works normally when in a text box selected and typing" — no toggle in an input, a textarea or a contenteditable', () => {
     const toggle = vi.fn()
     install(toggle)
     render(<>
       <input aria-label="Notes" />
       <textarea aria-label="Body" />
-      <select aria-label="Status"><option>a</option></select>
       <div aria-label="Editor" contentEditable suppressContentEditableWarning tabIndex={0}>x</div>
     </>)
-    for (const label of ['Notes', 'Body', 'Status', 'Editor']) {
+    for (const label of ['Notes', 'Body', 'Editor']) {
       const el = screen.getByLabelText(label)
       el.focus()
       // jsdom does not implement isContentEditable at all; the browser does.
@@ -293,6 +319,39 @@ describe('the pet companion toggles on a bare Shift tap (C12)', () => {
     } finally {
       window.removeEventListener('keydown', closeOnKey, true)
     }
+  })
+
+  it('CONTROL — why App installs the hotkey FIRST: a closer added before it wins the race and the tap opens the pet (B-R2-02)', () => {
+    // The session's activity listener closes "Still there?" on any key. If it
+    // runs before the hotkey's keydown, the hotkey sees no overlay and arms.
+    // App therefore installs the hotkey once, in a layout effect, before any
+    // session listener exists (pinned in "what ships" below).
+    const toggle = vi.fn()
+    pushModal('idle-warning')
+    const closeOnKey = () => popModal('idle-warning')
+    window.addEventListener('keydown', closeOnKey, true)
+    try {
+      install(toggle)
+      tap()
+      expect(toggle).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener('keydown', closeOnKey, true)
+    }
+  })
+
+  it('reads the pet and the sign-in overlay at the moment of the tap, through getState (App installs once)', () => {
+    const toggle = vi.fn()
+    let state = { petData: null, showOverlay: false }
+    uninstall?.()
+    uninstall = installCompanionShiftHotkey({ getState: () => state, toggle })
+    tap()
+    expect(toggle).not.toHaveBeenCalled()
+    state = { petData: PET, showOverlay: false }
+    tap()
+    expect(toggle).toHaveBeenCalledTimes(1)
+    state = { petData: PET, showOverlay: true }
+    tap()
+    expect(toggle).toHaveBeenCalledTimes(1)
   })
 
   it('not with focus inside an alert dialog or anything aria-modal', () => {
@@ -433,18 +492,23 @@ describe('what ships', () => {
   // (review round 1, G-R1-05). D.O.G.'s own Enter key is held by
   // src/tools/deck-outline-generator_v0.514/enterGenerates.test.js.
   const app = blankJsComments(readFileSync(resolve(here, '../App.jsx'), 'utf8'))
-  it('App installs THIS handler, and no code in App reads an Enter key at all', () => {
+  it('App installs THIS handler ONCE, in a layout effect, reading its state through a ref; and no code in App reads an Enter key at all', () => {
     expect(app).toMatch(/import \{ installCompanionShiftHotkey \} from '\.\/lib\/companionHotkey'/)
-    expect(app).toMatch(/useEffect\(\(\) => installCompanionShiftHotkey\(\{\s*petData,\s*showOverlay,\s*toggle: \(\) => setCompanionOpen\(prev => !prev\),\s*\}\), \[petData, showOverlay\]\)/)
+    expect(app).toMatch(/const companionKeyState = useRef\(\{ petData, showOverlay \}\);\s*useLayoutEffect\(\(\) => \{ companionKeyState\.current = \{ petData, showOverlay \}; \}\);\s*useLayoutEffect\(\(\) => installCompanionShiftHotkey\(\{\s*getState: \(\) => companionKeyState\.current,\s*toggle: \(\) => setCompanionOpen\(prev => !prev\),\s*\}\), \[\]\);/)
+    // …and it is the only install: never again on a pet change.
+    expect(app.match(/installCompanionShiftHotkey\(/g)).toHaveLength(1)
     expect(app).not.toMatch(/installCompanionEnterHotkey/)
-    // The pet's old branch in any spelling: App's code names no Enter key.
-    expect(app).not.toMatch(/['"`]Enter['"`]/)
+    // The pet's old branch in any spelling: App's code names no Enter key,
+    // by name or by number (round 2, G-R2-07).
+    expect(app).not.toMatch(/['"`](?:Numpad)?Enter['"`]/)
+    expect(app).not.toMatch(/\b(?:keyCode|which|charCode)\s*===?\s*13\b/)
   })
-  it('CONTROL: an install inside a comment is blank to the reader, and an Enter branch in any quote is seen', () => {
-    const planted = blankJsComments('/* useEffect(() => installCompanionShiftHotkey({ petData, showOverlay, toggle: () => setCompanionOpen(prev => !prev), }), [petData, showOverlay]); */')
+  it('CONTROL: an install inside a comment is blank to the reader, and an Enter branch in any spelling is seen', () => {
+    const planted = blankJsComments('/* useLayoutEffect(() => installCompanionShiftHotkey({ getState: () => companionKeyState.current, toggle: () => setCompanionOpen(prev => !prev), }), []); */')
     expect(planted).not.toMatch(/installCompanionShiftHotkey/)
-    for (const q of ["if (e.key === 'Enter') setCompanionOpen(o => !o)", 'if (e.key === "Enter") toggle()', 'switch (e.key) { case `Enter`: toggle() }']) {
-      expect(blankJsComments(q), q).toMatch(/['"`]Enter['"`]/)
+    for (const q of ["if (e.key === 'Enter') setCompanionOpen(o => !o)", 'if (e.key === "Enter") toggle()', 'switch (e.key) { case `Enter`: toggle() }', "if (e.code === 'NumpadEnter') toggle()"]) {
+      expect(blankJsComments(q), q).toMatch(/['"`](?:Numpad)?Enter['"`]/)
     }
+    for (const q of ['if (e.keyCode === 13) toggle()', 'if (e.which == 13) toggle()']) expect(q).toMatch(/\b(?:keyCode|which|charCode)\s*===?\s*13\b/)
   })
 })

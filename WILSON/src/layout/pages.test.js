@@ -408,6 +408,11 @@ const stringAttr = (el, name) => {
 }
 const nameOf = (el) => el.openingElement.name.name
 const classesOf = (el) => (stringAttr(el, 'className') || '').split(/\s+/).filter(Boolean)
+/** A JSX child that renders something: an element, a non-empty expression,
+    or text that is not just white space. */
+const isContent = (c) => c.type === 'JSXElement' || c.type === 'JSXFragment'
+  || (c.type === 'JSXExpressionContainer' && c.expression.type !== 'JSXEmptyExpression')
+  || (c.type === 'JSXText' && c.value.trim() !== '')
 const jsxChildren = (el) => el.children.filter((c) => c.type === 'JSXElement')
 // What a person can operate: the kit's controls, the native ones, anything
 // with a handler of its own.
@@ -435,6 +440,16 @@ function stripGroup(src, strip) {
     if (groups.length !== 1) return { problems: [`${groups.length} .${strip.group} groups, not one`], controls: [] }
     const kids = jsxChildren(strips[0].node)
     if (kids[kids.length - 1] !== groups[0].node) problems.push(`.${strip.group} is not the last element of .${strip.className}`)
+    // Nothing at all after it — not a conditional control, not a variable,
+    // not text (review round 2, G-R2-01: `{cond && <IconButton/>}` and
+    // `{exportButton}` after the group passed) — and nothing in it but two
+    // elements (an `<ExportMenu items>` with no handler passed too).
+    const all = strips[0].node.children
+    const after = all.slice(all.indexOf(groups[0].node) + 1)
+    if (after.some(isContent)) problems.push(`something follows .${strip.group} in .${strip.className}`)
+    const inside = groups[0].node.children
+    if (inside.some((c) => c.type !== 'JSXElement' && isContent(c))) problems.push(`.${strip.group} holds an expression or text`)
+    if (jsxChildren(groups[0].node).length !== 2) problems.push(`.${strip.group} holds ${jsxChildren(groups[0].node).length} elements, not 2`)
     group = groups[0]
   } else {
     const slots = []
@@ -447,6 +462,16 @@ function stripGroup(src, strip) {
     })
     if (slots.length !== 1) return { problems: [`${slots.length} ${strip.slotOf} ${strip.prop} slots, not one`], controls: [] }
     group = slots[0]
+    // R.A.B.B.I.T.'s slot is a fragment: the Summary status group (shown on
+    // Summary only), then the two buttons, and nothing else (G-R2-01).
+    const frag = slots[0].node.value.expression
+    const parts = (frag?.type === 'JSXFragment' ? frag.children : []).filter(isContent)
+    const status = parts[0]
+    const statusOk = status?.type === 'JSXExpressionContainer'
+      && /^statusInTabBar && \(?\s*<span className="rb-ctx-status-group/.test(src.slice(status.expression.start, status.expression.end))
+    if (frag?.type !== 'JSXFragment' || parts.length !== 3 || !statusOk || parts.slice(1).some((p) => p.type !== 'JSXElement')) {
+      problems.push(`the ${strip.prop} is not exactly the status group then two elements`)
+    }
   }
   const controls = []
   group.traverse({
@@ -544,7 +569,11 @@ function navStripShape(src) {
   })
   const ret = []
   fn.traverse({ ReturnStatement(p) { ret.push(src.slice(p.node.argument.start, p.node.argument.end)) } })
-  return { pushes, labels, ret }
+  // What `items` and `tail` START as: a row built elsewhere and put in either
+  // one passed the first cut (review round 2, G-R2-02).
+  const inits = {}
+  fn.traverse({ VariableDeclarator(p) { if (p.node.init) inits[p.node.id.name] = src.slice(p.node.init.start, p.node.init.end).replace(/\s+/g, ' ') } })
+  return { pushes, labels, ret, inits }
 }
 
 describe('each tool draws Help, then Settings, at the right end of its own strip (C1, C7)', () => {
@@ -604,6 +633,19 @@ describe('each tool draws Help, then Settings, at the right end of its own strip
     expect(stripProblems('const x = <nav className="otter-nav"><Tabs /></nav>', otter)).toEqual(['0 .otter-nav-right groups, not one'])
     // A mount that is commented out does not count.
     expect(stripProblems(`${nav(pair())}\n// {showHelpModal && (<Dialog title="Help & documentation" />)}`, otter)).toEqual(expect.arrayContaining(['the Help dialog is not where it should be']))
+    // Round 2 (G-R2-01): a conditional control after the group, a variable
+    // after it, and a handler-less menu inside it.
+    const after = (extra) => `const x = <nav className="otter-nav"><Tabs /><div className="otter-nav-right">${pair()}</div>${extra}</nav>`
+    expect(stripProblems(after('{history.length > 0 && <IconButton size="sm" title="Export deck" onClick={exportAll} />}'), otter)).toEqual(expect.arrayContaining(['something follows .otter-nav-right in .otter-nav']))
+    expect(stripProblems(after('{exportButton}'), otter)).toEqual(expect.arrayContaining(['something follows .otter-nav-right in .otter-nav']))
+    expect(stripProblems(nav(`<ExportMenu items={menuItems} />${pair()}`), otter)).toEqual(expect.arrayContaining(['.otter-nav-right holds 3 elements, not 2']))
+    expect(stripProblems(nav(`{extraButton}${pair()}`), otter)).toEqual(expect.arrayContaining(['.otter-nav-right holds an expression or text']))
+    // R.A.B.B.I.T.'s slot: anything beyond the status group and the two buttons.
+    const slot = (inner) => `const x = <ViewTabs rightSlot={(<>${inner}</>)} />`
+    const rabbitPair = '<IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} /><IconButton size="sm" Icon={SettingsIcon} title="R.A.B.B.I.T. settings" onClick={() => setSettingsOpen(true)} />'
+    const status = '{statusInTabBar && (<span className="rb-ctx-status-group rb-tabbar-status" />)}'
+    expect(stripProblems(slot(`${status}${rabbitPair}{exportButton}`), rabbit)).toEqual(expect.arrayContaining(['the rightSlot is not exactly the status group then two elements']))
+    expect(stripProblems(slot(`${status}${rabbitPair}`), rabbit).filter((p) => p.includes('rightSlot'))).toEqual([])
   })
 })
 
@@ -614,6 +656,8 @@ describe('the nav strip\'s tail is Resources and App settings, and nothing carri
     expect(shape.pushes).toEqual(['tail', 'tail'])
     expect(shape.labels).toEqual(['p.navLabel', "'Resources'", 'appSettings.navLabel'])
     expect(shape.ret).toEqual(['[...items, { separator: true }, ...tail]'])
+    expect(shape.inits.tail).toBe('[]')
+    expect(shape.inits.items).toBe("primary .filter(p => p.id !== 'settings') .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }))")
   })
   it('each tool is rendered with exactly the props it reads, and reads exactly those', () => {
     for (const spec of TOOL_STRIPS) {
@@ -646,6 +690,11 @@ describe('the nav strip\'s tail is Resources and App settings, and nothing carri
     };`
     expect(navStripShape(renamed).pushes).toEqual(['tail', 'tail', 'tail'])
     expect(navStripShape(renamed).labels).toContain("'Settings'")
+    // …and a row built elsewhere and started into `tail` or `items` (G-R2-02).
+    const smuggled = renamed.replace('const tail = [];', 'const tail = isToolPage ? [toolSettingsRow] : [];')
+      .replace("if (isToolPage) tail.push({ label: 'Settings', action: () => setToolSettingsNonce(n => n + 1) });\n", '')
+    expect(navStripShape(smuggled).inits.tail).toBe('isToolPage ? [toolSettingsRow] : []')
+    expect(navStripShape(smuggled).pushes).toEqual(['tail', 'tail'])
     expect(renderSites('const x = <Otter onNavigate={go} currentPage={p} onContextChange={c} settingsNonce={n} />', 'Otter')[0].attrs).toContain('settingsNonce')
     expect(renderSites('const x = <Otter {...props} />', 'Otter')[0].spread).toBe(true)
     expect(propsOf('export default function Otter({ onNavigate, currentPage, onContextChange, settingsNonce = 0 }) {}')).toContain('settingsNonce')

@@ -4397,8 +4397,10 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       <span className="dog-check-label">Use project assets</span>
                     </div>
                   </div>
-                  {/* Full Deck Toggle */}
+                  {/* Full Deck Toggle (`dog-full-deck`: enterGenerates.js
+                      keeps "Enter generates" on it, as before S2a) */}
                   <Switch
+                    className="dog-full-deck"
                     checked={fullDeckMode}
                     label="Full deck"
                     onChange={(newMode) => {

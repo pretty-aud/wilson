@@ -296,9 +296,12 @@
   }
   /* Selected, the orange would sit on the selection screen (the signal at
      35%, about 2.8:1 here): the ink, as on the wash (S2a review round 1,
-     V-R1-02). */
-  .dog-step-title::selection,
-  .dog-step-title .dog-step::selection { color: var(--color-ink); }
+     V-R1-02) — naming every descendant, since Electron's Chromium 130 does
+     not inherit `::selection` (review round 2, V-R2-02), and only while the
+     title IS orange: Section 2 disabled in Full deck mode keeps its third
+     ink when selected (V-R2-03). */
+  .dog-card:not([data-full-deck='true']) .dog-step-title::selection,
+  .dog-card:not([data-full-deck='true']) .dog-step-title *::selection { color: var(--color-ink); }
   .dog-card-note {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);

@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { allRules, decls, splitTop, specificity, compareSpecificity, themeValues, resolveTokenHex, INK_PROPS } from '../../../scripts/ui-css-rules.mjs'
+import { allRules, decls, splitTop, specificity, compareSpecificity, themeValues, mentionsTokenHex, INK_PROPS } from '../../../scripts/ui-css-rules.mjs'
 import { parse } from '@babel/parser'
 import traverseModule from '@babel/traverse'
 
@@ -247,8 +247,10 @@ describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (
   // (`--color-focus` is #ea580c too), `-webkit-text-fill-color`, `fill` —
   // plus any custom property the sheet sets to an orange, which would recolour
   // everything that reads it (S2a review round 1, G-R1-04).
+  // (round 2, G-R2-03: any token named anywhere in the value — a fallback,
+  // a mix, a shadow's colour — counts, not only a value that IS one token)
   const orangeInks = (css) => allRules(css).flatMap((r) => decls(r.body)
-    .filter(([p, v]) => (INK_PROPS.test(p) || p.startsWith('--')) && ORANGES.has(resolveTokenHex(v, THEME)))
+    .filter(([p, v]) => (INK_PROPS.test(p) || p.startsWith('--')) && mentionsTokenHex(v, THEME, ORANGES))
     .flatMap(([p]) => splitTop(r.sel).map((s) => `${norm(s)} { ${p} }`))).sort()
   it('the orange paints exactly these: the two new rules, and two icons from before S2a — in every spelling', () => {
     expect(orangeInks(DOG)).toEqual([
@@ -262,6 +264,10 @@ describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (
       '.dog-output { --color-ink-2: var(--color-signal); }',
       '.dog-card-title { -webkit-text-fill-color: var(--color-signal); }',
       '.dog-chevron { fill: var(--color-signal-fill); }',
+      '.dog-card-title { color: var(--dog-title-ink, var(--color-signal)); }',
+      '.dog-card-title { color: transparent; text-shadow: 0 0 0 var(--color-signal); }',
+      '.dog-card-title { -webkit-text-stroke: 1px var(--color-signal); }',
+      '.dog-card-title { color: color-mix(in srgb, var(--color-signal) 90%, transparent); }',
     ]) expect(orangeInks(planted), planted).toHaveLength(1)
     // …and not on what is not an orange.
     expect(orangeInks('.a { color: var(--color-ink); border-color: var(--color-signal); background: var(--color-signal-tint); }')).toEqual([])
@@ -291,11 +297,12 @@ describe('D.O.G.\'s orange, exactly: the two section titles and their numerals (
     expect(value(hoverTitle)).toBe('var(--color-ink)')
     expect(value(hoverStep)).toBe('var(--color-ink)')
   })
-  it('selected, the orange is the ink — the selection screen fails it too (V-R1-02)', () => {
-    for (const sel of ['.dog-step-title::selection', '.dog-step-title .dog-step::selection']) {
-      const hit = setting(DOG, 'color', /^var\(--color-ink\)$/).find((x) => x.sel === sel)
-      expect(hit, `no selection revert: ${sel}`).toBeTruthy()
-    }
+  it('selected, the orange is the ink — the title and every descendant, only while it IS orange (V-R1-02, V-R2-02, V-R2-03)', () => {
+    const reverts = setting(DOG, 'color', /^var\(--color-ink\)$/).map((x) => x.sel).filter((s) => s.includes('::selection'))
+    expect(reverts.sort()).toEqual([
+      ".dog-card:not([data-full-deck='true']) .dog-step-title *::selection",
+      ".dog-card:not([data-full-deck='true']) .dog-step-title::selection",
+    ])
   })
   it('the revert is the ink, in the wash\'s own media query and on the wash\'s own state', () => {
     const wash = setting(DOG, 'background-color', /^var\(--color-hover\)$/).find((x) => x.sel === ".dog-card-head[data-collapsible='true']:hover")

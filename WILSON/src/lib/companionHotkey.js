@@ -51,11 +51,13 @@ const TEXT_INPUT_TYPES = new Set([
   'date', 'time', 'datetime-local', 'month', 'week',
 ])
 
-/** True when this element takes typing, so Shift belongs to it. */
+/** True when this element takes typing, so Shift belongs to it. A <select>
+    does not (review round 2, B-R2-06: after a layout was picked with the
+    mouse, focus stayed on D.O.G.'s select and the next tap did nothing). */
 export function typesText(el) {
   if (!el) return false
   if (el.isContentEditable) return true
-  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true
+  if (el.tagName === 'TEXTAREA') return true
   if (el.tagName === 'INPUT') return TEXT_INPUT_TYPES.has((el.getAttribute('type') || 'text').toLowerCase())
   return false
 }
@@ -79,9 +81,16 @@ const withOtherModifier = (e) => e.ctrlKey || e.altKey || e.metaKey
 
 /**
  * Installs the listeners on `win` and returns the uninstaller — the shape a
- * React effect wants back. `toggle` is called with nothing.
+ * React effect wants back. `toggle` is called with nothing. The page's state
+ * comes from `getState()` ({ petData, showOverlay }) at the moment of a tap,
+ * so App installs this ONCE, first (review round 2): a re-install on every
+ * pet change reset a half-made tap, and put this keydown listener behind the
+ * session's activity listener, which closes "Still there?" on that same
+ * keydown before this one could see it was open (B-R2-02, B-R2-04). Plain
+ * `petData` / `showOverlay` values still work, for the tests.
  */
-export function installCompanionShiftHotkey({ petData, showOverlay, toggle }, win = window) {
+export function installCompanionShiftHotkey({ petData, showOverlay, getState, toggle }, win = window) {
+  const state = getState || (() => ({ petData, showOverlay }))
   let armed = false
   let armedAt = 0
   let shiftsHeld = 0          // how many Shift keys are down (Left and Right)
@@ -107,8 +116,13 @@ export function installCompanionShiftHotkey({ petData, showOverlay, toggle }, wi
     const tapped = armed && Date.now() - armedAt <= TAP_MS
     armed = false
     shiftsHeld = Math.max(0, shiftsHeld - 1)
+    // The last Shift up says no Shift is down: Windows sends no keyup for the
+    // first-released of two Shifts, which would leave the count stuck at one
+    // and every later tap dead (B-R2-05).
+    if (!e.shiftKey) shiftsHeld = 0
     if (!tapped || e.defaultPrevented || withOtherModifier(e)) return
-    if (!petData || showOverlay) return
+    const { petData: pet, showOverlay: overlay } = state() || {}
+    if (!pet || overlay) return
     if (shiftIsTaken(win.document)) return
     toggle()
   }

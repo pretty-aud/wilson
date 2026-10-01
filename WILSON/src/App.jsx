@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -1795,11 +1795,21 @@ export default function App() {
   // Enter, which took the key from every focused button (OUTSTANDING P1-01);
   // Enter now presses whatever has focus. The listener lives in
   // lib/companionHotkey.js so a test mounts the SAME handler the app installs.
-  useEffect(() => installCompanionShiftHotkey({
-    petData,
-    showOverlay,
+  //
+  // Installed ONCE, in a layout effect, reading the pet and the sign-in
+  // overlay through a ref at the moment of a tap (review round 2, B-R2-02 and
+  // B-R2-04): window listeners run in the order they were added, and the
+  // session's activity listener — which closes "Still there?" on any key — is
+  // added in a passive effect once signed in. Installed first and never again,
+  // the hotkey sees that alert still open on the very keydown that closes it,
+  // so the tap that wakes the screen does not also open the pet; and a pet
+  // update every 30s no longer resets a half-made tap.
+  const companionKeyState = useRef({ petData, showOverlay });
+  useLayoutEffect(() => { companionKeyState.current = { petData, showOverlay }; });
+  useLayoutEffect(() => installCompanionShiftHotkey({
+    getState: () => companionKeyState.current,
     toggle: () => setCompanionOpen(prev => !prev),
-  }), [petData, showOverlay]);
+  }), []);
 
   // Handle navigation links from companion chat
   const handleCompanionNavLink = useCallback((navStr) => {

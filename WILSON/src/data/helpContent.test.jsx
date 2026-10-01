@@ -337,7 +337,22 @@ function sentencesOf(root) {
   for (const el of root.querySelectorAll('li, p, h1, h2, h3, h4, h5, h6, blockquote, figcaption')) {
     if (!el.closest('tr, dt, dd')) blocks.push(text(el))
   }
-  return blocks.flatMap((b) => b.split(/(?<!\be\.g|\bi\.e)(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean)
+  // …and text in any other element (a div, a span) outside those blocks,
+  // read from its nearest container that is not an inline run, so a legend
+  // in a <kbd> and its meaning in the <span> beside it are one sentence
+  // (review round 2, G-R2-04: 34 text nodes in the help were never read).
+  const INLINE = new Set(['SPAN', 'KBD', 'STRONG', 'EM', 'B', 'I', 'CODE', 'A', 'SMALL', 'MARK', 'SUB', 'SUP', 'SVG'])
+  const BLOCKS = 'tr, dt, dd, li, p, h1, h2, h3, h4, h5, h6, blockquote, figcaption'
+  for (const el of root.querySelectorAll('*')) {
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+    if (el.closest(BLOCKS)) continue
+    let box = el
+    while (INLINE.has(box.tagName.toUpperCase()) && box !== root && box.parentElement) box = box.parentElement
+    blocks.push(text(box))
+  }
+  // A sentence ends at . ! or ? and a space — not after "e.g.", "i.e." or "etc.".
+  const sentences = blocks.flatMap((b) => b.split(/(?<!\b(?:e\.g|i\.e|etc)\.)(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean)
+  return [...new Set(sentences)]
 }
 /** Every sentence of every page of every tool's help, both surfaces, and of the Help page. */
 function allHelpSentences() {
@@ -415,11 +430,11 @@ describe('help sends a reader to the gear in the tool\'s own strip (S2a, C6/C7)'
 // Post-overhaul S2a (Audrey's C12): the pet's key is a bare Shift tap, and
 // Enter presses whatever has focus. Help that still says Enter opens the pet
 // teaches the one key that no longer does it.
-// A sentence (sentencesOf) that names Enter, a verb that opens or closes, and
-// the pet, in any order and at any distance (G-R1-08).
-const enterOpensPet = (s) => /\benter\b/i.test(s)
-  && /\b(?:toggles?|opens?|closes?|shows?|hides?|summons?)\b/i.test(s)
-  && /\b(?:chat|companion|pet)\b/i.test(s)
+// A sentence (sentencesOf) that names Enter and the pet at all — in any
+// order, at any distance, with any verb ("Press Enter to talk to your pet"
+// passed a verb list: review round 2, G-R2-04). No help sentence today names
+// both, so none needs excusing.
+const enterOpensPet = (s) => /\benter\b/i.test(s) && /\b(?:chat|companion|pet)\b/i.test(s)
 describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => {
   it('no help, on either surface, says Enter opens or closes the pet', () => {
     const all = allHelpSentences()
@@ -443,6 +458,7 @@ describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => 
       'Press Enter to toggle the chat window (when not typing in an input)',
       'The chat opens and closes with Enter.',
       'Press Enter, wherever you are in the app and whatever you were doing, to open the pet.',
+      'Press Enter to talk to your pet.',
     ]) expect(enterOpensPet(was), was).toBe(true)
     for (const ok of [
       'Click the sprite to open/close the chat window (or tap Shift on its own)',
@@ -456,6 +472,10 @@ describe('help teaches the pet\'s Shift tap, and never Enter (S2a, C12)', () => 
     const host = document.createElement('div')
     host.innerHTML = '<dl><dt>Enter</dt><dd>Toggle the companion chat</dd></dl><table><tr><td><kbd>Enter</kbd></td><td>Open the pet</td></tr></table>'
     expect(sentencesOf(host).filter(enterOpensPet).sort()).toEqual(['Enter Open the pet', 'Enter Toggle the companion chat'])
+    // A legend and its meaning in plain divs and spans, and "etc." mid-sentence (G-R2-04).
+    const loose = document.createElement('div')
+    loose.innerHTML = '<div><kbd>Enter</kbd><span>Toggle the companion chat</span></div><div>Hit Enter etc. to open the pet.</div>'
+    expect(sentencesOf(loose).filter(enterOpensPet).sort()).toEqual(['Enter Toggle the companion chat', 'Hit Enter etc. to open the pet.'])
   })
 })
 

@@ -3097,7 +3097,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           dialog) are not views, so they are not tabs; they wear the tab's
           class so the strip reads as one language, and keep the underline
           while their menu or dialog is open, as they always did. */}
-      <nav className="otter-nav" aria-label="O.T.T.E.R.">
+      <nav
+        className="otter-nav"
+        aria-label="O.T.T.E.R."
+        // A tab focused by Tab, the arrow keys or End is scrolled fully into
+        // view when the list is narrower than its tabs (it scrolls past
+        // ~700px of window): focus() alone leaves a half-shown tab half
+        // shown (post-overhaul S2a review round 2, V-R2-01; a kit Tabs
+        // request in the S2a hand-off would make this the kit's).
+        onFocus={(e) => { if (e.target.getAttribute?.('role') === 'tab') e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }}
+      >
         <button
           ref={editButtonRef}
           type="button"

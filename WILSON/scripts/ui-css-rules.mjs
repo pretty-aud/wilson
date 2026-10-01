@@ -118,8 +118,20 @@ export function themeValues(source) {
 }
 
 /** Properties that paint a glyph's ink (text or an icon), in every spelling
- *  the orange guards have been beaten by (S2a review round 1, G-R1-04). */
-export const INK_PROPS = /^(color|-webkit-text-fill-color|fill|stroke|caret-color|text-emphasis-color)$/;
+ *  the orange guards have been beaten by (S2a review rounds 1 and 2,
+ *  G-R1-04, G-R2-03: a shadow on transparent text, a stroke). */
+export const INK_PROPS = /^(color|-webkit-text-fill-color|fill|stroke|caret-color|text-emphasis-color|text-decoration-color|text-shadow|-webkit-text-stroke|-webkit-text-stroke-color)$/;
+
+/** True when ANY token named anywhere in the value — a fallback, a mix, a
+ *  shadow's colour — resolves through @theme to one of `hexes` (review round
+ *  2, G-R2-03: `var(--unset, var(--color-signal))` paints the fallback). */
+export function mentionsTokenHex(value, theme, hexes, vars = new Map()) {
+  for (const m of String(value).matchAll(/var\(\s*(--[\w-]+)/g)) {
+    const hex = resolveTokenHex(`var(${m[1]})`, theme, vars);
+    if (hex && hexes.has(hex)) return true;
+  }
+  return false;
+}
 
 /** A value's colour as a lower-case hex when it is exactly one token (or a
  *  chain of tokens) that `@theme` defines as a hex; null otherwise. A mix, a

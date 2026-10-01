@@ -45,9 +45,19 @@ const CHECK = args.includes('--check');
 const JSON_OUT = flag('--json');
 const SHOTS = flag('--shots');
 const PREFIX = flag('--prefix') || 'strip';
-/* 853x583 is Electron's smallest window (1024x700) at 120% zoom — one
-   Ctrl+= step (S2a review round 1, V-R1-01: the strip broke there). */
-const SIZES = [[1440, 900], [1280, 700], [1024, 700], [853, 583]];
+/* Electron's smallest window is 1024x700, and Ctrl+= adds 0.5 to the zoom
+   level (x1.095 a press: electron/main.cjs), so one, two and four presses
+   leave 935x639, 853x583 and 711x486 CSS pixels (S2a review round 2,
+   V-R2-01: the strip broke at 711 after round 1; "853 = one press" was wrong). */
+const SIZES = [[1440, 900], [1280, 700], [1024, 700], [935, 639], [853, 583], [711, 486]];
+/* The nav strip's main column on each tool page: the registry's primary
+   pages in its order (pages.test.js pins ['home','dog','otter','rabbit',
+   'dashboard','settings']) without the page you are on and App settings,
+   one separator, then Resources and App settings. Read whole, so a row added
+   anywhere — not only after the separator — is caught (review round 2,
+   G-R2-02). */
+const PRIMARY = ['Home', 'D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Dashboard'];
+const expectedNav = (label) => [...PRIMARY.filter((p) => p !== label), '|', 'Resources', 'App settings'];
 
 /* Which element is each tool's strip. R.A.B.B.I.T.'s is the reference (its
    ViewTabs with the right-hand slot); O.T.T.E.R.'s is its nav; D.O.G.'s is
@@ -138,7 +148,9 @@ function readNav() {
     .find((d) => d.parentElement && d.parentElement.querySelector(':scope > .wilson-nav-item'));
   const tail = [];
   for (let n = sep?.nextElementSibling; n; n = n.nextElementSibling) tail.push((n.textContent || '').trim());
-  return { all, tail, sepFound: !!sep };
+  // The whole main column, the separator written as '|'.
+  const main = sep ? [...sep.parentElement.children].map((n) => (n === sep ? '|' : (n.textContent || '').trim())) : [];
+  return { all, tail, main, sepFound: !!sep };
 }
 
 /** Click the strip's Help, read what opened, close it; then the same for
@@ -254,6 +266,8 @@ if (CHECK) {
       if (!t || t.error) continue;
       if (!t.nav?.sepFound) bad.push(`${size} ${k}: the nav strip's separator was not found (the reader is blind)`);
       if (JSON.stringify(t.nav?.tail) !== JSON.stringify(['Resources', 'App settings'])) bad.push(`${size} ${k}: the nav strip's tail is ${JSON.stringify(t.nav?.tail)}`);
+      const own = { dog: 'D.O.G.', otter: 'O.T.T.E.R.', rabbit: 'R.A.B.B.I.T.' }[k];
+      if (JSON.stringify(t.nav?.main) !== JSON.stringify(expectedNav(own))) bad.push(`${size} ${k}: the nav strip's column is ${JSON.stringify(t.nav?.main)}, not ${JSON.stringify(expectedNav(own))}`);
       if (t.pressed?.helpDialog !== 'Help & documentation') bad.push(`${size} ${k}: Help opened ${JSON.stringify(t.pressed?.helpDialog)}`);
       if (!t.pressed?.drawerOpen) bad.push(`${size} ${k}: the gear did not open ${k}'s settings drawer`);
     }

@@ -86,17 +86,49 @@ function measure({ sel, nth = 0 }) {
   };
   const [hi, lo] = [lum(ink), lum(ground)].sort((a, b) => b - a);
   const r = el.getBoundingClientRect();
+  // Anything that repaints the glyph after `color` is computed — a filter or
+  // a blend mode on it or on any ancestor — makes the ratio above a lie, so
+  // the check fails on one (S2a review round 2, V-R2-02).
+  const effects = [];
+  for (let n = el; n; n = n.parentElement) {
+    const s = getComputedStyle(n);
+    const tag = n.tagName.toLowerCase() + (n.classList.length ? `.${[...n.classList].join('.')}` : '');
+    if (s.filter && s.filter !== 'none') effects.push(`${tag} filter: ${s.filter}`);
+    if (s.mixBlendMode && s.mixBlendMode !== 'normal') effects.push(`${tag} mix-blend-mode: ${s.mixBlendMode}`);
+  }
+  // What the glyphs are when selected (V-R1-02: the selection screen). An
+  // icon is not selectable text, so it has nothing to check; a text element
+  // is checked together with every descendant that holds text of its own,
+  // since a span inside would otherwise keep the orange (V-R2-02).
+  const svg = el instanceof SVGElement;
+  const holdsText = (n) => [...n.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim());
+  const selectionColors = svg ? [] : [...new Set([el, ...el.querySelectorAll('*')].filter(holdsText).map((n) => getComputedStyle(n, '::selection').color))];
   return {
     sel,
     text: (el.textContent || '').trim().slice(0, 40),
     color: cs.color,
     opacity: Math.round(alpha * 1000) / 1000,
-    // What the glyph is when selected (V-R1-02: the selection screen).
-    selectionColor: getComputedStyle(el, '::selection').color,
+    svg,
+    selectionColors,
+    effects,
     ground: `rgb(${ground.map((v) => Math.round(v)).join(', ')})`,
     ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100,
     box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
   };
+}
+
+/** In the page, the CONTROL for the selection check: an orange span with no
+    rule of its own. The app's `::selection` sets only the screen, so this
+    one must read back the signal — if it read the ink, every element would,
+    and the per-element check would prove nothing. */
+function selectionControl() {
+  const s = document.createElement('span');
+  s.textContent = 'control';
+  s.style.color = 'rgb(234, 88, 12)';
+  document.body.appendChild(s);
+  const c = getComputedStyle(s, '::selection').color;
+  s.remove();
+  return c;
 }
 
 async function openPage(browser, W, H, path, ready) {
@@ -129,6 +161,7 @@ async function dog(browser, W, H) {
   const page = await openPage(browser, W, H, '/dog', 'Generate Page Outline');
   const p = inPage(page);
   const out = {};
+  out.selectionControl = await page.evaluate(selectionControl);
   out.title1 = await p.measure('.dog-step-title', 0);
   out.title2 = await p.measure('.dog-step-title', 1);
   out.step1 = await p.measure('.dog-step', 0);
@@ -252,18 +285,29 @@ if (JSON_OUT) writeFileSync(JSON_OUT, out + '\n');
 if (CHECK) {
   const bad = [];
   for (const [size, { dog: d, otter: o }] of Object.entries(results)) {
+    const painted = (name, m) => {
+      for (const e of m.effects || []) bad.push(`${size} ${name}: repainted by ${e}, so its ratio is not what shows`);
+    };
     const orange = (name, m, min = 4.5) => {
       if (!m || m.error) { bad.push(`${size} ${name}: ${m?.error || 'not measured'}`); return; }
       if (m.color !== SIGNAL) bad.push(`${size} ${name}: ${m.color}, not the signal`);
       if (m.ratio < min) bad.push(`${size} ${name}: ${m.ratio}:1 on ${m.ground}, under ${min}`);
-      // Selected, the orange sits on the selection screen and fails: the ink.
-      if (m.selectionColor !== INK) bad.push(`${size} ${name}: selected, it paints ${m.selectionColor}, not the ink`);
+      painted(name, m);
+      // Selected, the orange sits on the selection screen and fails: the ink,
+      // on the element and on every descendant holding text. An icon has no
+      // selection to check; text with none read is a blind check, a breach.
+      if (m.svg) return;
+      if (!(m.selectionColors || []).length) bad.push(`${size} ${name}: no text was read for the selection check`);
+      for (const c of m.selectionColors || []) if (c !== INK) bad.push(`${size} ${name}: selected, it paints ${c}, not the ink`);
     };
     const is = (name, m, want, min = 4.5) => {
       if (!m || m.error) { bad.push(`${size} ${name}: ${m?.error || 'not measured'}`); return; }
       if (m.color !== want) bad.push(`${size} ${name}: ${m.color}, not ${want}`);
       if (m.ratio < min) bad.push(`${size} ${name}: ${m.ratio}:1 on ${m.ground}, under ${min}`);
+      painted(name, m);
     };
+    // CONTROL: the selection reader can tell the two apart.
+    if (d.selectionControl !== SIGNAL) bad.push(`${size} selection CONTROL: an orange span with no rule reads ${d.selectionControl} when selected, so the selection check is blind`);
     orange('D.O.G. title 1', d.title1); orange('D.O.G. title 2', d.title2);
     orange('D.O.G. numeral 1', d.step1); orange('D.O.G. numeral 2', d.step2);
     is('D.O.G. title 1 on the wash', d.title1Hover, INK); is('D.O.G. numeral 1 on the wash', d.step1Hover, INK);

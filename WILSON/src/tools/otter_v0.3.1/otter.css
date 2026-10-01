@@ -64,20 +64,26 @@
      class on its component (otterCss.test.js, A4 review round 2). */
   .otter-nav-tabs .ui-tab { padding: 0 8px; }
   /* Post-overhaul S2a: R.A.B.B.I.T.'s overflow rules (`.rb-viewtabs-list`)
-     and its icon drop. One row, always, and the Help and Settings group
-     beside it never moves. The icons go (and the tabs tighten to 6px) when
-     the LIST itself is under 630px — a member's seven tabs with icons need
-     621px ("Requests" is 20px wider than an admin's "Admin"). Measured by
-     scripts/tool-strip-probe.mjs: at 1024 (and wider) every tab keeps its
-     icon and fits whole; at 1024 zoomed to 120% (853px) they fit without
-     icons (S2a review round 1, V-R1-01: before the drop, Validate was cut
-     there). The query is on the list, not on `.otter-nav`: a container is
-     a containing block for fixed children, and the Edit menu is one.
-     Past that (under ~720px) the list scrolls sideways; the "hidden"
-     scrollbar then shows, because `.wilson-dark-scroll *`'s unlayered
-     `scrollbar-width: thin` outranks any layered rule — R.A.B.B.I.T.'s strip
-     does the same; kit request in the S2a hand-off. A scroller clips what its
-     tabs draw outside themselves, so their focus ring is drawn inside. */
+     and an icon drop, in steps, so the strip keeps one row and the Help and
+     Settings group never moves at any zoom a person can reach (Ctrl+= adds
+     0.5 to the zoom level, ×1.095 a press; the 1024x700 floor is 935, 853,
+     779 and 711px wide after one to four presses).
+       1. The tabs' icons go and the tabs tighten to 6px when the tab LIST is
+          under what its tabs need with icons: 630px with the seven cloud
+          tabs (a member's, "Requests", need 620; an admin's 601), 530px
+          with the six local ones (they need 519) — Audrey's own library is
+          local, so it keeps its icons as long as they fit (review round 2,
+          V-R2-05). The query is on the list, sized by the list itself.
+       2. Under 742px of window (144% on the floor window: 711) the Search
+          icon and Edit's chevron go as well, and every label set fits down
+          to ~700px (review round 2, V-R2-01, measured in Electron).
+     Narrower still, the list scrolls sideways and its "hidden" scrollbar
+     shows: `.wilson-dark-scroll *`'s unlayered `scrollbar-width: thin`
+     outranks any layered rule (R.A.B.B.I.T. too) — kit request in the S2a
+     hand-off. A tab that takes focus is scrolled fully into view (Otter.jsx,
+     the nav's onFocus), and a scroller clips what its tabs draw outside
+     themselves, so their ring is drawn inside — 5px in, clear of the active
+     tab's 2px underline, which is the same orange (V-R2-04). */
   .ui-tabs.otter-nav-tabs {
     flex: 1 1 auto;
     min-width: 0;
@@ -88,11 +94,18 @@
     container: otter-nav-tabs / inline-size;
   }
   .ui-tabs.otter-nav-tabs > .ui-tab:last-child { margin-left: auto; }
-  .ui-tabs.otter-nav-tabs > .ui-tab:focus-visible { outline-offset: -3px; }
+  .ui-tabs.otter-nav-tabs > .ui-tab:focus-visible { outline-offset: -5px; }
   .otter-nav-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
   @container otter-nav-tabs (max-width: 630px) {
+    .otter-nav-tabs:has(> .ui-tab:nth-child(7)) .otter-nav-icon { display: none; }
+    .otter-nav-tabs:has(> .ui-tab:nth-child(7)) .ui-tab { padding: 0 6px; }
+  }
+  @container otter-nav-tabs (max-width: 530px) {
     .otter-nav-tabs .otter-nav-icon { display: none; }
     .otter-nav-tabs .ui-tab { padding: 0 6px; }
+  }
+  @media (max-width: 742px) {
+    .otter-nav-button .otter-nav-icon { display: none; }
   }
   /* Help, then Settings, at the strip's right end (Audrey's C1/C7,
      2026-09-29): rabbitShell.css's `.rb-viewtabs-right` rule for rule, so the
@@ -492,10 +505,17 @@
   /* Selected, every one of Audrey's oranges sits on the selection screen
      (the signal at 35%), where the signal is about 3:1; so selected, it is
      the ink (8.86:1, tokens.test.js) — the same revert as D.O.G.'s on its
-     hover wash (S2a review round 1, V-R1-02). */
+     hover wash (S2a review round 1, V-R1-02). Each rule names its
+     descendants too: Electron's Chromium 130 does not inherit `::selection`
+     (Chromium 134 began to), so a span added inside one of these later
+     would otherwise stay orange there (review round 2, V-R2-02). A key cap
+     in a Search row that does not match keeps its dim (V-R2-03). */
   .otter-library-title .ui-section-title::selection,
-  .otter-hk-card .ui-kbd::selection,
-  .otter-lesson-card .ui-card-title::selection { color: var(--color-ink); }
+  .otter-library-title .ui-section-title *::selection,
+  .otter-hk-card .ui-tr:not([data-inactive='true']) .ui-kbd::selection,
+  .otter-hk-card .ui-tr:not([data-inactive='true']) .ui-kbd *::selection,
+  .otter-lesson-card .ui-card-title::selection,
+  .otter-lesson-card .ui-card-title *::selection { color: var(--color-ink); }
   .otter-view-meta .otter-owner { margin-left: 8px; }
   .otter-count { font-variant-numeric: tabular-nums; }
   .ui-banner.otter-banner { margin-bottom: 16px; }
