@@ -44,6 +44,7 @@ import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
 // Post-overhaul S3b: the list the tab is viewing (D2), and who is viewing it.
 import { usePermissions } from '../../../permissions/usePermissions'
+import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
 import { useViewedShotList } from './scenes/useViewedShotList'
 import ShotLists from './scenes/ShotLists'
 import MenuButton from './scenes/MenuButton'
@@ -55,6 +56,8 @@ import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
+// P1-23 (S3b step 7): a related asset opens in the Assets tab's own popup.
+import { AssetDetailPopup } from './ProjectAssetsView'
 // Session 25: naming moved out of this file. It had five copies here and in
 // ProjectSummaryView, and S26 needs the same strings to name folders.
 import {
@@ -77,6 +80,8 @@ import ShotTakeChips from './bins/ShotTakeChips'
 import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
 import TakePickerDialog from './bins/TakePickerDialog'
 import BinPoster from './bins/BinPoster'
+// S4a-07 (S3b step 7): the Bins keys' own "is something in front of me?".
+import { visibleOverlayOpen, drawerOnScreen } from './bins/binUi'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -464,21 +469,39 @@ export default function ScenesView({ pageActive = false } = {}) {
   // edit reverted behind a bulk delete's question) — this page's own, or
   // any other the kit puts on screen over it (round two, R2-01: a popup's
   // FileManager "Delete file" or RelationsPanel "Create task";
-  // `questionOnScreen`, at ConfirmDialog). Only a question: with a popup
-  // open the keys undo as they always did (C1).
+  // `questionOnScreen`, at ConfirmDialog). With a popup open the keys undo
+  // as they always did (C1).
+  //
+  // 🚨 S4a-07 (S3b step 7): every page stays mounted and this listens on the
+  // DOCUMENT, so from another page Ctrl+Z undid R.A.B.B.I.T.'s last edit —
+  // S4a's finding for the Bins keys (S2a-01), here too. It acts only while
+  // R.A.B.B.I.T. is the page on screen (`pageActive`, Rabbit.jsx's), and
+  // stands down under what this tab did not open over itself, as the Bins
+  // keys do: a kit menu on screen (a row's or the bar's), the settings
+  // drawer (not on the kit's overlay stack) or focus inside one, and any kit
+  // dialog while none of this tab's own surfaces is open — the shot lists'
+  // picker, form and Add from another list among them. The tab's own — its
+  // two popups and the takes dialogs — keep the keys (C1: R1-08 and R2-01
+  // undo with a popup open); a question over them still stops them.
+  // BudgetView and TimelineView bind the same keys with the same defect;
+  // they stay with their owners (the hand-off says so).
+  const ownSurfaceRef = useRef(false)
+  ownSurfaceRef.current = !!(detailSceneId || detailShotId || takesShotId || pickerShotId)
   useEffect(() => {
-    if (!supportsBins) return
+    if (!supportsBins || !pageActive) return
     const h = (e) => {
       if (questionOnScreen()) return
       if (!(e.ctrlKey || e.metaKey)) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (menuOnScreen() || drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest('.ui-drawer'))) return
+      if (!ownSurfaceRef.current && visibleOverlayOpen({ dialogsOnly: true })) return
       if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); if (e.shiftKey) ctxRef.current?.redo?.(); else ctxRef.current?.undo?.() }
       else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); ctxRef.current?.redo?.() }
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
-  }, [supportsBins])
+  }, [supportsBins, pageActive])
 
   function toggleGroup(key) {
     setCollapsedGroups(prev => {
@@ -567,7 +590,11 @@ export default function ScenesView({ pageActive = false } = {}) {
   // no list on screen the provider's own rule stands (the active list, if
   // the project has one: 'pending' is that list before it has loaded).
   const newRowOpts = useMemo(() => (viewed.mode === 'list' ? { listId: viewed.id } : undefined), [viewed.mode, viewed.id])
+  // S3b step 7: every funnel checks the entity gate too (the Tasks tab's
+  // Session 29 rule) — a greyed control is not the only way in (a key, a
+  // stale closure, a later caller).
   const handleNewScene = useCallback(async () => {
+    if (!canWriteProject) return
     const num = nextSceneNumber
     const name = formatSceneCode(num)
     try {
@@ -578,9 +605,10 @@ export default function ScenesView({ pageActive = false } = {}) {
         type: 'interior',
       }, newRowOpts)
     } catch (err) { console.error('Failed to create scene:', err) }
-  }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts])
+  }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts, canWriteProject])
 
   const handleNewShot = useCallback(async (sceneId) => {
+    if (!canWriteProject) return
     const scene = sceneById?.(sceneId)
     const nextNum = nextShotNumberForScene(sceneId)
     const name = formatShotCode(scene?.scene_number ?? 0, nextNum)
@@ -594,12 +622,13 @@ export default function ScenesView({ pageActive = false } = {}) {
         frame_count: 0,
       }, newRowOpts)
     } catch (err) { console.error('Failed to create shot:', err) }
-  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts])
+  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts, canWriteProject])
 
   // Every shot of the scene, in every list (S3b step 1), each deleted on its
   // own first so each has its own undo; the database's cascade would take a
   // shot only another list holds with none.
   const handleDeleteScene = useCallback(async (id) => {
+    if (!canWriteProject) { setConfirmDelete(null); return }
     try {
       const childShots = allShotsByScene[id] || []
       for (const shot of childShots) {
@@ -609,14 +638,15 @@ export default function ScenesView({ pageActive = false } = {}) {
     } catch (err) { console.error('Failed to delete scene:', err) }
     setConfirmDelete(null)
     if (detailSceneId === id) setDetailSceneId(null)
-  }, [ctx, allShotsByScene, detailSceneId])
+  }, [ctx, allShotsByScene, detailSceneId, canWriteProject])
 
   const handleDeleteShot = useCallback(async (id) => {
+    if (!canWriteProject) { setConfirmDelete(null); return }
     try {
       await ctx?.deleteShot?.(id)
     } catch (err) { console.error('Failed to delete shot:', err) }
     setConfirmDelete(null)
-  }, [ctx])
+  }, [ctx, canWriteProject])
 
   // ── The list's own order (S3b step 2) ──
   // Move up / Move down in List order, the takes panel's pattern (drag
@@ -978,7 +1008,15 @@ export default function ScenesView({ pageActive = false } = {}) {
     </span>
   )
 
+  // S3b step 7: the scene and shot verbs are a project's ENTITY writes
+  // (project.entity.write) — a reviewer now writes shot lists but still not
+  // the scenes and shots themselves, which the database refuses. The house
+  // treatment (Session 29, the Tasks and Assets tabs): a button greyed in
+  // GatedAction with the reason on hover (from this provider); a cell plain
+  // words, not a control; a select or field disabled; and every funnel
+  // checks the gate too.
   return (
+    <WriteReasonProvider reason={writeReason}>
     <div className="rb-scene-page">
 
       {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
@@ -1019,12 +1057,17 @@ export default function ScenesView({ pageActive = false } = {}) {
         right={(
           <>
             {/* The create button for the content mode on show is the one
-                primary, as its orange fill was; the other is secondary. */}
-            <Button size="sm" variant={contentMode === 'scenes' ? 'primary' : 'secondary'} Icon={Plus} onClick={handleNewScene}>
-              New scene
-            </Button>
+                primary, as its orange fill was; the other is secondary.
+                S3b step 7: each greyed, with the reason, for a seat that
+                may not write scenes and shots (a reviewer). */}
+            <GatedAction allowed={canWriteProject}>
+              <Button size="sm" variant={contentMode === 'scenes' ? 'primary' : 'secondary'} Icon={Plus} onClick={handleNewScene}>
+                New scene
+              </Button>
+            </GatedAction>
 
             {/* New shot, with its scene picker */}
+            <GatedAction allowed={canWriteProject}>
             <span ref={shotPickerRef} className="rb-scene-picker-anchor">
               <Button
                 size="sm"
@@ -1062,6 +1105,7 @@ export default function ScenesView({ pageActive = false } = {}) {
                 </div>
               )}
             </span>
+            </GatedAction>
           </>
         )}
       >
@@ -1245,6 +1289,7 @@ export default function ScenesView({ pageActive = false } = {}) {
               thumbRevision={thumbRevision}
               onThumbChanged={() => setThumbRevision(r => r + 1)}
               rowMenu={rowListMenu}
+              canWrite={canWriteProject}
               nameTitle={inListsTitle}
               onBulkRemove={bulkRemove}
               describeDelete={describeDelete}
@@ -1262,6 +1307,7 @@ export default function ScenesView({ pageActive = false } = {}) {
               takes={takesApi}
               thumbRevision={thumbRevision}
               rowMenu={rowListMenu}
+              canWrite={canWriteProject}
               nameTitle={inListsTitle}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
@@ -1303,6 +1349,7 @@ export default function ScenesView({ pageActive = false } = {}) {
                       onThumbChanged={() => setThumbRevision(r => r + 1)}
                       ctx={ctx}
                       rowMenu={rowListMenu}
+                      canWrite={canWriteProject}
                       nameTitle={inListsTitle}
                       onBulkRemove={bulkRemove}
                       describeDelete={describeDelete}
@@ -1326,8 +1373,14 @@ export default function ScenesView({ pageActive = false } = {}) {
                 taskCountByScene={taskCountByScene}
                 fps={fps}
                 thumbSize={thumbSize}
+                // P1-21 (S3b step 7): the grouped table always had these;
+                // without them a thumbnail set here showed late, on the next
+                // change of anything else.
+                thumbRevision={thumbRevision}
+                onThumbChanged={() => setThumbRevision(r => r + 1)}
                 ctx={ctx}
                 rowMenu={rowListMenu}
+                canWrite={canWriteProject}
                 nameTitle={inListsTitle}
                 onBulkRemove={bulkRemove}
                 describeDelete={describeDelete}
@@ -1345,6 +1398,7 @@ export default function ScenesView({ pageActive = false } = {}) {
               gallerySize={gallerySize}
               fps={fps}
               rowMenu={rowListMenu}
+              canWrite={canWriteProject}
               nameTitle={inListsTitle}
               onOpenDetail={setDetailSceneId}
               onRequestDelete={setConfirmDelete}
@@ -1359,6 +1413,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         <SceneDetailPopup
           sceneId={detailSceneId}
           ctx={ctx}
+          canWrite={canWriteProject}
           fps={fps}
           // The shots its row shows; for a scene the list on screen does not
           // hold (opened from another tab), every shot it has (S3b step 1).
@@ -1381,6 +1436,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         <ShotDetailPopup
           shotId={detailShotId}
           ctx={ctx}
+          canWrite={canWriteProject}
           takes={takesApi}
           fps={fps}
           projectMembers={projectMembers}
@@ -1450,6 +1506,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         />
       )}
     </div>
+    </WriteReasonProvider>
   )
 }
 
@@ -1485,7 +1542,7 @@ function RowMore({ name, items }) {
 // S3b: `rowMenu` (a row's shot-list menu), `nameTitle` (a name's lists, D10)
 // and `onBulkRemove` (the bulk bars' Remove from list, while a list is on
 // screen and this person writes lists) come from ScenesView.
-function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
@@ -1496,8 +1553,9 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
   const [selectedNestedShots, setSelectedNestedShots] = useState(new Set())
   function toggleNestedShot(id) { setSelectedNestedShots(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
   function clearNestedSelection() { setSelectedNestedShots(new Set()) }
-  function bulkUpdateNestedShots(patch) { for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
+  function bulkUpdateNestedShots(patch) { if (!canWrite) return; for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
   function bulkDeleteNestedShots() {
+    if (!canWrite) return
     for (const id of selectedNestedShots) ctx?.deleteShot?.(id)
     clearNestedSelection()
   }
@@ -1511,10 +1569,11 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
   function toggleOne(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allIds)) }
   function clearSelection() { setSelected(new Set()) }
-  function bulkUpdate(patch) { for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
+  function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
   // Every shot of each scene, in every list (S3b step 1), as the row's own
   // delete: a shot only another list holds gets its own undo.
   function bulkDelete() {
+    if (!canWrite) return
     for (const id of selected) {
       const childShots = allShotsByScene[id] || []
       for (const shot of childShots) ctx?.deleteShot?.(shot.id)
@@ -1546,17 +1605,21 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
         <div className="rb-scene-bulk">
           <span className="rb-scene-bulk-count">{selected.size} selected</span>
           <span className="rb-scene-divider" aria-hidden="true" />
-          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          <GatedAction allowed={canWrite}>
+            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+          </GatedAction>
           <span className="rb-scene-divider" aria-hidden="true" />
           {onBulkRemove && (
             <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('scene', [...selected], clearSelection)}>
               Remove from list
             </Button>
           )}
-          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk('scenes')}>
-            Delete
-          </Button>
+          <GatedAction allowed={canWrite}>
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk('scenes')}>
+              Delete
+            </Button>
+          </GatedAction>
           <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
         </div>
       )}
@@ -1631,8 +1694,9 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
 
                 {/* Thumbnail */}
                 <Td className="rb-scene-thumb-cell">
-                  <div className="rb-scene-thumb"
-                    onClick={async e => {
+                  {/* S3b step 7: a picture, not a button, for a seat that may not write scenes. */}
+                  <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
+                    onClick={canWrite ? async e => {
                       e.stopPropagation()
                       if (!window.electronAPI?.rabbit?.pickImage) return
                       const imagePath = await window.electronAPI.rabbit.pickImage()
@@ -1640,16 +1704,16 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                       ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
                       try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
                       onThumbChanged?.()
-                    }}>
+                    } : undefined}>
                     {sc.thumbnail_image ? (
                       <>
                         <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                        {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
                       </>
                     ) : (
                       <>
                         <Film className="rb-scene-thumb-mark" aria-hidden="true" />
-                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                        {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
                       </>
                     )}
                   </div>
@@ -1669,6 +1733,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                       strong
                       label={`Name for ${name}`}
                       title={nameTitle?.(sc.id)}
+                      readOnly={!canWrite}
                       onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
                     />
                   </span>
@@ -1684,6 +1749,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                       value={sc.status || 'not_started'}
                       onChange={v => ctx?.updateScene?.(sc.id, { status: v })}
                       options={STATUS_OPTIONS}
+                      disabled={!canWrite}
                       aria-label={`Status for ${name}`}
                     />
                   </span>
@@ -1696,6 +1762,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                     onChange={v => ctx?.updateScene?.(sc.id, { time_of_day: v })}
                     placeholder="—"
                     options={TIME_OPTIONS}
+                    disabled={!canWrite}
                     aria-label={`Time of day for ${name}`}
                   />
                 </Td>
@@ -1706,6 +1773,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                     value={sc.type || 'interior'}
                     onChange={v => ctx?.updateScene?.(sc.id, { type: v })}
                     options={TYPE_OPTIONS}
+                    disabled={!canWrite}
                     aria-label={`Type for ${name}`}
                   />
                 </Td>
@@ -1717,6 +1785,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                     placeholder="Add description…"
                     size="sm"
                     label={`Description for ${name}`}
+                    readOnly={!canWrite}
                     onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
                   />
                 </Td>
@@ -1739,8 +1808,10 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                     <IconButton size="sm" Icon={Eye} title="View details"
                       onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
                     <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
-                    <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
-                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                    <GatedAction allowed={canWrite}>
+                      <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
+                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                    </GatedAction>
                   </HoverActions>
                 </Td>
               </Row>
@@ -1759,17 +1830,22 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                         return (
                           <div className="rb-scene-nest-bulk">
                             <span className="rb-scene-bulk-count">{selInScene.length} selected</span>
-                            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
-                            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
-                            <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                            <GatedAction allowed={canWrite}>
+                              <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
+                              <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
+                              <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                            </GatedAction>
                             {onBulkRemove && (
                               <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', [...selectedNestedShots], clearNestedSelection)}>
                                 Remove from list
                               </Button>
                             )}
-                            <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
-                              Delete
-                            </Button>
+                            {/* Its wrapper, drawn only while it greys, keeps the Delete's place at the end. */}
+                            <GatedAction allowed={canWrite} className="rb-scene-nest-delete-gate">
+                              <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
+                                Delete
+                              </Button>
+                            </GatedAction>
                             <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearNestedSelection} />
                           </div>
                         )
@@ -1800,8 +1876,8 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                 </Td>
                                 {/* Thumbnail */}
                                 <Td className="rb-scene-thumb-cell">
-                                  <div className="rb-scene-thumb" data-nested="true"
-                                    onClick={async e => {
+                                  <div className="rb-scene-thumb" data-nested="true" data-static={canWrite ? undefined : 'true'}
+                                    onClick={canWrite ? async e => {
                                       e.stopPropagation()
                                       if (!window.electronAPI?.rabbit?.pickImage) return
                                       const imagePath = await window.electronAPI.rabbit.pickImage()
@@ -1809,22 +1885,22 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                       ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
                                       try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
                                       onThumbChanged?.()
-                                    }}>
+                                    } : undefined}>
                                     {shot.thumbnail_image ? (
                                       <>
                                         <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                                        <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                                        {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
                                       </>
                                     ) : takeFallback ? (
                                       <>
                                         {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
                                         <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} className="rb-scene-poster" />
-                                        <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                                        {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
                                       </>
                                     ) : (
                                       <>
                                         <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
-                                        <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                                        {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
                                       </>
                                     )}
                                   </div>
@@ -1838,6 +1914,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                   <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
                                     label={`Name for ${shotName}`}
                                     title={nameTitle?.(shot.id)}
+                                    readOnly={!canWrite}
                                     onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
                                 </Td>
                                 {/* Takes (milestone 2) */}
@@ -1856,6 +1933,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                       value={shot.status || 'not_started'}
                                       onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
                                       options={STATUS_OPTIONS}
+                                      disabled={!canWrite}
                                       aria-label={`Status for ${shotName}`}
                                     />
                                   </span>
@@ -1863,30 +1941,31 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                 {/* Time of day */}
                                 <Td className="rb-scene-time-cell">
                                   <CellSelect value={shot.time_of_day || null} onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
-                                    placeholder="—" options={TIME_OPTIONS} aria-label={`Time of day for ${shotName}`} />
+                                    placeholder="—" options={TIME_OPTIONS} disabled={!canWrite} aria-label={`Time of day for ${shotName}`} />
                                 </Td>
                                 {/* Type */}
                                 <Td className="rb-scene-type-cell">
                                   <CellSelect value={shot.type || 'other'} onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
-                                    options={TYPE_OPTIONS} aria-label={`Type for ${shotName}`} />
+                                    options={TYPE_OPTIONS} disabled={!canWrite} aria-label={`Type for ${shotName}`} />
                                 </Td>
                                 {/* Framing: the code in the cell, the long names in the list */}
                                 <Td className="rb-scene-framing-cell">
                                   <span className="rb-scene-framing">
                                     <span className="rb-scene-framing-code" data-empty={shot.framing ? undefined : 'true'} aria-hidden="true">{shot.framing || '—'}</span>
                                     <CellSelect className="rb-scene-framing-select" value={shot.framing || null} onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
-                                      placeholder="—" options={FRAMING_CHOICES} aria-label={`Framing for ${shotName}`} />
+                                      placeholder="—" options={FRAMING_CHOICES} disabled={!canWrite} aria-label={`Framing for ${shotName}`} />
                                   </span>
                                 </Td>
                                 {/* Camera movement */}
                                 <Td className="rb-scene-move-cell">
                                   <CellSelect value={shot.camera_movement || null} onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
-                                    placeholder="—" options={MOVE_CHOICES} aria-label={`Camera movement for ${shotName}`} />
+                                    placeholder="—" options={MOVE_CHOICES} disabled={!canWrite} aria-label={`Camera movement for ${shotName}`} />
                                 </Td>
                                 {/* Description */}
                                 <Td className="rb-scene-desc-cell">
                                   <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
                                     label={`Description for ${shotName}`}
+                                    readOnly={!canWrite}
                                     onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
                                 </Td>
                                 {/* Duration */}
@@ -1897,6 +1976,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                 <Td numeric className="rb-scene-frames-cell">
                                   <input type="number" min={0} value={shot.frame_count ?? ''}
                                     onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
+                                    disabled={!canWrite}
                                     aria-label={`Frames for ${shotName}`}
                                     className="ui-input rb-scene-frames"
                                     data-size="sm"
@@ -1906,8 +1986,10 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                                   <HoverActions className="rb-scene-acts">
                                     <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
                                     <RowMore name={shotName} items={rowMenu?.('shot', shot, sceneShots.map(s => s.id))} />
-                                    <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
-                                      onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                                    <GatedAction allowed={canWrite}>
+                                      <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                                        onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                                    </GatedAction>
                                   </HoverActions>
                                 </Td>
                               </Row>
@@ -1916,9 +1998,11 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                         </Table>
                       )}
                       {/* Add shot row */}
-                      <button type="button" onClick={() => onNewShot(sc.id)} className="rb-scene-add">
-                        <Plus aria-hidden="true" /> Add shot
-                      </button>
+                      <GatedAction allowed={canWrite} display="flex">
+                        <button type="button" onClick={() => onNewShot(sc.id)} className="rb-scene-add">
+                          <Plus aria-hidden="true" /> Add shot
+                        </button>
+                      </GatedAction>
                     </div>
                   </Td>
                 </Row>
@@ -1969,7 +2053,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
 // well said it twice in statusColor's hues; the bar goes, as the Assets
 // cards' did) — and the shot count and runtime in the mono, in the third
 // ink (R3-13: #57534e, 2.3:1). The whole card opens the scene, as it did.
-function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, rowMenu, nameTitle, onOpenDetail, onRequestDelete }) {
+function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, canWrite = false, rowMenu, nameTitle, onOpenDetail, onRequestDelete }) {
   if (scenes.length === 0) {
     // The kit's empty state (R3-19), in the same words.
     return <EmptyState Icon={Film} title="No scenes yet" />
@@ -1989,8 +2073,10 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, row
                 <Film className="rb-scene-card-glyph" aria-hidden="true" />
                 <HoverActions className="rb-scene-card-acts">
                   <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
-                  <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
-                    onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name }) }} />
+                  <GatedAction allowed={canWrite}>
+                    <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
+                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name }) }} />
+                  </GatedAction>
                 </HoverActions>
               </div>
               <div className="rb-scene-card-body">
@@ -2039,7 +2125,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, row
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -2055,8 +2141,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   function toggleOne(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allShotIds)) }
   function clearSelection() { setSelected(new Set()) }
-  function bulkUpdate(patch) { for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
+  function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
   function bulkDelete() {
+    if (!canWrite) return
     for (const id of selected) ctx?.deleteShot?.(id)
     clearSelection()
   }
@@ -2085,18 +2172,22 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
         <div className="rb-scene-bulk">
           <span className="rb-scene-bulk-count">{selected.size} selected</span>
           <span className="rb-scene-divider" aria-hidden="true" />
-          <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-          <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-          <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
+          <GatedAction allowed={canWrite}>
+            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+            <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
+          </GatedAction>
           <span className="rb-scene-divider" aria-hidden="true" />
           {onBulkRemove && (
             <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', [...selected], clearSelection)}>
               Remove from list
             </Button>
           )}
-          <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk(true)}>
-            Delete
-          </Button>
+          <GatedAction allowed={canWrite}>
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulk(true)}>
+              Delete
+            </Button>
+          </GatedAction>
           <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
         </div>
       )}
@@ -2204,8 +2295,8 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 
                     {/* Thumbnail */}
                     <Td className="rb-scene-thumb-cell">
-                      <div className="rb-scene-thumb"
-                        onClick={async e => {
+                      <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
+                        onClick={canWrite ? async e => {
                           e.stopPropagation()
                           if (!window.electronAPI?.rabbit?.pickImage) return
                           const imagePath = await window.electronAPI.rabbit.pickImage()
@@ -2213,22 +2304,22 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
                           try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
                           onThumbChanged?.()
-                        }}>
+                        } : undefined}>
                         {shot.thumbnail_image ? (
                           <>
                             <img className="rb-scene-thumb-img" src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`} alt="" />
-                            <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>
+                            {canWrite && <span className="rb-scene-thumb-over"><ImagePlus aria-hidden="true" /></span>}
                           </>
                         ) : takeFallback ? (
                           <>
                             {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
                             <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} className="rb-scene-poster" />
-                            <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>
+                            {canWrite && <span className="rb-scene-thumb-over" title="From the primary take. Click to set a thumbnail of your own."><ImagePlus aria-hidden="true" /></span>}
                           </>
                         ) : (
                           <>
                             <Clapperboard className="rb-scene-thumb-mark" aria-hidden="true" />
-                            <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />
+                            {canWrite && <ImagePlus className="rb-scene-thumb-add" aria-hidden="true" />}
                           </>
                         )}
                       </div>
@@ -2247,6 +2338,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         strong
                         label={`Name for ${shotName}`}
                         title={nameTitle?.(shot.id)}
+                        readOnly={!canWrite}
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
                     </Td>
@@ -2268,6 +2360,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           value={shot.status || 'not_started'}
                           onChange={v => ctx?.updateShot?.(shot.id, { status: v })}
                           options={STATUS_OPTIONS}
+                          disabled={!canWrite}
                           aria-label={`Status for ${shotName}`}
                         />
                       </span>
@@ -2280,6 +2373,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         onChange={v => ctx?.updateShot?.(shot.id, { time_of_day: v })}
                         placeholder="—"
                         options={TIME_OPTIONS}
+                        disabled={!canWrite}
                         aria-label={`Time of day for ${shotName}`}
                       />
                     </Td>
@@ -2290,6 +2384,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         value={shot.type || 'other'}
                         onChange={v => ctx?.updateShot?.(shot.id, { type: v })}
                         options={TYPE_OPTIONS}
+                        disabled={!canWrite}
                         aria-label={`Type for ${shotName}`}
                       />
                     </Td>
@@ -2304,6 +2399,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           onChange={v => ctx?.updateShot?.(shot.id, { framing: v })}
                           placeholder="—"
                           options={FRAMING_CHOICES}
+                          disabled={!canWrite}
                           aria-label={`Framing for ${shotName}`}
                         />
                       </span>
@@ -2316,6 +2412,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         onChange={v => ctx?.updateShot?.(shot.id, { camera_movement: v })}
                         placeholder="—"
                         options={MOVE_CHOICES}
+                        disabled={!canWrite}
                         aria-label={`Camera movement for ${shotName}`}
                       />
                     </Td>
@@ -2327,6 +2424,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         placeholder="Add description…"
                         size="sm"
                         label={`Description for ${shotName}`}
+                        readOnly={!canWrite}
                         onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
                       />
                     </Td>
@@ -2346,6 +2444,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           const n = parseInt(e.target.value, 10)
                           ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                         }}
+                        disabled={!canWrite}
                         aria-label={`Frames for ${shotName}`}
                         className="ui-input rb-scene-frames"
                         data-size="sm"
@@ -2359,6 +2458,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         type="date"
                         value={shot.start_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
+                        disabled={!canWrite}
                         aria-label={`Start date for ${shotName}`}
                         className="ui-input rb-scene-date"
                         data-size="sm"
@@ -2372,6 +2472,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         type="date"
                         value={shot.end_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
+                        disabled={!canWrite}
                         aria-label={`End date for ${shotName}`}
                         className="ui-input rb-scene-date"
                         data-size="sm"
@@ -2384,8 +2485,10 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <HoverActions className="rb-scene-acts">
                         <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
                         <RowMore name={shotName} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
-                        <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
-                          onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                        <GatedAction allowed={canWrite}>
+                          <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
+                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                        </GatedAction>
                       </HoverActions>
                     </Td>
                   </Row>
@@ -2396,9 +2499,11 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
               {!collapsed && g.scene && (
                 <Row>
                   <Td colSpan={span} className="rb-scene-add-cell">
-                    <button type="button" onClick={() => onNewShot(g.sceneId)} className="rb-scene-add">
-                      <Plus aria-hidden="true" /> Add shot
-                    </button>
+                    <GatedAction allowed={canWrite} display="flex">
+                      <button type="button" onClick={() => onNewShot(g.sceneId)} className="rb-scene-add">
+                        <Plus aria-hidden="true" /> Add shot
+                      </button>
+                    </GatedAction>
                   </Td>
                 </Row>
               )}
@@ -2435,7 +2540,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 // A group's head is the shot table's band in the gallery's shape: the glyph
 // and the count in the third ink, the name at 600 in the ink (they were
 // orange), the named kit IconButton for Scene details, then a hairline.
-function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, canWrite = false, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
   // The sheet sizes the cards (`.rb-scene-gallery[data-card]`, the same three
   // widths and their 16:9 heights); these are what BinPoster is handed.
   const sizeMap = { sm: 160, md: 220, lg: 300 }
@@ -2496,8 +2601,10 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                     )}
                     <HoverActions className="rb-scene-card-acts">
                       <RowMore name={name} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
-                      <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
-                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name }) }} />
+                      <GatedAction allowed={canWrite}>
+                        <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} className="rb-scene-card-delete"
+                          onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name }) }} />
+                      </GatedAction>
                     </HoverActions>
                   </div>
                   {/* Info */}
@@ -2581,9 +2688,17 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 // SIBLING, portalled, over it on the modal stack, so one Escape closes it and
 // this popup stays.
 //
-// R4-26's twin — a related asset's click sets `nestedAssetId`, which nothing
-// renders — is RECORDED, not changed (C1), as B4c recorded it.
-function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
+// R4-26's twin (P1-23) — a related asset's click set `nestedAssetId`, which
+// nothing rendered — is closed on this side (S3b step 7): the asset opens in
+// the Assets tab's own AssetDetailPopup, over this popup on the modal stack,
+// as a task opens in TaskDetailPopup; one Escape closes it and this stays.
+//
+// S3b step 7: `canWrite` (project.entity.write) — for a seat that may not
+// write scenes (a reviewer) every field is read-only and every verb greyed
+// with the reason (GatedAction); and D21 — a description or notes draft is
+// never dropped without a word (PopupDraftText; the question, ListConfirm,
+// over this popup, Cancel focused).
+function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot, canWrite = false }) {
   // S3b step 1: found among EVERY scene (ctx.sceneById, S3a), so a scene of
   // a list that is not the active one opens; ctx.scenes is the active list's.
   const scene = ctx?.sceneById?.(sceneId) || null
@@ -2602,6 +2717,9 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // D21: the draft a question is about — 'close' (the popup), 'description'
+  // or 'notes' (Escape in its box) — while it asks.
+  const [askDiscard, setAskDiscard] = useState(null)
   // What opened this popup — a row's "View details" — captured in render, as
   // the kit Dialog captures it (an effect would read the popup's own focus).
   // The delete question asked from here is handed it (ConfirmDialog).
@@ -2618,10 +2736,27 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
 
-  function handleUpdate(patch) { ctx?.updateScene?.(scene.id, patch) }
+  function handleUpdate(patch) { if (canWrite) ctx?.updateScene?.(scene.id, patch) }
+  // D21: a draft that differs from what is saved, in an open editor.
+  const dirty = {
+    description: editingDesc && descDraft !== (scene.description || ''),
+    notes: editingNotes && notesDraft !== (scene.notes || ''),
+  }
+  /** The kit Dialog's onBeforeClose (Escape, ✕, the backdrop) and Close: ask first when a draft would go. */
+  const requestClose = () => {
+    if (!dirty.description && !dirty.notes) return true
+    setAskDiscard('close')
+    return false
+  }
+  const discard = (what) => {
+    setAskDiscard(null)
+    if (what === 'close') { onClose(); return }
+    if (what === 'description') { setDescDraft(scene.description || ''); setEditingDesc(false) }
+    else { setNotesDraft(scene.notes || ''); setEditingNotes(false) }
+  }
 
   async function handleSetThumbnail() {
-    if (!window.electronAPI?.rabbit?.pickImage) return
+    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
     const imagePath = await window.electronAPI.rabbit.pickImage()
     if (!imagePath) return
     handleUpdate({ thumbnail_image: imagePath })
@@ -2632,6 +2767,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   }
 
   async function handleClearThumbnail() {
+    if (!canWrite) return
     handleUpdate({ thumbnail_image: null })
     try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'scene', entityId: scene.id }) } catch {}
     onThumbChanged?.()
@@ -2647,7 +2783,6 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const sceneCode = sceneCodeFor(project, scene.scene_number ?? 0)
   const sceneSlug = fileSlugify(scene.name || 'Untitled-Scene')
   const sceneFolderPath = `SCENES/${sceneSlug}/`
-  const fileCount = managedFiles.filter(f => f.scene_id === scene.id && !f.deleted_at).length
 
   return (
     <>
@@ -2671,15 +2806,19 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
           )}
           subtitle={<StatusBadge status={status} />}
           dismissOnBackdrop
+          onBeforeClose={requestClose}
           onClose={onClose}
           footer={(
             <>
-              {/* At the footer's left, where it was; Close at its right. */}
-              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
-                Delete scene
-              </Button>
-              <Button onClick={onClose}>
+              {/* At the footer's left, where it was; Close at its right. The
+                  class on both: GatedAction draws its wrapper only when it greys. */}
+              <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
+                <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                  onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  Delete scene
+                </Button>
+              </GatedAction>
+              <Button onClick={() => { if (requestClose()) onClose() }}>
                 Close
               </Button>
             </>
@@ -2738,12 +2877,17 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                         alt="" />
                       {/* Change and remove over the picture: the kit's
                           HoverActions, shown on hover as they were, and on
-                          keyboard focus now. */}
-                      <HoverActions className="rb-scene-detail-thumb-acts">
-                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
-                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
-                      </HoverActions>
+                          keyboard focus now. Not for a seat that may not
+                          write scenes: the picture alone. */}
+                      {canWrite && (
+                        <HoverActions className="rb-scene-detail-thumb-acts">
+                          <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                          <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        </HoverActions>
+                      )}
                     </>
+                  ) : !canWrite ? (
+                    <Film aria-hidden="true" className="rb-scene-detail-thumb-glyph" />
                   ) : (
                     <button type="button" onClick={handleSetThumbnail}
                       className="rb-scene-detail-thumb-set"
@@ -2762,6 +2906,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                     value={scene.name || ''}
                     placeholder="Untitled scene"
                     label="Scene name"
+                    readOnly={!canWrite}
                     onCommit={v => handleUpdate({ name: v })}
                   />
                 </div>
@@ -2781,6 +2926,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                     <span className="rb-scene-prop-status">
                       <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
                       <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        disabled={!canWrite}
                         aria-label="Status"
                         className="ui-input rb-scene-prop-status-input"
                         data-size="sm">
@@ -2791,6 +2937,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   <div className="rb-scene-prop">
                     <FieldLabel>Type</FieldLabel>
                     <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
+                      disabled={!canWrite}
                       aria-label="Type"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm">
@@ -2800,6 +2947,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   <div className="rb-scene-prop">
                     <FieldLabel>Time of day</FieldLabel>
                     <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Time of day"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm"
@@ -2814,6 +2962,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
                     }}
+                      disabled={!canWrite}
                       aria-label="Scene number"
                       className="ui-input rb-scene-prop-number"
                       data-size="sm" />
@@ -2850,6 +2999,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                       type="date"
                       value={scene.start_date || ''}
                       onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Start date"
                       className="ui-input rb-scene-date"
                       data-size="sm"
@@ -2862,6 +3012,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                       type="date"
                       value={scene.end_date || ''}
                       onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="End date"
                       className="ui-input rb-scene-date"
                       data-size="sm"
@@ -2872,67 +3023,21 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
               </div>
 
               {/* Description: the words in the kit's well open its textarea;
-                  Save and Cancel are the kit's Buttons. Escape cancels, and is
-                  MARKED handled so the Dialog stays (W2). */}
+                  Save and Cancel are the kit's Buttons (W2). A changed draft
+                  asks before Escape drops it (D21, PopupDraftText). */}
               <div className="rb-scene-detail-text">
                 <FieldLabel>Description</FieldLabel>
-                {editingDesc ? (
-                  <>
-                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(scene.description || ''); setEditingDesc(false) } }}
-                      aria-label="Description"
-                      className="ui-input rb-scene-textarea"
-                      data-field="description"
-                      autoFocus />
-                    <div className="rb-scene-edit-acts">
-                      <Button size="sm" variant="primary" Icon={Save}
-                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
-                        Save
-                      </Button>
-                      <Button size="sm" variant="ghost"
-                        onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
-                    className="ui-input rb-scene-prop-text"
-                    data-empty={scene.description ? undefined : 'true'}>
-                    {scene.description || 'Click to add a description...'}
-                  </button>
-                )}
+                <PopupDraftText label="Description" field="description" value={scene.description} emptyWords="Click to add a description..."
+                  editing={editingDesc} setEditing={setEditingDesc} draft={descDraft} setDraft={setDescDraft} wordsRef={descWordsRef}
+                  onSave={v => handleUpdate({ description: v })} onAskDiscard={() => setAskDiscard('description')} readOnly={!canWrite} />
               </div>
 
               {/* Notes: the same editor */}
               <div className="rb-scene-detail-text">
                 <FieldLabel>Notes</FieldLabel>
-                {editingNotes ? (
-                  <>
-                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(scene.notes || ''); setEditingNotes(false) } }}
-                      aria-label="Notes"
-                      className="ui-input rb-scene-textarea"
-                      data-field="notes"
-                      autoFocus />
-                    <div className="rb-scene-edit-acts">
-                      <Button size="sm" variant="primary" Icon={Save}
-                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
-                        Save
-                      </Button>
-                      <Button size="sm" variant="ghost"
-                        onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
-                    className="ui-input rb-scene-prop-text"
-                    data-empty={scene.notes ? undefined : 'true'}>
-                    {scene.notes || 'Click to add notes...'}
-                  </button>
-                )}
+                <PopupDraftText label="Notes" field="notes" value={scene.notes} emptyWords="Click to add notes..."
+                  editing={editingNotes} setEditing={setEditingNotes} draft={notesDraft} setDraft={setNotesDraft} wordsRef={notesWordsRef}
+                  onSave={v => handleUpdate({ notes: v })} onAskDiscard={() => setAskDiscard('notes')} readOnly={!canWrite} />
               </div>
 
               {/* The folder: a value nobody types, so inert (R3-36) */}
@@ -2944,9 +3049,9 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 </span>
               </div>
 
-              {/* Files */}
+              {/* Files: FileManager's own head says "Files (N)" (P1-24: the
+                  popup's label said it again above it). */}
               <div className="rb-scene-detail-text">
-                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
                 <FileManager
                   files={managedFiles}
                   sceneId={scene.id}
@@ -2964,14 +3069,17 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   is on the paper with one hairline; its status the kit's
                   StatusBadge (R3-11); its delete the kit's IconButton, named
                   for its shot, in the kit's HoverActions — on hover as it
-                  was, and on keyboard focus now (R3-24). Its click still
-                  reaches the row, as it did (C1: recorded). */}
+                  was, and on keyboard focus now (R3-24). Its click no longer
+                  reaches the row (P1-22, S3b step 7: it opened the shot it
+                  was asked to delete). */}
               <div className="rb-scene-detail-text">
                 <div className="rb-scene-detail-list-head">
                   <FieldLabel>{`Shots (${sceneShots.length})`}</FieldLabel>
-                  <Button size="sm" Icon={Plus} onClick={() => onNewShot(sceneId)}>
-                    Add shot
-                  </Button>
+                  <GatedAction allowed={canWrite}>
+                    <Button size="sm" Icon={Plus} onClick={() => onNewShot(sceneId)}>
+                      Add shot
+                    </Button>
+                  </GatedAction>
                 </div>
                 {sceneShots.length === 0 ? (
                   <EmptyState title="No shots yet" className="rb-scene-detail-empty" />
@@ -2989,6 +3097,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                             placeholder="Add description…"
                             size="xs"
                             label={`Description for ${shot.name || 'Untitled shot'}`}
+                            readOnly={!canWrite}
                             onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
                           />
                         </div>
@@ -3000,8 +3109,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                         )}
                         <StatusBadge status={shot.status || 'not_started'} />
                         <HoverActions className="rb-scene-shot-acts">
-                          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shot.name || 'Untitled shot'}`}
-                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                          <GatedAction allowed={canWrite}>
+                            <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shot.name || 'Untitled shot'}`}
+                              onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }} />
+                          </GatedAction>
                         </HoverActions>
                       </li>
                     ))}
@@ -3024,6 +3135,19 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
         </div>,
         document.body,
       )}
+      {/* P1-23: a related asset, in the Assets tab's own popup (it portals itself). */}
+      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} />
+      {/* D21: the draft question, over this popup. */}
+      {askDiscard && (
+        <ListConfirm
+          title="Discard your changes?"
+          confirmLabel="Discard"
+          onCancel={() => setAskDiscard(null)}
+          onConfirm={async () => discard(askDiscard)}
+        >
+          {discardWords(askDiscard, dirty)}
+        </ListConfirm>
+      )}
     </>
   )
 }
@@ -3043,7 +3167,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
 // never a tab stop. The primary take stands in for an empty thumbnail as
 // before, BinPoster at the 142 × 80 it is handed; its "From primary take"
 // caption at the Label step (it was 7.5px, R3-07's floor is 11).
-function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
+// S3b step 7: as the scene popup — `canWrite` read-only fields and greyed
+// verbs for a seat that may not write shots; D21's draft question; a
+// related asset opens (P1-23); "Files (N)" once (P1-24).
+function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete, canWrite = false }) {
   // S3b step 1: the shot and its scene found among EVERY row (S3a's
   // ctx.shotById / ctx.sceneById), as the scene popup finds its scene.
   const shot = ctx?.shotById?.(shotId) || null
@@ -3061,6 +3188,8 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
+  // D21: the draft a question is about, while it asks (the scene popup's).
+  const [askDiscard, setAskDiscard] = useState(null)
   // What opened this popup, handed to the delete question (the scene popup's).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
@@ -3074,10 +3203,25 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
 
-  function handleUpdate(patch) { ctx?.updateShot?.(shot.id, patch) }
+  function handleUpdate(patch) { if (canWrite) ctx?.updateShot?.(shot.id, patch) }
+  const dirty = {
+    description: editingDesc && descDraft !== (shot.description || ''),
+    notes: editingNotes && notesDraft !== (shot.notes || ''),
+  }
+  const requestClose = () => {
+    if (!dirty.description && !dirty.notes) return true
+    setAskDiscard('close')
+    return false
+  }
+  const discard = (what) => {
+    setAskDiscard(null)
+    if (what === 'close') { onClose(); return }
+    if (what === 'description') { setDescDraft(shot.description || ''); setEditingDesc(false) }
+    else { setNotesDraft(shot.notes || ''); setEditingNotes(false) }
+  }
 
   async function handleSetThumbnail() {
-    if (!window.electronAPI?.rabbit?.pickImage) return
+    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
     const imagePath = await window.electronAPI.rabbit.pickImage()
     if (!imagePath) return
     handleUpdate({ thumbnail_image: imagePath })
@@ -3088,6 +3232,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   }
 
   async function handleClearThumbnail() {
+    if (!canWrite) return
     handleUpdate({ thumbnail_image: null })
     try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'shot', entityId: shot.id }) } catch {}
     onThumbChanged?.()
@@ -3104,8 +3249,6 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const shotCode = shotCodeFor(project, scene?.scene_number ?? 0, shot.shot_number ?? 0)
   const shotSlug = fileSlugify(shot.name || 'Untitled-Shot')
   const shotFolderPath = `SHOTS/${shotSlug}/`
-
-  const fileCount = managedFiles.filter(f => f.shot_id === shot.id && !f.deleted_at).length
   // Shot takes (milestone 2): the ordered list, and the primary take's poster
   // standing in while the shot has no thumbnail of its own (Q6).
   const shotTakeEntries = takes?.map?.get(shot.id) || []
@@ -3128,14 +3271,17 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
           )}
           subtitle={<StatusBadge status={status} />}
           dismissOnBackdrop
+          onBeforeClose={requestClose}
           onClose={onClose}
           footer={(
             <>
-              <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
-                Delete shot
-              </Button>
-              <Button onClick={onClose}>
+              <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
+                <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
+                  onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  Delete shot
+                </Button>
+              </GatedAction>
+              <Button onClick={() => { if (requestClose()) onClose() }}>
                 Close
               </Button>
             </>
@@ -3191,11 +3337,25 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                         className="rb-scene-detail-thumb-img"
                         src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
                         alt="" />
-                      <HoverActions className="rb-scene-detail-thumb-acts">
-                        <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
-                        <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
-                      </HoverActions>
+                      {canWrite && (
+                        <HoverActions className="rb-scene-detail-thumb-acts">
+                          <IconButton size="sm" Icon={ImagePlus} className="rb-scene-detail-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                          <IconButton size="sm" Icon={ImageOff} danger className="rb-scene-detail-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        </HoverActions>
+                      )}
                     </>
+                  ) : !canWrite ? (
+                    // A seat that may not write shots: the well's picture
+                    // alone — the primary take's poster, or the glyph.
+                    takeFallback ? (
+                      <>
+                        <span className="rb-scene-detail-poster">
+                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={142} height={80} radius={0}
+                            className="rb-scene-poster" iconSize={24} />
+                        </span>
+                        <span className="rb-scene-detail-thumb-take">From primary take</span>
+                      </>
+                    ) : <Clapperboard aria-hidden="true" className="rb-scene-detail-thumb-glyph" />
                   ) : (
                     <button type="button" onClick={handleSetThumbnail}
                       className="rb-scene-detail-thumb-set"
@@ -3226,6 +3386,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                     value={shot.name || ''}
                     placeholder="Untitled shot"
                     label="Shot name"
+                    readOnly={!canWrite}
                     onCommit={v => handleUpdate({ name: v })}
                   />
                 </div>
@@ -3240,6 +3401,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                     <span className="rb-scene-prop-status">
                       <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
                       <select value={status} onChange={e => handleUpdate({ status: e.target.value })}
+                        disabled={!canWrite}
                         aria-label="Status"
                         className="ui-input rb-scene-prop-status-input"
                         data-size="sm">
@@ -3250,6 +3412,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   <div className="rb-scene-prop">
                     <FieldLabel>Type</FieldLabel>
                     <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
+                      disabled={!canWrite}
                       aria-label="Type"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm">
@@ -3259,6 +3422,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   <div className="rb-scene-prop">
                     <FieldLabel>Time of day</FieldLabel>
                     <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Time of day"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm"
@@ -3273,6 +3437,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
                     }}
+                      disabled={!canWrite}
                       aria-label="Shot number"
                       className="ui-input rb-scene-prop-number"
                       data-size="sm" />
@@ -3283,6 +3448,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                       const n = parseInt(e.target.value, 10)
                       handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                     }}
+                      disabled={!canWrite}
                       aria-label="Frame count"
                       className="ui-input rb-scene-prop-number"
                       data-size="sm"
@@ -3305,6 +3471,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   <div className="rb-scene-prop">
                     <FieldLabel>Framing</FieldLabel>
                     <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Framing"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm"
@@ -3316,6 +3483,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   <div className="rb-scene-prop rb-scene-prop-wide">
                     <FieldLabel>Camera movement</FieldLabel>
                     <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Camera movement"
                       className="ui-input rb-scene-prop-select"
                       data-size="sm"
@@ -3343,6 +3511,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                       type="date"
                       value={shot.start_date || ''}
                       onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="Start date"
                       className="ui-input rb-scene-date"
                       data-size="sm"
@@ -3355,6 +3524,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                       type="date"
                       value={shot.end_date || ''}
                       onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                      disabled={!canWrite}
                       aria-label="End date"
                       className="ui-input rb-scene-date"
                       data-size="sm"
@@ -3364,66 +3534,20 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 </div>
               </div>
 
-              {/* Description (W2, as the scene popup's) */}
+              {/* Description (W2, as the scene popup's; D21) */}
               <div className="rb-scene-detail-text">
                 <FieldLabel>Description</FieldLabel>
-                {editingDesc ? (
-                  <>
-                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(shot.description || ''); setEditingDesc(false) } }}
-                      aria-label="Description"
-                      className="ui-input rb-scene-textarea"
-                      data-field="description"
-                      autoFocus />
-                    <div className="rb-scene-edit-acts">
-                      <Button size="sm" variant="primary" Icon={Save}
-                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
-                        Save
-                      </Button>
-                      <Button size="sm" variant="ghost"
-                        onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
-                    className="ui-input rb-scene-prop-text"
-                    data-empty={shot.description ? undefined : 'true'}>
-                    {shot.description || 'Click to add a description...'}
-                  </button>
-                )}
+                <PopupDraftText label="Description" field="description" value={shot.description} emptyWords="Click to add a description..."
+                  editing={editingDesc} setEditing={setEditingDesc} draft={descDraft} setDraft={setDescDraft} wordsRef={descWordsRef}
+                  onSave={v => handleUpdate({ description: v })} onAskDiscard={() => setAskDiscard('description')} readOnly={!canWrite} />
               </div>
 
               {/* Notes */}
               <div className="rb-scene-detail-text">
                 <FieldLabel>Notes</FieldLabel>
-                {editingNotes ? (
-                  <>
-                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(shot.notes || ''); setEditingNotes(false) } }}
-                      aria-label="Notes"
-                      className="ui-input rb-scene-textarea"
-                      data-field="notes"
-                      autoFocus />
-                    <div className="rb-scene-edit-acts">
-                      <Button size="sm" variant="primary" Icon={Save}
-                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
-                        Save
-                      </Button>
-                      <Button size="sm" variant="ghost"
-                        onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
-                    className="ui-input rb-scene-prop-text"
-                    data-empty={shot.notes ? undefined : 'true'}>
-                    {shot.notes || 'Click to add notes...'}
-                  </button>
-                )}
+                <PopupDraftText label="Notes" field="notes" value={shot.notes} emptyWords="Click to add notes..."
+                  editing={editingNotes} setEditing={setEditingNotes} draft={notesDraft} setDraft={setNotesDraft} wordsRef={notesWordsRef}
+                  onSave={v => handleUpdate({ notes: v })} onAskDiscard={() => setAskDiscard('notes')} readOnly={!canWrite} />
               </div>
 
               {/* The folder: inert (R3-36) */}
@@ -3456,9 +3580,8 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 </div>
               )}
 
-              {/* Files */}
+              {/* Files: FileManager's own head says "Files (N)" (P1-24). */}
               <div className="rb-scene-detail-text">
-                <FieldLabel>{`Files (${fileCount})`}</FieldLabel>
                 <FileManager
                   files={managedFiles}
                   shotId={shot.id}
@@ -3484,6 +3607,19 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
           <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
         </div>,
         document.body,
+      )}
+      {/* P1-23: a related asset, in the Assets tab's own popup. */}
+      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} />
+      {/* D21: the draft question, over this popup. */}
+      {askDiscard && (
+        <ListConfirm
+          title="Discard your changes?"
+          confirmLabel="Discard"
+          onCancel={() => setAskDiscard(null)}
+          onConfirm={async () => discard(askDiscard)}
+        >
+          {discardWords(askDiscard, dirty)}
+        </ListConfirm>
       )}
     </>
   )
@@ -3531,6 +3667,15 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 const openQuestions = { count: 0 }
 function questionOnScreen() {
   return openQuestions.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+}
+/** A kit menu ON SCREEN (a row's shot-list menu, the bar's More): a key
+    pressed with one open is not an undo (S4a-07; visibleOverlayOpen's
+    reasoning — one left open on a hidden page does not count). */
+function menuOnScreen() {
+  for (const n of document.querySelectorAll('.ui-menu')) {
+    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
+  }
+  return false
 }
 function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
   const cancelRef = useRef(null)
@@ -3722,7 +3867,10 @@ function SceneBulkSelect({ label, options, onPick }) {
 // stands down on a handled Escape, so the first press only reverts (review
 // round one, R1-02: it reverted AND closed the popup).
 // `title` (S3b, D10): the words' tooltip — a name's lists ("In: …").
-function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label, title }) {
+// `readOnly` (S3b step 7): a seat that may not write scenes and shots gets
+// the words alone — no click, no hover fill, no field (`data-static`); an
+// empty one a dash, not an "Add …" it could not do.
+function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label, title, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3730,6 +3878,19 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
 
+  if (readOnly) {
+    return (
+      <span
+        className="rb-scene-inline"
+        data-static="true"
+        data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+        data-empty={value ? undefined : 'true'}
+        title={title}
+      >
+        {value || (strong ? placeholder : '—')}
+      </span>
+    )
+  }
   if (editing) {
     return (
       <input ref={inputRef} type="text" value={draft}
@@ -3771,8 +3932,9 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
 // reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
 // stands down: the first press reverts the edit, the next closes the popup
 // (W2). Closed, it gives focus back to its words (R2-05, useFocusBack).
-// `label` names the field.
-function PopupInlineText({ value, placeholder, label, onCommit }) {
+// `label` names the field. `readOnly` (S3b step 7): the words inert, as a
+// value nobody can type is (R3-36) — no well, no tab stop.
+function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -3781,6 +3943,13 @@ function PopupInlineText({ value, placeholder, label, onCommit }) {
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
 
+  if (readOnly) {
+    return (
+      <span className="rb-scene-prop-inert" data-empty={value ? undefined : 'true'}>
+        <span className="rb-scene-prop-words">{value || placeholder}</span>
+      </span>
+    )
+  }
   if (editing) {
     return (
       <input ref={inputRef} type="text" value={draft}
@@ -3803,6 +3972,92 @@ function PopupInlineText({ value, placeholder, label, onCommit }) {
       data-empty={value ? undefined : 'true'}>
       {value || placeholder}
     </button>
+  )
+}
+
+
+// ─── PopupDraftText (S3b step 7) ───
+// A popup's description or notes, one editor for the four (it was written
+// out four times): the words in the kit's well open its textarea; Save and
+// Cancel are the kit's Buttons (W2); focus goes back to the words when it
+// closes (R2-05, the popup's useFocusBack ref). The draft is the POPUP's,
+// so the popup knows when closing would drop it (D21). Escape in the box:
+// unchanged, it closes the editor as before; changed, it asks first
+// (`onAskDiscard`; the first press is MARKED handled either way, so the
+// Dialog stays — W2). Cancel is the person's own "drop it", and does.
+// Read-only (a seat that may not write scenes and shots): the words alone,
+// inert, a dash for none.
+function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, draft, setDraft, wordsRef, onSave, onAskDiscard, readOnly = false }) {
+  const saved = value || ''
+  if (readOnly) {
+    return (
+      <span className="rb-scene-prop-inert" data-empty={value ? undefined : 'true'}>
+        {value || '—'}
+      </span>
+    )
+  }
+  if (editing) {
+    return (
+      <>
+        <textarea value={draft} onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            if (draft !== saved) onAskDiscard()
+            else setEditing(false)
+          }}
+          aria-label={label}
+          className="ui-input rb-scene-textarea"
+          data-field={field === 'notes' ? 'notes' : 'description'}
+          autoFocus />
+        <div className="rb-scene-edit-acts">
+          <Button size="sm" variant="primary" Icon={Save}
+            onClick={() => { onSave(draft); setEditing(false) }}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost"
+            onClick={() => { setDraft(saved); setEditing(false) }}>
+            Cancel
+          </Button>
+        </div>
+      </>
+    )
+  }
+  return (
+    <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
+      className="ui-input rb-scene-prop-text"
+      data-empty={value ? undefined : 'true'}>
+      {value || emptyWords}
+    </button>
+  )
+}
+
+/** D21's words: which draft would go. `what` is 'close', 'description' or 'notes'. */
+function discardWords(what, dirty) {
+  const parts = what === 'close'
+    ? [dirty.description && 'the description', dirty.notes && 'the notes'].filter(Boolean)
+    : [what === 'notes' ? 'the notes' : 'the description']
+  return `What you typed in ${parts.join(' and ')} is not saved. Discard it, or go back and Save it.`
+}
+
+// ─── NestedAsset (S3b step 7, P1-23) ───
+// A related asset clicked in a popup's sidebar opens the Assets tab's own
+// AssetDetailPopup (it portals itself into <body>) over the popup, as a task
+// opens TaskDetailPopup — the asset's tasks and phase as the Assets tab
+// hands them. Nothing for an id the project no longer holds.
+function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose }) {
+  const asset = assetId ? (ctx?.assets || []).find(a => a.id === assetId) : null
+  if (!asset) return null
+  return (
+    <AssetDetailPopup
+      asset={asset}
+      tasks={(ctx?.tasks || []).filter(t => t.asset_id === asset.id)}
+      phase={(ctx?.phases || []).find(p => p.id === asset.phase_id)}
+      ctx={ctx}
+      thumbRevision={thumbRevision}
+      onThumbChanged={onThumbChanged}
+      onClose={onClose}
+    />
   )
 }
 

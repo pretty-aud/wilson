@@ -402,13 +402,56 @@ describe('project write gate', () => {
 
   it('every R.A.B.B.I.T. surface that creates project entities consults the gate', () => {
     // The census that would have caught the Timeline in S23 instead of S29.
+    // Post-overhaul S3b: the Scenes tab, whose scene and shot verbs were
+    // ungated until a reviewer could write shot lists beside them.
     const surfaces = [
       'tools/rabbit_v0.1.0/views/TimelineView.jsx',
       'tools/rabbit_v0.1.0/views/ProjectTasksView.jsx',
       'tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx',
       'tools/rabbit_v0.1.0/components/TaskDetailPopup.jsx',
+      'tools/rabbit_v0.1.0/views/ScenesView.jsx',
     ]
     const ungated = surfaces.filter(rel => !/useProjectAccess|canOnProject/.test(readSrc(rel)))
     expect(ungated, 'these surfaces write project entities and must gate them').toEqual([])
+  })
+
+  // Post-overhaul S3b step 7: the Timeline test's shape, for the Scenes tab.
+  // A reviewer now builds shot lists on this tab, so its scene and shot
+  // verbs — which the database refuses them — must be gated where they are
+  // drawn: the flag from the gate's CALL, and every table, gallery and popup
+  // render handed it as its own attribute (a sub-view's `canWrite` defaults
+  // to false, so a render without it greys everything — and one handed
+  // `true` gates nothing).
+  const SCENES = 'tools/rabbit_v0.1.0/views/ScenesView.jsx'
+  const SCENE_SUBVIEWS = ['SceneTable', 'ShotTable', 'SceneGallery', 'ShotGallery', 'SceneDetailPopup', 'ShotDetailPopup']
+  it('ScenesView takes its entity gate from the call, and hands it to every table, gallery and popup', () => {
+    const raw = readSrc(SCENES)
+    const code = blankComments(raw)
+    expect(code).toMatch(/const\s*\{[^}]*\bcanWrite\s*:\s*canWriteProject\b[^}]*\}\s*=\s*useProjectAccess\s*\(/)
+    for (const view of SCENE_SUBVIEWS) {
+      const sites = renderSites(code, view)
+      expect(sites.length, `${view} should be rendered by ScenesView`).toBeGreaterThan(0)
+      for (const at of sites) {
+        const attrs = openingTagAttributes(raw, at)
+        expect(attrs, `${view} (offset ${at}): its opening tag could not be read`).not.toBeNull()
+        expect(gateValue(attrs), `${view} must receive canWrite={canWriteProject}`).toBe('canWriteProject')
+      }
+    }
+    // The toolbar's two creates sit inside the gate's GatedAction.
+    expect(code).toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    expect(code).toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<span ref=\{shotPickerRef\}/)
+  })
+  it('CONTROL: the Scenes check fails on a render without the gate, with a literal, or with the toolbar ungated', () => {
+    const raw = readSrc(SCENES)
+    const check = (src) => SCENE_SUBVIEWS.flatMap((view) => renderSites(blankComments(src), view).map((at) => gateValue(openingTagAttributes(src, at) || [])))
+    expect(check(raw).every((v) => v === 'canWriteProject')).toBe(true)
+    // One render's prop taken out, or set to a literal: caught.
+    const first = raw.indexOf('canWrite={canWriteProject}')
+    expect(first).toBeGreaterThan(0)
+    expect(check(raw.slice(0, first) + raw.slice(first + 'canWrite={canWriteProject}'.length)).some((v) => v !== 'canWriteProject')).toBe(true)
+    expect(check(raw.replace('canWrite={canWriteProject}', 'canWrite={true}')).some((v) => v !== 'canWriteProject')).toBe(true)
+    // The New scene button out of its GatedAction: caught.
+    const ungated = blankComments(raw).replace(/<GatedAction allowed=\{canWriteProject\}>(\s*<Button[^>]*onClick=\{handleNewScene\})/, '$1')
+    expect(ungated).not.toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
   })
 })

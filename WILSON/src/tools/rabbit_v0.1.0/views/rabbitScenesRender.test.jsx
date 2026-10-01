@@ -923,7 +923,10 @@ describe('surface 6c', () => {
     // Every label in the column, in the old order, in sentence case (Q2: they
     // were "Time of Day", "Total Frames", "Start Date"…; the Label step draws the capitals).
     expect(labelsOf(dialog)).toEqual(['Scene name', 'Status', 'Type', 'Time of day', 'Scene number', 'Runtime', 'Total frames',
-      'Shots / assets / tasks', 'Start date', 'End date', 'Description', 'Notes', 'Folder', 'Files (0)', 'Shots (2)'])
+      'Shots / assets / tasks', 'Start date', 'End date', 'Description', 'Notes', 'Folder', 'Shots (2)'])
+    // P1-24 (S3b step 7): "Files (N)" once — FileManager's own head; the
+    // popup's label above it said it again.
+    expect([...dialog.querySelectorAll('.rb-fm-title')].map((t) => t.textContent.trim())).toEqual(['Files (0)'])
     // Each heading is the kit's SectionTitle: its hairline above, an h3 under
     // the Dialog's H2, and the sheet sets it at the Label step.
     const sections = [...dialog.querySelectorAll('.rb-scene-group > .ui-section')]
@@ -943,7 +946,8 @@ describe('surface 6c', () => {
       ['Schedule', ['Parent scene', 'Start date', 'End date']],
     ])
     expect(labelsOf(dialog)).toEqual(['Shot name', 'Status', 'Type', 'Time of day', 'Shot number', 'Frame count', 'Duration',
-      'Framing', 'Camera movement', 'Parent scene', 'Start date', 'End date', 'Description', 'Notes', 'Folder', 'Files (0)'])
+      'Framing', 'Camera movement', 'Parent scene', 'Start date', 'End date', 'Description', 'Notes', 'Folder'])
+    expect([...dialog.querySelectorAll('.rb-fm-title')].map((t) => t.textContent.trim())).toEqual(['Files (0)'])
     // The empty div that held the Camera grid open is gone: the movement spans
     // the two columns it left.
     const camera = dialog.querySelectorAll('.rb-scene-group > .rb-scene-prop-grid')[1]
@@ -1134,7 +1138,10 @@ describe('surface 6c', () => {
     let box = within(main).getByRole('textbox', { name: 'Description' })
     expect([document.activeElement === box, box.className]).toEqual([true, 'ui-input rb-scene-textarea'])
     fireEvent.change(box, { target: { value: 'Draft' } })
+    // D21 (S3b step 7): a changed draft is not dropped without a word —
+    // Escape asks first, over the popup; Discard drops it and the popup stays.
     fireEvent.keyDown(box, { key: 'Escape' })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard your changes?' })).getByRole('button', { name: 'Discard' }))
     expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(dialog)
     expect(within(main).queryByRole('textbox', { name: 'Description' })).toBeNull()
     fireEvent.click(words())
@@ -2563,5 +2570,271 @@ describe('S3b step 6: the edges', () => {
     fireEvent.click(addRow(dialog, 'Sc 2 · Cliff path').querySelector('input'))
     fireEvent.click(addButton(dialog))
     await waitFor(() => expect(ctx.addToShotList).toHaveBeenCalledWith('list-b', { sceneIds: ['sc2'], shotIds: [] }))
+  })
+})
+
+/* ── post-overhaul S3b, step 7: gates, keys and the old bugs ────────────────
+   A reviewer now writes shot lists on this tab but still may not write its
+   scenes and shots (project.entity.write): every such verb greyed with the
+   reason, every cell plain words, every field disabled — and the list verbs
+   live. Ctrl+Z / Ctrl+Y only on R.A.B.B.I.T.'s page with nothing foreign
+   over the tab (S4a-07). A draft is not dropped without a word (D21).
+   P1-21 to P1-24. */
+const REVIEWER_REASON = 'Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project\'s other items. Ask a project manager for a member or manager seat.'
+/** The GatedAction wrapper a control sits in while greyed, or null when it is live. */
+const gateOf = (el) => el.closest('[aria-disabled="true"]')
+
+describe('S3b step 7: a reviewer reads the scenes and shots, and builds lists, but cannot change them', () => {
+  it('the toolbar\'s New scene and New shot, every Delete, Add shot and the bulk edits are greyed with the reviewer\'s reason; the list verbs stay live', async () => {
+    const { ctx } = page({ ...TWO_LISTS(), ...seat('reviewer') })
+    for (const words of ['New scene', 'New shot']) {
+      const gate = gateOf(screen.getByRole('button', { name: words }))
+      expect(gate, words).not.toBeNull()
+      expect(gate.getAttribute('title'), words).toBe(REVIEWER_REASON)
+    }
+    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))).not.toBeNull()
+    // The list verbs: the row's menu and the bar's.
+    expect(gateOf(moreButton('Lighthouse, dawn'))).toBeNull()
+    expect(gateOf(within(bar()).getByRole('button', { name: 'New shot list' }))).toBeNull()
+    // A selection: the edits and Delete greyed, Remove from list live.
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    const bulk = document.querySelector('.rb-scene-bulk')
+    expect(gateOf(within(bulk).getByRole('combobox', { name: 'Status' }))).not.toBeNull()
+    expect(gateOf(within(bulk).getByRole('button', { name: 'Delete' }))).not.toBeNull()
+    expect(gateOf(within(bulk).getByRole('button', { name: 'Remove from list' }))).toBeNull()
+    // The nest: Add shot and each shot's Delete greyed.
+    openScene('Lighthouse, dawn')
+    const nest = rowOf('Lighthouse, dawn').nextElementSibling
+    expect(gateOf(within(nest).getByRole('button', { name: 'Add shot' }))).not.toBeNull()
+    expect(gateOf(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))).not.toBeNull()
+    expect(within(rowOf('The door')).getByLabelText('Frames for The door').disabled).toBe(true)
+    // 🚨 jsdom does not honour `inert`, so these clicks and changes reach the
+    // handlers a browser keeps them from: every funnel refuses on its own
+    // (the Tasks tab's Session 29 rule — the greyed control is not the gate).
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    fireEvent.click(within(nest).getByRole('button', { name: 'Add shot' }))
+    fireEvent.change(within(bulk).getByRole('combobox', { name: 'Status' }), { target: { value: 'final' } })
+    fireEvent.click(within(rowOf('Cliff path')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete scene?' })).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(rowOf('The door')).getByRole('button', { name: 'Delete shot' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete shot?' })).getByRole('button', { name: 'Delete' }))
+    await act(async () => {})
+    expect([ctx.addScene, ctx.addShot, ctx.updateScene, ctx.deleteScene, ctx.deleteShot].map((f) => f.mock.calls.length)).toEqual([0, 0, 0, 0, 0])
+  })
+
+  it('every cell is the words alone — a name or description opens no field — and every select and field is disabled; the thumbnail is a picture, not a button', () => {
+    const { ctx } = page({ ...TWO_LISTS(), ...seat('reviewer') })
+    const row = rowOf('Lighthouse, dawn')
+    const nameWords = row.querySelector('.rb-scene-name-cell .rb-scene-inline')
+    expect(nameWords.getAttribute('data-static')).toBe('true')
+    // D10's lists stay its title.
+    expect(nameWords.getAttribute('title')).toBe('In: Pickups · v1, Shoot · v1')
+    fireEvent.click(nameWords)
+    expect(within(row).queryByRole('textbox')).toBeNull()
+    expect(['Status for Lighthouse, dawn', 'Time of day for Lighthouse, dawn', 'Type for Lighthouse, dawn'].map((n) => within(row).getByRole('combobox', { name: n }).disabled)).toEqual([true, true, true])
+    const thumb = row.querySelector('.rb-scene-thumb')
+    expect([thumb.getAttribute('data-static'), thumb.querySelector('.rb-scene-thumb-add')]).toEqual(['true', null])
+    // …and a click on it picks nothing.
+    const pickImage = vi.fn(async () => 'C:/stills/x.jpg')
+    window.electronAPI = { rabbit: { pickImage, generateEntityThumbnail: vi.fn() } }
+    try {
+      fireEvent.click(thumb)
+      expect(pickImage).not.toHaveBeenCalled()
+    } finally {
+      delete window.electronAPI
+    }
+    // An empty description reads as a dash, not an "Add description…" it could not do.
+    expect(rowOf('Cliff path').querySelector('.rb-scene-desc-cell .rb-scene-inline').textContent).toBe('—')
+    toShots()
+    const shotRow = rowOf('The door')
+    expect(['Frames for The door', 'Start date for The door', 'End date for The door'].map((n) => within(shotRow).getByLabelText(n).disabled)).toEqual([true, true, true])
+    expect(ctx.updateScene).not.toHaveBeenCalled()
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+  })
+
+  it('the popups: every field inert or disabled, Delete and Add shot greyed, no "Set thumbnail"; a member\'s are live', () => {
+    const { ctx } = page({ ...TWO_LISTS(), ...seat('reviewer') })
+    let dialog = openScenePopup()
+    const main = dialog.querySelector('.rb-scene-detail-main')
+    expect(within(main).queryByRole('button', { name: 'Lighthouse, dawn' })).toBeNull()
+    expect(main.querySelector('.rb-scene-detail-field .rb-scene-prop-inert').textContent).toBe('Lighthouse, dawn')
+    expect(['Status', 'Type', 'Time of day', 'Scene number', 'Start date', 'End date'].map((n) => within(main).getByLabelText(n).disabled)).toEqual([true, true, true, true, true, true])
+    expect(within(main).queryByRole('button', { name: 'Mara lets herself in.' })).toBeNull()
+    expect(within(main).queryByRole('button', { name: 'Click to add notes...' })).toBeNull()
+    expect(within(main).queryByRole('button', { name: 'Set thumbnail' })).toBeNull()
+    expect(gateOf(within(dialog).getByRole('button', { name: 'Delete scene' })).getAttribute('title')).toBe(REVIEWER_REASON)
+    expect(gateOf(within(main).getByRole('button', { name: 'Add shot' }))).not.toBeNull()
+    expect(gateOf(within(main).getByRole('button', { name: 'Delete The door' }))).not.toBeNull()
+    // A change that reached a disabled field (jsdom fires it) writes nothing.
+    fireEvent.change(within(main).getByLabelText('Status'), { target: { value: 'final' } })
+    expect(ctx.updateScene).not.toHaveBeenCalled()
+    escape()
+    dialog = openShotPopup()
+    expect(['Status', 'Type', 'Time of day', 'Shot number', 'Frame count', 'Framing', 'Camera movement', 'Start date', 'End date'].map((n) => within(dialog).getByLabelText(n).disabled).every(Boolean)).toBe(true)
+    expect(gateOf(within(dialog).getByRole('button', { name: 'Delete shot' }))).not.toBeNull()
+    fireEvent.change(within(dialog).getByLabelText('Frame count'), { target: { value: '12' } })
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    escape()
+    cleanup()
+    page({ ...TWO_LISTS(), ...seat('member') })
+    dialog = openScenePopup()
+    expect(within(dialog).getByLabelText('Status').disabled).toBe(false)
+    expect(gateOf(within(dialog).getByRole('button', { name: 'Delete scene' }))).toBeNull()
+    expect(gateOf(screen.getByRole('button', { name: 'New scene' }))).toBeNull()
+  })
+})
+
+describe('S3b step 7: S4a-07 — Ctrl+Z / Ctrl+Y only on R.A.B.B.I.T.\'s page, with nothing foreign over the tab', () => {
+  const keys = (target = document.body) => [
+    fireEvent.keyDown(target, { key: 'z', ctrlKey: true }),
+    fireEvent.keyDown(target, { key: 'y', ctrlKey: true }),
+  ]
+  it('on another page the keys do nothing and are not taken; back on R.A.B.B.I.T. the same keys undo and redo', () => {
+    const undo = vi.fn()
+    const redo = vi.fn()
+    const { ctx, rerender } = page({ ...TAKES, undo, redo, pageActive: false })
+    expect(keys()).toEqual([true, true])
+    expect([undo.mock.calls.length, redo.mock.calls.length]).toEqual([0, 0])
+    // CONTROL: the gate, not a broken handler.
+    rabbit.current = ctx
+    rerender(<ScenesView pageActive />)
+    expect(keys()).toEqual([false, false])
+    expect([undo.mock.calls.length, redo.mock.calls.length]).toEqual([1, 1])
+  })
+
+  it('a kit menu, the shot lists\' picker or a drawer over the tab: nothing; with a popup open, as always, they undo (C1)', () => {
+    const undo = vi.fn()
+    page({ ...TAKES, undo })
+    openMore('Lighthouse, dawn')
+    keys()
+    expect(undo).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.querySelector('.ui-menu')).toBeNull()
+    openPicker()
+    keys()
+    expect(undo).not.toHaveBeenCalled()
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // A drawer on screen (R.A.B.B.I.T.'s settings), or focus inside one.
+    const drawer = document.createElement('div')
+    drawer.className = 'ui-drawer-backdrop'
+    document.body.appendChild(drawer)
+    keys()
+    expect(undo).not.toHaveBeenCalled()
+    drawer.remove()
+    const inDrawer = document.createElement('button')
+    const shell = document.createElement('div')
+    shell.className = 'ui-drawer'
+    shell.appendChild(inDrawer)
+    document.body.appendChild(shell)
+    keys(inDrawer)
+    expect(undo).not.toHaveBeenCalled()
+    shell.remove()
+    // Nothing over the tab: they undo; and inside a popup, as they did.
+    keys()
+    expect(undo).toHaveBeenCalledTimes(1)
+    openScenePopup()
+    keys(document.activeElement)
+    expect(undo).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('S3b step 7: D21 — a popup\'s draft is never dropped without a word', () => {
+  const discardAsk = () => screen.getByRole('dialog', { name: 'Discard your changes?' })
+  it('closing the popup — ✕, Close, Escape, the backdrop — with a changed description asks first, Cancel focused; Cancel keeps the draft, Discard closes', () => {
+    const { ctx } = page()
+    const dialog = openScenePopup()
+    const main = dialog.querySelector('.rb-scene-detail-main')
+    fireEvent.click(within(main).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(main).getByRole('textbox', { name: 'Description' }), { target: { value: 'Mara stays out.' } })
+    const ways = [
+      ['✕', () => fireEvent.click(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' }))],
+      ['Close', () => fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))],
+      ['Escape', () => fireEvent.keyDown(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }), { key: 'Escape' })],
+      ['backdrop', () => fireEvent.mouseDown(dialog.closest('.ui-dialog-backdrop'))],
+    ]
+    for (const [way, close] of ways) {
+      close()
+      const ask = discardAsk()
+      expect([ask.getAttribute('data-width'), document.activeElement.textContent], way).toEqual(['confirm', 'Cancel'])
+      expect(ask.querySelector('.ui-dialog-body').textContent, way).toBe('What you typed in the description is not saved. Discard it, or go back and Save it.')
+      fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+      expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' }), way).toBe(dialog)
+      expect(within(main).getByRole('textbox', { name: 'Description' }).value, way).toBe('Mara stays out.')
+    }
+    // Both drafts changed: the question names both.
+    fireEvent.click(within(main).getByRole('button', { name: 'Click to add notes...' }))
+    fireEvent.change(within(main).getByRole('textbox', { name: 'Notes' }), { target: { value: 'Bring the lamp.' } })
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    expect(discardAsk().querySelector('.ui-dialog-body').textContent).toBe('What you typed in the description and the notes is not saved. Discard it, or go back and Save it.')
+    fireEvent.click(within(discardAsk()).getByRole('button', { name: 'Discard' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctx.updateScene).not.toHaveBeenCalled()
+  })
+
+  it('Escape in a changed box asks; Discard drops the draft and the popup stays — and an unchanged one closes at once (the shot popup\'s too)', () => {
+    page()
+    const dialog = openShotPopup()
+    const box = () => within(dialog).getByRole('textbox', { name: 'Notes' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Click to add notes...' }))
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Discard your changes?' })).toBeNull()
+    expect(within(dialog).queryByRole('textbox', { name: 'Notes' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Click to add notes...' }))
+    fireEvent.change(box(), { target: { value: 'Wide first.' } })
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    expect(discardAsk().querySelector('.ui-dialog-body').textContent).toBe('What you typed in the notes is not saved. Discard it, or go back and Save it.')
+    fireEvent.click(within(discardAsk()).getByRole('button', { name: 'Cancel' }))
+    expect(box().value).toBe('Wide first.')
+    fireEvent.keyDown(box(), { key: 'Escape' })
+    fireEvent.click(within(discardAsk()).getByRole('button', { name: 'Discard' }))
+    expect(screen.getByRole('dialog', { name: 'The door' })).toBe(dialog)
+    expect(within(dialog).queryByRole('textbox', { name: 'Notes' })).toBeNull()
+    expect(within(dialog).getByRole('button', { name: 'Click to add notes...' })).toBeTruthy()
+    // Nothing changed now: it closes at once.
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('S3b step 7: the four old Scenes bugs', () => {
+  it('P1-21: a thumbnail set in the UNGROUPED scene table shows at once — the table is handed the page\'s revision', async () => {
+    const pickImage = vi.fn(async () => 'C:/stills/lighthouse.jpg')
+    const generateEntityThumbnail = vi.fn(async () => {})
+    window.electronAPI = { rabbit: { pickImage, generateEntityThumbnail } }
+    try {
+      page({ scenes: SCENES().map((s) => (s.id === 'sc1' ? { ...s, thumbnail_image: 'old.jpg' } : s)) })
+      const img = () => rowOf('Lighthouse, dawn').querySelector('.rb-scene-thumb-img')
+      expect(img().getAttribute('src')).toMatch(/\?r=0$/)
+      await act(async () => { fireEvent.click(rowOf('Lighthouse, dawn').querySelector('.rb-scene-thumb')) })
+      expect(generateEntityThumbnail).toHaveBeenCalledWith({ entityType: 'scene', entityId: 'sc1', sourcePath: 'C:/stills/lighthouse.jpg' })
+      expect(img().getAttribute('src')).toMatch(/\?r=1$/)
+    } finally {
+      delete window.electronAPI
+    }
+  })
+
+  it('P1-22: a shot\'s delete in the scene popup asks to delete it and does not open it', () => {
+    page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete The door' }))
+    expect(screen.getByRole('dialog', { name: 'Delete shot?' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'The door' })).toBeNull()
+  })
+
+  it('P1-23: a related asset opens in the Assets tab\'s own popup, over the scene popup; one Escape closes it and the scene popup stays', () => {
+    page({ assets: [{ id: 'a1', name: 'Fresnel lamp', status: 'in_progress', scene_ids: ['sc1'], shot_ids: ['sh1'] }] })
+    const scene = openScenePopup()
+    fireEvent.click(within(scene.querySelector('.rb-scene-detail-side')).getByText('Fresnel lamp'))
+    const asset = screen.getByRole('dialog', { name: 'Fresnel lamp' })
+    expect(asset.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    escape()
+    expect(screen.queryByRole('dialog', { name: 'Fresnel lamp' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Lighthouse, dawn' })).toBe(scene)
+    escape()
+    // The shot popup's side too.
+    const shot = openShotPopup()
+    fireEvent.click(within(shot.querySelector('.rb-scene-detail-side')).getByText('Fresnel lamp'))
+    expect(screen.getByRole('dialog', { name: 'Fresnel lamp' })).toBeTruthy()
   })
 })

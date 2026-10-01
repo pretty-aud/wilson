@@ -1650,7 +1650,9 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 // (relations, properties, tasks, files) — is RECORDED, not restructured
 // (C1): the four sections keep their order and their behaviour, and only
 // their chrome is the kit's.
-function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChanged, onClose }) {
+// Exported (post-overhaul S3b, P1-23): the Scenes popups open a related
+// asset in it, over themselves, as a task opens in TaskDetailPopup.
+export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChanged, onClose }) {
   const tm = useTeamMembers()
   const guard = useDependencyStatusGuard(ctx)
   const tt = useTaskTemplates()

@@ -579,6 +579,11 @@
      was handed `style={{ border: 'none' }}`, and BinPoster takes a class.
      One class over bins.css's `.bn-poster` edge, which may load after this. */
   .rb-scene-thumb > .rb-scene-poster { border: 0; }
+  /* S3b step 7: for a seat that may not write scenes and shots (a reviewer)
+     the thumbnail is a picture, not a button: no pointer, and the mark stays
+     on hover (there is no add glyph to take its place). */
+  .rb-scene-thumb[data-static="true"] { cursor: default; }
+  .rb-scene-thumb[data-static="true"]:hover > .rb-scene-thumb-mark { opacity: 1; }
 
   /* The figures: the kit's numeric cell (right-aligned, tabular, the mono).
      A runtime or a count in the ink; a scene's or a shot's number in the
@@ -605,6 +610,11 @@
     transition: background-color var(--duration-state) ease-out;
   }
   .rb-scene-inline:hover { background-color: var(--color-hover); }
+  /* S3b step 7: words a seat may not change (a reviewer's) are plain words —
+     no hover fill and no text cursor promise a field (the Tasks and Assets
+     tabs' read-only cells, Session 29). */
+  .rb-scene-inline[data-static="true"] { cursor: default; }
+  .rb-scene-inline[data-static="true"]:hover { background-color: transparent; }
   .rb-scene-inline[data-tone="strong"] { font-weight: 600; color: var(--color-ink); }
   .rb-scene-inline[data-tone="quiet"] { color: var(--color-ink-3); }
   .rb-scene-inline[data-empty="true"] { font-weight: 400; color: var(--color-ink-3); }
@@ -674,9 +684,11 @@
     text-align: right;
   }
   /* The two dates: the kit's small field, its picker dark (it was an inline
-     colorScheme), an empty one's pattern in the third ink. */
+     colorScheme), an empty one's pattern in the third ink — while it can be
+     changed: a disabled one (S3b step 7, a reviewer's) is the kit's, whose
+     disabled treatment must win. */
   .ui-input.rb-scene-date { color-scheme: dark; }
-  .ui-input.rb-scene-date[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-scene-date[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
 
   /* The actions' slot as a block (the kit's is inline-flex, and a line box
      would grow the row), its buttons at the cell's right edge. */
@@ -695,10 +707,10 @@
   .rb-scene-row[data-ticked="true"] .rb-scene-inline[data-empty="true"],
   .rb-scene-row:hover .rb-scene-framing-code[data-empty="true"],
   .rb-scene-row[data-ticked="true"] .rb-scene-framing-code[data-empty="true"],
-  .rb-scene-row:hover .ui-input.rb-scene-date[data-empty="true"],
-  .rb-scene-row[data-ticked="true"] .ui-input.rb-scene-date[data-empty="true"],
-  .rb-scene-row:hover .ui-cell-select > select[data-empty="true"],
-  .rb-scene-row[data-ticked="true"] .ui-cell-select > select[data-empty="true"] { color: var(--color-ink-2); }
+  .rb-scene-row:hover .ui-input.rb-scene-date[data-empty="true"]:not(:disabled),
+  .rb-scene-row[data-ticked="true"] .ui-input.rb-scene-date[data-empty="true"]:not(:disabled),
+  .rb-scene-row:hover .ui-cell-select > select[data-empty="true"]:not(:disabled),
+  .rb-scene-row[data-ticked="true"] .ui-cell-select > select[data-empty="true"]:not(:disabled) { color: var(--color-ink-2); }
   /* …and so does ShotTakeChips' "+ takes", B6's: its inks are custom
      properties with the token as the fallback, so a painted row LIFTS the
      quiet one (ui-b6-2026-09-23.md §3, `C`). Its third ink measured 4.17:1
@@ -766,6 +778,9 @@
     border-radius: var(--radius-control);
   }
   .rb-scene-nest-bulk > .ui-btn.rb-scene-nest-delete { margin-left: auto; }
+  /* …and GatedAction's wrapper, drawn only while it greys the Delete for a
+     seat that may not delete shots (S3b step 7). */
+  .rb-scene-nest-bulk > .rb-scene-nest-delete-gate { margin-left: auto; }
 
   /* Add shot: the dashed row it always was, in the third ink (#57534e on a
      #292524 dash before), the hover fill and the second ink on hover. Its
@@ -1270,7 +1285,7 @@
      as the tables' fields are since R3-26), its rest, hover and focus the
      kit's. An empty choice's dash in the third ink (it was #57534e). A
      number's figures tabular. */
-  .ui-input.rb-scene-prop-select[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-scene-prop-select[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
   .ui-input.rb-scene-prop-number { font-variant-numeric: tabular-nums; }
   /* Status: the kit's dot inside the well, the kit's words in the select
      (the text and every option wore the status colour, R3-11). (0,3,0) over
