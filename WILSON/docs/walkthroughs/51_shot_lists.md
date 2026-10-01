@@ -98,7 +98,12 @@ seat). On the Local Server there are no roles, so every verb is open.
 - **Tests:** 227 test files / 5,490 tests at the start; 231 files / 5,634 tests at the
   end of this bundle's eight steps, all passing. 187 deliberately broken
   versions of the code were planted by this session, step by step, and
-  every one was caught (the hand-off lists them by step).
+  every one was caught (the hand-off lists them by step). Two review rounds
+  followed: 231 / 5,652 after the first, 232 / 5,671 after the second, and
+  237 / 5,795 with the other bundle of the day (S4b, the Legal gate) merged
+  in, all passing. The rounds planted 68 more broken versions: every one is
+  caught but one, a check that a second guard always covers (recorded in
+  the hand-off with one more of the same kind the second reviewer found).
 - **The table at 1280:** the actions column grew from 84 to 112 pixels (it
   holds three buttons now: View details, the shot-list menu, Delete), and
   Description and the nested shots' names gave the room back, so the scene
@@ -182,7 +187,12 @@ Checked in the development copy with its test data at 1440x900 and
 development build, not the packaged one) against a real Local Server:
 lists made, filled, saved, renamed, withdrawn and restored, read back from
 the server. A reviewer's view and the page gate on Ctrl+Z were checked by
-automated tests, not by hand.
+automated tests, not by hand. After the two review rounds the pictures
+were taken again on the reviewed code (seven changed, one added: step
+24a); the desktop app was not run again. How the ⋯ menus behave in the
+browser's own order of events was checked by an emulation in the tests
+(the second review found that the test's order had hidden a fault), not
+by hand in the app.
 
 **Not checked:** a real reviewer seat on the cloud (the gates are the same
 rule the database enforces, and are tested); the packaged desktop app;
