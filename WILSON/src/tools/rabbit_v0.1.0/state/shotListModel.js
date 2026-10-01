@@ -66,7 +66,7 @@ export function compareShotsForList(a, b) {
 }
 
 /** Lists for display: title (natural order), then version ascending. */
-export function compareShotLists(a, b) {
+function compareShotLists(a, b) {
   const t = String(a?.title || '').localeCompare(String(b?.title || ''), undefined, { numeric: true, sensitivity: 'base' })
   return t || (Number(a?.version) || 0) - (Number(b?.version) || 0) || cmpText(a?.id, b?.id)
 }
@@ -80,9 +80,6 @@ export function formatShotListLabel(list) {
   if (!list) return ''
   return `${list.title || 'Untitled'} · v${Number(list.version) || 1}`
 }
-
-/** An edit's label, the same shape. */
-export const formatEditLabel = formatShotListLabel
 
 // ── the backfill (D11) ──────────────────────────────────────────────────────
 
@@ -147,7 +144,7 @@ export function sceneIdSetOf(items, listId, shots) {
   return set
 }
 
-export function shotIdSetOf(items, listId) {
+function shotIdSetOf(items, listId) {
   return new Set(itemsOf(items, listId).filter(i => i.shot_id).map(i => i.shot_id))
 }
 
@@ -206,35 +203,37 @@ function listedShotIds(shotListItems) {
 }
 
 /**
- * ctx.scenes (D10): the ACTIVE list's scenes PLUS every scene that belongs to
- * NO list at all, in the order they were LOADED (every existing view sorts by
- * number itself, so the order it receives is unchanged); every scene when the
- * project has no active list (or names one this client has not loaded).
+ * ctx.scenes (D10, as Audrey ruled it): the ACTIVE list's scenes, in the order
+ * they were LOADED (every existing view sorts by number itself, so the order
+ * it receives is unchanged); every scene when the project has no active list
+ * (or names one this client has not loaded — the provider re-reads the lists).
  *
- * Why "plus no list" (review round 1, three reviewers independently): D10 is
- * about a scene another list HOLDS not showing where the active list rules. A
- * scene in no list was put nowhere — a client older than 0084, a membership
- * write that failed, an Excel-style import — and hiding it would lose it from
- * every surface with no way back. Only rows another list holds are hidden.
+ * A scene in NO list is NOT shown here. Round 1 showed such rows everywhere to
+ * keep accidents visible; round 2 measured that it also undid every DELIBERATE
+ * removal from a project's only list (D10 says the other surfaces read the
+ * active list, full stop). Accidents are now prevented where they start — a
+ * new row whose membership write fails is removed again and the error raised
+ * (RabbitProvider addScene / addShot) — and any row that still ends up in no
+ * list stays reachable through unlistedScenesOf / unlistedShotsOf, for S3b's
+ * Scenes tab. Whether a row in no list should show elsewhere is recorded in
+ * the S3a hand-off as a question for Audrey.
  */
 export function activeScenesOf({ project, shotLists, shotListItems, scenes, shots }) {
   const active = activeShotListOf(project, shotLists)
   if (!active) return scenes || []
-  const inActive = sceneIdSetOf(shotListItems, active.id, shots)
-  const listed = listedSceneIds(shotListItems, shots)
-  return (scenes || []).filter(s => inActive.has(s.id) || !listed.has(s.id))
+  const ids = sceneIdSetOf(shotListItems, active.id, shots)
+  return (scenes || []).filter(s => ids.has(s.id))
 }
 
-/** ctx.shots (D10): the ACTIVE list's shots plus shots in NO list, load order; every shot when there is no active list. */
+/** ctx.shots (D10): the ACTIVE list's shots, load order; every shot when there is no active list. */
 export function activeShotsOf({ project, shotLists, shotListItems, shots }) {
   const active = activeShotListOf(project, shotLists)
   if (!active) return shots || []
-  const inActive = shotIdSetOf(shotListItems, active.id)
-  const listed = listedShotIds(shotListItems)
-  return (shots || []).filter(s => inActive.has(s.id) || !listed.has(s.id))
+  const ids = shotIdSetOf(shotListItems, active.id)
+  return (shots || []).filter(s => ids.has(s.id))
 }
 
-/** Scenes that belong to no list (S3b's "not in any list" bucket). */
+/** Scenes that belong to no list (S3b's "not in any list" bucket in the Scenes tab). */
 export function unlistedScenesOf({ shotListItems, scenes, shots }) {
   const listed = listedSceneIds(shotListItems, shots)
   return (scenes || []).filter(s => !listed.has(s.id))
@@ -325,13 +324,15 @@ export function assertUniqueEdit(edits, { id, shot_list_id, title, version }) {
   const t = String(title || '').trim()
   const clash = (edits || []).find(e => e.id !== id && e.shot_list_id === shot_list_id
     && String(e.title || '').trim() === t && Number(e.version) === Number(version))
-  if (clash) throw new Error(`This shot list already has an edit called "${formatEditLabel(clash)}".`)
+  if (clash) throw new Error(`This shot list already has an edit called "${formatShotListLabel(clash)}".`)
 }
 
 // ── plans: each returns the NEW full item set of ONE list ───────────────────
 //
-// The provider writes a plan with adapter.replaceShotListItems (one atomic
-// call on every backend) and undoes it by replacing the set it read before.
+// The provider writes only what a plan ADDS (adapter.upsertShotListItems),
+// REMOVES (adapter.deleteShotListItems) or MOVES (adapter.repositionShotListItems,
+// positions only) — never a whole list from its own possibly-stale view — and
+// undoes each with the inverse on the same rows.
 
 function nextPos(list) {
   let max = -1
@@ -438,11 +439,11 @@ export function planAllScenesAndShots({ scenes, shots, listId, projectId, newId 
 
 // ── snapshots (D5: "Save" records a version point) ──────────────────────────
 
-export const SNAPSHOT_SCENE_FIELDS = Object.freeze([
+const SNAPSHOT_SCENE_FIELDS = Object.freeze([
   'id', 'name', 'scene_number', 'description', 'notes', 'status', 'type',
   'time_of_day', 'thumbnail_image', 'start_date', 'end_date',
 ])
-export const SNAPSHOT_SHOT_FIELDS = Object.freeze([
+const SNAPSHOT_SHOT_FIELDS = Object.freeze([
   'id', 'scene_id', 'name', 'shot_number', 'description', 'notes', 'status', 'type',
   'time_of_day', 'framing', 'camera_movement', 'frame_count', 'thumbnail_image',
   'start_date', 'end_date',
@@ -477,7 +478,7 @@ export function buildShotListSnapshot({ list, scenes, shots, items, savedAt, sav
 // ── edits (D6) ──────────────────────────────────────────────────────────────
 
 /** One edit item: { id, scene_id, shot_id, label, notes }. Unknown keys are dropped. */
-export function normalizeEditItem(it, newId) {
+function normalizeEditItem(it, newId) {
   return {
     id: it?.id || newId(),
     scene_id: it?.scene_id || null,

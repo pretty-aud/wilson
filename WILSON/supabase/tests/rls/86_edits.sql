@@ -10,8 +10,11 @@
 --     triggers are armed, archive_edit is a definer that calls
 --     passes_project_privacy exactly once.
 --   * The row's shape (§5): items is an ARRAY, snapshot an object or NULL,
---     the parent is an edit of the SAME list (the composite FK) and never the
---     edit itself, (list, title, version) is unique.
+--     the parent is an edit of the SAME list (the composite FK), and
+--     (list, title, version) is unique. An edit is never its own parent:
+--     since review round 2 the §7a guard refuses that first on INSERT (the
+--     row's own id does not exist yet), and the CHECK, the backstop on the
+--     one path the guard waves through (service_role), is pinned there.
 --   * The gate (§2, D8): a reviewer creates an edit and rewrites its items.
 --     A member can neither archive through a plain UPDATE (the §7a guard)
 --     nor call archive_edit (§10c's seat check), and no edit moves to
@@ -21,20 +24,31 @@
 --     and §7a): a second root on a list and a second child of one parent are
 --     refused (23505), a child of the latest edit lives, and an edit's parent
 --     never changes after creation — the probe is the cycle round 1 found.
---   * PRIVATE projects (§8's hop, §10c's passes_project_privacy): a second
---     manager SEATED on a private project they did not create can neither
---     add an edit to it nor archive one — each beside a CONTROL on the public
---     project — and the refusals change nothing.
+--     Review round 2 (§7a's INSERT arm): the parent must ALREADY EXIST when
+--     the edit is made. One multi-row INSERT of two edits naming each other
+--     — the two-edit cycle the indexes let in — is refused, and so is a
+--     parent id that names no edit; both are matched by the guard's own
+--     sentence, because the composite FK's refusal is 23503 too.
+--   * PRIVATE projects (§8's hop, §7a, §10c's passes_project_privacy): a
+--     second manager SEATED on a private project they did not create can
+--     neither add a root edit to it (the INSERT policy's hop), nor continue
+--     its chain (§7a reads the parent AS THE CALLER, so a parent they cannot
+--     see gets the same sentence as an id that names no edit — no existence
+--     oracle), nor archive one — beside CONTROLs on the public project — and
+--     the refusals change nothing.
 --   * A workspace ADMIN with no seat archives and restores an edit (§10c's
 --     admin leg; every other archive probe uses the project manager's seat).
 --   * D17: deleting a shot leaves the edits that name it alone — the item
 --     stays, to be shown as "Missing shot" (why items are JSONB, not FKs).
---   * Deleting a PARENT edit (as postgres; clients cannot) whose ARCHIVED
---     child survives lives: the FK's SET NULL reaches the §7a guard as a
---     nested trigger, and the guard's pg_trigger_depth() arm lets it through
---     — without that arm this delete (and a project purge) would be refused
---     with "this edit is archived".
---   * Deleting a list (as postgres; clients cannot) cascades its edits.
+--   * Deleting edits (as postgres; clients cannot): a MIDDLE edit is refused
+--     with 23505 — the FK's SET NULL would make its child a second root
+--     beside the root (review round 2: an operator removes edits from the tip
+--     backwards, or the whole list). Deleting the ROOT, whose ARCHIVED child
+--     survives, lives: the SET NULL reaches the §7a guard as a nested
+--     trigger, and the guard's pg_trigger_depth() arm lets it through —
+--     without that arm it would be refused with "this edit is archived".
+--   * Deleting a list (as postgres; clients cannot) cascades its edits, the
+--     whole chain in one statement.
 --   * Tenancy: an admin of the other workspace sees nothing and archive_edit
 --     answers "edit not found". anon holds nothing.
 --
@@ -44,7 +58,7 @@
 
 BEGIN;
 
-SELECT plan(51);
+SELECT plan(56);
 
 SELECT * FROM tests.rls_setup();
 
@@ -132,7 +146,7 @@ VALUES ('86860000-0000-0000-0000-0000000000e1', 'aaaa1111-0000-0000-0000-0000000
        ('86860000-0000-0000-0000-0000000000eb', 'aaaa1111-0000-0000-0000-000000000001',
         '86860000-0000-0000-0000-0000000000a2', 'Assembly', 1, '[]'::jsonb);
 
--- The private project's list and its root edit (ef), for 32-36.
+-- The private project's list and its root edit (ef), for 35-40.
 INSERT INTO public.shot_lists (id, project_id, title, version)
 VALUES ('86860000-0000-0000-0000-0000000000af', 'aaaa1111-0000-0000-0000-000000000086', 'Private list', 1);
 
@@ -192,8 +206,9 @@ SELECT is(
   1, 'archive_edit calls passes_project_privacy exactly once, comments stripped (§10c)');
 
 
--- ── 11-15: the row's shape (§5), as postgres ──────────────────────────────
--- Matched by SQLSTATE AND message: the message names the constraint.
+-- ── 11-16: the row's shape (§5, §7a), as postgres ────────────────────────
+-- Matched by SQLSTATE AND message: the message names the constraint (or is
+-- the guard's own sentence), so a refusal by something else cannot pass.
 
 SELECT throws_ok(
   $$INSERT INTO public.edits (project_id, shot_list_id, title, version, items)
@@ -209,7 +224,10 @@ SELECT throws_ok(
   '23514', 'new row for relation "edits" violates check constraint "edits_snapshot_is_object_chk"',
   'an edit''s snapshot is an object or NULL — never an array (§5)');
 
--- D6: one linear chain PER LIST. eb is a real edit, of the other list.
+-- D6: one linear chain PER LIST. eb is a real edit, of the other list, so
+-- §7a's existence check (round 2) passes it and the composite FK answers —
+-- with the FK's sentence, which the guard's probes (14, 24, 25, 36) must NOT
+-- get.
 SELECT throws_ok(
   $$INSERT INTO public.edits (project_id, shot_list_id, title, version, parent_edit_id)
     VALUES ('aaaa1111-0000-0000-0000-000000000001', '86860000-0000-0000-0000-0000000000a1',
@@ -217,15 +235,34 @@ SELECT throws_ok(
   '23503', 'insert or update on table "edits" violates foreign key constraint "edits_parent_same_list_fk"',
   'an edit''s parent must be an edit of the SAME list (§5 composite FK, D6)');
 
--- The FK alone cannot catch this one: the row satisfies its own
--- (id, shot_list_id) key the moment it exists.
+-- 14-15: an edit cannot be its own parent. Review round 2 made §7a refuse an
+-- INSERT whose parent does not ALREADY exist, and a row's own id does not
+-- exist until the row does — so on INSERT the guard answers before the CHECK
+-- is ever evaluated (BEFORE triggers run first), with its own sentence.
+SELECT throws_ok(
+  $$INSERT INTO public.edits (id, project_id, shot_list_id, title, version, parent_edit_id)
+    VALUES ('86860000-0000-0000-0000-0000000000e0', 'aaaa1111-0000-0000-0000-000000000001',
+            '86860000-0000-0000-0000-0000000000a1', 'Own parent', 1,
+            '86860000-0000-0000-0000-0000000000e0')$$,
+  '23503', 'an edit''s parent must be another edit of the same shot list',
+  'an edit cannot be its own parent — on INSERT §7a refuses it first: its parent does not exist yet (D6, R2-6)');
+
+-- The CHECK is the backstop where the guard waves a row through: service_role
+-- (the operator, Edge Functions) returns from §7a before its INSERT arm. The
+-- FK alone cannot catch a self-parent — the row satisfies its own
+-- (id, shot_list_id) key the moment it exists. service_role bypasses RLS, so
+-- nothing but the CHECK stands here (suite 15 switches role the same way).
+SELECT set_config('role', 'service_role', true);
+
 SELECT throws_ok(
   $$INSERT INTO public.edits (id, project_id, shot_list_id, title, version, parent_edit_id)
     VALUES ('86860000-0000-0000-0000-0000000000e0', 'aaaa1111-0000-0000-0000-000000000001',
             '86860000-0000-0000-0000-0000000000a1', 'Own parent', 1,
             '86860000-0000-0000-0000-0000000000e0')$$,
   '23514', 'new row for relation "edits" violates check constraint "edits_not_own_parent_chk"',
-  'an edit cannot be its own parent (§5)');
+  'past the guard, as service_role, the CHECK still refuses an edit that is its own parent (§5)');
+
+RESET ROLE;
 
 SELECT throws_ok(
   $$INSERT INTO public.edits (project_id, shot_list_id, title, version)
@@ -235,7 +272,7 @@ SELECT throws_ok(
   '(list, title, version) is unique — the other list''s "Assembly · v1" did not collide, this one does (§5)');
 
 
--- ── 16-18: the REVIEWER creates and rewrites an edit ──────────────────────
+-- ── 17-19: the REVIEWER creates and rewrites an edit ──────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -275,11 +312,12 @@ SELECT is(
   3, 'and the three-item array landed');
 
 
--- ── 19-22: D6 — ONE linear chain per list (review round 1) ────────────────
+-- ── 20-25: D6 — ONE linear chain per list (review rounds 1 and 2) ─────────
 -- Still the reviewer. Main's chain is e1 -> e2. Round 1 found branches and
 -- cycles accepted; §5's two partial unique indexes now forbid a second root
--- and a second child, and §7a fixes an edit's parent when it is made. Each
--- title below is new to Main, so the one key a probe can trip is its own.
+-- and a second child, and §7a fixes an edit's parent when it is made (and,
+-- since round 2, requires that parent to exist already). Each title below is
+-- new to Main, so the one key a probe can trip is its own.
 
 SELECT throws_ok(
   $$INSERT INTO public.edits (project_id, shot_list_id, title, version)
@@ -311,8 +349,38 @@ SELECT throws_ok(
   '42501', 'an edit''s place in its chain cannot change',
   'an edit''s parent cannot change after creation — here the change would close a cycle (§7a, D6)');
 
+-- 24-25, review round 2 (closure#6): the cycle an INSERT could still make.
+-- One multi-row INSERT naming two fresh edits as each other's parent passed
+-- everything else — the self-FK is checked at the END of the statement, when
+-- both rows exist; neither row is a root and each parent gets one child, so
+-- both indexes pass — and left a two-edit loop beside the chain, which a
+-- walker following parent_edit_id would never leave. §7a's INSERT arm now
+-- requires the parent to exist ALREADY: a row-level BEFORE trigger sees the
+-- rows earlier in its own statement, never later ones, so the FIRST row of
+-- any such loop is refused. Both probes match the guard's SENTENCE: the
+-- composite FK refuses with 23503 too (probe 13's text), so the SQLSTATE
+-- alone could not tell the guard from it — and 25, without the guard, would
+-- reach exactly that FK refusal.
+SELECT throws_ok(
+  $$INSERT INTO public.edits (id, project_id, shot_list_id, title, version, parent_edit_id)
+    VALUES ('86860000-0000-0000-0000-0000000003a1', 'aaaa1111-0000-0000-0000-000000000001',
+            '86860000-0000-0000-0000-0000000000a1', 'Loop A', 1,
+            '86860000-0000-0000-0000-0000000003a2'),
+           ('86860000-0000-0000-0000-0000000003a2', 'aaaa1111-0000-0000-0000-000000000001',
+            '86860000-0000-0000-0000-0000000000a1', 'Loop B', 1,
+            '86860000-0000-0000-0000-0000000003a1')$$,
+  '23503', 'an edit''s parent must be another edit of the same shot list',
+  'one INSERT of two edits naming EACH OTHER as parent is refused — the first row''s parent does not exist yet (§7a, D6, R2-6)');
 
--- ── 23-25: the MEMBER cannot archive, and no edit changes list ────────────
+SELECT throws_ok(
+  $$INSERT INTO public.edits (project_id, shot_list_id, title, version, parent_edit_id)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', '86860000-0000-0000-0000-0000000000a1',
+            'Orphan', 1, '86860000-0000-0000-0000-0000000003ff')$$,
+  '23503', 'an edit''s parent must be another edit of the same shot list',
+  'an edit naming a parent id that is no edit at all is refused with §7a''s sentence, not the FK''s (D6, R2-6)');
+
+
+-- ── 26-28: the MEMBER cannot archive, and no edit changes list ────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -343,7 +411,7 @@ SELECT throws_ok(
   'an edit cannot move to another list — the guard pins it (§7a)');
 
 
--- ── 26-31: the PROJECT manager archives, and the archive freezes ──────────
+-- ── 29-34: the PROJECT manager archives, and the archive freezes ──────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -387,26 +455,47 @@ SELECT throws_ok(
   'authenticated holds no DELETE privilege on edits — archived, never deleted (§9, D4/D18)');
 
 
--- ── 32-36: a PRIVATE project and a second manager seated on it ────────────
+-- ── 35-40: a PRIVATE project and a second manager seated on it ────────────
 -- 84/85's shape. Still user_e: a project MANAGER here and, seated by
 -- postgres, on the private project user_f created. can_edit_shot_lists and
--- archive_edit's seat check both say yes to them there, so the only arm left
--- to refuse them is privacy — §8's projects hop on the INSERT policy, and
--- passes_project_privacy in archive_edit.
+-- archive_edit's seat check both say yes to them there, so what refuses them
+-- is privacy — §8's projects hop on the INSERT policy, §7a's parent check
+-- (which reads edits as the caller), and passes_project_privacy in
+-- archive_edit.
 
 -- 🚨 workspace_id is SENT (suite 82's note): the populate trigger reads
 -- projects as the caller and would fill nothing on a private project, and the
--- row would then fail the WORKSPACE arm — a refusal for the wrong reason. The
--- intruder continues the private list's chain from ef, so nothing but RLS
--- stands in its way (a parentless one would meet the one-root index).
+-- row would then fail the WORKSPACE arm — a refusal for the wrong reason.
+--
+-- 35: a ROOT edit (no parent), so §7a's parent check has nothing to read and
+-- the INSERT policy's projects hop is the one arm left. Matched by RLS's own
+-- sentence: Postgres checks the policy BEFORE the unique indexes, so were the
+-- hop gone this row would reach edits_one_root_per_list_key (the private list
+-- already has its root, ef) and fail with 23505 instead. (Round 1 continued
+-- the chain from ef here; since round 2 §7a refuses that first — 36.)
+SELECT throws_ok($$
+  INSERT INTO public.edits (id, workspace_id, project_id, shot_list_id, title, version)
+  VALUES ('86860000-0000-0000-0000-0000000000e7', '11111111-1111-1111-1111-111111111111',
+          'aaaa1111-0000-0000-0000-000000000086', '86860000-0000-0000-0000-0000000000af',
+          'Intruder root', 1)
+$$, '42501', 'new row violates row-level security policy for table "edits"',
+  'a manager SEATED on a private project they did not create cannot add an edit to it (§8''s hop — the gate alone says yes)');
+
+-- 36: continuing the private chain from ef. §7a's existence check reads
+-- edits AS THE CALLER, and ef is on a project user_e cannot see, so for them
+-- it does not exist: the answer is word for word what an id naming no edit
+-- gets (probe 25). A check that read past RLS would find ef, and the RLS
+-- refusal that followed would tell a hidden edit apart from a made-up id.
 SELECT throws_ok($$
   INSERT INTO public.edits (id, workspace_id, project_id, shot_list_id, title, version, parent_edit_id)
   VALUES ('86860000-0000-0000-0000-0000000000e9', '11111111-1111-1111-1111-111111111111',
           'aaaa1111-0000-0000-0000-000000000086', '86860000-0000-0000-0000-0000000000af',
           'Intruder cut', 1, '86860000-0000-0000-0000-0000000000ef')
-$$, '42501', NULL,
-  'a manager SEATED on a private project they did not create cannot add an edit to it (§8''s hop — the gate alone says yes)');
+$$, '23503', 'an edit''s parent must be another edit of the same shot list',
+  'nor continue its chain: a parent on a project they cannot see does not exist for them — the same sentence as a made-up id, no existence oracle (§7a, R2-6)');
 
+-- CONTROL for both: the same caller continues the PUBLIC project's chain
+-- (Pickups, from eb), the shape of 36, and it lives.
 SELECT lives_ok($$
   INSERT INTO public.edits (id, workspace_id, project_id, shot_list_id, title, version, parent_edit_id)
   VALUES ('86860000-0000-0000-0000-0000000000e8', '11111111-1111-1111-1111-111111111111',
@@ -431,14 +520,15 @@ SELECT ok(
   (SELECT archived_at IS NULL FROM public.edits
     WHERE id = '86860000-0000-0000-0000-0000000000ef')
   AND NOT EXISTS (SELECT 1 FROM public.edits
-                   WHERE id = '86860000-0000-0000-0000-0000000000e9')
+                   WHERE id IN ('86860000-0000-0000-0000-0000000000e7',
+                                '86860000-0000-0000-0000-0000000000e9'))
   AND (SELECT archived_at IS NOT NULL FROM public.edits
         WHERE id = '86860000-0000-0000-0000-0000000000e8'),
-  'the refusals changed nothing on the private project (its edit live, no intruder row), and the CONTROL archive landed');
+  'the refusals changed nothing on the private project (its edit live, neither intruder row), and the CONTROL archive landed');
 
 
--- ── 37-41: a workspace ADMIN with no seat archives and restores ──────────
--- D8's other leg: 26-30 used the project manager's seat. user_a is
+-- ── 41-45: a workspace ADMIN with no seat archives and restores ──────────
+-- D8's other leg: 29-33 used the project manager's seat. user_a is
 -- tests.rls_setup()'s admin; that helper runs as postgres with no auth.uid(),
 -- so 0020's auto-staff seats nobody — checked first, not assumed.
 SELECT is(
@@ -475,7 +565,7 @@ SELECT ok(
   'the restore cleared archived_at and archived_by (§10c)');
 
 
--- ── 42-43: an admin of ANOTHER workspace ──────────────────────────────────
+-- ── 46-47: an admin of ANOTHER workspace ──────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -500,12 +590,12 @@ SELECT throws_ok(
   'an admin of a different workspace cannot archive an edit here, and is not told it exists (§10c)');
 
 
--- ── 44-51: as postgres — D17, the nested SET NULL, the CASCADE, privileges
+-- ── 48-56: as postgres — D17, deleting edits, the CASCADE, privileges ────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
--- D17: SH2 is item 2 of the reviewer's edit (probe 17). No FK stops the
+-- D17: SH2 is item 2 of the reviewer's edit (probe 18). No FK stops the
 -- delete and nothing rewrites the edit.
 SELECT lives_ok(
   $$DELETE FROM public.shots WHERE id = '86860000-0000-0000-0000-0000000000d2'$$,
@@ -521,22 +611,33 @@ SELECT ok(
 
 -- Archive the child e2 through the RPC's own arm — the GUC archive_edit()
 -- sets — because the §7a guard refuses postgres as well (only service_role
--- and a nested trigger pass it). The parent's delete below then meets an
+-- and a nested trigger pass it). The root's delete below then meets an
 -- ARCHIVED survivor.
 SELECT set_config('wilson.edit_archive', '86860000-0000-0000-0000-0000000000e2', true);
 UPDATE public.edits SET archived_at = now()
  WHERE id = '86860000-0000-0000-0000-0000000000e2';
 SELECT set_config('wilson.edit_archive', '', true);
 
--- 🚨 Deleting the parent e1 fires edits_parent_same_list_fk's ON DELETE SET
+-- 50, review round 2 (sql2#6): Main's chain is e1 -> e2 -> e3 (probe 22).
+-- Deleting the MIDDLE edit e2 fires the FK's SET NULL on e3, which would
+-- become a second root while e1 is still one, and the non-deferrable one-root
+-- index refuses the whole delete. Clients cannot delete edits at all; an
+-- operator removes them from the tip backwards, or removes the list (the
+-- whole chain goes in one statement, 53).
+SELECT throws_ok(
+  $$DELETE FROM public.edits WHERE id = '86860000-0000-0000-0000-0000000000e2'$$,
+  '23505', 'duplicate key value violates unique constraint "edits_one_root_per_list_key"',
+  'deleting a MIDDLE edit (as postgres) is refused — its child would become a second root (§5, D6)');
+
+-- 🚨 Deleting the ROOT e1 fires edits_parent_same_list_fk's ON DELETE SET
 -- NULL (parent_edit_id): an UPDATE of the archived child issued BY A TRIGGER,
 -- so the guard runs at pg_trigger_depth() 2 and its nested-trigger arm lets
 -- it through. Without that arm this raises "this edit is archived — restore
--- it before changing it", and so would a project purge that removes a parent
--- before its archived child.
+-- it before changing it". e2 becomes the root as e1 goes, so the one-root
+-- index is satisfied.
 SELECT lives_ok(
   $$DELETE FROM public.edits WHERE id = '86860000-0000-0000-0000-0000000000e1'$$,
-  'deleting a parent edit (as postgres — no client may) whose ARCHIVED child survives raises nothing (§7a''s nested-trigger arm)');
+  'deleting the ROOT edit (as postgres — no client may) whose ARCHIVED child survives raises nothing (§7a''s nested-trigger arm)');
 
 SELECT ok(
   EXISTS (SELECT 1 FROM public.edits
@@ -551,8 +652,9 @@ SELECT lives_ok(
 SELECT is(
   (SELECT count(*)::int FROM public.edits
     WHERE id IN ('86860000-0000-0000-0000-0000000000e1',
-                 '86860000-0000-0000-0000-0000000000e2')),
-  0, 'and its remaining edit went with it (§5 edits_list_fk ON DELETE CASCADE)');
+                 '86860000-0000-0000-0000-0000000000e2',
+                 '86860000-0000-0000-0000-0000000000e3')),
+  0, 'and its remaining chain, e2 -> e3, went with it in one statement (§5 edits_list_fk ON DELETE CASCADE)');
 
 SELECT ok(
   NOT (

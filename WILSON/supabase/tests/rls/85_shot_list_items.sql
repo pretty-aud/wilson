@@ -9,7 +9,8 @@
 --     to projects and calls can_edit_shot_lists, the stamp and audit
 --     triggers are armed, and replace_shot_list_items and
 --     upsert_shot_list_items are SECURITY INVOKER — they grant nothing the
---     table's own policies do not (§10d, §10e).
+--     table's own policies do not (§10d, §10e). Since review round 2 the
+--     delta helper exists ONCE, as (uuid, jsonb, boolean).
 --   * The row's shape (§4): exactly one of scene_id / shot_id, both ways; a
 --     list holds each scene and each shot once; an item can only name a
 --     scene of ITS OWN project — the composite FK, proved by a caller who can
@@ -21,20 +22,31 @@
 --     id already in THIS list keeps its row), is ATOMIC (a call that names
 --     another project's scene fails whole and leaves the previous set), and
 --     SKIPS an id that belongs to another list rather than rewriting it.
---   * An ARCHIVED list's membership is frozen (review round 1, §4's write
---     policies): a reviewer's add, remove, reorder, replace and upsert on it
---     all fail or match nothing and leave its set as it was — each beside the
---     identical write on a LIVE twin, which lands. A scene delete still takes
---     the scene out of the archived list (the FK CASCADE is not judged by RLS).
+--   * An ARCHIVED list's membership is NOT frozen (review round 2 reverted
+--     round 1's freeze — §8's comment: with it, the undo of a scene delete
+--     could not put the scene back into an archived list). After a
+--     PRECONDITION that the list really is archived, a reviewer's add,
+--     reorder (UPDATE of position), remove, replace and upsert on it all
+--     land, and each is read back. D4/D18 still hold for the list ROW (suite
+--     84); the provider refuses UI verbs on an archived list.
 --   * upsert_shot_list_items (§10e, the delta write): writes ONLY the rows it
 --     names — an unnamed item of the list survives — returns exactly those
 --     rows, and skips an id that belongs to another list.
+--   * Its POSITIONS-ONLY mode (p_positions_only = true, review round 2: a
+--     reorder from a stale view re-inserted the items a collaborator had
+--     removed): it moves rows that exist in THIS list, never inserts an
+--     unknown id, never moves or changes another list's id, and returns only
+--     the rows it moved.
 --   * Tenancy: an admin of another workspace sees nothing and the helper
 --     answers "shot list not found".
 --   * PRIVATE projects (§8's hop): a second manager seated on a private
 --     project neither sees its items, adds one, nor reaches it through the
 --     helper — with a CONTROL on the public project and a presence check.
---   * Deleting a scene removes it from every list (§4's CASCADE, D3).
+--   * Deleting a scene removes it from every list (§4's CASCADE, D3), the
+--     archived one included. Round 2 (review sql2#8): the delete runs as a
+--     project MEMBER under scenes_delete, the path a user takes, not as
+--     postgres; a reviewer's identical delete matches nothing (scenes keep
+--     can_write_project).
 --   * anon holds nothing.
 --
 -- Postgres-side reads are ALWAYS scoped to fixture ids — dev carries real
@@ -43,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(59);
 
 SELECT * FROM tests.rls_setup();
 
@@ -158,26 +170,23 @@ VALUES ('85850000-0000-0000-0000-0000000000e1', '85850000-0000-0000-0000-0000000
        ('85850000-0000-0000-0000-0000000000ef', '85850000-0000-0000-0000-0000000000af',
         'aaaa1111-0000-0000-0000-000000000085', '85850000-0000-0000-0000-0000000000cf', NULL, 0);
 
--- Review round 1: three more lists on project_a.
---   LC 'Archived cut' — ARCHIVED below; holds SC2 (1c1) and SH1 (1c2). Its
---      membership is frozen, and SC2's delete (probe 50) must still reach it.
---   LD 'Live twin'    — the same two members, LIVE: every freeze probe runs
---      the identical write here as its CONTROL.
+-- Review rounds 1 and 2: two more lists on project_a.
+--   LC 'Archived cut' — ARCHIVED below; holds SC2 (1c1) and SH1 (1c2).
+--      Round 2: its membership is written like any list's (27-37), and the
+--      member's SC2 delete (54) still reaches it. Round 1's LIVE TWIN is
+--      gone: it was the control that told the freeze from the seat, and with
+--      no freeze a live success beside an archived success separates
+--      nothing — 27's precondition (LC IS archived) is the control now.
 --   LE 'Delta list'   — SC1 (1e1, position 0) and SC3 (1e2, position 1), for
---      upsert_shot_list_items.
+--      upsert_shot_list_items (38-40), then its positions-only mode (41-44).
 INSERT INTO public.shot_lists (id, project_id, title, version)
 VALUES ('85850000-0000-0000-0000-0000000000ac', 'aaaa1111-0000-0000-0000-000000000001', 'Archived cut', 1),
-       ('85850000-0000-0000-0000-0000000000ad', 'aaaa1111-0000-0000-0000-000000000001', 'Live twin', 1),
        ('85850000-0000-0000-0000-0000000000ae', 'aaaa1111-0000-0000-0000-000000000001', 'Delta list', 1);
 
 INSERT INTO public.shot_list_items (id, shot_list_id, project_id, scene_id, shot_id, position)
 VALUES ('85850000-0000-0000-0000-0000000001c1', '85850000-0000-0000-0000-0000000000ac',
         'aaaa1111-0000-0000-0000-000000000001', '85850000-0000-0000-0000-0000000000c2', NULL, 0),
        ('85850000-0000-0000-0000-0000000001c2', '85850000-0000-0000-0000-0000000000ac',
-        'aaaa1111-0000-0000-0000-000000000001', NULL, '85850000-0000-0000-0000-0000000000d1', 0),
-       ('85850000-0000-0000-0000-0000000001d1', '85850000-0000-0000-0000-0000000000ad',
-        'aaaa1111-0000-0000-0000-000000000001', '85850000-0000-0000-0000-0000000000c2', NULL, 0),
-       ('85850000-0000-0000-0000-0000000001d2', '85850000-0000-0000-0000-0000000000ad',
         'aaaa1111-0000-0000-0000-000000000001', NULL, '85850000-0000-0000-0000-0000000000d1', 0),
        ('85850000-0000-0000-0000-0000000001e1', '85850000-0000-0000-0000-0000000000ae',
         'aaaa1111-0000-0000-0000-000000000001', '85850000-0000-0000-0000-0000000000c1', NULL, 0),
@@ -240,13 +249,20 @@ SELECT ok(
              AND NOT p.prosecdef),
   'replace_shot_list_items exists and is NOT security definer (§10d)');
 
--- §10e, the same reason: the delta write (review round 1) runs as the caller,
--- which is also what makes the archived-list freeze below reach it.
+-- §10e, the same reason: the delta write (review round 1) runs as the caller.
+-- Round 2 gave it a third parameter, p_positions_only DEFAULT false, under the
+-- same name, so this probe names the (uuid, jsonb, boolean) signature AND
+-- counts the overloads: a two-argument version left beside it would make
+-- every two-argument call fail as ambiguous ("is not unique").
+-- to_regprocedure, not ::regprocedure: a missing signature must fail this
+-- probe, not abort the run.
 SELECT ok(
-  EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'public' AND p.proname = 'upsert_shot_list_items'
-             AND NOT p.prosecdef),
-  'upsert_shot_list_items exists and is NOT security definer (§10e)');
+  (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'upsert_shot_list_items') = 1
+  AND EXISTS (SELECT 1 FROM pg_proc
+               WHERE oid = to_regprocedure('public.upsert_shot_list_items(uuid, jsonb, boolean)')
+                 AND NOT prosecdef),
+  'upsert_shot_list_items exists ONCE, as (uuid, jsonb, boolean), and is NOT security definer (§10e, R2-2)');
 
 
 -- ── 10-13: the row's shape (§4), as postgres ──────────────────────────────
@@ -397,114 +413,118 @@ SELECT is(
   'and LA holds only e2 — the skipped id was not written into it');
 
 
--- ── 27-38: an ARCHIVED list's membership is frozen (review round 1) ───────
--- Still the reviewer. D4/D18 held only for the list ROW until round 1: any
--- list writer could empty an archived list through PostgREST or the helper.
--- Every items write policy (§4/§8) now also requires the parent list to be
--- live. Each refusal on LC is followed by the IDENTICAL write on LD, its live
--- twin, which must land — so what refuses is the freeze, not the seat, the
--- project or the shape of the write.
+-- ── 27-37: an ARCHIVED list's membership is NOT frozen (review round 2) ───
+-- Still the reviewer. Round 1 froze an archived list's membership in every
+-- items policy; round 2 reverted it (0084 §8's comment). A scene delete takes
+-- the scene out of every list (the FK CASCADE, D3), and with the freeze the
+-- UNDO of that delete could not put it back, so a mistaken delete + Ctrl+Z
+-- shrank every archived list for good — most have no Save snapshot to rebuild
+-- from. The freeze also protected little: under D8 the same writers may
+-- rewrite the ACTIVE list. D4/D18 still hold for the list ROW (suite 84: an
+-- archived list's own UPDATE is refused); the provider refuses every UI verb
+-- on an archived list (requireEditableShotList), and its undo / restore paths
+-- write it through these same policies.
 --
--- 🚨 RLS refuses differently per command, and these probes follow Postgres:
--- a write that PROPOSES a row (an INSERT, and both helpers, whose INSERT ...
--- ON CONFLICT DO UPDATE meets either the insert WITH CHECK or, for an
--- existing id, the conflict-update USING check — both raise) fails with
--- 42501, so the helpers are matched on the SQLSTATE alone; a plain UPDATE or
--- DELETE whose USING clause excludes the row raises NOTHING — it matches
--- zero rows. Those two are asserted as "0 rows" (the data-modifying-CTE
--- shape of suites 01-08), each against its control's "1 row".
+-- 27 gives the rest their meaning: every write below lands on a list that IS
+-- archived, so each success is the round-2 decision, not a fixture that
+-- failed to archive. Each write is then read back (LC's whole set, as
+-- entity@position, ordered by the scene or shot id — the helpers mint random
+-- item ids). The UPDATE and DELETE also count the rows they matched, because
+-- one that RLS filters out raises NOTHING (the data-modifying-CTE shape of
+-- suites 01-08); round 1 asserted exactly those as "0 rows".
 
-SELECT throws_ok(
-  $$INSERT INTO public.shot_list_items (shot_list_id, project_id, shot_id, position)
-    VALUES ('85850000-0000-0000-0000-0000000000ac', 'aaaa1111-0000-0000-0000-000000000001',
-            '85850000-0000-0000-0000-0000000000d2', 5)$$,
-  '42501', 'new row violates row-level security policy for table "shot_list_items"',
-  'a reviewer cannot ADD an item to an ARCHIVED list (§4 insert policy, R1-B)');
+SELECT ok(
+  (SELECT archived_at IS NOT NULL FROM public.shot_lists
+    WHERE id = '85850000-0000-0000-0000-0000000000ac'),
+  'PRECONDITION: LC is archived, and the reviewer can see that it is');
 
 SELECT lives_ok(
   $$INSERT INTO public.shot_list_items (id, shot_list_id, project_id, shot_id, position)
-    VALUES ('85850000-0000-0000-0000-0000000001d3', '85850000-0000-0000-0000-0000000000ad',
+    VALUES ('85850000-0000-0000-0000-0000000001c3', '85850000-0000-0000-0000-0000000000ac',
             'aaaa1111-0000-0000-0000-000000000001', '85850000-0000-0000-0000-0000000000d2', 5)$$,
-  'CONTROL: the same add to the LIVE twin lands');
+  'a reviewer ADDS an item to an ARCHIVED list (§8: no freeze, R2-1)');
 
-WITH del AS (
-  DELETE FROM public.shot_list_items WHERE id = '85850000-0000-0000-0000-0000000001c2'
-  RETURNING 1
-)
-SELECT is((SELECT count(*)::int FROM del), 0,
-  'a reviewer''s DELETE of an archived list''s item matches no row (§4 delete policy, R1-B)');
-
-WITH del AS (
-  DELETE FROM public.shot_list_items WHERE id = '85850000-0000-0000-0000-0000000001d2'
-  RETURNING 1
-)
-SELECT is((SELECT count(*)::int FROM del), 1,
-  'CONTROL: the same DELETE on the live twin removes its item');
+SELECT is(
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
+    WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
+  ARRAY['85850000-0000-0000-0000-0000000000c2@0',
+        '85850000-0000-0000-0000-0000000000d1@0',
+        '85850000-0000-0000-0000-0000000000d2@5']::text[],
+  'and it is there: SH2 at 5, beside the SC2 and SH1 that LC was archived with');
 
 WITH upd AS (
   UPDATE public.shot_list_items SET position = 4 WHERE id = '85850000-0000-0000-0000-0000000001c1'
   RETURNING 1
 )
-SELECT is((SELECT count(*)::int FROM upd), 0,
-  'a reviewer''s reorder (UPDATE of position) on an archived list matches no row (§4 update policy, R1-B)');
+SELECT is((SELECT count(*)::int FROM upd), 1,
+  'a reviewer''s reorder (UPDATE of position) on the archived list matches its row (R2-1)');
 
-WITH upd AS (
-  UPDATE public.shot_list_items SET position = 4 WHERE id = '85850000-0000-0000-0000-0000000001d1'
+SELECT is(
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
+    WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
+  ARRAY['85850000-0000-0000-0000-0000000000c2@4',
+        '85850000-0000-0000-0000-0000000000d1@0',
+        '85850000-0000-0000-0000-0000000000d2@5']::text[],
+  'and the new position landed: SC2 now at 4');
+
+WITH del AS (
+  DELETE FROM public.shot_list_items WHERE id = '85850000-0000-0000-0000-0000000001c2'
   RETURNING 1
 )
-SELECT is((SELECT count(*)::int FROM upd), 1,
-  'CONTROL: the same reorder on the live twin moves its item');
+SELECT is((SELECT count(*)::int FROM del), 1,
+  'a reviewer''s DELETE of an archived list''s item removes it (R2-1)');
 
--- The helpers run AS THE CALLER (§10d, §10e), so the same policies stop
--- them. replace deletes the unnamed rows first — on LC that DELETE matches
--- nothing — then proposes the named ones, and the proposal raises. The set
--- is read back after each refusal.
-SELECT throws_ok(
+SELECT is(
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
+    WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
+  ARRAY['85850000-0000-0000-0000-0000000000c2@4',
+        '85850000-0000-0000-0000-0000000000d2@5']::text[],
+  'and SH1 is gone from LC');
+
+-- replace keeps 1c1 (SC2, moved to 1), adds SC3 at 0, and deletes the
+-- unnamed SH2 item — the whole set, as for a live list (probes 18-21).
+SELECT lives_ok(
   $$SELECT public.replace_shot_list_items('85850000-0000-0000-0000-0000000000ac', '[
       {"id": "85850000-0000-0000-0000-0000000001c1", "scene_id": "85850000-0000-0000-0000-0000000000c2", "position": 1},
       {"scene_id": "85850000-0000-0000-0000-0000000000c3", "position": 0}
     ]'::jsonb)$$,
-  '42501', NULL,
-  'replace_shot_list_items on an ARCHIVED list is refused (§10d runs under the frozen policies, R1-B)');
+  'replace_shot_list_items on the ARCHIVED list lives (§10d runs under the same, unfrozen policies, R2-1)');
 
 SELECT is(
-  (SELECT array_agg(id::text || '@' || position ORDER BY id) FROM public.shot_list_items
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
     WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
-  ARRAY['85850000-0000-0000-0000-0000000001c1@0',
-        '85850000-0000-0000-0000-0000000001c2@0']::text[],
-  'and the archived list holds exactly what it held — the refused add, delete, reorder and replace changed nothing');
+  ARRAY['85850000-0000-0000-0000-0000000000c2@1',
+        '85850000-0000-0000-0000-0000000000c3@0']::text[],
+  'and LC holds exactly the replaced set: SC3 at 0, SC2 at 1, the unnamed SH2 deleted');
 
+-- upsert moves 1c1 to 2 and adds SH2 at 0; the unnamed SC3 stays.
 SELECT lives_ok(
-  $$SELECT public.replace_shot_list_items('85850000-0000-0000-0000-0000000000ad', '[
-      {"id": "85850000-0000-0000-0000-0000000001d1", "scene_id": "85850000-0000-0000-0000-0000000000c2", "position": 1},
-      {"scene_id": "85850000-0000-0000-0000-0000000000c3", "position": 0}
-    ]'::jsonb)$$,
-  'CONTROL: the same replace on the live twin lives');
-
-SELECT throws_ok(
   $$SELECT public.upsert_shot_list_items('85850000-0000-0000-0000-0000000000ac', '[
       {"id": "85850000-0000-0000-0000-0000000001c1", "scene_id": "85850000-0000-0000-0000-0000000000c2", "position": 2},
       {"shot_id": "85850000-0000-0000-0000-0000000000d2", "position": 0}
     ]'::jsonb)$$,
-  '42501', NULL,
-  'upsert_shot_list_items on an ARCHIVED list is refused (§10e runs under the frozen policies, R1-B)');
+  'upsert_shot_list_items on the ARCHIVED list lives (§10e, R2-1)');
 
 SELECT is(
-  (SELECT array_agg(id::text || '@' || position ORDER BY id) FROM public.shot_list_items
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
     WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
-  ARRAY['85850000-0000-0000-0000-0000000001c1@0',
-        '85850000-0000-0000-0000-0000000001c2@0']::text[],
-  'and the archived list is still unchanged');
-
-SELECT lives_ok(
-  $$SELECT public.upsert_shot_list_items('85850000-0000-0000-0000-0000000000ad', '[
-      {"id": "85850000-0000-0000-0000-0000000001d1", "scene_id": "85850000-0000-0000-0000-0000000000c2", "position": 2},
-      {"shot_id": "85850000-0000-0000-0000-0000000000d2", "position": 0}
-    ]'::jsonb)$$,
-  'CONTROL: the same upsert on the live twin lives');
+  ARRAY['85850000-0000-0000-0000-0000000000c2@2',
+        '85850000-0000-0000-0000-0000000000c3@0',
+        '85850000-0000-0000-0000-0000000000d2@0']::text[],
+  'and the delta landed: SC2 moved to 2, SH2 added at 0, the unnamed SC3 untouched');
 
 
--- ── 39-41: upsert_shot_list_items — the DELTA write (§10e, R1-A) ──────────
+-- ── 38-40: upsert_shot_list_items — the DELTA write (§10e, R1-A) ──────────
 -- Still the reviewer, on LE (SC1 at 0, SC3 at 1). The call names three rows:
 -- 1e1 moves (SC1 to position 2), 1e3 is new (SC2 at 0), and eb is LB's item,
 -- named with a different payload. 1e2 (SC3) is NOT named. Round 1's HIGH was
@@ -553,7 +573,67 @@ SELECT ok(
   'the other list''s item is untouched — still LB''s, still SC3, still position 0 (skipped, not moved or rewritten)');
 
 
--- ── 42-43: an admin of ANOTHER workspace ──────────────────────────────────
+-- ── 41-44: the POSITIONS-ONLY mode (§10e p_positions_only, review round 2) ─
+-- Still the reviewer, on LE: 1e1 SC1 at 2, 1e2 SC3 at 1, 1e3 SC2 at 0. Round
+-- 2 (sql2#1, provider2#2, parity2#0): a reorder is computed from the client's
+-- view, which goes stale (items are not broadcast); written as an upsert, it
+-- re-INSERTED every item a collaborator had removed since. With
+-- p_positions_only the call is an UPDATE of position and nothing else.
+-- The call names four rows:
+--   1e2 -> 0 and 1e3 -> 1, the swap: rows of THIS list, moved;
+--   1e9, an id that exists NOWHERE, carrying a shot LE does not hold (SH1) —
+--      so an implementation that inserted unknown ids could insert it
+--      cleanly, and only "never inserts" keeps it out;
+--   eb, LB's item, with another shot and position — skipped, never moved.
+-- As in 38, the call sits in a DO block inside lives_ok and checks what it
+-- RETURNS: exactly the two rows it moved.
+SELECT lives_ok($q$
+  DO $d$
+  DECLARE
+    v uuid[];
+  BEGIN
+    SELECT array_agg(r.id ORDER BY r.id) INTO v
+      FROM public.upsert_shot_list_items('85850000-0000-0000-0000-0000000000ae', '[
+        {"id": "85850000-0000-0000-0000-0000000001e2", "position": 0},
+        {"id": "85850000-0000-0000-0000-0000000001e3", "position": 1},
+        {"id": "85850000-0000-0000-0000-0000000001e9", "shot_id": "85850000-0000-0000-0000-0000000000d1", "position": 3},
+        {"id": "85850000-0000-0000-0000-0000000000eb", "shot_id": "85850000-0000-0000-0000-0000000000d3", "position": 7}
+      ]'::jsonb, true) AS r;
+    IF v IS DISTINCT FROM ARRAY['85850000-0000-0000-0000-0000000001e2',
+                                '85850000-0000-0000-0000-0000000001e3']::uuid[] THEN
+      RAISE EXCEPTION 'upsert_shot_list_items(..., true) returned %', v;
+    END IF;
+  END
+  $d$
+$q$, 'positions-only: the reviewer moves two of LE''s items and gets back exactly those two — not the unknown id, not the other list''s (§10e, R2-2)');
+
+SELECT is(
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position ORDER BY id)
+     FROM public.shot_list_items
+    WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ae'),
+  ARRAY['85850000-0000-0000-0000-0000000000c1@2',
+        '85850000-0000-0000-0000-0000000000c3@0',
+        '85850000-0000-0000-0000-0000000000c2@1']::text[],
+  'and the swap landed: SC3 (1e2) at 0, SC2 (1e3) at 1, the UNNAMED SC1 still at 2 (R2-2)');
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM public.shot_list_items
+               WHERE id = '85850000-0000-0000-0000-0000000001e9')
+  AND (SELECT count(*)::int FROM public.shot_list_items
+        WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ae') = 3,
+  'the UNKNOWN id was not inserted: LE still holds three items and 1e9 exists nowhere — a reorder never inserts (R2-2)');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM public.shot_list_items
+           WHERE id = '85850000-0000-0000-0000-0000000000eb'
+             AND shot_list_id = '85850000-0000-0000-0000-0000000000a2'
+             AND scene_id = '85850000-0000-0000-0000-0000000000c3'
+             AND shot_id IS NULL
+             AND position = 0),
+  'and the other list''s id is neither moved nor changed — eb is still LB''s, still SC3 at position 0 (R2-2)');
+
+
+-- ── 45-46: an admin of ANOTHER workspace ──────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -577,7 +657,7 @@ SELECT throws_ok(
   'an admin of a different workspace calling the helper gets "shot list not found" (§10d reads as the caller)');
 
 
--- ── 44: a workspace member with NO seat on the staffed project ────────────
+-- ── 47: a workspace member with NO seat on the staffed project ────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -598,7 +678,7 @@ SELECT throws_ok(
   'a workspace member with no seat on a STAFFED project cannot add an item (§2: no unstaffed opening here)');
 
 
--- ── 45-48: a second manager SEATED on a private project ───────────────────
+-- ── 48-51: a second manager SEATED on a private project ───────────────────
 -- can_edit_shot_lists(private) is TRUE for user_e (the manager seat), so the
 -- only arm left to refuse them is privacy, through §8's projects hop.
 
@@ -642,7 +722,7 @@ SELECT throws_ok(
   'nor empty the private list through the helper — it reads the list as the caller (§10d)');
 
 
--- ── 49-55: as postgres — presence, the scene CASCADE, privileges ──────────
+-- ── 52-59: presence, the scene CASCADE under a member's RLS, privileges ──
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -653,12 +733,56 @@ SELECT is(
   ARRAY['85850000-0000-0000-0000-0000000000ef']::uuid[],
   'PRESENCE CONTROL: the private list still holds exactly its own item — the refusals were of real rows, and nothing was added or removed');
 
--- D3: a scene's row is shared by every list, so deleting it takes it out of
--- every list at once. SC2 is in LA as e2 (probe 26), in LC as 1c1 and LD as
--- 1d1 (fixtures), and in LE as 1e3 (probe 39).
-SELECT lives_ok(
-  $$DELETE FROM public.scenes WHERE id = '85850000-0000-0000-0000-0000000000c2'$$,
-  'a scene that a list holds can be deleted');
+-- 53-56, D3: a scene's row is shared by every list, so deleting it takes it
+-- out of every list at once — the archived one included. SC2 is in LA as e2
+-- (probe 26), in LC as 1c1 (fixtures; probe 37 read it there) and in LE as
+-- 1e3 (probe 38).
+--
+-- Review round 2 (sql2#8): the delete runs as the project MEMBER (user_d),
+-- under scenes_delete — the path a user takes. Round 1 deleted as postgres,
+-- which bypasses RLS, so it could not show the client case. The CASCADE is a
+-- referential action: Postgres runs it as the items table's owner with row
+-- security off, so it reaches rows the deleter's own policies never judge.
+-- First the REVIEWER's identical delete, which must match nothing: D8 opened
+-- lists to reviewers, never scenes (scenes keep can_write_project, §2's
+-- warning), and a refused DELETE raises nothing — hence the counts.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+WITH del AS (
+  DELETE FROM public.scenes WHERE id = '85850000-0000-0000-0000-0000000000c2'
+  RETURNING 1
+)
+SELECT is((SELECT count(*)::int FROM del), 0,
+  'a REVIEWER''s DELETE of a scene matches no row — reviewers write lists, not scenes (§2, D8)');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+WITH del AS (
+  DELETE FROM public.scenes WHERE id = '85850000-0000-0000-0000-0000000000c2'
+  RETURNING 1
+)
+SELECT is((SELECT count(*)::int FROM del), 1,
+  'the project MEMBER deletes the scene that three lists hold, as themselves (scenes_delete)');
+
+-- Read back as postgres, scoped to fixture ids.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 SELECT is(
   (SELECT count(*)::int FROM public.shot_list_items
@@ -666,15 +790,14 @@ SELECT is(
        OR scene_id = '85850000-0000-0000-0000-0000000000c2'),
   0, 'and its items left every list (§4 ON DELETE CASCADE, D3)');
 
--- Review round 1's one exception to the freeze: it is a POLICY, and the FK's
--- CASCADE is a referential action RLS does not judge, so a scene delete still
--- takes the scene out of an ARCHIVED list — D3's shared-row rule wins. LC held
--- SC2 as 1c1 until this delete (probes 34 and 37 read it there).
 SELECT is(
-  (SELECT array_agg(id ORDER BY id) FROM public.shot_list_items
+  (SELECT array_agg(COALESCE(scene_id, shot_id)::text || '@' || position
+                    ORDER BY COALESCE(scene_id, shot_id))
+     FROM public.shot_list_items
     WHERE shot_list_id = '85850000-0000-0000-0000-0000000000ac'),
-  ARRAY['85850000-0000-0000-0000-0000000001c2']::uuid[],
-  'the scene delete reached the ARCHIVED list too: its SC2 item is gone and its shot item stays (§4 CASCADE, R1-B)');
+  ARRAY['85850000-0000-0000-0000-0000000000c3@0',
+        '85850000-0000-0000-0000-0000000000d2@0']::text[],
+  'the member''s delete reached the ARCHIVED list too: its SC2 item is gone, SC3 and SH2 stay (§4 CASCADE, D3)');
 
 SELECT ok(
   NOT (
@@ -690,10 +813,12 @@ SELECT ok(
   AND has_function_privilege('authenticated', 'public.replace_shot_list_items(uuid, jsonb)', 'EXECUTE'),
   'anon cannot execute replace_shot_list_items; authenticated can (§10d)');
 
+-- Round 2: the (uuid, jsonb, boolean) signature — the two-argument form no
+-- longer exists, and naming it would abort the run.
 SELECT ok(
-  NOT has_function_privilege('anon', 'public.upsert_shot_list_items(uuid, jsonb)', 'EXECUTE')
-  AND has_function_privilege('authenticated', 'public.upsert_shot_list_items(uuid, jsonb)', 'EXECUTE'),
-  'anon cannot execute upsert_shot_list_items; authenticated can (§10e)');
+  NOT has_function_privilege('anon', 'public.upsert_shot_list_items(uuid, jsonb, boolean)', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'public.upsert_shot_list_items(uuid, jsonb, boolean)', 'EXECUTE'),
+  'anon cannot execute upsert_shot_list_items(uuid, jsonb, boolean); authenticated can (§10e, R2-2)');
 
 SELECT * FROM finish();
 ROLLBACK;

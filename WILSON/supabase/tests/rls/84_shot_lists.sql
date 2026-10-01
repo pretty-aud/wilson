@@ -44,6 +44,12 @@
 --     seat activates, archives and restores (the RPCs' other leg); titles
 --     are stored trimmed, on INSERT and UPDATE, and the (title, version) key
 --     compares them trimmed.
+--   * REVIEW ROUND 2 (§7a, R2-5): "trimmed" is ALL leading and trailing
+--     whitespace ([[:space:]], as the JS backends' trim() does), not spaces
+--     only — a title sent as tab + text + newline is stored as the text, and
+--     one that is nothing but a tab and a newline is blank once trimmed and
+--     refused by the blank-title CHECK, as the Local Server and the fixtures
+--     refuse it.
 --   * anon holds nothing; no client role executes the backfill.
 --
 -- Postgres-side reads are ALWAYS scoped to fixture ids — dev carries real
@@ -53,7 +59,7 @@
 
 BEGIN;
 
-SELECT plan(84);
+SELECT plan(87);
 
 SELECT * FROM tests.rls_setup();
 
@@ -677,7 +683,7 @@ SELECT is(
   0, 'and the list''s items went with it (§4 CASCADE)');
 
 
--- ── 65-81: REVIEW ROUND 1 (2026-09-30) ────────────────────────────────────
+-- ── 65-84: REVIEW ROUNDS 1 AND 2 (2026-09-30) ─────────────────────────────
 -- What round 1 added to §7a, and the coverage its reviewers found missing:
 -- a list cannot be BORN archived (the INSERT arm); a re-send of an archived
 -- list through the cloud adapter's upsert — which now strips archived_at /
@@ -685,6 +691,7 @@ SELECT is(
 -- sentence the Local Server and the fixtures answer with; a plain UPDATE
 -- cannot restore; the workspace-ADMIN leg of the RPCs' seat check (every
 -- probe above used the project manager's seat); titles stored trimmed (D).
+-- Round 2 widened "trimmed" to all whitespace (R2-5, 82-84).
 -- Still postgres here (62-64).
 
 -- 65: user_a is tests.rls_setup()'s workspace admin. That helper runs as
@@ -802,7 +809,7 @@ SELECT throws_ok(
   '42501', 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()',
   'a member cannot RESTORE a list by clearing archived_at — only archive_shot_list() restores (§7a, D8)');
 
--- 75-81: the ADMIN restores; then titles are stored trimmed.
+-- 75-84: the ADMIN restores; then titles are stored trimmed.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -852,11 +859,37 @@ SELECT is(
   (SELECT title FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000000a4'),
   'Manager cut', 'and the UPDATE path stores it trimmed too (§7a trims before any other check)');
 
+-- 82-84, review round 2 (R2-5): round 1's btrim() stripped SPACES only, while
+-- the Local Server, the fixtures and the provider trim with JS trim(), which
+-- strips every whitespace character. A title arriving as "\tMain\n" (PostgREST,
+-- tooling) was stored as-is next to "Main" — two lists both shown "Main · v1"
+-- — and a title of only a tab passed the blank-title CHECK that the other
+-- backends' 400 refuses. §7a now strips [[:space:]] from both ends. E'' so
+-- the tab and the newline are real characters, not backslash text.
+SELECT lives_ok(
+  $$INSERT INTO public.shot_lists (id, project_id, title, version)
+    VALUES ('84840000-0000-0000-0000-0000000001a4',
+            'aaaa1111-0000-0000-0000-000000000001', E'\tTabbed title\n', 1)$$,
+  'a list titled with a leading TAB and a trailing NEWLINE is created (§7a, R2-5)');
+
+SELECT is(
+  (SELECT title FROM public.shot_lists WHERE id = '84840000-0000-0000-0000-0000000001a4'),
+  'Tabbed title', 'and its title is stored with both stripped — all whitespace, not spaces only (R2-5)');
+
+-- Trimmed to '' by §7a (a BEFORE trigger, so it runs before any CHECK), the
+-- title then fails shot_lists_title_not_blank_chk. With spaces-only trimming
+-- this row was stored.
+SELECT throws_ok(
+  $$INSERT INTO public.shot_lists (project_id, title, version)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', E'\t\n', 1)$$,
+  '23514', 'new row for relation "shot_lists" violates check constraint "shot_lists_title_not_blank_chk"',
+  'a title that is only a tab and a newline is blank once trimmed, and refused (§3 CHECK after §7a''s trim, R2-5)');
+
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 
--- ── 82-84: privileges (§9, §10, §11) ──────────────────────────────────────
+-- ── 85-87: privileges (§9, §10, §11) ──────────────────────────────────────
 -- 0011's blanket GRANT plus its default privileges left anon holding every
 -- privilege on 25 tables until 0033; a policy-only check passes while a
 -- privilege hole is wide open (S21).

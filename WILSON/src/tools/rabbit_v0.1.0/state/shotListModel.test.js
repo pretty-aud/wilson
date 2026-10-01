@@ -135,11 +135,11 @@ describe('selectors (D10)', () => {
     expect(shots.map(s => s.id)).toEqual(['sh-a2', 'sh-a1', 'sh-x'])
   })
 
-  it('a row in NO list is still shown (nothing is hidden by accident): an old client, a failed membership write', () => {
+  it('D10 as ruled: a row in NO list is not shown on the other tabs; unlisted*Of reach it (S3b\'s bucket)', () => {
     const without = items.filter(i => i.scene_id !== 'sc-b' && i.shot_id !== 'sh-b1')
     const project = { id: 'p1', active_shot_list_id: 'L1' }
-    expect(activeScenesOf({ project, shotLists: lists, shotListItems: without, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-b', 'sc-a'])
-    expect(activeShotsOf({ project, shotLists: lists, shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-a2', 'sh-a1', 'sh-b1', 'sh-x'])
+    expect(activeScenesOf({ project, shotLists: lists, shotListItems: without, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-a'])
+    expect(activeShotsOf({ project, shotLists: lists, shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-a2', 'sh-a1', 'sh-x'])
     expect(unlistedScenesOf({ shotListItems: without, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-b'])
     expect(unlistedShotsOf({ shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-b1'])
     // Control: with every row listed there is nothing unlisted.

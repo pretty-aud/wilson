@@ -22,13 +22,19 @@
 // …and the review-round-1 addendum (S3A_CONTRACT_R1.md), each with its own
 // failing control:
 //   A the membership DELTA routes (POST …/items, POST …/items/delete)
-//   B an archived list's membership is frozen on all three item writes; the
-//     delete sweep and the read-time prune still reach it
+//   B (an archived list's membership frozen) — REVERTED by R2-1 below; the
+//     delete sweep and the read-time prune reach archived lists either way
 //   C a scene's cascade takes its shots (cascadeSceneOrShotDelete; replayed
 //     through the factory in desktopDeleteSweep.test.js)
 //   D titles are stored trimmed
 //   E one linear chain of edits per list
 //   H prune on read, deterministic backfill ids, one mirror after a backfill
+// …and the review-round-2 addendum (S3A_CONTRACT_R2.md):
+//   R2-1 an ARCHIVED list's items may be replaced, upserted, repositioned and
+//        deleted again (the freeze broke the undo of a scene delete); the
+//        tests that pinned the 409 are now "allowed" controls
+//   R2-2 POST …/items { positionsOnly: true } moves rows that EXIST in this
+//        list and never inserts (a stale reorder re-inserted removed rows)
 // Messages are typed out here, not imported, so a changed message fails.
 // =============================================================================
 
@@ -437,25 +443,24 @@ describe('rule 2 — replaceShotListItems', () => {
     expect(writes).toEqual([])
   })
 
-  it('addendum B: an ARCHIVED list\'s membership is frozen — 409, nothing written', async () => {
-    // Round 1 (R1 sql#0): the database now freezes it too (every items write
-    // policy refuses a row of an archived list), and D4/D18 say saved lists
-    // are never cleared — an empty PUT would have emptied one.
-    const b = seed({
+  it('R2-1: an ARCHIVED list\'s membership may be replaced again — written, and the list stays archived', async () => {
+    // Round 2 reverted R1 addendum B's freeze on every backend: with it,
+    // deleting a scene and pressing Ctrl+Z dropped the scene from every
+    // archived list for good. Re-adding the 409 fails this test.
+    seed({
       shotLists: [list('L1', { archived_at: T0 }), list('L2', { title: 'Live' })],
       shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0)],
     })
-    for (const items of [[{ scene_id: 'sc-2' }], []]) {
-      refused(await PUT('/shot-lists/L1/items', { items }), 409, 'conflict',
-        'this shot list is archived — restore it before changing it')
-    }
-    expect(disk().shotListItems).toEqual(b.shotListItems)
-    expect(writes).toEqual([])
-    // CONTROL: the same payload on a live list is written.
-    expect((await PUT('/shot-lists/L2/items', { items: [{ scene_id: 'sc-2' }] })).status).toBe(200)
+    const r = await PUT('/shot-lists/L1/items', { items: [{ id: 'i1', scene_id: 'sc-1', position: 1 }, { scene_id: 'sc-2', position: 0 }] })
+    expect(r.status).toBe(200)
+    expect(r.body.map(i => [i.id, i.scene_id, i.position])).toEqual([['id-0001', 'sc-2', 0], ['i1', 'sc-1', 1]])
+    const d = disk()
+    expect(d.shotListItems.filter(i => i.shot_list_id === 'L1').map(i => i.scene_id).sort()).toEqual(['sc-1', 'sc-2'])
+    expect(d.shotLists[0].archived_at).toBe(T0) // the membership moved; the list was not restored
+    expect(writes).toEqual([{ id: PID, touch: true }])
   })
 
-  it('addendum B: a malformed body is still a 400 on an archived list, and an unknown list still a 404', async () => {
+  it('R2-1: a malformed body is still a 400 on an archived list, and an unknown list still a 404', async () => {
     seed({ shotLists: [list('L1', { archived_at: T0 })] })
     refused(await PUT('/shot-lists/L1/items', { items: 'x' }), 400, 'invalid', 'items must be a JSON array')
     refused(await PUT('/shot-lists/L-nope/items', { items: [] }), 404, 'not_found', 'shot list not found')
@@ -551,14 +556,155 @@ describe('addendum A — POST …/items upserts only the named rows', () => {
     expect(writes).toEqual([])
   })
 
-  it('addendum B: an ARCHIVED list refuses the delta too — 409, nothing written', async () => {
-    const b = seed({ shotLists: [list('L1', { archived_at: T0 })], shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0)] })
-    refused(await POST('/shot-lists/L1/items', { items: [{ scene_id: 'sc-2' }] }), 409, 'conflict',
-      'this shot list is archived — restore it before changing it')
-    refused(await POST('/shot-lists/L1/items', { items: [{ id: 'i1', scene_id: 'sc-1', position: 5 }] }), 409, 'conflict',
-      'this shot list is archived — restore it before changing it')
-    expect(disk().shotListItems).toEqual(b.shotListItems)
+  it('R2-1: an ARCHIVED list takes the delta again — an insert and an update are both written', async () => {
+    // The undo of a scene delete re-inserts the scene's rows in EVERY list
+    // it was in, archived ones included. Re-adding the 409 fails this test.
+    seed({ shotLists: [list('L1', { archived_at: T0 })], shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0)] })
+    const add = await POST('/shot-lists/L1/items', { items: [{ id: 'back-1', scene_id: 'sc-2', position: 1 }] })
+    expect(add.status).toBe(200)
+    expect(add.body.map(i => i.id)).toEqual(['back-1'])
+    const upd = await POST('/shot-lists/L1/items', { items: [{ id: 'i1', scene_id: 'sc-1', position: 5 }] })
+    expect(upd.status).toBe(200)
+    expect(upd.body[0]).toMatchObject({ id: 'i1', position: 5 })
+    const d = disk()
+    expect(d.shotListItems.map(i => [i.id, i.position])).toEqual([['i1', 5], ['back-1', 1]])
+    expect(d.shotLists[0].archived_at).toBe(T0)
+    expect(writes).toHaveLength(2)
+  })
+})
+
+// ── R2-2: the positions-only write (a reorder never inserts) ────────────────
+//
+// sql2#1 / provider2#2 / parity2#0 (MEDIUM): planReorderList renumbers every
+// item of a group from this client's view, so a reorder made after a
+// collaborator removed an item names that item's id. As an upsert, an id the
+// list no longer holds was INSERTED — the removal undone, silently, for
+// everyone. Undo and redo of a reorder sent the same rows.
+describe('R2-2 — POST …/items { positionsOnly: true } moves existing rows only', () => {
+  function seedMove() {
+    return seed({
+      shotLists: [list('L1'), list('L2', { title: 'Other' })],
+      shotListItems: [
+        item('i1', 'L1', { scene: 'sc-1' }, 0),
+        item('i2', 'L1', { scene: 'sc-2' }, 1),
+        item('i3', 'L1', { shot: 'sh-1' }, 0),
+        item('j1', 'L2', { scene: 'sc-1' }, 0),
+      ],
+    })
+  }
+  const MOVE = (listId, items, extra = {}) => POST(`/shot-lists/${listId}/items`, { items, positionsOnly: true, ...extra })
+
+  it('FAILING CONTROL for the whole point: a stale reorder naming a REMOVED row skips it — the upsert re-inserts it', async () => {
+    // A collaborator removed i1 (sc-1) from L1. This client never saw that,
+    // and drags sc-2 to the top: planReorderList sends [i2 → 0, i1 → 1].
+    const collaboratorRemovedI1 = () => {
+      const b = seedMove()
+      store.set(PID, JSON.stringify({ ...b, shotListItems: b.shotListItems.filter(i => i.id !== 'i1') }))
+    }
+    const stale = [{ id: 'i2', scene_id: 'sc-2', position: 0 }, { id: 'i1', scene_id: 'sc-1', position: 1 }]
+    collaboratorRemovedI1()
+    const r = await MOVE('L1', stale)
+    expect(r.status).toBe(200)
+    expect(r.body.map(i => i.id)).toEqual(['i2']) // the skipped id is not returned
+    expect(disk().shotListItems.filter(i => i.shot_list_id === 'L1').map(i => [i.id, i.position])).toEqual([['i2', 0], ['i3', 0]])
+    // The SAME payload without the flag is the upsert, which inserts the
+    // unknown id — the collaborator's removal undone for everyone. That is
+    // the path R2-2 takes the reorder off.
+    collaboratorRemovedI1()
+    const u = await POST('/shot-lists/L1/items', { items: stale })
+    expect(u.status).toBe(200)
+    expect(disk().shotListItems.some(i => i.id === 'i1' && i.shot_list_id === 'L1' && i.scene_id === 'sc-1')).toBe(true)
+  })
+
+  it('moves only position: scene_id / shot_id in the payload are ignored; created_at kept, updated_at moves; rows answered in payload order', async () => {
+    seedMove()
+    const r = await MOVE('L1', [
+      { id: 'i3', shot_id: 'sh-2', position: 4 }, // a different shot named: ignored
+      { id: 'i1', scene_id: 'sc-2', position: 2 }, // a different scene named: ignored
+      { id: 'i2', position: 1 }, // unchanged position: still an update, still answered
+    ])
+    expect(r.status).toBe(200)
+    expect(r.body.map(i => [i.id, i.scene_id, i.shot_id, i.position])).toEqual([
+      ['i3', null, 'sh-1', 4], ['i1', 'sc-1', null, 2], ['i2', 'sc-2', null, 1],
+    ])
+    for (const row of r.body) {
+      expect(Object.keys(row).sort()).toEqual(ITEM_KEYS)
+      expect(row.created_at).toBe(T0)
+      expect(row.updated_at).not.toBe(T0)
+      expect(row.shot_list_id).toBe('L1')
+    }
+    const d = disk()
+    // Rows keep their place in the bundle; L2's j1 is untouched.
+    expect(d.shotListItems.map(i => [i.id, i.position])).toEqual([['i1', 2], ['i2', 1], ['i3', 4], ['j1', 0]])
+    expect(d.shotListItems[3]).toEqual(item('j1', 'L2', { scene: 'sc-1' }, 0))
+    expect(writes).toEqual([{ id: PID, touch: true }])
+  })
+
+  it('FAILING CONTROL: another list\'s id is skipped — not moved, not returned; a payload that moves nothing writes nothing', async () => {
+    const b = seedMove()
+    const r = await MOVE('L1', [{ id: 'j1', position: 9 }, { id: 'nope', position: 3 }])
+    expect(r).toEqual({ status: 200, body: [] })
+    expect((await MOVE('L1', [])).body).toEqual([])
+    expect(disk()).toEqual(b)
     expect(writes).toEqual([])
+    // CONTROL: j1 moves when it is named through ITS list.
+    expect((await MOVE('L2', [{ id: 'j1', position: 9 }])).body.map(i => [i.id, i.position])).toEqual([['j1', 9]])
+  })
+
+  it('validates every row, all-or-nothing: an id each, once, and a whole-number position ≥ 0 (required)', async () => {
+    const b = seedMove()
+    const bad = [
+      [{ items: 'x', positionsOnly: true }, 'items must be a JSON array'],
+      [{ positionsOnly: true }, 'items must be a JSON array'],
+      [{ items: [{ position: 0 }], positionsOnly: true }, 'each item of a reorder needs an id'],
+      [{ items: [{ id: '', position: 0 }], positionsOnly: true }, 'each item of a reorder needs an id'],
+      [{ items: [null], positionsOnly: true }, 'each item of a reorder needs an id'],
+      [{ items: [{ id: 'i1' }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+      [{ items: [{ id: 'i1', position: null }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+      [{ items: [{ id: 'i1', position: -1 }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+      [{ items: [{ id: 'i1', position: 1.5 }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+      [{ items: [{ id: 'i1', position: '2' }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+      // Good rows first, then the bad one: nothing is written.
+      [{ items: [{ id: 'i1', position: 3 }, { id: 'i2', position: 2 }, { id: 'i1', position: 0 }], positionsOnly: true }, 'an item id appears more than once'],
+      [{ items: [{ id: 'i1', position: 3 }, { id: 'i2', position: -2 }], positionsOnly: true }, 'an item\'s position must be a whole number of at least 0'],
+    ]
+    for (const [body, error] of bad) refused(await POST('/shot-lists/L1/items', body), 400, 'invalid', error)
+    refused(await MOVE('L-nope', [{ id: 'i1', position: 0 }]), 404, 'not_found', 'shot list not found')
+    expect(disk()).toEqual(b)
+    expect(writes).toEqual([])
+  })
+
+  it('positionsOnly is read strictly: only a boolean; false / null / absent is the upsert', async () => {
+    seedMove()
+    for (const positionsOnly of ['true', 1, 'yes', {}]) {
+      refused(await MOVE('L1', [{ id: 'gone-1', scene_id: 'sc-1', position: 0 }], { positionsOnly }), 400, 'invalid',
+        'positionsOnly must be true or false')
+    }
+    expect(writes).toEqual([])
+    // CONTROL: false and null take the upsert path (a new scene item is inserted).
+    expect((await MOVE('L1', [{ shot_id: 'sh-2', position: 1 }], { positionsOnly: false })).body.map(i => i.shot_id)).toEqual(['sh-2'])
+    expect((await MOVE('L1', [{ shot_id: 'sh-3', position: 0 }], { positionsOnly: null })).body.map(i => i.shot_id)).toEqual(['sh-3'])
+  })
+
+  it('R2-1: an ARCHIVED list can be repositioned (its undo / restore paths write it)', async () => {
+    seed({
+      shotLists: [list('L1', { archived_at: T0 })],
+      shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0), item('i2', 'L1', { scene: 'sc-2' }, 1)],
+    })
+    const r = await MOVE('L1', [{ id: 'i1', position: 1 }, { id: 'i2', position: 0 }])
+    expect(r.status).toBe(200)
+    expect(disk().shotListItems.map(i => [i.id, i.position])).toEqual([['i1', 1], ['i2', 0]])
+    expect(disk().shotLists[0].archived_at).toBe(T0)
+  })
+
+  it('a dangling row (its scene gone) is pruned on read, so a reorder naming it skips it — and the write persists the prune', async () => {
+    seed({
+      shotLists: [list('L1')],
+      shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0), item('dangling', 'L1', { scene: 'sc-gone' }, 1)],
+    })
+    const r = await MOVE('L1', [{ id: 'dangling', position: 0 }, { id: 'i1', position: 1 }])
+    expect(r.body.map(i => i.id)).toEqual(['i1'])
+    expect(disk().shotListItems.map(i => i.id)).toEqual(['i1'])
   })
 })
 
@@ -601,12 +747,16 @@ describe('addendum A — POST …/items/delete deletes exactly the named ids of 
     expect(writes).toEqual([])
   })
 
-  it('addendum B: an ARCHIVED list refuses a delete — 409, its items kept', async () => {
-    const b = seed({ shotLists: [list('L1', { archived_at: T0 })], shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0)] })
-    refused(await POST('/shot-lists/L1/items/delete', { ids: ['i1'] }), 409, 'conflict',
-      'this shot list is archived — restore it before changing it')
-    expect(disk().shotListItems).toEqual(b.shotListItems)
-    expect(writes).toEqual([])
+  it('R2-1: an ARCHIVED list\'s items can be deleted again (the redo of an undone add reaches it)', async () => {
+    // Re-adding the 409 fails this test.
+    seed({
+      shotLists: [list('L1', { archived_at: T0 })],
+      shotListItems: [item('i1', 'L1', { scene: 'sc-1' }, 0), item('i2', 'L1', { scene: 'sc-2' }, 1)],
+    })
+    expect(await POST('/shot-lists/L1/items/delete', { ids: ['i1'] })).toEqual({ status: 200, body: { deleted: ['i1'] } })
+    expect(disk().shotListItems.map(i => i.id)).toEqual(['i2'])
+    expect(disk().shotLists[0].archived_at).toBe(T0)
+    expect(writes).toEqual([{ id: PID, touch: true }])
   })
 })
 
@@ -1039,7 +1189,7 @@ describe('rule 8 — sweepShotListLinks', () => {
     expect(() => sweepShotListLinks({}, 'level', 'x')).toThrow(/kind/)
   })
 
-  it('addendum B\'s exception: the sweep reaches an ARCHIVED list (a referential clean-up, not a membership write)', () => {
+  it('the sweep reaches an ARCHIVED list (a referential clean-up, as the cloud\'s FK CASCADE)', () => {
     // i2 belongs to L2; mark L2 archived — its sc-1 item must still go, as the
     // cloud's FK CASCADE removes it (RLS does not judge a referential action).
     const b = { ...bundle(), shotLists: [list('L1'), list('L2', { archived_at: T0 })] }

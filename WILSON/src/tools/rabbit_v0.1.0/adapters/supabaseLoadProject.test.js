@@ -536,31 +536,39 @@ describe('shot lists ride the same load (0084)', () => {
 // and by default answers the `in` ids as the deleted rows. Only a delete entry
 // carries `filters` / `select`, so the upsert entries the older tests compare
 // with toEqual keep their three keys. `reads` lists every table READ, in order.
+//
+// Round 2 (R2-4): a READ records the same way in `readQueries` —
+// `{ table, select, filters }` — and a `perTable` entry may be a function of
+// that query, so a test can answer a filtered read from a small table of rows
+// (`tableOf` below) instead of a fixed result.
 function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
   const writes = []
   const rpcs = []
   const reads = []
+  const readQueries = []
   const c = {
     auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
     from: (table) => {
       let written = null
       let entry = null
+      const query = { table, select: undefined, filters: [] }
       const record = (op) => (row) => { written = row; entry = { table, op, row }; writes.push(entry); return b }
       const b = {
-        select: (cols) => { if (entry?.op === 'delete') entry.select = cols; return b },
-        eq: (col, v) => { if (entry?.op === 'delete') entry.filters.push(['eq', col, v]); return b },
-        in: (col, vs) => { if (entry?.op === 'delete') entry.filters.push(['in', col, vs]); return b },
+        select: (cols) => { if (entry?.op === 'delete') entry.select = cols; else if (!entry) query.select = cols; return b },
+        eq: (col, v) => { if (entry?.op === 'delete') entry.filters.push(['eq', col, v]); else if (!entry) query.filters.push(['eq', col, v]); return b },
+        in: (col, vs) => { if (entry?.op === 'delete') entry.filters.push(['in', col, vs]); else if (!entry) query.filters.push(['in', col, vs]); return b },
         order: () => b, single: () => b,
         upsert: record('upsert'), update: record('update'), insert: record('insert'),
         delete: () => { written = {}; entry = { table, op: 'delete', filters: [] }; writes.push(entry); return b },
         then: (resolve, reject) => {
-          if (written === null) reads.push(table)
+          if (written === null) { reads.push(table); readQueries.push(query) }
           const echo = () => entry?.op === 'delete'
             ? { data: ((entry.filters.find(f => f[0] === 'in') || [])[2] || []).map(id => ({ id })), error: null }
             : { data: { ...written }, error: null }
           const given = perWrite[table]
+          const read = perTable[table]
           const result = written === null
-            ? (table in perTable ? perTable[table] : { data: [], error: null })
+            ? (table in perTable ? (typeof read === 'function' ? read(query) : read) : { data: [], error: null })
             : (table in perWrite ? (typeof given === 'function' ? given(entry) : given) : echo())
           return Promise.resolve(result).then(resolve, reject)
         },
@@ -572,7 +580,19 @@ function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
       return rpc ? rpc(name, args) : { data: null, error: null }
     },
   }
-  return { client: c, writes, rpcs, reads, perTable }
+  return { client: c, writes, rpcs, reads, readQueries, perTable }
+}
+
+// A tiny table for the fake: answers a read or a delete with the rows its
+// eq / in filters match, cut to `id` (the only column these paths select).
+// `rowsMatching(filters)` is what both a read and a DELETE would see.
+function tableOf(rows) {
+  const rowsMatching = (filters) => rows.filter(r => filters.every(([op, col, v]) => (
+    op === 'eq' ? r[col] === v : v.includes(r[col]))))
+  return {
+    read: (q) => ({ data: rowsMatching(q.filters).map(r => ({ id: r.id })), error: null }),
+    rowsMatching,
+  }
 }
 
 function install(rec) {
@@ -758,6 +778,7 @@ describe('a database WITHOUT 0084 — the load is the probe', () => {
       upsertShotList:       () => adapter.upsertShotList({ project_id: 'p1', title: 'Pickups', version: 1 }),
       replaceShotListItems: () => adapter.replaceShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]),
       upsertShotListItems:  () => adapter.upsertShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]),
+      repositionShotListItems: () => adapter.repositionShotListItems('p1', 'l1', [{ id: 'i1', position: 0 }]),
       deleteShotListItems:  () => adapter.deleteShotListItems('p1', 'l1', ['i1']),
       upsertEdit:           () => adapter.upsertEdit({ project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }),
       setActiveShotList:    () => adapter.setActiveShotList('p1', 'l1'),
@@ -1024,14 +1045,16 @@ describe('refusals keep the Postgres / PostgREST code on err.code (0084)', () =>
 })
 
 
-// ── Review round 1 (2026-09-30): deltas, the frozen archive, the strip ──────
+// ── Review round 1 (2026-09-30): deltas, the strip ──────────────────────────
+// (Round 1 also froze an archived list's membership; round 2 reverted that,
+// R2-1, and the delete tests below say so where they used to pin it.)
 
 describe('membership is written as DELTAS (R1 addendum A)', () => {
   // Items are not broadcast, so a whole-set replace from one client's view
   // deleted the items a collaborator had added since it loaded (R1
   // provider#0). The provider now writes only the rows it names.
 
-  it('upsertShotListItems → upsert_shot_list_items(p_list, p_items), items cut to the four keys; answers the rows the database wrote', async () => {
+  it('upsertShotListItems → upsert_shot_list_items(p_list, p_items, p_positions_only: false), items cut to the four keys; answers the rows the database wrote', async () => {
     // The function SKIPS an id that belongs to another list (its ON CONFLICT
     // … WHERE same list), so the answer is the database's rows, not the input
     // echoed back.
@@ -1055,34 +1078,42 @@ describe('membership is written as DELTAS (R1 addendum A)', () => {
           { id: 'i-other-list', scene_id: null, shot_id: 'sh9', position: 0 },
           { id: null, scene_id: null, shot_id: 'sh1', position: null },
         ],
+        // R2-2: the INSERTING arm is asked for by name, never left to the
+        // parameter's default.
+        p_positions_only: false,
       },
     }])
     // A delta: never the whole-set swap, and no direct table write.
     expect(rec.writes).toEqual([])
   })
 
-  it('upsertShotListItems names BOTH parameters with nothing to name — the database answers, not PGRST202', async () => {
+  it('upsertShotListItems names EVERY parameter with nothing to name — the database answers, not PGRST202', async () => {
     const rec = recordingClient({ projects: PROJECT_ROW }, {
       rpc: () => ({ data: null, error: { code: '22023', message: 'items must be a JSON array' } }),
     })
     const adapter = install(rec)
     const err = await adapter.upsertShotListItems('p1', undefined, undefined).then(() => null, e => e)
-    expect(rec.rpcs[0].args).toStrictEqual({ p_list: null, p_items: null })
+    expect(rec.rpcs[0].args).toStrictEqual({ p_list: null, p_items: null, p_positions_only: false })
     expect(err.code).toBe('22023')
     expect(err.message).toBe('[supabase] items must be a JSON array')
   })
 
-  it('an upsert the table refuses keeps its code: the archived-list freeze (42501), a scene or shot twice (23505)', async () => {
-    for (const error of [
-      { code: '42501', message: 'new row violates row-level security policy for table "shot_list_items"' },
-      { code: '23505', message: 'duplicate key value violates unique constraint "shot_list_items_list_shot_key"' },
+  it('an upsert the table refuses keeps its code: a caller without write rights (42501), a scene or shot twice (23505)', async () => {
+    // Round 2 reverted the archived-list freeze (R2-1), so a policy 42501
+    // here is a caller who may not change this project's lists (D8), never
+    // "archived". The 23505 keeps its code and speaks the contract (R2-3).
+    for (const [error, said] of [
+      [{ code: '42501', message: 'new row violates row-level security policy for table "shot_list_items"' },
+        'new row violates row-level security policy for table "shot_list_items"'],
+      [{ code: '23505', message: 'duplicate key value violates unique constraint "shot_list_items_list_shot_key"' },
+        'a shot list holds each scene and each shot once'],
     ]) {
       const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: null, error }) })
       const adapter = install(rec)
       const err = await adapter.upsertShotListItems('p1', 'l1', [{ shot_id: 'sh1' }]).then(() => null, e => e)
       expect(err, error.code).toBeInstanceOf(Error)
       expect(err.code).toBe(error.code)
-      expect(err.message).toBe(`[supabase] ${error.message}`)
+      expect(err.message).toBe(`[supabase] ${said}`)
     }
   })
 
@@ -1104,35 +1135,86 @@ describe('membership is written as DELTAS (R1 addendum A)', () => {
     expect(rec.rpcs).toEqual([])
   })
 
-  it('an id not in the list is ignored: a shortfall on a LIVE list answers what was really deleted', async () => {
+  it('an id not in the list is ignored: a shortfall answers what was really deleted, after ONE read of the ids not deleted', async () => {
+    // i1 was deleted; i-elsewhere is not a row of l1 (gone, or never there).
+    // Something WAS deleted, so the list exists: no second read for it.
+    const items = tableOf([{ id: 'i2', shot_list_id: 'l1' }])
     const rec = recordingClient(
-      { projects: PROJECT_ROW, shot_lists: { data: [{ id: 'l1', archived_at: null }], error: null } },
+      { projects: PROJECT_ROW, shot_list_items: items.read },
       { perWrite: { shot_list_items: { data: [{ id: 'i1' }], error: null } } },
     )
     const adapter = install(rec)
     expect(await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i-elsewhere'])).toStrictEqual({ deleted: ['i1'] })
-    expect(rec.reads).toEqual(['shot_lists'])
+    expect(rec.reads).toEqual(['shot_list_items'])
+    expect(rec.readQueries[0]).toStrictEqual({
+      table: 'shot_list_items', select: 'id',
+      // Only the ids the DELETE did not remove, and only in THIS list.
+      filters: [['eq', 'shot_list_id', 'l1'], ['in', 'id', ['i-elsewhere']]],
+    })
   })
 
-  it('an ARCHIVED list is frozen (R1 addendum B): RLS filters the DELETE to nothing, and the adapter says why', async () => {
+  it('R2-4: a named row STILL in the list after the DELETE is a refusal — 42501 "you cannot change this shot list", not { deleted: [] }', async () => {
     // 🚨 A DELETE whose rows fail a policy's USING clause is not REFUSED —
-    // the rows are invisible to it, and PostgREST answers 200 with []. Without
-    // the shortfall read this came back as { deleted: [] }, a quiet success,
-    // where the Local Server and the fixtures answer 409 with this sentence.
+    // the rows are invisible to it, and PostgREST answers 200 with []. A
+    // caller without write rights (a seat removed while the page was open)
+    // got a quiet { deleted: [] } and the remove looked ignored (r2
+    // closure#10). The rows are still there, and SELECT can see them.
+    const items = tableOf([
+      { id: 'i1', shot_list_id: 'l1' },
+      { id: 'i2', shot_list_id: 'l1' },
+    ])
     const rec = recordingClient(
-      { projects: PROJECT_ROW, shot_lists: { data: [{ id: 'l2', archived_at: '2026-09-30T00:00:00Z' }], error: null } },
+      { projects: PROJECT_ROW, shot_list_items: items.read, shot_lists: { data: [{ id: 'l1' }], error: null } },
       { perWrite: { shot_list_items: { data: [], error: null } } },
     )
     const adapter = install(rec)
-    const err = await adapter.deleteShotListItems('p1', 'l2', ['i1', 'i2']).then(() => null, e => e)
+    const err = await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i2']).then(() => null, e => e)
     expect(err).toBeInstanceOf(Error)
     expect(err.code).toBe('42501')
-    expect(err.message).toBe('[supabase] this shot list is archived — restore it before changing it')
+    expect(err.message).toBe('[supabase] you cannot change this shot list')
+    // One read answered it: the list is plainly there.
+    expect(rec.reads).toEqual(['shot_list_items'])
+  })
+
+  it('R2-4: an id of ANOTHER list, rightly skipped by the DELETE, is not read as a refusal (the read is filtered by the list)', async () => {
+    // i9 is l2's. The DELETE (filtered by l1) leaves it alone, and it still
+    // exists — in l2. Read without the list filter it would look like a row
+    // the caller could not delete.
+    const items = tableOf([
+      { id: 'i1', shot_list_id: 'l1' },
+      { id: 'i9', shot_list_id: 'l2' },
+    ])
+    const rec = recordingClient(
+      { projects: PROJECT_ROW, shot_list_items: items.read },
+      { perWrite: { shot_list_items: (entry) => ({ data: items.rowsMatching(entry.filters).map(r => ({ id: r.id })), error: null }) } },
+    )
+    const adapter = install(rec)
+    expect(await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i9'])).toStrictEqual({ deleted: ['i1'] })
+  })
+
+  it('R2-1: an ARCHIVED list is not frozen — the adapter no longer reads archived_at, and a shortfall there is a success', async () => {
+    // Round 1 answered "this shot list is archived — restore it before
+    // changing it" here. Round 2 reverted the freeze on every backend: the
+    // undo of a scene delete must be able to put the scene back in archived
+    // lists. Nothing deleted and nothing left: the ids were already gone.
+    const rec = recordingClient(
+      {
+        projects: PROJECT_ROW,
+        shot_list_items: tableOf([]).read,
+        shot_lists: { data: [{ id: 'l2', archived_at: '2026-09-30T00:00:00Z' }], error: null },
+      },
+      { perWrite: { shot_list_items: { data: [], error: null } } },
+    )
+    const adapter = install(rec)
+    expect(await adapter.deleteShotListItems('p1', 'l2', ['i1', 'i2'])).toStrictEqual({ deleted: [] })
+    expect(rec.reads).toEqual(['shot_list_items', 'shot_lists'])
+    // The list read asks whether it EXISTS, nothing more.
+    expect(rec.readQueries[1]).toStrictEqual({ table: 'shot_lists', select: 'id', filters: [['eq', 'id', 'l2']] })
   })
 
   it('a list that is gone (or not visible) answers "shot list not found" (P0002, the RPCs\' answer)', async () => {
     const rec = recordingClient(
-      { projects: PROJECT_ROW, shot_lists: { data: [], error: null } },
+      { projects: PROJECT_ROW, shot_list_items: tableOf([]).read, shot_lists: { data: [], error: null } },
       { perWrite: { shot_list_items: { data: [], error: null } } },
     )
     const adapter = install(rec)
@@ -1141,15 +1223,23 @@ describe('membership is written as DELTAS (R1 addendum A)', () => {
     expect(err.message).toBe('[supabase] shot list not found')
   })
 
-  it('the shortfall read is best effort: when it fails, the rows really deleted are still the answer', async () => {
-    // The DELETE happened. Throwing the read's error would make the provider
+  it('the shortfall reads are best effort: when either fails, the rows really deleted are still the answer', async () => {
+    // The DELETE happened. Throwing a read's error would make the provider
     // roll back items that are gone from the database.
-    const rec = recordingClient(
-      { projects: PROJECT_ROW, shot_lists: { data: null, error: { code: '08006', message: 'connection failure' } } },
+    const down = { data: null, error: { code: '08006', message: 'connection failure' } }
+    const recA = recordingClient(
+      { projects: PROJECT_ROW, shot_list_items: down },
       { perWrite: { shot_list_items: { data: [{ id: 'i1' }], error: null } } },
     )
-    const adapter = install(rec)
-    expect(await adapter.deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toStrictEqual({ deleted: ['i1'] })
+    expect(await install(recA).deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toStrictEqual({ deleted: ['i1'] })
+    expect(recA.reads).toEqual(['shot_list_items'])
+
+    const recB = recordingClient(
+      { projects: PROJECT_ROW, shot_list_items: tableOf([]).read, shot_lists: down },
+      { perWrite: { shot_list_items: { data: [], error: null } } },
+    )
+    expect(await install(recB).deleteShotListItems('p1', 'l1', ['i1'])).toStrictEqual({ deleted: [] })
+    expect(recB.reads).toEqual(['shot_list_items', 'shot_lists'])
   })
 
   it('a DELETE refused outright keeps its code, and nothing is read after it', async () => {
@@ -1194,6 +1284,172 @@ describe('membership is written as DELTAS (R1 addendum A)', () => {
     expect(gone.code).toBe('shot_lists_unavailable')
     expect(gone.message).toBe('[supabase] Shot lists are not on this database yet (migration 0084).')
     expect(rec2.reads).toEqual([])
+  })
+})
+
+
+// ── Review round 2 (2026-09-30): the reorder, the sentences, the refusal ────
+
+describe('a reorder is POSITIONS-ONLY — it never inserts (R2-2)', () => {
+  // planReorderList renumbers a whole group from this client's cached view.
+  // Sent through the upsert, an item a collaborator had removed since came
+  // back for everyone (r2 sql2#1, provider2#2, parity2#0). The reorder now
+  // asks the function's UPDATE-only arm, which skips ids it does not find.
+
+  it('repositionShotListItems → upsert_shot_list_items(p_list, p_items cut to { id, position }, p_positions_only: true); answers the rows updated', async () => {
+    const updated = [{ id: 'i3', shot_list_id: 'l1', scene_id: 'sc3', shot_id: null, position: 0 }]
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: updated, error: null }) })
+    const adapter = install(rec)
+    const out = await adapter.repositionShotListItems('p1', 'l1', [
+      // a whole provider row: only the id and the position may reach the RPC
+      { id: 'i3', shot_list_id: 'l1', project_id: 'p1', scene_id: 'sc3', shot_id: null, position: 0, created_at: 'x' },
+      // a row a collaborator removed: sent, and the database skips it
+      { id: 'i1', scene_id: 'sc1', position: 1 },
+    ])
+    expect(out).toEqual(updated)
+    expect(rec.rpcs).toStrictEqual([{
+      name: 'upsert_shot_list_items',
+      args: {
+        p_list: 'l1',
+        p_items: [{ id: 'i3', position: 0 }, { id: 'i1', position: 1 }],
+        p_positions_only: true,
+      },
+    }])
+    expect(rec.writes).toEqual([])
+  })
+
+  it('CONTROL: the two item writes differ ONLY in the flag — the upsert asks for the inserting arm by name', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: [], error: null }) })
+    const adapter = install(rec)
+    await adapter.upsertShotListItems('p1', 'l1', [{ id: 'i1', scene_id: 'sc1', position: 0 }])
+    await adapter.repositionShotListItems('p1', 'l1', [{ id: 'i1', position: 0 }])
+    expect(rec.rpcs.map(r => [r.name, r.args.p_positions_only])).toStrictEqual([
+      ['upsert_shot_list_items', false],
+      ['upsert_shot_list_items', true],
+    ])
+  })
+
+  it('refuses before any request what the UPDATE-only arm would get silently wrong', async () => {
+    // The SQL arm skips an item with no id, gives a missing position the
+    // item's INDEX (a forgotten position would move the row), and updates a
+    // row named twice from either entry. The Local Server refuses all four
+    // with these sentences; so does this adapter, without a request.
+    const POSITION = '[supabase] an item\'s position must be a whole number of at least 0'
+    const NEEDS_ID = '[supabase] each item of a reorder needs an id'
+    const cases = [
+      ['not an array', 'i1', '[supabase] items must be a JSON array'],
+      ['no items at all', undefined, '[supabase] items must be a JSON array'],
+      ['an item without an id', [{ position: 0 }], NEEDS_ID],
+      ['an id of null', [{ id: null, position: 0 }], NEEDS_ID],
+      ['a blank id', [{ id: '', position: 0 }], NEEDS_ID],
+      ['an item that is not an object', ['i1'], NEEDS_ID],
+      ['a missing position', [{ id: 'i1' }], POSITION],
+      ['a negative position', [{ id: 'i1', position: -1 }], POSITION],
+      ['a fractional position', [{ id: 'i1', position: 1.5 }], POSITION],
+      ['a numeric STRING position', [{ id: 'i1', position: '2' }], POSITION],
+      ['an id named twice', [{ id: 'i1', position: 0 }, { id: 'i1', position: 3 }], '[supabase] an item id appears more than once'],
+    ]
+    for (const [label, items, message] of cases) {
+      const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: [], error: null }) })
+      const adapter = install(rec)
+      const err = await adapter.repositionShotListItems('p1', 'l1', items).then(() => null, e => e)
+      expect(err, `${label}: not refused`).toBeInstanceOf(Error)
+      expect(err.code, label).toBe('invalid')
+      expect(err.message, label).toBe(message)
+      expect(rec.rpcs, `${label}: a request went out`).toEqual([])
+    }
+  })
+
+  it('in payload order, as the Local Server checks: the first bad item answers', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    const err = await adapter.repositionShotListItems('p1', 'l1', [
+      { id: 'i1', position: -1 },
+      { position: 0 },
+    ]).then(() => null, e => e)
+    expect(err.message).toBe('[supabase] an item\'s position must be a whole number of at least 0')
+  })
+
+  it('an empty reorder still asks — a list that is not there answers "shot list not found" (P0002); a missing list id is SENT as null', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: null, error: { code: 'P0002', message: 'shot list not found' } }),
+    })
+    const adapter = install(rec)
+    const err = await adapter.repositionShotListItems('p1', undefined, []).then(() => null, e => e)
+    expect(err.code).toBe('P0002')
+    expect(err.message).toBe('[supabase] shot list not found')
+    expect(rec.rpcs[0].args).toStrictEqual({ p_list: null, p_items: [], p_positions_only: true })
+  })
+
+  it('a database without 0084: a missing upsert_shot_list_items (PGRST202) is shot_lists_unavailable', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.upsert_shot_list_items(p_items, p_list, p_positions_only) in the schema cache' } }),
+    })
+    const adapter = install(rec)
+    const err = await adapter.repositionShotListItems('p1', 'l1', [{ id: 'i1', position: 0 }]).then(() => null, e => e)
+    expect(err.code).toBe('shot_lists_unavailable')
+  })
+})
+
+describe('the six unique violations speak the contract\'s sentences (R2-3)', () => {
+  // The provider pre-checks the chain and "Title · vN" against its own
+  // view; edits and items are not broadcast, so when that view is stale the
+  // database's unique index is what refuses. The Local Server and the
+  // fixtures answer those with the contract's words; so must the cloud.
+  const dup = (name) => ({ data: null, error: { code: '23505', message: `duplicate key value violates unique constraint "${name}"` } })
+  const CASES = [
+    ['edits_one_root_per_list_key', 'edits', 'this shot list\'s edits form one chain — a new edit continues from the latest one'],
+    ['edits_one_child_key', 'edits', 'an edit\'s parent must be the latest edit of its shot list'],
+    ['edits_list_title_version_key', 'edits', 'This shot list already has an edit with this title and version.'],
+    ['shot_lists_project_title_version_key', 'shot_lists', 'There is already a shot list with this title and version.'],
+    ['shot_list_items_list_scene_key', 'rpc', 'a shot list holds each scene and each shot once'],
+    ['shot_list_items_list_shot_key', 'rpc', 'a shot list holds each scene and each shot once'],
+  ]
+  const call = {
+    edits: (a) => a.upsertEdit({ id: 'e2', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 2, parent_edit_id: 'e1', items: [] }),
+    shot_lists: (a) => a.upsertShotList({ project_id: 'p1', title: 'Pickups', version: 1 }),
+    rpc: (a) => a.upsertShotListItems('p1', 'l1', [{ scene_id: 'sc1' }]),
+  }
+
+  for (const [constraint, via, sentence] of CASES) {
+    it(`${constraint} → "${sentence}", still code 23505`, async () => {
+      const rec = recordingClient({ projects: PROJECT_ROW }, {
+        perWrite: { edits: dup(constraint), shot_lists: dup(constraint) },
+        rpc: () => dup(constraint),
+      })
+      const adapter = install(rec)
+      const err = await call[via](adapter).then(() => null, e => e)
+      expect(err).toBeInstanceOf(Error)
+      expect(err.code).toBe('23505')
+      expect(err.message).toBe(`[supabase] ${sentence}`)
+    })
+  }
+
+  it('the whole-set replace speaks the same sentence for an item twice', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => dup('shot_list_items_list_scene_key') })
+    const adapter = install(rec)
+    const err = await adapter.replaceShotListItems('p1', 'l1', [{ scene_id: 'sc1' }, { scene_id: 'sc1' }]).then(() => null, e => e)
+    expect(err.code).toBe('23505')
+    expect(err.message).toBe('[supabase] a shot list holds each scene and each shot once')
+  })
+
+  it('CONTROL: any OTHER 23505 keeps the database\'s text — a primary key, or a name that only starts like one of the six', async () => {
+    for (const name of ['shot_lists_pkey', 'edits_one_child_key_v2', 'x_edits_one_child_key']) {
+      const rec = recordingClient({ projects: PROJECT_ROW }, { perWrite: { shot_lists: dup(name) } })
+      const adapter = install(rec)
+      const err = await adapter.upsertShotList({ project_id: 'p1', title: 'Pickups', version: 1 }).then(() => null, e => e)
+      expect(err.code, name).toBe('23505')
+      expect(err.message, name).toBe(`[supabase] duplicate key value violates unique constraint "${name}"`)
+    }
+  })
+
+  it('CONTROL: only a 23505 is translated — another code that mentions one of the names keeps its text', async () => {
+    const error = { code: '42501', message: 'permission denied: unique constraint "edits_one_child_key" is not yours' }
+    const rec = recordingClient({ projects: PROJECT_ROW }, { perWrite: { edits: { data: null, error } } })
+    const adapter = install(rec)
+    const err = await adapter.upsertEdit({ id: 'e2', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 2, items: [] }).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe(`[supabase] ${error.message}`)
   })
 })
 
@@ -1244,12 +1500,14 @@ describe('upsertShotList / upsertEdit send no audit or archive column (R1 addend
 
 describe('Google Drive: every cloud shot-list write is a LOUD read-only stub there', () => {
   it('each shot-list write on supabaseAdapter has a googleDriveAdapter twin that throws readOnly', async () => {
-    const WRITE = /^(upsert|replace|delete|set|archive)(ShotList|ShotListItems|ActiveShotList|Edit)$/
+    const WRITE = /^(upsert|replace|reposition|delete|set|archive)(ShotList|ShotListItems|ActiveShotList|Edit)$/
     const writes = Object.keys(supabaseAdapter()).filter(k => WRITE.test(k)).sort()
-    // The instrument finds them at all — round 1's two deltas included.
+    // The instrument finds them at all — round 1's two deltas and round 2's
+    // reorder included.
     expect(writes).toEqual([
       'archiveEdit', 'archiveShotList', 'deleteShotListItems', 'replaceShotListItems',
-      'setActiveShotList', 'upsertEdit', 'upsertShotList', 'upsertShotListItems',
+      'repositionShotListItems', 'setActiveShotList', 'upsertEdit', 'upsertShotList',
+      'upsertShotListItems',
     ])
     const drive = googleDriveAdapter()
     for (const name of writes) {

@@ -251,8 +251,9 @@ describe('byMilestoneDate matches ORDER BY date, id', () => {
 
 // ── Shot lists, items and edits (post-overhaul S3a, 0084) ───────────────────
 //
-// The eleven adapter methods the S3a contract (and its round-1 addendum, A:
-// the two membership DELTA writes) gives every backend, driven against a
+// The twelve adapter methods the S3a contract (its round-1 addendum, A: the
+// two membership DELTA writes; its round-2 addendum, R2-2: the positions-only
+// reorder) gives every backend, driven against a
 // fetch spy: each must hit the route electron/rabbitShotLists.cjs registers,
 // with the verb and body that route reads. A wrong URL here is a 404 on the
 // desktop and nothing anywhere else — the routes' own test mounts the module
@@ -365,15 +366,51 @@ describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
     expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items/delete', body: { ids: ['i1', 'i2'] } }])
   })
 
-  it('an archived list\'s refusal of a delta arrives with its status and code (addendum B)', async () => {
+  it('repositionShotListItems POSTs { items: [{ id, position }], positionsOnly: true } to …/shot-lists/:listId/items (R2-2)', async () => {
+    // Same URL and verb as the upsert; the FLAG is the whole difference, and
+    // without it a reorder from a stale view re-inserts a row a collaborator
+    // removed — so the body is pinned exactly, flag included. scene_id /
+    // shot_id are cut: a move changes position only.
+    const rows = [{ id: 'i2', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 0 }]
+    const calls = spyFetch(rows)
+    const changed = [
+      { id: 'i2', shot_list_id: 'l1', project_id: 'p1', scene_id: 's2', shot_id: null, position: 0 },
+      { id: 'i1', scene_id: 's1', position: 1 },
+    ]
+    expect(await localServerAdapter().repositionShotListItems('p1', 'l1', changed)).toEqual(rows)
+    expect(calls).toEqual([{
+      method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items',
+      body: { items: [{ id: 'i2', position: 0 }, { id: 'i1', position: 1 }], positionsOnly: true },
+    }])
+  })
+
+  it('repositionShotListItems leaves a bad payload for the ROUTE to refuse, never inventing a position', async () => {
+    // A missing position is dropped by JSON (the route answers 400 rather
+    // than defaulting it), and a non-array is sent as is instead of throwing
+    // a TypeError before any request.
+    const calls = spyFetch([])
+    const a = localServerAdapter()
+    await a.repositionShotListItems('p1', 'l1', [{ id: 'i1' }])
+    await a.repositionShotListItems('p1', 'l1', 'x')
+    await a.repositionShotListItems('p1', 'l1')
+    expect(calls.map(c => c.body)).toEqual([
+      { items: [{ id: 'i1' }], positionsOnly: true },
+      { items: 'x', positionsOnly: true },
+      { positionsOnly: true },
+    ])
+  })
+
+  it('a delta\'s refusal arrives with its status and code', async () => {
+    // (Round 1 pinned this with the archived-list 409; round 2's R2-1 removed
+    // that refusal, so the duplicate-membership 409 carries the pin now.)
     globalThis.fetch = vi.fn(async () => ({
       ok: false, status: 409, headers: { get: () => 'application/json' },
-      json: async () => ({ error: 'this shot list is archived — restore it before changing it', code: 'conflict' }),
+      json: async () => ({ error: 'a shot list holds each scene and each shot once', code: 'conflict' }),
     }))
     const err = await localServerAdapter().upsertShotListItems('p1', 'l1', [{ scene_id: 's1' }]).catch(e => e)
     expect(err.status).toBe(409)
     expect(err.code).toBe('conflict')
-    expect(err.message).toBe('[localServer] this shot list is archived — restore it before changing it')
+    expect(err.message).toBe('[localServer] a shot list holds each scene and each shot once')
   })
 
   it('setActiveShotList POSTs { listId } and answers the new active id', async () => {

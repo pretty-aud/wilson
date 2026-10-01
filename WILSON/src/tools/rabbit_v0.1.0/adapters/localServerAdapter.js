@@ -552,9 +552,10 @@ export function localServerAdapter() {
 
     // ── Shot lists, items and edits (post-overhaul S3a, 0084) ──────────────
     //
-    // The same eleven methods, with the same signatures, on every adapter (the
-    // S3a contract and its round-1 addendum, which added the two membership
-    // DELTA writes). The routes are electron/rabbitShotLists.cjs; they refuse
+    // The same twelve methods, with the same signatures, on every adapter (the
+    // S3a contract, its round-1 addendum, which added the two membership
+    // DELTA writes, and its round-2 addendum, which added the positions-only
+    // reorder). The routes are electron/rabbitShotLists.cjs; they refuse
     // with `{ error, code }`, which jfetch turns into an Error carrying
     // `.status` and `.code`. Lists and edits are archived, never deleted
     // (D4/D18), so there is no delete method. The list* methods read the
@@ -591,6 +592,23 @@ export function localServerAdapter() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ items }),
+      }),
+    // R2-2: a REORDER (and its undo / redo) — move rows that EXIST in this
+    // list to the given positions and nothing else. An id that names nothing
+    // (a row a collaborator removed since this client loaded) or another
+    // list's row is skipped, never inserted: the upsert above would have put
+    // the removed row back. Answers the rows updated. Each item is cut to
+    // { id, position } — scene_id / shot_id play no part in a move — and a
+    // payload that is not an array is passed through for the route to refuse
+    // with its own message rather than thrown here as a TypeError.
+    repositionShotListItems: (projectId, listId, items) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists/${listId}/items`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          items: Array.isArray(items) ? items.map(i => ({ id: i?.id, position: i?.position })) : items,
+          positionsOnly: true,
+        }),
       }),
     // Addendum A: delete exactly these item ids of one list (ids of another
     // list, or of nothing, are ignored). Answers { deleted: [ids] }.

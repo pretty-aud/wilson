@@ -468,13 +468,16 @@ const MILESTONE_COLUMNS = new Set([
 // changing it". Unsent, none of the six is in the conflict update's SET list:
 // created_* and archived_* keep their stored values, fn_audit_touch stamps
 // updated_* itself, and the guard's frozen-row arm answers for an archived
-// row, as the other two backends do. Archiving stays archive_shot_list() /
-// archive_edit()'s alone.
+// row. (Not yet the other two backends' answer to a STALE copy carrying
+// archived_at: null — they compare the archive columns first and answer the
+// 403 sentence; r2 closure#9 / parity2#3.) Archiving stays
+// archive_shot_list() / archive_edit()'s alone.
 //
 // Membership rows are never upserted through PostgREST directly: the deltas
-// go through upsert_shot_list_items() and a filtered DELETE, the whole-set
-// swap through replace_shot_list_items(). The allowlist is here so any
-// future direct write is filtered, not passed through (the S23 hole).
+// go through upsert_shot_list_items() (its positions-only arm for a reorder)
+// and a filtered DELETE, the whole-set swap through replace_shot_list_items().
+// The allowlist is here so any future direct write is filtered, not passed
+// through (the S23 hole).
 //
 // 🚨 An edit's `items` is ONE jsonb column (0084 §5, the 0044 precedent):
 // toColumns never sees the item keys ({ id, scene_id, shot_id, label, notes })
@@ -1077,13 +1080,44 @@ function missing0084Function(fnName) {
     || (error?.code === '42883' && (error.message || '').includes(fnName));
 }
 
-// The unwrap for every 0084 write and RPC. Two differences from unwrap(),
-// both deliberate:
+// S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
+// contract's collision rules answer 23505 with Postgres' own sentence —
+// `duplicate key value violates unique constraint "edits_one_child_key"` —
+// where the Local Server and the fixtures answer the contract's words. The
+// provider pre-checks the chain and "Title · vN" against its own view, but
+// edits and items are not broadcast, so in exactly the collaborative case
+// these rules exist for its view is stale and the database is the one that
+// refuses. These six become the contract's sentences; err.code stays 23505.
+// Any other 23505 (a primary key, say) keeps the raw text. The two title
+// sentences are generic: the database's message carries the key, not the
+// title as typed.
+const SHOT_LIST_UNIQUE_SENTENCES = new Map([
+  ['edits_one_root_per_list_key', 'this shot list\'s edits form one chain — a new edit continues from the latest one'],
+  ['edits_one_child_key', 'an edit\'s parent must be the latest edit of its shot list'],
+  ['shot_lists_project_title_version_key', 'There is already a shot list with this title and version.'],
+  ['edits_list_title_version_key', 'This shot list already has an edit with this title and version.'],
+  ['shot_list_items_list_scene_key', 'a shot list holds each scene and each shot once'],
+  ['shot_list_items_list_shot_key', 'a shot list holds each scene and each shot once'],
+]);
+
+// The contract sentence for a 23505 on one of the six, else null. Matched on
+// the quoted constraint name exactly, so a longer name that merely starts the
+// same way is not mistaken for one of them.
+function shotListUniqueSentence(error) {
+  if (error?.code !== '23505') return null;
+  const m = /unique constraint "([^"]+)"/.exec(error.message || '');
+  return (m && SHOT_LIST_UNIQUE_SENTENCES.get(m[1])) || null;
+}
+
+// The unwrap for every 0084 write and RPC. Three differences from unwrap(),
+// all deliberate:
 //   * the thrown Error keeps the Postgres / PostgREST code on err.code —
-//     42501 (a guard trigger or a seat check), P0001 (a plain RAISE, e.g.
-//     "the active shot list cannot be archived"), P0002 (not found), 23505
-//     (a duplicate "Title · vN"). unwrap() drops it, and the provider needs it
-//     to tell a refusal from a fault without parsing the sentence.
+//     42501 (a guard trigger, a seat check or a policy), P0001 (a plain
+//     RAISE, e.g. "the active shot list cannot be archived"), P0002 (not
+//     found), 23505 (a unique index). unwrap() drops it, and the provider
+//     needs it to tell a refusal from a fault without parsing the sentence.
+//   * a 23505 on one of the six collision indexes is worded as the contract
+//     words it (shotListUniqueSentence, R2-3).
 //   * a missing table or function becomes shot_lists_unavailable AND records
 //     0084 as absent, so the task / asset writes that follow stop sending the
 //     columns it would have added.
@@ -1091,7 +1125,7 @@ function missing0084Function(fnName) {
 // supabaseLoadProject.test.js looks for.
 function unwrapShotList({ data, error }, isMissing) {
   if (error) {
-    const msg = error.message || String(error);
+    const msg = shotListUniqueSentence(error) || error.message || String(error);
     if (isMissing(error)) {
       // The database answered, so the adapter is healthy; the feature is what
       // is missing. status() must not report a sync fault for it (the
@@ -1119,12 +1153,12 @@ const SHOT_LIST_SERVER_OWNED = [
   'archived_at', 'archived_by',
 ];
 
-// p_items for both membership RPCs: exactly the four keys the functions read,
-// every one present (null when absent — their COALESCE gives a missing
+// p_items for the replace and the upsert: exactly the four keys the functions
+// read, every one present (null when absent — their COALESCE gives a missing
 // position the item's index). A value that is not an array goes to the
-// database as-is (null when absent), so the call still names BOTH
-// parameters: omitting p_items would make PostgREST look for a one-argument
-// function and answer PGRST202 — which would be misread as "0084 is
+// database as-is (null when absent), so the call still names EVERY
+// parameter: omitting p_items would make PostgREST look for a function
+// without it and answer PGRST202 — which would be misread as "0084 is
 // missing" instead of "items must be a JSON array".
 function shotListItemsParam(items) {
   return Array.isArray(items)
@@ -1145,26 +1179,63 @@ function shotListRefusal(message, code) {
   return err;
 }
 
+// The Local Server's words for a reorder it refuses (electron/rabbitShotLists.cjs
+// MSG), so the provider shows one sentence whichever backend refused.
+const REPOSITION_NEEDS_ID = 'each item of a reorder needs an id';
+const ITEM_POSITION = 'an item\'s position must be a whole number of at least 0';
+const ITEM_ID_TWICE = 'an item id appears more than once';
+
+// p_items for the REORDER (S3a review round 2, R2-2): validated, then cut to
+// the two keys the positions-only arm of upsert_shot_list_items reads.
+// Validated HERE, before any request, because that arm is silent where the
+// other backends refuse: it skips an item without an id, gives a missing
+// position the item's index (a reorder that forgot a position would move a
+// row to wherever it sits in the payload), and an id named twice updates its
+// row from either entry, unpredictably (UPDATE … FROM with two matches). In
+// payload order, as the Local Server checks: the array, then per item its id,
+// its position, a repeat. Code `invalid`, the adapter's own pre-request code.
+function repositionItemsParam(items) {
+  if (!Array.isArray(items)) throw shotListRefusal('items must be a JSON array', 'invalid');
+  const seen = new Set();
+  return items.map((it) => {
+    const id = it && typeof it === 'object' && !Array.isArray(it) ? it.id : null;
+    if (id == null || id === '') throw shotListRefusal(REPOSITION_NEEDS_ID, 'invalid');
+    if (!Number.isInteger(it.position) || it.position < 0) throw shotListRefusal(ITEM_POSITION, 'invalid');
+    if (seen.has(String(id))) throw shotListRefusal(ITEM_ID_TWICE, 'invalid');
+    seen.add(String(id));
+    return { id, position: it.position };
+  });
+}
+
 // 🚨 RLS does not REFUSE a DELETE, it FILTERS it. shot_list_items_delete's
-// USING clause (0084 §8) hides an archived list's rows from the statement,
-// which then deletes nothing and reports success — so addendum B's "an
-// archived list's membership is frozen" would reach this client as a quiet
-// { deleted: [] } while the Local Server and the fixtures answer 409. When a
-// delete removed fewer rows than it named, this asks the list itself (one
-// read, and only then): gone → "shot list not found" (P0002, the RPCs'
-// answer), archived → the frozen sentence (42501, the guard's code).
-// Otherwise the shortfall is ids that are not (or no longer) in the list,
-// which the contract says are ignored. Best effort: if the read itself fails
-// the DELETE still happened, and the rows it removed are the true answer.
-async function explainItemDeleteShortfall(client, listId) {
-  const { data, error } = await client.from('shot_lists')
-    .select('id, archived_at').eq('id', listId);
-  if (error) return;
-  const list = (data || [])[0];
-  if (!list) throw shotListRefusal('shot list not found', 'P0002');
-  if (list.archived_at) {
-    throw shotListRefusal('this shot list is archived — restore it before changing it', '42501');
-  }
+// USING clause (0084 §8: can_edit_shot_lists) hides the rows of a list the
+// caller may not change, and the statement deletes nothing and reports
+// success — a quiet { deleted: [] } that the provider took for "removed"
+// while nothing was (r2 closure#10). So when a delete removed fewer rows than
+// it named, this asks why, cheapest question first:
+//   1. Which of the named ids are STILL rows of this list? The DELETE named
+//      exactly those, so a row it left behind is a row it could not see: the
+//      caller lacks write rights → 42501 "you cannot change this shot list".
+//      Filtered by the list too, or an id the DELETE rightly skipped because
+//      it belongs to ANOTHER list would read as a refusal.
+//   2. None left, and something was deleted: the list exists, and the rest
+//      were not (or no longer) in it — ignored, as the contract says.
+//   3. None left and nothing deleted: does the list exist? Gone (or not
+//      visible) → "shot list not found" (P0002, the RPCs' answer).
+// Review round 2 reverted the archived-list freeze (R2-1): an archived list's
+// items are deleted like any other's, so archived_at is no longer read.
+// Best effort: if a read itself fails the DELETE still happened, and the rows
+// it removed are the true answer.
+async function explainItemDeleteShortfall(client, listId, ids, deleted) {
+  const gone = new Set(deleted);
+  const left = await client.from('shot_list_items').select('id')
+    .eq('shot_list_id', listId).in('id', ids.filter(id => !gone.has(id)));
+  if (left.error) return;
+  if ((left.data || []).length > 0) throw shotListRefusal('you cannot change this shot list', '42501');
+  if (deleted.length > 0) return;
+  const list = await client.from('shot_lists').select('id').eq('id', listId);
+  if (list.error) return;
+  if (!(list.data || [])[0]) throw shotListRefusal('shot list not found', 'P0002');
 }
 
 // Columns a per-field patch must never carry: identity/tenancy, audit
@@ -3051,22 +3122,26 @@ export function supabaseAdapter() {
 
     // ── Shot lists, items and edits (0084, post-overhaul S3a) ─────────
     //
-    // The S3a contract's nine methods plus round 1's two membership deltas
-    // (addendum A) — the same names, signatures and row shapes on
-    // localServerAdapter and the fixtures adapter.
+    // The S3a contract's nine methods, round 1's two membership deltas
+    // (addendum A) and round 2's reorder (R2-2) — the same names, signatures
+    // and row shapes on localServerAdapter and the fixtures adapter.
     //
     //   D1 + D3   a list is MEMBERSHIP. Nothing here copies a scene or shot:
-    //             the three item writes write rows that point at the shared
+    //             the four item writes write rows that point at the shared
     //             scene / shot rows.
-    //   R1 (A)    membership is written as DELTAS — upsertShotListItems and
-    //             deleteShotListItems touch only the rows they name. Items
-    //             are not broadcast, so a whole-set replace from one client's
-    //             view deleted what a collaborator had added since it loaded.
-    //             replaceShotListItems stays for tooling and bulk restores.
-    //   R1 (B)    an ARCHIVED list's membership is frozen: 0084's item
-    //             policies refuse every write to it (a scene or shot delete
-    //             still takes its items out — the FK cascade, which RLS does
-    //             not judge).
+    //   R1 (A)    membership is written as DELTAS — upsertShotListItems,
+    //             repositionShotListItems and deleteShotListItems touch only
+    //             the rows they name. Items are not broadcast, so a whole-set
+    //             replace from one client's view deleted what a collaborator
+    //             had added since it loaded. replaceShotListItems stays for
+    //             tooling and bulk restores.
+    //   R2-2      a REORDER only moves rows that exist: an upsert from a stale
+    //             view re-inserted what a collaborator had removed.
+    //   R2-1      an ARCHIVED list's membership is NOT frozen (round 1's
+    //             freeze is reverted: it made the undo of a scene delete drop
+    //             that scene from every archived list for good). The provider
+    //             refuses UI verbs on an archived list; undo and restore may
+    //             write it, here as on the other backends.
     //   D4 / D18  lists and edits are ARCHIVED, never deleted. There is no
     //             delete method, and 0084 grants no DELETE on either table.
     //   D8        set-active and archive go through the three SECURITY
@@ -3103,9 +3178,12 @@ export function supabaseAdapter() {
       // provider refuses a blank title, a bad version and a duplicate
       // "Title · vN" with shotListModel's sentences BEFORE its optimistic
       // write, and the database refuses the same things behind it — with its
-      // own constraint messages for those three (23514 / 23505), and with the
-      // contract's sentence (42501, trg_shot_lists_guard) for a row that is
-      // archived in the database, stale copy or not. The trade-off F accepts:
+      // own CHECK messages for the first two (23514), with "There is already
+      // a shot list with this title and version." for the third (23505,
+      // worded by shotListUniqueSentence, R2-3 — the fallback when the
+      // provider's view was stale), and with the contract's sentence (42501,
+      // trg_shot_lists_guard) for a row that is archived in the database,
+      // stale copy or not. The trade-off F accepts:
       // an archived_at a caller puts in the body is not sent, so it can
       // neither archive a list here nor be refused for trying — archiving is
       // archiveShotList's alone, and the provider has no other path to it.
@@ -3142,13 +3220,41 @@ export function supabaseAdapter() {
     // skipped by the function's ON CONFLICT … WHERE and is absent from the
     // rows returned. Exactly-one, same-project, position ≥ 0 and each scene
     // and shot once are the table's CHECKs, composite FKs and unique indexes
-    // (23514 / 23503 / 23505 on err.code); the archived-list freeze is its
-    // policies (42501).
+    // (23514 / 23503 / 23505 on err.code — the last worded as the contract
+    // words it); a caller without write rights is refused by its policies
+    // (42501). p_positions_only is SENT as false although it defaults to
+    // false: this is the arm that INSERTS, and saying so in the request
+    // keeps it from ever riding on a default (R2-2).
     async upsertShotListItems(_projectId, listId, items) {
       const client = await requireClient();
       requireShotLists();
       const rows = unwrapShotList(
-        await client.rpc('upsert_shot_list_items', { p_list: listId ?? null, p_items: shotListItemsParam(items) }),
+        await client.rpc('upsert_shot_list_items', {
+          p_list: listId ?? null, p_items: shotListItemsParam(items), p_positions_only: false,
+        }),
+        missing0084Function('upsert_shot_list_items'),
+      );
+      return rows || [];
+    },
+    // R2-2, the REORDER (and its undo / redo): set `position` on rows that
+    // EXIST in THIS list and change nothing else — upsert_shot_list_items
+    // with p_positions_only = true, an UPDATE … RETURNING. An id that names
+    // no row (one a collaborator removed since this client loaded) or
+    // another list's row is skipped, never inserted: as an upsert, a reorder
+    // planned from a stale view put every such row back (r2 sql2#1,
+    // provider2#2, parity2#0). Items [{ id, position }]; anything else on
+    // them is not sent. Refused before any request (repositionItemsParam):
+    // not an array, an item without an id, a position that is not a whole
+    // number ≥ 0, an id named twice. Returns the rows updated. An empty
+    // payload still asks, so a missing list answers "shot list not found".
+    async repositionShotListItems(_projectId, listId, items) {
+      const client = await requireClient();
+      requireShotLists();
+      const p_items = repositionItemsParam(items);
+      const rows = unwrapShotList(
+        await client.rpc('upsert_shot_list_items', {
+          p_list: listId ?? null, p_items, p_positions_only: true,
+        }),
         missing0084Function('upsert_shot_list_items'),
       );
       return rows || [];
@@ -3158,8 +3264,8 @@ export function supabaseAdapter() {
     // what leaves another list's item alone even when its id is named — and
     // `.select('id')`, so the answer is what was really deleted, not what was
     // asked for. A shortfall is explained (explainItemDeleteShortfall): RLS
-    // filters a DELETE rather than refusing it, and an archived list must
-    // answer with its sentence, not with an empty success.
+    // filters a DELETE rather than refusing it, so a caller without write
+    // rights must hear 42501, not an empty success.
     async deleteShotListItems(_projectId, listId, itemIds) {
       const client = await requireClient();
       requireShotLists();
@@ -3178,7 +3284,7 @@ export function supabaseAdapter() {
         missing0084Table,
       );
       const deleted = (rows || []).map(r => r.id);
-      if (deleted.length < ids.length) await explainItemDeleteShortfall(client, listId);
+      if (deleted.length < ids.length) await explainItemDeleteShortfall(client, listId, ids, deleted);
       return { deleted };
     },
     async listEdits(projectId) {
@@ -3192,9 +3298,12 @@ export function supabaseAdapter() {
       // `items` is one jsonb array (0084 §5); toColumns does not reach inside
       // it. The six server-owned columns are stripped first, for
       // upsertShotList's reasons (addendum F). The same-list parent, the one
-      // chain (edits_one_root_per_list_key / edits_one_child_key, 23505), the
-      // fixed parent, the no-move rule and the archive rules are the
-      // database's (edits_parent_same_list_fk, trg_edits_guard).
+      // chain (edits_one_root_per_list_key / edits_one_child_key, 23505,
+      // answered in the contract's chain sentences — R2-3), a duplicate
+      // "Title · vN" (edits_list_title_version_key, likewise), the fixed
+      // parent, a parent that does not exist yet (R2-6), the no-move rule and
+      // the archive rules are the database's (edits_parent_same_list_fk,
+      // trg_edits_guard).
       const row = toColumns('edits', blankDatesToNull(sanitize(edit, SHOT_LIST_SERVER_OWNED)));
       return unwrapShotList(
         await client.from('edits').upsert(row).select().single(),

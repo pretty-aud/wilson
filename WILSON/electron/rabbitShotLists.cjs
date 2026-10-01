@@ -39,9 +39,8 @@
 //   A  membership is written as DELTAS (POST …/items, POST …/items/delete) —
 //      a whole-set PUT from one client's stale view deleted a collaborator's
 //      newer items (items are not broadcast). The PUT stays for tooling.
-//   B  an ARCHIVED list's membership is frozen on all three item writes; the
-//      scene / shot delete sweep still reaches it (an FK CASCADE is not a
-//      write RLS judges, and the shared-row rule D3 wins over the freeze).
+//   B  (an ARCHIVED list's membership frozen on every item write) — REVERTED
+//      in round 2, see R2-1 below.
 //   C  deleting a scene deletes its shots (0040's shots.scene_id CASCADE) and
 //      sweeps each — cascadeSceneOrShotDelete, called by main.cjs's factory.
 //   D  titles are stored trimmed (0084 §7a: NEW.title := btrim(NEW.title)).
@@ -51,6 +50,20 @@
 //   H  the read path prunes dangling items (the desktop has no FK to cascade
 //      them), and the D11 backfill mints DETERMINISTIC ids, so a read whose
 //      write-back failed mints the same ids on the next read.
+//
+// REVIEW ROUND 2 (2026-09-30; the S3a contract's round-2 addendum):
+//   R2-1  the archived-list freeze (R1 B) is REVERTED on every backend: PUT,
+//         POST and delete of an ARCHIVED list's items are allowed again. The
+//         freeze made "delete a scene, Ctrl+Z" drop it from every archived
+//         list for good (the undo could not put the membership back), and it
+//         protected little — under D8 a reviewer may already rewrite the
+//         ACTIVE list. The PROVIDER still refuses the UI verbs on an archived
+//         list (requireEditableShotList); undo and restore paths write it.
+//   R2-2  a REORDER is positions-only: POST …/items with `positionsOnly: true`
+//         moves rows that EXIST in this list and never inserts. As an upsert,
+//         a reorder computed from a stale view re-inserted every item a
+//         collaborator had removed since (sql2#1, provider2#2, parity2#0) —
+//         0084's upsert_shot_list_items(…, p_positions_only => true).
 
 const crypto = require('node:crypto');
 
@@ -70,6 +83,8 @@ const MSG = {
   itemDuplicate: 'a shot list holds each scene and each shot once',
   itemPosition: 'an item\'s position must be a whole number of at least 0',
   itemIdTwice: 'an item id appears more than once',
+  repositionId: 'each item of a reorder needs an id',
+  positionsOnlyFlag: 'positionsOnly must be true or false',
   idsNotArray: 'ids must be a JSON array',
   editTitle: 'An edit needs a title.',
   editVersion: 'An edit\'s version must be a whole number of at least 1.',
@@ -356,8 +371,8 @@ function backfillShotListsOnRead(bundle, opts) {
  * Dropping the item is exactly what the FK would have done; it removes no
  * content (the scene or shot is already gone).
  *
- * Reaches ARCHIVED lists too (addendum B's exception: the freeze is on
- * writes a person makes, not on the referential clean-up of a deleted row).
+ * Reaches ARCHIVED lists too, as the FK CASCADE does in the cloud (a
+ * referential clean-up of a deleted row, which RLS does not judge).
  *
  * Conservative on purpose (the never-delete rule): an item is dropped only
  * when it NAMES an id that is missing from an array the bundle actually HAS.
@@ -434,7 +449,8 @@ function sweepShotListLinks(bundle, kind, id) {
  *                  CASCADE, which the cloud always did and the desktop never
  *                  did — and rule 8 runs for each of those shots, then for
  *                  the scene. Answers { items, tasks, shots }: items removed
- *                  from every list (archived lists included, addendum B),
+ *                  from every list (archived lists included, as the FK
+ *                  CASCADE reaches them in the cloud),
  *                  DISTINCT tasks changed (a task linked to both the scene
  *                  and one of its shots counts once), shots deleted.
  *
@@ -580,7 +596,7 @@ function mountRabbitShotLists(expressApp, deps) {
     res.json(result);
   });
 
-  // ── membership writes (rule 2, addenda A and B) ─────────────────────────
+  // ── membership writes (rule 2, addendum A, R2-1, R2-2) ──────────────────
   //
   // The rule-2 checks every written item passes, shared by the whole-set PUT
   // and the delta POST so the two can never disagree about what an item is:
@@ -664,19 +680,73 @@ function mountRabbitShotLists(expressApp, deps) {
     };
   }
 
-  // The 404 and the payload shape first, then addendum B's freeze: every
-  // membership write to an ARCHIVED list is refused (0084's items write
-  // policies refuse it in the cloud, D4/D18 — saved lists are never
-  // cleared). The scene / shot delete sweep and the read-time prune are not
-  // membership writes and still reach it (cascadeSceneOrShotDelete,
-  // pruneDanglingShotListItems).
+  // The 404, then the payload shape. An ARCHIVED list is NOT refused here
+  // (R2-1, reverting R1 addendum B on every backend; 0084's items policies no
+  // longer freeze it either): the undo of a scene delete, and a restore, must
+  // be able to put an archived list's membership back. Keeping people from
+  // editing an archived list is the provider's job (requireEditableShotList),
+  // not the store's.
   function loadWritableList(req, res, bundle, payloadKey, notArrayMsg) {
     const list = findList(bundle, req.params.listId);
     if (!list) { fail(res, 404, 'not_found', MSG.listNotFound); return null; }
     const payload = isPlainObject(req.body) ? req.body[payloadKey] : undefined;
     if (!Array.isArray(payload)) { fail(res, 400, 'invalid', notArrayMsg); return null; }
-    if (list.archived_at) { fail(res, 409, 'conflict', MSG.listArchived); return null; }
     return { list, payload };
+  }
+
+  // ── R2-2: the positions-only write (a reorder, and its undo / redo) ─────
+  //
+  // `positionsOnly` is read strictly: absent / null / false is the upsert,
+  // true is the reorder, anything else is refused. A truthy string read as
+  // "upsert" would take the inserting path this flag exists to avoid.
+  function positionsOnlyFlag(body) {
+    const v = isPlainObject(body) ? body.positionsOnly : undefined;
+    if (v === undefined || v === null) return false;
+    if (typeof v === 'boolean') return v;
+    return undefined;
+  }
+
+  // Validate EVERY row first (all-or-nothing): each names an id, an id at
+  // most once (0084's UPDATE … FROM would apply one of two rows for the same
+  // id unpredictably; refused here by name, as the upsert refuses it), and a
+  // position that is a whole number ≥ 0 — REQUIRED here, unlike the upsert's
+  // "missing = its index": a move with no destination is a malformed request,
+  // and the provider always sends one. Then keep only ids that are rows of
+  // THIS list: an id of nothing (a row a collaborator removed since this
+  // client loaded) or of another list is SKIPPED — never inserted, never
+  // moved, never returned. scene_id / shot_id in the payload are ignored:
+  // nothing but position changes.
+  function planRepositions(bundle, list, items) {
+    const own = new Map();
+    for (const i of bundle.shotListItems) {
+      if (i && named(i.id) && i.shot_list_id === list.id) own.set(String(i.id), i);
+    }
+    const planned = [];
+    const seenIds = new Set();
+    for (const it of items) {
+      if (!isPlainObject(it) || !named(it.id)) return { refusal: [400, 'invalid', MSG.repositionId] };
+      if (!Number.isInteger(it.position) || it.position < 0) return { refusal: [400, 'invalid', MSG.itemPosition] };
+      const id = String(it.id);
+      if (seenIds.has(id)) return { refusal: [400, 'invalid', MSG.itemIdTwice] };
+      seenIds.add(id);
+      if (own.has(id)) planned.push({ id, position: it.position });
+    }
+    return { planned, own };
+  }
+
+  function repositionItems(res, bundle, list, items, projectId) {
+    const plan = planRepositions(bundle, list, items);
+    if (plan.refusal) return fail(res, ...plan.refusal);
+    if (!plan.planned.length) return res.json([]);
+    // Every named row of this list is rewritten, moved or not — the UPDATE
+    // touches (and fn_audit_touch stamps) each row it matches, and RETURNING
+    // answers each. Rows stay where they stand in the bundle.
+    const t = now();
+    const byId = new Map(plan.planned.map(p => [p.id, { ...plan.own.get(p.id), position: p.position, updated_at: t, updated_by: null }]));
+    bundle.shotListItems = bundle.shotListItems.map(i => (
+      i && named(i.id) && i.shot_list_id === list.id && byId.has(String(i.id)) ? byId.get(String(i.id)) : i));
+    writeRabbitBundle(projectId, bundle);
+    return res.json(plan.planned.map(p => byId.get(p.id)));
   }
 
   // ── rule 2: replace one list's membership, atomically ───────────────────
@@ -713,10 +783,16 @@ function mountRabbitShotLists(expressApp, deps) {
   // two partial unique indexes): the list's rows this payload does not name
   // stay, so a scene one of them holds cannot be added again — unless the
   // payload moves that row elsewhere in the same request.
+  //
+  // With `positionsOnly: true` (R2-2) the same URL is the REORDER instead:
+  // planRepositions / repositionItems above, which never insert.
   expressApp.post(`${P}/shot-lists/:listId/items`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const projectId = req.params.projectId;
     const w = loadWritableList(req, res, bundle, 'items', MSG.itemsNotArray); if (!w) return;
+    const positionsOnly = positionsOnlyFlag(req.body);
+    if (positionsOnly === undefined) return fail(res, 400, 'invalid', MSG.positionsOnlyFlag);
+    if (positionsOnly) return repositionItems(res, bundle, w.list, w.payload, projectId);
     const plan = planItemWrites(bundle, w.list, w.payload);
     if (plan.refusal) return fail(res, ...plan.refusal);
     const rewritten = new Set(plan.planned.filter(p => p.id && plan.own.has(p.id)).map(p => p.id));

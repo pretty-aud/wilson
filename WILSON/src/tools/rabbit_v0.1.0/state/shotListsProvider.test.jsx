@@ -122,11 +122,16 @@ function makeAdapter() {
       if (a.failNextUpsert) { a.failNextUpsert = false; throw httpError(500, 'disk full') }
       const list = db.shotLists.find(l => l.id === listId)
       if (!list) throw httpError(404, 'shot list not found')
-      if (list.archived_at) throw httpError(409, 'this shot list is archived — restore it before changing it')
       const written = []
       for (const it of items) {
         const existing = db.shotListItems.find(i => i.id === it.id)
         if (existing && existing.shot_list_id !== listId) continue
+        // Like the database: the row must name a real scene/shot, once per list.
+        if (it.scene_id && !db.scenes.some(x => x.id === it.scene_id)) throw httpError(400, 'an item names a scene or shot that is not in this project')
+        if (it.shot_id && !db.shots.some(x => x.id === it.shot_id)) throw httpError(400, 'an item names a scene or shot that is not in this project')
+        const clash = db.shotListItems.find(i => i.shot_list_id === listId && i.id !== it.id
+          && ((it.scene_id && i.scene_id === it.scene_id) || (it.shot_id && i.shot_id === it.shot_id)))
+        if (clash) throw httpError(409, 'a shot list holds each scene and each shot once')
         const row = { id: it.id || id('item'), shot_list_id: listId, project_id: 'p1',
           scene_id: it.scene_id || null, shot_id: it.shot_id || null, position: it.position ?? 0 }
         db.shotListItems = [...db.shotListItems.filter(i => i.id !== row.id), row]
@@ -134,10 +139,20 @@ function makeAdapter() {
       }
       return clone(written)
     },
+    // Positions only: an unknown id (or another list's) is skipped, never inserted.
+    repositionShotListItems: async (_pid, listId, items) => {
+      calls.push(['repositionShotListItems', listId, items.length])
+      const updated = []
+      for (const it of items) {
+        const row = db.shotListItems.find(i => i.id === it.id && i.shot_list_id === listId)
+        if (!row) continue
+        row.position = it.position
+        updated.push({ ...row })
+      }
+      return clone(updated)
+    },
     deleteShotListItems: async (_pid, listId, ids) => {
       calls.push(['deleteShotListItems', listId, ids.length])
-      const list = db.shotLists.find(l => l.id === listId)
-      if (list?.archived_at) throw httpError(409, 'this shot list is archived — restore it before changing it')
       const gone = db.shotListItems.filter(i => i.shot_list_id === listId && ids.includes(i.id)).map(i => i.id)
       db.shotListItems = db.shotListItems.filter(i => !gone.includes(i.id))
       return { deleted: gone }
@@ -264,10 +279,11 @@ describe('S3a — shot lists through the real provider', () => {
     expect(holder.adapter.db.shotListItems.filter(i => i.shot_list_id === 'L1')).toHaveLength(4)
   })
 
-  it('a scene removed from its ONLY list is in no list, and stays visible (nothing hidden by accident)', async () => {
+  it('D10 as ruled: a scene removed from its ONLY list leaves every other tab, and is reachable as unlisted', async () => {
     await mount()
     await act(async () => { await ctxRef.removeFromShotList('L1', { sceneId: 'sc1' }) })
-    expect(ids(ctxRef.scenes)).toEqual(['sc1', 'sc2'])
+    expect(ids(ctxRef.scenes)).toEqual(['sc2'])
+    expect(ids(ctxRef.shots)).toEqual(['sh2'])
     expect(ids(ctxRef.unlistedScenes)).toEqual(['sc1'])
     expect(ids(ctxRef.unlistedShots)).toEqual(['sh1'])
   })
@@ -367,14 +383,15 @@ describe('S3a — shot lists through the real provider', () => {
     expect(holder.adapter.calls.some(c => c[0] === 'replaceShotListItems')).toBe(false)
   })
 
-  it('a failed membership write keeps the saved scene in state and says why (no stale rollback)', async () => {
+  it('a failed membership write takes the new scene back out and says why — nothing is left in no list by accident', async () => {
     await mount()
     holder.adapter.failNextUpsert = true
-    let s3
-    await act(async () => { s3 = await ctxRef.addScene({ name: 'Three', scene_number: 3 }) })
-    expect(ids(ctxRef.allScenes)).toContain(s3.id)
-    // In no list, so still shown everywhere.
-    expect(ids(ctxRef.scenes)).toContain(s3.id)
+    let err = null
+    await act(async () => { try { await ctxRef.addScene({ id: 'sc3', name: 'Three', scene_number: 3 }) } catch (e) { err = e } })
+    expect(err?.message).toMatch(/disk full/)
+    expect(ids(ctxRef.allScenes)).toEqual(['sc1', 'sc2'])
+    expect(holder.adapter.db.scenes.some(s => s.id === 'sc3')).toBe(false)
+    expect(ctxRef.canUndo).toBe(false)
     await waitFor(() => expect(ctxRef.error).toMatch(/disk full/))
   })
 
@@ -412,7 +429,7 @@ describe('S3a — shot lists through the real provider', () => {
     await expect(ctxRef.createEditFrom({ listId: 'L1', title: 'Other', parentEditId: e1.id })).rejects.toThrow("an edit's parent must be the latest edit of its shot list")
   })
 
-  it('an ARCHIVED list\'s membership is not restored by a delete\'s undo (it is frozen; its snapshot keeps history)', async () => {
+  it('a delete\'s undo puts the row back into ARCHIVED lists too (round 2: the freeze made it lossy)', async () => {
     await mount()
     let alt
     await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
@@ -422,6 +439,72 @@ describe('S3a — shot lists through the real provider', () => {
     expect(holder.adapter.db.shotListItems.some(i => i.shot_list_id === alt.id && i.scene_id === 'sc2')).toBe(false)
     await act(async () => { await ctxRef.undo() })
     await waitFor(() => expect(ids(ctxRef.scenes).sort()).toEqual(['sc1', 'sc2']))
-    expect(ctxRef.shotListItems.filter(i => i.scene_id === 'sc2').map(i => i.shot_list_id)).toEqual(['L1'])
+    expect(ctxRef.shotListItems.filter(i => i.scene_id === 'sc2').map(i => i.shot_list_id).sort()).toEqual(['L1', alt.id].sort())
+    expect(holder.adapter.db.shotListItems.filter(i => i.shot_id === 'sh2').map(i => i.shot_list_id).sort()).toEqual(['L1', alt.id].sort())
+    expect(ctxRef.tasks.find(t => t.id === 't1').scene_id).toBe('sc2')
+    expect(ctxRef.error).toBeNull()
+  })
+
+  it('a reorder from a stale view never resurrects a row a collaborator removed (positions only)', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) })
+    const sc1Item = ctxRef.shotListItems.find(i => i.shot_list_id === alt.id && i.scene_id === 'sc1')
+    // Another window removes sc1 from Alt after this client loaded it.
+    holder.adapter.db.shotListItems = holder.adapter.db.shotListItems.filter(i => i.id !== sc1Item.id)
+    await act(async () => { await ctxRef.reorderShotListItems(alt.id, ['sc2', 'sc1']) })
+    await act(async () => { await ctxRef.undo() })
+    await act(async () => { await ctxRef.redo() })
+    expect(holder.adapter.db.shotListItems.some(i => i.id === sc1Item.id)).toBe(false)
+    expect(holder.adapter.calls.filter(c => c[0] === 'upsertShotListItems' && c[1] === alt.id)).toHaveLength(1) // the copy only
+    // Converged: the client stopped showing it too.
+    await waitFor(() => expect(ctxRef.shotListItems.some(i => i.id === sc1Item.id)).toBe(false))
+  })
+
+  it('removing a row that is already gone server-side leaves state too (no stuck row, no silent retry)', async () => {
+    await mount()
+    const sc1Item = ctxRef.shotListItems.find(i => i.shot_list_id === 'L1' && i.scene_id === 'sc1')
+    holder.adapter.db.shotListItems = holder.adapter.db.shotListItems.filter(i => i.id !== sc1Item.id)
+    await act(async () => { await ctxRef.removeFromShotList('L1', { sceneId: 'sc1' }) })
+    expect(ctxRef.shotListItems.some(i => i.id === sc1Item.id)).toBe(false)
+  })
+
+  it('an undone bulk delete (shots, then their scene, not awaited — ScenesView\'s shape) leaves no duplicate rows', async () => {
+    await mount()
+    await act(async () => {
+      const a = ctxRef.deleteShot('sh2')
+      const b = ctxRef.deleteScene('sc2')
+      await Promise.all([a, b])
+    })
+    await act(async () => { await ctxRef.undo() })
+    await act(async () => { await ctxRef.undo() })
+    const shotIds = ctxRef.allShots.map(s => s.id)
+    expect(shotIds.filter(x => x === 'sh2')).toHaveLength(1)
+    expect(ctxRef.allScenes.map(s => s.id).filter(x => x === 'sc2')).toHaveLength(1)
+  })
+
+  it('a list whose copy fails still exists and its undo is still on the stack', async () => {
+    await mount()
+    holder.adapter.failNextUpsert = true
+    let err = null
+    await act(async () => { try { await ctxRef.addShotList({ title: 'Alt', from: 'L1' }) } catch (e) { err = e } })
+    expect(err?.message).toMatch(/disk full/)
+    expect(ctxRef.canUndo).toBe(true)
+    const alt = ctxRef.shotLists.find(l => l.title === 'Alt')
+    expect(alt).toBeTruthy()
+    await act(async () => { await ctxRef.undo() })
+    expect(ctxRef.shotLists.find(l => l.id === alt.id).archived_at).toBeTruthy()
+  })
+
+  it('a new scene placed while the active list is unknown is placed in it once the lists are read', async () => {
+    await mount()
+    // Another window made a new list L9 and activated it; this client has not seen L9.
+    holder.adapter.db.shotLists.push({ id: 'L9', project_id: 'p1', title: 'Nine', version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, created_at: '2026-09-03' })
+    holder.adapter.db.project.active_shot_list_id = 'L9'
+    holder.adapter.hideFromLoad.add('L9')
+    let s4
+    // S3b names the list the Scenes tab is viewing; this client never loaded it.
+    await act(async () => { s4 = await ctxRef.addScene({ name: 'Four', scene_number: 4 }, { listId: 'L9' }) })
+    expect(holder.adapter.db.shotListItems.some(i => i.shot_list_id === 'L9' && i.scene_id === s4.id)).toBe(true)
   })
 })

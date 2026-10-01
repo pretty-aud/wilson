@@ -248,7 +248,7 @@ export function googleDriveAdapter() {
     // for listFolders' reason: a bare `() => []` would give a second answer
     // to the question loadProject already answers. For every bundle that
     // predates shot lists — every bundle Drive holds today — that answer is
-    // []. The eight writes are with the other readOnly() stubs below.
+    // []. The nine writes are with the other readOnly() stubs below.
     async listShotLists(projectId) {
       return (await this.loadProject(projectId)).shotLists;
     },
@@ -333,8 +333,9 @@ export function googleDriveAdapter() {
     upsertShotList:       readOnly('upsertShotList'),
     replaceShotListItems: readOnly('replaceShotListItems'),
     // S3a review round 1 (addendum A): the membership deltas the provider
-    // writes instead of whole-list replaces.
+    // writes instead of whole-list replaces; round 2 (R2-2): the reorder.
     upsertShotListItems:  readOnly('upsertShotListItems'),
+    repositionShotListItems: readOnly('repositionShotListItems'),
     deleteShotListItems:  readOnly('deleteShotListItems'),
     upsertEdit:           readOnly('upsertEdit'),
     setActiveShotList:    readOnly('setActiveShotList'),
