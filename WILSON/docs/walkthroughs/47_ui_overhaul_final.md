@@ -250,9 +250,11 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 31. **The delete questions (Scenes' three, Expenses' bulk delete and both "Reset M/C") open with Cancel focused, so Enter cancels where the browser's box confirmed: keep Cancel as the default?**
    Look at: Scenes: tick rows and delete, then press Enter. Choices: Keep Cancel as the default / confirm on Enter, as the browser's box did; no recommendation. (WT45 Q25)
+   Q31: answered 2026-09-29 (post-overhaul ruling D21 (iii)): Cancel stays the default. Kept by post-overhaul S3b, 2026-10-01: every question the Scenes tab asks, its new shot-list questions included (Remove from this list, Clear, Withdraw, Archive, Make active, Discard your changes), opens with Cancel focused; see walkthrough 51.
 
 32. **Escape closes a scene, shot or expense popup even with an unsaved description, notes or a half-filled task form: should the popup ask before throwing a draft away?**
    Look at: A scene popup: open the task form, type a title, press Escape. Choices: Ask before discarding / close as now (the standard dialog's Escape); no recommendation. (WT45 Q27, WT42 Q22)
+   Q32: answered 2026-09-29 (post-overhaul ruling D21 (i)): ask before discarding. Done by post-overhaul S3b, 2026-10-01, for the scene and shot popups' description and notes: Escape, ✕, Close and a click outside ask "Discard your changes?" first, Cancel focused (P1-09's Scenes part closed). Not yet: the task form inside a popup (S3b-05, with S3c) and the expense popup (P1-09); see walkthrough 51.
 
 33. **Enter on any focused button toggles the pet instead of pressing the button (Space works): fix it in P1?**
    Look at: Tab to any button and press Enter. Choices: Fix it in P1 / leave; it waits for Audrey because the pets are hers to change. The code is `App.jsx` about lines 1404–1417 (P1-01). (WT45 Q30, WT44 Q25, WT42 Q7, WT39 Q10)
@@ -759,12 +761,14 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 183. **The create buttons read "New scene" and "New shot" (they read "Scene" and "Shot"), as "New level" and "New asset" do, which adds a word: keep?**
    Look at: The Scenes toolbar, Scenes and Shots modes. Choices: Keep? yes / no ("Scene", "Shot"); no recommendation. (WT45 Q18)
+   Q183: note 2026-10-01 (post-overhaul S3b): still yours. The new shot-list bar's first button reads "New shot list", after "New scene" and "New shot"; if you answer no, it becomes "Shot list" with them. See walkthrough 51.
 
 184. **Do you want the review's regrouping of the Scenes toolbar: one size control instead of two, the FPS readout in the page header, and a left group (modes, filter, sort, group) and a right group (size, saved views, search, count, the create buttons)?**
    Look at: The Scenes toolbar at 1440x900 and 1280x700, both modes. Choices: Regroup as the review proposed / keep the sixteen controls in one row (as built). (WT45 Q19)
 
 185. **The shots table has sixteen columns, and at 1440 Description gets no room while Start and End scroll sideways: hide some behind a column chooser, or keep all sixteen?**
    Look at: Scenes → Shots table at 1440x900. Choices: A column chooser / keep all sixteen; no recommendation. (WT45 Q20)
+   Q185: note 2026-10-01 (post-overhaul S3b): still yours, and the room moved. Each row's actions column grew from 84 to 112 pixels to hold the shot-list menu (View details, the menu, Delete); Description and the nested shots' names gave the room back. A column chooser would be its own change. See walkthrough 51.
 
 186. **Editable cells now show their control at rest (a select's arrow, a number or date field's box), where the review proposed only an underline: keep the arrows and boxes?**
    Look at: The Scenes or Shots table without the mouse over it. Choices: Keep the arrows and boxes (as built) / an underline only at rest (the review's proposal). (WT45 Q21)
@@ -783,9 +787,11 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 191. **The popups' fields have section headings (Identity, Camera, Schedule), and values you cannot edit have no box: keep?**
    Look at: A scene popup and a shot popup. Choices: Keep? yes / no; no recommendation. (WT45 Q28)
+   Q191: note 2026-10-01 (post-overhaul S3b): still yours. The popups keep their headings; "no box" now also covers a reviewer, who sees every field of the popups, and the tables' names and descriptions, as plain values. Walkthrough 51's question 4 asks whether that is the right read-only look.
 
 192. **Four older Scenes bugs were left alone (a shot row's delete in the scene popup also opens that shot; a related asset's click in a popup opens nothing; "Files (N)" appears twice in a popup; the ungrouped scene table does not show a newly picked thumbnail until something else changes): fix them in P1?**
    Look at: A scene popup (its shots, related assets and files) and the ungrouped Scenes table after picking a thumbnail. Choices: Fix them in P1 / leave; no recommendation. (WT45 Q29)
+   Q192: answered 2026-09-29 (post-overhaul ruling D21 (ii)): fix them. Done by post-overhaul S3b, 2026-10-01: a shot's delete in the scene popup asks and no longer opens the shot (P1-22); a related asset opens in the Assets tab's own window over the popup (P1-23, the scene and shot popups); "Files (N)" shows once (P1-24); the ungrouped scene table shows a new thumbnail at once (P1-21). See walkthrough 51.
 
 193. **A scene's or shot's name and description in the tables are edited by clicking and Tab does not reach them: make each one a Tab stop (one per row)?**
    Look at: The Scenes table: Tab along a row. Choices: Yes / no; not done because it would change how the tables behave. (WT45 Q31)

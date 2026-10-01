@@ -23,9 +23,11 @@
 //
 // Plain fields in the kit's well (`ui-input`), as the lane's popups and
 // filter strip use them: the kit Input / TextArea revert on Escape, which in
-// a form would throw away what was typed without a word. Instead Escape, ✕,
-// Cancel and the backdrop ASK before a changed form is dropped (the kit
-// Dialog's onBeforeClose — D21's rule for the popups, kept here too).
+// a form would throw away what was typed without a word. Instead Escape, ✕
+// and Cancel ASK before a changed form is dropped (the kit Dialog's
+// onBeforeClose — D21's rule for the popups, kept here too); a press on the
+// backdrop does nothing, the kit form's default, so a stray click loses
+// nothing (review round 1, R1-11: this said the backdrop asked).
 // ============================================================
 
 import { useId, useMemo, useRef, useState } from 'react'
@@ -78,17 +80,20 @@ export default function ShotListForm({ mode, source, lists, counts, defaultFrom,
     } catch (err) { return err.message }
   }, [effectiveTitle, version, lists, mode, source])
   const dirty = title !== initial.title || same !== initial.same || summary !== initial.summary || from !== initial.from
-  // A New shot list opens on the list's own title at v1, which is taken: a
+  // A New shot list opens on the list's own title at v1, which is taken —
+  // or, with no list on screen ("Not in any list"), on no title at all: a
   // form nobody has touched yet says what to do, in the second ink, rather
-  // than greeting the person with a refusal; once they have changed the
-  // title or the toggle, the refusal reads in the model's own words.
+  // than greeting the person with a refusal (review round 1, R1-14: the
+  // second case opened on "A shot list needs a title."); once they have
+  // changed the title or the toggle, the refusal reads in the model's own
+  // words.
   const touched = title !== initial.title || same !== initial.same
   const nextLabel = source ? label({ title: source.title, version: nextShotListVersion(lists, source.title) }) : ''
-  const takesLine = !problem ? `Will be “${label({ title: effectiveTitle.trim(), version })}”`
-    : (!touched && mode === 'new' && source && !same)
-      ? `Type a new title, or turn on “Same title, next version” for “${nextLabel}”.`
-      : problem
-  const takesState = !problem ? 'ok' : (takesLine === problem ? 'refused' : 'hint')
+  const untouchedHint = problem && !touched && mode === 'new'
+    ? (source && !same ? `Type a new title, or turn on “Same title, next version” for “${nextLabel}”.` : 'Type a title for the new shot list.')
+    : null
+  const takesLine = !problem ? `Will be “${label({ title: effectiveTitle.trim(), version })}”` : (untouchedHint || problem)
+  const takesState = !problem ? 'ok' : (untouchedHint ? 'hint' : 'refused')
 
   async function submit(e) {
     e?.preventDefault?.()

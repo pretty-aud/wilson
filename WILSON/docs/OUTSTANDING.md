@@ -2075,10 +2075,14 @@ side of P1-23, and S4a-07's Scenes handler are closed above. Questions for
 Audrey are in walkthrough 51, not here.
 
 - **S3b-01 · The Scenes popups' sidebar offers a reviewer writes the
-  database refuses.** RelationsPanel's "Add new task", "Add asset relation"
-  and each relation's remove are ungated (`RelationsPanel.jsx` has no
-  permission check; INFERRED from the code). S3b gated every scene and shot
-  verb in `ScenesView.jsx`, but the panel is S3c's file. Owner: S3c.
+  database refuses.** RelationsPanel's "Add asset relation" and each
+  relation's remove are ungated (`RelationsPanel.jsx` has no permission
+  check; INFERRED from the code). S3b gated every scene and shot verb in
+  `ScenesView.jsx`. Review round 1 (R1-04) found "Add new task" was
+  ScenesView's own: the panel draws it whenever it is handed
+  `onCreateTask`, so the popups now hand it only with the gate, and their
+  `handleCreateTask` refuses (writeGate.test.js holds both). The rest of
+  the panel is S3c's file. Owner: S3c.
 - **S3b-02 · FileManager in the scene and shot popups is ungated.** A
   reviewer sees Add files and each file's delete (`FileManager.jsx` reads no
   permission; INFERRED from the code). Owner: the Files lane, or S3c with
@@ -2100,3 +2104,21 @@ Audrey are in walkthrough 51, not here.
   field reverting on Escape is the kit's convention (useEscapeRevert), so
   D21 left it; recorded in case Audrey wants the question there too.
   Owner: Audrey.
+- **S3b-07 · The Local Server's shot-list patch is an upsert.** A rename of
+  a list the server does not hold makes a new list (`rabbitShotLists.cjs`
+  538–597; review round 1, R1-18, read from the code). The provider patches
+  only lists it holds, so it is reachable only when the client and the
+  server disagree. Owner: S3a's lane (the Local Server route).
+- **S3b-08 · "Show in Bins" drops a popup's changed draft without asking.**
+  The shot popup's takes panel switches tab (`ShotTakesPanel.jsx` 121 →
+  `Rabbit.jsx` 114), which unmounts the Scenes tab and its popup: a typed
+  description or notes is gone without D21's question (review round 1,
+  R1-19, traced in the code). Owner: S3c (the leave guard) or the Bins
+  lane.
+- **S3b-09 · The asset popup the Scenes popups open is ungated, and lists
+  the active list's rows.** Since P1-23 a related asset opens the Assets
+  tab's own `AssetDetailPopup` (`ProjectAssetsView.jsx` 1655), which
+  reads no permission — a reviewer can change its status — and whose scene
+  and shot pickers read `ctx.scenes` / `ctx.shots`, the active list's
+  (2023, 2037; review round 1, R1-20, read from the code). Owner: the
+  Assets lane, and S3c for the relation pickers.

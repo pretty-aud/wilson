@@ -17,6 +17,11 @@
 const q = (s) => `“${s}”`
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
+/** Why New scene, New shot and Add shot are greyed while an archived list is
+    on screen (review round 1, R1-02): it is read-only, and a new row would
+    otherwise land in the active list, out of sight. */
+export const ARCHIVED_ADD_REASON = 'This shot list is archived. Restore it, or open another list, to add scenes and shots.'
+
 /** "A", "A and B", "A, B and C" — the app's lists have no serial comma. */
 export function joinNames(names) {
   if (names.length <= 1) return names.join('')
@@ -40,10 +45,15 @@ function subject({ kind, names, shotCount }) {
  *             row only it holds as "Not in any list")
  *  shotCount  scenes only: this list's shots of those scenes, which leave
  *             with them (S3a: a scene takes its shots' items with it)
+ *  homelessShots  scenes only: how many of those shots NO other live list
+ *             holds — they will be in no list (review round 1, R1-08: the
+ *             scene's homes said nothing of its shots')
  *  listLabel  the list on screen
+ *  active     the list on screen is the project's active list: every other
+ *             tab stops showing the rows (R1-08)
  * → the sentences, in order
  */
-export function removeQuestion({ kind, rows, shotCount = 0, listLabel }) {
+export function removeQuestion({ kind, rows, shotCount = 0, homelessShots = 0, listLabel, active = false }) {
   const one = rows.length === 1
   const out = [
     `Takes ${subject({ kind, names: rows.map(r => r.name), shotCount })} out of ${q(listLabel)}.`,
@@ -61,6 +71,14 @@ export function removeQuestion({ kind, rows, shotCount = 0, listLabel }) {
     out.push(`${homeless} of them ${homeless === 1 ? 'is' : 'are'} in no other shot list, so Shot lists… will show ${homeless === 1 ? 'it' : 'those'} under “Not in any list”.`)
     out.push(`${rest === 1 ? 'The other one is' : 'The rest are'} still in ${homes}.`)
   }
+  if (kind === 'scene' && homelessShots > 0) {
+    const all = homelessShots === shotCount
+    const who = one
+      ? (all ? (shotCount === 1 ? 'Its shot is' : `Its ${shotCount} shots are`) : `${homelessShots} of its shots ${homelessShots === 1 ? 'is' : 'are'}`)
+      : (all ? (shotCount === 1 ? 'Their shot is' : `Their ${shotCount} shots are`) : `${homelessShots} of their shots ${homelessShots === 1 ? 'is' : 'are'}`)
+    out.push(`${who} in no other shot list, so Shot lists… will show ${homelessShots === 1 ? 'it' : 'them'} under “Not in any list”.`)
+  }
+  if (active) out.push(`This is the active list, so the Timeline, Budget and every other tab will no longer show ${one ? 'it' : 'them'}.`)
   return out
 }
 

@@ -296,10 +296,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>New shot list</span> — Starts a list from the one on screen, from every scene and shot, or empty.</li>
               <li>• <span className={T.listBold}>Shot lists…</span> — Every list, to open one; also "Not in any list" (the scenes and shots no list holds) and Archived….</li>
-              <li>• <span className={T.listBold}>Save</span> — Records the list as it is now, a point you can come back to.</li>
+              <li>• <span className={T.listBold}>Save</span> — Records that the list was saved as it is now: the bar says "Saved" with the date until the list next changes.</li>
               <li>• <span className={T.listBold}>Save as…</span> — A new list from this one, by default the same title at the next version.</li>
               <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
-              <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
+              <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (never on the active list, and only before it is first saved), Withdraw and Archive.</li>
             </ul>
           </div>
           <div className={T.card}>
@@ -333,8 +333,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <p className={T.listItem}>
               On the Local Server, <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Z</Kbd> undoes
               and <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Y</Kbd> redoes
-              on the Scenes tab, and in its scene and shot windows, but not
-              while a menu or another window is open over it.
+              on the Scenes tab, in its scene and shot windows and in the
+              windows they open, but not while you type in a field, nor while
+              a menu, a question, the settings drawer or a shot-list window
+              is open.
             </p>
           </div>
         </div>

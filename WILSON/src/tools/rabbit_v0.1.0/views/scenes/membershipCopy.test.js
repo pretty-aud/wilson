@@ -65,6 +65,35 @@ describe('removeQuestion: the rows leave ONE list, and nothing is deleted', () =
   })
 })
 
+// Review round 1 (R1-08): the scene's own homes said nothing of its shots',
+// which may be in no other list though the scene is; and on the ACTIVE list
+// the rows leave every other tab.
+describe('removeQuestion: a scene\'s shots left in no list, and the active list', () => {
+  const L = 'Shoot · v1'
+  const one = (shotCount, homelessShots) => removeQuestion({ kind: 'scene', rows: [{ name: 'A', homes: ['P · v1'] }], shotCount, homelessShots, listLabel: L })
+  const two = (shotCount, homelessShots) => removeQuestion({ kind: 'scene', rows: [{ name: 'a', homes: [] }, { name: 'b', homes: [] }], shotCount, homelessShots, listLabel: L })
+  it('all of a scene\'s shots, or some, one scene or several', () => {
+    expect(one(2, 2)[3]).toBe('Its 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”.')
+    expect(one(1, 1)[3]).toBe('Its shot is in no other shot list, so Shot lists… will show it under “Not in any list”.')
+    expect(one(3, 1)[3]).toBe('1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”.')
+    expect(one(3, 2)[3]).toBe('2 of its shots are in no other shot list, so Shot lists… will show them under “Not in any list”.')
+    expect(two(3, 3)[3]).toBe('Their 3 shots are in no other shot list, so Shot lists… will show them under “Not in any list”.')
+    expect(two(1, 1)[3]).toBe('Their shot is in no other shot list, so Shot lists… will show it under “Not in any list”.')
+    expect(two(3, 2)[3]).toBe('2 of their shots are in no other shot list, so Shot lists… will show them under “Not in any list”.')
+  })
+  it('none of them, or a shot: nothing more is said', () => {
+    expect(one(2, 0)).toHaveLength(3)
+    expect(removeQuestion({ kind: 'shot', rows: [{ name: 'A', homes: [] }], homelessShots: 4, listLabel: L })).toHaveLength(3)
+  })
+  it('the active list: the other tabs stop showing the rows — said last, and only there', () => {
+    expect(removeQuestion({ kind: 'shot', rows: [{ name: 'A', homes: ['P · v1'] }], listLabel: L, active: true }).at(-1))
+      .toBe('This is the active list, so the Timeline, Budget and every other tab will no longer show it.')
+    expect(removeQuestion({ kind: 'scene', rows: [{ name: 'a', homes: [] }, { name: 'b', homes: [] }], shotCount: 2, homelessShots: 2, listLabel: L, active: true }).slice(3))
+      .toEqual(['Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”.', 'This is the active list, so the Timeline, Budget and every other tab will no longer show them.'])
+    expect(removeQuestion({ kind: 'shot', rows: [{ name: 'A', homes: ['P · v1'] }], listLabel: L }).join(' ')).not.toMatch(/active list/)
+  })
+})
+
 describe('deleteQuestion: from the project, and so from every list', () => {
   const lists = (...ls) => ls.map((l) => (typeof l === 'string' ? { label: l, archived: false } : l))
   it('one scene: every shot it has, the one list that holds it, and the other verb while a list is on screen', () => {

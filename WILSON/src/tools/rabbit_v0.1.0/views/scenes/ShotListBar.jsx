@@ -58,7 +58,7 @@ function viewName(viewed, hasLiveList) {
  *   on          { newList, openPicker, save, saveAs, setActive, showList, openRecent, restoreRecent }
  *   moreItems   the More menu's kit Menu items (empty: no menu)
  */
-export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, withdrawn, recent, recentLabel, gate, on, moreItems }) {
+export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems }) {
   const { mode, list } = viewed
   const onList = mode === 'list' || mode === 'archived'
   const isActive = mode === 'list' && !!activeList && activeList.id === list?.id
@@ -81,7 +81,8 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
             // Saving an unchanged list would record the same point again.
             <GatedAction allowed={gate.write && saveState?.kind !== 'saved'}
               reason={gate.write ? `Nothing has changed since it was saved on ${showDate(saveState?.at)}.` : gate.writeReason}>
-              <Button size="sm" variant="ghost" onClick={on.save}>Save</Button>
+              {/* Busy while a Save runs (review round 1, R1-13). */}
+              <Button size="sm" variant="ghost" loading={saving} onClick={on.save}>Save</Button>
             </GatedAction>
           )}
           <GatedAction allowed={gate.write} reason={gate.writeReason}>

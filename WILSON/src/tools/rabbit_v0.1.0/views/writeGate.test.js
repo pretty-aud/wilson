@@ -424,6 +424,18 @@ describe('project write gate', () => {
   // `true` gates nothing).
   const SCENES = 'tools/rabbit_v0.1.0/views/ScenesView.jsx'
   const SCENE_SUBVIEWS = ['SceneTable', 'ShotTable', 'SceneGallery', 'ShotGallery', 'SceneDetailPopup', 'ShotDetailPopup']
+  // Review round 1 (R1-04): the scene and shot popups made tasks for a
+  // reviewer — RelationsPanel shows "Add new task" whenever it is handed
+  // onCreateTask, and the funnel behind it checked nothing. Every hand-off
+  // of onCreateTask is conditional on the popup's gate, and every
+  // handleCreateTask refuses first.
+  const TOOLBAR_GATE = '<GatedAction allowed={canAddRows} reason={addReason}>'
+  const taskGates = (code) => ({
+    sites: (code.match(/onCreateTask=/g) || []).length,
+    gated: (code.match(/onCreateTask=\{canWrite \? /g) || []).length,
+    funnels: (code.match(/function handleCreateTask\(/g) || []).length,
+    refused: (code.match(/function handleCreateTask\([^)]*\) \{\s*if \(!canWrite\) return\b/g) || []).length,
+  })
   it('ScenesView takes its entity gate from the call, and hands it to every table, gallery and popup', () => {
     const raw = readSrc(SCENES)
     const code = blankComments(raw)
@@ -437,9 +449,14 @@ describe('project write gate', () => {
         expect(gateValue(attrs), `${view} must receive canWrite={canWriteProject}`).toBe('canWriteProject')
       }
     }
-    // The toolbar's two creates sit inside the gate's GatedAction.
-    expect(code).toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
-    expect(code).toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<span ref=\{shotPickerRef\}/)
+    // The toolbar's two creates sit inside a GatedAction whose flag is the
+    // gate's — and is off while an archived list, read-only, is on screen
+    // (review round 1, R1-02: a new row there went to the ACTIVE list).
+    expect(code).toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived'\r?\n/)
+    expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<span ref=\{shotPickerRef\}/)
+    // R1-04: both popups' task creates.
+    expect(taskGates(code)).toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
   })
   it('CONTROL: the Scenes check fails on a render without the gate, with a literal, or with the toolbar ungated', () => {
     const raw = readSrc(SCENES)
@@ -451,7 +468,17 @@ describe('project write gate', () => {
     expect(check(raw.slice(0, first) + raw.slice(first + 'canWrite={canWriteProject}'.length)).some((v) => v !== 'canWriteProject')).toBe(true)
     expect(check(raw.replace('canWrite={canWriteProject}', 'canWrite={true}')).some((v) => v !== 'canWriteProject')).toBe(true)
     // The New scene button out of its GatedAction: caught.
-    const ungated = blankComments(raw).replace(/<GatedAction allowed=\{canWriteProject\}>(\s*<Button[^>]*onClick=\{handleNewScene\})/, '$1')
-    expect(ungated).not.toMatch(/<GatedAction allowed=\{canWriteProject\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    const code = blankComments(raw)
+    expect(code.indexOf(TOOLBAR_GATE)).toBeGreaterThan(0)
+    const ungated = code.replace(TOOLBAR_GATE, '')
+    expect(ungated).not.toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    // Its flag not the gate's: caught.
+    expect(code.replace(/const canAddRows = canWriteProject && /, 'const canAddRows = true && ')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived'\r?\n/)
+    // R1-04: a popup handing onCreateTask over whatever the gate, or a
+    // handleCreateTask that does not refuse first: caught.
+    const handOff = 'onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}'
+    expect(code.indexOf(handOff)).toBeGreaterThan(0)
+    expect(taskGates(code.replace(handOff, 'onCreateTask={() => setShowCreateTask(true)}'))).not.toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
+    expect(taskGates(code.replace(/(function handleCreateTask\(draft\) \{\s*)if \(!canWrite\) return/, '$1'))).not.toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
   })
 })

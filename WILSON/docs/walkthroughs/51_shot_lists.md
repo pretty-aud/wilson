@@ -47,7 +47,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 | 2 | Hover a scene's name | Its tooltip names the lists that hold it: *In: Shot list 1 · v1*. A row no live list holds says *In no shot list*. |
 | 3 | Click **New shot list** | The form: **Title** (the list on screen's, selected, so typing replaces it), the switch **Same title, next version**, **Summary**, and **Start from**: the list on screen, every scene and shot in this project, or empty. A line says what "linked" means. Type *Second unit*, choose **Empty**. (02) |
 | 4 | Click **Create shot list** | The bar shows **Second unit · v1**, no badge, and **Active: Shot list 1 · v1** (click it to go back to the active list). **Set active** appears. The table is empty. The other tabs still show the active list. (03) |
-| 5 | Click **⋯** | **Add from another list…** first, then **Edit details…**, **Clear this list** (only before the list is first saved), **Withdraw** (only for the list you made, while it is untouched) and **Archive**. (04) |
+| 5 | Click **⋯** | **Add from another list…** first, then **Edit details…**, **Clear this list** (only before the list is first saved, and never on the active list), **Withdraw** (only for the list you made, while it is untouched) and **Archive**. (04) |
 | 6 | Click **Add from another list…** | *Add from another list*, **From** the first list with something to add (here *Shot list 1 · v1*), a search, and the rows scene by scene. Tick scene 1: its three shots tick with it. Tick one shot of scene 2: scene 2 shows a dash (some of its shots). The button counts what will be added: **Add 2 scenes and 4 shots**. Rows the list already holds are ticked and greyed. (05) |
 | 7 | Click the **Add** button | The rows appear in *Second unit*; the totals count them. (06) |
 | 8 | Hover a row and click its **⋯** (between View details and Delete) | **Move up**, **Move down** (List order only) and **Remove from this list**. (07) |
@@ -56,23 +56,24 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 | 11 | Click **Save** | *Saved 10/01/2026*. **Save** greys, and hovering it says nothing has changed since then. Change anything in the list (a status, a row added) and it comes back with *Not saved since changes*. (10) |
 | 12 | Click **Save as…** | The form with **Same title, next version** on: *Will be "Second unit · v2"*. Click **Cancel**. (11) |
 | 13 | Click **Set active** | *Make this the active list?*: it becomes the list every other tab shows; the old one is kept and can be made active again. Click **Cancel** (or **Make active** to try it). (12) |
-| 14 | Make another list (*Night unit*, empty), then **⋯ → Withdraw** | *Withdraw this list?*: you made it and nobody has saved it or started an edit on it, so you can take it back; it is set aside, not deleted. (13) |
+| 14 | Make another list (*Night unit*, empty), then **⋯ → Withdraw** | *Withdraw this list?*: you made it and nobody has saved it or started an edit on it, so you can take it back; it is set aside, not deleted. (On the Local Server, which has no users, it says nobody has saved it or started an edit on it.) (13) |
 | 15 | Click **Withdraw** | The tab goes back to the active list, and the bar says *Recently removed: Night unit · v1* with **Open** and **Restore**, until you leave the Scenes tab. (14) |
 | 16 | Click **Restore** | *Night unit* is back, on screen. (15) |
 | 17 | Click **Shot lists…** | Every live list, newest first: the Active badge, title, version, the date it was made, its summary, and a **⋯** per row (Set active, Edit details…, Clear, Withdraw, Archive, as you may). Below, **Archived… (1)**; **New shot list…** at the footer's left, **Cancel** and **Open** at its right. (16) |
 | 18 | Click **Archived…** | The archived and withdrawn lists, each marked, with **Restore** for whoever may. **All shot lists** goes back. (17) |
-| 19 | Open *Shot list 1*, and **Remove from this list** on *Salt hours* | This time the question says no other list holds it, so it will be found under "Not in any list". Click **Remove from list**. (18) |
+| 19 | Open *Shot list 1*, and **Remove from this list** on *Salt hours* | This time the question says no other list holds it, so it will be found under "Not in any list" (and so will any of its shots no other list holds), and, because *Shot list 1* is the active list, that the Timeline, Budget and every other tab will no longer show it. Click **Remove from list**. (18) |
 | 20 | **Shot lists… → Not in any list (1) → Open** | The scenes and shots no live list holds: *Salt hours*. The bar says **Not in any list**. (19) |
 | 21 | Click *Salt hours*'s **⋯** | **ADD TO LIST** and each live list: one click adds it there. (20) |
-| 22 | Open a scene, change its **Description**, and press **Escape** (or ✕, Close, or click outside) | *Discard your changes?*: what you typed is not saved. **Cancel** (focused) keeps it; **Discard** drops it. With nothing changed, Escape closes as before. The notes too, and the shot window too. (21) |
+| 22 | Open a scene, change its **Description**, and press **Escape** (or ✕, Close, or click outside) | *Discard your changes?*: what you typed is not saved. **Cancel** (focused) keeps it; **Discard** drops it. With nothing changed, Escape closes as before. The notes too, and the shot window too. If someone changes the description meanwhile, what you typed stays. (21) |
 | 23 | Tick two scenes | The selection bar has **Remove from list** beside **Delete**, in the plain button, not the red one. |
 | 24 | Open **Help (?) → Scenes & shot lists** | The page that says all of this in short. |
+| 24a | Open an archived list (**Shot lists… → Archived… → Open**) | It reads like any list, marked **Archived**. **New scene**, **New shot** and **Add shot** are greyed: hovering says the list is archived, to restore it or open another list to add scenes and shots. |
 
 ### As a reviewer (the cloud, a project you are a reviewer on)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 25 | Open the Scenes tab | Everything reads as before. **New scene**, **New shot**, every **Delete**, **Add shot** and the selection bar's Status, Type, Time of day and Delete are greyed; hovering one says *Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project's other items. Ask a project manager for a member or manager seat.* |
+| 25 | Open the Scenes tab | Everything reads as before. **New scene**, **New shot**, every **Delete**, **Add shot** and the selection bar's Status, Type, Time of day and Delete are greyed; hovering one says *Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project's other items. Ask a project manager for a member or manager seat.* A scene's window has no "Add new task". |
 | 26 | Click a name, a status, a date | Nothing opens: the names and descriptions are plain words, the choices and dates are greyed. The thumbnails are pictures, not buttons. |
 | 27 | Open a scene | Every field is shown without its box, as a value you cannot change is; Delete scene and Add shot are greyed. |
 | 28 | Use the bar, a row's **⋯**, **Add from another list…** | All live: a reviewer builds lists. **Set active** and **Archive** are greyed for anyone who is not a project manager or a workspace admin. |
@@ -81,7 +82,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 
 | # | Do | You should see |
 |---|----|----------------|
-| 29 | Open R.A.B.B.I.T. on **D.O.G.** or any other page, and press **Ctrl+Z** | Nothing: Scenes' undo keys act only while R.A.B.B.I.T. is on screen (before this, they undid R.A.B.B.I.T.'s last edit from any page). On the Scenes tab, Ctrl+Z still undoes, also inside a scene or shot window, but not while a menu, the settings drawer or the shot lists' windows are open. |
+| 29 | Open R.A.B.B.I.T. on **D.O.G.** or any other page, and press **Ctrl+Z** | Nothing: Scenes' undo keys act only while R.A.B.B.I.T. is on screen (before this, they undid R.A.B.B.I.T.'s last edit from any page). On the Scenes tab, Ctrl+Z still undoes, also inside a scene or shot window, but not while a menu, a question, the settings drawer or the shot lists' windows are open. |
 
 ## 2. How to check it
 
@@ -120,9 +121,14 @@ seat). On the Local Server there are no roles, so every verb is open.
   data** (P1-28): the fixtures name thumbnails that are not there.
 - **The toolbar wraps its search to a second line at 1280** (R3-25's
   regrouping is still your question 184 in walkthrough 47).
-- **The popups' sidebar** ("Add new task", asset relations) and **their file
-  list** are not gated for reviewers yet (S3b-01, S3b-02): those files are
-  S3c's and the Files lane's.
+- **The popups' sidebar** (asset relations) and **their file list** are not
+  gated for reviewers yet (S3b-01, S3b-02): those files are S3c's and the
+  Files lane's. ("Add new task" is: it was this tab's own.)
+- **The asset window a scene or shot window opens** is the Assets tab's,
+  which is not gated for reviewers yet, and its scene and shot pickers list
+  only the active list's (S3b-09).
+- **"Show in Bins" in a shot window's takes** leaves the tab without asking
+  about a changed description or notes (S3b-08): the leave guard is S3c's.
 - **A popup's Delete drops a changed draft without asking** (S3b-04), and
   **the task form inside a popup is dropped without asking** (S3b-05).
 - **The Budget and Timeline tabs' Ctrl+Z still acts from other pages**
@@ -149,6 +155,11 @@ seat). On the Local Server there are no roles, so every verb is open.
    Local Server, as it did before (S3b-03). Want them on the cloud too?
 6. **"Not in any list".** It adds one row at a time (each row's ⋯). Do you
    want a selection's "Add to list" as well?
+8. **Clear on the active list.** Every project's backfilled "Shot list 1 ·
+   v1" is the active list and has never been saved, so by D4 it could always
+   be cleared, and clearing it would empty every other tab. Since the
+   review, **Clear this list** is never offered on the active list (Archive
+   never was). Keep it off, or offer it there with a warning?
 7. **Walkthrough 47's Scenes questions.** This bundle decides **Q192**: all
    four older Scenes bugs are fixed (a shot's delete in the scene window no
    longer opens it; a related asset opens; "Files (N)" once; the ungrouped

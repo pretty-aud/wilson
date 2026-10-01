@@ -49,7 +49,7 @@ import { useViewedShotList } from './scenes/useViewedShotList'
 import ShotLists from './scenes/ShotLists'
 import MenuButton from './scenes/MenuButton'
 import ListConfirm from './scenes/ListConfirm'
-import { deleteQuestion } from './scenes/membershipCopy'
+import { deleteQuestion, ARCHIVED_ADD_REASON } from './scenes/membershipCopy'
 import { sortShotLists } from '../state/shotListModel'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
@@ -485,8 +485,20 @@ export default function ScenesView({ pageActive = false } = {}) {
   // undo with a popup open); a question over them still stops them.
   // BudgetView and TimelineView bind the same keys with the same defect;
   // they stay with their owners (the hand-off says so).
+  // Review round 1 (R1-07): the tab's own surfaces are the ones that RENDER.
+  // A popup whose row is gone (Ctrl+Z took the scene it showed) draws
+  // nothing, and its id must not keep every other dialog's keys live — nor
+  // re-open the popup by itself when Ctrl+Y brings the row back: such an id
+  // is cleared (below).
   const ownSurfaceRef = useRef(false)
-  ownSurfaceRef.current = !!(detailSceneId || detailShotId || takesShotId || pickerShotId)
+  ownSurfaceRef.current = !!((detailSceneId && sceneById?.(detailSceneId)) || (detailShotId && shotById?.(detailShotId))
+    || (takesShotId && shotById?.(takesShotId)) || (pickerShotId && shotById?.(pickerShotId)))
+  useEffect(() => {
+    if (detailSceneId && !sceneById?.(detailSceneId)) setDetailSceneId(null)
+    if (detailShotId && !shotById?.(detailShotId)) setDetailShotId(null)
+    if (takesShotId && !shotById?.(takesShotId)) setTakesShotId(null)
+    if (pickerShotId && !shotById?.(pickerShotId)) setPickerShotId(null)
+  }, [detailSceneId, detailShotId, takesShotId, pickerShotId, sceneById, shotById])
   useEffect(() => {
     if (!supportsBins || !pageActive) return
     const h = (e) => {
@@ -589,12 +601,20 @@ export default function ScenesView({ pageActive = false } = {}) {
   // `{ listId }`), not the active one, so it appears where it was made. With
   // no list on screen the provider's own rule stands (the active list, if
   // the project has one: 'pending' is that list before it has loaded).
-  const newRowOpts = useMemo(() => (viewed.mode === 'list' ? { listId: viewed.id } : undefined), [viewed.mode, viewed.id])
+  // Review round 1 (R1-02): "Not in any list" makes its rows in NO list, so
+  // they appear where they were made (`{ listId: null }`); an archived list
+  // is read-only, so nothing is made "in" it — New scene, New shot and Add
+  // shot are greyed there, saying why. Without either, the provider put the
+  // row in the ACTIVE list: on every other tab, and nowhere on this screen.
+  const newRowOpts = useMemo(() => (viewed.mode === 'list' ? { listId: viewed.id }
+    : viewed.mode === 'unlisted' ? { listId: null } : undefined), [viewed.mode, viewed.id])
+  const canAddRows = canWriteProject && viewed.mode !== 'archived'
+  const addReason = canWriteProject && viewed.mode === 'archived' ? ARCHIVED_ADD_REASON : undefined
   // S3b step 7: every funnel checks the entity gate too (the Tasks tab's
   // Session 29 rule) — a greyed control is not the only way in (a key, a
   // stale closure, a later caller).
   const handleNewScene = useCallback(async () => {
-    if (!canWriteProject) return
+    if (!canAddRows) return
     const num = nextSceneNumber
     const name = formatSceneCode(num)
     try {
@@ -605,10 +625,10 @@ export default function ScenesView({ pageActive = false } = {}) {
         type: 'interior',
       }, newRowOpts)
     } catch (err) { console.error('Failed to create scene:', err) }
-  }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts, canWriteProject])
+  }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts, canAddRows])
 
   const handleNewShot = useCallback(async (sceneId) => {
-    if (!canWriteProject) return
+    if (!canAddRows) return
     const scene = sceneById?.(sceneId)
     const nextNum = nextShotNumberForScene(sceneId)
     const name = formatShotCode(scene?.scene_number ?? 0, nextNum)
@@ -622,23 +642,22 @@ export default function ScenesView({ pageActive = false } = {}) {
         frame_count: 0,
       }, newRowOpts)
     } catch (err) { console.error('Failed to create shot:', err) }
-  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts, canWriteProject])
+  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts, canAddRows])
 
-  // Every shot of the scene, in every list (S3b step 1), each deleted on its
-  // own first so each has its own undo; the database's cascade would take a
-  // shot only another list holds with none.
+  // Review round 1 (R1-01): S3a's deleteScene takes EVERY shot of the scene,
+  // in every list, and its ONE undo step puts the scene, each shot, every
+  // membership and every task link back. Deleting each shot first (as this
+  // did since before S3b, and step 1 widened to every list) split that into
+  // one undo step per shot — past the history's ten, shots no undo could
+  // bring back.
   const handleDeleteScene = useCallback(async (id) => {
     if (!canWriteProject) { setConfirmDelete(null); return }
     try {
-      const childShots = allShotsByScene[id] || []
-      for (const shot of childShots) {
-        await ctx?.deleteShot?.(shot.id)
-      }
       await ctx?.deleteScene?.(id)
     } catch (err) { console.error('Failed to delete scene:', err) }
     setConfirmDelete(null)
     if (detailSceneId === id) setDetailSceneId(null)
-  }, [ctx, allShotsByScene, detailSceneId, canWriteProject])
+  }, [ctx, detailSceneId, canWriteProject])
 
   const handleDeleteShot = useCallback(async (id) => {
     if (!canWriteProject) { setConfirmDelete(null); return }
@@ -1060,14 +1079,14 @@ export default function ScenesView({ pageActive = false } = {}) {
                 primary, as its orange fill was; the other is secondary.
                 S3b step 7: each greyed, with the reason, for a seat that
                 may not write scenes and shots (a reviewer). */}
-            <GatedAction allowed={canWriteProject}>
+            <GatedAction allowed={canAddRows} reason={addReason}>
               <Button size="sm" variant={contentMode === 'scenes' ? 'primary' : 'secondary'} Icon={Plus} onClick={handleNewScene}>
                 New scene
               </Button>
             </GatedAction>
 
             {/* New shot, with its scene picker */}
-            <GatedAction allowed={canWriteProject}>
+            <GatedAction allowed={canAddRows} reason={addReason}>
             <span ref={shotPickerRef} className="rb-scene-picker-anchor">
               <Button
                 size="sm"
@@ -1290,6 +1309,8 @@ export default function ScenesView({ pageActive = false } = {}) {
               onThumbChanged={() => setThumbRevision(r => r + 1)}
               rowMenu={rowListMenu}
               canWrite={canWriteProject}
+              canAdd={canAddRows}
+              addReason={addReason}
               nameTitle={inListsTitle}
               onBulkRemove={bulkRemove}
               describeDelete={describeDelete}
@@ -1339,7 +1360,6 @@ export default function ScenesView({ pageActive = false } = {}) {
                       scenes={g.scenes}
                       takes={takesApi}
                       shotsByScene={shotsByScene}
-                      allShotsByScene={allShotsByScene}
                       sceneTotals={sceneTotals}
                       assetCountByScene={assetCountByScene}
                       taskCountByScene={taskCountByScene}
@@ -1350,6 +1370,8 @@ export default function ScenesView({ pageActive = false } = {}) {
                       ctx={ctx}
                       rowMenu={rowListMenu}
                       canWrite={canWriteProject}
+                      canAdd={canAddRows}
+                      addReason={addReason}
                       nameTitle={inListsTitle}
                       onBulkRemove={bulkRemove}
                       describeDelete={describeDelete}
@@ -1367,7 +1389,6 @@ export default function ScenesView({ pageActive = false } = {}) {
                 scenes={sorted}
                 takes={takesApi}
                 shotsByScene={shotsByScene}
-                allShotsByScene={allShotsByScene}
                 sceneTotals={sceneTotals}
                 assetCountByScene={assetCountByScene}
                 taskCountByScene={taskCountByScene}
@@ -1381,6 +1402,8 @@ export default function ScenesView({ pageActive = false } = {}) {
                 ctx={ctx}
                 rowMenu={rowListMenu}
                 canWrite={canWriteProject}
+                canAdd={canAddRows}
+                addReason={addReason}
                 nameTitle={inListsTitle}
                 onBulkRemove={bulkRemove}
                 describeDelete={describeDelete}
@@ -1414,6 +1437,8 @@ export default function ScenesView({ pageActive = false } = {}) {
           sceneId={detailSceneId}
           ctx={ctx}
           canWrite={canWriteProject}
+          canAdd={canAddRows}
+          addReason={addReason}
           fps={fps}
           // The shots its row shows; for a scene the list on screen does not
           // hold (opened from another tab), every shot it has (S3b step 1).
@@ -1533,6 +1558,14 @@ function RowMore({ name, items }) {
 }
 
 
+/** Runs `fn` as ONE undo step — the provider's runBatch (review round 1,
+    R1-01: a bulk delete was one step a row, past the history's ten) — and
+    says a failure in the console, as the single deletes do theirs. */
+function asOneStep(ctx, fn, what) {
+  const run = ctx?.runBatch ? ctx.runBatch(fn) : fn()
+  return Promise.resolve(run).catch(err => console.error(`Failed to delete ${what}:`, err))
+}
+
 // ─── Scene table ───
 // The kit Table (R3-20): a real <table>, the same columns in the same order,
 // the header one row of the kit's Th. A scene's shots stay nested under it —
@@ -1542,7 +1575,7 @@ function RowMore({ name, items }) {
 // S3b: `rowMenu` (a row's shot-list menu), `nameTitle` (a name's lists, D10)
 // and `onBulkRemove` (the bulk bars' Remove from list, while a list is on
 // screen and this person writes lists) come from ScenesView.
-function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
@@ -1554,9 +1587,12 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
   function toggleNestedShot(id) { setSelectedNestedShots(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
   function clearNestedSelection() { setSelectedNestedShots(new Set()) }
   function bulkUpdateNestedShots(patch) { if (!canWrite) return; for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
+  // Review round 1 (R1-01): a bulk delete is ONE undo step (runBatch), not
+  // one per row: the history keeps ten, and a selection can be larger.
   function bulkDeleteNestedShots() {
     if (!canWrite) return
-    for (const id of selectedNestedShots) ctx?.deleteShot?.(id)
+    const ids = [...selectedNestedShots]
+    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteShot?.(id) }, 'shots')
     clearNestedSelection()
   }
 
@@ -1570,17 +1606,32 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allIds)) }
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
-  // Every shot of each scene, in every list (S3b step 1), as the row's own
-  // delete: a shot only another list holds gets its own undo.
+  // Each scene by S3a's deleteScene, which takes its every shot in every
+  // list (R1-01) — the whole selection in ONE undo step.
   function bulkDelete() {
     if (!canWrite) return
-    for (const id of selected) {
-      const childShots = allShotsByScene[id] || []
-      for (const shot of childShots) ctx?.deleteShot?.(shot.id)
-      ctx?.deleteScene?.(id)
-    }
+    const ids = [...selected]
+    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteScene?.(id) }, 'scenes')
     clearSelection()
   }
+
+  // Review round 1 (R1-05): a selection holds only rows this table shows. A
+  // change of the list on screen (or a search or filter) that takes a row
+  // away takes it out of the selection, so no bulk verb — Remove, Delete —
+  // acts on a row nobody can see.
+  useEffect(() => {
+    setSelected(prev => {
+      const keep = new Set([...prev].filter(id => allIds.includes(id)))
+      return keep.size === prev.size ? prev : keep
+    })
+  }, [allIds])
+  const tableShotIds = useMemo(() => new Set(scenes.flatMap(sc => (shotsByScene[sc.id] || []).map(s => s.id))), [scenes, shotsByScene])
+  useEffect(() => {
+    setSelectedNestedShots(prev => {
+      const keep = new Set([...prev].filter(id => tableShotIds.has(id)))
+      return keep.size === prev.size ? prev : keep
+    })
+  }, [tableShotIds])
 
   function toggleExpand(id) {
     setExpandedScenes(prev => {
@@ -1605,7 +1656,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
         <div className="rb-scene-bulk">
           <span className="rb-scene-bulk-count">{selected.size} selected</span>
           <span className="rb-scene-divider" aria-hidden="true" />
-          <GatedAction allowed={canWrite}>
+          <GatedAction allowed={canWrite} className="rb-scene-bulk-gate">
             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
           </GatedAction>
@@ -1830,7 +1881,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                         return (
                           <div className="rb-scene-nest-bulk">
                             <span className="rb-scene-bulk-count">{selInScene.length} selected</span>
-                            <GatedAction allowed={canWrite}>
+                            <GatedAction allowed={canWrite} className="rb-scene-bulk-gate">
                               <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
                               <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
                               <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
@@ -1998,7 +2049,7 @@ function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetC
                         </Table>
                       )}
                       {/* Add shot row */}
-                      <GatedAction allowed={canWrite} display="flex">
+                      <GatedAction allowed={canAdd} reason={addReason} display="flex">
                         <button type="button" onClick={() => onNewShot(sc.id)} className="rb-scene-add">
                           <Plus aria-hidden="true" /> Add shot
                         </button>
@@ -2125,7 +2176,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, can
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -2142,11 +2193,20 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allShotIds)) }
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
+  // One undo step for the selection (R1-01).
   function bulkDelete() {
     if (!canWrite) return
-    for (const id of selected) ctx?.deleteShot?.(id)
+    const ids = [...selected]
+    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteShot?.(id) }, 'shots')
     clearSelection()
   }
+  // Only rows this table shows stay selected (R1-05).
+  useEffect(() => {
+    setSelected(prev => {
+      const keep = new Set([...prev].filter(id => allShotIds.includes(id)))
+      return keep.size === prev.size ? prev : keep
+    })
+  }, [allShotIds])
 
   function toggleGroup(key) {
     setCollapsedGroups(prev => {
@@ -2172,7 +2232,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
         <div className="rb-scene-bulk">
           <span className="rb-scene-bulk-count">{selected.size} selected</span>
           <span className="rb-scene-divider" aria-hidden="true" />
-          <GatedAction allowed={canWrite}>
+          <GatedAction allowed={canWrite} className="rb-scene-bulk-gate">
             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
             <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
@@ -2499,7 +2559,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
               {!collapsed && g.scene && (
                 <Row>
                   <Td colSpan={span} className="rb-scene-add-cell">
-                    <GatedAction allowed={canWrite} display="flex">
+                    <GatedAction allowed={canAdd} reason={addReason} display="flex">
                       <button type="button" onClick={() => onNewShot(g.sceneId)} className="rb-scene-add">
                         <Plus aria-hidden="true" /> Add shot
                       </button>
@@ -2698,7 +2758,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 // with the reason (GatedAction); and D21 — a description or notes draft is
 // never dropped without a word (PopupDraftText; the question, ListConfirm,
 // over this popup, Cancel focused).
-function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot, canWrite = false }) {
+function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot, canWrite = false, canAdd = false, addReason }) {
   // S3b step 1: found among EVERY scene (ctx.sceneById, S3a), so a scene of
   // a list that is not the active one opens; ctx.scenes is the active list's.
   const scene = ctx?.sceneById?.(sceneId) || null
@@ -2707,10 +2767,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [descDraft, setDescDraft] = useState(scene?.description || '')
-  const [notesDraft, setNotesDraft] = useState(scene?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // Review round 1 (R1-06, D21): each draft follows the saved words while
+  // its editor is closed, or open and untouched — never once typed in.
+  const [descDraft, setDescDraft] = useSavedDraft(scene?.description || '', editingDesc)
+  const [notesDraft, setNotesDraft] = useSavedDraft(scene?.notes || '', editingNotes)
   // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
   const descWordsRef = useFocusBack(editingDesc)
   const notesWordsRef = useFocusBack(editingNotes)
@@ -2725,9 +2787,6 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   // The delete question asked from here is handed it (ConfirmDialog).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
-
-  useEffect(() => { setDescDraft(scene?.description || '') }, [scene?.description])
-  useEffect(() => { setNotesDraft(scene?.notes || '') }, [scene?.notes])
 
   if (!scene) return null
 
@@ -2774,6 +2833,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   }
 
   async function handleCreateTask(draft) {
+    if (!canWrite) return
     try {
       await ctx?.addTask?.({ ...draft, scene_id: scene.id })
       setShowCreateTask(false)
@@ -2859,7 +2919,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 ctx={ctx}
                 onOpenAsset={id => setNestedAssetId(id)}
                 onOpenTask={id => setNestedTaskId(id)}
-                onCreateTask={() => setShowCreateTask(true)}
+                // Review round 1 (R1-04): a task is an entity write — no "Add
+                // new task" for a seat that may not make one (RelationsPanel
+                // draws it only when it is handed this; greying it is S3c's,
+                // in that file).
+                onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
               />
             </div>
 
@@ -3075,7 +3139,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
               <div className="rb-scene-detail-text">
                 <div className="rb-scene-detail-list-head">
                   <FieldLabel>{`Shots (${sceneShots.length})`}</FieldLabel>
-                  <GatedAction allowed={canWrite}>
+                  <GatedAction allowed={canAdd} reason={addReason}>
                     <Button size="sm" Icon={Plus} onClick={() => onNewShot(sceneId)}>
                       Add shot
                     </Button>
@@ -3178,10 +3242,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [descDraft, setDescDraft] = useState(shot?.description || '')
-  const [notesDraft, setNotesDraft] = useState(shot?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  // R1-06: as the scene popup's (useSavedDraft).
+  const [descDraft, setDescDraft] = useSavedDraft(shot?.description || '', editingDesc)
+  const [notesDraft, setNotesDraft] = useSavedDraft(shot?.notes || '', editingNotes)
   // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
   const descWordsRef = useFocusBack(editingDesc)
   const notesWordsRef = useFocusBack(editingNotes)
@@ -3193,9 +3258,6 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   // What opened this popup, handed to the delete question (the scene popup's).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
-
-  useEffect(() => { setDescDraft(shot?.description || '') }, [shot?.description])
-  useEffect(() => { setNotesDraft(shot?.notes || '') }, [shot?.notes])
 
   if (!shot) return null
 
@@ -3239,6 +3301,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   }
 
   async function handleCreateTask(draft) {
+    if (!canWrite) return
     try {
       await ctx?.addTask?.({ ...draft, shot_id: shot.id, scene_id: shot.scene_id || null })
       setShowCreateTask(false)
@@ -3321,7 +3384,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 ctx={ctx}
                 onOpenAsset={id => setNestedAssetId(id)}
                 onOpenTask={id => setNestedTaskId(id)}
-                onCreateTask={() => setShowCreateTask(true)}
+                onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
               />
             </div>
 
@@ -4076,6 +4139,27 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose }) {
 // NOT on it: its words are a span, not a control, and making them one would
 // add a Tab stop to every row (C1; recorded for Audrey), so its close there
 // still leaves focus on <body>.
+/**
+ * A popup's draft of one saved text (D21; review round 1, R1-06). The saved
+ * words replace the draft while its editor is closed — and while it is open
+ * but still holds the words it opened on, so a change from elsewhere (a
+ * teammate, a re-read, Ctrl+Z) shows in an editor nobody has typed in,
+ * which neither reads as changed nor writes the old words back on Save. A
+ * draft someone HAS typed in stays put, and closing the popup still asks.
+ * The basis is read before the update is queued: React may run the updater
+ * after this effect has moved the ref on.
+ */
+function useSavedDraft(saved, editing) {
+  const [draft, setDraft] = useState(saved)
+  const basisRef = useRef(saved)
+  useEffect(() => {
+    const basis = basisRef.current
+    basisRef.current = saved
+    setDraft(d => (!editing || d === basis ? saved : d))
+  }, [saved, editing])
+  return [draft, setDraft]
+}
+
 function useFocusBack(editing) {
   const wordsRef = useRef(null)
   const wasEditing = useRef(editing)

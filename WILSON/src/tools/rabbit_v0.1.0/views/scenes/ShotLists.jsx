@@ -57,6 +57,8 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   // The picker, and over it (or alone) one question or form: { kind, row }.
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerError, setPickerError] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [dialog, setDialog] = useState(null)
   const close = useCallback(() => setDialog(null), [])
   const closePicker = useCallback(() => { setPickerOpen(false); setPickerError(null) }, [])
@@ -152,7 +154,11 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     out.push(gate.write
       ? { label: 'Edit details…', Icon: Pencil, onClick: () => setDialog({ kind: 'form', mode: 'details', row }) }
       : { label: 'Edit details…', Icon: Pencil, disabled: true, hint: 'read-only' })
-    if (gate.write && rowSave?.kind === 'never' && held) {
+    // Review round 1 (R1-08): not on the ACTIVE list — clearing it empties
+    // every other tab (D4 already keeps Archive off it), and every project's
+    // backfilled "Shot list 1" is active and never saved. For Audrey: should
+    // Clear ever reach the active list?
+    if (gate.write && rowSave?.kind === 'never' && held && !rowActive) {
       out.push({ label: 'Clear this list', Icon: Eraser, onClick: () => setDialog({ kind: 'clear', row }) })
     }
     if (gate.write && ctx?.canWithdrawShotList?.(row.id)) {
@@ -231,7 +237,18 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   // Where rows may come from: every other LIVE list (an archived one is set
   // aside; restore it to take from it), then the rows no live list holds,
   // then every row of the project — S3a's selectors, each in its own order.
-  const addFromOpen = dialog?.kind === 'addFrom' && viewed.mode === 'list' && !!list
+  // Review round 1 (R1-12): about the list it opened on — if the list on
+  // screen changes under it, it closes (as the Remove question does), never
+  // retargets, and does not come back with the list. The effect closes it;
+  // the id check keeps the one render before the effect from drawing it
+  // over the new list (no test can see that frame: the planted fault that
+  // removes only the check survives, recorded in the hand-off).
+  const addFromOpen = dialog?.kind === 'addFrom' && viewed.mode === 'list' && !!list && dialog.row?.id === list.id
+  const dialogKind = dialog?.kind
+  const dialogRowId = dialog?.row?.id
+  useEffect(() => {
+    if (dialogKind === 'addFrom' && (viewed.mode !== 'list' || viewed.id !== dialogRowId)) setDialog(null)
+  }, [dialogKind, dialogRowId, viewed.mode, viewed.id])
   const addSources = useMemo(() => {
     if (!addFromOpen) return []
     return [
@@ -279,7 +296,15 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
       homes: (ctx?.listsContaining?.(id) || []).filter(l => !l.archived_at && l.id !== list.id).map(label),
     })),
     shotCount: removeAsk.kind === 'scene' ? viewed.shots.filter(s => removeAsk.ids.includes(s.scene_id)).length : 0,
+    // Review round 1 (R1-08): the scene's shots that NO other live list
+    // holds go into no list with it, and an active list's rows leave every
+    // other tab — both said, not left for the person to find out.
+    homelessShots: removeAsk.kind === 'scene'
+      ? viewed.shots.filter(s => removeAsk.ids.includes(s.scene_id)
+        && !(ctx?.listsContaining?.(s.id) || []).some(l => !l.archived_at && l.id !== list.id)).length
+      : 0,
     listLabel: label(list),
+    active: list.id === activeId,
   }).join(' ') : ''
 
   return (
@@ -291,6 +316,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         activeLabel={activeList ? label(activeList) : ''}
         hasLiveList={hasLiveList}
         saveState={saveState}
+        saving={saving}
         withdrawn={!!(list && ctx?.isWithdrawn?.(list))}
         recent={recent}
         recentLabel={recent ? label(recent.row) : ''}
@@ -298,7 +324,14 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         on={{
           newList: () => setDialog({ kind: 'form', mode: 'new' }),
           openPicker: () => { setPickerError(null); setPickerOpen(true) },
-          save: () => run(() => ctx.saveShotListSnapshot(list.id)),
+          // Review round 1 (R1-13): one Save at a time — a double press
+          // recorded two version points.
+          save: () => {
+            if (savingRef.current) return
+            savingRef.current = true
+            setSaving(true)
+            run(() => ctx.saveShotListSnapshot(list.id)).finally(() => { savingRef.current = false; setSaving(false) })
+          },
           saveAs: () => setDialog({ kind: 'form', mode: 'saveAs' }),
           setActive: () => setDialog({ kind: 'setActive', row: list }),
           showList: (id) => showList(id),
@@ -388,7 +421,10 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           onCancel={close}
           onConfirm={() => inDialog(async () => { await ctx.withdrawShotList(target.id); close() })}
         >
-          {`You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back. It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived.`}
+          {/* Review round 1 (R1-15): "You made" only where the maker test
+              applies — the Local Server has no users, and offers Withdraw
+              on any untouched list. */}
+          {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or started an edit on it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived.`}
         </ListConfirm>
       )}
 

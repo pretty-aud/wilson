@@ -156,6 +156,19 @@ function page({ scenes = SCENES(), shots = SHOTS(), shotLists, shotListItems, ac
   return { ctx, ...render(<ScenesView pageActive={pageActive} />) }
 }
 
+/** A runBatch that knows when it is running, and mutators that note whether
+    each call came INSIDE it (review round 1: R1-01, R1-11 — a count of
+    runBatch calls passed with a call moved out of the batch). */
+function batchProbe() {
+  let depth = 0
+  const calls = []
+  return {
+    calls,
+    runBatch: vi.fn(async (fn) => { depth += 1; try { return await fn() } finally { depth -= 1 } }),
+    mark: (name, result = () => undefined) => vi.fn(async (...args) => { calls.push([name, depth > 0]); return result(...args) }),
+  }
+}
+
 /** A header cell's visible label: its words, less a screen-reader-only name. */
 const visibleLabel = (th) => {
   const c = th.cloneNode(true)
@@ -442,7 +455,7 @@ describe('surface 6a', () => {
     expect(within(rowOf('The door')).getByTitle('Assign takes from the bins').style.height).toBe('26px')
   })
 
-  it('W9: a row\'s Delete asks on the kit Dialog in <body> — Cancel keeps the scene, Delete deletes it and its shots through the context', async () => {
+  it('W9: a row\'s Delete asks on the kit Dialog in <body> — Cancel keeps the scene, Delete deletes it (and so its shots) through the context', async () => {
     const confirm = vi.spyOn(window, 'confirm')
     const { ctx } = page()
     fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
@@ -465,12 +478,14 @@ describe('surface 6a', () => {
     dialog = screen.getByRole('dialog', { name: 'Delete scene?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2'])
+    // Review round 1 (R1-01): S3a's deleteScene takes the shots, in ONE undo
+    // step — no deleteShot of its own per shot.
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(confirm).not.toHaveBeenCalled()
   })
 
-  it('W9: the scenes\' bulk Delete asks on the kit Dialog — Cancel and Escape keep the rows, a click outside does nothing, Delete deletes each scene and its shots', () => {
+  it('W9: the scenes\' bulk Delete asks on the kit Dialog — Cancel and Escape keep the rows, a click outside does nothing, Delete deletes each scene (and so its shots)', async () => {
     const confirm = vi.spyOn(window, 'confirm')
     const { ctx } = page()
     fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
@@ -498,8 +513,10 @@ describe('surface 6a', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Delete' }))
     dialog = screen.getByRole('dialog', { name: 'Delete scenes' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
-    expect(ctx.deleteScene.mock.calls.map((c) => c[0]).sort()).toEqual(['sc1', 'sc2'])
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2'])
+    // R1-01: one deleteScene a scene, awaited in turn inside one batch.
+    await waitFor(() => expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2']))
+    expect(ctx.runBatch).toHaveBeenCalledTimes(1)
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(bulk()).toBeNull()
     expect(confirm).not.toHaveBeenCalled()
@@ -531,7 +548,7 @@ describe('surface 6a', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
-  it('W9: the shot table\'s bulk Delete asks on the kit Dialog — Cancel keeps the shots, Delete deletes them through the context', () => {
+  it('W9: the shot table\'s bulk Delete asks on the kit Dialog — Cancel keeps the shots, Delete deletes them through the context', async () => {
     const confirm = vi.spyOn(window, 'confirm')
     const { ctx } = page()
     toShots()
@@ -550,7 +567,9 @@ describe('surface 6a', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Delete' }))
     dialog = screen.getByRole('dialog', { name: 'Delete shots' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0]).sort()).toEqual(['sh1', 'sh2'])
+    // R1-01: awaited in turn, inside one batch — one undo step.
+    await waitFor(() => expect(ctx.deleteShot.mock.calls.map((c) => c[0]).sort()).toEqual(['sh1', 'sh2']))
+    expect(ctx.runBatch).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(bulk()).toBeNull()
     expect(confirm).not.toHaveBeenCalled()
@@ -1108,7 +1127,8 @@ describe('surface 6c', () => {
     expect(ctx.deleteScene).not.toHaveBeenCalled()
     fireEvent.click(within(ask().querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2'])
+    // R1-01: the scene's own delete takes its shots.
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
   })
 
   it('W2: the name edits in place, the kit\'s small field where its well was — Enter commits; Escape reverts it and the popup stays; Description opens the kit\'s textarea, Escape drops the edit and the popup stays, Save writes', () => {
@@ -1450,21 +1470,33 @@ describe('S3b step 1: the tab is safe with more than one list', () => {
     expect(ctx.addShot.mock.calls[0][0]).toMatchObject({ scene_id: 'sc1', shot_number: 31, name: formatShotCode(ctx.project, 1, 31) })
   })
 
-  it('a scene\'s delete deletes every shot it has, in every list, each by its own call (so each has its own undo), then the scene', async () => {
+  // Review round 1 (R1-01) re-pinned these two. Step 1 had each shot deleted
+  // by its own call before the scene — "so each has its own undo" — on a
+  // premise S3a's round 1 had already made false: S3a's deleteScene takes
+  // EVERY shot of the scene, in every list, and its ONE undo step restores
+  // the scene, each shot, every membership and every task link
+  // (shotListsProvider.test.jsx). One step a shot ran past the history's
+  // ten: a scene with eleven shots came back with nine of them.
+  it('a scene\'s delete is S3a\'s deleteScene alone — the scene\'s every shot, in every list, goes with it in one undo step (R1-01)', async () => {
     const { ctx } = page(TWO_LISTS())
     fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2', 'sh4'])
+    expect(ctx.deleteScene).toHaveBeenCalledTimes(1)
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
   })
 
-  it('the bulk delete does the same for each scene ticked', () => {
-    const { ctx } = page(TWO_LISTS())
+  it('the bulk delete: each scene ticked by deleteScene, every call inside ONE batch — one undo step for the selection (R1-01)', async () => {
+    const probe = batchProbe()
+    const { ctx } = page({ ...TWO_LISTS(), runBatch: probe.runBatch, deleteScene: probe.mark('deleteScene') })
     fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
     fireEvent.click(within(document.querySelector('.rb-scene-bulk')).getByRole('button', { name: 'Delete' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
-    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2', 'sh4'])
-    expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1'])
+    await waitFor(() => expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2']))
+    expect(probe.calls).toEqual([['deleteScene', true], ['deleteScene', true]])
+    expect(ctx.runBatch).toHaveBeenCalledTimes(1)
+    expect(ctx.deleteShot).not.toHaveBeenCalled()
   })
 
   it('a shot and a scene only the other list holds open their popups ("Open in Scenes"): each found among every row, the shot\'s code and parent scene its own', () => {
@@ -1939,7 +1971,7 @@ describe('S3b step 4: the picker', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('a row\'s actions by seat (D8): a manager sets active and archives; a member sees both greyed, "managers only"; a list never Saved can be cleared; the active one is neither archived nor made active again', () => {
+  it('a row\'s actions by seat (D8): a manager sets active and archives; a member sees both greyed, "managers only"; a list never Saved can be cleared; the active one is neither archived, cleared nor made active again', () => {
     page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
     let dialog = openPicker()
     const rowMenu = (title) => {
@@ -1949,7 +1981,9 @@ describe('S3b step 4: the picker', () => {
       return out
     }
     expect(rowMenu('Pickups')).toEqual([['Set active', false], ['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
-    expect(rowMenu('Shoot')).toEqual([['Edit details…', false], ['Clear this list', false]])
+    // Review round 1 (R1-08): the active list is not cleared either — it
+    // would empty every other tab — though it was never Saved.
+    expect(rowMenu('Shoot')).toEqual([['Edit details…', false]])
     // The menu's Escape is the menu's: the picker stays.
     expect(screen.getByRole('dialog', { name: 'Shot lists' })).toBe(dialog)
     cleanup()
@@ -2128,7 +2162,13 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
   })
 
   it('the first list of a project: "Shot list 1" from every scene and shot, made active in the same step when this person may; for a member it is not', async () => {
-    let { ctx } = page({ shotLists: [], shotListItems: [], activeListId: null })
+    const probe = batchProbe()
+    let { ctx } = page({
+      shotLists: [], shotListItems: [], activeListId: null,
+      runBatch: probe.runBatch,
+      addShotList: probe.mark('addShotList', (opts) => ({ ...LIST_1, id: 'list-new', title: opts?.title, version: opts?.version ?? 1, summary: opts?.summary ?? null })),
+      setActiveShotList: probe.mark('setActiveShotList', (id) => id),
+    })
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
     let dialog = formDialog('New shot list')
     expect(titleField(dialog).value).toBe('Shot list 1')
@@ -2137,8 +2177,11 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     fireEvent.click(create(dialog, 'Create shot list'))
     await waitFor(() => expect(ctx.setActiveShotList).toHaveBeenCalledWith('list-new'))
     expect(ctx.addShotList).toHaveBeenCalledWith({ title: 'Shot list 1', version: 1, summary: null, fromAll: true })
-    // Both inside the one batch: one Ctrl+Z takes back the activation, then the list.
+    // Both inside the one batch: one Ctrl+Z takes back the activation, then
+    // the list (review round 1, R1-11: the count alone passed with the
+    // activation moved out of the batch).
     expect(ctx.runBatch).toHaveBeenCalledTimes(1)
+    expect(probe.calls).toEqual([['addShotList', true], ['setActiveShotList', true]])
     cleanup()
     ;({ ctx } = page({ shotLists: [], shotListItems: [], activeListId: null, ...seat('member') }))
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
@@ -2167,7 +2210,9 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     expect(screen.getByRole('alert').textContent).toBe(`“Shot list 1 · v1” was made, but not made active: ${seated}`)
   })
 
-  it('Escape, ✕, Cancel or the backdrop ask before a changed form is dropped — Cancel focused; an untouched one closes at once', () => {
+  // Review round 1 (R1-11): this said "✕ … or the backdrop" and tested
+  // neither; the backdrop does nothing (the kit form's default).
+  it('Escape, ✕ and Cancel ask before a changed form is dropped — Cancel focused; a press on the backdrop does nothing; an untouched one closes at once', () => {
     page(TWO_LISTS())
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
     escape()
@@ -2182,6 +2227,15 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
     expect(formDialog('New shot list')).toBe(dialog)
     expect(titleField(dialog).value).toBe('Night exteriors')
+    // The ✕ asks too.
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-head')).getByRole('button', { name: 'Close' }))
+    ask = screen.getByRole('dialog', { name: 'Discard this new shot list?' })
+    fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+    expect(formDialog('New shot list')).toBe(dialog)
+    // A press on the backdrop: nothing — no question, the form and its words stay.
+    fireEvent.mouseDown(dialog.closest('.ui-dialog-backdrop'))
+    expect(screen.queryByRole('dialog', { name: 'Discard this new shot list?' })).toBeNull()
+    expect([formDialog('New shot list'), titleField(dialog).value]).toEqual([dialog, 'Night exteriors'])
     fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Cancel' }))
     ask = screen.getByRole('dialog', { name: 'Discard this new shot list?' })
     fireEvent.click(within(ask).getByRole('button', { name: 'Discard' }))
@@ -2233,7 +2287,9 @@ describe('S3b step 6: Remove from this list', () => {
     const dialog = removeDialog()
     expect([dialog.getAttribute('data-width'), dialog.closest('.ui-dialog-backdrop').parentElement]).toEqual(['confirm', document.body])
     expect(document.activeElement.textContent).toBe('Cancel')
-    expect(askWords(dialog)).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”.')
+    // Review round 1 (R1-08): Pickups holds the scene but neither of these
+    // shots, and Shoot is the active list — both said.
+    expect(askWords(dialog)).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. Its 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show it.')
     // The verb says what it does; it is not Delete.
     expect([...dialog.querySelectorAll('.ui-dialog-foot button')].map((b) => b.textContent)).toEqual(['Cancel', 'Remove from list'])
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
@@ -2252,12 +2308,12 @@ describe('S3b step 6: Remove from this list', () => {
     const { ctx } = page(TWO_LISTS())
     openMore('Cliff path')
     fireEvent.click(menuItem('Remove from this list'))
-    expect(askWords(removeDialog())).toBe('Takes “Cliff path” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+    expect(askWords(removeDialog())).toBe('Takes “Cliff path” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show it.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Cancel' }))
     openScene('Lighthouse, dawn')
     openMore('The door')
     fireEvent.click(menuItem('Remove from this list'))
-    expect(askWords(removeDialog())).toBe('Takes shot “The door” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”.')
+    expect(askWords(removeDialog())).toBe('Takes shot “The door” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show it.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-a', { shotIds: ['sh1'] }))
   })
@@ -2269,7 +2325,7 @@ describe('S3b step 6: Remove from this list', () => {
     const verbs = [...bulkBarOf().querySelectorAll('.ui-btn')].map((b) => [b.textContent, b.getAttribute('data-variant')])
     expect(verbs).toEqual([['Remove from list', 'secondary'], ['Delete', 'danger']])
     fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Remove from list' }))
-    expect(askWords(removeDialog())).toBe('Takes 2 scenes and their 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. 1 of them is in no other shot list, so Shot lists… will show it under “Not in any list”. The other one is still in “Pickups · v1”.')
+    expect(askWords(removeDialog())).toBe('Takes 2 scenes and their 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. 1 of them is in no other shot list, so Shot lists… will show it under “Not in any list”. The other one is still in “Pickups · v1”. Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show them.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(bulkBarOf()).toBeNull())
     expect(ctx.removeFromShotList.mock.calls).toEqual([['list-a', { sceneIds: ['sc1', 'sc2'] }]])
@@ -2278,7 +2334,7 @@ describe('S3b step 6: Remove from this list', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
     fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
     fireEvent.click(within(bulkBarOf('.rb-scene-nest-bulk')).getByRole('button', { name: 'Remove from list' }))
-    expect(askWords(removeDialog())).toBe('Takes 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. No other shot list holds them, so Shot lists… will show them under “Not in any list”.')
+    expect(askWords(removeDialog())).toBe('Takes 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. No other shot list holds them, so Shot lists… will show them under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show them.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(bulkBarOf('.rb-scene-nest-bulk')).toBeNull())
     expect(ctx.removeFromShotList).toHaveBeenLastCalledWith('list-a', { shotIds: ['sh1', 'sh2'] })
@@ -2836,5 +2892,293 @@ describe('S3b step 7: the four old Scenes bugs', () => {
     const shot = openShotPopup()
     fireEvent.click(within(shot.querySelector('.rb-scene-detail-side')).getByText('Fresnel lamp'))
     expect(screen.getByRole('dialog', { name: 'Fresnel lamp' })).toBeTruthy()
+  })
+})
+
+/* ── post-overhaul S3b, review round 1 ──────────────────────────────────────
+   One test (or more) for each defect the first adversarial review found in
+   S3b's own files, R1-01 … R1-16; each fails on the code before its fix
+   (the hand-off lists the planted faults). R1-01's and R1-11's are the
+   re-pinned tests above (batchProbe). */
+const ARCHIVED_REASON = 'This shot list is archived. Restore it, or open another list, to add scenes and shots.'
+/** Show the list in the provider's place: the context rebuilt over new rows. */
+const swapRows = (ctx, rerender, rows) => {
+  rabbit.current = { ...ctx, ...listContext({ project: ctx.project, ...rows }) }
+  rerender(<ScenesView pageActive />)
+}
+
+describe('S3b review round 1', () => {
+  it('R1-02: with an archived list on screen New scene, New shot and every Add shot are greyed with the reason — a new row went to the ACTIVE list; "Not in any list" makes rows in no list', async () => {
+    const two = TWO_LISTS()
+    const archived = { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    let { ctx } = page({ ...two, shotLists: [two.shotLists[0], archived] })
+    const dialog = openPicker()
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Archived…/ }))
+    fireEvent.click(pickerRow(dialog, 'Pickups'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open' }))
+    expect(bar().querySelector('.ui-status').textContent).toBe('Archived')
+    for (const words of ['New scene', 'New shot']) expect(gateOf(screen.getByRole('button', { name: words }))?.getAttribute('title'), words).toBe(ARCHIVED_REASON)
+    openScene('Lighthouse, dawn')
+    const nest = rowOf('Lighthouse, dawn').nextElementSibling
+    expect(gateOf(within(nest).getByRole('button', { name: 'Add shot' }))?.getAttribute('title')).toBe(ARCHIVED_REASON)
+    // The rows themselves are the project's: still edited and deleted here.
+    expect(gateOf(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))).toBeNull()
+    // jsdom does not honour inert: the funnels refuse on their own.
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    fireEvent.click(within(nest).getByRole('button', { name: 'Add shot' }))
+    const popup = openScenePopup()
+    expect(gateOf(within(popup.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Add shot' }))?.getAttribute('title')).toBe(ARCHIVED_REASON)
+    await act(async () => {})
+    expect([ctx.addScene.mock.calls.length, ctx.addShot.mock.calls.length]).toEqual([0, 0])
+    cleanup()
+    // "Not in any list": a new scene is in no list, said in so many words.
+    ;({ ctx } = page(WITH_UNLISTED()))
+    const picker = openPicker()
+    fireEvent.click(within(picker).getByRole('button', { name: /^Not in any list/ }))
+    fireEvent.click(within(picker).getByRole('button', { name: 'Open' }))
+    expect(gateOf(screen.getByRole('button', { name: 'New scene' }))).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    await waitFor(() => expect(ctx.addScene).toHaveBeenCalledTimes(1))
+    expect(ctx.addScene.mock.calls[0][1]).toEqual({ listId: null })
+    cleanup()
+    // CONTROL: on a live list, the list's id.
+    ;({ ctx } = page(TWO_LISTS()))
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    await waitFor(() => expect(ctx.addScene).toHaveBeenCalledTimes(1))
+    expect(ctx.addScene.mock.calls[0][1]).toEqual({ listId: 'list-a' })
+  })
+
+  it('R1-03: a gallery card\'s shot-list menu does its verb and nothing else — the card under it does not open', () => {
+    const { ctx } = page(TWO_LISTS())
+    toGallery()
+    fireEvent.click(within(cardOf('Lighthouse, dawn')).getByRole('button', { name: 'Shot list actions for Lighthouse, dawn' }))
+    // CONTROL: opening the menu opens nothing.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(screen.getByRole('dialog', { name: 'Remove from this list?' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'Lighthouse, dawn' })).toBeNull()
+    escape()
+    toShots()
+    fireEvent.click(within(cardOf('The door')).getByRole('button', { name: 'Shot list actions for The door' }))
+    fireEvent.click(menuItem('Move down'))
+    expect(ctx.reorderShotListItems).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('R1-04: a reviewer\'s popups offer no "Add new task" (the panel shows it whenever it is handed onCreateTask); a member\'s do', () => {
+    page({ ...TWO_LISTS(), ...seat('reviewer') })
+    let dialog = openScenePopup()
+    expect(within(dialog).queryByRole('button', { name: 'Add new task' })).toBeNull()
+    escape()
+    dialog = openShotPopup()
+    expect(within(dialog).queryByRole('button', { name: 'Add new task' })).toBeNull()
+    cleanup()
+    page({ ...TWO_LISTS(), ...seat('member') })
+    dialog = openScenePopup()
+    expect(within(dialog).getByRole('button', { name: 'Add new task' })).toBeTruthy()
+    escape()
+    dialog = openShotPopup()
+    expect(within(dialog).getByRole('button', { name: 'Add new task' })).toBeTruthy()
+  })
+
+  it('R1-05: a selection holds only rows on screen — another list opened takes the rest out of it, so no bulk verb acts on a row nobody sees', () => {
+    page(TWO_LISTS())
+    fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
+    expect(within(bulkBarOf()).getByText('1 selected')).toBeTruthy()
+    fireEvent.doubleClick(pickerRow(openPicker(), 'Pickups'))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(bulkBarOf()).toBeNull()
+    // A row on both lists stays ticked (CONTROL: the pruning keeps what it can).
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    fireEvent.doubleClick(pickerRow(openPicker(), 'Shoot'))
+    expect(within(bulkBarOf()).getByText('1 selected')).toBeTruthy()
+    expect(rowOf('Lighthouse, dawn').getAttribute('data-selected')).toBe('true')
+    // The shot table's too.
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
+    fireEvent.doubleClick(pickerRow(openPicker(), 'Pickups'))
+    expect(bulkBarOf()).toBeNull()
+  })
+
+  it('R1-06: a draft typed in stays when the saved words change under it, and closing still asks; an editor open but untouched shows the new words', () => {
+    const { ctx, rerender } = page()
+    const dialog = openScenePopup()
+    const main = dialog.querySelector('.rb-scene-detail-main')
+    const rows = (sc1) => {
+      const scenes = SCENES().map((s) => (s.id === 'sc1' ? { ...s, ...sc1 } : s))
+      return { scenes, shots: SHOTS(), shotLists: [LIST_1], shotListItems: itemsFor(LIST_1.id, backfillItems(scenes, SHOTS())) }
+    }
+    // The notes: open, nothing typed — a teammate's words arrive and show.
+    fireEvent.click(within(main).getByRole('button', { name: 'Click to add notes...' }))
+    swapRows(ctx, rerender, rows({ notes: 'Bring the lamp.' }))
+    expect(within(main).getByRole('textbox', { name: 'Notes' }).value).toBe('Bring the lamp.')
+    // The description: typed in — the draft stays.
+    fireEvent.click(within(main).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(main).getByRole('textbox', { name: 'Description' }), { target: { value: 'Mara stays out.' } })
+    swapRows(ctx, rerender, rows({ notes: 'Bring the lamp.', description: 'Mara knocks.' }))
+    expect(within(main).getByRole('textbox', { name: 'Description' }).value).toBe('Mara stays out.')
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    // Only the draft someone typed is "not saved".
+    expect(screen.getByRole('dialog', { name: 'Discard your changes?' }).querySelector('.ui-dialog-body').textContent)
+      .toBe('What you typed in the description is not saved. Discard it, or go back and Save it.')
+  })
+
+  it('R1-07: a popup whose row is gone keeps no key live behind the picker, and does not come back by itself with the row', () => {
+    const undo = vi.fn()
+    const data = TWO_LISTS()
+    // The keys are bound where the bins are (supportsBins).
+    const { ctx, rerender } = page({ ...data, ...TAKES, undo })
+    openScenePopup('Cliff path')
+    // The scene is gone (Ctrl+Z took its creation, or a teammate deleted it).
+    swapRows(ctx, rerender, { scenes: data.scenes.filter((s) => s.id !== 'sc2'), shots: data.shots, shotLists: data.shotLists, shotListItems: data.shotListItems.filter((i) => i.scene_id !== 'sc2') })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    openPicker()
+    fireEvent.keyDown(document.activeElement, { key: 'z', ctrlKey: true })
+    expect(undo).not.toHaveBeenCalled()
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Ctrl+Y brings the scene back: its popup stays closed.
+    rabbit.current = ctx
+    rerender(<ScenesView pageActive />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // CONTROL: with nothing over the tab, the key undoes.
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('R1-08: a scene\'s shots no other list holds are counted apart from its own homes; from a list that is not the active one, no word of the other tabs', () => {
+    const two = TWO_LISTS()
+    // Pickups holds The door too.
+    const data = { ...two, shotListItems: [...two.shotListItems, { ...itemsFor('list-b', [{ shot_id: 'sh1', position: 1 }])[0], id: 'list-b-extra' }] }
+    page(data)
+    openMore('Lighthouse, dawn')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. 1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”. This is the active list, so the Timeline, Budget and every other tab will no longer show it.')
+    cleanup()
+    remember('list-b')
+    page(data)
+    openMore('Lighthouse, dawn')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Pickups · v1”. Nothing is deleted: it stays in the project. It is still in “Shoot · v1”. 1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”.')
+  })
+
+  it('R1-09: the menu takes focus as it opens and gives it back; its button closes it; in the picker it sits inside the dialog', () => {
+    page(TWO_LISTS())
+    const button = within(bar()).getByRole('button', { name: 'More shot list actions' })
+    button.focus()
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(menuItem('Add from another list…'))
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(document.querySelector('.ui-menu')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    // The button closes its own menu: the press closes it, the click does not open it again…
+    fireEvent.click(button)
+    fireEvent.mouseDown(button)
+    fireEvent.click(button)
+    expect(document.querySelector('.ui-menu')).toBeNull()
+    // …and the next click opens it.
+    fireEvent.click(button)
+    expect(document.querySelector('.ui-menu')).not.toBeNull()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    // An item that opens nothing leaves focus on the row's button.
+    openMore('Cliff path')
+    fireEvent.click(menuItem('Move up'))
+    expect(document.activeElement).toBe(moreButton('Cliff path'))
+    // An item that opens a question: the question gives focus back to the
+    // row's button, not to the item that went with the menu.
+    openMore('Cliff path')
+    fireEvent.click(menuItem('Remove from this list'))
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(moreButton('Cliff path'))
+    // In the picker: inside the dialog, so its Tab trap holds the items.
+    const dialog = openPicker()
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Actions for Pickups · v1' }))
+    expect(dialog.contains(document.querySelector('.ui-menu'))).toBe(true)
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+
+  it('R1-11: with no seat to write lists, the More menu offers no Clear and no Withdraw, whatever S3a would allow', () => {
+    remember('list-b', 'u-1')
+    page({ ...TWO_LISTS(), canWithdrawShotList: () => true, ...seat(null) })
+    expect(barMenu()).toEqual([['Add from another list…', true], ['Edit details…', true], ['Archive', true]])
+    fireEvent.keyDown(document, { key: 'Escape' })
+    cleanup()
+    localStorage.clear()
+    // CONTROL: a member sees both.
+    remember('list-b', 'u-1')
+    page({ ...TWO_LISTS(), canWithdrawShotList: () => true, ...seat('member') })
+    expect(barMenu().map(([w]) => w)).toEqual(['Add from another list…', 'Edit details…', 'Clear this list', 'Withdraw', 'Archive'])
+  })
+
+  it('R1-12: Add from another list… closes if the list on screen changes under it — it never retargets — and does not come back with the list', () => {
+    remember('list-b')
+    const data = TWO_LISTS()
+    const { ctx, rerender } = page(data)
+    openAddFrom()
+    const archived = data.shotLists.map((l) => (l.id === 'list-b' ? { ...l, archived_at: '2026-10-01T10:00:00Z', archived_by: 'u-9' } : l))
+    swapRows(ctx, rerender, { scenes: data.scenes, shots: data.shots, shotLists: archived, shotListItems: data.shotListItems })
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
+    expect(screen.queryByRole('dialog', { name: 'Add from another list' })).toBeNull()
+    // Restored: Pickups is on screen again (still remembered), the dialog is not.
+    swapRows(ctx, rerender, { scenes: data.scenes, shots: data.shots, shotLists: data.shotLists, shotListItems: data.shotListItems })
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(screen.queryByRole('dialog', { name: 'Add from another list' })).toBeNull()
+    expect(ctx.addToShotList).not.toHaveBeenCalled()
+  })
+
+  it('R1-13: one Save at a time — a double press records one version point; the button is busy until it is done', async () => {
+    let done
+    const saveShotListSnapshot = vi.fn(() => new Promise((r) => { done = r }))
+    page({ ...TWO_LISTS(), saveShotListSnapshot })
+    const save = within(bar()).getByRole('button', { name: 'Save' })
+    // Two presses before React draws the busy button.
+    act(() => { save.click(); save.click() })
+    expect(saveShotListSnapshot).toHaveBeenCalledTimes(1)
+    expect([save.disabled, save.getAttribute('aria-busy')]).toEqual([true, 'true'])
+    await act(async () => { done({ id: 'list-a' }) })
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    expect(saveShotListSnapshot).toHaveBeenCalledTimes(2)
+  })
+
+  it('R1-14: New shot list from "Not in any list" opens on what to do, not on a refusal; a title of spaces is refused', () => {
+    page(WITH_UNLISTED())
+    const picker = openPicker()
+    fireEvent.click(within(picker).getByRole('button', { name: /^Not in any list/ }))
+    fireEvent.click(within(picker).getByRole('button', { name: 'Open' }))
+    fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
+    const dialog = formDialog('New shot list')
+    expect(titleField(dialog).value).toBe('')
+    expect([takes(dialog).textContent, takes(dialog).getAttribute('data-state')]).toEqual(['Type a title for the new shot list.', 'hint'])
+    fireEvent.change(titleField(dialog), { target: { value: '   ' } })
+    expect([takes(dialog).textContent, takes(dialog).getAttribute('data-state')]).toEqual(['A shot list needs a title.', 'refused'])
+    expect(create(dialog, 'Create shot list').disabled).toBe(true)
+  })
+
+  it('R1-15: Withdraw says "You made" only where the maker test holds — on the Local Server, any untouched list may be taken back', () => {
+    remember('list-b')
+    page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
+    barMenu()
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
+    expect(screen.getByRole('dialog', { name: 'Withdraw this list?' }).querySelector('.ui-dialog-body').textContent)
+      .toBe('Nobody has saved “Pickups · v1” or started an edit on it, so it can be taken back. It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived.')
+    cleanup()
+    localStorage.clear()
+    remember('list-b', 'u-1')
+    page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b', ...seat('member'), adapterMode: 'supabase' })
+    barMenu()
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
+    expect(screen.getByRole('dialog', { name: 'Withdraw this list?' }).querySelector('.ui-dialog-body').textContent)
+      .toMatch(/^You made “Pickups · v1” and nobody has saved it or started an edit on it, so you can take it back\. /)
+  })
+
+  it('R1-16: a reviewer\'s greyed bulk edits share a wrapper that keeps the bar\'s gap (rabbitScenesCss.test.js reads the rule)', () => {
+    page({ ...TWO_LISTS(), ...seat('reviewer') })
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    expect(gateOf(within(bulkBarOf()).getByRole('combobox', { name: 'Status' })).classList.contains('rb-scene-bulk-gate')).toBe(true)
+    toShots()
+    fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
+    expect(gateOf(within(bulkBarOf()).getByRole('combobox', { name: 'Status' })).classList.contains('rb-scene-bulk-gate')).toBe(true)
   })
 })

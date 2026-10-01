@@ -69,6 +69,19 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
     expect(text).toContain('Deletes the scene or shot from the project, and so from every list that holds it.')
   })
 
+  // Review round 1 (R1-10): the page promised a way back to a Save, and that
+  // any window over the tab stopped the keys; neither is what the tab does.
+  // R1-08: Clear is never offered on the active list.
+  it('says only what the tab does: Save reads nothing back; what stops the keys; Clear never on the active list', () => {
+    const text = page()
+    expect(text).not.toMatch(/come back to/)
+    expect(text).toContain('the bar says "Saved" with the date until the list next changes')
+    expect(read('./views/scenes/ShotListBar.jsx')).toMatch(/`Saved \$\{showDate\(saveState\.at\)\}`/)
+    expect(text).toContain('in its scene and shot windows and in the windows they open, but not while you type in a field, nor while a menu, a question, the settings drawer or a shot-list window is open.')
+    expect(text).toContain('Clear this list (never on the active list, and only before it is first saved)')
+    expect(read('./views/scenes/ShotLists.jsx')).toMatch(/gate\.write && rowSave\?\.kind === 'never' && held && !rowActive/)
+  })
+
   it('draws on both surfaces (the Help page is light, the tool\'s dialog dark)', () => {
     expect(page('light')).toBe(page('dark'))
     expect(page('light').length).toBeGreaterThan(1500)

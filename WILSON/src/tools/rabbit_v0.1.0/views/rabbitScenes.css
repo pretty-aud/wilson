@@ -781,6 +781,10 @@
   /* …and GatedAction's wrapper, drawn only while it greys the Delete for a
      seat that may not delete shots (S3b step 7). */
   .rb-scene-nest-bulk > .rb-scene-nest-delete-gate { margin-left: auto; }
+  /* The bulk bars' greyed edits share one GatedAction wrapper: it keeps the
+     bar's own gap between them, so the greyed selects do not touch (S3b
+     review round 1, R1-16). */
+  .rb-scene-bulk-gate { gap: inherit; }
 
   /* Add shot: the dashed row it always was, in the third ink (#57534e on a
      #292524 dash before), the hover fill and the second ink on hover. Its

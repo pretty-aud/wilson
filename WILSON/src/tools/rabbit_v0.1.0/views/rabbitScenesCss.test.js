@@ -693,7 +693,8 @@ describe('S3b step 6: the card\'s shot-list menu over a picture; the Add-from ro
 /* ── 7g. S3b step 7: what a reviewer reads ────────────────────────────────
    The read-only cells and thumbnails (`data-static`) promise nothing — no
    hover fill, no text cursor or pointer, the mark kept on hover — and the
-   nest's greyed Delete keeps its place at the bar's end. */
+   nest's greyed Delete keeps its place at the bar's end; the bulk bars'
+   greyed edits keep the bar's gap between them (review round 1, R1-16). */
 describe('S3b step 7: a read-only cell or thumbnail promises nothing; a greyed Delete keeps its place', () => {
   const STATIC = [
     ['.rb-scene-inline[data-static="true"]', 'cursor', 'default'],
@@ -701,6 +702,7 @@ describe('S3b step 7: a read-only cell or thumbnail promises nothing; a greyed D
     ['.rb-scene-thumb[data-static="true"]', 'cursor', 'default'],
     ['.rb-scene-thumb[data-static="true"]:hover > .rb-scene-thumb-mark', 'opacity', '1'],
     ['.rb-scene-nest-bulk > .rb-scene-nest-delete-gate', 'margin-left', 'auto'],
+    ['.rb-scene-bulk-gate', 'gap', 'inherit'],
   ]
   it('each declared, and each over the rule it answers', () => {
     for (const [sel, prop, value] of STATIC) expect(declaredValue(sheet, sel, prop), sel).toBe(value)
