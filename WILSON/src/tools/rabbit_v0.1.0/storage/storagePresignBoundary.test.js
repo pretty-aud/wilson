@@ -304,10 +304,19 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   it('the two upload surfaces RENDER a refusal instead of logging it', () => {
     // S37 gave uploadFile three new guaranteed-throw paths; both of these
     // catches used to end their journey in the devtools console.
-    for (const view of ['BudgetView.jsx', 'ProjectSummaryView.jsx']) {
-      const src = read('src', 'tools', 'rabbit_v0.1.0', 'views', view)
-      expect(src, view).toContain('setUploadError(err?.message')
-      expect(src, view).toContain('{uploadError}')
+    // Post-overhaul S4a (E1): the project-level Add files left the Summary's
+    // Control Panel for the Files tab (ProjectFilesExplorer), and the rule
+    // went with it — the Summary no longer uploads at all.
+    const surfaces = [
+      ['src', 'tools', 'rabbit_v0.1.0', 'views', 'BudgetView.jsx'],
+      ['src', 'components', 'Resources', 'ProjectFilesExplorer.jsx'],
+    ]
+    for (const parts of surfaces) {
+      const src = read(...parts)
+      const name = parts[parts.length - 1]
+      expect(src, name).toContain('setUploadError(err?.message')
+      expect(src, name).toContain('{uploadError}')
     }
+    expect(read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')).not.toMatch(/uploadFile\?\.\(/)
   })
 })

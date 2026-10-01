@@ -106,11 +106,18 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
+import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
+import { usePermissions } from '../../permissions/usePermissions'
+import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
+import GatedAction from '../../permissions/GatedAction'
+import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
+import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import {
-  Banner, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
+  Banner, Button, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
   Tabs, Td, Th, Toolbar,
 } from '../../ui'
 // `type="search"` is deliberate: the field was a `<input type="search">` and
@@ -326,6 +333,80 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
 
   const project = projects.find(p => p.id === projectId) || null
 
+  // ── Who may change what, for the project on screen ──────────────────────
+  // The open project's seat is known (useProjectAccess, canSeeProjectMoney).
+  // A project the Resources page shows WITHOUT opening it has no seat in
+  // hand, so it fails closed for anyone below a workspace admin / manager —
+  // the task-template precedent (projectRoleMatrix.js): "hide the control and
+  // let them edit it with that project open". The Local Server has no roles
+  // at all (noRoles), so there everything is a label and allowed; a backend
+  // that cannot write (Google Drive) allows nothing. The DATABASE is the gate.
+  const perms = usePermissions()
+  const access = useProjectAccess()
+  const noRoles = ctx?.adapterMode === 'local_server'
+  const backendWrites = adapterSupportsWrites(ctx?.adapterMode)
+  const appRole = perms?.role ?? null
+  const canWrite = backendWrites && (noRoles || (isOpenProject
+    ? access.canWrite
+    : (appRole === 'admin' || appRole === 'manager')))
+  const canSeeMoney = noRoles || (isOpenProject
+    ? canSeeProjectMoney({ appRole, projectRole: ctx?.myProjectRole })
+    : appRole === 'admin')
+  const writeReason = !backendWrites
+    ? 'This backend is read-only.'
+    : (isOpenProject
+      ? access.writeReason
+      : 'Open this project in R.A.B.B.I.T. to change its files; your seat on it is read when it is open.')
+
+  // ── E1: the three controls that left the Summary's Control Panel ──────────
+  // They act on the OPEN project (uploadFile files into it, the census and
+  // the dialog name it), so they live on the tab, which is always that one.
+  const onTab = !showPicker
+  const fileInputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const uploadFile = ctx?.uploadFile
+  const handleUpload = useCallback(async (e) => {
+    const picked = Array.from(e.target.files || [])
+    if (picked.length === 0) return
+    setUploading(true)
+    setUploadError('')
+    try {
+      // Uploads still file to the project root, exactly as the Control
+      // Panel's did (E1): `{ type: 'project' }`, no folder, no entity.
+      for (const file of picked) await uploadFile?.(file, { type: 'project' })
+    } catch (err) {
+      // A refusal is READ, not logged (the S37 rule the Control Panel's
+      // handler carried): storage refusals arrive as thrown sentences.
+      setUploadError(err?.message || 'Upload failed.')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [uploadFile])
+
+  // The missing-files census (Session 14), moved with its banner. Local
+  // Server only — where folders actually move; a bucket path does not drift,
+  // so the cloud gets no false affordance. getAdapter is the provider's
+  // STABLE callback; the sequence drops an out-of-order scan.
+  const relinkSupported = onTab && !!projectId && typeof getAdapter?.()?.relinkScan === 'function'
+  const [missingCount, setMissingCount] = useState(0)
+  const [relinkOpen, setRelinkOpen] = useState(false)
+  const censusSeqRef = useRef(0)
+  const refreshMissing = useCallback(async () => {
+    if (!relinkSupported) { setMissingCount(0); return }
+    const seq = ++censusSeqRef.current
+    try {
+      const res = await getAdapter().relinkScan(projectId)
+      if (seq === censusSeqRef.current) setMissingCount(res?.missing?.length ?? 0)
+    } catch { /* census only — the dialog surfaces real errors */ }
+  }, [relinkSupported, getAdapter, projectId])
+  useEffect(() => { refreshMissing() }, [refreshMissing])
+
+  // File activity follows the selection: the drawer reads one file's events.
+  const [auditOpen, setAuditOpen] = useState(false)
+  useEffect(() => { if (!selectedFile) setAuditOpen(false) }, [selectedFile])
+
   return (
     <div className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
       {/* One 44px toolbar, every child 28px, left and right slots. It replaced
@@ -362,6 +443,37 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                 {tree.folderCount} folder{tree.folderCount === 1 ? '' : 's'} · {tree.fileCount} file{tree.fileCount === 1 ? '' : 's'}
                 {project ? ` · ${project.title}` : ''}
               </span>
+            )}
+            {/* E1: File activity and Add files, moved from the Control Panel.
+                The tab only: both act on the open project. The primary sits
+                at the right end, as New asset does on Assets (Jakob). */}
+            {onTab && (
+              <Button
+                size="sm"
+                Icon={FileClock}
+                onClick={() => setAuditOpen(true)}
+                disabled={!selectedFile}
+                title={selectedFile ? `See who touched ${selectedFile.name}, and when` : 'Select a file to see its activity'}
+                data-file-activity
+              >
+                File activity
+              </Button>
+            )}
+            {onTab && (
+              <GatedAction allowed={canWrite} reason={writeReason}>
+                <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="fx-file-input" tabIndex={-1} aria-hidden="true" />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  Icon={Upload}
+                  onClick={() => { if (canWrite) fileInputRef.current?.click() }}
+                  loading={uploading}
+                  loadingLabel="Uploading…"
+                  data-add-files
+                >
+                  Add files
+                </Button>
+              </GatedAction>
             )}
           </>
         )}
@@ -401,6 +513,26 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         tabIndex={!projectId || loading || flat.length === 0 ? 0 : undefined}
       >
         {error && <Banner tone="danger">{error}</Banner>}
+        {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
+        {/* E1: the missing-files notice and its Relink, moved with the census
+            from the Control Panel — on the kit Banner now (it was a hand-drawn
+            strip, OUTSTANDING's note). The action sits inside the notice
+            (Fitts); a broken state is impossible to miss above the files
+            (Selective Attention). */}
+        {relinkSupported && missingCount > 0 && (
+          <Banner
+            tone="warning"
+            Icon={FolderSearch}
+            data-missing-files
+            action={(
+              <Button size="sm" variant="primary" Icon={FolderSearch} onClick={() => setRelinkOpen(true)}>
+                Relink…
+              </Button>
+            )}
+          >
+            {missingCount} file{missingCount === 1 ? '' : 's'} can&rsquo;t be found on disk — the folder may have moved.
+          </Banner>
+        )}
 
         {/* Three states that used to be one component with three strings, so a
             slow adapter and an empty project drew the same picture (F-R13). */}
@@ -437,6 +569,25 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           </Card>
         )}
       </div>
+
+      {/* After an apply, in-memory rows keep a stale storage_path until the
+          next load — harmless: local download/delete resolve by row id on the
+          server. The census re-scan is what drives the notice. */}
+      {relinkOpen && (
+        <RelinkDialog
+          projectId={projectId}
+          onClose={() => setRelinkOpen(false)}
+          onApplied={() => { refreshMissing(); setReloads(n => n + 1) }}
+        />
+      )}
+      {auditOpen && selectedFile && (
+        <FileAuditDrawer
+          fileId={selectedFile.row?.id}
+          projectId={projectId}
+          fileName={selectedFile.name}
+          onClose={() => setAuditOpen(false)}
+        />
+      )}
     </div>
   )
 }

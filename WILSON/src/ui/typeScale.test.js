@@ -1268,9 +1268,16 @@ describe('mono is for data, sans for everything else (§3.1)', () => {
 // element sets no mono, and a phrase inside a mono row sets the sans back. A
 // site that is no longer found fails too, so a rewrite has to come here.
 describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', () => {
+  // The Summary's missing-files sentence as P1 fixed it; the CONTROL below
+  // still judges the pre-fix line against it.
+  const SUMMARY_SENTENCE = /<span className="([^"]*)"[^>]*>\s*\{missingCount\} file\{/;
   const SITES = [
-    ['src/tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx',
-      /<span className="([^"]*)"[^>]*>\s*\{missingCount\} file\{/, 'no-mono'],
+    // Post-overhaul S4a (E1): the sentence moved with its census to the Files
+    // tab (ProjectFilesExplorer), onto the kit Banner — whose text is the
+    // Dense step in the sans by the kit's own rule. 'kit-banner' asserts it
+    // sits directly in a <Banner> and that nothing on the way sets the mono.
+    ['src/components/Resources/ProjectFilesExplorer.jsx',
+      /<Banner\s+tone="warning"[\s\S]{0,800}?\{missingCount\} file\{/, 'kit-banner'],
     ['src/tools/rabbit_v0.1.0/components/IngestionToast.jsx',
       /<div className="([^"]*)"[^>]*>\s*<span className="truncate">\s*\{phase === 'running'/, 'no-mono'],
     ['src/tools/rabbit_v0.1.0/views/bins/RelinkBinsDialog.jsx',
@@ -1285,6 +1292,9 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
   const judge = (src, re, want) => {
     const m = re.exec(src);
     if (!m) return 'site not found';
+    // S4a: a sentence that is the kit Banner's own text — the match is the
+    // Banner's opening through the sentence, and nothing in it may set mono.
+    if (want === 'kit-banner') return /font-mono/.test(m[0]) ? 'mono inside the Banner' : 'ok';
     const cls = m[1].split(/\s+/);
     if (want === 'no-mono') return cls.includes('font-mono') ? `mono: "${m[1]}"` : 'ok';
     return cls.includes('font-sans') ? 'ok' : `no sans: "${m[1]}"`;
@@ -1297,7 +1307,13 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
   it('CONTROL: the lines as they stood before the fix fail', () => {
     const summary = `<span className="flex-1 text-dense font-mono tabular-nums" style={{ color: 'var(--color-warning)' }}>
             {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk`;
-    expect(judge(summary, SITES[0][1], 'no-mono')).toBe('mono: "flex-1 text-dense font-mono tabular-nums"');
+    expect(judge(summary, SUMMARY_SENTENCE, 'no-mono')).toBe('mono: "flex-1 text-dense font-mono tabular-nums"');
+    // S4a: the Banner site, planted with a mono span around the sentence, and
+    // the sentence moved out of the Banner (not found).
+    const banner = `<Banner tone="warning" Icon={FolderSearch}>
+            <span className="font-mono">{missingCount} file{missingCount === 1 ? '' : 's'}`;
+    expect(judge(banner, SITES[0][1], 'kit-banner')).toBe('mono inside the Banner');
+    expect(judge(`<p>{missingCount} file{missingCount === 1 ? '' : 's'}</p>`, SITES[0][1], 'kit-banner')).toBe('site not found');
     const toast = `<div className="flex items-center justify-between text-dense font-mono tabular-nums" style={{ color: '#a8a29e' }}>
           <span className="truncate">
             {phase === 'running' && (chunksTotal > 0`;

@@ -265,6 +265,9 @@
   .rb-module[data-enabled="true"] .rb-module-accent { color: var(--color-ink); }
   .rb-folder-path { color: var(--color-ink-2); }
   .rb-folder-path[data-empty="true"] { color: var(--color-ink-3); }
+  /* Post-overhaul S4a (E1): the one sentence left where the file list was —
+     the files are the Files tab now. The quiet ink, at the Dense step. */
+  .rb-folder-note { margin: 0; color: var(--color-ink-2); }
 
   /* ═══ Team (TeamView) ═════════════════════════════════════════════════ */
   /* the Local Server table's rows: rest / hover (one hover fill, §4 Table) */

@@ -127,8 +127,10 @@ export default function AttachmentMigrationPanel() {
 
       {moved && report.errors.length === 0 && report.attachments.failed === 0 && (
         <p className="s-feedback mt-4" data-tone="ok" role="status">
-          Done. These files now appear in each project’s Resources list and on
-          R.A.B.B.I.T.’s Summary tab, under Project files.
+          {/* Post-overhaul S4a (E1): the Summary's file card is gone; the
+              project's files are R.A.B.B.I.T.'s Files tab now. */}
+          Done. These files now appear in each project’s Resources list and in
+          R.A.B.B.I.T.’s Files tab.
         </p>
       )}
 

@@ -7,6 +7,10 @@
 // the Control Panel's `ProjectFilesSection`) and the Projects page's detail
 // panel (`ProjectDetailPanel`). All four draw THIS table, so the four look
 // the same by construction.
+// 📌 2026-09-30, post-overhaul S4a (Audrey's E1): the Summary's two are gone —
+// the project's files are R.A.B.B.I.T.'s Files tab (ProjectFilesExplorer) —
+// so TWO surfaces draw it now, Intake and the Projects page
+// (rabbitFilesRender.test.jsx counts them).
 //
 // Columns: Core, Name, Kind, Type, Size, Description, Created,
 // [File activity], [Delete].

@@ -14,9 +14,9 @@
 // not mutate the bundle — clicking through to a different tab
 // is how the user takes action on what they see here.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Clock, DollarSign, Layers, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid, FolderOpen, Settings, LayoutDashboard, Film, Sparkles, Upload, Gamepad2, Plus, FolderSearch,
+  AlertTriangle, Clock, DollarSign, Layers, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid, FolderOpen, Settings, LayoutDashboard, Film, Sparkles, Gamepad2, Plus, FolderSearch,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import '../rabbitShell.css'
@@ -33,10 +33,9 @@ import { canSeeProjectMoney, canOnProject, canSetProjectFolder, projectFolderDen
 import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
-import ProjectFilesTable from '../components/ProjectFilesTable'
 import { formatMoney } from '../components/CurrencyDisplay'
-import RelinkDialog from '../components/RelinkDialog'
-import FileAuditDrawer from '../components/FileAuditDrawer'
+// ProjectFilesTable, RelinkDialog and FileAuditDrawer left this view with the
+// two file sections (post-overhaul S4a, E1): the Files tab draws them now.
 
 const PRIORITY_RANK = { crit: 4, critical: 4, high: 3, med: 2, medium: 2, low: 1 }
 const RISK_STATES = new Set(['blocked', 'on_hold'])
@@ -472,16 +471,10 @@ export default function ProjectSummaryView() {
           )}
         </Card>
 
-        {/* ── Project files ── */}
-        {(() => {
-          const allProjFiles = [...(ctx?.files || []), ...(ctx?.managedFiles || [])]
-          if (allProjFiles.length === 0) return null
-          return (
-            <Card title="Project files" icon={FileText}>
-              <ProjectFilesTable files={allProjFiles} readOnly maxHeight={220} />
-            </Card>
-          )
-        })()}
+        {/* The read-only "Project files" card that stood here is gone
+            (post-overhaul S4a, Audrey's E1): the project's files are the
+            Files tab now, where they can be edited, previewed and
+            downloaded. */}
 
         {/* ── Phase strip ── */}
         <Card title="Phases" icon={Layers}>
@@ -652,9 +645,6 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
     ctx?.updateProject?.(project.id, patch)
   }, [ctx, project?.id])
 
-  const files = ctx?.files || []
-  const managedFiles = ctx?.managedFiles || []
-
   return (
     <div className="flex flex-col gap-6">
 
@@ -803,7 +793,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
         )}
 
         {/* RIGHT: Files & Storage */}
-        <ProjectFilesSection files={files} managedFiles={managedFiles} ctx={ctx} project={project} update={update} />
+        <ProjectFilesSection ctx={ctx} project={project} update={update} />
       </div>
 
       {/* ── Toggleable database modules (row of 3) ── */}
@@ -953,11 +943,14 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
   )
 }
 
-function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState(null)
-  const fileInputRef = useRef(null)
-
+// Post-overhaul S4a (Audrey's E1, 2026-09-29: "both go; those three controls
+// move to the Files tab; the project-folder controls stay in the Control
+// Panel"). This section kept the project folder and the relink's files folder
+// with its reset; the file LIST, Add files, the missing-files Relink banner
+// (with RelinkDialog) and File activity (FileAuditDrawer) moved to the Files
+// tab's toolbar (ProjectFilesExplorer). Uploads still file to the project
+// root, `{ type: 'project' }`, exactly as they did here.
+function ProjectFilesSection({ ctx, project, update }) {
   // Session 35: same seat as the summary header's Change button — the two
   // writers must not diverge (they are one column, one flow).
   const perms = usePermissions()
@@ -967,65 +960,6 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
   const [folderMsg, setFolderMsg] = useState(null)
   useEffect(() => { setFolderMsg(null) }, [project?.id])
-
-  // ── Session 14: storage relink + per-file activity ──
-  // Relink is local_server-only — the provider where folders actually move
-  // (supabase bucket paths don't drift, so no false affordance there).
-  // getAdapter is the provider's STABLE useCallback — depending on the
-  // whole ctx object would re-fire this census on every provider render
-  // (each scan is a full server-side existsSync sweep; adversarial
-  // review, S14). The seq ref drops out-of-order responses so a slow scan
-  // can never overwrite a fresh post-apply count.
-  const getAdapter = ctx?.getAdapter
-  const relinkSupported = typeof getAdapter?.()?.relinkScan === 'function'
-  const [missingCount, setMissingCount] = useState(0)
-  const [relinkOpen, setRelinkOpen] = useState(false)
-  const [auditFile, setAuditFile] = useState(null)
-  const censusSeqRef = useRef(0)
-
-  const refreshMissing = useCallback(async () => {
-    if (!relinkSupported || !project?.id) return
-    const seq = ++censusSeqRef.current
-    try {
-      const res = await getAdapter().relinkScan(project.id)
-      if (seq === censusSeqRef.current) setMissingCount(res?.missing?.length ?? 0)
-    } catch { /* census only — the dialog surfaces real errors */ }
-  }, [relinkSupported, getAdapter, project?.id])
-
-  useEffect(() => { refreshMissing() }, [refreshMissing])
-
-  async function handleUpload(e) {
-    const picked = Array.from(e.target.files || [])
-    if (picked.length === 0) return
-    setUploading(true)
-    setUploadError(null)
-    try {
-      for (const file of picked) {
-        await ctx?.uploadFile?.(file, { type: 'project' })
-      }
-    } catch (err) {
-      // 🚨 A REFUSAL MUST BE READ, NOT LOGGED — see the same fix in
-      // BudgetView. Session 37's storage refusals (a workspace on its own
-      // server has no cloud upload route; an unreadable storage choice; a
-      // bucket the browser was blocked from reaching) each arrive here as a
-      // thrown sentence, and this catch used to end their journey in the
-      // devtools console where nobody was looking.
-      console.error('Upload failed', err)
-      setUploadError(err?.message || 'Upload failed.')
-    }
-    finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  async function handleDelete(f) {
-    try {
-      await ctx?.deleteFile?.(f.id)
-    } catch (err) { console.error('Delete failed', err) }
-  }
-
-  const allFiles = [...(files || []), ...(managedFiles || [])]
 
   return (
     <SettingsSection title="Files & storage" icon={FolderOpen}>
@@ -1080,8 +1014,10 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
                 {project.files_dir}
               </span>
             </div>
+            {/* The missing-files count that this reset used to refresh lives
+                on the Files tab now (S4a), which reads it again on arrival. */}
             <button type="button"
-              onClick={() => { update?.('files_dir', null); refreshMissing() }}
+              onClick={() => { update?.('files_dir', null) }}
               title="Files resolve from the project folder again; relink afterwards if they moved"
               className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
               style={{ color: 'var(--color-ink-2)', backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
@@ -1091,77 +1027,11 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         </SettingsField>
       )}
 
-      {/* ── Divider ── */}
-      <div style={{ borderTop: '1px solid var(--color-rule)' }} />
-
-      {/* ── Files ── */}
-      <div className="flex items-center justify-between">
-        <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)' }}>Project files</span>
-        <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="hidden" />
-          {/* R33: the only inverted primary in R.A.B.B.I.T. — and adding
-              files is not this panel's primary action — so a secondary. */}
-          <Button size="sm" Icon={Upload} onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? 'Uploading…' : 'Add files'}
-          </Button>
-        </div>
-      </div>
-
-      {uploadError && (
-        <p className="text-dense" style={{ color: 'var(--color-danger)' }}>
-          {uploadError}
-        </p>
-      )}
-
-      {/* Session 14: missing-files banner → the relink flow. Rendered above
-          the table so a broken state is impossible to miss (Selective
-          Attention); the action sits inside the banner (Fitts's Law). */}
-      {relinkSupported && missingCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-control"
-          style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 14%, transparent)', border: '1px solid var(--color-rule)' }}>
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-warning)' }} />
-          {/* P1 review R2-07: a sentence, so the sans (Q4: mono is for data);
-              the count keeps its tabular figures. */}
-          <span className="flex-1 text-dense tabular-nums" style={{ color: 'var(--color-warning)' }}>
-            {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
-          </span>
-          <button type="button" onClick={() => setRelinkOpen(true)}
-            className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
-            <FolderSearch aria-hidden="true" /> Relink…
-          </button>
-        </div>
-      )}
-
-      {allFiles.length === 0 ? (
-        <EmptyState compact Icon={FileText} title="No files attached" />
-      ) : (
-        <ProjectFilesTable
-          files={allFiles}
-          onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
-          onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
-          onAudit={(f) => setAuditFile(f)}
-          maxHeight={300}
-        />
-      )}
-
-      {/* After an apply, in-memory rows keep a stale storage_path until the
-          next project load — harmless: local download/delete resolve by row
-          id on the server. The census re-scan is what drives the banner. */}
-      {relinkOpen && (
-        <RelinkDialog
-          projectId={project.id}
-          onClose={() => setRelinkOpen(false)}
-          onApplied={() => refreshMissing()}
-        />
-      )}
-      {auditFile && (
-        <FileAuditDrawer
-          fileId={auditFile.id}
-          projectId={project.id}
-          fileName={auditFile.name}
-          onClose={() => setAuditFile(null)}
-        />
-      )}
+      {/* Where the files went (E1): one sentence, no link — the brief keeps
+          the "files" navigation target callerless this bundle. */}
+      <p className="rb-folder-note text-dense" data-files-moved>
+        The project&rsquo;s files are in the Files tab: add files, relink missing ones and see each file&rsquo;s activity there.
+      </p>
     </SettingsSection>
   )
 }

@@ -4,7 +4,8 @@
 
    Owns: components/ProjectFilesTable.jsx (drawn by Intake, Summary, the
    Control Panel's ProjectFilesSection and the Projects page's detail panel —
-   plan §5 item 5), components/FileManager.jsx, FileThumbnail.jsx,
+   plan §5 item 5; since post-overhaul S4a, 2026-09-30, by Intake and the
+   Projects page only: the Summary's two left with E1), components/FileManager.jsx, FileThumbnail.jsx,
    VideoPreview.jsx, RelationsPanel.jsx, RelinkDialog.jsx, FileAuditDrawer.jsx,
    AssetStatusWarningModal.jsx, views/ProjectAssetsView.jsx and
    EntityListView.jsx (LevelsView.jsx and ExperiencesView.jsx render it).

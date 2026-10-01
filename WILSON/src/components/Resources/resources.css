@@ -78,6 +78,9 @@
      in a flex column, so it takes the height itself — or the table would grow
      to its content and the shell would clip it instead of the table scrolling. */
   .rs-page[data-host="rabbit"] { height: 100%; }
+  /* Add files' picker (E1): the button opens it; the input itself is never
+     drawn or tabbed to. */
+  .fx-file-input { display: none; }
   .rs-body {
     display: flex;
     flex-direction: column;

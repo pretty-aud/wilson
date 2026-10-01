@@ -126,9 +126,13 @@ describe('ProjectFilesTable — one table, on the kit', () => {
   })
 })
 
-describe('ProjectFilesTable — the four callers', () => {
+describe('ProjectFilesTable — its callers (four until post-overhaul S4a; two since)', () => {
+  // Post-overhaul S4a, Audrey's E1 (2026-09-29): "both go" — the Summary's
+  // read-only "Project files" card AND the Control Panel's file list are gone;
+  // the project's files are the Files tab (ProjectFilesExplorer). Summary
+  // draws NO ProjectFilesTable now, and that zero is asserted, not omitted.
   const CALLERS = {
-    'views/ProjectSummaryView.jsx': 2,
+    'views/ProjectSummaryView.jsx': 0,
     'views/intake/IntakePrepare.jsx': 1,
     '../../components/Projects/ProjectDetailPanel.jsx': 1,
   }
@@ -138,7 +142,7 @@ describe('ProjectFilesTable — the four callers', () => {
       prop (Summary's `onUpdate={(id, patch) => …}`), so a `variant=` after
       it was never read (B4c review round one). */
   const usesIn = (src) => jsxTags(src).filter((t) => /^<ProjectFilesTable(?![\w.])/.test(t))
-  it('Intake, Summary (twice) and the Projects page all draw it, and none passes a variant or maps a size', () => {
+  it('Intake and the Projects page draw it (Summary no longer does), and none passes a variant or maps a size', () => {
     let total = 0
     for (const [file, n] of Object.entries(CALLERS)) {
       const src = read(`../${file}`)
@@ -153,7 +157,28 @@ describe('ProjectFilesTable — the four callers', () => {
       }
       expect(src, file).not.toMatch(/withDisplaySize/)
     }
-    expect(total).toBe(4)
+    expect(total).toBe(2)
+    // …and the Summary does not even import it any more (E1).
+    expect(read('../views/ProjectSummaryView.jsx')).not.toMatch(/import ProjectFilesTable/)
+  })
+  it('E1: the Control Panel keeps the project-folder controls and nothing of the file list', () => {
+    const summary = read('../views/ProjectSummaryView.jsx')
+    const at = summary.indexOf('function ProjectFilesSection(')
+    expect(at).toBeGreaterThan(-1)
+    const section = summary.slice(at, summary.indexOf('\nfunction ', at + 10))
+    // Kept: the folder, its picker / Open, the relink's files folder and reset.
+    expect(section).toContain('<SettingsField label="Project folder">')
+    expect(section).toContain('pickAndSetProjectFolder(ctx, project)')
+    expect(section).toContain('<SettingsField label="Files folder (set by relink)">')
+    expect(section).toContain("update?.('files_dir', null)")
+    // Gone, to the Files tab: the list, Add files, the relink notice and
+    // dialog, File activity.
+    for (const gone of ['ProjectFilesTable', 'uploadFile', 'RelinkDialog', 'FileAuditDrawer', 'relinkScan', 'missingCount']) {
+      expect(section, gone).not.toContain(gone)
+    }
+    expect(section).toContain('data-files-moved')
+    // …and the Summary's own read-only card with it.
+    expect(summary).not.toMatch(/<Card title="Project files"/)
   })
   it('CONTROL: a variant after an arrow prop is read (the first cut missed it)', () => {
     const src = '<ProjectFilesTable files={f} onUpdate={(id, p) => save(id, p)} variant="warm" maxHeight={300} />'

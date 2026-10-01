@@ -96,6 +96,15 @@ vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({
   useRabbit: () => ctx,
 }))
 
+// Post-overhaul S4a: the page asks who may edit (usePermissions, through
+// useProjectAccess too). The real hook reads a Supabase session; this is the
+// fixtures' admin, ONE object for every render (a fresh object per call would
+// re-run every effect that depends on it — B4b's trap 9).
+const perms = { role: 'admin', ready: true, workspaceId: 'w1', userId: 'u1' }
+vi.mock('../../permissions/usePermissions', () => ({
+  usePermissions: () => perms,
+}))
+
 const { default: ProjectFilesExplorer } = await import('./ProjectFilesExplorer')
 
 afterEach(cleanup)
@@ -539,6 +548,101 @@ describe('one explorer, two hosts (S4a, E8)', () => {
     await new Promise(r => setTimeout(r, 0))
     expect(fileNames(), 'the older answer must not land').not.toContain('stale.pdf')
     expect(fileNames()).toContain('newest.pdf')
+  })
+})
+
+// ── Post-overhaul S4a, step 3: the three controls that left the Summary ──────
+// Audrey's E1: "both go; those three controls move to the Files tab; the
+// project-folder controls stay in the Control Panel." Add files (still to the
+// project root, `{ type: 'project' }`), the missing-files Relink notice with
+// its dialog, and File activity for the selected file.
+describe('the Files tab\'s toolbar: Add files, Relink, File activity (E1)', () => {
+  afterEach(() => {
+    ctx.activeProjectId = 'p1'
+    ctx.getAdapter = REAL_ADAPTER
+    delete ctx.uploadFile
+    delete ctx.adapterMode
+  })
+
+  const onTab = () => render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+
+  it('the tab has Add files and File activity; the Resources page has neither (CONTROL)', async () => {
+    ctx.adapterMode = 'supabase'
+    const { unmount } = onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(screen.getByRole('button', { name: /Add files/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /File activity/ })).toBeTruthy()
+    unmount()
+    render(<ProjectFilesExplorer />)
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(screen.queryByRole('button', { name: /Add files/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /File activity/ })).toBeNull()
+  })
+
+  it('Add files uploads each picked file to the project root, { type: "project" }', async () => {
+    ctx.adapterMode = 'supabase'
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    const input = document.querySelector('input[type="file"]')
+    const a = new File(['a'], 'a.pdf', { type: 'application/pdf' })
+    const b = new File(['b'], 'b.png', { type: 'image/png' })
+    fireEvent.change(input, { target: { files: [a, b] } })
+    await waitFor(() => expect(calls).toEqual([['a.pdf', { type: 'project' }], ['b.png', { type: 'project' }]]))
+  })
+
+  it('an upload refusal is READ on screen, not logged (the S37 rule, moved with it)', async () => {
+    ctx.adapterMode = 'supabase'
+    ctx.uploadFile = async () => { throw new Error('This workspace stores files on its own server.') }
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [new File(['a'], 'a.pdf')] } })
+    expect(await screen.findByText('This workspace stores files on its own server.')).toBeTruthy()
+  })
+
+  it('File activity waits for a selected file, then opens the drawer on THAT file', async () => {
+    ctx.adapterMode = 'supabase'
+    let asked = null
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFileEvents: async (id) => { asked = id; return [] } })
+    onTab()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    const button = screen.getByRole('button', { name: /File activity/ })
+    expect(button.disabled).toBe(true)
+    expect(button.getAttribute('title')).toBe('Select a file to see its activity')
+    const hero = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')].find(r => r.textContent.includes('hero_v3.mov'))
+    fireEvent.click(hero)
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(await screen.findByRole('complementary', { name: 'File activity' })).toBeTruthy()
+    await waitFor(() => expect(asked).toBe('2'))
+  })
+
+  it('the missing-files notice: a count, on the kit Banner, and Relink… opens the dialog', async () => {
+    ctx.adapterMode = 'local_server'
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), relinkScan: async () => ({ missing: [{ id: 'x' }, { id: 'y' }], candidates: [] }) })
+    onTab()
+    const notice = await screen.findByText(/2 files can.t be found on disk/)
+    expect(notice.closest('.ui-banner')?.getAttribute('data-tone')).toBe('warning')
+    fireEvent.click(screen.getByRole('button', { name: /Relink…/ }))
+    expect(await screen.findByRole('dialog', { name: 'Relink missing files' })).toBeTruthy()
+  })
+
+  it('CONTROL: a backend with no relinkScan (the cloud) draws no notice at all', async () => {
+    ctx.adapterMode = 'supabase'
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(screen.queryByText(/can.t be found on disk/)).toBeNull()
+  })
+
+  it('a read-only backend greys Add files and says why', async () => {
+    ctx.adapterMode = 'google_drive'
+    const calls = []
+    ctx.uploadFile = async (f) => { calls.push(f) }
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    const gate = screen.getByRole('button', { name: /Add files/ }).closest('[aria-disabled="true"]')
+    expect(gate?.getAttribute('title')).toBe('This backend is read-only.')
   })
 })
 

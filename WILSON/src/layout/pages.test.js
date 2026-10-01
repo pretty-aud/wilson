@@ -175,7 +175,10 @@ describe('nav columns', () => {
   // Manager" menu. Post-overhaul S2a: "Tool settings" is retired too — the
   // nav item left the strip (C6) and O.T.T.E.R.'s drawer tab of that name is
   // "Storage & data" — so no string can send anyone looking for it.
-  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab|Tool [Ss]ettings|TOOL SETTINGS/
+  // Post-overhaul S4a (E1): the Summary's "Project files" card is gone too —
+  // the files are R.A.B.B.I.T.'s Files tab — so nothing may send anyone to
+  // "the Summary tab, under Project files" (the migration panel did).
+  const RETIRED = /System [Ss]ettings|SYSTEM SETTINGS|Project Manager|PROJECT MANAGER|RABBIT tab|Tool [Ss]ettings|TOOL SETTINGS|Summary tab, under Project files/
   const retiredIn = (src) => blankJsComments(src).split('\n').filter((line) => RETIRED.test(line))
   it('no string the app draws or tells a companion names a retired page or tab (Q7)', () => {
     const files = sourceFiles().filter((f) => !f.startsWith('src/dev/'))
@@ -192,12 +195,15 @@ describe('nav columns', () => {
       '<p>Change it in System Settings.</p>',
       "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
       '// the old Tool settings tab',
+      "          R.A.B.B.I.T.'s Summary tab, under Project files.",
+      '// the Summary tab, under Project files, until S4a',
     ].join('\n')
     expect(retiredIn(planted)).toEqual([
       "const b = 'Open System settings → RABBIT'",
       'context += `- PROJECT MANAGER: documents`',
       '<p>Change it in System Settings.</p>',
       "items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Tool settings' }]}",
+      "          R.A.B.B.I.T.'s Summary tab, under Project files.",
     ])
   })
 })
