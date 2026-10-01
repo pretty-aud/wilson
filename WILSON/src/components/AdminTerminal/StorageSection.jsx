@@ -796,8 +796,9 @@ export default function StorageSection({ isActive, workspaceId }) {
                   <span>
                     This company&rsquo;s Petal storage is not active yet, so new
                     files are not being accepted. Everything already stored still
-                    opens and downloads, and invoices, other finance files and
-                    the project manifest still save if they are under 25 MB.
+                    opens and downloads, and invoices, Legal files, other
+                    finance files and the project manifest still save if they
+                    are under 25 MB.
                     Contact Petal to activate it.
                   </span>
                 </div>
@@ -846,9 +847,9 @@ export default function StorageSection({ isActive, workspaceId }) {
                   <span>
                     This company has used all of its Petal storage, so new files
                     are not being accepted until the plan is raised. Everything
-                    already stored still opens and downloads, and invoices, other
-                    finance files and the project manifest still save if they
-                    are under 25 MB. Deleting files does not free space straight
+                    already stored still opens and downloads, and invoices, Legal
+                    files, other finance files and the project manifest still
+                    save if they are under 25 MB. Deleting files does not free space straight
                     away — deleted files stay recoverable for 30 days.
                   </span>
                 </div>

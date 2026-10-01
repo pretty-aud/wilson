@@ -51,7 +51,7 @@ function fakeProvider(name) {
  * not), `money` what can_access_project_money answers, `isPrivate` the
  * project's flag. Records inserts, updates and RPCs.
  */
-function makeClient({ legal = true, money = true, isPrivate = false, legalError = null, moneyError = null, updateError = null } = {}) {
+function makeClient({ legal = true, money = true, isPrivate = false, legalError = null, moneyError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
   const inserts = []
   const updates = []
   const rpcs = []
@@ -77,6 +77,10 @@ function makeClient({ legal = true, money = true, isPrivate = false, legalError 
           result = updateError ? { data: null, error: updateError } : { data: { id: 'f1', ...payload }, error: null }
         } else if (name === 'projects' && cols === 'is_private') {
           result = { data: { is_private: isPrivate }, error: null }
+        } else if (name === 'folders') {
+          // The entity folder EXISTS (review round 1, R1-BEH-11: with no row
+          // here "filed in no folder" held with or without the guard).
+          result = { data: folderRow ? { id: folderRow } : null, error: null }
         } else {
           result = { data: [], error: null }
         }
@@ -143,13 +147,35 @@ describe('uploadFile({ legal: true }) on a database with 0088', () => {
     expect(row.storage_provider).toBe(FILE_PROVIDERS.SUPABASE)
   })
 
-  it('is filed in no entity folder, whatever container the scope names', async () => {
+  it('is filed in no entity folder, whatever container or folder the scope names', async () => {
+    // CONTROL first: the same scene scope, not Legal, finds the scene's folder.
+    const control = makeClient()
+    globalThis.__testSupabase = control
+    await supabaseAdapter().uploadFile(PID, { sceneId: 's1' }, pdf())
+    expect(control.inserts.find(i => i.table === 'files').row.folder_id).toBe('folder-s1')
+    resetSupabaseAdapter() // the adapter keeps the client it first saw
     const client = makeClient()
     globalThis.__testSupabase = client
     await supabaseAdapter().uploadFile(PID, { sceneId: 's1', legal: true }, pdf())
     const row = client.inserts.find(i => i.table === 'files').row
     expect(thirdSegment(row.storage_path)).toBe('LEGAL')
     expect(row.folder_id).toBeNull()
+    // …nor a folder the caller passes.
+    resetSupabaseAdapter()
+    const passed = makeClient()
+    globalThis.__testSupabase = passed
+    await supabaseAdapter().uploadFile(PID, { folderId: 'folder-x', legal: true }, pdf())
+    expect(passed.inserts.find(i => i.table === 'files').row.folder_id).toBeNull()
+  })
+
+  it('Legal AND core is refused before any byte moves (review round 1, R1-BEH-07)', async () => {
+    const client = makeClient()
+    globalThis.__testSupabase = client
+    const before = puts.length
+    await expect(supabaseAdapter().uploadFile(PID, { type: 'project', legal: true, isCoreDefiner: true }, pdf()))
+      .rejects.toThrow('A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.')
+    expect(puts.length).toBe(before)
+    expect(client.inserts).toEqual([])
   })
 
   it('I4: a private project keeps a Legal body in Supabase (CONTROL: an ordinary file goes to this computer)', async () => {
@@ -269,6 +295,15 @@ describe('supportsLegalFiles', () => {
   })
 })
 
+describe('the Local Server always keeps Legal files (no database to wait for)', () => {
+  // Review round 1, R1-BEH-13: nothing pinned this, and with it false the
+  // desktop greyed Add as Legal with the cloud's "migration 0088" sentence.
+  it('localServerAdapter().supportsLegalFiles() is true', async () => {
+    const { localServerAdapter } = await import('./localServerAdapter')
+    expect(await localServerAdapter().supportsLegalFiles()).toBe(true)
+  })
+})
+
 describe('updateFile says what the Legal CHECKs mean', () => {
   it('files_legal_not_core_chk → the Core sentence', async () => {
     globalThis.__testSupabase = makeClient({
@@ -284,6 +319,14 @@ describe('updateFile says what the Legal CHECKs mean', () => {
     })
     await expect(supabaseAdapter().updateFile('f1', { description: 'x', project_id: PID }))
       .rejects.toThrow(LEGAL_LOCKED_REASON)
+  })
+
+  it('files_legal_folder_chk on a write that ADDS legal → "chosen when a file is added" (R1-BEH-08)', async () => {
+    globalThis.__testSupabase = makeClient({
+      updateError: { code: '23514', message: 'new row for relation "files" violates check constraint "files_legal_folder_chk"' },
+    })
+    await expect(supabaseAdapter().updateFile('f2', { tags: ['legal', 'code'], project_id: PID }))
+      .rejects.toThrow('Legal is chosen when a file is added.')
   })
 
   it('CONTROL: any other refusal keeps its own words', async () => {

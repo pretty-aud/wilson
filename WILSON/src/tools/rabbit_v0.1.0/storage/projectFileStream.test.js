@@ -65,6 +65,11 @@ afterAll(async () => {
 const put = (pid, q, body) => fetch(`${base}/${pid}/files-stream?${new URLSearchParams(q)}`, {
   method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body,
 })
+// The base64 POST, moved here from main.cjs in S4b's review round 1 (R1-BEH-05).
+const post = (pid, body) => fetch(`${base}/${pid}/files`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+})
+const counts = () => [legalDir, invoicesDir, filesDir].map(d => (fs.existsSync(d) ? fs.readdirSync(d).length : 0))
 
 describe('parseScope / parseSize', () => {
   it('tolerate anything a query string can carry', () => {
@@ -152,6 +157,20 @@ describe('PUT …/files-stream', () => {
     expect(readRabbitBundle(PID).files.length).toBe(rows)
   })
 
+  it('Legal AND core together is refused, and nothing is written (review round 1, R1-BEH-07)', async () => {
+    // files_legal_not_core_chk refuses it in the cloud; the PATCH refused it
+    // here; the upload did not, and stored a core Legal file.
+    const before = counts()
+    const rows = readRabbitBundle(PID).files.length
+    const r = await put(PID, { name: 'core.pdf', sizeBytes: '3', scope: JSON.stringify({ type: 'project', legal: true, isCoreDefiner: true }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(400)
+    const body = await r.json()
+    expect(body.code).toBe('legal_not_core')
+    expect(body.error).toBe('A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.')
+    expect(counts()).toEqual(before)
+    expect(readRabbitBundle(PID).files.length).toBe(rows)
+  })
+
   it('a scope with a document kind and a description lands both on the row (0075, Track C / C3)', async () => {
     // The row is "field for field the base64 POST's", and the POST carries
     // these two since Track C; without them the desktop threw a file's kind
@@ -187,5 +206,61 @@ describe('PUT …/files-stream', () => {
     expect((await put('nope', { name: 'x.bin' }, Buffer.from('x'))).status).toBe(404)
     expect((await put(PID, { name: '   ' }, Buffer.from('x'))).status).toBe(400)
     expect(fs.readdirSync(filesDir).length).toBe(before)
+  })
+})
+
+describe('POST …/files — the base64 transport, beside the stream (S4b review round 1, R1-BEH-05)', () => {
+  const b64 = (text) => Buffer.from(text).toString('base64')
+
+  it('an ordinary file goes to the files dir with the stream\'s row and an uploaded event', async () => {
+    const r = await post(PID, { name: 'call sheet.pdf', mimeType: 'application/pdf', sizeBytes: 4, base64: b64('call'), scope: { type: 'project' } })
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row).toMatchObject({ project_id: PID, name: 'call sheet.pdf', storage_provider: 'local_server', is_financial: false, is_core_definer: false })
+    expect(row.tags).toBeUndefined()
+    expect(row.storage_path).toBe(`${row.id}-call_sheet.pdf`)
+    expect(fs.readFileSync(path.join(filesDir, row.storage_path), 'utf8')).toBe('call')
+    const bundle = readRabbitBundle(PID)
+    expect(bundle.files.find(f => f.id === row.id)).toBeTruthy()
+    expect(bundle.fileEvents.find(e => e.file_id === row.id)?.event).toBe('uploaded')
+  })
+
+  it('a Legal scope goes to LEGAL with the tag, and nowhere else', async () => {
+    const r = await post(PID, { name: 'nda.pdf', sizeBytes: 3, base64: b64('nda'), scope: { type: 'project', legal: true } })
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row.tags).toEqual(['legal'])
+    expect(row.is_financial).toBe(false)
+    expect(row.is_core_definer).toBe(false)
+    expect(fs.readFileSync(path.join(legalDir, row.storage_path), 'utf8')).toBe('nda')
+    expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
+    expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(false)
+    expect(readRabbitBundle(PID).files.find(f => f.id === row.id).tags).toEqual(['legal'])
+  })
+
+  it('a financial scope goes to INVOICES (CONTROL: the third directory)', async () => {
+    const row = await (await post(PID, { name: 'inv.pdf', base64: b64('inv'), scope: { financial: true } })).json()
+    expect(row.is_financial).toBe(true)
+    expect(row.tags).toBeUndefined()
+    expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(true)
+  })
+
+  it('Legal with financial, and Legal with core, are refused before anything is written', async () => {
+    const before = counts()
+    const rows = readRabbitBundle(PID).files.length
+    const both = await post(PID, { name: 'x.pdf', base64: b64('x'), scope: { legal: true, financial: true } })
+    expect(both.status).toBe(400)
+    expect((await both.json()).code).toBe('legal_and_financial')
+    const core = await post(PID, { name: 'y.pdf', base64: b64('y'), scope: { legal: true, isCoreDefiner: true } })
+    expect(core.status).toBe(400)
+    expect((await core.json()).code).toBe('legal_not_core')
+    expect(counts()).toEqual(before)
+    expect(readRabbitBundle(PID).files.length).toBe(rows)
+  })
+
+  it('an unknown project is 404; a missing name or body is 400', async () => {
+    expect((await post('nope', { name: 'a', base64: b64('a') })).status).toBe(404)
+    expect((await post(PID, { base64: b64('a') })).status).toBe(400)
+    expect((await post(PID, { name: 'a' })).status).toBe(400)
   })
 })

@@ -151,8 +151,12 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     expect(at).toBeLessThan(mainCjs.indexOf("expressApp.get('/{*splat}'"))
     // S4b (0088): and the LEGAL resolver beside INVOICES's.
     expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
-    // the base64 POST stays for anything that still calls it
-    expect(mainCjs).toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    // the base64 POST stays for anything that still calls it — beside the
+    // stream since S4b's review round 1, mounted by the same call
+    expect(mainCjs).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    const streamCjs = read('../../electron/projectFileStream.cjs')
+    expect(streamCjs).toContain("const POST_ROUTE = '/api/rabbit/projects/:projectId/files';")
+    expect(streamCjs).toContain('expressApp.post(POST_ROUTE, (req, res) => {')
   })
 })
 

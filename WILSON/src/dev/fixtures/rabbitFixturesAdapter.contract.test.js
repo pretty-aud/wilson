@@ -119,22 +119,26 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     await expect(fx.updateFile(first.id, { tags: [] })).resolves.toMatchObject({ tags: [] })
   })
 
-  it('the fake cloud refuses what 0088\'s Legal CHECKs refuse, naming the one Postgres would (S4b)', async () => {
+  it('the fake cloud refuses what 0088\'s Legal CHECKs refuse, in the cloud adapter\'s words (S4b; review round 1, R1-BEH-08)', async () => {
     const fx = buildDevFixtures().rabbitAdapter()
     const files = await fx.listFiles(PROJECT_ID)
     const plain = files.find((f) => !f.is_financial && !f.tags.includes('legal'))
     const legal = files.find((f) => f.tags.includes('legal'))
     expect(legal, 'the seeded Legal file').toBeTruthy()
-    const folder = /check constraint "files_legal_folder_chk"/
-    // Ticking Legal on an ordinary file, alone or beside a bad word (the Legal
-    // CHECK sorts before files_tags_known_chk, so it is the one named).
-    await expect(fx.updateFile(plain.id, { tags: ['legal'] })).rejects.toThrow(folder)
-    await expect(fx.updateFile(plain.id, { tags: ['legal', 'notes'] })).rejects.toThrow(folder)
+    // The refusal is the CHECK's (files_legal_folder_chk sorts before
+    // files_tags_known_chk, so a bad word beside it changes nothing), said as
+    // supabaseAdapter.updateFile says it: ADDING Legal is "chosen when a file
+    // is added"; REMOVING it is "added as Legal".
+    const atAdd = 'Legal is chosen when a file is added.'
+    const locked = 'Added as Legal. To change this, add the file again.'
+    await expect(fx.updateFile(plain.id, { tags: ['legal'] })).rejects.toThrow(atAdd)
+    await expect(fx.updateFile(plain.id, { tags: ['legal', 'notes'] })).rejects.toThrow(atAdd)
     // Un-tagging the Legal file, or dropping it from a list of others.
-    await expect(fx.updateFile(legal.id, { tags: [] })).rejects.toThrow(folder)
-    await expect(fx.updateFile(legal.id, { tags: ['shots'] })).rejects.toThrow(folder)
+    await expect(fx.updateFile(legal.id, { tags: [] })).rejects.toThrow(locked)
+    await expect(fx.updateFile(legal.id, { tags: ['shots'] })).rejects.toThrow(locked)
     // Core on a Legal file.
-    await expect(fx.updateFile(legal.id, { is_core_definer: true })).rejects.toThrow(/check constraint "files_legal_not_core_chk"/)
+    await expect(fx.updateFile(legal.id, { is_core_definer: true }))
+      .rejects.toThrow('A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.')
     // CONTROLS: other tags beside legal, a note, and Core on an ordinary file.
     await expect(fx.updateFile(legal.id, { tags: ['legal', 'production'] })).resolves.toMatchObject({ tags: ['legal', 'production'] })
     await expect(fx.updateFile(legal.id, { description: 'countersigned' })).resolves.toMatchObject({ description: 'countersigned' })

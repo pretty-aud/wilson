@@ -856,9 +856,10 @@ describe('Add as Legal (S4b)', () => {
     onTab()
     await screen.findByRole('tab', { name: 'Table' })
     await waitFor(() => expect(legalInput()).toBeTruthy())
-    // The first file input in the page is Add files' (the Legal one sits after it).
-    const plain = document.querySelector('input[type="file"]')
-    expect(plain.hasAttribute('data-legal-input')).toBe(false)
+    // Add files' own input, named so (review round 1, R1-BEH-14: "the first
+    // file input" leaned on the DOM order).
+    const plain = document.querySelector('input[type="file"]:not([data-legal-input])')
+    expect(plain).toBeTruthy()
     fireEvent.change(plain, { target: { files: [new File(['a'], 'a.pdf')] } })
     await waitFor(() => expect(calls).toEqual([['a.pdf', { type: 'project' }]]))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -979,6 +980,46 @@ describe('Add as Legal (S4b)', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('while the database is being asked it says so — not that a migration is missing (review round 1, R1-BEH-09)', async () => {
+    seat('admin', null)
+    let answer
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: () => new Promise((r) => { answer = r }) })
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await waitFor(() => expect(answer).toBeTypeOf('function'))
+    const gate = () => legalButton().closest('[aria-disabled="true"]')
+    expect(gate()?.getAttribute('title')).toBe('Checking whether this workspace can keep Legal files…')
+    expect(legalInput()).toBeNull()
+    await act(async () => { answer(true) })
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    expect(gate()).toBeNull()
+  })
+
+  it('an answer that is not exactly true is "not available"', async () => {
+    seat('admin', null)
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => 'yes' })
+    onTab()
+    await screen.findByRole('tab', { name: 'Table' })
+    await settle()
+    expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title')).toBe(LEGAL_UNAVAILABLE)
+  })
+
+  it('the confirm closes, uploading nothing, when the person loses the gate while it is open (review round 1, R1-BEH-15)', async () => {
+    seat('member', 'manager')
+    ctx.getAdapter = legalAdapter(true)
+    const calls = []
+    ctx.uploadFile = async (file, scope) => { calls.push([file.name, scope]) }
+    const { rerender } = onTab()
+    await waitFor(() => expect(legalInput()).toBeTruthy())
+    pick(['nda.pdf'])
+    expect(await screen.findByRole('dialog', { name: 'Add this file as Legal?' })).toBeTruthy()
+    ctx.myProjectRole = 'member'
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(legalButton()).toBeNull()
+    expect(calls).toEqual([])
+  })
+
   it('…and so does a backend with no Legal probe at all (fail closed)', async () => {
     seat('admin', null)
     ctx.getAdapter = REAL_ADAPTER
@@ -1007,15 +1048,19 @@ describe('Add as Legal (S4b)', () => {
     expect(legalButton().closest('[aria-disabled="true"]')?.getAttribute('title')).toBe('This backend is read-only.')
   })
 
-  it('on the Local Server it is there (no roles) and the confirm says Legal is a folder there, not a lock', async () => {
+  it('on the Local Server it is there (no roles) and says Legal is a folder there, not a lock — never that only managers will see it', async () => {
     ctx.adapterMode = 'local_server'
     perms.role = 'member'
     ctx.getAdapter = legalAdapter(true)
     onTab()
     await waitFor(() => expect(legalInput()).toBeTruthy())
+    // The button's own line (review round 1, R1-BEH-02: it promised the
+    // managers-only rule this backend cannot keep).
+    expect(legalButton().getAttribute('title')).toBe(LEGAL_LOCAL_NOTE)
     pick(['nda.pdf'])
     const dialog = await screen.findByRole('dialog', { name: 'Add this file as Legal?' })
     expect(within(dialog).getByText(LEGAL_LOCAL_NOTE)).toBeTruthy()
+    expect(dialog.textContent).not.toContain(LEGAL_ADD_HINT)
   })
 
   it('CONTROL: the cloud\'s confirm carries no Local Server note', async () => {

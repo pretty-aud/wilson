@@ -424,8 +424,9 @@
      The kit Dialog at `confirm` (400). The picked names first, in the mono
      the table names files in, one per line and cut with an ellipsis rather
      than wrapped (the whole name is the item's title); then who will see
-     them, in the second ink — the sentence the dialog exists to say — and
-     the line that it is fixed, in the third. Proximity: 4px inside the list,
+     them (on the Local Server, that the folder is not a lock there), in the
+     second ink — the sentence the dialog exists to say — and the line that
+     it is fixed, in the third. Proximity: 4px inside the list,
      12px between the three parts. */
   .fx-legal-names {
     margin: 0 0 12px;
@@ -447,14 +448,12 @@
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
   }
-  .fx-legal-fixed,
-  .fx-legal-local {
+  .fx-legal-fixed {
     margin: 0;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .fx-legal-local { margin-top: 8px; }
 
   /* ── The preview (FilePreviewDialog.jsx, S4a, E9) ──────────────────────
      The kit Dialog at `workbench` (960). A bar of two clusters — the walk

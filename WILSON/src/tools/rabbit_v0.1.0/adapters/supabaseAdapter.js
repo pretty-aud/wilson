@@ -83,7 +83,7 @@ import { presignStorage } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
   LEGAL_SEGMENT, LEGAL_UNAVAILABLE, LEGAL_GATE_REFUSAL,
-  LEGAL_LOCKED_REASON, LEGAL_NOT_CORE_REASON,
+  LEGAL_NOT_CORE_REASON, legalRefusalSentence,
 } from '../fileTags';
 
 // ───────────────────────────────────────────────────────────────
@@ -1809,6 +1809,9 @@ export function supabaseAdapter() {
       if (legal && scope.financial) {
         throw new Error('A file is added as Legal or as an invoice or receipt, not both.');
       }
+      // Never core either (files_legal_not_core_chk) — refused here, before
+      // the bytes move, not by the INSERT after them (review round 1, R1-BEH-07).
+      if (legal && scope.isCoreDefiner) throw new Error(LEGAL_NOT_CORE_REASON);
       if (legal) {
         if (!(await legalFilesAvailable(client))) throw new Error(LEGAL_UNAVAILABLE);
         if (!(await canAccessProjectMoney(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
@@ -1829,9 +1832,10 @@ export function supabaseAdapter() {
       // must not refuse an upload. The file is still fully addressable by its
       // storage_path and its entity link, and the next ensureEntityFolder
       // reconciles the tree.
-      // A Legal file is not filed in an entity's folder: the explorer shows it
-      // in the LEGAL folder (fileTree.js), whatever it is about.
-      let folderId = scope.folderId || null;
+      // A Legal file is not filed in an entity's folder, passed or looked up:
+      // the explorer shows it in the LEGAL folder (fileTree.js), whatever it
+      // is about.
+      let folderId = legal ? null : (scope.folderId || null);
       if (!folderId && container.key && !legal) {
         try {
           const { data } = await client
@@ -2228,9 +2232,8 @@ export function supabaseAdapter() {
       const res = await client.from('files').update(row).eq('id', id).select().single();
       // S4b (0088): the two Legal CHECKs answer in Postgres's words; say what
       // they mean instead (a caller from another page may not have the row).
-      const why = res.error?.message || '';
-      if (/files_legal_not_core_chk/.test(why)) throw new Error(`[supabase] ${LEGAL_NOT_CORE_REASON}`);
-      if (/files_legal_folder_chk/.test(why)) throw new Error(`[supabase] ${LEGAL_LOCKED_REASON}`);
+      const legalWhy = legalRefusalSentence(res.error?.message, patch);
+      if (legalWhy) throw new Error(`[supabase] ${legalWhy}`);
       return unwrap(res);
     },
 

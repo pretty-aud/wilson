@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, log: [], failWith: null }
+  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true }
   const client = {
     from(table) {
       return {
@@ -34,9 +34,14 @@ const fake = vi.hoisted(() => {
       from() {
         return {
           list:   async () => ({ data: [] }),
-          upload: async () => ({ error: null }),
+          upload: async (path) => { state.uploads.push(path); return { error: null } },
         }
       },
+    },
+    rpc: async (fn, args) => {
+      state.rpcs.push([fn, args])
+      if (fn === 'rabbit_money_segment') return { data: args?.seg === 'LEGAL' ? state.legalLocked : false, error: null }
+      return { data: null, error: null }
     },
   }
   return { state, client }
@@ -68,6 +73,9 @@ beforeEach(() => {
   fake.state.inserts = {}
   fake.state.log = []
   fake.state.failWith = null
+  fake.state.uploads = []
+  fake.state.rpcs = []
+  fake.state.legalLocked = true
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   globalThis.fetch = vi.fn(async (url) => {
     if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -206,5 +214,65 @@ describe('the dry run reports the links it would write and writes nothing', () =
     expect(report.taskLinks).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0 })
     expect(report.phaseLinks).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0 })
     expect(fake.state.inserts.task_dependencies).toBeUndefined()
+  })
+})
+
+// ── Post-overhaul S4b, review round 1 (R1-BEH-01): files keep their gate ────
+// Every desktop file used to go to projects/{p}/files/{id}/{name} — a third
+// segment every project member can read — with its row (and a Legal file's
+// tag) inserted after. A Legal file now goes under LEGAL with its tag and is
+// never core, and only where the cloud LOCKS that folder (0088); an invoice
+// goes under INVOICES. And the body is read from the route that serves it.
+describe('files keep their gate on the way to the cloud (S4b)', () => {
+  const FILES = [
+    { id: 'f-plain', project_id: 'p1', name: 'call sheet.pdf', storage_path: 'f-plain-call_sheet.pdf', storage_provider: 'local_server', tags: ['production'] },
+    { id: 'f-label', project_id: 'p1', name: 'notes.pdf', storage_path: 'f-label-notes.pdf', storage_provider: 'local_server', tags: [] },
+    { id: 'f-inv', project_id: 'p1', name: 'inv.pdf', storage_path: 'f-inv-inv.pdf', storage_provider: 'local_server', is_financial: true },
+    { id: 'f-legal', project_id: 'p1', name: 'nda.pdf', storage_path: 'f-legal-nda.pdf', storage_provider: 'local_server', tags: ['legal', 'creative'], is_core_definer: true },
+  ]
+  const fetched = []
+  beforeEach(() => {
+    fetched.length = 0
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') return { ok: true, json: async () => ({ ...bundle(), files: FILES }) }
+      const m = /^\/api\/rabbit\/projects\/p1\/files\/([^/]+)\/download$/.exec(url)
+      if (m) { fetched.push(m[1]); return { ok: true, blob: async () => new Blob([`body of ${m[1]}`]) } }
+      return { ok: false, status: 404 }
+    })
+  })
+  const rowOf = (id) => (fake.state.inserts.files || []).find(r => r.id === id)
+
+  it('reads each body from /files/:id/download (the route that exists)', async () => {
+    await runMigration({ workspaceId: 'ws1' })
+    expect(fetched.sort()).toEqual(['f-inv', 'f-label', 'f-legal', 'f-plain'])
+  })
+
+  it('a Legal file lands under LEGAL with its tag, never core; an invoice under INVOICES; the rest under files', async () => {
+    await runMigration({ workspaceId: 'ws1' })
+    expect(rowOf('f-legal').storage_path).toBe('projects/p1/LEGAL/f-legal/nda.pdf')
+    expect(rowOf('f-legal').tags).toEqual(['legal', 'creative'])
+    expect(rowOf('f-legal').is_core_definer).toBe(false)
+    expect(rowOf('f-inv').storage_path).toBe('projects/p1/INVOICES/f-inv/inv.pdf')
+    expect(rowOf('f-plain').storage_path).toBe('projects/p1/files/f-plain/call_sheet.pdf')
+    expect(fake.state.uploads).toContain('projects/p1/LEGAL/f-legal/nda.pdf')
+    expect(fake.state.uploads.filter(u => u.includes('/files/'))).toEqual(['projects/p1/files/f-plain/call_sheet.pdf', 'projects/p1/files/f-label/notes.pdf'])
+  })
+
+  it('where the cloud does not lock LEGAL, a Legal file is not migrated at all — its body is not even read — and the report says why', async () => {
+    fake.state.legalLocked = false
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(rowOf('f-legal')).toBeUndefined()
+    expect(fetched).not.toContain('f-legal')
+    expect(fake.state.uploads.some(u => u.includes('nda'))).toBe(false)
+    expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^Legal file not migrated: Legal files need a database update \(migration 0088\)/)
+    // CONTROL: the others still go.
+    expect(rowOf('f-plain')).toBeTruthy()
+    expect(rowOf('f-inv')).toBeTruthy()
+  })
+
+  it('asks the database once per run (the answer is the same for every Legal file)', async () => {
+    await runMigration({ workspaceId: 'ws1' })
+    expect(fake.state.rpcs.filter(r => r[0] === 'rabbit_money_segment')).toHaveLength(1)
   })
 })

@@ -16,7 +16,7 @@ import { dirname, resolve } from 'node:path'
 import {
   FILE_TAGS, FILE_TAG_IDS, DERIVED_TAG, GATED_TAG, LEGAL_HINT, LEGAL_SEGMENT,
   LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON,
-  tagLabel, storedTags, displayTags, writableTags, toggleTag, tagSettable, tagsMatch, isLegalFile,
+  tagLabel, storedTags, displayTags, writableTags, toggleTag, tagSettable, tagsMatch, isLegalFile, legalRefusalSentence,
 } from './fileTags'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -115,6 +115,40 @@ describe('what a row shows and what the client writes', () => {
     // files_legal_folder_chk would refuse a write that dropped it.
     expect(toggleTag({ tags: ['legal'] }, 'shots')).toEqual(['legal', 'shots'])
     expect(toggleTag({ tags: ['legal', 'shots'] }, 'shots')).toEqual(['legal'])
+  })
+
+  it('isLegalFile on a CLOUD key is the folder alone: an S4a label there is not Legal (review round 1, R1-BEH-03)', () => {
+    expect(isLegalFile({ storage_provider: 'supabase', storage_path: 'projects/p/project/p/1-a.pdf', tags: ['legal', 'code'] })).toBe(false)
+    expect(isLegalFile({ storage_provider: 's3', storage_path: 'projects/p/scenes/s/1-a.pdf', tags: ['legal'] })).toBe(false)
+    expect(isLegalFile({ storage_provider: 'supabase', storage_path: 'projects/p/LEGAL/p/1-a.pdf', tags: [] })).toBe(true)
+  })
+
+  it('isLegalFile on a LOCAL SERVER row is the tag alone: a folder of the person\'s own called Legal is not (R1-BEH-06)', () => {
+    expect(isLegalFile({ storage_provider: 'local_server', storage_path: 'Docs/2026/Legal/nda.pdf' })).toBe(false)
+    expect(isLegalFile({ storage_provider: 'local_server', storage_path: 'projects/x/LEGAL/y/nda.pdf' })).toBe(false)
+    expect(isLegalFile({ storage_provider: 'local_server', storage_path: 'f1-nda.pdf', tags: ['legal'] })).toBe(true)
+  })
+
+  it('toggleTag drops a stray Legal label from the write, and a managed file never keeps one', () => {
+    // A cloud row labelled in S4a: the next save clears the label.
+    expect(toggleTag({ storage_provider: 'supabase', storage_path: 'projects/p/project/p/1.pdf', tags: ['legal', 'code'] }, 'shots'))
+      .toEqual(['code', 'shots'])
+    // The file window says a managed file is not Legal, whatever it carries.
+    expect(toggleTag({ tags: ['legal', 'shots'] }, 'code', { legal: false })).toEqual(['code', 'shots'])
+    // CONTROL: a Legal file keeps it.
+    expect(toggleTag({ storage_provider: 'supabase', storage_path: 'projects/p/LEGAL/p/1.pdf', tags: ['legal'] }, 'code'))
+      .toEqual(['legal', 'code'])
+  })
+
+  it('legalRefusalSentence: each 0088 refusal in the words the person needs (R1-BEH-08)', () => {
+    const folder = 'new row for relation "files" violates check constraint "files_legal_folder_chk"'
+    expect(legalRefusalSentence(folder, { tags: ['legal', 'code'] })).toBe(LEGAL_AT_ADD_REASON)
+    expect(legalRefusalSentence(folder, { tags: ['code'] })).toBe(LEGAL_LOCKED_REASON)
+    expect(legalRefusalSentence(folder, { description: 'x' })).toBe(LEGAL_LOCKED_REASON)
+    expect(legalRefusalSentence('files_legal_fixed: a file is Legal from the moment it is added', {})).toBe(LEGAL_LOCKED_REASON)
+    expect(legalRefusalSentence('violates check constraint "files_legal_not_core_chk"', { is_core_definer: true })).toBe(LEGAL_NOT_CORE_REASON)
+    expect(legalRefusalSentence('permission denied', { tags: ['legal'] })).toBe(null)
+    expect(legalRefusalSentence(undefined)).toBe(null)
   })
 
   it('isLegalFile: the tag, or a LEGAL third path segment in any case; nothing else', () => {
@@ -227,27 +261,37 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
     expect(cjs.checkManagedLegal({ tags: ['shots'] })).toEqual({ ok: true })
   })
 
-  it('main.cjs: a LEGAL folder beside INVOICES, the base-dir branch, both uploads and the relink skip', () => {
+  it('main.cjs: a LEGAL folder beside INVOICES, and every Legal decision handed to legalFiling.cjs', () => {
+    // CODE, not comments: a line commented out must not satisfy a pin
+    // (review round 1, R1-1 and R1-5 survived on exactly that).
+    const code = mainCjs.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
     // Made with the project, beside INVOICES (so a NAS can lock it).
-    const dirs = mainCjs.slice(mainCjs.indexOf('function ensureProjectFolders(bundle)'), mainCjs.indexOf('for (const d of dirs)'))
+    const dirs = code.slice(code.indexOf('function ensureProjectFolders(bundle)'), code.indexOf('for (const d of dirs)'))
     expect(dirs).toContain("path.join(root, 'INVOICES'),")
     expect(dirs).toContain('path.join(root, LEGAL_DIR),')
-    // A Legal row resolves against LEGAL before the invoice branch.
-    const base = mainCjs.slice(mainCjs.indexOf('function resolveFileBaseDir('), mainCjs.indexOf('// ── File lifecycle helpers'))
-    expect(base.indexOf('if (isLegalRow(file)) {')).toBeGreaterThan(-1)
-    expect(base.indexOf('if (isLegalRow(file)) {')).toBeLessThan(base.indexOf('if (!file?.is_financial) return filesDir;'))
-    expect(base).toContain('const legalDir = resolveProjectLegalDir(bundle, projectId);')
-    // The base64 POST: LEGAL for a Legal scope, the tag, never with financial.
-    const post = mainCjs.slice(mainCjs.indexOf("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {"))
-    const postBody = post.slice(0, post.indexOf('res.json(row);'))
-    expect(postBody).toContain('const isLegal = !!scope.legal;')
-    expect(postBody).toMatch(/if \(isLegal && isFinancial\) \{\s*return res\.status\(400\)/)
-    expect(postBody).toMatch(/const filesDir = isLegal\s*\?\s*resolveProjectLegalDir\(bundle, req\.params\.projectId\)/)
-    expect(postBody).toContain("...(isLegal ? { tags: ['legal'] } : {}),")
-    // The relink scan leaves Legal files where they are.
-    const relink = mainCjs.slice(mainCjs.indexOf("'/api/rabbit/projects/:projectId/files/relink-scan'"))
-    expect(relink.slice(0, relink.indexOf('const { folderPath }'))).toContain('if (isLegalRow(f)) continue;')
-    // The stream route is handed the LEGAL resolver.
-    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
+    // The module is created with the host's helpers, before the first bundle read.
+    expect(code).toMatch(/const legalFiling = require\('\.\/legalFiling\.cjs'\)\.createLegalFiling\(\{\s*fs, path, resolveProjectFolder, resolveProjectFilesDir, getRabbitProjectDir, resolveContainedFilePath,\s*\}\);/)
+    expect(code.indexOf('const legalFiling = ')).toBeLessThan(code.indexOf('function readRabbitBundle('))
+    // Every read strips S4a-period labels, and persists the change.
+    const read = code.slice(code.indexOf('function readRabbitBundle('), code.indexOf('function writeRabbitBundle('))
+    expect(read).toContain('if (legalFiling.stripStrayLegal(bundle, projectId) > 0) dirty = true;')
+    // A Legal body is written to, and read from, a LEGAL folder — never the files dir.
+    const legalDirFn = code.slice(code.indexOf('function resolveProjectLegalDir('), code.indexOf('function resolveFileBaseDir('))
+    expect(legalDirFn).toContain('return legalFiling.legalDir(bundle, projectId);')
+    expect(legalDirFn).not.toContain('resolveProjectFilesDir')
+    const base = code.slice(code.indexOf('function resolveFileBaseDir('), code.indexOf('function isUserAuthorizedRelinkDir('))
+    expect(base.indexOf('if (isLegalRow(file)) return legalFiling.baseDirFor(bundle, projectId, file);')).toBeGreaterThan(-1)
+    expect(base.indexOf('if (isLegalRow(file)) return legalFiling.baseDirFor(bundle, projectId, file);'))
+      .toBeLessThan(base.indexOf('if (!file?.is_financial) return filesDir;'))
+    // The relink scan leaves invoices and Legal files out; the apply refuses them.
+    const scan = code.slice(code.indexOf("'/api/rabbit/projects/:projectId/files/relink-scan'"))
+    expect(scan.slice(0, scan.indexOf('const { folderPath }'))).toContain('if (!legalFiling.relinkable(f)) continue;')
+    const apply = code.slice(code.indexOf("'/api/rabbit/projects/:projectId/files/relink-apply'"))
+    expect(apply.slice(0, apply.indexOf('if (changingBase)'))).toMatch(/if \(!legalFiling\.relinkable\(file\)\) \{\s*return res\.status\(400\)/)
+    // The base64 POST lives beside the stream now (projectFileStream.test.js
+    // serves both for real); main.cjs registers it nowhere.
+    expect(code).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    // The stream module is handed the LEGAL resolver.
+    expect(code).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
   })
 })

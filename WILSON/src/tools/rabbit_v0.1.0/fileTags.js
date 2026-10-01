@@ -110,28 +110,62 @@ export function writableTags(ids) {
 
 /**
  * The next stored array once `id` is switched on or off for `row`. Legal is
- * never switched (0088): asked to, this returns the row's tags unchanged —
- * which keep 'legal' on a Legal file, as files_legal_folder_chk requires.
+ * never switched (0088): asked to, this returns the row's tags — which keep
+ * 'legal' on a Legal file, as files_legal_folder_chk requires. `legal` is
+ * whether the row IS Legal (isLegalFile, by default; the file window passes
+ * false for a managed file, which is never Legal). A `legal` LABEL on any
+ * other row — S4a's label period, before 0088 strips the cloud's and the
+ * Local Server strips its own on read — is dropped from the write, so the
+ * next save clears it rather than carrying it (review round 1, R1-BEH-03:
+ * kept, it locked a managed file's tags for good).
  */
-export function toggleTag(row, id) {
-  const current = writableTags(storedTags(row))
+export function toggleTag(row, id, { legal = isLegalFile(row) } = {}) {
+  const kept = writableTags(storedTags(row)).filter((t) => t !== GATED_TAG)
+  const current = legal ? writableTags([...kept, GATED_TAG]) : kept
   if (id === GATED_TAG) return current
   const next = current.includes(id) ? current.filter((t) => t !== id) : [...current, id]
   return writableTags(next)
 }
 
 /**
- * Is this a Legal file? The tag, or a third path segment LEGAL in any case
- * (the cloud's CHECK keeps the two together; the Local Server's row carries
- * the tag and a bare filename). Every surface that must leave Legal files
- * out — D.O.G.'s attachments, the Projects page's list, the entity file
- * managers, Core — asks this one function.
+ * Is this a Legal file? Every surface that must leave Legal files out —
+ * D.O.G.'s attachments, the Projects page's list, the entity file managers,
+ * Core — and the file window asks this one function.
+ *
+ * A CLOUD key (`projects/{id}/{SEGMENT}/…`, any provider but the Local
+ * Server) is judged by its folder alone, which is what the database gates:
+ * 0088 ties the tag to it, and a `legal` tag on any other cloud key is an
+ * S4a label from before 0088 — called Legal, it would claim a lock nobody
+ * applies (review round 1, R1-BEH-03). A Local Server row keeps a bare
+ * filename (or, relinked, a path of the person's own folders — R1-BEH-06:
+ * `Docs/2026/Legal/nda.pdf` is not Legal), so there the TAG is the fact,
+ * written once by the upload that put the body in LEGAL. A row with no key
+ * at all falls to the tag: fail closed.
  */
 export function isLegalFile(row) {
   if (!row || typeof row !== 'object') return false
-  if (storedTags(row).includes(GATED_TAG)) return true
-  const seg = String(row.storage_path || '').split('/')[2]
-  return typeof seg === 'string' && seg.toUpperCase() === LEGAL_SEGMENT
+  const key = typeof row.storage_path === 'string' ? row.storage_path : ''
+  if (row.storage_provider !== 'local_server' && key.startsWith('projects/')) {
+    return (key.split('/')[2] || '').toUpperCase() === LEGAL_SEGMENT
+  }
+  return storedTags(row).includes(GATED_TAG)
+}
+
+/**
+ * The sentence for a refusal by one of 0088's Legal rules (the two CHECKs and
+ * the path trigger), or null for any other error. `fields` is the write that
+ * was refused: asking to tag a file Legal is "chosen when a file is added";
+ * removing it from a Legal file is "added as Legal". One function, so the
+ * cloud adapter and the fixtures say the same thing (R1-BEH-08).
+ */
+export function legalRefusalSentence(message, fields) {
+  const why = String(message || '')
+  if (/files_legal_not_core_chk/.test(why)) return LEGAL_NOT_CORE_REASON
+  if (/files_legal_folder_chk|files_legal_fixed/.test(why)) {
+    const adding = Array.isArray(fields?.tags) && fields.tags.includes(GATED_TAG)
+    return adding ? LEGAL_AT_ADD_REASON : LEGAL_LOCKED_REASON
+  }
+  return null
 }
 
 /**

@@ -1372,6 +1372,12 @@ function startLocalServer(distPath) {
     function rabbitBundlePath(projectId) {
       return path.join(getRabbitProjectDir(projectId), 'project.json');
     }
+    // Post-overhaul S4b (review round 1, R1-BEH-03/04/05/10): the LEGAL
+    // folder, the stray-label clean-up and the relink rule, in one module
+    // that is run for real in legalFiling.test.js.
+    const legalFiling = require('./legalFiling.cjs').createLegalFiling({
+      fs, path, resolveProjectFolder, resolveProjectFilesDir, getRabbitProjectDir, resolveContainedFilePath,
+    });
     function readRabbitBundle(projectId) {
       let bundleFile;
       try { bundleFile = rabbitBundlePath(projectId); } catch { return null; }
@@ -1459,6 +1465,10 @@ function startLocalServer(distPath) {
       } catch { /* leave the stored root alone */ }
       // Ensure sub-folder structure exists on first access
       try { ensureProjectFolders(bundle); } catch {}
+      // S4b: a `legal` LABEL from S4a's period (a managed file, an invoice,
+      // a project file whose body is not in a LEGAL folder) is removed, as
+      // 0088 §2 strips the cloud's — persisted by the dirty write below.
+      try { if (legalFiling.stripStrayLegal(bundle, projectId) > 0) dirty = true; } catch { /* next read */ }
       // Session 26: the tree, reconciled on read so a project that predates
       // 0041 gains its rows without anyone having to migrate anything. It
       // converges — once every planned folder has a row nothing changes, so
@@ -1941,16 +1951,11 @@ function startLocalServer(distPath) {
     }
 
     // Post-overhaul S4b: the LEGAL folder, INVOICES's twin — a sibling of
-    // <slug>_FILES, made on demand, falling back to the files dir when no
-    // project folder is configured (exactly as invoices do).
+    // <slug>_FILES, made on demand. Unlike invoices it NEVER falls back to
+    // the files dir: with no project folder it is the internal project
+    // dir's own LEGAL (review round 1, R1-BEH-04; legalFiling.cjs).
     function resolveProjectLegalDir(bundle, projectId) {
-      const root = resolveProjectFolder(bundle);
-      if (root) {
-        const dir = path.join(root, LEGAL_DIR);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        return dir;
-      }
-      return resolveProjectFilesDir(bundle, projectId);
+      return legalFiling.legalDir(bundle, projectId);
     }
 
     // Which base a given file row resolves against. storage_path stays a bare
@@ -1966,16 +1971,10 @@ function startLocalServer(distPath) {
     // back to wherever the body actually is.
     function resolveFileBaseDir(bundle, projectId, file) {
       const filesDir = resolveProjectFilesDir(bundle, projectId);
-      // S4b: a Legal file's home is LEGAL, with the same "where the body
-      // actually is" fallback (a Legal file added before a folder was set).
-      if (isLegalRow(file)) {
-        const legalDir = resolveProjectLegalDir(bundle, projectId);
-        const inLegal = resolveContainedFilePath(legalDir, file.storage_path);
-        if (inLegal && fs.existsSync(inLegal)) return legalDir;
-        const legacyLegal = resolveContainedFilePath(filesDir, file.storage_path);
-        if (legacyLegal && fs.existsSync(legacyLegal)) return filesDir;
-        return legalDir;
-      }
+      // S4b: a Legal file's home is a LEGAL folder — the project's, then the
+      // internal one — with the "where the body actually is" fallback
+      // (legalFiling.baseDirFor, run for real in legalFiling.test.js).
+      if (isLegalRow(file)) return legalFiling.baseDirFor(bundle, projectId, file);
       if (!file?.is_financial) return filesDir;
       const invoicesDir = resolveProjectInvoicesDir(bundle, projectId);
       const here = resolveContainedFilePath(invoicesDir, file.storage_path);
@@ -2926,78 +2925,11 @@ function startLocalServer(distPath) {
     // Individual CRUD via sub-entity factory
     rabbitSubentityRoutes('project-team',    'projectTeam');
 
-    // ── Files: upload (base64 JSON payload) + download (binary stream) ──
-    // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
-    // Server decodes and writes to {project_dir}/files/{file_id}-{name}.
-    // Multipart was the original spec but base64 keeps us off a new dep
-    // (multer/formidable) and works fine inside the existing 50mb json limit.
-    expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const { name, mimeType, sizeBytes, base64, scope = {} } = req.body || {};
-      if (!name || !base64) return res.status(400).json({ error: 'name and base64 required' });
-
-      const fileId = uuidv4();
-      const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
-      const diskName = `${fileId}-${safeName}`;
-      const isFinancial = !!scope.financial;
-      // S4b (0088): a Legal file — its own LEGAL folder, the tag written now
-      // and never after. Never an invoice too (the cloud refuses the pair).
-      const isLegal = !!scope.legal;
-      if (isLegal && isFinancial) {
-        return res.status(400).json({ error: 'A file is added as Legal or as an invoice or receipt, not both.', code: 'legal_and_financial' });
-      }
-      const filesDir = isLegal
-        ? resolveProjectLegalDir(bundle, req.params.projectId)
-        : isFinancial
-          ? resolveProjectInvoicesDir(bundle, req.params.projectId)
-          : resolveProjectFilesDir(bundle, req.params.projectId);
-      fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
-
-      const row = rabbitTouch({
-        id:               fileId,
-        project_id:       req.params.projectId,
-        phase_id:         scope.phaseId || null,
-        asset_id:         scope.assetId || null,
-        task_id:          scope.taskId  || null,
-        name,
-        mime_type:        mimeType || null,
-        size_bytes:       sizeBytes ?? null,
-        storage_provider: 'local_server',
-        storage_path:     diskName,
-        kind:             scope.kind || 'source',
-        // 🚨 The polarity flag travels EXPLICITLY, exactly as it does in
-        // supabaseAdapter.uploadFile — see the long note there. §6 #31 (b).
-        is_core_definer:  !!scope.isCoreDefiner,
-        // 0075's two columns, mirrored here so the desktop bundle and the
-        // cloud row have the same shape. Audrey's parity rule (2026-08-10):
-        // "all functionality should be the same in both versions of the app."
-        // Before C3 this route stored neither, while the PATCH route below
-        // spread them in from req.body — so a kind set on the desktop
-        // persisted and the same gesture in cloud mode was silently dropped.
-        // The two halves now agree at BOTH ends.
-        document_kind:    scope.documentKind || null,
-        description:      scope.description  || null,
-        // Mirrors public.files.is_financial (0038). On Local Server it also
-        // decides which directory the body resolves against.
-        is_financial:     isFinancial,
-        uploaded_at:      new Date().toISOString(),
-        // S4b: the legal tag, written with the LEGAL folder (and only then).
-        ...(isLegal ? { tags: ['legal'] } : {}),
-      });
-      bundle.files.push(row);
-      rabbitLogFileEvent(bundle, {
-        file_id:          row.id,
-        project_id:       req.params.projectId,
-        file_name:        row.name,
-        storage_provider: row.storage_provider,
-        event:            'uploaded',
-        new_path:         row.storage_path,
-        size_bytes:       row.size_bytes ?? null,
-      });
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(row);
-    });
+    // ── Files: upload (base64 JSON payload) ──
+    // Moved word for word into electron/projectFileStream.cjs (S4b review
+    // round 1, R1-BEH-05) beside the streamed PUT, mounted below with it, so
+    // the two transports share one scope check and one directory choice and
+    // both are served for real in tests. The download route follows.
 
     // ── Post-overhaul S4a: where a row's bytes are on THIS disk ─────────────
     // For the rabbit:open-path IPC ("Open in default app", the explorer's
@@ -3147,11 +3079,10 @@ function startLocalServer(distPath) {
         // Session 24: invoices live in <project>/INVOICES and are not part of
         // the files home this flow relinks. Including them would report every
         // one as missing — and a relink would then offer to move the
-        // project's financial record somewhere else.
-        if (f.is_financial) continue;
-        // S4b: nor Legal files, which live in <project>/LEGAL for the same
-        // reason — a relink must not offer to move them out of it.
-        if (isLegalRow(f)) continue;
+        // project's financial record somewhere else. S4b: nor Legal files,
+        // which live in <project>/LEGAL for the same reason
+        // (legalFiling.relinkable).
+        if (!legalFiling.relinkable(f)) continue;
         const p = resolveContainedFilePath(filesDir, f.storage_path);
         (p && fs.existsSync(p) ? resolved : missing).push({
           id: f.id, name: f.name, storage_path: f.storage_path,
@@ -3251,6 +3182,12 @@ function startLocalServer(distPath) {
       for (const m of mappings) {
         const file = byId.get(m?.fileId);
         if (!file) return res.status(400).json({ error: `unknown file id: ${m?.fileId}` });
+        // S4b (review round 1, R1-BEH-10): the scan never offers an invoice
+        // or a Legal file, so a mapping for one is refused, not applied — a
+        // crafted one would re-point a Legal body outside LEGAL.
+        if (!legalFiling.relinkable(file)) {
+          return res.status(400).json({ error: `not relinkable: ${file.name || file.id} lives in its own folder`, code: 'not_relinkable' });
+        }
         const abs = resolveContainedFilePath(baseDir, m.newPath);
         if (!abs) return res.status(400).json({ error: `path escapes the picked folder: ${m.newPath}` });
         if (!fs.existsSync(abs)) return res.status(409).json({ error: `not found on disk: ${m.newPath}` });

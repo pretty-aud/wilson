@@ -403,6 +403,26 @@ describe('tags (E3 nine, E4 Finance derived and Legal gated)', () => {
     await waitFor(() => expect(ctx.patchFile).toHaveBeenCalledWith('9', { tags: ['legal', 'reference'] }, 'p1'))
   })
 
+  it('a Legal row that says it is core still shows Core OFF (review round 1, R1-BEH-14: the disabled click proved nothing)', async () => {
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({ ...base, listFiles: async () => [...FILES, { ...LEGAL_ROW, is_core_definer: true }] })
+    await mount()
+    fireEvent.click(nameButton('release.pdf'))
+    const core = panel().querySelector('[data-file-core]')
+    const sw = core.getAttribute('role') === 'switch' ? core : core.querySelector('[role="switch"]')
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('a managed file\'s stray Legal LABEL (S4a) is dropped by its next tag change, never kept (R1-BEH-03)', async () => {
+    const base = ctx.getAdapter()
+    ctx.getAdapter = () => ({ ...base, listManagedFiles: async () => [{ ...MANAGED[0], tags: ['legal', 'shots'] }] })
+    await mount()
+    fireEvent.click(nameButton('hero_v001.mov'))
+    expect(chip('legal').getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(chip('code'))
+    await waitFor(() => expect(ctx.updateManagedFile).toHaveBeenCalledWith('m1', { tags: ['code', 'shots'] }, 'p1'))
+  })
+
   it('a database without 0085 shows a sentence instead of the chips', async () => {
     const base = ctx.getAdapter()
     ctx.getAdapter = () => ({ ...base, supportsFileTags: async () => false })

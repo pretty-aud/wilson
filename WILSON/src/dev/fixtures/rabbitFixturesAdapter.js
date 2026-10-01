@@ -33,7 +33,7 @@
 
 import { devWriteRefused } from '../devFixtures'
 import { planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN } from '../../tools/rabbit_v0.1.0/folderPaths'
-import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags } from '../../tools/rabbit_v0.1.0/fileTags'
+import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags, legalRefusalSentence } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
 } from './store'
@@ -484,8 +484,10 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       }
       const before = findById(store.files, id)
       if (before) {
+        // Refused as the CHECK would, and SAID as the cloud adapter says it
+        // (fileTags.legalRefusalSentence — review round 1, R1-BEH-08).
         const refused = legalRefusal(before, { ...before, ...(fields || {}) })
-        if (refused) throw new Error(`[fixtures] ${refused}`)
+        if (refused) throw new Error(`[fixtures] ${legalRefusalSentence(refused, fields)}`)
       }
       if (fields && 'tags' in fields) {
         const refused = fileTagsRefusal(fields.tags)

@@ -55,6 +55,7 @@ const LEGAL_LOCKED_REASON = 'Added as Legal. To change this, add the file again.
 const LEGAL_AT_ADD_REASON = 'Legal is chosen when a file is added.';
 const LEGAL_NOT_CORE_REASON = 'A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.';
 const LEGAL_MANAGED_REASON = 'A file of an asset, a shot or a scene is never Legal: add it to the project with Add as Legal.';
+const LEGAL_AND_FINANCIAL_REASON = 'A file is added as Legal or as an invoice or receipt, not both.';
 
 /** A desktop row is Legal when it carries the tag (written only at upload). */
 function isLegalRow(row) {
@@ -79,6 +80,21 @@ function checkLegalPatch(existing, patch) {
   return { ok: true };
 }
 
+/**
+ * An upload's scope, judged before a byte is written (both transports):
+ * Legal is never an invoice too (the cloud refuses the pair), and a Legal
+ * file is never added as core (files_legal_not_core_chk; review round 1,
+ * R1-BEH-07 — the PATCH refused it, the upload did not).
+ * `{ ok: true, isLegal, isFinancial }` or `{ ok: false, code, error }`.
+ */
+function checkLegalUpload(scope) {
+  const isLegal = !!scope?.legal;
+  const isFinancial = !!scope?.financial;
+  if (isLegal && isFinancial) return { ok: false, code: 'legal_and_financial', error: LEGAL_AND_FINANCIAL_REASON };
+  if (isLegal && scope?.isCoreDefiner) return { ok: false, code: 'legal_not_core', error: LEGAL_NOT_CORE_REASON };
+  return { ok: true, isLegal, isFinancial };
+}
+
 /** A managed file (an asset's, a shot's, a scene's) is never Legal. */
 function checkManagedLegal(patch) {
   if (patch && Array.isArray(patch.tags) && patch.tags.includes(LEGAL_TAG)) {
@@ -90,5 +106,6 @@ function checkManagedLegal(patch) {
 module.exports = {
   FILE_TAG_IDS, FILE_TAG_MAX, checkFileTags,
   LEGAL_TAG, LEGAL_DIR, LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON, LEGAL_MANAGED_REASON,
-  isLegalRow, checkLegalPatch, checkManagedLegal,
+  LEGAL_AND_FINANCIAL_REASON,
+  isLegalRow, checkLegalPatch, checkManagedLegal, checkLegalUpload,
 };

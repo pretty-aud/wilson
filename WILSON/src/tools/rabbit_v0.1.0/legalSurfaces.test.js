@@ -33,10 +33,19 @@ const FILE_MANAGER = read('./components/FileManager.jsx')
 const APP = read('../../App.jsx')
 const PET = read('../otter_v0.3.1/petKnowledge.js')
 
+// CODE, not comments: a filter moved into a comment, with a live line that
+// forgot Legal, read as the comment (review round 1, R1-BEH-12 — planted
+// fault R1-8 survived). Comment lines are dropped first, and a reader that
+// finds the line more than once answers null rather than pick one.
+const code = (src) => src.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
+const only = (re, src) => {
+  const all = [...code(src).matchAll(re)]
+  return all.length === 1 ? all[0][1] : null
+}
 /** The Projects page's one listFiles filter, as written. */
-const projectsFilter = (src) => /setFileRows\(\(rows \|\| \[\]\)\.filter\(([^\n]*)\)\)/.exec(src)?.[1] ?? null
+const projectsFilter = (src) => only(/setFileRows\(\(rows \|\| \[\]\)\.filter\(([^\n]*)\)\)/g, src)
 /** FileManager's money exclusion line. */
-const managerFilter = (src) => /\n\s*if \((f\.is_financial[^\n]*?)\) return false/.exec(src)?.[1] ?? null
+const managerFilter = (src) => only(/\n\s*if \((f\.is_financial[^\n]*?)\) return false/g, src)
 
 describe('the Projects page and the entity file managers leave Legal files out', () => {
   it('the Projects page filters invoices AND Legal files out of its list', () => {
@@ -54,6 +63,15 @@ describe('the Projects page and the entity file managers leave Legal files out',
     expect(projectsFilter(forgot)).not.toBe(projectsFilter(PROJECTS_PAGE))
     const forgotToo = FILE_MANAGER.replace(' || isLegalFile(f)', '')
     expect(managerFilter(forgotToo)).toBe('f.is_financial')
+  })
+
+  it('CONTROL: …and are not fooled by the right filter in a comment above a wrong one (planted fault R1-8)', () => {
+    const line = 'setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial && !isLegalFile(f)))'
+    const at = PROJECTS_PAGE.indexOf(line)
+    expect(at).toBeGreaterThan(-1)
+    const commented = PROJECTS_PAGE.slice(0, at) + '// ' + line + '\n      '
+      + 'setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))' + PROJECTS_PAGE.slice(at + line.length)
+    expect(projectsFilter(commented)).toBe('f => !f.deleted_at && !f.is_financial')
   })
 })
 

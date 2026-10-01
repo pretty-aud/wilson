@@ -118,6 +118,9 @@ import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import FileEditor from './FileEditor'
 import { LEGAL_ADD_HINT, LEGAL_AT_ADD_REASON, LEGAL_LOCAL_NOTE, LEGAL_UNAVAILABLE } from '../../tools/rabbit_v0.1.0/fileTags'
+
+// While the database is asked whether Legal files exist here (0088).
+const LEGAL_CHECKING = 'Checking whether this workspace can keep Legal files…'
 import FilePreviewDialog from './FilePreviewDialog'
 import { desktopBridge, diskSourceFor, downloadCloudFile, downloadName } from './fileActions'
 import {
@@ -428,25 +431,40 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   //
   // Where the database lacks 0088 the control stays, greyed, with the reason
   // (LEGAL_UNAVAILABLE): a manager learns why, instead of finding nothing.
+  // While the database is being asked it says so, rather than claiming a
+  // missing migration for the moment the question takes (review round 1,
+  // R1-BEH-09): `null` is "asking", and only `true` opens the control.
+  //
+  // On the Local Server (no roles) the control says what that backend can
+  // and cannot do — LEGAL_LOCAL_NOTE — and never that only managers will see
+  // the files, which there is not true (R1-BEH-02).
   const legalOffered = onTab && canSeeMoney
-  const [legalSupported, setLegalSupported] = useState(false)
+  const [legalSupported, setLegalSupported] = useState(null)
   useEffect(() => {
     if (!legalOffered) { setLegalSupported(false); return undefined }
     let off = false
     const a = getAdapter?.()
     if (typeof a?.supportsLegalFiles !== 'function') { setLegalSupported(false); return undefined }
+    setLegalSupported(null)
     Promise.resolve(a.supportsLegalFiles())
-      .then((v) => { if (!off) setLegalSupported(!!v) })
+      .then((v) => { if (!off) setLegalSupported(v === true) })
       .catch(() => { if (!off) setLegalSupported(false) })
     return () => { off = true }
   }, [legalOffered, getAdapter, ctx?.adapterMode])
-  const legalAllowed = canWrite && legalSupported
-  const legalReason = !canWrite ? writeReason : LEGAL_UNAVAILABLE
+  const legalAllowed = canWrite && legalSupported === true
+  const legalReason = !canWrite
+    ? writeReason
+    : (legalSupported === null ? LEGAL_CHECKING : LEGAL_UNAVAILABLE)
+  const legalWho = noRoles ? LEGAL_LOCAL_NOTE : LEGAL_ADD_HINT
   const legalInputRef = useRef(null)
   const [legalPicked, setLegalPicked] = useState(null) // { projectId, files } awaiting the confirm
   const [legalUploading, setLegalUploading] = useState(false)
   // Another project: a pick made for the last one is not offered for this one.
   useEffect(() => { setLegalPicked(null) }, [projectId])
+  // Nor one made while the control was open to this person and no longer is
+  // (a seat changed, the backend went read-only): the confirm closes rather
+  // than waiting to drop the files silently (review round 1, R1-BEH-15).
+  useEffect(() => { if (!legalAllowed) setLegalPicked(null) }, [legalAllowed])
   const clearLegalInput = useCallback(() => { if (legalInputRef.current) legalInputRef.current.value = '' }, [])
   const handleLegalPick = useCallback((e) => {
     const picked = Array.from(e.target.files || [])
@@ -753,7 +771,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                   onClick={() => { if (legalAllowed) legalInputRef.current?.click() }}
                   loading={legalUploading}
                   loadingLabel="Adding…"
-                  title={legalAllowed ? LEGAL_ADD_HINT : undefined}
+                  title={legalAllowed ? legalWho : undefined}
                   data-add-legal
                 >
                   Add as Legal
@@ -933,9 +951,8 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             {legalPicked.files.slice(0, 5).map((f, i) => <li key={`${i}:${f.name}`} title={f.name}>{f.name}</li>)}
             {legalCount > 5 && <li className="fx-legal-more">and {legalCount - 5} more</li>}
           </ul>
-          <p className="fx-legal-who" data-legal-who>{LEGAL_ADD_HINT}</p>
+          <p className="fx-legal-who" data-legal-who data-legal-local={noRoles || undefined}>{legalWho}</p>
           <p className="fx-legal-fixed">{LEGAL_AT_ADD_REASON} To change it later, add the file again.</p>
-          {noRoles && <p className="fx-legal-local" data-legal-local>{LEGAL_LOCAL_NOTE}</p>}
         </Dialog>
       )}
       {auditOpen && selectedFile && (

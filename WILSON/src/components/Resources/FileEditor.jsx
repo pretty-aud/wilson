@@ -194,7 +194,7 @@ export default function FileEditor({
                     active={on}
                     disabled={!gate.ok}
                     title={gate.ok ? (on ? `Remove ${label}` : `Tag as ${label}`) : gate.reason}
-                    onClick={() => { if (gate.ok) onSave?.({ tags: toggleTag(row, id) }) }}
+                    onClick={() => { if (gate.ok) onSave?.({ tags: toggleTag(row, id, { legal }) }) }}
                     data-tag={id}
                     data-derived={id === DERIVED_TAG ? 'true' : undefined}
                     data-locked={id === GATED_TAG ? 'true' : undefined}
