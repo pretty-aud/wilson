@@ -164,7 +164,9 @@ again at a small one (1280 wide by 700 tall).
 9. **Zoom:** in the desktop app at its smallest window, open O.T.T.E.R. and
    press **Ctrl+=** up to four times. The tab icons drop away in steps so
    every tab stays fully visible, and the question mark and gear stay at
-   the right end.
+   the right end. Shots at four presses: `po-s2a-strip-zoom-otter-711x486.png`
+   (an admin) and `po-s2a-strip-zoom-otter-member-711x486.png` (a member,
+   with "Requests").
 
 ---
 
