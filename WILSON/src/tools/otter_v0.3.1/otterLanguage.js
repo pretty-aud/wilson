@@ -108,6 +108,8 @@ const LANGUAGE_NAMES = {
   yaml: ['yaml', 'yml'],
   css: ['css'],
   markup: ['html', 'xml'],
+  // Maya's scripting language (round 2: the shipped Prism has it).
+  mel: ['mel', 'maya embedded language'],
 };
 /** Every alias → its Prism language id. Exported for its test. */
 export const COURSE_LANGUAGES = Object.freeze(Object.fromEntries(
@@ -132,6 +134,17 @@ function readings(raw) {
       add(s.replace(GENERIC_TAIL, '').replace(VERSION_TAIL, ''));
     }
   }
+  // Review round 2: the host BEFORE the language, her field's usual order
+  // ("Unity C#", "Maya Python", "Godot GDScript"), a version glued to the
+  // name ("CSS3", "Python3.12") and a numbered course ("Python #1") — read
+  // last, and never as a one-letter language ("Intro to R", "C99" stay plain).
+  const loose = [];
+  for (const s of [...out]) {
+    loose.push(s.replace(/\s+#\d+$/, ''), s.replace(/(?<=[a-z])\d+(?:\.\d+)*$/, ''));
+    const words = s.split(' ');
+    if (words.length > 1) loose.push(words.at(-1));
+  }
+  for (const s of loose) if (s.length > 1 || /[#+]/.test(s)) add(s);
   return out;
 }
 

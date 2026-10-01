@@ -297,59 +297,71 @@ export function mergeHotkeys(existing, incoming) {
  * on the same reading, so an incoming "General" lands in it rather than
  * beside it under a second "General" heading.
  *
- * A name is a non-empty string, trimmed: a number, an object or blank
- * spaces is no name (review round 1 — a `category: 5` threw in normKey on
- * every later merge, and `'  '` drew the empty heading C10 is about).
+ * A name is a non-empty string, trimmed, with invisible characters dropped:
+ * a number, an object, blank spaces or a lone zero-width space is no name
+ * (review rounds 1 and 2 — a `category: 5` threw in normKey on every later
+ * merge, and `'  '` drew the empty heading C10 is about).
  */
-const nonBlank = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '')
-export const functionCategoryName = (cat) => nonBlank(cat?.category) || nonBlank(cat?.name) || 'General'
+const cleanName = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '')
+export const functionCategoryName = (cat) => cleanName(cat?.category) || cleanName(cat?.name) || 'General'
 
 /**
  * The function library's merge — the SAME rules, line for line, as the
  * Local Server's `mergeFunctionsDoc` in electron/main.cjs;
- * functionsMerge.test.js replays both and demands the same document for
- * every case (review round 1 found them apart on malformed documents).
- *  - Categories match on functionCategoryName, normalised (case and
- *    punctuation aside); a name with no Latin letters or digits keys on
- *    itself (normKey made "文字列" and "数学" one category — the collapse
- *    again).
- *  - A function already ANYWHERE in the library (by name, case and spaces
- *    aside) is not added again. Before the fix the whole library was one
- *    category, so this is the de-duplication it always had; per category,
- *    her 46 would have gained a second `len` under "Built-ins".
+ * functionsMerge.test.js replays both on its cases and on 600 seeded random
+ * documents and demands the same document every time.
+ *  - Categories match on functionCategoryName with case and punctuation
+ *    aside — letters of any script, digits, '#' and '+' kept (normKey made
+ *    "文字列" and "数学" one category, and "C" and "C++" another).
+ *  - A function is not added again where it already is: under the same
+ *    heading by its exact name, or anywhere in a NAMELESS category — the
+ *    collapsed library the old keying wrote (hers holds 46), so a
+ *    generation that files `len` under "Built-ins" does not put a second
+ *    `len` beside the first. Functions that differ in case, or sit under
+ *    different headings, are different (`map` and `Map`, `split` in "String
+ *    methods" and in "os.path" — review round 2 measured round 1's
+ *    library-wide, case-blind rule losing both); a function with no name is
+ *    never taken for another.
  *  - Stored categories are kept exactly as stored: only a category a
  *    function is added to is rewritten (a copy, the new functions after its
  *    own). A new category is written `{ category, functions }` when it
  *    brings a function, or when it was sent with none (a fork's empty
  *    category moves on approval, as before) — never when every function it
- *    brought is already in the library, which would draw an empty heading.
- *    Entries that are not categories (null, a string, `functions` not a
- *    list) are carried over untouched and never matched; the document's
- *    other keys are kept.
+ *    brought was already there, which would draw an empty heading. Entries
+ *    that are not categories (null, a string, `functions` not a list) are
+ *    carried over untouched and never matched; the document's other keys
+ *    are kept; a stored document that is not a library (an array,
+ *    `categories` not a list) is left exactly as it is.
  */
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
-const categoryKey = (name) => normKey(name) || name.toLowerCase()
-const functionKey = (fn) => nonBlank(fn?.name).toLowerCase()
+const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || name.toLowerCase()
+const functionKey = (fn) => cleanName(fn?.name)
 const isCategory = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions))
+const isNamed = (c) => !!(cleanName(c.category) || cleanName(c.name))
 
 export function mergeFunctions(existing, incoming) {
-  const base = isObj(existing) ? existing : {}
-  const out = { ...base, categories: Array.isArray(base.categories) ? [...base.categories] : [] }
-  const seen = new Set()
-  for (const c of out.categories) if (isCategory(c)) for (const f of (c.functions || [])) seen.add(functionKey(f))
+  const doc = existing == null ? {} : existing
+  if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return existing
+  const out = { ...doc, categories: [...(doc.categories || [])] }
+  const unfiled = new Set()
+  for (const c of out.categories) if (isCategory(c) && !isNamed(c)) for (const f of (c.functions || [])) if (functionKey(f)) unfiled.add(functionKey(f))
   for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
     if (!isObj(inCat)) continue
     const name = functionCategoryName(inCat)
+    const i = out.categories.findIndex(c => isCategory(c) && categoryKey(functionCategoryName(c)) === categoryKey(name))
+    const into = i < 0 ? null : out.categories[i]
+    const have = new Set((into ? into.functions || [] : []).map(functionKey).filter(Boolean))
     const add = []
     for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
-      if (!isObj(fn) || seen.has(functionKey(fn))) continue
-      seen.add(functionKey(fn))
+      if (!isObj(fn)) continue
+      const k = functionKey(fn)
+      if (k && (have.has(k) || unfiled.has(k))) continue
+      if (k) { have.add(k); if (into && !isNamed(into)) unfiled.add(k) }
       add.push(fn)
     }
     const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length)
-    const i = out.categories.findIndex(c => isCategory(c) && categoryKey(functionCategoryName(c)) === categoryKey(name))
     if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }) }
-    else if (add.length) out.categories[i] = { ...out.categories[i], functions: [...(out.categories[i].functions || []), ...add] }
+    else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] }
   }
   return out
 }

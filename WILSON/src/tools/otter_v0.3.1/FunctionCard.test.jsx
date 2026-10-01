@@ -50,7 +50,7 @@ describe('FunctionCard — an unknown language is today\'s card', () => {
     // Review round 1: an imported library can carry a non-string value; the
     // plain card renders it as React always did (an array reads "ab", not "a,b").
     const variants = [PRINT, { ...PRINT, syntax: '' }, { ...PRINT, parameters: '', returns: '' }, { name: 'x' }, { ...PRINT, example: '' },
-      { ...PRINT, example: ['a = 1', '\nb = 2'] }, { ...PRINT, syntax: 42 }]
+      { ...PRINT, example: ['a = 1', '\nb = 2'] }, { ...PRINT, syntax: 42 }, { ...PRINT, syntax: true }, { ...PRINT, returns: [['a'], 'b'] }]
     for (const f of variants) {
       const now = render(<FunctionCard fn={f} language={null} />).container.innerHTML
       cleanup()
@@ -124,12 +124,22 @@ describe('FunctionCard — a known language colours the code text only', () => {
     expect(naive.querySelector('code').style.whiteSpace).toBe('pre')
   })
 
-  it('CodeWell takes any value and draws it as text — an array as React would, joined', () => {
-    const w = render(<CodeWell code={42} language="python" />).container.querySelector('.otter-code-well')
-    expect(w.textContent).toBe('42')
-    cleanup()
-    const a = render(<CodeWell code={['a = 1', '\nb = 2']} language="python" />).container.querySelector('.otter-code-well')
-    expect(a.textContent).toBe('a = 1\nb = 2')
+  it('a well draws any stored value as React would draw it, the same text plain or coloured, and an object as text, never a crash (round 2)', () => {
+    // Round 2: an object `syntax` threw "Objects are not valid as a React
+    // child" on the plain path, and nothing in the app catches it — the
+    // window went blank. A generated or imported library can carry one.
+    const values = [[42, '42'], [['a = 1', '\nb = 2'], 'a = 1\nb = 2'], [[['a', 'b'], 'c', null, false], 'abc'],
+      [true, ''], [{ x: 1 }, '{"x":1}'], ['print()', 'print()']]
+    for (const [value, text] of values) {
+      for (const language of [null, 'python']) {
+        const w = render(<CodeWell code={value} language={language} />).container.querySelector('.otter-code-well')
+        expect(w.textContent, `${JSON.stringify(value)} in ${language}`).toBe(text)
+        cleanup()
+      }
+    }
+    // The prose parts too.
+    const c = render(<FunctionCard fn={{ name: 'f', parameters: { a: 'int' }, returns: ['x', 'y'], description: 7 }} language={null} />).container
+    expect([...c.querySelectorAll('.otter-fn-text, .otter-fn-desc')].map((e) => e.textContent)).toEqual(['{"a":"int"}', 'xy', '7'])
   })
 })
 
@@ -172,6 +182,14 @@ function hostReport(src) {
   // Review round 1: the heading is counted, so a category whose heading
   // matches must show its cards ("general" found 1 and showed none).
   if (!/functionCategoryName\(cat\)\.toLowerCase\(\)\.includes\(q\)\s*\?\s*cat\b/.test(search)) bad.push('a category found by its heading shows no cards')
+  // Round 2: the count and the cards read ONE text per function (the count
+  // left out parameters and examples, so 838 of 1,975 words from her own
+  // library found nothing), and an empty category is not counted.
+  const sharedText = /const fnSearchText = \(f\) => \[f\.name, f\.description, f\.syntax, f\.returns, f\.parameters, f\.example\]\.filter\(Boolean\)\.join\(' '\);/
+  if (!sharedText.test(search) || (search.match(/fnSearchText\(f\)/g) || []).length < 2) bad.push('the search count and its cards read different text')
+  if (!/funcCategories\s*=\s*\(cached\.functions\?\.categories \|\| \[\]\)\.filter\(cat => cat && Array\.isArray\(cat\.functions\) && cat\.functions\.length > 0\)/.test(search)) bad.push('an empty category is counted')
+  // Round 2: the generation paths keep a category the generator keyed `name`.
+  if (/category: cat\.category \|\| 'General'/.test(code) || (code.match(/category: functionCategoryName\(cat\),/g) || []).length !== 3) bad.push('a generation path reads only `category`')
   return bad
 }
 
@@ -191,6 +209,11 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/shows no cards/)
     expect(hostReport(OTTER.replace('const fnLanguage = courseLanguage(activeSoftware);', 'const fnLanguage = courseLanguage(null);')).join('\n'))
       .toMatch(/open course's language/)
+    expect(hostReport(OTTER.replace('f.returns, f.parameters, f.example].filter(Boolean)', 'f.returns].filter(Boolean)')).join('\n'))
+      .toMatch(/different text/)
+    expect(hostReport(OTTER.replace(' && cat.functions.length > 0)', ')')).join('\n')).toMatch(/empty category is counted/)
+    expect(hostReport(OTTER.replace('category: functionCategoryName(cat),', "category: cat.category || 'General',")).join('\n'))
+      .toMatch(/generation path/)
     expect(hostReport(OTTER.replace('courseLanguage({ name: r.softwareName, slug: r.softwareSlug })', 'courseLanguage({ slug: r.softwareSlug })')).join('\n'))
       .toMatch(/its course's language/)
   })

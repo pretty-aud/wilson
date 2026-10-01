@@ -314,20 +314,32 @@ const CRUMB_SWEEP = (paths) => {
   host.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;width:${live.getBoundingClientRect().width}px`;
   live.parentElement.appendChild(host);
   const esc = (t) => String(t ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
-  const tally = { paths: paths.length, lessonCut: 0, courseCut: 0, runAtMarker: 0, runBelowMarker: 0, overflow: 0, lessonCutTitles: [] };
+  // Round 2 (reviewer B): read the TRAIL, not only its parts — whether it is
+  // on the line or wrapped out of sight, and if on the line, whether every
+  // part is whole (the course at least its "…", the run at least "› …", the
+  // final chevron inside it). Each path is a fresh nav, never one resized in
+  // place (a resized nav kept painting its old ellipsis — reviewer B).
+  const tally = { paths: paths.length, lessonCut: 0, lessonAlone: 0, courseCut: 0, runAtMarker: 0, fragments: 0, taller: 0, overflowRight: 0, lessonCutTitles: [] };
   for (const [course, subject, section, lesson] of paths) {
     host.innerHTML = `<nav class="otter-crumbs"><span class="otter-crumb-trail"><span class="otter-crumb-keep">${esc(course)}</span>`
       + `<span class="otter-crumb">${chevron}${esc(subject)}${section ? chevron + esc(section) : ''}</span>${chevron}</span>`
       + `<span class="otter-crumb-current">${esc(lesson)}</span></nav>`;
     const nav = host.firstChild;
+    const box = (sel) => nav.querySelector(sel).getBoundingClientRect();
     const cut = (sel) => { const e = nav.querySelector(sel); return e.scrollWidth > e.clientWidth + 0.5; };
-    const run = nav.querySelector('.otter-crumb').getBoundingClientRect().width;
-    const marker = parseFloat(getComputedStyle(nav.querySelector('.otter-crumb')).fontSize) * 3;
+    const n = nav.getBoundingClientRect();
+    const em = parseFloat(getComputedStyle(nav).fontSize);
+    const shown = box('.otter-crumb-trail').top < n.bottom - 1;
     if (cut('.otter-crumb-current')) { tally.lessonCut++; tally.lessonCutTitles.push(lesson); }
-    if (cut('.otter-crumb-keep')) tally.courseCut++;
-    if (Math.abs(run - marker) < 0.5) tally.runAtMarker++; // squeezed to "› …"
-    if (run < marker - 0.5 && cut('.otter-crumb')) tally.runBelowMarker++; // less than "› …" shows
-    if (nav.scrollWidth > nav.clientWidth + 0.5) tally.overflow++;
+    if (!shown) tally.lessonAlone++;
+    else {
+      const t = box('.otter-crumb-trail'), run = box('.otter-crumb'), keep = box('.otter-crumb-keep'), sep = box('.otter-crumb-trail > .otter-crumb-sep');
+      if (cut('.otter-crumb-keep')) tally.courseCut++;
+      if (Math.abs(run.width - 3 * em) < 0.5) tally.runAtMarker++;
+      if (keep.width < em - 0.5 || run.width < 3 * em - 0.5 || sep.right > t.right + 0.5 || run.right > t.right + 0.5) tally.fragments++;
+    }
+    if (n.height > em * 1.4 + 0.5) tally.taller++;
+    if (box('.otter-crumb-current').right > n.right + 0.5) tally.overflowRight++;
   }
   host.remove();
   return { width: live.getBoundingClientRect().width, ...tally, lessonCutTitles: tally.lessonCutTitles.slice(0, 5) };

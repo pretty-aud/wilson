@@ -1551,7 +1551,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions;
         categories = categories.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -1780,7 +1780,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // Merge functions if present (coding language type)
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -2007,7 +2007,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // Merge functions if present
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -2880,12 +2880,18 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       }
 
       // Functions search
-      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2b review round 2: ONE text per function for the count and the
+      // cards — the count left out parameters and examples, so 838 of 1,975
+      // words taken from her own library found nothing — and a category with
+      // no functions is neither counted nor shown (its heading "found" one
+      // occurrence and drew no card).
+      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ');
+      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions) && cat.functions.length > 0);
       if (funcCategories.length > 0) {
         // S2b (C10): the heading the result shows, never "undefined" — a
         // nameless category read as the word, so "undefined" matched it.
         const allText = funcCategories.map(cat =>
-          `${functionCategoryName(cat)}\n` + cat.functions.map(f => `${f.name || ''} ${f.description || ''} ${f.syntax || ''} ${f.returns || ''}`).join('\n')
+          `${functionCategoryName(cat)}\n` + cat.functions.map(f => fnSearchText(f)).join('\n')
         ).join('\n');
         const lowerAll = allText.toLowerCase();
         let matchCount = 0, idx2 = 0;
@@ -2896,10 +2902,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           // one occurrence in her library and showed none).
           const matchedFuncCategories = funcCategories.map(cat => functionCategoryName(cat).toLowerCase().includes(q) ? cat : ({
             ...cat,
-            functions: cat.functions.filter(f => {
-              const fText = [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ').toLowerCase();
-              return fText.includes(q);
-            })
+            functions: cat.functions.filter(f => fnSearchText(f).toLowerCase().includes(q))
           })).filter(cat => cat.functions.length > 0);
           results.push({
             softwareName: sw.name,
@@ -4654,7 +4657,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
                 <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
               </span>
-              <span className="otter-crumb-current">{activeSubject.title}</span>
+              <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
               <span className="otter-crumb-note">[outline]</span>
             </nav>
             <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
@@ -4722,10 +4725,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
-                <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</>}</span>
+                <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
                 <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
               </span>
-              <span className="otter-crumb-current">{selectedLesson.title}</span>
+              <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
             </nav>
             {/* The reading surface's own title, at the H1 step: the one 20px
                 line on it. The markdown's headings sit one step below (O32),

@@ -1224,10 +1224,21 @@
      heading right under it. Every separator carries its own 4px either side
      (the outline page's "[outline]" its 4px before), so nothing is spaced by
      a gap a hidden item would leave behind. */
+  /* ALL OR NOTHING (review round 2, reviewer B: below its smallest readable
+     state the trail was clipped mid-glyph — "› .Understanding…" at the
+     smallest window zoomed to 120%). The line is one line high and hides
+     what does not fit; the lesson (and the outline page's "[outline]") is
+     placed first and the trail after it, in a row that runs right to left
+     and packs to the left: so the trail either fits beside the lesson at
+     least at "… › … ›" (1em + 3em + 22px) or wraps to the hidden second
+     line, and the lesson stands alone. The DOM keeps the reading order. */
   .otter-crumbs {
     max-width: var(--measure-body-len);
+    height: calc(var(--text-caption) * var(--text-caption--line-height));
     display: flex;
-    flex-wrap: nowrap;
+    flex-direction: row-reverse;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     overflow: hidden;
     margin-bottom: 8px;
@@ -1235,7 +1246,7 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .otter-crumb-trail { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .otter-crumb-trail { display: flex; align-items: center; flex: 1 1 calc(1em + 3em + 22px); max-width: max-content; min-width: 0; overflow: hidden; }
   .otter-crumb,
   .otter-crumb-keep,
   .otter-crumb-current { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1243,15 +1254,26 @@
   /* The run is inline content — chevron, words, chevron, words — so its
      ellipsis can take a chevron too ("› …", never a bare "›"). The
      zero-width space in front is what allows that: CSS clips, rather than
-     ellipses, the FIRST character or atomic inline on a line. */
-  .otter-crumb::before { content: '\200B'; }
-  .otter-crumb-keep { flex: 0 1 auto; }
-  .otter-crumb-current { flex: 0 0 auto; max-width: 100%; color: var(--color-ink-2); }
-  .otter-crumb-note { flex-shrink: 0; margin-left: 4px; }
+     ellipses, the FIRST character or atomic inline on a line. The course
+     has one too, so it gives way as "P…", never a clipped "P" (round 2). */
+  .otter-crumb::before,
+  .otter-crumb-keep::before { content: '\200B'; }
+  .otter-crumb-keep { flex: 0 1 auto; min-width: 1em; }
+  .otter-crumb-current { order: -1; flex: 0 0 auto; max-width: 100%; color: var(--color-ink-2); }
+  .otter-crumb-note { order: -2; flex-shrink: 0; margin-left: 4px; }
   .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin: 0 4px; color: var(--color-ink-3); }
   /* Inline, so the words stay on its line (the preflight makes every svg a
-     block) and the ellipsis can take it. */
-  .otter-crumb > .otter-crumb-sep { display: inline-block; vertical-align: middle; }
+     block) and the ellipsis can take it; set on the line's top and centred
+     by its margin, so it sits where the flex chevron does (`middle` put it
+     a pixel low — round 2). */
+  .otter-crumb > .otter-crumb-sep {
+    display: inline-block;
+    vertical-align: top;
+    margin-top: calc((var(--text-caption) * var(--text-caption--line-height) - var(--icon-sm)) / 2);
+  }
+  /* What a screen reader and a copy read between the subject and the
+     section (the chevron is hidden from both): " › ". */
+  .otter-crumb-said { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .otter-lesson-title {
     max-width: var(--measure-body-len);
     overflow-wrap: anywhere;

@@ -155,19 +155,45 @@ const CASES = {
     return out.categories.length === 2 && JSON.stringify(names(out.categories[0])) === '["if"]'
       && out.categories[1].category === 'Strings' && JSON.stringify(names(out.categories[1])) === '["upper"]' ? null : JSON.stringify(out)
   },
-  // ── review round 1 (S2b) ──
-  'a function already anywhere in the library is not added again (the de-duplication the collapsed library had)': (merge) => {
+  // ── review rounds 1 and 2 (S2b) ──
+  'a function already in the collapsed (nameless) category is not filed again under another heading': (merge) => {
     // Her real file is one nameless category; a generation that files `len`
     // under "Built-ins" must not put a second `len` beside the first.
     const out = merge({ categories: [{ functions: [fn('len'), fn('print')] }] },
-      [{ category: 'Built-ins', functions: [fn('LEN'), fn('zip'), fn('zip')] }])
+      [{ category: 'Built-ins', functions: [fn('len'), fn('zip'), fn(' zip ')] }, { category: 'General', functions: [fn('abs')] },
+        { category: 'More', functions: [fn('abs')] }])
     return JSON.stringify(out.categories.map((c) => [functionCategoryName(c), names(c)]))
-      === '[["General",["len","print"]],["Built-ins",["zip"]]]' ? null : JSON.stringify(out)
+      === '[["General",["len","print","abs"]],["Built-ins",["zip"]]]' ? null : JSON.stringify(out)
+  },
+  'functions that differ in case, or share a name under different headings, are all kept (round 2)': (merge) => {
+    // Round 1 de-duplicated library-wide, case aside, and lost JavaScript's
+    // `Map()` beside `map()` and `os.path`'s `split` beside the string one.
+    const out = merge({ categories: [{ category: 'Array methods', functions: [fn('map')] }] }, [
+      { category: 'Collections', functions: [fn('Map'), fn('Set')] }, { category: 'Map methods', functions: [fn('set'), fn('get')] },
+      { category: 'String methods', functions: [fn('split')] }, { category: 'os.path', functions: [fn('split'), fn('join')] },
+    ])
+    return JSON.stringify(out.categories.map((c) => [functionCategoryName(c), names(c)])) === JSON.stringify([
+      ['Array methods', ['map']], ['Collections', ['Map', 'Set']], ['Map methods', ['set', 'get']],
+      ['String methods', ['split']], ['os.path', ['split', 'join']],
+    ]) ? null : JSON.stringify(out)
+  },
+  'a function with no name is never taken for another (round 2)': (merge) => {
+    const out = merge({ categories: [{ functions: [{ name: '', syntax: 'x' }] }] },
+      [{ category: 'A', functions: [{ name: '', syntax: 'y' }, { syntax: 'z' }] }])
+    return JSON.stringify(out.categories.map((c) => c.functions.map((f) => f.syntax))) === '[["x"],["y","z"]]' ? null : JSON.stringify(out)
   },
   'a stored category the merge adds nothing to is left exactly as stored, and duplicates make no empty heading': (merge) => {
-    const stored = { categories: [{ category: 'Empty' }, { category: 'A', functions: [fn('a')] }] }
-    const out = merge(stored, [{ category: 'Empty', functions: [fn('a')] }, { category: 'Dupes', functions: [fn('A ')] }])
+    const stored = { categories: [{ functions: [fn('a')] }, { category: 'Empty' }, { category: 'B', functions: [fn('b')] }] }
+    const out = merge(stored, [{ category: 'Empty', functions: [fn('a')] }, { category: 'Dupes', functions: [fn(' a ')] },
+      { category: 'b', functions: [fn('b')] }])
     return JSON.stringify(out) === JSON.stringify(stored) ? null : JSON.stringify(out)
+  },
+  'a stored document that is not a library is left exactly as it is (round 2)': (merge) => {
+    for (const stored of [[{ category: 'A', functions: [] }], { categories: 'not a list', keep: 1 }, { categories: { A: [] } }]) {
+      const out = merge(stored, [{ category: 'X', functions: [fn('x')] }])
+      if (JSON.stringify(out) !== JSON.stringify(stored)) return JSON.stringify(out)
+    }
+    return null
   },
   'a category sent with no functions is made as sent (a fork\'s empty category moves on approval)': (merge) => {
     const out = merge({ categories: [] }, [{ category: 'Later', functions: [] }])
@@ -189,9 +215,15 @@ const CASES = {
     const out = merge({ categories: [] }, [
       { category: 5, name: 'Math', functions: [fn('abs')] }, { category: '   ', functions: [fn('x')] },
       { category: '文字列', functions: [fn('s1')] }, { category: '数学', functions: [fn('m1')] },
+      // Round 2: a Latin word beside non-Latin ones, the C family, an invisible name.
+      { category: '文字列 methods', functions: [fn('s2')] }, { category: '数学 methods', functions: [fn('m2')] },
+      { category: 'C standard library', functions: [fn('printf')] }, { category: 'C++ standard library', functions: [fn('std::cout')] },
+      { category: '​', functions: [fn('y')] },
     ])
-    return JSON.stringify(out.categories.map((c) => [c.category, names(c)]))
-      === '[["Math",["abs"]],["General",["x"]],["文字列",["s1"]],["数学",["m1"]]]' ? null : JSON.stringify(out)
+    return JSON.stringify(out.categories.map((c) => [c.category, names(c)])) === JSON.stringify([
+      ['Math', ['abs']], ['General', ['x', 'y']], ['文字列', ['s1']], ['数学', ['m1']], ['文字列 methods', ['s2']], ['数学 methods', ['m2']],
+      ['C standard library', ['printf']], ['C++ standard library', ['std::cout']],
+    ]) ? null : JSON.stringify(out)
   },
   'a category carrying both keys is its `category`; words run together are another heading': (merge) => {
     // Reviewer C (M7, M8b): the two copies could read the keys in another
@@ -213,8 +245,11 @@ const DEFECT_CASES = [
   'a stored `name`-keyed category is the same category as an incoming `category`',
   'an incoming category with no name is written as General, never as undefined',
   'a new category never lands in the stored nameless one (the defect itself)',
-  'a function already anywhere in the library is not added again (the de-duplication the collapsed library had)',
+  'a function already in the collapsed (nameless) category is not filed again under another heading',
+  'functions that differ in case, or share a name under different headings, are all kept (round 2)',
+  'a function with no name is never taken for another (round 2)',
   'a stored category the merge adds nothing to is left exactly as stored, and duplicates make no empty heading',
+  'a stored document that is not a library is left exactly as it is (round 2)',
   'a category sent with no functions is made as sent (a fork\'s empty category moves on approval)',
   'entries that are not categories are carried over untouched and never matched',
   'a stored document with no category list gets one, and keeps its other keys',
@@ -247,17 +282,67 @@ describe('the function library merge keys categories as the client writes them (
   it('the two backends write the same document for every case (cloud and local behave alike)', () => {
     const local = BACKENDS['Local Server (main.cjs /functions/merge, replayed)']
     for (const [title, check] of Object.entries(CASES)) {
-      const seen = []
-      const record = (m) => (e, i) => { const out = m(e, i); seen.push(JSON.stringify(out)); return out }
-      check(record(mergeFunctions))
-      check(record(local))
-      expect(seen[0], title).toBe(seen[1])
+      const record = (m, seen) => (e, i) => { const out = m(e, i); seen.push(JSON.stringify(out)); return out }
+      const cloud = [], desk = []
+      check(record(mergeFunctions, cloud))
+      check(record(local, desk))
+      expect(cloud.length, title).toBeGreaterThan(0)
+      expect(desk, title).toEqual(cloud)
     }
   })
 
   it('CONTROL: the pre-S2b keying fails exactly the defect cases, on both backends', () => {
     expect(failures(preS2bMergeFunctions)).toEqual(DEFECT_CASES)
     expect(failures(routeAsMerge(PRE_S2B_ROUTE_BODY))).toEqual(DEFECT_CASES)
+  })
+
+  it('the two copies agree on 600 seeded random documents and batches (review round 2: drift outside the cases)', () => {
+    // Round 2's reviewer drifted one copy at a time — a padded name written
+    // untrimmed, a category with no `functions` key not made, non-Latin case,
+    // a non-list `categories` — and the fifteen cases above let each through.
+    // A seeded generator covers the space between them; the seed is fixed so
+    // a failure reproduces.
+    let seed = 20260930
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }
+    const pick = (xs) => xs[Math.floor(rnd() * xs.length)]
+    const NAMES = ['Strings', 'strings', ' Strings ', 'String-methods', 'String methods', 'Stringmethods', 'C', 'C++', 'C#', 'Строки', 'строки',
+      'Python строки', 'Python числа', '文字列', '数学', '', '   ', '​', 'General', 'general', 5, null, ['x'], { a: 1 }]
+    const FNS = ['len', 'Len', ' len ', 'map', 'Map', 'split', '', null, 7, 'print()', 'Строка']
+    const fnOf = () => (rnd() < 0.1 ? pick([null, 'raw', 3, ['f']]) : (rnd() < 0.1 ? { syntax: 'x' } : { name: pick(FNS), syntax: `s${Math.floor(rnd() * 3)}` }))
+    const catOf = () => {
+      if (rnd() < 0.08) return pick([null, 'junk', 4, []])
+      const c = {}
+      if (rnd() < 0.7) c.category = pick(NAMES)
+      if (rnd() < 0.3) c.name = pick(NAMES)
+      const r = rnd()
+      if (r < 0.75) c.functions = Array.from({ length: Math.floor(rnd() * 4) }, fnOf)
+      else if (r < 0.85) c.functions = pick(['ab', 5, { x: 1 }])
+      if (rnd() < 0.1) c.note = 'kept'
+      return c
+    }
+    const docOf = () => {
+      const r = rnd()
+      if (r < 0.05) return pick([null, [], 'x', { categories: 'not a list' }, { categories: { a: 1 } }])
+      const d = { categories: Array.from({ length: Math.floor(rnd() * 4) }, catOf) }
+      if (rnd() < 0.1) d.version = 2
+      if (rnd() < 0.05) delete d.categories
+      return d
+    }
+    const local = BACKENDS['Local Server (main.cjs /functions/merge, replayed)']
+    const apart = []
+    for (let n = 0; n < 600 && apart.length < 3; n++) {
+      const doc = docOf()
+      const batch = rnd() < 0.05 ? pick([null, 'x', {}]) : Array.from({ length: Math.floor(rnd() * 4) }, catOf)
+      const a = JSON.stringify(mergeFunctions(JSON.parse(JSON.stringify(doc)), JSON.parse(JSON.stringify(batch))))
+      let b
+      try { b = JSON.stringify(local(doc === undefined ? undefined : JSON.parse(JSON.stringify(doc)), JSON.parse(JSON.stringify(batch)))) } catch (e) { b = `threw ${e.message}` }
+      if (a !== b) apart.push({ doc, batch, cloud: a, local: b })
+    }
+    expect(apart, JSON.stringify(apart, null, 1)).toEqual([])
+  })
+
+  it('main.cjs defines the helper exactly once (a second, later definition would win at runtime and go unread here)', () => {
+    expect(MAIN_CJS.match(/function mergeFunctionsDoc\(/g)).toHaveLength(1)
   })
 
   it('CONTROL: the route reader lifts the shipped route, not a stale copy', () => {

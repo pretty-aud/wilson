@@ -65,6 +65,21 @@ const MAPPED = [
   [course('C# for Unity'), 'csharp'],
   [course('Python for Houdini'), 'python'],
   [course('R Programming'), 'r'],
+  // Round 2: the host BEFORE the language — her field's usual order — a
+  // version glued to the name, a numbered course, and Maya's own language.
+  [course('Unity C#'), 'csharp'],
+  [course('Unreal C++'), 'cpp'],
+  [course('Maya Python'), 'python'],
+  [course('Nuke Python'), 'python'],
+  [course('Roblox Luau'), 'lua'],
+  [course('Godot GDScript'), 'gdscript'],
+  [course('Modern C++'), 'cpp'],
+  [course('CSS3'), 'css'],
+  [course('HTML5'), 'markup'],
+  [course('Python3.12'), 'python'],
+  [course('Python #1'), 'python'],
+  [course('MEL'), 'mel'],
+  [course('Maya MEL'), 'mel'],
 ]
 const PLAIN = [
   // Audrey's software courses: their functions are not code in one language.
@@ -75,6 +90,12 @@ const PLAIN = [
   // language's letters without being one.
   course('CS 101'), course('CS fundamentals'), course('Objective-C'), course('Java Script'),
   course('Photoshop'), course('After Effects'),
+  // Round 2: a last word that is a language only when it is more than one
+  // letter, and a glued version that leaves one letter is not read.
+  course('Maya Rigging'), course('Unity Shader Graph'), course('Intro to R'), course('C99'),
+  // Round 2 (reviewer C's L02): a name holding '+' that is no language,
+  // whose slug ('c-basics') WOULD read as C — the slug must not be read.
+  course('C+ Basics'),
 ]
 // A cloud course's wire slug is its id; it must never read as a language.
 const CLOUD = [{ name: 'Blender 5.0', slug: '3f9c2a10-7b4e-4c1d-9a8e-0c5d2e6f7a81' }, { name: 'Notes', slug: 'fx-course-0002' }]

@@ -24,12 +24,22 @@ function WellPre({ children, 'data-language': language }) {
   return <pre className="otter-code-well" data-language={language}>{children}</pre>;
 }
 
+/** A stored value as the text React would draw for it — strings and numbers
+ *  as they are, true/false/null as nothing, lists flattened — and an object
+ *  as its JSON rather than a crash. A generated or imported library can
+ *  carry any of these, and nothing in the app catches "Objects are not
+ *  valid as a React child": the whole window went blank (review round 2).
+ *  The same text reaches both wells, plain and coloured. */
+function cardText(v) {
+  if (v == null || typeof v === 'boolean') return '';
+  if (Array.isArray(v)) return v.map(cardText).join('');
+  if (typeof v === 'object') { try { return JSON.stringify(v); } catch { return String(v); } }
+  return String(v);
+}
+
 export function CodeWell({ code, language }) {
-  // Plain: the value exactly as the pre-S2b card rendered it. Highlighted:
-  // the highlighter needs one string — an array (an imported library can
-  // carry one) joined as React would have drawn it (review round 1).
-  if (!language) return <pre className="otter-code-well">{code}</pre>;
-  const text = Array.isArray(code) ? code.join('') : String(code);
+  const text = cardText(code);
+  if (!language) return <pre className="otter-code-well">{text}</pre>;
   return (
     <SyntaxHighlighter
       language={language}
@@ -44,11 +54,11 @@ export function CodeWell({ code, language }) {
 export default function FunctionCard({ fn, language }) {
   return (
     <div className="otter-fn-card">
-      <code className="otter-fn-name">{fn.name}</code>
+      <code className="otter-fn-name">{cardText(fn.name)}</code>
       {fn.syntax && <CodeWell code={fn.syntax} language={language} />}
-      {fn.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{fn.parameters}</span></div>}
-      {fn.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{fn.returns}</span></div>}
-      {fn.description && <p className="otter-fn-desc">{fn.description}</p>}
+      {fn.parameters && <div className="otter-fn-part"><span className="otter-fn-label">Parameters:</span><span className="otter-fn-text">{cardText(fn.parameters)}</span></div>}
+      {fn.returns && <div className="otter-fn-part"><span className="otter-fn-label">Returns: </span><span className="otter-fn-text">{cardText(fn.returns)}</span></div>}
+      {fn.description && <p className="otter-fn-desc">{cardText(fn.description)}</p>}
       {fn.example && <CodeWell code={fn.example} language={language} />}
     </div>
   );

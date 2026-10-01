@@ -42,7 +42,8 @@ import {
   openingTagEndFromAttr, classNameRun, ownTextFrom,
   SPELLINGS_MATCH_PROPS, INLINE_TYPE_PROPS, NOT_A_STYLE, isMonoValue,
 } from '../../scripts/ui-inline-type.mjs';
-import { allRules, decls, splitTop, themeNames, specificity, compareSpecificity } from '../../scripts/ui-css-rules.mjs';
+import { allRules, decls, splitTop, themeNames, themeValues, specificity, compareSpecificity } from '../../scripts/ui-css-rules.mjs';
+import { THEME as TOKEN_THEME } from './tokens.js';
 
 /* The Label step used WITHOUT `uppercase`, on purpose. Keyed on the file AND
    on a string from the site: the reason names ONE site, and a bare path
@@ -342,6 +343,10 @@ function measureViolations(rules) {
         // the course and the lesson leave, and stops at its own width — a
         // cap that can only be narrower than the line, never a measure.
         if (r.sel === '.otter-crumb' && p === 'max-width' && v === 'max-content') continue;
+        // Round 2: the trail likewise (it shows whole or not at all), and the
+        // course is never thinner than its "…".
+        if (r.sel === '.otter-crumb-trail' && p === 'max-width' && v === 'max-content') continue;
+        if (r.sel === '.otter-crumb-keep' && p === 'min-width' && v === '1em') continue;
         // …and the lesson's crumb never runs past the line it is on (review
         // round 1: it ellipsizes only when it alone is longer than the line).
         if (r.sel === '.otter-crumb-current' && p === 'max-width' && v === '100%') continue;
@@ -375,37 +380,117 @@ function lenDeclarations(source) {
   }
   return { where, bad };
 }
-/** S2b review round 1 (reviewer C's survivors W10-W13, B2-B5, B9b, B11b):
- *  what WINS on an element, not what one named rule says. Every rule of a
- *  sheet that can reach the element — its last compound selector names only
- *  what the element carries (classes, an attribute value, its tag); a
- *  pseudo-class counts as reaching it (worst case), a pseudo-element does
- *  not — in specificity, then source, order, at any nesting or @media,
- *  with the shorthands this contract reads expanded to their longhands.
- *  `el` is { tag, classes: [], attrs: {} }. */
-function lastCompound(sel) {
+/** S2b review rounds 1 and 2 (reviewer C): what WINS on an element, not
+ *  what one named rule says. Every rule of a sheet whose selector reaches the
+ *  element — its last compound matches the element (tag, id, classes,
+ *  attribute values, the pseudo-element it is; `:is()`/`:where()` reach when
+ *  one of their selectors does, `:not()` when none does), and each compound
+ *  before it matches one of the element's REAL ancestors, in order — in
+ *  specificity, then source, order, shorthands expanded to longhands.
+ *  Worst case where the model is silent: a state or structural pseudo-class
+ *  (`:hover`, `:first-child`, `:has()`), an attribute the model does not
+ *  carry, a sibling combinator and an @media/@container condition all count
+ *  as reaching. The ancestors are the live DOM's (read 2026-09-30 from the
+ *  lesson page and the outline page, up to <html>). Layers and nesting are not
+ *  modelled: otter.css keeps every rule in `@layer components` and nests
+ *  none (pinned below), and the plants go inside that layer. */
+function splitCompound(compound) {
+  let base = '';
+  const pseudos = [];
+  for (let i = 0; i < compound.length;) {
+    const ch = compound[i];
+    if (ch === '[') { const j = compound.indexOf(']', i); base += compound.slice(i, j + 1); i = j + 1; continue; }
+    if (ch === ':') {
+      const dbl = compound[i + 1] === ':';
+      let k = i + (dbl ? 2 : 1);
+      const name = (compound.slice(k).match(/^[\w-]+/) || [''])[0];
+      k += name.length;
+      let arg = null;
+      if (compound[k] === '(') {
+        const s = k;
+        for (let d = 0; k < compound.length; k++) {
+          if (compound[k] === '(') d++;
+          else if (compound[k] === ')' && --d === 0) { k++; break; }
+        }
+        arg = compound.slice(s + 1, k - 1);
+      }
+      pseudos.push({ name: name.toLowerCase(), arg, element: dbl || /^(before|after|first-line|first-letter)$/i.test(name) });
+      i = k;
+      continue;
+    }
+    base += ch;
+    i++;
+  }
+  return { base, pseudos };
+}
+function compoundReaches(compound, el) {
+  const { base, pseudos } = splitCompound(compound);
+  const pe = pseudos.find((p) => p.element);
+  if ((pe ? pe.name : null) !== (el.pseudo || null)) return false;
+  const host = { ...el, pseudo: null };
+  const tag = base.match(/^[a-z*][\w-]*/i)?.[0];
+  if (tag && tag !== '*' && tag.toLowerCase() !== el.tag) return false;
+  const bare = base.replace(/\[[^\]]*\]/g, '');
+  for (const id of bare.matchAll(/#([\w-]+)/g)) if (el.id !== id[1]) return false;
+  for (const c of bare.matchAll(/\.([\w-]+)/g)) if (!el.classes.includes(c[1])) return false;
+  // Attributes, the class attribute included (`[class~='otter-crumb']`).
+  const attrs = { ...(el.attrs || {}), class: el.classes.join(' '), ...(el.id ? { id: el.id } : {}) };
+  for (const a of base.matchAll(/\[\s*([\w-]+)\s*(?:([~|^$*]?=)\s*(?:'([^']*)'|"([^"]*)"|([^\s\]]*))\s*(i|s)?\s*)?\]/gi)) {
+    const v = attrs[a[1]] ?? attrs[a[1].toLowerCase()];
+    if (v === undefined) continue; // an attribute the model does not carry: worst case, present
+    if (!a[2]) continue;
+    let want = a[3] ?? a[4] ?? a[5], have = v;
+    if (a[6]?.toLowerCase() === 'i') { want = want.toLowerCase(); have = have.toLowerCase(); }
+    const ok = { '=': have === want, '~=': have.split(/\s+/).includes(want), '|=': have === want || have.startsWith(`${want}-`),
+      '^=': have.startsWith(want), '$=': have.endsWith(want), '*=': have.includes(want) }[a[2]];
+    if (!ok) return false;
+  }
+  for (const p of pseudos) {
+    if (p.element) continue;
+    if (/^(is|where|matches|any|-webkit-any)$/.test(p.name)) {
+      if (!splitTop(p.arg).some((s) => selectorReaches(s, host))) return false;
+    } else if (p.name === 'not') {
+      if (splitTop(p.arg).some((s) => selectorReaches(s, host))) return false;
+    } // any other pseudo-class: a state or a position the model does not hold — worst case
+  }
+  return true;
+}
+function selectorParts(sel) {
   const parts = [];
-  let depth = 0, cur = '';
+  let depth = 0, cur = '', comb = null;
   for (const ch of sel.trim()) {
     if (ch === '(' || ch === '[') depth++;
     if (ch === ')' || ch === ']') depth--;
-    if (depth === 0 && /[\s>+~]/.test(ch)) { if (cur) parts.push(cur); cur = ''; continue; }
+    if (depth === 0 && /[\s>+~]/.test(ch)) {
+      if (cur) { parts.push({ c: cur, comb }); cur = ''; comb = ' '; }
+      if (ch !== ' ') comb = ch;
+      continue;
+    }
     cur += ch;
   }
-  if (cur) parts.push(cur);
-  return parts.at(-1) || '';
+  if (cur) parts.push({ c: cur, comb });
+  return parts; // comb = the combinator BEFORE this compound
 }
-function compoundReaches(compound, el) {
-  if (/::/.test(compound)) return false;
-  const body = compound.replace(/:[\w-]+(\((?:[^()]|\([^()]*\))*\))?/g, '');
-  const tag = body.match(/^[a-z*][\w-]*/i)?.[0];
-  if (tag && tag !== '*' && tag.toLowerCase() !== el.tag) return false;
-  if (/#/.test(body)) return false;
-  for (const c of body.matchAll(/\.([\w-]+)/g)) if (!el.classes.includes(c[1])) return false;
-  for (const a of body.matchAll(/\[\s*([\w-]+)\s*(?:([~|^$*]?=)\s*['"]?([^'"\]]*)['"]?\s*)?\]/g)) {
-    const v = (el.attrs || {})[a[1]];
-    if (v === undefined) return false;
-    if (a[2] === '=' && v !== a[3]) return false;
+function selectorReaches(sel, el) {
+  const parts = selectorParts(sel);
+  if (!parts.length || !compoundReaches(parts.at(-1).c, el)) return false;
+  const chain = el.ancestors || [];
+  // `cur`: where the compound to the right matched — -1 is the element, k
+  // is chain[k]. A child combinator must match the very next ancestor; a
+  // descendant one any ancestor further up.
+  let cur = -1;
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const comb = parts[i + 1].comb || ' ';
+    if (/[+~]/.test(comb)) continue; // a sibling: not modelled, worst case (same parent)
+    if (comb === '>') {
+      if (!chain[cur + 1] || !compoundReaches(parts[i].c, chain[cur + 1])) return false;
+      cur += 1;
+      continue;
+    }
+    let found = -1;
+    for (let j = cur + 1; j < chain.length; j++) if (compoundReaches(parts[i].c, chain[j])) { found = j; break; }
+    if (found < 0) return false;
+    cur = found;
   }
   return true;
 }
@@ -422,26 +507,26 @@ function longhands(p, v) {
     const basis = t.find((x) => !/^[\d.]+$/.test(x)) ?? (nums.length >= 3 ? nums[2] : '0');
     return [['flex-grow', nums[0] ?? '1'], ['flex-shrink', nums[1] ?? '1'], ['flex-basis', basis]];
   }
-  if (p === 'flex-flow') {
-    const out = [];
-    for (const x of t) out.push([/wrap/.test(x) ? 'flex-wrap' : 'flex-direction', x]);
-    return out;
-  }
+  if (p === 'flex-flow') return t.map((x) => [/wrap/.test(x) ? 'flex-wrap' : 'flex-direction', x]);
   if (p === 'margin' || p === 'padding') return four([`${p}-top`, `${p}-right`, `${p}-bottom`, `${p}-left`]);
   if (/^(margin|padding)-inline$/.test(p)) return [[`${p.split('-')[0]}-left`, t[0]], [`${p.split('-')[0]}-right`, t[1] ?? t[0]]];
   if (/^(margin|padding)-inline-start$/.test(p)) return [[`${p.split('-')[0]}-left`, t[0]]];
   if (/^(margin|padding)-inline-end$/.test(p)) return [[`${p.split('-')[0]}-right`, t[0]]];
   if (p === 'overflow') return [['overflow-x', t[0]], ['overflow-y', t[1] ?? t[0]]];
-  if (p === 'gap') return [['row-gap', t[0]], ['column-gap', t[1] ?? t[0]]];
+  if (p === 'gap' || p === 'grid-gap') return [['row-gap', t[0]], ['column-gap', t[1] ?? t[0]]];
   return [[p, v.trim()]];
 }
 function cascadeOn(css, el) {
+  return cascadeOnRules(allRules(css), el);
+}
+/** The same, over a sheet parsed once (the pinned-map test reads 18 elements
+ *  under 37 plants: parsing per element ran past vitest's 5s under load). */
+function cascadeOnRules(rules, el) {
   const hits = [];
-  allRules(css).forEach((r, i) => {
+  rules.forEach((r, i) => {
     if (r.sel.startsWith('@')) return;
-    const outer = r.parents.filter((p) => !p.startsWith('@'));
-    const sels = splitTop(r.sel).map((s) => (outer.length ? `${outer.join(' ')} ${s.replace(/&/g, '')}` : s));
-    const reaching = sels.filter((s) => compoundReaches(lastCompound(s), el));
+    if (r.parents.some((p) => /^@keyframes\b/.test(p))) return;
+    const reaching = splitTop(r.sel).filter((s) => selectorReaches(s, el));
     if (reaching.length) hits.push({ spec: reaching.map(specificity).sort(compareSpecificity).at(-1), i, body: r.body });
   });
   hits.sort((a, b) => compareSpecificity(a.spec, b.spec) || a.i - b.i);
@@ -449,16 +534,44 @@ function cascadeOn(css, el) {
   for (const h of hits) for (const [p, v] of decls(h.body)) for (const [lp, lv] of longhands(p, v)) out[lp] = lv;
   return out;
 }
-const LESSON_PAGE_EL = { tag: 'div', classes: ['otter-study-page'] };
-const OUTLINE_PAGE_EL = { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'subject' } };
-const READING_PAGE_EL = { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'reading' } };
-const CRUMBS_EL = { tag: 'nav', classes: ['otter-crumbs'] };
-const CRUMB_MIDDLE_EL = { tag: 'span', classes: ['otter-crumb'] };
-const CRUMB_TRAIL_EL = { tag: 'span', classes: ['otter-crumb-trail'] };
-const CRUMB_KEEP_EL = { tag: 'span', classes: ['otter-crumb-keep'] };
-const CRUMB_NOTE_EL = { tag: 'span', classes: ['otter-crumb-note'] };
-const CRUMB_CURRENT_EL = { tag: 'span', classes: ['otter-crumb-current'] };
-const CRUMB_SEP_EL = { tag: 'svg', classes: ['otter-crumb-sep'] };
+/** The live DOM above both subject pages, nearest first. */
+const SHELL_ELS = [
+  { tag: 'div', classes: ['h-full'] },
+  { tag: 'div', classes: ['h-full'], id: 'otter-view-panel', attrs: { role: 'tabpanel' } },
+  { tag: 'main', classes: ['flex-1', 'overflow-hidden', 'relative'] },
+  { tag: 'div', classes: ['flex', 'flex-1', 'overflow-hidden'] },
+  { tag: 'div', classes: ['otter-root'] },
+  { tag: 'div', classes: ['wilson-dark-scroll'], attrs: { 'data-surface': 'dark' } },
+  { tag: 'div', classes: [] }, { tag: 'div', classes: [] }, { tag: 'div', classes: [] },
+  { tag: 'div', classes: ['wilson-dark-scroll'] },
+  { tag: 'div', classes: [], id: 'root' },
+  { tag: 'body', classes: [] },
+  { tag: 'html', classes: [], attrs: { lang: 'en' } },
+];
+const under = (parent, el) => ({ ...el, ancestors: [parent, ...(parent.ancestors || [])] });
+const STUDY_EL = { tag: 'div', classes: ['otter-study'], ancestors: SHELL_ELS };
+const VIEW_EL = { tag: 'div', classes: ['otter-view'], ancestors: SHELL_ELS };
+const LESSON_PAGE_EL = under(STUDY_EL, { tag: 'div', classes: ['otter-study-page'] });
+const OUTLINE_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'subject' } });
+const READING_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'reading' } });
+const CRUMBS_EL = under(LESSON_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this lesson sits', title: 'Course › Subject › Section › Lesson' } });
+const OUTLINE_CRUMBS_EL = under(OUTLINE_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this subject sits', title: 'Course › Subject [outline]' } });
+const CRUMB_TRAIL_EL = under(CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-trail'] });
+const CRUMB_MIDDLE_EL = under(CRUMB_TRAIL_EL, { tag: 'span', classes: ['otter-crumb'] });
+const CRUMB_MIDDLE_BEFORE_EL = { ...CRUMB_MIDDLE_EL, pseudo: 'before' };
+const CRUMB_SAID_EL = under(CRUMB_MIDDLE_EL, { tag: 'span', classes: ['otter-crumb-said'] });
+const CRUMB_KEEP_EL = under(CRUMB_TRAIL_EL, { tag: 'span', classes: ['otter-crumb-keep'] });
+const CRUMB_KEEP_BEFORE_EL = { ...CRUMB_KEEP_EL, pseudo: 'before' };
+const CRUMB_CURRENT_EL = under(CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-current'], attrs: { 'aria-current': 'page' } });
+const OUTLINE_TRAIL_EL = under(OUTLINE_CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-trail'] });
+const OUTLINE_KEEP_EL = under(OUTLINE_TRAIL_EL, { tag: 'span', classes: ['otter-crumb-keep'] });
+const OUTLINE_CURRENT_EL = under(OUTLINE_CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-current'], attrs: { 'aria-current': 'page' } });
+const CRUMB_NOTE_EL = under(OUTLINE_CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-note'] });
+/** lucide-react draws the chevron as `<svg class="lucide lucide-chevron-right …">` with these attributes. */
+const SEP = { tag: 'svg', classes: ['lucide', 'lucide-chevron-right', 'otter-crumb-sep'], attrs: { 'aria-hidden': 'true', xmlns: 'http://www.w3.org/2000/svg', width: '24', height: '24', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' } };
+const CRUMB_RUN_SEP_EL = under(CRUMB_MIDDLE_EL, SEP);
+const CRUMB_FINAL_SEP_EL = under(CRUMB_TRAIL_EL, SEP);
+const OUTLINE_SEP_EL = under(OUTLINE_TRAIL_EL, SEP);
 
 /** The ink ladder, element by element (O5): headings, links and table heads
  *  the ink; running text the second ink; emphasis its context's. */
@@ -1093,141 +1206,205 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
        wraps; what gives way, in order: the subject-and-section run (never
        below "› …"), then the course, then the lesson only when it alone is
        longer than the line.
-       🚨 REVIEW ROUND 1 (S2b, reviewer C): the first version read ONE named
-       rule per property, so a later or a more specific rule — a 720px
-       outline page, `margin: 0`, a longhand `flex-shrink: 0` on a crumb,
-       `display: block` on the nav — undid the ruling and stayed green. This
-       judges what WINS on each element (cascadeOn), and every plant below
-       is an APPENDED rule, so none can pass by a text anchor that no longer
-       matches. */
+       🚨 REVIEW ROUNDS 1 AND 2 (S2b, reviewer C). Round 1: reading ONE
+       named rule per property let a later or more specific rule undo the
+       ruling. Round 2: judging a list of properties let any OTHER property
+       through (`width: 0` or `text-wrap: wrap` on the lesson, `order`, a
+       fractional `flex-shrink`). So this pins the WHOLE winning map of every
+       element of both pages' frame and breadcrumb — every property any rule
+       that reaches it sets, at its winning value — and a plant is caught
+       whatever property it uses. The maps are what the sheet says today;
+       a deliberate change to these elements changes them here. */
+    const PAGE = { 'margin-top': '0', 'margin-right': 'auto', 'margin-bottom': '0', 'margin-left': 'auto',
+      'padding-top': 'var(--spacing-gutter)', 'padding-right': 'var(--spacing-gutter)', 'padding-bottom': 'var(--spacing-gutter)', 'padding-left': 'var(--spacing-gutter)' };
+    const SUBJECT_PAGE = { ...PAGE, 'max-width': SUBJECT_PAGE_WIDTH, 'font-size': 'var(--text-body)', 'line-height': 'var(--text-body--line-height)', '--measure-body-len': 'var(--measure-body)' };
+    // Round 2 (reviewer B, measured): ONE line high, the overflow hidden, the
+    // lesson ordered first in a right-to-left row packed to the left, so the
+    // trail either fits beside it whole (down to "… › … ›") or wraps out of
+    // sight — never clipped mid-glyph.
+    const NAV = { 'max-width': 'var(--measure-body-len)', height: 'calc(var(--text-caption) * var(--text-caption--line-height))', display: 'flex',
+      'flex-direction': 'row-reverse', 'flex-wrap': 'wrap', 'justify-content': 'flex-end', 'align-items': 'center', 'overflow-x': 'hidden', 'overflow-y': 'hidden',
+      'margin-bottom': '8px', 'font-size': 'var(--text-caption)', 'line-height': 'var(--text-caption--line-height)', color: 'var(--color-ink-3)' };
+    const TRAIL = { display: 'flex', 'align-items': 'center', 'flex-grow': '1', 'flex-shrink': '1', 'flex-basis': 'calc(1em + 3em + 22px)', 'max-width': 'max-content',
+      'min-width': '0', 'overflow-x': 'hidden', 'overflow-y': 'hidden' };
+    const ELLIPSIS = { 'min-width': '0', 'overflow-x': 'hidden', 'overflow-y': 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' };
+    const KEEP = { ...ELLIPSIS, 'flex-grow': '0', 'flex-shrink': '1', 'flex-basis': 'auto', 'min-width': '1em' };
+    const CURRENT = { ...ELLIPSIS, order: '-1', 'flex-grow': '0', 'flex-shrink': '0', 'flex-basis': 'auto', 'max-width': '100%', color: 'var(--color-ink-2)' };
+    const CHEVRON = { width: 'var(--icon-sm)', height: 'var(--icon-sm)', 'flex-shrink': '0', 'margin-top': '0', 'margin-right': '4px', 'margin-bottom': '0', 'margin-left': '4px', color: 'var(--color-ink-3)' };
+    const WANT = [
+      ['the lesson page', LESSON_PAGE_EL, SUBJECT_PAGE],
+      ['the outline page', OUTLINE_PAGE_EL, SUBJECT_PAGE],
+      ['a reading page', READING_PAGE_EL, { ...PAGE, 'max-width': 'var(--width-reading)' }],
+      ['the breadcrumb', CRUMBS_EL, NAV],
+      ['the outline breadcrumb', OUTLINE_CRUMBS_EL, NAV],
+      ['the trail', CRUMB_TRAIL_EL, TRAIL],
+      ['the outline trail', OUTLINE_TRAIL_EL, TRAIL],
+      ['the subject-and-section run', CRUMB_MIDDLE_EL, { ...ELLIPSIS, 'flex-grow': '1', 'flex-shrink': '0', 'flex-basis': '3em', 'max-width': 'max-content' }],
+      ["the run's ::before", CRUMB_MIDDLE_BEFORE_EL, { content: "'\\200B'" }],
+      ["the run's spoken separator", CRUMB_SAID_EL, { position: 'absolute', width: '1px', height: '1px', 'overflow-x': 'hidden', 'overflow-y': 'hidden', 'clip-path': 'inset(50%)' }],
+      ['the course', CRUMB_KEEP_EL, KEEP],
+      ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B'" }],
+      ['the outline course', OUTLINE_KEEP_EL, KEEP],
+      ['the lesson', CRUMB_CURRENT_EL, CURRENT],
+      ['the outline subject', OUTLINE_CURRENT_EL, CURRENT],
+      ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-shrink': '0', 'margin-left': '4px' }],
+      ["the run's chevron", CRUMB_RUN_SEP_EL, { ...CHEVRON, display: 'inline-block', 'vertical-align': 'top',
+        'margin-top': 'calc((var(--text-caption) * var(--text-caption--line-height) - var(--icon-sm)) / 2)' }],
+      ['the final chevron', CRUMB_FINAL_SEP_EL, CHEVRON],
+      ['the outline chevron', OUTLINE_SEP_EL, CHEVRON],
+    ];
     const judge = (css) => {
       const bad = [];
-      const on = (el) => cascadeOn(css, el);
-      // Two selectors the element model does not reach: a pseudo-element
-      // and a child combinator. Read as the last rule that names them.
-      const value = (sel, prop) => allRules(css).filter((r) => splitTop(r.sel).includes(sel))
-        .flatMap((r) => decls(r.body).filter(([p]) => p === prop).map(([, v]) => v)).pop();
-      for (const [label, el] of [['the lesson page', LESSON_PAGE_EL], ['the outline page', OUTLINE_PAGE_EL]]) {
-        const c = on(el);
-        if (c['max-width'] !== SUBJECT_PAGE_WIDTH) bad.push(`${label}: max-width ${c['max-width']}`);
-        if (!(c.width === undefined || c.width === 'auto')) bad.push(`${label}: width ${c.width}`);
-        if (!(c['min-width'] === undefined || /^(0|auto)$/.test(c['min-width']))) bad.push(`${label}: min-width ${c['min-width']}`);
-        if (c['margin-left'] !== 'auto' || c['margin-right'] !== 'auto') bad.push(`${label}: not centred (margin ${c['margin-left']} / ${c['margin-right']})`);
-        if (c['padding-left'] !== 'var(--spacing-gutter)' || c['padding-right'] !== 'var(--spacing-gutter)') bad.push(`${label}: padding ${c['padding-left']} / ${c['padding-right']}, not the gutter its width assumes`);
-        if (c['--measure-body-len'] !== 'var(--measure-body)') bad.push(`${label}: does not declare the length`);
-        if (c['font-size'] !== 'var(--text-body)') bad.push(`${label}: not at the Body step`);
-        if (c['box-sizing'] !== undefined) bad.push(`${label}: box-sizing ${c['box-sizing']}`);
+      const rules = allRules(css);
+      for (const [label, el, want] of WANT) {
+        const got = cascadeOnRules(rules, el);
+        for (const p of new Set([...Object.keys(got), ...Object.keys(want)])) if (got[p] !== want[p]) bad.push(`${label}: ${p} is ${got[p]}, want ${want[p]}`);
       }
-      if (on(READING_PAGE_EL)['max-width'] !== 'var(--width-reading)') bad.push('the other reading views lost their width');
-      const nav = on(CRUMBS_EL);
-      if (nav.display !== 'flex') bad.push(`the breadcrumb is display ${nav.display}`);
-      if (!(nav['flex-direction'] === undefined || nav['flex-direction'] === 'row')) bad.push(`the breadcrumb runs ${nav['flex-direction']}`);
-      if (nav['flex-wrap'] !== 'nowrap') bad.push('the breadcrumb can wrap');
-      if (nav['overflow-x'] !== 'hidden') bad.push('the breadcrumb does not hide its overflow');
-      if (nav['max-width'] !== 'var(--measure-body-len)') bad.push('the breadcrumb is not on the column');
-      if (!(nav['column-gap'] === undefined || /^0(px)?$/.test(nav['column-gap']))) bad.push('the breadcrumb spaces its items with a gap');
-      const ellipsizes = (label, c) => {
-        for (const [p, v] of [['min-width', '0'], ['overflow-x', 'hidden'], ['text-overflow', 'ellipsis'], ['white-space', 'nowrap']]) {
-          if (c[p] !== v) bad.push(`${label}: ${p} is ${c[p]}, want ${v}`);
-        }
-        if (c.display && !/^(block|inline|inline-block)$/.test(c.display)) bad.push(`${label}: display ${c.display} ends its ellipsis`);
-      };
-      const trail = on(CRUMB_TRAIL_EL);
-      if (trail.display !== 'flex' || trail['flex-wrap'] === 'wrap' || !(trail['flex-direction'] === undefined || trail['flex-direction'] === 'row')) bad.push('the trail is not one flex row');
-      if (!(Number(trail['flex-shrink'] ?? 1) > 0) || trail['min-width'] !== '0' || trail['overflow-x'] !== 'hidden') bad.push('the trail does not give way before the lesson');
-      const mid = on(CRUMB_MIDDLE_EL);
-      ellipsizes('the subject-and-section run', mid);
-      if (mid['flex-grow'] !== '1' || mid['flex-shrink'] !== '0' || mid['flex-basis'] !== '3em') bad.push(`the subject-and-section run: flex ${mid['flex-grow']} ${mid['flex-shrink']} ${mid['flex-basis']}, want 1 0 3em (the room left, never below "› …")`);
-      if (mid['max-width'] !== 'max-content') bad.push('the subject-and-section run grows past its own width');
-      const keep = on(CRUMB_KEEP_EL);
-      ellipsizes('the course', keep);
-      if (!(Number(keep['flex-shrink'] ?? 1) > 0)) bad.push('the course never gives way, so the lesson would');
-      const cur = on(CRUMB_CURRENT_EL);
-      ellipsizes('the lesson', cur);
-      if (cur['flex-shrink'] !== '0') bad.push(`the lesson shrinks (flex-shrink ${cur['flex-shrink']}) while the course could`);
-      if (cur['max-width'] !== '100%') bad.push('the lesson can run past the line');
-      const note = on(CRUMB_NOTE_EL);
-      if (note['margin-left'] !== '4px' || note['flex-shrink'] !== '0') bad.push('the outline page\'s "[outline]" is not spaced off the subject');
-      const sep = on(CRUMB_SEP_EL);
-      if (sep['margin-left'] !== '4px' || sep['margin-right'] !== '4px' || sep['flex-shrink'] !== '0') bad.push('the separators do not carry the spacing');
-      if (value('.otter-crumb::before', 'content') !== "'\\200B'") bad.push('the run\'s chevron is the first thing on its line: it would be clipped, not ellipsed');
-      if (value('.otter-crumb > .otter-crumb-sep', 'display') !== 'inline-block') bad.push('the run\'s chevrons are blocks: its words go to a second line');
       return bad;
     };
     const sheet = readFileSync(OTTER_CSS, 'utf8');
     expect(judge(sheet)).toEqual([]);
+    // What the maps say, in words (so a deliberate change knows what it moves):
+    expect(SUBJECT_PAGE['max-width']).toBe('calc(var(--measure-body-len) + 2 * var(--spacing-gutter))'); // the column + gutters
+    expect([KEEP['flex-shrink'], CURRENT['flex-shrink'], TRAIL['flex-shrink']]).toEqual(['1', '0', '1']); // the course gives way, the lesson does not
+    expect([NAV['flex-wrap'], NAV['flex-direction'], CURRENT.order]).toEqual(['wrap', 'row-reverse', '-1']); // the trail whole or wrapped away
     // The JSX, whole: the order the CSS relies on (course and run inside the
     // trail, the lesson after it), both titles carrying the whole path, the
-    // outline page `data-width="subject"` (reviewer C: O6, O7).
+    // outline page `data-width="subject"` (reviewer C: O6, O7, J01).
     const flat = (s) => s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\s+/g, ' ').replace(/> </g, '><').trim();
     const src = readFileSync(OTTER_JSX, 'utf8');
     const lessonNav = flat(lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '');
     expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
-        <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{currentSection.title}</>}</span>
+        <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
         <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
       </span>
-      <span className="otter-crumb-current">{selectedLesson.title}</span>
+      <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
     </nav>`));
     const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
-    expect(stub).toMatch(/<div className="otter-view-page" data-width="subject">/);
+    expect(stub).toMatch(/<div className="otter-view">\s*<div className="otter-view-page" data-width="subject">\s*<nav className="otter-crumbs"/);
     expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
         <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
       </span>
-      <span className="otter-crumb-current">{activeSubject.title}</span>
+      <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
       <span className="otter-crumb-note">[outline]</span>
     </nav>`));
-    // CONTROL: one fault at a time, each an APPENDED rule (a later or more
-    // specific rule is exactly what the first version could not see).
+    // CONTROL: one fault at a time, each a rule ADDED INSIDE the sheet's own
+    // layer (an unlayered rule is the guard below), in every spelling the two
+    // rounds beat the earlier judges with.
     const PLANTS = [
       [".otter-view .otter-view-page[data-width='subject'] { max-width: 720px; }", /outline page: max-width/],
-      ['.otter-study-page { max-width: var(--width-reading); }', /lesson page: max-width/],
-      ['.otter-view-page { margin: 0; }', /outline page: not centred/],
-      ['.otter-study-page { margin-left: 0; }', /lesson page: not centred/],
+      [':where(.otter-study-page) { margin: 0; }', null], // zero specificity: loses — must stay clean
+      ['.otter-study-page.otter-study-page { margin-left: 0; }', /lesson page: margin-left/],
+      ['.otter-view-page { margin: 0; }', /outline page: margin-left/],
       ['.otter-study-page { padding: 64px; }', /lesson page: padding/],
       [".otter-view-page[data-width='subject'] { padding-inline: 48px; }", /outline page: padding/],
-      [".otter-view-page[data-width='subject'] { font-size: var(--text-h2); }", /outline page: not at the Body step/],
-      ['.otter-study-page { width: 900px; }', /lesson page: width/],
-      ['.otter-crumbs { display: block; }', /display block/],
-      ['.otter-crumbs { flex-direction: column; }', /runs column/],
-      ['.otter-crumbs { flex-flow: row wrap; }', /can wrap/],
-      ['.otter-crumbs { gap: 4px; }', /gap/],
-      ['.otter-crumb { flex-shrink: 1; }', /run: flex/],
-      ['.otter-crumbs .otter-crumb { flex: 1 1 0; }', /run: flex/],
-      ['.otter-crumb { display: flex; }', /ends its ellipsis/],
-      ['.otter-crumb { max-width: none; }', /grows past/],
-      ['.otter-crumb-keep { flex: none; }', /course never gives way/],
-      ['.otter-crumb-keep { text-overflow: clip; }', /the course: text-overflow/],
-      ['.otter-crumb-current { flex: 0 1 auto; }', /lesson shrinks/],
-      ['.otter-crumb-current { max-width: none; }', /run past the line/],
-      ['.otter-crumb-trail { flex-shrink: 0; }', /trail does not give way/],
-      ['.otter-crumb-trail { display: block; }', /trail is not one flex row/],
-      ['.otter-crumb-note { margin: 0; }', /"\[outline\]"/],
-      ['.otter-crumb-sep { margin: 0; }', /separators/],
-      [".otter-crumb::before { content: none; }", /clipped, not ellipsed/],
-      ['.otter-crumb > .otter-crumb-sep { display: block; }', /second line/],
+      [".otter-view-page[data-width='subject'] { font-size: var(--text-h2); }", /outline page: font-size/],
+      ['.otter-study-page { position: relative; inset-inline-start: 40px; }', /lesson page: position/],
+      ['.otter-crumbs { display: block; }', /breadcrumb: display/],
+      ['.otter-crumbs[aria-label] { flex-wrap: nowrap; }', /breadcrumb: flex-wrap/],
+      ['.otter-crumbs { height: auto; }', /breadcrumb: height/],
+      ['.otter-crumbs { flex-direction: row; }', /breadcrumb: flex-direction/],
+      ['.otter-crumb-said { clip-path: none; }', /spoken separator: clip-path/],
+      ['.otter-crumb-keep::before { content: none; }', /course's ::before: content/],
+      ['.otter-crumb-note { order: 0; }', /"\[outline\]": order/],
+      ['.otter-crumbs { width: 40%; }', /breadcrumb: width/],
+      ['.otter-crumbs { gap: 4px; }', /breadcrumb: row-gap/],
+      ['.otter-crumb { flex-shrink: 1; }', /run: flex-shrink/],
+      ['.otter-crumb-trail .otter-crumb { flex-basis: 0; }', /run: flex-basis/],
+      ['.otter-crumb { display: flex; }', /run: display/],
+      ['.otter-crumb-trail .otter-crumb::before { content: none; }', /::before: content/],
+      ['.otter-crumb:before { display: none; }', /::before: display/],
+      ['.otter-crumb .otter-crumb-sep { display: block; }', /run's chevron: display/],
+      ['.lucide-chevron-right { margin: 0; }', /chevron: margin/],
+      ['.otter-crumb-keep { flex: none; }', /course: flex-shrink/],
+      ['.otter-crumb-keep { flex-basis: 0; }', /course: flex-basis/],
+      ['.otter-crumb-current { flex-shrink: 1; }', /lesson: flex-shrink/],
+      ['.otter-crumb-current { width: 0; }', /lesson: width/],
+      ['.otter-crumb-current { text-wrap: wrap; }', /lesson: text-wrap/],
+      ['.otter-crumb-current { order: 0; }', /lesson: order/],
+      ['.otter-crumbs > :is(.otter-crumb-current) { max-width: none; }', /lesson: max-width/],
+      ['.otter-crumb-trail { flex-shrink: 0.5; }', /trail: flex-shrink/],
+      ['.otter-crumb-note { margin: 0; }', /"\[outline\]": margin/],
+      ["[class~='otter-crumb-current'] { white-space: normal; }", /lesson: white-space/],
+      ['@media (min-width: 1px) { .otter-crumb-current { flex-shrink: 1; } }', /lesson: flex-shrink/],
+      ['.otter-crumbs > :not(.otter-crumb-trail) { flex-shrink: 9; }', /lesson: flex-shrink/],
     ];
-    for (const [rule, why] of PLANTS) expect(judge(`${sheet}\n${rule}\n`).join('\n'), rule).toMatch(why);
+    for (const [rule, why] of PLANTS) {
+      const got = judge(`${sheet}\n@layer components { ${rule} }\n`).join('\n');
+      if (why) expect(got, rule).toMatch(why); else expect(got, rule).toBe('');
+    }
     // …and rules that do NOT reach these elements change nothing.
     for (const rule of [".otter-view-page[data-width='data'] { margin: 0; max-width: 1px; }", '.otter-crumb::after { display: block; }',
-      '.otter-crumbs-x { display: block; }', 'div.otter-crumbs { display: block; }']) {
-      expect(judge(`${sheet}\n${rule}\n`), rule).toEqual([]);
+      '.otter-crumbs-x { display: block; }', 'div.otter-crumbs { display: block; }', '.otter-node-card > * { margin: 0; }',
+      ':is(.otter-quiz-meta, .otter-quiz-desc) { margin: 0; }',
+      '.otter-crumbs > :not(.otter-crumb-current, .otter-crumb-trail, .otter-crumb-note) { flex-shrink: 9; }']) {
+      expect(judge(`${sheet}\n@layer components { ${rule} }\n`), rule).toEqual([]);
     }
+  }, 30000);
+
+  it('otter.css keeps every rule in `@layer components` and nests none, so the cascade judge above reads it whole (S2b review round 2)', () => {
+    // An unlayered rule beats the layer whatever its specificity, and a nested
+    // rule's selector is its parent's too: the judge models neither, so the
+    // sheet may contain neither (reviewer C's C10-C12, C28, C42, C46b).
+    const judge = (css) => allRules(css).filter((r) => !r.sel.startsWith('@') && !r.parents.some((p) => /^@keyframes\b/.test(p)))
+      .filter((r) => !r.parents.some((p) => /^@layer\s+components\b/.test(p)) || r.parents.some((p) => !p.startsWith('@')))
+      .map((r) => `${r.parents.join(' > ')} ${r.sel}`);
+    const sheet = readFileSync(OTTER_CSS, 'utf8');
+    expect(judge(sheet)).toEqual([]);
+    expect(judge(`${sheet}\n:where(.otter-crumb-current) { flex-shrink: 1; }`)).toHaveLength(1);
+    expect(judge(`${sheet}\n@layer utilities { .otter-crumb-current { flex-shrink: 1; } }`)).toHaveLength(1);
+    expect(judge(`${sheet}\n@layer components { .otter-crumb-current { .otter-crumbs & { flex-shrink: 1; } } }`)).toHaveLength(1);
+  });
+
+  it('no other stylesheet styles the subject pages\' frame or breadcrumb (S2b review round 2)', () => {
+    // The judge reads otter.css; a rule in index.css loads after it and wins
+    // a tie, and resources.css could set the outline page's width (reviewer
+    // C's I01, I02, S01). index.css styles the reading surface
+    // (.lesson-content) and nothing of the frame.
+    const FRAME = ['otter-study', 'otter-view', 'otter-study-page', 'otter-view-page', 'otter-crumbs', 'otter-crumb', 'otter-crumb-trail',
+      'otter-crumb-keep', 'otter-crumb-current', 'otter-crumb-note', 'otter-crumb-sep'];
+    const re = new RegExp(`(?:\\.|\\[class[~*^|$]?=\\s*['"]?)(?:${FRAME.join('|')})(?![\\w-])`);
+    const reaching = (files) => files.flatMap(([f, css]) => allRules(css).filter((r) => re.test(r.sel) || r.parents.some((p) => re.test(p))).map((r) => `${f} ${r.sel}`));
+    const others = CSS_FILES.filter((f) => f !== OTTER_CSS).map((f) => [f, readFileSync(f, 'utf8')]);
+    expect(others.length, 'the other sheets were read').toBeGreaterThan(5);
+    expect(others.map(([f]) => f)).toContain('src/index.css');
+    expect(reaching(others)).toEqual([]);
+    // CONTROL
+    expect(reaching([['src/index.css', '@layer components { .otter-crumb-current { flex-shrink: 1; } }']])).toHaveLength(1);
+    expect(reaching([['x.css', "[class~='otter-view-page'] { max-width: 720px; }"]])).toHaveLength(1);
+  });
+
+  it('nothing inside the outline page sets a second width (S2b review round 2)', () => {
+    // Its own classes, read from the stub branch as the lesson page's are,
+    // through the same judge (reviewer C's J04: a class-styled 420px box
+    // inside the page). The page element itself is the cascade judge's.
+    const src = readFileSync(OTTER_JSX, 'utf8');
+    const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
+    const classes = [...new Set([...stub.matchAll(/className="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/)).filter((c) => /^otter-/.test(c) && c !== 'otter-view' && c !== 'otter-view-page'))];
+    expect(classes, 'the stub branch was read').toEqual(expect.arrayContaining(['otter-crumbs', 'otter-outline-card', 'otter-outlines', 'otter-generate-full']));
+    const sheet = readFileSync(OTTER_CSS, 'utf8');
+    expect(measureViolations(pageRules({ 'otter.css': sheet }, classes))).toEqual([]);
+    // CONTROL
+    expect(measureViolations(pageRules({ 'otter.css': `${sheet}\n.otter-outlines { max-width: 420px; }` }, classes))).toHaveLength(1);
   });
 
   it('the measure is the number Audrey ruled — 66ch — in @theme and its tokens.js mirror (S2b, C4)', () => {
     // The band test admits 60–66ch (§3.1's range); her ruling is 66, open
     // only to her confirmation from the screenshots (walkthrough 50 Q1).
-    // Reviewer C's W5: 60ch in both files stayed green. If she rules another
-    // number, this line changes with it.
-    const pin = (css, js) => /--measure-body:\s*66ch\s*;/.test(css) && /'measure-body':\s*'66ch'/.test(js);
-    expect(pin(readFileSync('src/index.css', 'utf8'), readFileSync('src/ui/tokens.js', 'utf8'))).toBe(true);
+    // Reviewer C's W5: 60ch in both files stayed green. Round 2's I03: a
+    // regex over the raw text was satisfied by a comment — so the value is
+    // read as CSS reads it (comments out, the last declaration wins) and as
+    // the module exports it. If she rules another number, this changes.
+    const value = (css) => themeValues(css).get('--measure-body');
+    expect(value(readFileSync('src/index.css', 'utf8'))).toBe('66ch');
+    expect(TOKEN_THEME['measure-body']).toBe('66ch');
     // CONTROL
-    expect(pin('--measure-body: 60ch;', "'measure-body': '60ch'")).toBe(false);
-    expect(pin('--measure-body: 66ch;', "'measure-body': '45ch'")).toBe(false);
+    expect(value('@theme { --measure-body: 60ch; /* --measure-body: 66ch; */ }')).toBe('60ch');
+    expect(value('@theme { --measure-body: 66ch; --measure-body: 45ch; }')).toBe('45ch');
   });
 
   it('the measure stays on the lesson: the pet\'s chat reads no lesson length and is no lesson surface (S2b, C4)', () => {
