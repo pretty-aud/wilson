@@ -1653,13 +1653,13 @@ ruling are Audrey's questions in walkthrough 47 as well.
 - **P1-49 · A count is styled three ways** ("8 MEMBERS" on the Label step, "16 tasks" in the mono, "1 project"); P1's audit found three more on the Label step in the mono (Intake, Summary, Team). Not reached by P1: it needs one count style chosen.
 - **P1-51 · O.T.T.E.R.:** selects draw the browser's chevron (D.O.G.'s draw a custom one); page titles at x399 in a centred column on Admin / Quiz / New course against x224 elsewhere; Validate's actions end at 1256 vs 1245; the quiz's levels lower case vs capitalised badges; Help's title 12px right of its nav; the Search field's magnifier outside the field. Not reached by P1.
 - **P1-53 · Glyphs in a fallback face:** → ← ● ○ (Segoe UI), D.O.G.'s ▸ output markers (Cambria Math: 17 glyphs on Help → D.O.G. → System prompts, filed in the walk with a glyph ceiling each) and "₩" (Cascadia Mono). Owner: Audrey (may a session fetch Geist's release, 47).
-- **P1-54 · The pet sits over drawn page content** — the screens are measured by P1's final walk in 47 §3. Owner: Audrey (C5).
+- **P1-54 · The pet sits over drawn page content** — the screens are measured by P1's final walk in 47 §3. Owner: Audrey (C5). Post-overhaul S4a adds one: the file window's footer, whose last button ends where the pet sits. The pet covers the right end of Download at 1440x900 on a cloud file and of Preview at 1280x700 on the Local Server (`docs/sessions/handoffs/img/po-s4a-fixtures-file-window-1440x900.png`, `po-s4a-localserver-file-window-1280x700.png`).
 - **P1-55 / P1-79 · Chips (and the Dashboard's "Filter" chip) are on the capitalised Label step** while Q2 lists chips for sentence case. Owner: Audrey (47).
 - **P1-56 · Project type names in Title Case; CAM MOVE / FRAMING codes and the Bins codec in capitals.** Owner: Audrey (47).
 - **P1-57 · Names 600 in the entity tables, 400 in the file tables; the popup Tasks table's Assignee / Reviewer in full ink; dates right-aligned on the Files page, left in R.A.B.B.I.T.'s file tables.** Owner: Audrey (47).
 - **P1-58 · One 16:9 preview geometry at three sizes** (`FileThumbnail`, the Assets and Level thumbnails, R4-35). Not reached by P1.
 - **P1-59 · The Assets toolbar's ten controls, the popup's four jobs, the two-line row, one picker, the bulk bar over the header, the sidebar's status pill.** Waits on walkthrough 44's questions (in 47).
-- **P1-60 · The Files page's Created / Modified / Duration widths have no floor** (a date still cut at 1024; "DURATI…" cut at 1280 and 1440). Owner: Audrey (walkthrough 44 Q27/Q28, in 47).
+- **P1-60 · The Files page's Created / Modified / Duration widths have no floor** (a date still cut at 1024; "DURATI…" cut at 1280 and 1440). Owner: Audrey (walkthrough 44 Q27/Q28, in 47). Since post-overhaul S4a, R.A.B.B.I.T.'s Files tab is the same explorer and shares it, and the file window open beside the table narrows the table further.
 - **P1-61 · `ShotTakeChips` paints inline colours and borders and takes no class** (B6's contract); its take rows' data-coloured inset edge goes with it. Not reached by P1.
 - **P1-63 · The nested shot rows still scroll sideways** at medium / large thumbnails (`rabbitScenes.css`). Not reached by P1.
 - **P1-64 · The Budget strip's `scrollbar-width: none` loses to the unlayered `.wilson-dark-scroll *`.** INFERRED (latent: the strip never overflows at 1024+). The fix is layering that `index.css` block, a global cascade change.
@@ -1673,7 +1673,7 @@ ruling are Audrey's questions in walkthrough 47 as well.
 - **P1-82 · The four Scenes tiles lost their icons** (the kit Stat has no icon slot, B5b-KR-1). Owner: Audrey (47), then the kit.
 - **P1-83 · A sortable head's inset ring sits on the first glyph of a left-aligned label**, and Budget's and Bins' sheets duplicate the kit's inset rule. Not closed: moving the ring into the cell padding changes every sortable head's hit box, and Bins' head layout is built on the kit's `padding: 0`, which `binsCss.test.js` pins.
 - **The agent overlays are still hand-drawn:** `DiffView` (a private backdrop, the stone palette, an orange frame) and the agent toast; P1 moved their shadows onto the float token and the outline proposal onto the kit Dialog. Not reached by P1.
-- **The Summary's missing-files notice is hand-drawn** (`ProjectSummaryView.jsx`, the relink notice: a `color-mix` warning tint, its own hairline, a kit Button inside), where the kit Banner has the warning tone and an action slot, as Storage's load error now uses (P1-39). READ in code at P1's close (review round two's mono fix touched its sentence); not reached by P1.
+- ~~**The Summary's missing-files notice is hand-drawn**~~ **Closed by post-overhaul S4a (`7cd5914`, 2026-09-30):** the notice moved with Relink to R.A.B.B.I.T.'s Files tab, on the kit Banner (warning tone, the Relink… button in its action slot); `ProjectFilesExplorer.test.jsx` pins it. As filed: (`ProjectSummaryView.jsx`, the relink notice: a `color-mix` warning tint, its own hairline, a kit Button inside), where the kit Banner has the warning tone and an action slot, as Storage's load error now uses (P1-39). READ in code at P1's close (review round two's mono fix touched its sentence); not reached by P1.
 - **Hexes left in lane code:** `IngestionToast.jsx` 21 and `UndoToast.jsx` 10 (the toasts' own colours; P1 moved their shadows and radius only), besides the task editor's (P1-31). MEASURED by P1's audit.
 
 ## Post-overhaul merge (Track A over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
@@ -1868,7 +1868,14 @@ is another session's or the fix is not S2a's to make. P1-01 is closed above;
 P1-02, P1-03 and P1-04 carry S2a's notes. Questions for Audrey are in
 walkthrough 49 §5, not here.
 
-- **S2a-01 · 🚨 Bins' document keys act from every page** (`BinsView.jsx`
+- ~~**S2a-01 · 🚨 Bins' document keys act from every page**~~ **Closed by
+  post-overhaul S4a (`643c61b`, 2026-09-30):** BinsView takes `pageActive`
+  (Rabbit passes `currentPage === 'rabbit'`; it defaults closed), and the
+  handler also stands down under a kit Drawer, which the overlay stack
+  cannot see. With R.A.B.B.I.T.'s settings drawer open over Bins, Delete
+  on its buttons had removed the selected files and Escape had cleared
+  the selection instead of closing it. `binsView.test.jsx` plants the old
+  handler and goes red. The entry as filed: (`BinsView.jsx`
   ~520–585). The handler has no page check, and R.A.B.B.I.T. stays mounted
   with Bins as its view, so while a Bins file is selected its keys act on
   whatever page she is on: Enter (when not on a control) is cancelled and
@@ -1933,3 +1940,48 @@ walkthrough 49 §5, not here.
   this wave, and S2a's brief allowed it one title string (the drawer
   footer's Help). Owner: the next session that edits `TimelineView.jsx`
   (S3c or S5).
+
+## Post-overhaul S4a (`po/s4a-files-ui`) — left open (2026-09-30)
+
+What S4a built around or found and did not fix. S2a-01 and the Summary's
+hand-drawn missing-files notice are closed above; P1-54 and P1-60 carry
+S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
+
+- **S4a-01 · Migration 0085 (`files.tags`) is written and NOT applied to
+  any environment.** The desktop app's classifier refuses DDL writes to dev
+  from a session, so the migration was proven by the hosted shim in a
+  rolled-back run (suite 87: 24 planned / 24 collected / 24 passed) and by
+  CI. The client tolerates a database without the column, as it does for
+  0081: tags read as none, the file window says "Tags need a database
+  update that has not reached this workspace yet.", and a tags-only save
+  is refused with nothing changed. The
+  exact dev and staging commands are in the S4a hand-off (Waiting on
+  Audrey). The file and its history row are in
+  `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\`. Owner:
+  Audrey.
+- **S4a-02 · The Legal tag restricts nothing yet.** Anyone who can open a
+  file can still see it. The file window says so beside the tag. Setting
+  Legal is limited to people past the money gate. Owner: S4b, after
+  Audrey rules on Legal's audience (E4a).
+- **S4a-03 · Electron's PDF viewer titles a previewed PDF with a blob's
+  id.** A same-origin PDF is handed to the viewer as a typed blob (so
+  `safeMediaContentType` stays as it is), and the viewer's toolbar shows
+  the blob's UUID. The preview's own head carries the file's name.
+  MEASURED in Electron 33
+  (`docs/sessions/handoffs/img/po-s4a-localserver-preview-pdf-*.png`).
+  Cosmetic. Owner: the next session on previews.
+- **S4a-04 · The preview is the workbench Dialog, not a lightbox.** The
+  kit has no full-window Dialog, so a video or PDF is capped at
+  `min(64vh, 620px)` high. Owner: the kit (S4a-KR-1, "a lightbox-sized
+  Dialog").
+- ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
+  test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
+  "the task form hands focus back to 'Add new task'…". Measured red in 4
+  of 20 full-suite runs on `po/s4a-files-ui` and 0 of 11 on its base
+  `7c9c3b2`; the extra test files added load. The product was right. The
+  form closes when `addTask` resolves, outside any event, so React runs
+  the hand-back effect on the scheduler, and a loaded runner let
+  `waitFor` settle one tick before it. The check now waits for the
+  hand-back. With the hook removed it still fails, on that line alone
+  (proved with the earlier checks taken out). Green in the next 5 of 5
+  full runs.

@@ -350,12 +350,15 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 58. **With the toolbar arranged by job, can you find the Table/Columns switch faster, and does Refresh read as a command rather than a third view?**
    Look at: Files toolbar: left, the project picker and the Table/Columns switch; right, the filter, Refresh and the counts. Choices: Report yes/no; no alternative offered. (WT24 §4)
+   Q58: overtaken by E1 and E8 (2026-09-29). The toolbar keeps its arrangement by job. On R.A.B.B.I.T.'s new Files tab the picker is hidden (it is the open project) and the right side gains File activity and Add files, with Relink on a warning banner above the list. Done by S4a 2026-09-30; whether it reads faster is asked again in walkthrough 52.
 
 59. **Do you miss the indentation that was taken out of the Files table view?**
    Look at: Files → Table view: sort by each column and check the order; the Location column shows each path and the Columns view is the tree. Choices: Keep the flat, unindented table (shipped; row order unchanged), or have it back by opening the table in folder order (one-line change; loses the plain A-to-Z view on arrival). (WT24 §5)
+   Q59: the flat, unindented table stays (2026-09-29; post-overhaul ruling E7, "the table view issue is dropped"). S4a left the table's order and indentation as shipped; see walkthrough 52.
 
 60. **Should the Files details panel collapse until a file is selected, instead of keeping its 300px at rest?**
    Look at: Files with nothing selected: the 300px details panel. Choices: Keep it (shipped; the review marks it 'taste, not error' and §3 gave back 433px), or collapse it to nothing until a file is picked. 'Your call.' (WT24 Not done 1)
+   Q60: collapsed until a file is selected (2026-09-29; post-overhaul ruling E10, done by S4a 2026-09-30). The panel is now the file window: the facts, then notes, Core, Kind and tags, with Preview and the file's actions in a footer. Close puts it away. See walkthrough 52.
 
 ### Projects
 
@@ -602,6 +605,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 135. **Should cloud uploads carry the file kind that Intake gives local files?**
    Look at: The project files table (Summary, Control Panel, Projects page or Intake): the kind of a cloud-uploaded file beside a local one. Choices: Yes / no; no recommendation. (WT44 Q1, WT37 Q4)
+   Q135: the cloud keeps Kind now (2026-09-29; the post-overhaul E-note, "dont have the cloud silently throw away kind and description"). Track C's 0075 put `files.document_kind` and `files.description` on the cloud, and dev carries it. The Resources drop zone, D.O.G. and the attachment migration write Kind, and since S4a (2026-09-30) the file window's Kind select sets it on any project file. R.A.B.B.I.T.'s own Add files, now on the Files tab, still leaves it empty. Whether it should guess the kind from the name, as Intake does, is asked in walkthrough 52.
 
 136. **The task popup's files column is 400px wide, so its file table scrolls sideways: widen the column, or accept the scroll?**
    Look at: A task popup's files column (R.A.B.B.I.T. Tasks), at 1280x700. Choices: Widen the column / accept the scroll; no recommendation. (WT44 Q3)

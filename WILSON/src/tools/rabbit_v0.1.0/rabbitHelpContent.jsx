@@ -45,6 +45,7 @@ function KeyCombos({ keys, range, surface }) {
 export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-overview',     label: 'Overview' },
   { id: 'rabbit-projects',     label: 'Projects' },
+  { id: 'rabbit-files',        label: 'Files' },
   { id: 'rabbit-intake',       label: 'Intake wizard' },
   { id: 'rabbit-assets',       label: 'Assets' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
@@ -151,6 +152,76 @@ export function RabbitHelpContent({ helpPage, theme }) {
       </section>
     </div>
   );
+
+  // Post-overhaul S4a (E13): the Files tab, the file window, previews.
+  if (helpPage === 'rabbit-files') {
+    const surface = theme === 'dark' ? 'dark' : 'light';
+    return (
+    <div className="space-y-5">
+      <section>
+        <h3 className={T.sectionTitle}>Files</h3>
+        <p className={`${T.bodyText} mb-4`}>
+          The Files tab holds the open project's files. It is the same
+          explorer as Files on the Resources page, without the project
+          picker: Table lists every file, Columns walks the folders, and the
+          filter matches a file's name, its path or its tags.
+        </p>
+        <div className="space-y-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>The toolbar</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Add files</span> — Puts files into the project.</li>
+              <li>• <span className={T.listBold}>Relink</span> — Appears when files are missing from disk, and finds them again.</li>
+              <li>• <span className={T.listBold}>File activity</span> — The selected file's history: uploaded, moved, relinked, downloaded, trashed or restored.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>The file window</h4>
+            <p className={`${T.listItem} mb-2`}>
+              Click a file's name to open its details beside the list; Close
+              puts them away. What you change there is saved as you go: a
+              note when you leave the box (Escape puts the old note back),
+              everything else at once. Each change is kept in the file's
+              edit history.
+            </p>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Notes</span> — Anything worth knowing about the file.</li>
+              <li>• <span className={T.listBold}>Core project file</span> — The files that give context about the project: the script, the treatment, storyboards, mood boards. Intake and D.O.G. read them as the project's context.</li>
+              <li>• <span className={T.listBold}>Kind</span> — What the document is, from the same list as Intake.</li>
+              <li>• <span className={T.listBold}>Tags</span> — Production, Creative, Legal, Finance, Reference, Assets, Code, Shots and Documentation; a file can carry several. Finance comes from the file being marked financial when it was added; it is not set by hand. Only someone who can see the project's money can set Legal, and Legal does not hide a file yet: anyone who can open the file can still see it.</li>
+              <li>• <span className={T.listBold}>A file of an asset, a shot or a scene</span> — Takes notes and tags. Core and Kind are for the project's own files.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Previews</h4>
+            <p className={`${T.listItem} mb-2`}>
+              Double-click a file, press <Kbd surface={surface}>Enter</Kbd> on
+              its name, or choose Preview in the file window. Images, video,
+              audio, PDFs, Markdown, code and plain text open in a window over
+              the list. <Kbd surface={surface}>←</Kbd> and <Kbd surface={surface}>→</Kbd>{' '}
+              (or the arrows at its top) step through the files you are
+              looking at; <Kbd surface={surface}>Esc</Kbd> closes it.
+            </p>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• Video and audio wait for you to press play.</li>
+              <li>• HTML and SVG show as their text, never as a page; a Markdown file's links and pictures are not opened.</li>
+              <li>• A format WILSON cannot draw here (Photoshop, EXR, TIFF, 3D) says so and offers the file's own action. A text file over 2 MB is not read.</li>
+              <li>• Opening a preview is recorded in File activity as a download; looking again soon after is not recorded twice.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Download and opening</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Download</span> — Saves a copy of a file stored in the cloud.</li>
+              <li>• <span className={T.listBold}>Show in folder</span> — For a file already on this computer: opens its folder with the file selected.</li>
+              <li>• <span className={T.listBold}>Open in default app</span> — Opens it in the program your computer uses for it. WILSON does not open programs or scripts; use Show in folder for those.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+    );
+  }
 
   if (helpPage === 'rabbit-intake') return (
     <div className="space-y-5">
@@ -409,7 +480,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Bins: the keyboard</h4>
             <p className={`${T.bodyText} mb-2`}>
-              On the files pane, with a file selected. Click selects one file, Shift-click extends, Ctrl-click adds or removes one.
+              On the files pane, with a file selected. Click selects one file, Shift-click extends, Ctrl-click adds or removes one. The keys act only while R.A.B.B.I.T. is the page on screen and nothing is open over it.
             </p>
             <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
               {BINS_SHORTCUTS.map((s) => (
