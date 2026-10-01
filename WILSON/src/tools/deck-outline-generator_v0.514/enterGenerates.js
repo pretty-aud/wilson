@@ -24,9 +24,10 @@
 //
 // It does NOT ask whether another listener took the key first (round 1 did,
 // and review round 2, B-R2-01, measured the cost: Bins' document listener,
-// mounted on the hidden R.A.B.B.I.T. page, takes every Enter once a file is
-// selected, so D.O.G.'s shortcut died for the session). The page check above
-// is what keeps Bins' own Enter from starting a D.O.G. generation.
+// mounted on the hidden R.A.B.B.I.T. page, takes every Enter that is not on a
+// control once a file is selected — exactly the shortcut's case — so D.O.G.'s
+// shortcut died for the session; OUTSTANDING S2a-01). The page check above is
+// what keeps Bins' own Enter from starting a D.O.G. generation.
 // =============================================================================
 
 import { overlayOpen } from '../../ui/overlay'

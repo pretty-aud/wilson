@@ -3287,10 +3287,13 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
   useEffect(() => {
     const handler = (e) => {
       // Post-overhaul S2a (Audrey's C12: Enter presses whatever has focus):
-      // the key is D.O.G.'s only on D.O.G.'s page, untaken, unmodified, not
-      // in a text field and not on a control Enter presses by itself — a
-      // checkbox or switch excepted, as before. enterGenerates.js says why,
-      // and its test drives it with real elements.
+      // the key is D.O.G.'s only on D.O.G.'s page, unmodified, not in a text
+      // field, not under a window (a drawer, a dialog, a kit overlay) and not
+      // on a control Enter presses by itself — D.O.G.'s own option toggles
+      // and Full deck switch excepted, as before. Whether another listener
+      // cancelled it first is deliberately NOT asked (review round 2,
+      // B-R2-01). enterGenerates.js says why; its test drives it with real
+      // elements.
       if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;
       if (history.length > 0) return; // only when outliner is empty
       if (isGenerating || !hasFileContent) return;
