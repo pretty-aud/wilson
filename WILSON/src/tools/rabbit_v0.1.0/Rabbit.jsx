@@ -54,6 +54,8 @@ import ScenesView from './views/ScenesView'
 import BinsView from './views/BinsView'
 import LevelsView from './views/LevelsView'
 import ExperiencesView from './views/ExperiencesView'
+// Post-overhaul S4a (E8): one explorer, two hosts — this is the second.
+import ProjectFilesExplorer from '../../components/Resources/ProjectFilesExplorer'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 import { subscribeNavigate } from './state/rabbitNavigate'
@@ -192,8 +194,8 @@ export default function Rabbit({ currentPage } = {}) {
   }, [rosterMembers])
   const adapterDot = <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
   const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} />
-  // On Summary the pair shares the tab strip's one row with eleven tabs, so
-  // the strip shows three faces and "+N" for the rest (R2 finding 3: five
+  // On Summary the pair shares the tab strip's one row with eleven tabs (twelve
+  // since S4a's Files), so the strip shows three faces and "+N" for the rest (R2 finding 3: five
   // faces at 1024 pushed the last tab out of view). The bar shows five.
   const presenceCompact = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} max={3} />
   const statusInTabBar = activeView === 'summary'
@@ -236,6 +238,7 @@ export default function Rabbit({ currentPage } = {}) {
           <div className="h-full">
             {activeView === 'intake'   && <IntakeWizardView   />}
             {activeView === 'summary'  && <ProjectSummaryView />}
+            {activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} />}
             {activeView === 'assets'   && <ProjectAssetsView  />}
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}

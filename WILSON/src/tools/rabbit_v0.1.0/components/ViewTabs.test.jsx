@@ -62,7 +62,11 @@ const kitRule = (selector) => {
   return m[1]
 }
 
-const ALL = ['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins', 'Levels', 'Experiences']
+// Post-overhaul S4a (Audrey's E8, 2026-09-29): TWELVE, deliberately — Files in
+// the first group right after Summary. Every one of the eleven keeps its place;
+// the CONTROL below proves the list is still read whole.
+const ALL = ['Intake', 'Summary', 'Files', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins', 'Levels', 'Experiences']
+const ELEVEN = ['Intake', 'Summary', 'Team', 'Tasks', 'Timeline', 'Budget', 'Assets', 'Scenes', 'Bins', 'Levels', 'Experiences']
 const tabLabels = (container) => [...container.querySelectorAll('[role="tab"]')].map((b) => b.textContent.trim())
 
 describe('ViewTabs: the active view', () => {
@@ -99,17 +103,29 @@ describe('ViewTabs: the active view', () => {
   })
 })
 
-describe('ViewTabs: eleven peers, grouped, none removed (C1)', () => {
-  it('renders all eleven views, in their order, when nothing is hidden', () => {
+describe('ViewTabs: twelve peers since S4a (eleven kept, Files added), grouped, none removed', () => {
+  it('renders all twelve views, in their order, when nothing is hidden', () => {
     const { container } = render(<ViewTabs activeView="summary" onChange={() => {}} />)
     expect(tabLabels(container)).toEqual(ALL)
     expect(RABBIT_VIEWS.map((v) => v.label)).toEqual(ALL)
+    // Files sits right after Summary, in the project group (E8).
+    expect(RABBIT_VIEWS.find((v) => v.id === 'files')).toMatchObject({ label: 'Files', group: 'project' })
+  })
+
+  it('every one of the eleven is still there, in its old order (C1\'s "none removed")', () => {
+    expect(RABBIT_VIEWS.map((v) => v.label).filter((l) => l !== 'Files')).toEqual(ELEVEN)
+  })
+
+  it('CONTROL: the order check sees a tab that moved or vanished', () => {
+    const moved = [...ELEVEN.slice(0, 2), 'Team', 'Files', ...ELEVEN.slice(3)]
+    expect(moved).not.toEqual(ALL)
+    expect(ALL.filter((l) => l !== 'Team')).not.toEqual(ALL)
   })
 
   it('draws a hairline between the three groups: project | plan | material', () => {
     const items = viewTabItems({})
     const shape = items.map((i) => (i.separator ? '|' : i.id)).join(' ')
-    expect(shape).toBe('intake summary team | tasks timeline budget | assets scenes bins levels experiences')
+    expect(shape).toBe('intake summary files team | tasks timeline budget | assets scenes bins levels experiences')
     const { container } = render(<ViewTabs activeView="summary" onChange={() => {}} />)
     expect(container.querySelectorAll('.ui-tabs-sep')).toHaveLength(2)
   })
@@ -117,17 +133,22 @@ describe('ViewTabs: eleven peers, grouped, none removed (C1)', () => {
   it('a hidden tab leaves no gap and a fully hidden group leaves no doubled hairline', () => {
     const hidden = new Set(['budget', 'tasks', 'timeline'])
     const shape = viewTabItems({ hiddenTabs: hidden }).map((i) => (i.separator ? '|' : i.id)).join(' ')
-    expect(shape).toBe('intake summary team | assets scenes bins levels experiences')
+    expect(shape).toBe('intake summary files team | assets scenes bins levels experiences')
     const shape2 = viewTabItems({ hiddenTabs: ['scenes', 'bins', 'levels', 'experiences', 'assets'] })
       .map((i) => (i.separator ? '|' : i.id)).join(' ')
-    expect(shape2).toBe('intake summary team | tasks timeline budget')
+    expect(shape2).toBe('intake summary files team | tasks timeline budget')
   })
 
   it('the whole-strip disabled flag disables every tab, as before', () => {
     const { container } = render(<ViewTabs activeView="summary" onChange={() => {}} disabled />)
     const tabs = [...container.querySelectorAll('[role="tab"]')]
-    expect(tabs).toHaveLength(11)
+    expect(tabs).toHaveLength(12)
     expect(tabs.every((t) => t.disabled)).toBe(true)
+  })
+
+  it('Rabbit.jsx mounts the Files view as the explorer with the open project and no picker', () => {
+    expect(rabbitSrc).toContain("import ProjectFilesExplorer from '../../components/Resources/ProjectFilesExplorer'")
+    expect(rabbitSrc).toContain("{activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} />}")
   })
 
   it('a click still switches the view (C1: what a click does is unchanged)', () => {

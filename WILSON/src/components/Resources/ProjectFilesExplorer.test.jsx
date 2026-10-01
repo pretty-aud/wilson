@@ -23,7 +23,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -423,6 +423,122 @@ describe('the Finder columns are the same object as the table', () => {
     expect(css).toMatch(/\.fx-col-item \{[^}]*padding: 0 var\(--cell-pad-x\);/s)
     // F-R11's other half: these are real buttons that had no hover fill.
     expect(css).toMatch(/\.fx-col-item:hover \{ background-color: var\(--color-hover\); \}/)
+  })
+})
+
+// ── Post-overhaul S4a: one explorer, two hosts (Audrey's E8) ─────────────────
+// RESOURCES → FILES passes nothing; R.A.B.B.I.T.'s Files tab passes the open
+// project and showPicker={false}. On the tab, the page reads the project again
+// whenever the provider's files / folders / managed files change, keeps the
+// selected file across that read, lays the provider's own rows over what the
+// adapter returned, and drops an answer that arrives after a newer one.
+describe('one explorer, two hosts (S4a, E8)', () => {
+  afterEach(() => {
+    ctx.activeProjectId = 'p1'
+    ctx.getAdapter = REAL_ADAPTER
+    delete ctx.files
+    delete ctx.folders
+    delete ctx.managedFiles
+  })
+
+  /** An adapter that counts its reads and answers from `answers()`. */
+  function countingAdapter(answers = () => FILES) {
+    const calls = []
+    return {
+      calls,
+      make: () => ({
+        listFolders: async () => FOLDERS,
+        listFiles: async (id) => { calls.push(id); return answers() },
+        listManagedFiles: async () => [],
+      }),
+    }
+  }
+
+  const fileNames = () => [...document.querySelectorAll('.ui-table[data-files-table] .fx-name-text')].map(n => n.textContent)
+
+  it('the tab host: no picker, the open project, data-host="rabbit"', async () => {
+    const a = countingAdapter()
+    ctx.getAdapter = a.make
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(screen.queryByLabelText('Project')).toBeNull()
+    expect(document.querySelector('[data-files-explorer]').getAttribute('data-host')).toBe('rabbit')
+    expect(a.calls).toEqual(['p1'])
+  })
+
+  it('CONTROL: the Resources host still has its picker and says so', async () => {
+    render(<ProjectFilesExplorer />)
+    await screen.findByRole('tab', { name: 'Table' })
+    expect(screen.getByLabelText('Project')).toBeTruthy()
+    expect(document.querySelector('[data-files-explorer]').getAttribute('data-host')).toBe('resources')
+  })
+
+  it('reads again when the provider\'s files change, and keeps the selected file', async () => {
+    const a = countingAdapter()
+    ctx.getAdapter = a.make
+    ctx.files = [FILES[0]]
+    const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    const row = () => [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')].find(r => r.textContent.includes('hero_v3.mov'))
+    fireEvent.click(row())
+    expect(row().hasAttribute('data-selected')).toBe(true)
+    expect(a.calls.length).toBe(1)
+    // CONTROL first: a render with the SAME files array reads nothing.
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await new Promise(r => setTimeout(r, 0))
+    expect(a.calls.length).toBe(1)
+    // A new array (an upload, a teammate's edit) → one more read.
+    ctx.files = [FILES[0], { ...FILES[1] }]
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    // While that read is in flight the table stays on screen: no skeleton for
+    // a refetch of the project already shown (asserted BEFORE the answer).
+    expect(screen.queryByRole('status', { name: /Loading/ })).toBeNull()
+    expect(row(), 'the table is still drawn during the read').toBeTruthy()
+    await waitFor(() => expect(a.calls.length).toBe(2))
+    expect(row().hasAttribute('data-selected'), 'the selection survives the read').toBe(true)
+  })
+
+  it('lays the open project\'s provider rows over the adapter\'s, by id', async () => {
+    ctx.files = [{ ...FILES[0], name: 'brief-final.pdf' }]
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    expect(fileNames()).toContain('brief-final.pdf')
+    expect(fileNames()).not.toContain('brief.pdf')
+  })
+
+  it('CONTROL: a project that is NOT open gets no overlay (its rows are the adapter\'s)', async () => {
+    ctx.files = [{ ...FILES[0], name: 'brief-final.pdf' }]
+    ctx.activeProjectId = 'p2'
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    expect(fileNames()).toContain('brief.pdf')
+    expect(fileNames()).not.toContain('brief-final.pdf')
+  })
+
+  it('drops an answer that arrives after a newer one', async () => {
+    let releaseOld
+    let n = 0
+    ctx.getAdapter = () => ({
+      listFolders: async () => FOLDERS,
+      listFiles: () => {
+        n += 1
+        if (n === 2) return new Promise((r) => { releaseOld = () => r([{ ...FILES[0], name: 'stale.pdf' }]) })
+        return Promise.resolve(n === 1 ? FILES : [{ ...FILES[0], name: 'newest.pdf' }])
+      },
+      listManagedFiles: async () => [],
+    })
+    ctx.files = [FILES[1]]
+    const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    ctx.files = [{ ...FILES[1] }]            // read 2: held open (the stale one)
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    ctx.files = [{ ...FILES[1] }]            // read 3: answers at once
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    await waitFor(() => expect(fileNames()).toContain('newest.pdf'))
+    releaseOld()
+    await new Promise(r => setTimeout(r, 0))
+    expect(fileNames(), 'the older answer must not land').not.toContain('stale.pdf')
+    expect(fileNames()).toContain('newest.pdf')
   })
 })
 

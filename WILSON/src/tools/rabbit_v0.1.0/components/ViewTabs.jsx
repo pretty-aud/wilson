@@ -15,10 +15,13 @@
 // Eleven equal peers is a Hick's-law problem on its own, so the tabs
 // are GROUPED by the kit's hairline separator — never reduced (C1: no
 // tab removed, none merged, none moved behind a disclosure, and the
-// order is the order they always had):
+// order is the order they always had). Post-overhaul S4a (2026-09-30,
+// Audrey's E8) adds a TWELFTH, deliberately: Files, in the first group
+// right after Summary — C1 is lifted for these sessions ("add things where
+// they make sense"), and every one of the eleven keeps its place:
 //
-//   Intake · Summary · Team │ Tasks · Timeline · Budget │ Assets · Scenes · Bins · Levels · Experiences
-//   (the project)             (the plan)                  (the material)
+//   Intake · Summary · Files · Team │ Tasks · Timeline · Budget │ Assets · Scenes · Bins · Levels · Experiences
+//   (the project)                     (the plan)                  (the material)
 //
 // A group whose every tab is hidden (Budget for a non-manager; Scenes,
 // Bins, Levels, Experiences by project toggle) draws no separator of
@@ -26,7 +29,7 @@
 
 import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
-  Film, Gamepad2, Clapperboard,
+  Film, Gamepad2, Clapperboard, FolderOpen,
 } from 'lucide-react'
 import { Tabs } from '../../../ui/Tabs'
 import '../rabbitShell.css'
@@ -34,6 +37,9 @@ import '../rabbitShell.css'
 export const RABBIT_VIEWS = [
   { id: 'intake',      label: 'Intake',      Icon: Sparkles,     group: 'project'  },
   { id: 'summary',     label: 'Summary',     Icon: FileText,     group: 'project'  },
+  // Post-overhaul S4a (E8): the project's files — ProjectFilesExplorer, the
+  // Resources → Files page's component, with the open project and no picker.
+  { id: 'files',       label: 'Files',       Icon: FolderOpen,   group: 'project'  },
   { id: 'team',        label: 'Team',        Icon: Users,        group: 'project'  },
   { id: 'tasks',       label: 'Tasks',       Icon: ListChecks,   group: 'plan'     },
   { id: 'timeline',    label: 'Timeline',    Icon: GanttChart,   group: 'plan'     },

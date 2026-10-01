@@ -105,9 +105,10 @@
 // lane B converges FileManager, BinFileTable and ProjectFilesTable on them.
 // =============================================================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import {
   Banner, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
   Tabs, Td, Th, Toolbar,
@@ -159,18 +160,58 @@ function safeList(fn, id) {
   try { return Promise.resolve(fn(id)).then(v => (Array.isArray(v) ? v : [])).catch(() => []) } catch { return Promise.resolve([]) }
 }
 
-export default function ProjectFilesExplorer() {
+// ── Post-overhaul S4a: one explorer, two hosts (Audrey's E8) ──────────────────
+//
+// RESOURCES → FILES passes nothing: the picker, the adapter reads and Refresh,
+// exactly as before (any project, without opening it). R.A.B.B.I.T.'s Files
+// tab passes the open project and `showPicker={false}` — the picker is hidden
+// there because the tab IS the open project.
+//
+// The adapter reads stay (localMediaWiring.test.js pins them). Two things lie
+// on top of what they return, in this order:
+//   1. when the project shown is the OPEN one, the provider's rows for it,
+//      by id — the freshest copy the client has (realtime, another surface's
+//      edit, an optimistic write in flight). A refetch issued while a save is
+//      in flight can answer with the row as it was; this is what keeps that
+//      answer from un-doing the save on screen.
+//   2. this page's own edits still in flight, by id (the Resources host can
+//      edit a project that is not open, which has no provider rows at all).
+// And when the open project's files, folders or managed files change, the
+// page reads them again — an upload from the toolbar, a teammate's rename.
+function mergeById(base, fresh) {
+  if (!Array.isArray(fresh) || fresh.length === 0) return base
+  const byId = new Map(fresh.filter(Boolean).map(r => [r.id, r]))
+  const seen = new Set()
+  const out = base.map((r) => {
+    const f = byId.get(r.id)
+    if (!f) return r
+    seen.add(r.id)
+    return { ...r, ...f }
+  })
+  for (const f of byId.values()) if (!seen.has(f.id)) out.push(f)
+  return out
+}
+
+function applyOverlay(rows, overlay) {
+  if (!overlay || overlay.size === 0) return rows
+  return rows.map(r => (overlay.has(r.id) ? { ...r, ...overlay.get(r.id) } : r))
+}
+
+export default function ProjectFilesExplorer({ projectId: hostProjectId = null, showPicker = true } = {}) {
   const ctx = useRabbit()
   const projects = useMemo(
     () => Object.values(ctx?.projectsIndex || {}).sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' })),
     [ctx?.projectsIndex],
   )
-  const [projectId, setProjectId] = useState('')
+  const [pickedId, setPickedId] = useState('')
   const activeProjectId = ctx?.activeProjectId
   useEffect(() => {
     // Land on the project that is already open, once, so the page is never blank on arrival.
-    if (!projectId && activeProjectId) setProjectId(activeProjectId)
-  }, [activeProjectId, projectId])
+    if (showPicker && !pickedId && activeProjectId) setPickedId(activeProjectId)
+  }, [showPicker, activeProjectId, pickedId])
+  // The R.A.B.B.I.T. host shows the open project and nothing else.
+  const projectId = showPicker ? pickedId : (hostProjectId || '')
+  const isOpenProject = !!projectId && projectId === activeProjectId
 
   const [view, setView] = useState('columns')
   const [query, setQuery] = useState('')
@@ -179,35 +220,74 @@ export default function ProjectFilesExplorer() {
   const [reloads, setReloads] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [tree, setTree] = useState(null)
+  // What the adapter returned, and for which project.
+  const [loaded, setLoaded] = useState(null) // { projectId, folders, files, managedFiles }
+  // This page's edits still in flight, by row id (files and managed files
+  // share no ids: both are UUIDs from different stores).
+  const [overlay, setOverlay] = useState(() => new Map())
   const [selected, setSelected] = useState([])
-  const [selectedFile, setSelectedFile] = useState(null)
+  const [selectedFileId, setSelectedFileId] = useState(null)
   const getAdapter = ctx?.getAdapter
 
+  // The open project's rows change → read them again. Identity, not content:
+  // the provider replaces the array on every write it makes.
+  const watchedFiles = isOpenProject ? ctx?.files : null
+  const watchedFolders = isOpenProject ? ctx?.folders : null
+  const watchedManaged = isOpenProject ? ctx?.managedFiles : null
+  const seqRef = useRef(0)
+
   useEffect(() => {
-    if (!projectId) { setTree(null); setError(''); return }
+    if (!projectId) { setLoaded(null); setError(''); return }
     const adapter = getAdapter?.()
     if (!adapter) return
     let cancelled = false
-    setLoading(true)
+    const seq = ++seqRef.current
+    // A refetch of the project already on screen keeps it on screen; only a
+    // first load (or another project) draws the skeleton.
+    const fresh = loaded?.projectId !== projectId
+    if (fresh) setLoading(true)
     setError('')
     Promise.all([
       safeList(adapter.listFolders?.bind(adapter), projectId),
       safeList(adapter.listFiles?.bind(adapter), projectId),
       safeList(adapter.listManagedFiles?.bind(adapter), projectId),
     ]).then(([folders, files, managedFiles]) => {
-      if (cancelled) return
-      setTree(buildFileTree({ folders, files, managedFiles }))
-      setSelected([])
-      setSelectedFile(null)
+      // Out-of-order answers are dropped: only the newest read may land.
+      if (cancelled || seq !== seqRef.current) return
+      setLoaded({ projectId, folders, files, managedFiles })
       setLoading(false)
     }).catch((err) => {
-      if (cancelled) return
+      if (cancelled || seq !== seqRef.current) return
       setError(err?.message || 'the project files could not be loaded')
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [projectId, getAdapter, reloads])
+    // `loaded` is read for its project id only; adding it would refetch on
+    // every answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, getAdapter, reloads, watchedFiles, watchedFolders, watchedManaged])
+
+  // Another project: nothing selected, no edit carried over.
+  useEffect(() => {
+    setSelected([])
+    setSelectedFileId(null)
+    setOverlay(new Map())
+  }, [projectId])
+
+  const tree = useMemo(() => {
+    if (!loaded || loaded.projectId !== projectId) return null
+    let { folders, files, managedFiles } = loaded
+    if (isOpenProject) {
+      folders = mergeById(folders, ctx?.folders)
+      files = mergeById(files, ctx?.files)
+      managedFiles = mergeById(managedFiles, ctx?.managedFiles)
+    }
+    files = applyOverlay(files, overlay)
+    managedFiles = applyOverlay(managedFiles, overlay)
+    return buildFileTree({ folders, files, managedFiles })
+  }, [loaded, projectId, isOpenProject, ctx?.folders, ctx?.files, ctx?.managedFiles, overlay])
+
+  const selectedFile = (selectedFileId && tree?.byId.get(selectedFileId)) || null
 
   const flat = useMemo(() => (tree ? flattenTree(tree.root) : []), [tree])
   const tableRows = useMemo(() => sortRows(filterFlat(flat, query), sortKey, sortDir), [flat, query, sortKey, sortDir])
@@ -220,17 +300,34 @@ export default function ProjectFilesExplorer() {
 
   const openFolder = useCallback((depth, id) => {
     setSelected(prev => [...prev.slice(0, depth), id])
-    setSelectedFile(null)
+    setSelectedFileId(null)
   }, [])
   const pickFile = useCallback((depth, node) => {
     setSelected(prev => prev.slice(0, depth))
-    setSelectedFile(node)
+    setSelectedFileId(node.id)
   }, [])
+
+  // "Show in Files" from another tab (state/rabbitNavigate.js): the target is
+  // wired here, on the R.A.B.B.I.T. host; nothing calls it yet. A payload for
+  // a file the tree has not loaded yet is declined and stays pending.
+  const showFileTarget = useCallback((p) => {
+    if (!p?.fileId) return true
+    if (!tree) return false
+    const id = tree.byId.has(`f:${p.fileId}`) ? `f:${p.fileId}` : (tree.byId.has(`m:${p.fileId}`) ? `m:${p.fileId}` : null)
+    if (!id) return true
+    setSelectedFileId(id)
+    return true
+  }, [tree])
+  // The Resources host declines every request, so one that arrives while it
+  // happens to be mounted stays pending for the tab (and is not discarded
+  // for naming a project other than the one picked here).
+  const declineNavigate = useCallback(() => false, [])
+  useNavigateTarget('files', showPicker ? declineNavigate : showFileTarget, showPicker ? null : (projectId || null))
 
   const project = projects.find(p => p.id === projectId) || null
 
   return (
-    <div className="rs-page" data-files-explorer data-view={view}>
+    <div className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
       {/* One 44px toolbar, every child 28px, left and right slots. It replaced
           a wrapping flex row holding an 18px heading, two 38px fields, three
           27px buttons and a 12px string, in which nothing sat on a baseline
@@ -269,17 +366,20 @@ export default function ProjectFilesExplorer() {
           </>
         )}
       >
-        <Select
-          size="sm"
-          value={projectId}
-          onChange={(v) => setProjectId(v ?? '')}
-          placeholder="Choose a project…"
-          options={projects.map(p => ({
-            value: p.id,
-            label: `${p.title || 'Untitled'}${p.is_private ? ' · private' : ''}`,
-          }))}
-          aria-label="Project"
-        />
+        {/* E8: hidden on R.A.B.B.I.T.'s Files tab, which IS the open project. */}
+        {showPicker && (
+          <Select
+            size="sm"
+            value={projectId}
+            onChange={(v) => setPickedId(v ?? '')}
+            placeholder="Choose a project…"
+            options={projects.map(p => ({
+              value: p.id,
+              label: `${p.title || 'Untitled'}${p.is_private ? ' · private' : ''}`,
+            }))}
+            aria-label="Project"
+          />
+        )}
         <Tabs
           label="View"
           panelId={VIEW_PANEL_ID}
@@ -329,7 +429,7 @@ export default function ProjectFilesExplorer() {
             <div className="fx-split">
               <div className="fx-main">
                 {view === 'table'
-                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} />
+                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFileId(node.id)} selectedId={selectedFile?.id || null} />
                   : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
               </div>
               <DetailsPanel node={selectedFile} />

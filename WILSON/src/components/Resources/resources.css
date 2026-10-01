@@ -73,6 +73,11 @@
      the TOOL bar geometry (Q8b) because it is a working page, and capping it
      to a centred column would hand back the width that ruling just bought. */
   .rs-page[data-files-explorer] { max-width: none; }
+  /* Post-overhaul S4a (E8): the same explorer is R.A.B.B.I.T.'s Files tab.
+     There it sits in the shell's view body (a block box of full height), not
+     in a flex column, so it takes the height itself — or the table would grow
+     to its content and the shell would clip it instead of the table scrolling. */
+  .rs-page[data-host="rabbit"] { height: 100%; }
   .rs-body {
     display: flex;
     flex-direction: column;
