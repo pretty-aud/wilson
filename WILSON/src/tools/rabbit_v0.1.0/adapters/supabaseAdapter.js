@@ -81,6 +81,10 @@ import {
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
 import { presignStorage } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
+import {
+  LEGAL_SEGMENT, LEGAL_UNAVAILABLE, LEGAL_GATE_REFUSAL,
+  LEGAL_NOT_CORE_REASON, legalRefusalSentence,
+} from '../fileTags';
 
 // ───────────────────────────────────────────────────────────────
 // Module-level singleton. One cached client reference per app session;
@@ -124,6 +128,7 @@ export function resetSupabaseAdapter() {
   // resetShotListSchemaState(). localMediaWiring.test.js pins
   // `fileMetaKnown = null;` as this function's LAST line, right after
   // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
+  legalFilesKnown = false;
   fileTagsKnown = null;
   privateColumnKnown = null;
   fileMetaKnown = null;
@@ -262,6 +267,35 @@ async function fileTagsAvailable(client) {
   // Any other failure (network, RLS) says nothing about the column: answer
   // "not now" and probe again next time.
   return false;
+}
+// Post-overhaul S4b: Legal files need migration 0088 — LEGAL in the one list
+// of locked folders (public.rabbit_money_segment) and the legal-tag CHECK. The
+// probe asks the database the question that matters, by calling the list
+// itself: IS the LEGAL folder locked here? Before 0088 it is an ordinary
+// folder, and a "Legal" upload would land where every project member can read
+// it. So only a positive `true` counts; false, an error or no answer means
+// "not offered", and only `true` is remembered (a database migrated
+// mid-session is picked up on the next ask).
+let legalFilesKnown = false;
+async function legalFilesAvailable(client) {
+  if (legalFilesKnown) return true;
+  try {
+    const { data, error } = await client.rpc('rabbit_money_segment', { seg: LEGAL_SEGMENT });
+    if (!error && data === true) legalFilesKnown = true;
+  } catch { /* not now */ }
+  return legalFilesKnown;
+}
+// The money gate itself (0037's can_access_project_money, executable by
+// authenticated), asked before a Legal upload moves a byte: the database
+// would refuse the object and the row anyway, but only after the transfer.
+// Fails CLOSED — an error is a no.
+async function canAccessProjectMoney(client, projectId) {
+  try {
+    const { data, error } = await client.rpc('can_access_project_money', { p_project: projectId });
+    return !error && data === true;
+  } catch {
+    return false;
+  }
 }
 async function projectIsPrivate(client, projectId) {
   if (!(await privateProjectsAvailable(client))) return false;
@@ -1758,9 +1792,35 @@ export function supabaseAdapter() {
       // file an ordinary attachment inside the manager-only namespace, where
       // the person who uploaded it could no longer read it back. Pinned by
       // uploadScope.test.js.
+      //
+      // ── Post-overhaul S4b (migration 0088): `scope.legal` ────────────────
+      // Audrey, 2026-10-01: a Legal file is seen by "same as money files"
+      // (workspace admins and the project's managers), and Legal is chosen
+      // when the file is ADDED — "its just the folder that is locked". So a
+      // Legal upload is the invoice shape with its own locked folder: the
+      // LEGAL third segment (the blob gate, through rabbit_money_segment), the
+      // legal tag written with it (the row gate reads the folder; the CHECK
+      // ties the two), and the Supabase pin in the same three branches that
+      // pin money. Both refusals below come BEFORE any byte moves: a database
+      // without 0088 would file it in an ordinary folder every member can
+      // read, and someone outside the money gate would be refused by the
+      // storage policy only after the transfer.
+      const legal = !!scope.legal;
+      if (legal && scope.financial) {
+        throw new Error('A file is added as Legal or as an invoice or receipt, not both.');
+      }
+      // Never core either (files_legal_not_core_chk) — refused here, before
+      // the bytes move, not by the INSERT after them (review round 1, R1-BEH-07).
+      if (legal && scope.isCoreDefiner) throw new Error(LEGAL_NOT_CORE_REASON);
+      if (legal) {
+        if (!(await legalFilesAvailable(client))) throw new Error(LEGAL_UNAVAILABLE);
+        if (!(await canAccessProjectMoney(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
+      }
+      // Money-gated: under a locked folder, and never out of Supabase.
+      const moneyGated = !!scope.financial || legal;
       const container = uploadContainerFor(scope, projectId);
 
-      const entity   = scope.financial ? 'INVOICES' : container.seg;
+      const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
       const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
       const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
       const storagePath = `projects/${projectId}/${entity}/${entityId}/${Date.now()}-${safeName}`;
@@ -1772,8 +1832,11 @@ export function supabaseAdapter() {
       // must not refuse an upload. The file is still fully addressable by its
       // storage_path and its entity link, and the next ensureEntityFolder
       // reconciles the tree.
-      let folderId = scope.folderId || null;
-      if (!folderId && container.key) {
+      // A Legal file is not filed in an entity's folder, passed or looked up:
+      // the explorer shows it in the LEGAL folder (fileTree.js), whatever it
+      // is about.
+      let folderId = legal ? null : (scope.folderId || null);
+      if (!folderId && container.key && !legal) {
         try {
           const { data } = await client
             .from('folders').select('id')
@@ -1812,8 +1875,12 @@ export function supabaseAdapter() {
       // Supabase (0050's files_money_provider_chk agrees). Off the desktop
       // the provider's put() refuses with a sentence — a private project's
       // media can only be added on the computer that holds it.
+      // S4b: a Legal file is money-gated exactly here too (I4): never on the
+      // private project's local disk, never refused on a NAS workspace, and
+      // pinned to Supabase on an s3 one — files_money_provider_chk refuses
+      // any other provider for a LEGAL key in the database as well.
       let storageProvider;
-      if (!scope.financial && await projectIsPrivate(client, projectId)) {
+      if (!moneyGated && await projectIsPrivate(client, projectId)) {
         storageProvider = FILE_PROVIDERS.LOCAL_SERVER;
       } else {
         const storageChoice = await getWorkspaceStorageCached();
@@ -1821,9 +1888,9 @@ export function supabaseAdapter() {
         // The one workspace provider with no cloud-side implementation
         // (S36's review): 'network' bodies live on the customer's own
         // filesystem, which only the desktop's Local Server path can reach.
-        // Refused with a sentence, never routed — and financial files are
+        // Refused with a sentence, never routed — and money-gated files are
         // exempt because their body never leaves Supabase anyway.
-        if (activeProvider === WORKSPACE_PROVIDERS.NETWORK && !scope.financial) {
+        if (activeProvider === WORKSPACE_PROVIDERS.NETWORK && !moneyGated) {
           throw new Error(
             'this workspace stores media on its own server or NAS — add files from ' +
             'the desktop app in Local Server mode; the cloud backend cannot write ' +
@@ -1831,7 +1898,7 @@ export function supabaseAdapter() {
           );
         }
         storageProvider = fileProviderFor(activeProvider, {
-          financial: !!scope.financial,
+          financial: moneyGated,
         });
       }
       try {
@@ -1962,6 +2029,10 @@ export function supabaseAdapter() {
         // readable.
         is_financial:     !!scope.financial,
       };
+      // S4b (0088): the legal tag goes in with the LEGAL folder, in the same
+      // INSERT — files_legal_folder_chk refuses either without the other.
+      // Never sent otherwise: a database without 0085 has no tags column.
+      if (legal) row.tags = ['legal'];
       // Demo 2026-09-11: the file's own facts — its source's modified time
       // and, for audio/video, its duration (storage/mediaMetadata.js,
       // bounded and best-effort) — where 0081 has landed. Read from the
@@ -2158,13 +2229,25 @@ export function supabaseAdapter() {
           throw new Error('[supabase] Tags are not on this database yet (migration 0085). Nothing was changed.');
         }
       }
-      return unwrap(await client.from('files').update(row).eq('id', id).select().single());
+      const res = await client.from('files').update(row).eq('id', id).select().single();
+      // S4b (0088): the two Legal CHECKs answer in Postgres's words; say what
+      // they mean instead (a caller from another page may not have the row).
+      const legalWhy = legalRefusalSentence(res.error?.message, patch);
+      if (legalWhy) throw new Error(`[supabase] ${legalWhy}`);
+      return unwrap(res);
     },
 
     // S4a: whether files.tags exists here (0085), for the file window.
     async supportsFileTags() {
       const client = await requireClient();
       return fileTagsAvailable(client);
+    },
+
+    // S4b: whether this database locks the LEGAL folder (0088) — Add files
+    // offers "Legal" only when it does. `false` on any doubt.
+    async supportsLegalFiles() {
+      const client = await requireClient();
+      return legalFilesAvailable(client);
     },
 
     // S4a (E13): opening a preview is a read, and a read leaves a record —

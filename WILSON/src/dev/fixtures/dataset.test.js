@@ -346,8 +346,8 @@ describe('folders and files', () => {
     expect(FOLDERS.some((f) => f.path === 'INVOICES')).toBe(true)
   })
 
-  it('thirty-two files, each in a real folder, with a thumbnail for every picture and video', () => {
-    expect(FILES.length).toBe(32)
+  it('thirty-three files (one of them Legal, S4b), each in a real folder, with a thumbnail for every picture and video', () => {
+    expect(FILES.length).toBe(33)
     for (const f of FILES) {
       expect(ids(FOLDERS).has(f.folder_id), f.name).toBe(true)
       if (f.asset_id) expect(ids(ASSETS).has(f.asset_id)).toBe(true)
@@ -374,6 +374,18 @@ describe('folders and files', () => {
     expect(FILES.some((f) => f.tags.length > 1)).toBe(true)
     // The invoices show Finance through is_financial alone.
     for (const f of FILES.filter((x) => x.is_financial)) expect(f.tags).toEqual([])
+  })
+
+  // Post-overhaul S4b (0088): exactly one Legal file — the tag WITH the LEGAL
+  // folder, never core, never is_financial — and no ordinary file carries the
+  // tag (0088 strips such a label; files_legal_folder_chk refuses it).
+  it('one Legal file, shaped as 0088 requires, and no legal tag anywhere else', () => {
+    const legal = FILES.filter((f) => f.tags.includes('legal'))
+    expect(legal.map((f) => f.name)).toEqual(['Location_release_Saltmarsh_Light.pdf'])
+    expect(legal[0].storage_path).toMatch(/\/LEGAL\/[^/]+$/)
+    expect(legal[0].is_core_definer).toBe(false)
+    expect(legal[0].is_financial).toBe(false)
+    expect(FILES.filter((f) => /\/LEGAL\//.test(f.storage_path)).length).toBe(1)
   })
 })
 

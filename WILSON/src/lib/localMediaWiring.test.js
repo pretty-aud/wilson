@@ -68,11 +68,15 @@ describe('supabaseAdapter — the private branch, beside the money pin', () => {
   })
   it('uploadFile routes a non-financial upload on a private project to LOCAL_SERVER, and everything else exactly as before', () => {
     const up = adapter.slice(adapter.indexOf('async uploadFile('), adapter.indexOf('async listFiles('))
-    expect(up).toContain('if (!scope.financial && await projectIsPrivate(client, projectId)) {')
+    // S4b (0088): the money branch is "money-gated" now — an invoice or
+    // receipt (scope.financial) OR a Legal file (scope.legal). Both stay in
+    // Supabase; only an ordinary file goes to this computer.
+    expect(up).toContain('const moneyGated = !!scope.financial || legal;')
+    expect(up).toContain('if (!moneyGated && await projectIsPrivate(client, projectId)) {')
     expect(up).toContain('storageProvider = FILE_PROVIDERS.LOCAL_SERVER;')
     // the S36 refusal and the S37 workspace read survive, inside the else
     expect(up).toContain('const storageChoice = await getWorkspaceStorageCached();')
-    expect(up).toContain('activeProvider === WORKSPACE_PROVIDERS.NETWORK && !scope.financial')
+    expect(up).toContain('activeProvider === WORKSPACE_PROVIDERS.NETWORK && !moneyGated')
     expect(up).toContain('storageProvider = fileProviderFor(activeProvider, {')
     // one decision, used twice: the thumbnail follows the same variable
     expect(up).toContain('await putThumbnailTo(storageProvider, key, thumb, { client });')
@@ -145,9 +149,14 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     const at = mainCjs.indexOf("require('./projectFileStream.cjs')")
     expect(at).toBeGreaterThan(mainCjs.indexOf("expressApp.use('/api/rabbit', localDemoMissingGuard)"))
     expect(at).toBeLessThan(mainCjs.indexOf("expressApp.get('/{*splat}'"))
-    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,')
-    // the base64 POST stays for anything that still calls it
-    expect(mainCjs).toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    // S4b (0088): and the LEGAL resolver beside INVOICES's.
+    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
+    // the base64 POST stays for anything that still calls it — beside the
+    // stream since S4b's review round 1, mounted by the same call
+    expect(mainCjs).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+    const streamCjs = read('../../electron/projectFileStream.cjs')
+    expect(streamCjs).toContain("const POST_ROUTE = '/api/rabbit/projects/:projectId/files';")
+    expect(streamCjs).toContain('expressApp.post(POST_ROUTE, (req, res) => {')
   })
 })
 

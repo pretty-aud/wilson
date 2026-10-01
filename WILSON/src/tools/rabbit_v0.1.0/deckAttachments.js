@@ -24,6 +24,8 @@
 //     (review round 1). See the note on isDeckAttachmentRow.
 // =============================================================================
 
+import { isLegalFile } from './fileTags';
+
 /**
  * The columns that say a file is filed against a PRODUCTION entity rather than
  * against the project itself.
@@ -115,9 +117,15 @@ function isProjectLevelRow(row) {
  * the Resources list filters it out a layer up for the same reason. Nor does a
  * trashed row — cloud deletes are soft (0014), so the row and its blob both
  * survive, and without this check a deleted brief would still shape the deck.
+ *
+ * 🚨 NOR DOES A LEGAL FILE (post-overhaul S4b, 0088). A manager's D.O.G. sees
+ * Legal rows (RLS admits them), and a deck is shared with the whole project:
+ * a contract that shaped one would reach every member through the slides.
+ * isLegalFile is the one test on both backends (the LEGAL folder of a cloud
+ * key; on the Local Server, the tag the upload wrote with the LEGAL folder).
  */
 export function isDeckAttachmentRow(row) {
-  if (!row || row.deleted_at || row.is_financial) return false;
+  if (!row || row.deleted_at || row.is_financial || isLegalFile(row)) return false;
   if (row.document_kind) return true;
   // 🚨 THE SAME TEST THE WRITER USES, name included. Round 2's fix made
   // `documentKindFor` return NULL for `plate.mov` with an empty mime type

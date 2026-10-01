@@ -49,8 +49,10 @@ const SUPA        = read('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter.js'
 const LOCAL       = read('../../tools/rabbit_v0.1.0/adapters/localServerAdapter.js')
 const SERVER      = read('../../../electron/main.cjs')
 // Post-overhaul merge: the local adapter streams every upload down THIS route
-// (demo 2026-09-11); main.cjs's base64 POST stays mounted for other callers.
+// (demo 2026-09-11); the base64 POST, kept for other callers, sits beside it
+// since S4b's review round 1 (mounted by the same call in main.cjs).
 const STREAM      = read('../../../electron/projectFileStream.cjs')
+const TAGS_CJS    = read('../../../electron/fileTags.cjs')
 
 // ── 1. The call site: a receipt is uploaded as money ─────────────────────────
 
@@ -102,7 +104,9 @@ describe('scope.financial closes both gates in the cloud writer', () => {
     // the four base rabbit_files_* policies negate it (0042 — NOT
     // rabbit_files_invoices_*, which 0042:212-214 dropped). This line is the
     // only thing that puts a file on the money side of that test.
-    expect(SUPA).toMatch(/const entity\s*=\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
+    // S4b (0088): Legal's own locked folder comes first in the same line; a
+    // receipt still takes INVOICES.
+    expect(SUPA).toMatch(/const entity\s*=\s*legal\s*\?\s*LEGAL_SEGMENT\s*:\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
   })
 
   it('writes files.is_financial — the row gate', () => {
@@ -114,7 +118,10 @@ describe('scope.financial closes both gates in the cloud writer', () => {
     // and pinned TWO. Deleting the provider pin turned no probe here red (it
     // was caught only over in storageRegistry.test.js), so the file's own
     // claim outran its own probes. This is the missing third.
-    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*!!scope\.financial/)
+    // S4b (0088): the pin reads `moneyGated`, which is scope.financial OR a
+    // Legal upload — a receipt still pins exactly as before.
+    expect(SUPA).toMatch(/const moneyGated\s*=\s*!!scope\.financial\s*\|\|\s*legal;/)
+    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*moneyGated/)
   })
 
   it('keeps the two in one function, so they cannot drift apart', () => {
@@ -147,23 +154,26 @@ describe('scope.financial reaches the desktop writer too — parity', () => {
     expect(LOCAL).not.toMatch(/JSON\.stringify\(\{\s*(phaseId|assetId|taskId|financial)/)
   })
 
+  // S4b review round 1 (R1-BEH-05): both upload transports — the base64 POST
+  // and the streamed PUT the adapter calls — live in projectFileStream.cjs and
+  // read the scope through ONE check (fileTags.cjs checkLegalUpload), so the
+  // flag is pinned there; the routes themselves are served for real in
+  // projectFileStream.test.js (an invoice to INVOICES, by both).
   it('the Express server reads it and mirrors is_financial', () => {
-    expect(SERVER).toMatch(/const isFinancial\s*=\s*!!scope\.financial/)
-    expect(SERVER).toMatch(/is_financial:\s*isFinancial/)
-    // …and so does the streaming route, which is the one the adapter calls.
-    expect(STREAM).toMatch(/const isFinancial\s*=\s*!!scope\.financial/)
-    expect(STREAM).toMatch(/is_financial:\s*isFinancial/)
+    expect(TAGS_CJS).toMatch(/const isFinancial\s*=\s*!!scope\?\.financial/)
+    expect((STREAM.match(/is_financial:\s*isFinancial/g) || []).length).toBe(2)
+    expect((STREAM.match(/const \{ isLegal, isFinancial \} = placement;/g) || []).length).toBe(2)
+    // main.cjs mounts both, and no longer registers the POST itself.
+    expect(SERVER).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
   })
 
   it('and routes the body to the invoices directory, not the shared one', () => {
     // The desktop's equivalent of the path segment: a different directory on
-    // disk, chosen by the same flag.
-    expect(SERVER).toMatch(
-      /isFinancial\s*\n?\s*\?\s*resolveProjectInvoicesDir/,
-    )
+    // disk, chosen by the same flag — one choice, used by both transports.
     expect(STREAM).toMatch(
       /isFinancial\s*\n?\s*\?\s*resolveProjectInvoicesDir/,
     )
+    expect((STREAM.match(/uploadDirFor\(bundle, req\.params\.projectId, placement\)/g) || []).length).toBe(2)
   })
 })
 
@@ -271,6 +281,7 @@ describe('a money-gated receipt cannot become a deck attachment', () => {
     // moment they carry the flag — so this is the test that says the two
     // bundles agree, rather than a new rule.
     const CONTRACT = read('../../tools/rabbit_v0.1.0/deckAttachments.js')
-    expect(CONTRACT).toMatch(/row\.is_financial\)\s*return false/)
+    // S4b (0088) adds a Legal file to the same refusal, in the same line.
+    expect(CONTRACT).toMatch(/row\.is_financial\s*\|\|\s*isLegalFile\(row\)\)\s*return false/)
   })
 })

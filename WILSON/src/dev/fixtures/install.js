@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, fixtureVariant } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, fixtureVariant } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
@@ -19,16 +19,20 @@ import { BUILTIN } from '../../lib/aiModels'
 
 // `variant: 'game'` (the page loaded with `?fixtures=game`) switches Salt
 // Hours' levels and experiences on — B4's walk screens for those two views.
+// `variant: 'member'` (S4b) seats the reviewer as a plain project member, so
+// the money gate's absences can be seen (store.applyMemberVariant).
 export function buildDevFixtures({ variant = null } = {}) {
   const store = createStore()
   if (variant === 'game') applyGameVariant(store)
-  const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID }
+  if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
+  const appRole = variant === 'member' ? 'user' : PERMISSIONS.role
+  const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
   let rabbitAdapter = null
 
   return {
     label: PROJECT.title,
     store,
-    permissions: { ...PERMISSIONS },
+    permissions: { ...PERMISSIONS, role: appRole },
     profile: { ...PROFILE },
     bins: true,
 

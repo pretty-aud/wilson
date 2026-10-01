@@ -19,9 +19,20 @@
 // =============================================================================
 
 import { fileTypeLabel, mediaKind } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
-import { tagsMatch } from '../../tools/rabbit_v0.1.0/fileTags'
+import { tagsMatch, isLegalFile, LEGAL_SEGMENT } from '../../tools/rabbit_v0.1.0/fileTags'
 
 export const ROOT_ID = '__root__'
+
+/**
+ * Post-overhaul S4b (0088): Legal files sit in a LEGAL folder under the
+ * project. There is no folder ROW for it — 0041's CHECK has no category for
+ * it, and a row made when the first Legal file arrived would tell every
+ * member that one had — so the tree draws this node from the Legal rows it
+ * was GIVEN. A member is never given one (RLS on the cloud, the fixtures'
+ * money gate), so a member never sees the folder at all: nothing about it,
+ * not even that it exists, depends on what they cannot see.
+ */
+export const LEGAL_FOLDER_ID = '__legal__'
 const ENTITY_FKS = ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']
 
 function lastSegment(p) {
@@ -98,8 +109,26 @@ export function buildFileTree({ folders = [], files = [], managedFiles = [] } = 
     byId.set(node.id, node)
   }
   let fileCount = 0
+  // S4b: the LEGAL node, made only when a Legal row is here to sit in it.
+  let legalNode = null
+  const legalFolder = () => {
+    if (legalNode) return legalNode
+    legalNode = {
+      id: LEGAL_FOLDER_ID, kind: 'folder', name: LEGAL_SEGMENT, path: norm(LEGAL_SEGMENT),
+      parentId: root.id, folderKind: 'category', isRoot: false, isLegal: true, row: null, children: [],
+      parent: root,
+    }
+    root.children.push(legalNode)
+    byId.set(legalNode.id, legalNode)
+    return legalNode
+  }
   for (const row of files || []) {
     if (!row || row.deleted_at) continue
+    if (isLegalFile(row)) {
+      place({ id: `f:${row.id}`, kind: 'file', name: row.name || row.storage_path || 'file', row, meta: fileMeta(row, 'files'), children: [] }, legalFolder())
+      fileCount += 1
+      continue
+    }
     let parent = row.folder_id ? byId.get(String(row.folder_id)) : null
     if (!parent) {
       for (const fk of ENTITY_FKS) {
@@ -123,7 +152,7 @@ export function buildFileTree({ folders = [], files = [], managedFiles = [] } = 
   }
   const sortRec = (n) => { n.children.sort(byName); n.children.forEach(sortRec) }
   sortRec(root)
-  return { root, byId, folderCount: folderNodes.filter(n => n !== root).length, fileCount }
+  return { root, byId, folderCount: folderNodes.filter(n => n !== root).length + (legalNode ? 1 : 0), fileCount }
 }
 
 /** Every node under the root, depth-first, with its depth — the table view. */

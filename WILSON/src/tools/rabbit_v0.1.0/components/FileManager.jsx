@@ -37,6 +37,7 @@ import { useRabbit } from '../state/RabbitProvider'
 import FileThumbnail, { extensionOf } from './FileThumbnail'
 import VideoPreview from './VideoPreview'
 import { fileSlugify } from '../entityNaming'
+import { isLegalFile } from '../fileTags'
 // Session 40 (§5f). Provider-keyed, because 50 MB is `rabbit-files`'s own limit
 // and applies to PETAL workspaces only — an s3 workspace takes ~5 GB from the
 // same browser, so a blanket "too large, use the desktop app" is a false
@@ -204,7 +205,8 @@ export default function FileManager({
       // Invoices are manager-only and have their own surface. RLS already
       // hides them from anyone who cannot see them, but a manager WOULD get
       // them here, filed under whatever entity the budget line belonged to.
-      if (f.is_financial) return false
+      // S4b (0088): a Legal file the same — its surface is the Files tab.
+      if (f.is_financial || isLegalFile(f)) return false
       if (sceneId) return f.scene_id === sceneId
       if (shotId) return f.shot_id === shotId
       return f.asset_id === assetId

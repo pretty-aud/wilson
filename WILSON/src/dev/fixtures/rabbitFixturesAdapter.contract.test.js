@@ -115,9 +115,64 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     for (const [tags, says] of refusals) {
       await expect(fx.updateFile(first.id, { tags }), JSON.stringify(tags)).rejects.toThrow(says)
     }
-    // CONTROL: the nine are accepted, and so is none.
-    await expect(fx.updateFile(first.id, { tags: ['shots', 'legal'] })).resolves.toMatchObject({ tags: ['shots', 'legal'] })
+    // CONTROL: the tags a file can be given after it is added are accepted,
+    // and so is none. (Legal is not one of them since 0088: next test.)
+    await expect(fx.updateFile(first.id, { tags: ['shots', 'reference'] })).resolves.toMatchObject({ tags: ['shots', 'reference'] })
     await expect(fx.updateFile(first.id, { tags: [] })).resolves.toMatchObject({ tags: [] })
+  })
+
+  it('the fake cloud refuses what 0088\'s Legal CHECKs refuse, in the cloud adapter\'s words (S4b; review round 1, R1-BEH-08)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const files = await fx.listFiles(PROJECT_ID)
+    const plain = files.find((f) => !f.is_financial && !f.tags.includes('legal'))
+    const legal = files.find((f) => f.tags.includes('legal'))
+    expect(legal, 'the seeded Legal file').toBeTruthy()
+    // The refusal is the CHECK's (files_legal_folder_chk sorts before
+    // files_tags_known_chk, so a bad word beside it changes nothing), said as
+    // supabaseAdapter.updateFile says it: ADDING Legal is "chosen when a file
+    // is added"; REMOVING it is "added as Legal".
+    const atAdd = 'Legal is chosen when a file is added.'
+    const locked = 'Added as Legal. To change this, add the file again.'
+    await expect(fx.updateFile(plain.id, { tags: ['legal'] })).rejects.toThrow(atAdd)
+    await expect(fx.updateFile(plain.id, { tags: ['legal', 'notes'] })).rejects.toThrow(atAdd)
+    // Un-tagging the Legal file, or dropping it from a list of others.
+    await expect(fx.updateFile(legal.id, { tags: [] })).rejects.toThrow(locked)
+    await expect(fx.updateFile(legal.id, { tags: ['shots'] })).rejects.toThrow(locked)
+    // Core on a Legal file.
+    await expect(fx.updateFile(legal.id, { is_core_definer: true }))
+      .rejects.toThrow('A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.')
+    // CONTROLS: other tags beside legal, a note, and Core on an ordinary file.
+    await expect(fx.updateFile(legal.id, { tags: ['legal', 'production'] })).resolves.toMatchObject({ tags: ['legal', 'production'] })
+    await expect(fx.updateFile(legal.id, { description: 'countersigned' })).resolves.toMatchObject({ description: 'countersigned' })
+    await expect(fx.updateFile(plain.id, { is_core_definer: true })).resolves.toMatchObject({ is_core_definer: true })
+    expect(await fx.supportsLegalFiles()).toBe(true)
+  })
+
+  it('`?fixtures=member` reads as a plain member: no Legal file and no invoice, nor their events (S4b)', async () => {
+    const reviewer = buildDevFixtures().rabbitAdapter()
+    const all = await reviewer.listFiles(PROJECT_ID)
+    const legal = all.find((f) => f.tags.includes('legal'))
+    const invoice = all.find((f) => f.is_financial)
+    // CONTROL: the default reviewer (admin, project manager) is given both.
+    expect(legal).toBeTruthy()
+    expect(invoice).toBeTruthy()
+    const member = buildDevFixtures({ variant: 'member' })
+    expect(member.permissions.role).toBe('user')
+    // The Legal file's own history, so "none" below is a refusal, not an
+    // empty stream (CONTROL: the reviewer's adapter over the same event).
+    const event = { id: 'ev-legal', file_id: legal.id, project_id: PROJECT_ID, event: 'uploaded', actor_id: 'x', actor_name: 'Theo', detail: {}, created_at: '2026-09-20T10:00:00Z' }
+    member.store.fileEvents.push(event)
+    const fx = member.rabbitAdapter()
+    const seen = await fx.listFiles(PROJECT_ID)
+    expect(seen.find((f) => f.id === legal.id)).toBeUndefined()
+    expect(seen.find((f) => f.id === invoice.id)).toBeUndefined()
+    expect(seen.length).toBe(all.length - all.filter((f) => f.is_financial || f.tags.includes('legal')).length)
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.files.some((f) => f.tags.includes('legal') || f.is_financial)).toBe(false)
+    expect(await fx.listFileEvents(legal.id)).toEqual([])
+    const cleared = buildDevFixtures()
+    cleared.store.fileEvents.push(event)
+    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id)).toEqual(['ev-legal'])
   })
 
   it('"fixtures" is NOT a selectable mode — the adapter substitutes for the cloud slot', () => {

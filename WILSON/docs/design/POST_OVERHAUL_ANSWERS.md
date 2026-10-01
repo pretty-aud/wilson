@@ -92,3 +92,14 @@ e14 yes
 - e3: nine tags (Notes removed): Production, Creative, Legal, Finance, Reference, Assets, Code, Shots, Documentation.
 - e6: no FBX/3D viewer; the file shows an icon and Download.
 - E-note: Kind and Description must persist in the cloud, which is Track C's migration 0075 — another reason the track merge comes first.
+
+## 2026-10-01 — the Legal gate (E4a), in chat with the controller
+
+Asked: (1) who can see a file tagged Legal — the same people as money files (workspace admins and the project's managers), or wider as first written (plus project reviewers and workspace-level managers); (2) whether "Legal only when the file is added" is acceptable, since the protection is the file's storage folder, fixed at upload.
+
+Her answers, verbatim:
+
+1. same as money files for now.
+2. thats fine. yes that makes sense that its just the folder that is locked.
+
+Built by bundle S4b (`docs/sessions/briefs/po-s4b-legal-gate.md`).

@@ -2001,10 +2001,15 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   Audrey). The file and its history row are in
   `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\`. Owner:
   Audrey.
-- **S4a-02 · The Legal tag restricts nothing yet.** Anyone who can open a
-  file can still see it. The file window says so beside the tag. Setting
-  Legal is limited to people past the money gate. Owner: S4b, after
-  Audrey rules on Legal's audience (E4a).
+- ~~**S4a-02 · The Legal tag restricts nothing yet.**~~ **Closed by S4b
+  (`po/s4b-legal-gate`, migration 0088), once 0088 is applied:** Audrey
+  ruled on 2026-10-01 that a Legal file is seen by "same as money files for
+  now" and that Legal is chosen when the file is added. A Legal file now
+  lives under the project's `LEGAL` folder, which joins `INVOICES` and
+  `FINANCE` in the one list of locked folders; its row, its bytes, its
+  thumbnail and its events are for workspace admins and the project's
+  managers only, and the tag can no longer be ticked on an existing file.
+  See S4b below for what is left.
 - **S4a-03 · Electron's PDF viewer titles a previewed PDF with a blob's
   id.** Every PDF, the Local Server's and the cloud's, is fetched and handed
   to the viewer as a typed blob (so `safeMediaContentType` stays as it is,
@@ -2066,6 +2071,126 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   hand-back. With the hook removed it still fails, on that line alone
   (proved with the earlier checks taken out). Green in the next 5 of 5
   full runs.
+
+## Post-overhaul S4b (`po/s4b-legal-gate`) — left open (2026-10-01)
+
+What S4b built around or found and did not fix. Questions for Audrey are in
+walkthrough 54 §5 and the S4b hand-off, not here.
+
+- **S4b-01 · Migration 0088 (`0088_legal_files.sql`) is written and NOT
+  applied to any environment — and it needs 0085 first.** Its §0 refuses to
+  run without `files.tags`. Proven by the hosted shim in rolled-back runs
+  against wilson-dev's real data with 0085 prepended (suite 90; the counts
+  are in the S4b hand-off) and by CI. Until it is applied the client offers
+  no Legal option: Add as Legal is greyed with "Legal files need a database
+  update (migration 0088) that has not reached this workspace yet." The
+  exact dev and staging commands are in the S4b hand-off (Waiting on
+  Audrey); the file and its history row are in
+  `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\`.
+  Owner: Audrey.
+- **S4b-02 · The Edge Function `storage-presign` carries its own copy of
+  the locked-folder list and is not redeployed.**
+  `supabase/functions/_shared/moneySegments.ts` gained `LEGAL` in the same
+  commit as 0088 (held to the SQL function by
+  `storagePresignBoundary.test.js`). Until it is deployed the function would
+  presign a `LEGAL` key for an s3 workspace. Nothing reaches that today: the
+  client never presigns a money key (a Legal upload is pinned to Supabase),
+  and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
+  is applied. Owner: Audrey (`supabase functions deploy storage-presign`
+  on dev, then staging).
+- **S4b-03 · A manager's second window does not see a new invoice or Legal
+  file until it reloads.** 0088 stops the realtime broadcast of money
+  `files` rows, because the project topic is joined by every project reader
+  and the message carried the whole row (MEASURED: a member read an
+  invoice's name, note and path off it). A per-row money check inside
+  `realtime.broadcast_changes` is not possible — a broadcast has no
+  per-recipient filter — so the fix is a second, money-only topic whose join
+  gate is `can_access_project_money`. Owner: the next session on realtime.
+- ~~**S4b-04 · A desktop file tagged Legal during S4a's label period stays
+  in the project's files folder.**~~ **Fixed in the same bundle (review
+  rounds 1 and 2):** the Local Server removes such a LABEL once per project
+  (`electron/legalFiling.cjs` `settleLegalLabels`; the ids stripped are kept
+  in the bundle's `legalLabelsSettled`) — on a managed file, on an invoice,
+  and on a project file whose body is in the files folder rather than a
+  `LEGAL` one — as 0088 §2 strips the cloud's once. A Legal row whose body
+  is in `LEGAL`, or missing altogether, keeps its tag; a project is not
+  settled while its folder is offline or any labelled file's body is found
+  nowhere (an unplugged drive), and is asked again on the next read.
+- **🚨 S4b-05 · A workspace manager can give themselves a manager seat on
+  any project, and so read its Legal files and its money.** PRE-EXISTING
+  (0013's roster policies and 0037's money gate; invoices, budgets and rates
+  are exposed the same way). MEASURED by S4b's security review, round 1
+  (S1-SEC-01), in a rolled-back run on wilson-dev: a workspace manager
+  holding a member seat ran `UPDATE project_members SET project_role =
+  'manager' WHERE project_id = … AND user_id = auth.uid()`, then read the
+  Legal file's name, note, body and thumbnail; one with no seat did the
+  same with an INSERT. `can_manage_project_roster` is `current_app_role() IN
+  ('admin','manager') OR project_role_for(p) = 'manager'`, no trigger stops a
+  change to one's own seat, and `project_members` writes no edit history, so
+  nothing records it. Audrey ruled that workspace-level managers do NOT see
+  Legal files; this is how they can. The smallest fix is a BEFORE INSERT OR
+  UPDATE trigger on `project_members` refusing a manager seat for oneself
+  unless the caller is an admin or already the project's manager (with an
+  opening for the creator of an unstaffed project), and
+  `projectRoleMatrix.js` in step — but it changes who can staff projects.
+  Owner: Audrey's decision (S4b hand-off, Waiting on Audrey), then its own
+  migration.
+- **S4b-06 · Storage totals tell a member when a hidden file arrives, and
+  one function answers any company's.** PRE-EXISTING (0055/0057/0073).
+  MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
+  exact workspace total, Legal and exempt objects included (4,300 bytes with
+  a 4,000-byte Legal file beside a 300-byte plain one), so polling it shows
+  when a hidden file appears and its size. And `rabbit_petal_storage_ok(
+  p_project, p_incoming, p_path)` is executable by any signed-in user with
+  no workspace check: a search over the byte argument gives another
+  company's exact usage, given a project id. Fix for the second:
+  `p.workspace_id = current_workspace_id()` and membership inside it.
+  Coarsening the first is a product decision (Add files' courtesy check
+  reads the exact figure). Owner: the next session on storage.
+- **S4b-07 · Knowing a Legal file's id, a member can confirm it exists.**
+  PRE-EXISTING, INFORMATIONAL. MEASURED (S1-SEC-06): `INSERT … ON CONFLICT
+  (id) DO NOTHING` answers 0 rows for an existing id and 1 for an unknown
+  one; a plain INSERT answers 23505 on `files_pkey`. No source of the id
+  was found for a member (`asset_versions.file_id` and
+  `rate_cards.source_file_id` would carry one only if a manager linked the
+  file). Owner: none until an id is exposed somewhere.
+- **S4b-08 · A manager on a desktop or web build from before S4b can attach
+  a Legal file to a D.O.G. deck.** The exclusion is the client's
+  (`deckAttachments.js`); the database rightly gives a manager the row.
+  Once 0088 is applied, a manager on an old build sees Legal files and that
+  build does not know to leave them out of a deck every member reads.
+  INFERRED. Owner: the release that ships S4b (ship before applying 0088
+  on staging, or accept the window).
+- **S4b-10 · A money-cleared person can rename a Legal OBJECT out of LEGAL
+  through the Storage API.** MEASURED by S4b's security review, round 2
+  (S2-G): the storage UPDATE policies are permissive and OR — the old key
+  passes `rabbit_files_money_update`'s USING, the new one `rabbit_files_update`'s
+  WITH CHECK — so `UPDATE storage.objects SET name = …/project/…` moves the
+  body (and its thumbnail) where every member can list and read it. The
+  `files` row stays Legal (`trg_files_legal_fixed`). No client calls
+  storage move or copy, and the same person can always download and re-add
+  the file, so nobody gains what they could not already give away. The
+  validated fix is a RESTRICTIVE `FOR UPDATE` policy on both buckets,
+  `NOT rabbit_legal_segment((storage.foldername(name))[3])` in USING and
+  WITH CHECK — but it may refuse Supabase Storage's OWN updates of a Legal
+  object (a resumable upload completing, a thumbnail regenerated), and that
+  cannot be smoke-tested from a session. Owner: Audrey's decision; if yes,
+  its own migration with a resumable-upload smoke test on dev first.
+- **S4b-11 · Files migrated desktop→cloud before S4b may hold the app's own
+  page instead of their contents.** Until S4b's review round 1 the migration
+  read each body from `/files/:id`, a route the Local Server never had; the
+  single-page fallback answered `index.html` with a 200, and that is what was
+  uploaded. A re-run now finds those rows already in the cloud and leaves
+  them (it no longer uploads first), saying so only when their path differs.
+  INFERRED from the code — whether anyone ran the migration is unknown. Would
+  settle it: on each environment, list `files` rows whose body is ~1 KB of
+  HTML. Owner: Audrey (whether any company migrated), then a repair session.
+- **S4b-09 · The desktop→cloud migration sends `tags` to a database that may
+  not have the column.** Since S4a a desktop row carries `tags`, and
+  `runMigration` inserts `{ ...f }`: a cloud database without 0085 refuses
+  every such row ("column tags does not exist"). Found while making the
+  migration Legal-aware (S4b review round 1); not changed, it is S4a's.
+  INFERRED. Owner: the next session on the migration.
 
 ## Post-overhaul S3b (`po/s3b-shot-lists-ui`) — left open (2026-10-01)
 

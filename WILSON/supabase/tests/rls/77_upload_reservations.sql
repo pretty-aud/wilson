@@ -177,11 +177,17 @@ RESET ROLE;
 SELECT is(public.workspace_petal_bytes('11111111-1111-1111-1111-111111111111'),
   4000000::bigint, 'the reservation is metered while nothing is committed');  -- 15
 
+-- Asked with the reservation's maker signed in (user_a), as the storage
+-- quota policy asks it when that person's object lands: since 0088 (S4b,
+-- review round 2) only the CALLER's own reservation is set aside — anyone
+-- else asking about the key is answered as if it were any other key.
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')::text, true);
 SELECT is(public.workspace_upload_reserved_bytes(
     '11111111-1111-1111-1111-111111111111',
     'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a1/1-r1.mov'),
   0::bigint,
   'the exclusion arm: a key''s OWN reservation is not counted against that key');
+SELECT set_config('request.jwt.claims', '', true);
                                                                             -- 16
 
 SELECT is(

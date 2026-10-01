@@ -34,6 +34,7 @@ import { v4 as uuidv4 } from 'uuid';
 // loaded bundle and handed to the adapter, so both backends mirror the
 // same shape — that is the one job a portable manifest has.
 import { buildProjectManifest } from '../projectManifest';
+import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../fileTags';
 import { selectAdapter, ADAPTER_MODES, adapterSupportsWrites } from '../adapters';
 import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
@@ -3639,6 +3640,14 @@ export function RabbitProvider({ children }) {
   }, [optimistic]);
 
   const markFileCoreDefiner = useCallback((fileId, isCore, projectId = activeProjectId) => {
+    // S4b (0088): a Legal file is never core — its text would reach Intake
+    // and D.O.G., which the whole project reads. Refused here, before
+    // anything is sent, when the row is in hand; the database's
+    // files_legal_not_core_chk refuses it whatever reaches it.
+    if (isCore) {
+      const known = (bundleRef.current?.files || []).find(f => f.id === fileId);
+      if (known && isLegalFile(known)) return Promise.reject(new Error(LEGAL_NOT_CORE_REASON));
+    }
     if (projectId && projectId !== activeProjectId) {
       return adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: projectId });
     }

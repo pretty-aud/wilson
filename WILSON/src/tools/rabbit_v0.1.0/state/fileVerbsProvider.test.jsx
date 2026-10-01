@@ -108,6 +108,33 @@ describe('the file verbs take the file\'s project (S4a)', () => {
     expect(ctxRef.files[0].is_core_definer).toBe(true)
     expect(ctxRef.managedFiles[0].tags).toEqual(['shots'])
   })
+
+  // S4b (0088): a Legal file is never core — Intake and D.O.G. read core files
+  // as the project's context. The provider refuses it before anything is
+  // sent, when the row is in hand; the database's CHECK refuses it anyway.
+  it('Core on a Legal file is refused with its reason and nothing reaches the adapter; Core OFF is still sent', async () => {
+    const base = holder.adapter.loadProject
+    holder.adapter.loadProject = async (id) => {
+      const b = await base(id)
+      return id === 'p1' || id === undefined
+        ? { ...b, files: [...b.files, { id: 'fL', project_id: 'p1', name: 'release.pdf', tags: ['legal'], is_core_definer: false }] }
+        : b
+    }
+    render(<RabbitProvider><Probe /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.files?.length).toBe(2))
+    const { LEGAL_NOT_CORE_REASON } = await import('../fileTags')
+    await expect(ctxRef.markFileCoreDefiner('fL', true)).rejects.toThrow(LEGAL_NOT_CORE_REASON)
+    expect(holder.adapter.calls).toEqual([])
+    expect(ctxRef.files.find(f => f.id === 'fL').is_core_definer).toBe(false)
+    // CONTROLS: turning it OFF is harmless and goes through; an ordinary file
+    // still becomes core.
+    await act(async () => { await ctxRef.markFileCoreDefiner('fL', false) })
+    await act(async () => { await ctxRef.markFileCoreDefiner('f1', true) })
+    expect(holder.adapter.calls).toEqual([
+      ['updateFile', 'fL', { is_core_definer: false, project_id: 'p1' }],
+      ['updateFile', 'f1', { is_core_definer: true, project_id: 'p1' }],
+    ])
+  })
 })
 
 // Review round 2 (R2-UI-01, measured in a browser with two hosts): the

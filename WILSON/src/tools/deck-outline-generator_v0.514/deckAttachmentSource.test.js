@@ -90,6 +90,25 @@ describe('isDeckAttachmentRow', () => {
       .toBe(false)
   })
 
+  it('🚨 NEVER takes a Legal file — by its LEGAL folder in the cloud, by its tag on the desktop (S4b, 0088)', () => {
+    // A manager's D.O.G. sees Legal rows (RLS admits them) and a deck goes to
+    // the whole project. The CONTROL is the same row without the Legal mark:
+    // a classified brief at project level, which qualifies.
+    const brief = { document_kind: 'brief', mime_type: 'application/pdf',
+      storage_path: 'projects/p/project/p/1-brief.pdf', tags: [] }
+    expect(isDeckAttachmentRow(row(brief))).toBe(true)
+    expect(isDeckAttachmentRow(row({ ...brief, storage_path: 'projects/p/LEGAL/p/1-brief.pdf', tags: ['legal'] }))).toBe(false)
+    expect(isDeckAttachmentRow(row({ ...brief, storage_path: 'projects/p/legal/p/1-brief.pdf' }))).toBe(false)
+    // The desktop's Legal row: a bare filename, the tag is the fact.
+    expect(isDeckAttachmentRow(row({ ...brief, storage_provider: 'local_server', storage_path: 'f1-brief.pdf', tags: ['legal'] }))).toBe(false)
+    // A row with no key at all falls to the tag: fail closed.
+    expect(isDeckAttachmentRow(row({ mime_type: 'image/png', tags: ['legal'] }))).toBe(false)
+    // Review round 1 (R1-BEH-03): a `legal` LABEL on an ordinary cloud key is
+    // S4a's label period (0088 strips it), readable by every member already —
+    // not a Legal file, and not one the deck must hide.
+    expect(isDeckAttachmentRow(row({ ...brief, storage_provider: 'supabase', tags: ['legal'] }))).toBe(true)
+  })
+
   it('never takes a trashed row', () => {
     // Cloud deletes are soft (0014): the row survives with deleted_at set and
     // the blob is still there, so nothing but this check stops a deleted brief
