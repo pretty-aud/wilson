@@ -67,12 +67,14 @@ async function fetchLocalFileBlob(projectId, fileId) {
 // round 1, that left an orphan object at the new key. A row this person
 // cannot read (another's Legal file) answers nothing, and the upload is then
 // refused by the storage policies like any other write they may not make.
+// An ERROR is not "not there" (review round 2's re-check, R3-BEH-02): the
+// file is then failed with the reason, not uploaded on a guess.
 async function cloudFileRow(fileId) {
   try {
-    const { data } = await supabase.from('files').select('id, storage_path').eq('id', fileId).maybeSingle()
-    return data || null
-  } catch {
-    return null
+    const { data, error } = await supabase.from('files').select('id, storage_path').eq('id', fileId).maybeSingle()
+    return error ? { error } : { row: data || null }
+  } catch (err) {
+    return { error: err }
   }
 }
 
@@ -315,7 +317,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
           }
         }
         const objectPath = cloudObjectPathFor(projectId, f)
-        const already = await cloudFileRow(f.id)
+        const asked = await cloudFileRow(f.id)
+        if (asked.error) {
+          report.errors.push({ scope: 'file', projectId, id: f.id, message: `could not check whether the file is already in the cloud: ${asked.error.message || asked.error}` })
+          bumpFailed(report.files)
+          continue
+        }
+        const already = asked.row
         if (already) {
           if (already.storage_path && already.storage_path !== objectPath) {
             report.errors.push({

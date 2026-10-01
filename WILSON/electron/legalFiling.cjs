@@ -95,11 +95,14 @@ function createLegalFiling({
   /**
    * Remove S4a-period `legal` LABELS, once (see the header). Returns
    * `{ settled, stripped }`: `stripped` the ids whose label was removed (the
-   * caller persists the bundle and the record); `settled` false — nothing
-   * touched — while the project's folder is configured but unreachable. A
-   * Legal row whose body is in a LEGAL folder, or missing altogether, stays
-   * Legal (fail closed: a missing body is no evidence it was a label).
-   * The folders are resolved once per call, not per row (R2-BEH-03).
+   * caller persists them); `settled` false — so the caller asks again on a
+   * later read — while the project's folder is configured but unreachable
+   * (nothing touched), or while any labelled row's body is found NOWHERE (a
+   * relinked files folder on an unplugged drive, a NAS root offline): that
+   * row stays Legal for now (fail closed) and is decided when its body is
+   * back (review round 2's re-check, R3-BEH-01 — settled anyway, an
+   * ordinary file stayed Legal for good). The folders are resolved once per
+   * call, not per row (R2-BEH-03).
    */
   function settleLegalLabels(bundle, projectId) {
     if (bundle?.project?.folder_root && !resolveProjectFolder(bundle)) {
@@ -114,6 +117,7 @@ function createLegalFiling({
       if (Array.isArray(m?.tags) && m.tags.includes(LEGAL_TAG)) drop(m);
     }
     const labelled = (bundle?.files || []).filter((f) => isLegalRow(f));
+    let undecided = 0;
     if (labelled.length > 0) {
       const dirs = legalDirs(bundle, projectId);
       let filesDir;
@@ -122,9 +126,10 @@ function createLegalFiling({
         if (dirs.some((d) => holds(d, f.storage_path))) continue;
         if (filesDir === undefined) filesDir = resolveProjectFilesDir(bundle, projectId) || null;
         if (filesDir && holds(filesDir, f.storage_path)) drop(f);
+        else undecided += 1;
       }
     }
-    return { settled: true, stripped };
+    return { settled: undecided === 0, stripped };
   }
 
   /** May the relink flow scan or re-point this row? Never an invoice or a Legal file. */

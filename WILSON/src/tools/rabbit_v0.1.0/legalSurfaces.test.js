@@ -40,7 +40,10 @@ const PET = read('../otter_v0.3.1/petKnowledge.js')
 // forgot Legal, read as the comment (review round 1, R1-BEH-12 — planted
 // fault R1-8 survived). Comment lines are dropped first, and a reader that
 // finds the line more than once answers null rather than pick one.
-const code = (src) => src.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
+// Block comments too (review round 2's re-check, R3-4: a /* … */ around the
+// Projects page's Core refusal still matched its pin).
+const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
 const only = (re, src) => {
   const all = [...code(src).matchAll(re)]
   return all.length === 1 ? all[0][1] : null

@@ -1474,12 +1474,16 @@ function startLocalServer(distPath) {
       if (!bundle.legalLabelsSettled) {
         try {
           const settled = legalFiling.settleLegalLabels(bundle, projectId);
-          if (settled.settled) {
-            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: settled.stripped };
+          if (settled.stripped.length > 0) {
+            bundle.legalLabelsStripped = [...(bundle.legalLabelsStripped || []), ...settled.stripped];
             dirty = true;
-            if (settled.stripped.length > 0) {
-              console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
-            }
+            console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
+          }
+          // Settled only when every labelled row was decided — a body found
+          // nowhere (its drive unplugged) is asked about again next read.
+          if (settled.settled) {
+            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: bundle.legalLabelsStripped || [] };
+            dirty = true;
           }
         } catch { /* next read */ }
       }

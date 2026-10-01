@@ -17,15 +17,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true, rpcError: null, existing: {} }
+  const state = { inserts: {}, log: [], failWith: null, uploads: [], rpcs: [], legalLocked: true, rpcError: null, existing: {}, selectError: null, eqColumns: [] }
   const client = {
     from(table) {
       let id = null
       return {
         // The existence check before an upload (review round 2, R2-BEH-06).
         select() { return this },
-        eq(_col, value) { id = value; return this },
-        maybeSingle: async () => ({ data: state.existing[table]?.[id] ?? null, error: null }),
+        eq(col, value) { state.eqColumns.push(col); id = col === 'id' ? value : null; return this },
+        maybeSingle: async () => (state.selectError
+          ? { data: null, error: state.selectError }
+          : { data: state.existing[table]?.[id] ?? null, error: null }),
         insert: async (row) => {
           state.log.push(table)
           const override = state.failWith?.(table, row)
@@ -86,6 +88,8 @@ beforeEach(() => {
   fake.state.legalLocked = true
   fake.state.rpcError = null
   fake.state.existing = {}
+  fake.state.selectError = null
+  fake.state.eqColumns = []
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   globalThis.fetch = vi.fn(async (url) => {
     if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
@@ -345,6 +349,16 @@ describe('what a run cannot do, it says (S4b review round 2)', () => {
     // pre-S4b code under files/): said, so the run is not called clean.
     expect(report.errors.find(e => e.id === 'f-plain')).toBeUndefined()
     expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^already in the cloud at an older path \(projects\/p1\/files\/f-legal\/nda\.pdf\)/)
+  })
+
+  it('the existence check asks by id (planted fault R3-1), and an ERROR fails the file rather than uploading on a guess (R3-BEH-02)', async () => {
+    fake.state.selectError = { message: 'network down' }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(fake.state.eqColumns).toContain('id')
+    expect(fake.state.eqColumns.every(c => c === 'id')).toBe(true)
+    expect(fake.state.uploads).toEqual([])
+    expect(report.files.failed).toBe(2)
+    expect(report.errors.find(e => e.id === 'f-plain')?.message).toBe('could not check whether the file is already in the cloud: network down')
   })
 
   it('the dry run says what will happen to Legal files, asked of the same database (R2-BEH-07)', async () => {

@@ -163,11 +163,26 @@ describe('settleLegalLabels — S4a\'s labels, removed ONCE (R1-BEH-03; review r
     expect(b.managedFiles[0].tags).toEqual(['shots'])
   })
 
-  it('a Legal row whose body is missing everywhere stays Legal (fail closed)', () => {
+  it('a Legal row whose body is missing everywhere stays Legal (fail closed) — and the project is NOT settled, so it is asked again (R3-BEH-01)', () => {
     const f = { id: 'd', storage_path: 'gone.pdf', tags: ['legal'] }
     const b = bundle({ files: [f] })
-    expect(settle(b)).toEqual({ settled: true, stripped: [] })
+    expect(settle(b)).toEqual({ settled: false, stripped: [] })
     expect(b.files[0].tags).toEqual(['legal'])
+  })
+
+  it('…and once its body is back, it is decided (here: in the files folder, a label)', () => {
+    const f = { id: 'd2', storage_path: 'back.pdf', tags: ['legal'] }
+    const b = bundle({ files: [f] })
+    expect(settle(b).settled).toBe(false)
+    write(filesDir, f.storage_path)
+    expect(settle(b)).toEqual({ settled: true, stripped: ['d2'] })
+  })
+
+  it('a strip beside an undecided row is reported, unsettled (the caller persists it)', () => {
+    const label = { id: 'e1', storage_path: 'e1.pdf', tags: ['legal'] }
+    const missing = { id: 'e2', storage_path: 'e2.pdf', tags: ['legal'] }
+    write(filesDir, label.storage_path)
+    expect(settle(bundle({ files: [label, missing] }))).toEqual({ settled: false, stripped: ['e1'] })
   })
 
   it('NOT settled, nothing touched, while the project\'s folder is configured but unreachable (a NAS offline)', () => {

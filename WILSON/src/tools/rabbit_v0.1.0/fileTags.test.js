@@ -285,7 +285,10 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
     // S4a-period labels are settled ONCE per project, recorded, persisted
     // (review round 2, R2-BEH-01: every read could strip a real Legal file).
     const read = code.slice(code.indexOf('function readRabbitBundle('), code.indexOf('function writeRabbitBundle('))
-    expect(read).toMatch(/if \(!bundle\.legalLabelsSettled\) \{\s*try \{\s*const settled = legalFiling\.settleLegalLabels\(bundle, projectId\);\s*if \(settled\.settled\) \{\s*bundle\.legalLabelsSettled = \{ at: new Date\(\)\.toISOString\(\), stripped: settled\.stripped \};\s*dirty = true;/)
+    expect(read).toMatch(/if \(!bundle\.legalLabelsSettled\) \{\s*try \{\s*const settled = legalFiling\.settleLegalLabels\(bundle, projectId\);/)
+    // What was stripped is persisted at once; the marker only once settled.
+    expect(read).toMatch(/if \(settled\.stripped\.length > 0\) \{\s*bundle\.legalLabelsStripped = \[\.\.\.\(bundle\.legalLabelsStripped \|\| \[\]\), \.\.\.settled\.stripped\];\s*dirty = true;/)
+    expect(read).toMatch(/if \(settled\.settled\) \{\s*bundle\.legalLabelsSettled = \{ at: new Date\(\)\.toISOString\(\), stripped: bundle\.legalLabelsStripped \|\| \[\] \};\s*dirty = true;/)
     expect(read).not.toContain('stripStrayLegal')
     // A Legal body is written to, and read from, a LEGAL folder — never the files dir.
     const legalDirFn = code.slice(code.indexOf('function resolveProjectLegalDir('), code.indexOf('function resolveFileBaseDir('))
