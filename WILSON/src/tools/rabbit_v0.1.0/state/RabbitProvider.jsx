@@ -85,6 +85,9 @@ import {
   buildShotListSnapshot,
   normalizeEditItems,
   buildEditSnapshot,
+  shotListWithdrawRefusal,
+  editWithdrawRefusal,
+  isWithdrawn,
 } from './shotListModel';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
@@ -1590,7 +1593,8 @@ export function RabbitProvider({ children }) {
   //   D10      ctx.scenes / ctx.shots are the ACTIVE list's rows (every row
   //            when there is no active list); scenesOf(listId) /
   //            shotsOf(listId) serve the list the Scenes tab is VIEWING;
-  //            unlistedScenes / unlistedShots hold rows in no list.
+  //            unlistedScenes / unlistedShots hold rows in no LIVE list (the
+  //            picker's "Not in any list (N)" entry, Audrey 2026-09-30).
   //   D4/D18   lists and edits are archived, never deleted; the active list
   //            cannot be archived; the UI verbs refuse an archived list (its
   //            membership is not frozen in the database — a delete's undo
@@ -1598,7 +1602,9 @@ export function RabbitProvider({ children }) {
   //   D6       an edit is one step of ONE linear chain per list.
   //   D8       set active and archive are a project manager's or a workspace
   //            admin's (the database refuses anyone else; the Local Server has
-  //            no roles, so there it is a label).
+  //            no roles, so there it is a label). 0085: a row's MAKER may also
+  //            WITHDRAW it (archive it) while it is untouched — withdrawShotList
+  //            / withdrawEdit below.
   //
   // 🚨 MEMBERSHIP IS WRITTEN AS DELTAS (review round 1, HIGH). Items are not
   // broadcast, so this client's view of a list goes stale while a collaborator
@@ -1616,10 +1622,12 @@ export function RabbitProvider({ children }) {
   // only the moved rows' positions are put back.
   //
   // Creating a list or an edit cannot be undone by deleting it (nothing is
-  // ever deleted): its undo ARCHIVES it, which the cloud allows only a
-  // manager or admin. Callers pass { undoable: false } when the person cannot
-  // archive (S3b: useProjectAccess().can('project.shotlist.activate')), so a
-  // member's Ctrl+Z never lands on an undo the database will refuse.
+  // ever deleted): its undo WITHDRAWS it (0085, Audrey 2026-09-30) — the
+  // maker sets the new row aside while it is untouched, which the database
+  // allows the maker whatever their seat, so a member's Ctrl+Z works too and
+  // nobody needs { undoable: false } for it any more. Right after, the row is
+  // ctx.recentlyWithdrawn ("Recently removed": openable, restorable) until
+  // the Scenes tab calls clearRecentlyWithdrawn(). See "Withdraw" below.
   //
   // The helpers are FUNCTION DECLARATIONS on purpose: hoisted, so addScene /
   // deleteScene below can call them without a temporal-dead-zone hazard (the
@@ -1879,13 +1887,64 @@ export function RabbitProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundle.project?.active_shot_list_id, bundle.shotLists]);
 
+  // ── Withdraw (0085, Audrey 2026-09-30) ────────────────────────────────
+  //
+  // "allow users to view their most recently deleted list. only right after
+  // they deleted." Her rulings, from the options put to her:
+  //   * WITHDRAW, briefly viewable — the person who made a new list or edit
+  //     sets it aside (archived, never deleted, D18). Right after, it is
+  //     ctx.recentlyWithdrawn: S3b shows it as "Recently removed", openable
+  //     (an archived list reads like any other) and restorable
+  //     (restoreWithdrawn()). Only the MOST RECENT one.
+  //   * ONLY UNTOUCHED new ones — never Saved, no live edit on (or
+  //     continuing) it, not the active list. shotListModel's
+  //     shotListWithdrawRefusal / editWithdrawRefusal refuse in the
+  //     database's words before any write, on every backend; the cloud
+  //     refuses the same things behind them (0085's maker path).
+  //   * UNTIL THEY LEAVE THE SCENES TAB — S3b calls clearRecentlyWithdrawn()
+  //     when the tab unmounts; switching project clears it here; closing the
+  //     app ends it (it is never stored).
+  // The maker test needs the signed-in user on a backend with users
+  // (adapterMode 'supabase', which the dev fixtures report too; null until
+  // the roster read has named them). Elsewhere there are no users and it is
+  // skipped, as D8's roles are.
+  const withdrawUserId = adapterMode === 'supabase' ? (authUserId || null) : undefined;
+  const withdrawUserRef = useRef(withdrawUserId);
+  useEffect(() => { withdrawUserRef.current = withdrawUserId; }, [withdrawUserId]);
+  const [recentlyWithdrawnMark, setRecentlyWithdrawnMark] = useState(null);
+  const recentlyWithdrawnRef = useRef(null);
+  function markRecentlyWithdrawn(mark) {
+    recentlyWithdrawnRef.current = mark;
+    setRecentlyWithdrawnMark(mark);
+  }
+  // A restore of the marked row by ANY path ends the mark — otherwise a later
+  // archive of the same row (a manager's) would read as "Recently removed".
+  function unmarkIfRestored(id) {
+    if (recentlyWithdrawnRef.current && recentlyWithdrawnRef.current.id === id) markRecentlyWithdrawn(null);
+  }
+  useEffect(() => {
+    markRecentlyWithdrawn(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
+
+  // undo / redo swallow an op's throw and keep going; a refused withdraw (a
+  // collaborator Saved the list meanwhile) must still say why, so these ops
+  // put the sentence in the error banner before rethrowing.
+  function surfaced(op) {
+    return async () => {
+      try { return await op(); } catch (err) { setError(err?.message || String(err)); throw err; }
+    };
+  }
+
   /**
    * New list. { title, version?, summary?, from?, fromAll?, id?, undoable? }
    *   from      — a list id: link the SAME scene and shot rows in the same
    *               order ("New list from the current one", D1 + D3)
    *   fromAll   — every scene and shot of the project, in number order (the
    *               D11 set; for a project that has no list yet)
-   *   undoable  — false for someone who cannot archive (its undo archives)
+   *   undoable  — false keeps the creation off the undo stack. Its undo
+   *               WITHDRAWS the list (0085), which its maker may do while it
+   *               is untouched, so a member needs no special case.
    * version defaults to the next free version of the title (D14). Not made
    * active — that is setActiveShotList, a manager's decision (D8).
    */
@@ -1918,11 +1977,12 @@ export function RabbitProvider({ children }) {
       if (activeProjectIdRef.current !== pid) return listRow;
       putRow('shotLists', listRow, pid);
       // Pushed BEFORE the items are copied: if the copy fails, the list still
-      // exists and its undo (archive) must still be on the stack.
+      // exists and its undo (withdraw) must still be on the stack. Copied
+      // membership is not a touch (0085), so that undo still works.
       if (opts.undoable !== false) {
         pushHistory({
-          undoOps: [() => mutationsRef.current.archiveShotList(listRow.id, true)],
-          redoOps: [() => mutationsRef.current.archiveShotList(listRow.id, false)],
+          undoOps: [surfaced(() => mutationsRef.current.withdrawShotList(listRow.id))],
+          redoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'shot_list', id: listRow.id }))],
         });
       }
       let items = [];
@@ -2014,15 +2074,22 @@ export function RabbitProvider({ children }) {
     return target;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
-  /** Archive (default) or restore a list. The ACTIVE list cannot be archived (D4). */
-  const archiveShotList = useCallback(async (listId, archived = true) => {
+  /**
+   * Archive (default) or restore a list: the manager's verb (D8). The ACTIVE
+   * list cannot be archived (D4). { history: false } is for withdraw and
+   * restoreWithdrawn, which record their own undo step.
+   */
+  const archiveShotList = useCallback(async (listId, archived = true, opts = {}) => {
     const list = findShotList(listId);
     if (!list) throw new Error('shot list not found');
     const want = archived !== false;
     if (want && bundleRef.current.project?.active_shot_list_id === listId) {
       throw new Error('the active shot list cannot be archived — make another list active first');
     }
-    if (!!list.archived_at === want) return list;
+    if (!!list.archived_at === want) {
+      if (!want) unmarkIfRestored(listId);
+      return list;
+    }
     const a = shotListAdapter();
     const pid = activeProjectIdRef.current;
     const res = await optimistic(
@@ -2036,10 +2103,13 @@ export function RabbitProvider({ children }) {
     );
     if (activeProjectIdRef.current !== pid) return res || list;
     if (res) putRow('shotLists', res, pid);
-    pushHistory({
-      undoOps: [() => mutationsRef.current.archiveShotList(listId, !want)],
-      redoOps: [() => mutationsRef.current.archiveShotList(listId, want)],
-    });
+    if (!want) unmarkIfRestored(listId);
+    if (opts.history !== false) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.archiveShotList(listId, !want)],
+        redoOps: [() => mutationsRef.current.archiveShotList(listId, want)],
+      });
+    }
     return res || list;
   }, [optimistic]);
 
@@ -2116,6 +2186,8 @@ export function RabbitProvider({ children }) {
    * parentEditId defaults to the chain's tip (editChainTip) when the list has
    * edits; the first edit of a list has none. items default to the parent's
    * (same item ids, so S3c can compare versions item by item) or [].
+   * undoable: false keeps it off the undo stack; its undo WITHDRAWS the new
+   * edit (0085), which its maker may do while it is untouched.
    */
   const createEditFrom = useCallback(async (opts = {}) => {
     const pid = activeProjectIdRef.current;
@@ -2173,8 +2245,8 @@ export function RabbitProvider({ children }) {
     const finalRow = created || row;
     if (opts.undoable !== false) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.archiveEdit(finalRow.id, true)],
-        redoOps: [() => mutationsRef.current.archiveEdit(finalRow.id, false)],
+        undoOps: [surfaced(() => mutationsRef.current.withdrawEdit(finalRow.id))],
+        redoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: finalRow.id }))],
       });
     }
     return finalRow;
@@ -2232,12 +2304,18 @@ export function RabbitProvider({ children }) {
     return mutationsRef.current.updateEdit(editId, patch);
   }, []);
 
-  /** Archive (default) or restore an edit. Manager/admin (D8). */
-  const archiveEdit = useCallback(async (editId, archived = true) => {
+  /**
+   * Archive (default) or restore an edit: the manager's verb (D8).
+   * { history: false } is for withdraw and restoreWithdrawn.
+   */
+  const archiveEdit = useCallback(async (editId, archived = true, opts = {}) => {
     const edit = findEdit(editId);
     if (!edit) throw new Error('edit not found');
     const want = archived !== false;
-    if (!!edit.archived_at === want) return edit;
+    if (!!edit.archived_at === want) {
+      if (!want) unmarkIfRestored(editId);
+      return edit;
+    }
     const a = shotListAdapter();
     const pid = activeProjectIdRef.current;
     const res = await optimistic(
@@ -2251,12 +2329,99 @@ export function RabbitProvider({ children }) {
     );
     if (activeProjectIdRef.current !== pid) return res || edit;
     if (res) putRow('edits', res, pid);
-    pushHistory({
-      undoOps: [() => mutationsRef.current.archiveEdit(editId, !want)],
-      redoOps: [() => mutationsRef.current.archiveEdit(editId, want)],
-    });
+    if (!want) unmarkIfRestored(editId);
+    if (opts.history !== false) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.archiveEdit(editId, !want)],
+        redoOps: [() => mutationsRef.current.archiveEdit(editId, want)],
+      });
+    }
     return res || edit;
   }, [optimistic]);
+
+  /**
+   * WITHDRAW a list (0085): its maker sets an UNTOUCHED new list aside —
+   * archived, never deleted — and it becomes ctx.recentlyWithdrawn. Refused
+   * before any write, in the database's words: someone else's list (on a
+   * backend with users), a Saved list, one with a live edit on it, the active
+   * list. Withdrawing an archived list is a no-op. Also the undo of New list.
+   */
+  const withdrawShotList = useCallback(async (listId) => {
+    const list = findShotList(listId);
+    if (!list) throw new Error('shot list not found');
+    if (list.archived_at) return list;
+    const refusal = shotListWithdrawRefusal({
+      list,
+      edits: bundleRef.current.edits,
+      activeListId: bundleRef.current.project?.active_shot_list_id || null,
+      userId: withdrawUserRef.current,
+    });
+    if (refusal) throw new Error(refusal);
+    const pid = activeProjectIdRef.current;
+    const res = await mutationsRef.current.archiveShotList(listId, true, { history: false });
+    if (activeProjectIdRef.current !== pid) return res;
+    markRecentlyWithdrawn({ kind: 'shot_list', id: listId, projectId: pid });
+    pushHistory({
+      undoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'shot_list', id: listId }))],
+      redoOps: [surfaced(() => mutationsRef.current.withdrawShotList(listId))],
+    });
+    return res;
+  }, []);
+
+  /**
+   * WITHDRAW an edit (0085): the same for an untouched edit — never Saved,
+   * no live edit continues it. Also the undo of New edit. A withdrawn edit
+   * keeps its place in its list's chain (D6): the next new edit continues
+   * from it, with the same items (it was never Saved).
+   */
+  const withdrawEdit = useCallback(async (editId) => {
+    const edit = findEdit(editId);
+    if (!edit) throw new Error('edit not found');
+    if (edit.archived_at) return edit;
+    const refusal = editWithdrawRefusal({ edit, edits: bundleRef.current.edits, userId: withdrawUserRef.current });
+    if (refusal) throw new Error(refusal);
+    const pid = activeProjectIdRef.current;
+    const res = await mutationsRef.current.archiveEdit(editId, true, { history: false });
+    if (activeProjectIdRef.current !== pid) return res;
+    markRecentlyWithdrawn({ kind: 'edit', id: editId, projectId: pid });
+    pushHistory({
+      undoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: editId }))],
+      redoOps: [surfaced(() => mutationsRef.current.withdrawEdit(editId))],
+    });
+    return res;
+  }, []);
+
+  /**
+   * Put a withdrawn list or edit back: `target` ({ kind: 'shot_list' | 'edit',
+   * id }), or ctx.recentlyWithdrawn when omitted. The cloud lets a maker
+   * restore only what they set aside themselves, still untouched (a manager
+   * or admin may restore anything). Ends the "Recently removed" mark; its own
+   * undo withdraws the row again.
+   */
+  const restoreWithdrawn = useCallback(async (target) => {
+    const t = target || recentlyWithdrawnRef.current;
+    if (!t || !t.id) return null;
+    const kind = t.kind === 'edit' ? 'edit' : 'shot_list';
+    const row = kind === 'edit' ? findEdit(t.id) : findShotList(t.id);
+    if (!row) throw new Error(kind === 'edit' ? 'edit not found' : 'shot list not found');
+    if (!row.archived_at) { unmarkIfRestored(t.id); return row; }
+    const pid = activeProjectIdRef.current;
+    const res = kind === 'edit'
+      ? await mutationsRef.current.archiveEdit(t.id, false, { history: false })
+      : await mutationsRef.current.archiveShotList(t.id, false, { history: false });
+    if (activeProjectIdRef.current !== pid) return res;
+    unmarkIfRestored(t.id);
+    pushHistory({
+      undoOps: [surfaced(() => (kind === 'edit'
+        ? mutationsRef.current.withdrawEdit(t.id)
+        : mutationsRef.current.withdrawShotList(t.id)))],
+      redoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind, id: t.id }))],
+    });
+    return res;
+  }, []);
+
+  /** End the "Recently removed" mark (S3b: when the Scenes tab unmounts). The row stays set aside. */
+  const clearRecentlyWithdrawn = useCallback(() => { markRecentlyWithdrawn(null); }, []);
 
   // ── Scenes ─────────────────────────────────────────────
   //
@@ -4325,6 +4490,9 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.updateEdit           = updateEdit;
   mutationsRef.current.saveEdit             = saveEdit;
   mutationsRef.current.archiveEdit          = archiveEdit;
+  mutationsRef.current.withdrawShotList     = withdrawShotList;
+  mutationsRef.current.withdrawEdit         = withdrawEdit;
+  mutationsRef.current.restoreWithdrawn     = restoreWithdrawn;
 
   // ── Shot-list selectors (S3a) ───────────────────────────
   // D10: `scenes` / `shots` below are the ACTIVE list's rows (every row when
@@ -4369,14 +4537,41 @@ export function RabbitProvider({ children }) {
       nextEditVersion: (listId, title) => nextEditVersionOf(edits, listId, title),
       editChainTip: (listId) => editChainTipOf(edits, listId),
       editItemsFromList: (listId) => editItemsFromListOf({ scenes, shots, items, listId, newId: uuidv4 }),
-      unlistedScenes: unlistedScenesOf({ shotListItems: items, scenes, shots }),
-      unlistedShots: unlistedShotsOf({ shotListItems: items, shots }),
+      // "Not in any list" counts LIVE lists only (0085: a withdrawn list is
+      // gone to the person who withdrew it; its scenes must not vanish).
+      unlistedScenes: unlistedScenesOf({ shotLists: lists, shotListItems: items, scenes, shots }),
+      unlistedShots: unlistedShotsOf({ shotLists: lists, shotListItems: items, shots }),
       // Links resolve by id over EVERY row (review round 1): a task or take
       // linked to a scene another list holds must still find its scene.
       sceneById: (id) => (id ? scenes.find(s => s.id === id) || null : null),
       shotById: (id) => (id ? shots.find(s => s.id === id) || null : null),
     };
   }, [activeShotListId, bundle.shotLists, bundle.shotListItems, bundle.edits, bundle.scenes, bundle.shots]);
+
+  // Withdraw (0085), resolved against the rows on screen. recentlyWithdrawn
+  // is { kind: 'shot_list' | 'edit', id, row } while the marked row is still
+  // set aside in the open project, else null. canWithdrawShotList(id) /
+  // canWithdrawEdit(id) say whether THIS person may withdraw that live row
+  // now; S3b and S3c offer the verb only then.
+  const recentlyWithdrawn = useMemo(() => {
+    const m = recentlyWithdrawnMark;
+    if (!m || m.projectId !== activeProjectId) return null;
+    const pool = m.kind === 'edit' ? bundle.edits : bundle.shotLists;
+    const row = (pool || []).find(r => r.id === m.id) || null;
+    return row && row.archived_at ? { kind: m.kind, id: m.id, row } : null;
+  }, [recentlyWithdrawnMark, activeProjectId, bundle.edits, bundle.shotLists]);
+  const canWithdrawShotList = useCallback((listId) => {
+    const list = (bundle.shotLists || []).find(l => l.id === listId);
+    return !!list && !list.archived_at && shotListWithdrawRefusal({
+      list, edits: bundle.edits, activeListId: activeShotListId, userId: withdrawUserId,
+    }) === null;
+  }, [bundle.shotLists, bundle.edits, activeShotListId, withdrawUserId]);
+  const canWithdrawEdit = useCallback((editId) => {
+    const edit = (bundle.edits || []).find(e => e.id === editId);
+    return !!edit && !edit.archived_at && editWithdrawRefusal({
+      edit, edits: bundle.edits, userId: withdrawUserId,
+    }) === null;
+  }, [bundle.edits, withdrawUserId]);
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -4455,6 +4650,11 @@ export function RabbitProvider({ children }) {
     sceneById:       shotListView.sceneById,
     shotById:        shotListView.shotById,
     formatShotListLabel,
+    // Withdraw (0085): the maker's take-back of an untouched new list or edit.
+    recentlyWithdrawn,
+    canWithdrawShotList,
+    canWithdrawEdit,
+    isWithdrawn,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -4559,6 +4759,7 @@ export function RabbitProvider({ children }) {
     addShotList, updateShotList, saveShotListSnapshot, setActiveShotList, archiveShotList,
     addToShotList, removeFromShotList, reorderShotListItems, refreshShotLists,
     createEditFrom, updateEdit, saveEdit, archiveEdit,
+    withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
@@ -4608,6 +4809,8 @@ export function RabbitProvider({ children }) {
     addShotList, updateShotList, saveShotListSnapshot, setActiveShotList, archiveShotList,
     addToShotList, removeFromShotList, reorderShotListItems, refreshShotLists,
     createEditFrom, updateEdit, saveEdit, archiveEdit, shotListView,
+    withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
+    recentlyWithdrawn, canWithdrawShotList, canWithdrawEdit,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

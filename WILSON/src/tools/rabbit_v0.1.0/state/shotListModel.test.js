@@ -31,6 +31,14 @@ import {
   validateVersionedTitle,
   assertUniqueShotList,
   assertUniqueEdit,
+  WITHDRAW_LIST_REFUSAL,
+  WITHDRAW_EDIT_REFUSAL,
+  ACTIVE_LIST_ARCHIVE_REFUSAL,
+  isShotListUntouched,
+  isEditUntouched,
+  isWithdrawn,
+  shotListWithdrawRefusal,
+  editWithdrawRefusal,
   planAddToList,
   planRemoveFromList,
   planReorderList,
@@ -144,6 +152,17 @@ describe('selectors (D10)', () => {
     expect(unlistedShotsOf({ shotListItems: without, shots: SHOTS }).map(s => s.id)).toEqual(['sh-b1'])
     // Control: with every row listed there is nothing unlisted.
     expect(unlistedScenesOf({ shotListItems: items, scenes: SCENES, shots: SHOTS })).toEqual([])
+  })
+
+  it('"Not in any list" counts LIVE lists only: a row whose only list is archived or withdrawn is in it', () => {
+    const moved = items.map(i => (i.scene_id === 'sc-b' || i.shot_id === 'sh-b1' ? { ...i, shot_list_id: 'L2' } : i))
+    const archivedL2 = [...lists, { id: 'L2', title: 'Alt', version: 1, archived_at: '2026-09-30T00:00:00Z' }]
+    expect(unlistedScenesOf({ shotLists: archivedL2, shotListItems: moved, scenes: SCENES, shots: SHOTS }).map(s => s.id)).toEqual(['sc-b'])
+    expect(unlistedShotsOf({ shotLists: archivedL2, shotListItems: moved, shots: SHOTS }).map(s => s.id)).toEqual(['sh-b1'])
+    // Control: the same rows in a LIVE second list have a home.
+    const liveL2 = [...lists, { id: 'L2', title: 'Alt', version: 1, archived_at: null }]
+    expect(unlistedScenesOf({ shotLists: liveL2, shotListItems: moved, scenes: SCENES, shots: SHOTS })).toEqual([])
+    expect(unlistedShotsOf({ shotLists: liveL2, shotListItems: moved, shots: SHOTS })).toEqual([])
   })
 
   it('after the backfill the active list equals every row (nothing visible changes)', () => {
@@ -289,5 +308,73 @@ describe('snapshots and edits', () => {
     expect(snap.shots['sh-a1'].name).toBe('A one')
     expect(snap.scenes['sc-a'].name).toBe('First')
     expect(snap.item_count).toBe(4)
+  })
+})
+
+describe('withdraw (0085): the maker takes back an untouched new list or edit', () => {
+  const list = { id: 'L1', created_by: 'u-me', snapshot: {}, archived_at: null }
+  const edit = { id: 'E1', shot_list_id: 'L1', created_by: 'u-me', parent_edit_id: null, snapshot: null, archived_at: null }
+
+  it('a list is untouched while never Saved and no LIVE edit is on it; membership does not count', () => {
+    expect(isShotListUntouched(list, [])).toBe(true)
+    expect(isShotListUntouched({ ...list, snapshot: undefined }, [])).toBe(true)
+    expect(isShotListUntouched({ ...list, snapshot: { kind: 'shot_list' } }, [])).toBe(false)
+    expect(isShotListUntouched(list, [edit])).toBe(false)
+    expect(isShotListUntouched(list, [{ ...edit, archived_at: '2026-09-30T00:00:00Z' }])).toBe(true)
+    expect(isShotListUntouched(list, [{ ...edit, shot_list_id: 'L2' }])).toBe(true)
+    expect(isShotListUntouched(null, [])).toBe(false)
+  })
+
+  it('an edit is untouched while never Saved and no LIVE edit continues it', () => {
+    const child = { ...edit, id: 'E2', parent_edit_id: 'E1' }
+    expect(isEditUntouched(edit, [edit])).toBe(true)
+    expect(isEditUntouched({ ...edit, snapshot: {} }, [edit])).toBe(false)
+    expect(isEditUntouched(edit, [edit, child])).toBe(false)
+    expect(isEditUntouched(edit, [edit, { ...child, archived_at: '2026-09-30T00:00:00Z' }])).toBe(true)
+  })
+
+  it('withdrawn = archived by the person who made it; never on a backend without users', () => {
+    expect(isWithdrawn({ ...list, archived_at: 'x', archived_by: 'u-me' })).toBe(true)
+    expect(isWithdrawn({ ...list, archived_at: 'x', archived_by: 'u-boss' })).toBe(false)
+    expect(isWithdrawn({ ...list, archived_at: null, archived_by: null })).toBe(false)
+    expect(isWithdrawn({ id: 'L', created_by: null, archived_at: 'x', archived_by: null })).toBe(false)
+  })
+
+  it('a list: the maker, untouched, then the active list, in the database\'s words', () => {
+    const base = { list, edits: [], activeListId: null }
+    expect(shotListWithdrawRefusal({ ...base, userId: 'u-me' })).toBe(null)
+    expect(shotListWithdrawRefusal({ ...base, userId: 'u-other' })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, userId: null })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, list: { ...list, created_by: null }, userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, edits: [edit], userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, activeListId: 'L1', userId: 'u-me' })).toBe(ACTIVE_LIST_ARCHIVE_REFUSAL)
+    // the database checks "untouched" before the active list
+    expect(shotListWithdrawRefusal({ ...base, edits: [edit], activeListId: 'L1', userId: 'u-me' })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, list: null, userId: 'u-me' })).toBe('shot list not found')
+  })
+
+  it('no users (Local Server, Drive): the maker test is skipped, untouched and active still apply', () => {
+    const base = { list: { ...list, created_by: null }, edits: [], activeListId: null, userId: undefined }
+    expect(shotListWithdrawRefusal(base)).toBe(null)
+    expect(shotListWithdrawRefusal({ ...base, edits: [edit] })).toBe(WITHDRAW_LIST_REFUSAL)
+    expect(shotListWithdrawRefusal({ ...base, activeListId: 'L1' })).toBe(ACTIVE_LIST_ARCHIVE_REFUSAL)
+    expect(editWithdrawRefusal({ edit: { ...edit, created_by: null }, edits: [edit], userId: undefined })).toBe(null)
+  })
+
+  it('an edit: the maker, then untouched', () => {
+    const child = { ...edit, id: 'E2', parent_edit_id: 'E1' }
+    expect(editWithdrawRefusal({ edit, edits: [edit], userId: 'u-me' })).toBe(null)
+    expect(editWithdrawRefusal({ edit, edits: [edit], userId: 'u-other' })).toBe(WITHDRAW_EDIT_REFUSAL)
+    expect(editWithdrawRefusal({ edit, edits: [edit, child], userId: 'u-me' })).toBe(WITHDRAW_EDIT_REFUSAL)
+    expect(editWithdrawRefusal({ edit: { ...edit, snapshot: { kind: 'edit' } }, edits: [edit], userId: 'u-me' })).toBe(WITHDRAW_EDIT_REFUSAL)
+    expect(editWithdrawRefusal({ edit: null, edits: [], userId: 'u-me' })).toBe('edit not found')
+  })
+
+  it('the three sentences are the database\'s, word for word (0085)', () => {
+    const sql = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../supabase/migrations/0085_shot_list_withdraw.sql'), 'utf8')
+    for (const sentence of [WITHDRAW_LIST_REFUSAL, WITHDRAW_EDIT_REFUSAL, ACTIVE_LIST_ARCHIVE_REFUSAL]) {
+      expect(sql.includes(`'${sentence}'`), sentence).toBe(true)
+    }
   })
 })

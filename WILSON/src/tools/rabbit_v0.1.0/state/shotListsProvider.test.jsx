@@ -11,7 +11,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor } from '@testing-library/react'
 
-const holder = vi.hoisted(() => ({ adapter: null }))
+const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null }))
 
 vi.mock('../adapters', () => ({
   selectAdapter: () => holder.adapter,
@@ -23,13 +23,13 @@ vi.mock('../../../cloud/auth/supabaseClient', () => ({
   supabase: {
     auth: {
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
-      getSession: async () => ({ data: { session: null } }),
+      getSession: async () => ({ data: { session: holder.session } }),
     },
   },
 }))
 vi.mock('../../../lib/localData', () => ({
   hasLocalServer: () => true,
-  loadOtterSettings: async () => ({ rabbit: { adapterMode: 'local_server', activeProjectId: 'p1' } }),
+  loadOtterSettings: async () => ({ rabbit: { adapterMode: holder.mode, activeProjectId: 'p1' } }),
   saveOtterSettings: async () => {},
 }))
 vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => null }))
@@ -112,7 +112,8 @@ function makeAdapter() {
       calls.push(['upsertShotList', row.id])
       const stored = db.shotLists.find(l => l.id === row.id)
       if (stored?.archived_at) throw httpError(409, 'this shot list is archived — restore it before changing it')
-      const next = { ...(stored || {}), ...clone(row), created_at: stored?.created_at || '2026-09-30' }
+      const next = { ...(stored || {}), ...clone(row), created_at: stored?.created_at || '2026-09-30',
+        created_by: stored ? (stored.created_by ?? null) : (holder.session?.user?.id ?? null) }
       db.shotLists = [...db.shotLists.filter(l => l.id !== row.id), next]
       return clone(next)
     },
@@ -173,16 +174,21 @@ function makeAdapter() {
     archiveShotList: async (_pid, listId, archived = true) => {
       calls.push(['archiveShotList', listId, archived])
       if (archived && db.project.active_shot_list_id === listId) throw httpError(409, 'the active shot list cannot be archived — make another list active first')
-      db.shotLists = db.shotLists.map(l => (l.id === listId ? { ...l, archived_at: archived ? (l.archived_at || 'T') : null } : l))
+      db.shotLists = db.shotLists.map(l => (l.id === listId ? { ...l, archived_at: archived ? (l.archived_at || 'T') : null,
+        archived_by: archived ? (l.archived_by ?? holder.session?.user?.id ?? null) : null } : l))
       return clone(db.shotLists.find(l => l.id === listId))
     },
     upsertEdit: async (row) => {
       calls.push(['upsertEdit', row.id])
-      db.edits = [...db.edits.filter(e => e.id !== row.id), clone(row)]
-      return clone(row)
+      const stored = db.edits.find(e => e.id === row.id)
+      const next = { ...clone(row), created_by: stored ? (stored.created_by ?? null) : (holder.session?.user?.id ?? null) }
+      db.edits = [...db.edits.filter(e => e.id !== row.id), next]
+      return clone(next)
     },
     archiveEdit: async (_pid, editId, archived = true) => {
-      db.edits = db.edits.map(e => (e.id === editId ? { ...e, archived_at: archived ? 'T' : null } : e))
+      calls.push(['archiveEdit', editId, archived])
+      db.edits = db.edits.map(e => (e.id === editId ? { ...e, archived_at: archived ? 'T' : null,
+        archived_by: archived ? (e.archived_by ?? holder.session?.user?.id ?? null) : null } : e))
       return clone(db.edits.find(e => e.id === editId))
     },
   }
@@ -195,16 +201,18 @@ function Probe() {
   return null
 }
 
-async function mount() {
+async function mount(lists = 1) {
   render(<RabbitProvider><Probe /></RabbitProvider>)
   await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.shotLists.length).toBe(1))
+  await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
 }
 
 const ids = (rows) => rows.map(r => r.id)
 
 beforeEach(() => {
   holder.adapter = makeAdapter()
+  holder.mode = 'local_server'
+  holder.session = null
   ctxRef = null
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -506,5 +514,161 @@ describe('S3a — shot lists through the real provider', () => {
     // S3b names the list the Scenes tab is viewing; this client never loaded it.
     await act(async () => { s4 = await ctxRef.addScene({ name: 'Four', scene_number: 4 }, { listId: 'L9' }) })
     expect(holder.adapter.db.shotListItems.some(i => i.shot_list_id === 'L9' && i.scene_id === s4.id)).toBe(true)
+  })
+})
+
+// ── 0085: withdraw (Audrey, 2026-09-30) ────────────────────────────────────
+// "allow users to view their most recently deleted list. only right after
+// they deleted." The undo of New list / New edit WITHDRAWS the row (archived
+// by its maker, never deleted); right after, it is ctx.recentlyWithdrawn.
+const LIST_REFUSAL = 'only an untouched shot list you made can be withdrawn — a project manager or a workspace admin can archive it'
+const EDIT_REFUSAL = 'only an untouched edit you made can be withdrawn — a project manager or a workspace admin can archive it'
+const listRow = (id) => ctxRef.shotLists.find(l => l.id === id)
+const editRow = (id) => ctxRef.edits.find(e => e.id === id)
+
+describe('0085 — withdraw through the real provider', () => {
+  it('undo of "New list" WITHDRAWS it and marks it recently removed; redo puts it back and ends the mark', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
+    expect(ctxRef.canWithdrawShotList(alt.id)).toBe(true)
+    expect(ctxRef.canWithdrawShotList('L1')).toBe(false) // the active list (D4)
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+    await act(async () => { await ctxRef.undo() })
+    expect(listRow(alt.id).archived_at).toBeTruthy()
+    expect(ctxRef.recentlyWithdrawn).toMatchObject({ kind: 'shot_list', id: alt.id })
+    expect(ctxRef.recentlyWithdrawn.row.title).toBe('Alt')
+    // Openable: an archived list still reads its membership.
+    expect(ctxRef.scenesOf(alt.id)).toEqual([])
+    await act(async () => { await ctxRef.redo() })
+    expect(listRow(alt.id).archived_at).toBeNull()
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+  })
+
+  it('refuses, before any write and in the database\'s words, a Saved list, one with a live edit, and the active list', async () => {
+    await mount()
+    let saved, withEdit
+    await act(async () => { saved = await ctxRef.addShotList({ title: 'Saved' }) })
+    await act(async () => { await ctxRef.saveShotListSnapshot(saved.id) })
+    await act(async () => { withEdit = await ctxRef.addShotList({ title: 'Cut list' }) })
+    await act(async () => { await ctxRef.createEditFrom({ listId: withEdit.id, title: 'Cut' }) })
+    const archives = () => holder.adapter.calls.filter(c => c[0] === 'archiveShotList').length
+    const before = archives()
+    await expect(ctxRef.withdrawShotList(saved.id)).rejects.toThrow(LIST_REFUSAL)
+    await expect(ctxRef.withdrawShotList(withEdit.id)).rejects.toThrow(LIST_REFUSAL)
+    await expect(ctxRef.withdrawShotList('L1')).rejects.toThrow('the active shot list cannot be archived — make another list active first')
+    expect(archives()).toBe(before)
+    expect(ctxRef.canWithdrawShotList(saved.id)).toBe(false)
+    expect(ctxRef.canWithdrawShotList(withEdit.id)).toBe(false)
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+  })
+
+  it('Ctrl+Z walks back New edit, then New list: the edit is withdrawn first, then the list; only the latest is marked', async () => {
+    await mount()
+    let list, edit
+    await act(async () => { list = await ctxRef.addShotList({ title: 'Pickups' }) })
+    await act(async () => { edit = await ctxRef.createEditFrom({ listId: list.id, title: 'Cut' }) })
+    expect(ctxRef.canWithdrawShotList(list.id)).toBe(false) // a live edit is on it
+    expect(ctxRef.canWithdrawEdit(edit.id)).toBe(true)
+    await act(async () => { await ctxRef.undo() })
+    expect(editRow(edit.id).archived_at).toBeTruthy()
+    expect(ctxRef.recentlyWithdrawn).toMatchObject({ kind: 'edit', id: edit.id })
+    await act(async () => { await ctxRef.undo() })
+    expect(listRow(list.id).archived_at).toBeTruthy()
+    expect(ctxRef.recentlyWithdrawn).toMatchObject({ kind: 'shot_list', id: list.id })
+    expect(ctxRef.error).toBeNull()
+  })
+
+  it('an edit that a live edit continues, or a Saved one, cannot be withdrawn', async () => {
+    await mount()
+    let e1, e2
+    await act(async () => { e1 = await ctxRef.createEditFrom({ listId: 'L1', title: 'Cut' }) })
+    await act(async () => { e2 = await ctxRef.createEditFrom({ listId: 'L1', title: 'Cut' }) })
+    expect(e2.parent_edit_id).toBe(e1.id)
+    await expect(ctxRef.withdrawEdit(e1.id)).rejects.toThrow(EDIT_REFUSAL)
+    await act(async () => { await ctxRef.saveEdit(e2.id, []) })
+    await expect(ctxRef.withdrawEdit(e2.id)).rejects.toThrow(EDIT_REFUSAL)
+    expect(holder.adapter.calls.some(c => c[0] === 'archiveEdit')).toBe(false)
+    expect(ctxRef.canWithdrawEdit(e1.id)).toBe(false)
+    expect(ctxRef.canWithdrawEdit(e2.id)).toBe(false)
+  })
+
+  it('restoreWithdrawn() puts the recently removed list back as ONE undo step; clearRecentlyWithdrawn() only ends the mark', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
+    await act(async () => { await ctxRef.withdrawShotList(alt.id) })
+    expect(ctxRef.recentlyWithdrawn?.id).toBe(alt.id)
+    await act(async () => { await ctxRef.restoreWithdrawn() })
+    expect(listRow(alt.id).archived_at).toBeNull()
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+    // Its undo withdraws the list again, and marks it again.
+    await act(async () => { await ctxRef.undo() })
+    expect(listRow(alt.id).archived_at).toBeTruthy()
+    expect(ctxRef.recentlyWithdrawn?.id).toBe(alt.id)
+    // Leaving the Scenes tab: the mark ends, the list stays set aside.
+    await act(async () => { ctxRef.clearRecentlyWithdrawn() })
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+    expect(listRow(alt.id).archived_at).toBeTruthy()
+  })
+
+  it('a scene only the withdrawn list held is "Not in any list" at once, and listed again on restore', async () => {
+    await mount()
+    let alt, s4
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
+    await act(async () => { s4 = await ctxRef.addScene({ name: 'Four', scene_number: 4 }, { listId: alt.id }) })
+    expect(ids(ctxRef.unlistedScenes)).not.toContain(s4.id)
+    await act(async () => { await ctxRef.withdrawShotList(alt.id) })
+    expect(ids(ctxRef.unlistedScenes)).toContain(s4.id)
+    expect(ids(ctxRef.scenes)).not.toContain(s4.id) // D10: still off the other tabs
+    await act(async () => { await ctxRef.restoreWithdrawn() })
+    expect(ids(ctxRef.unlistedScenes)).not.toContain(s4.id)
+  })
+
+  it('a restore by the manager\'s verb ends the mark too, so a later archive never reads as "recently removed"', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
+    await act(async () => { await ctxRef.withdrawShotList(alt.id) })
+    await act(async () => { await ctxRef.archiveShotList(alt.id, false) })
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+    await act(async () => { await ctxRef.archiveShotList(alt.id, true) })
+    expect(listRow(alt.id).archived_at).toBeTruthy()
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+  })
+
+  it('a Ctrl+Z whose withdraw is refused says why (undo swallows the throw) and leaves the list live', async () => {
+    await mount()
+    let alt
+    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
+    // A collaborator Saves it in another window; this client reads it back.
+    holder.adapter.db.shotLists = holder.adapter.db.shotLists.map(l => (l.id === alt.id ? { ...l, snapshot: { kind: 'shot_list' } } : l))
+    await act(async () => { await ctxRef.refreshShotLists() })
+    await act(async () => { await ctxRef.undo() })
+    expect(listRow(alt.id).archived_at).toBeNull()
+    expect(ctxRef.error).toBe(LIST_REFUSAL)
+    expect(ctxRef.recentlyWithdrawn).toBeNull()
+  })
+
+  it('on the cloud the maker test applies: your own new list is withdrawable, someone else\'s is not', async () => {
+    holder.mode = 'supabase'
+    holder.session = { user: { id: 'u-me', app_metadata: {} } }
+    holder.adapter.listProjectMembers = async () => [{ project_id: 'p1', user_id: 'u-me', project_role: 'member' }]
+    holder.adapter.db.shotLists.push({ id: 'L9', project_id: 'p1', title: 'Theirs', version: 1, summary: null, snapshot: {},
+      archived_at: null, archived_by: null, created_by: 'u-other', created_at: '2026-09-02' })
+    await mount(2)
+    expect(ctxRef.adapterMode).toBe('supabase')
+    let mine
+    await act(async () => { mine = await ctxRef.addShotList({ title: 'Mine' }) })
+    expect(mine.created_by).toBe('u-me')
+    await waitFor(() => expect(ctxRef.canWithdrawShotList(mine.id)).toBe(true))
+    expect(ctxRef.canWithdrawShotList('L9')).toBe(false)
+    await expect(ctxRef.withdrawShotList('L9')).rejects.toThrow(LIST_REFUSAL)
+    expect(holder.adapter.calls.some(c => c[0] === 'archiveShotList' && c[1] === 'L9')).toBe(false)
+    await act(async () => { await ctxRef.undo() })
+    expect(listRow(mine.id).archived_at).toBeTruthy()
+    expect(listRow(mine.id).archived_by).toBe('u-me')
+    expect(ctxRef.isWithdrawn(listRow(mine.id))).toBe(true)
+    expect(ctxRef.recentlyWithdrawn?.id).toBe(mine.id)
   })
 })
