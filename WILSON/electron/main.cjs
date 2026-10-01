@@ -925,9 +925,20 @@ function startLocalServer(distPath) {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
       const existing = readJSON(filePath, { categories: [] });
       const incoming = req.body.categories || [];
+      // Post-overhaul S2b (C10): keyed on `category`, as the client posts it
+      // and as the hotkeys merge above reads it — the `name` keying this
+      // replaces matched every incoming category to the first nameless one
+      // and collapsed a generated library into one category with no name.
+      // A category with neither key reads as "General" (otterRoutes.js's
+      // functionCategoryName, which the cloud's merge and the views share);
+      // existing categories are kept exactly as stored, new ones are written
+      // with `category`.
+      const catName = (c) => (c && (c.category || c.name)) || 'General';
+      const normalizeCat = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
       for (const inCat of incoming) {
-        let existCat = existing.categories.find(c => c.name === inCat.name);
-        if (!existCat) { existCat = { name: inCat.name, functions: [] }; existing.categories.push(existCat); }
+        const name = catName(inCat);
+        let existCat = existing.categories.find(c => normalizeCat(catName(c)) === normalizeCat(name));
+        if (!existCat) { existCat = { category: name, functions: [] }; existing.categories.push(existCat); }
         for (const fn of (inCat.functions || [])) {
           if (!existCat.functions.some(f => f.name === fn.name)) existCat.functions.push(fn);
         }

@@ -282,13 +282,33 @@ export function mergeHotkeys(existing, incoming) {
   return out
 }
 
+/**
+ * A function category's name, whichever key holds it — the one reading the
+ * merge below, the Functions reference and the Search dialog share.
+ *
+ * Post-overhaul S2b (C10): until S2b the merge keyed categories on `name`
+ * and created `{ name: inCat.name }`, while the client posts
+ * `{ category, functions }`. `inCat.name` was undefined, so every incoming
+ * category matched the first nameless one and a generated library collapsed
+ * into ONE category with no name — written to disk as `{ functions: [...] }`
+ * (Audrey's Python library is exactly that: one keyless category of 46).
+ * Stored libraries therefore hold all three shapes: `category`, `name`, or
+ * neither. A category with neither reads as "General", and the merge keys
+ * on the same reading, so an incoming "General" lands in it rather than
+ * beside it under a second "General" heading. Existing categories are
+ * carried over exactly as stored; only categories a merge creates are
+ * written, and they are written with `category`.
+ */
+export const functionCategoryName = (cat) => cat?.category || cat?.name || 'General'
+
 export function mergeFunctions(existing, incoming) {
   const out = { categories: (existing?.categories || []).map(c => ({
     ...c, functions: [...(c.functions || [])],
   })) }
   for (const inCat of incoming || []) {
-    let cat = out.categories.find(c => c.name === inCat.name)
-    if (!cat) { cat = { name: inCat.name, functions: [] }; out.categories.push(cat) }
+    const catName = functionCategoryName(inCat)
+    let cat = out.categories.find(c => normKey(functionCategoryName(c)) === normKey(catName))
+    if (!cat) { cat = { category: catName, functions: [] }; out.categories.push(cat) }
     for (const fn of (inCat.functions || [])) {
       if (!cat.functions.some(f => f.name === fn.name)) cat.functions.push(fn)
     }
