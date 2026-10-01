@@ -19,12 +19,21 @@ import { _resetOverlaysForTests, focusableWithin } from '../../../ui/overlay'
 import { ToastProvider } from '../../../ui/Toast'
 import { STATUS } from '../../../ui/StatusDot'
 import { formatSceneCode, formatShotCode } from '../entityNaming'
+import { navigateTo } from '../state/rabbitNavigate'
+// Post-overhaul S3b: the context's shot-list selectors are S3a's own pure
+// functions over the mock's rows, so the page meets what the provider gives.
+import {
+  backfillItems, activeShotListOf, activeScenesOf, activeShotsOf, scenesOfList, shotsOfList,
+  listsContainingOf, unlistedScenesOf, unlistedShotsOf, nextShotListVersion, formatShotListLabel, isWithdrawn,
+} from '../state/shotListModel'
 
 // ScenesView's module graph reaches the cloud client and the permission hook
 // at import.
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
-vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true, can: () => true }) }))
+// A workspace admin unless a test seats someone else (S3b's reviewer variant).
+const perms = vi.hoisted(() => ({ admin: { role: 'admin', ready: true, can: () => true }, current: null }))
+vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => perms.current || perms.admin }))
 // ONE object each for the whole run: ScenesView keys memos on their lists.
 const team = vi.hoisted(() => ({ members: [] }))
 const rateCard = vi.hoisted(() => ({ entries: [], rateCards: [] }))
@@ -44,7 +53,7 @@ const { default: IngestionToast } = await import('../components/IngestionToast')
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
 
-afterEach(() => { cleanup(); _resetOverlaysForTests(); vi.restoreAllMocks(); localStorage.clear() })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); vi.restoreAllMocks(); localStorage.clear(); perms.current = null })
 
 // Two scenes: Lighthouse, dawn (final, two shots, 240 frames) and Cliff path
 // (needs revisions — the magenta that is the kit's warning now — no time of
@@ -58,11 +67,58 @@ const SHOTS = () => [
   { id: 'sh2', scene_id: 'sc1', name: 'The cold lamp', shot_number: 20, status: 'in_progress', type: 'other', framing: null, camera_movement: null, frame_count: 0, description: '' },
 ]
 
-function page({ scenes = SCENES(), shots = SHOTS(), ...extra } = {}) {
+// The list 0084's backfill (D11) leaves every project that had scenes with:
+// "Shot list 1 · v1", ACTIVE, holding every scene and shot in number order.
+const LIST_1 = {
+  id: 'list-1', project_id: 'p1', title: 'Shot list 1', version: 1, summary: 'Created from existing scenes',
+  snapshot: {}, archived_at: null, archived_by: null, created_at: '2026-09-30T10:00:00Z', created_by: null,
+}
+/** Membership rows for one list, from { scene_id | shot_id, position } entries. */
+const itemsFor = (listId, entries) => entries.map((it, i) => ({ id: `${listId}-item-${i + 1}`, shot_list_id: listId, project_id: 'p1', scene_id: null, shot_id: null, ...it }))
+
+/** S3a's ctx selectors over these rows, as RabbitProvider's shotListView builds them. */
+function listContext({ project, scenes, shots, shotLists, shotListItems }) {
+  const pointer = { active_shot_list_id: project.active_shot_list_id || null }
+  return {
+    scenes: activeScenesOf({ project: pointer, shotLists, shotListItems, scenes, shots }),
+    shots: activeShotsOf({ project: pointer, shotLists, shotListItems, shots }),
+    allScenes: scenes,
+    allShots: shots,
+    shotLists,
+    shotListItems,
+    edits: [],
+    activeShotList: activeShotListOf(pointer, shotLists),
+    scenesOf: (id) => scenesOfList(scenes, shotListItems, id, shots),
+    shotsOf: (id) => shotsOfList(shots, shotListItems, id, scenes),
+    listsContaining: (id) => listsContainingOf({ shotLists, shotListItems, shots }, id),
+    unlistedScenes: unlistedScenesOf({ shotLists, shotListItems, scenes, shots }),
+    unlistedShots: unlistedShotsOf({ shotLists, shotListItems, shots }),
+    sceneById: (id) => (id ? scenes.find((s) => s.id === id) || null : null),
+    shotById: (id) => (id ? shots.find((s) => s.id === id) || null : null),
+    nextShotListVersion: (title) => nextShotListVersion(shotLists, title),
+    formatShotListLabel,
+    isWithdrawn,
+    recentlyWithdrawn: null,
+    canWithdrawShotList: () => false,
+  }
+}
+
+/**
+ * The page, mounted. `shotLists` / `shotListItems` / `activeListId` give it
+ * lists of its own; without them it has LIST_1 holding every row, active.
+ * `pageActive` is Rabbit.jsx's `currentPage === 'rabbit'` (S4a-07).
+ */
+function page({ scenes = SCENES(), shots = SHOTS(), shotLists, shotListItems, activeListId, projectFields = {}, pageActive = true, ...extra } = {}) {
+  const lists = shotLists ?? [LIST_1]
+  const items = shotListItems ?? (shotLists ? [] : itemsFor(LIST_1.id, backfillItems(scenes, shots)))
+  const project = {
+    id: 'p1', name: 'Salt Hours', fps: 24,
+    active_shot_list_id: activeListId !== undefined ? activeListId : (shotLists ? null : LIST_1.id),
+    ...projectFields,
+  }
   const ctx = {
-    project: { id: 'p1', name: 'Salt Hours', fps: 24 },
-    scenes,
-    shots,
+    project,
+    ...listContext({ project, scenes, shots, shotLists: lists, shotListItems: items }),
     assets: [],
     tasks: [],
     phases: [],
@@ -80,7 +136,7 @@ function page({ scenes = SCENES(), shots = SHOTS(), ...extra } = {}) {
     ...extra,
   }
   rabbit.current = ctx
-  return { ctx, ...render(<ScenesView />) }
+  return { ctx, ...render(<ScenesView pageActive={pageActive} />) }
 }
 
 /** A header cell's visible label: its words, less a screen-reader-only name. */
@@ -1310,5 +1366,118 @@ describe('review round two', () => {
     field = within(main).getByRole('textbox', { name: 'Scene name' })
     act(() => { field.blur() })
     expect(document.activeElement).toBe(nameWords())
+  })
+})
+
+/* ── post-overhaul S3b, step 1: safe with more than one list ────────────────
+   S3a made ctx.scenes / ctx.shots the ACTIVE list's rows. A fact about the
+   whole project — the next number, every shot a scene's delete takes — must
+   read ctx.allScenes / ctx.allShots, and a popup must find its row through
+   ctx.sceneById / ctx.shotById, or a second list loses numbers and shots. */
+// Two lists. "Shoot · v1" (ACTIVE) holds Lighthouse, dawn with The door and
+// The cold lamp, and Cliff path. "Pickups · v1" holds Lighthouse with only
+// The far lamp (shot 30, in no other list) and Harbour café (scene 3, in no
+// other list) with The kettle.
+const TWO_LISTS = () => ({
+  scenes: [...SCENES(), { id: 'sc3', name: 'Harbour café', scene_number: 3, status: 'in_progress', type: 'interior', time_of_day: 'afternoon', description: 'The one conversation.' }],
+  shots: [
+    ...SHOTS(),
+    { id: 'sh3', scene_id: 'sc3', name: 'The kettle', shot_number: 10, status: 'not_started', type: 'other', frame_count: 48, description: '' },
+    { id: 'sh4', scene_id: 'sc1', name: 'The far lamp', shot_number: 30, status: 'not_started', type: 'other', frame_count: 24, description: '' },
+  ],
+  shotLists: [
+    { ...LIST_1, id: 'list-a', title: 'Shoot', summary: 'The main unit' },
+    { ...LIST_1, id: 'list-b', title: 'Pickups', summary: 'Second unit', created_at: '2026-09-30T12:00:00Z' },
+  ],
+  shotListItems: [
+    ...itemsFor('list-a', [{ scene_id: 'sc1', position: 0 }, { scene_id: 'sc2', position: 1 }, { shot_id: 'sh1', position: 0 }, { shot_id: 'sh2', position: 1 }]),
+    ...itemsFor('list-b', [{ scene_id: 'sc1', position: 0 }, { scene_id: 'sc3', position: 1 }, { shot_id: 'sh4', position: 0 }, { shot_id: 'sh3', position: 0 }]),
+  ],
+  activeListId: 'list-a',
+})
+
+describe('S3b step 1: the tab is safe with more than one list', () => {
+  it('the premise: the list on screen holds scenes 1 and 2 and four shots of the project\'s six — the rest only the other list holds', () => {
+    const { ctx } = page(TWO_LISTS())
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    expect(ctx.scenes.map((s) => s.id)).toEqual(['sc1', 'sc2'])
+    expect(ctx.allScenes.map((s) => s.id)).toEqual(['sc1', 'sc2', 'sc3'])
+    expect(ctx.shots.map((s) => s.id)).toEqual(['sh1', 'sh2'])
+    expect(ctx.allShots.map((s) => s.id)).toEqual(['sh1', 'sh2', 'sh3', 'sh4'])
+  })
+
+  it('New scene takes the number after EVERY scene of the project, not after the list\'s (scene 3, held only by the other list, was minted again)', async () => {
+    const { ctx } = page(TWO_LISTS())
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    await waitFor(() => expect(ctx.addScene).toHaveBeenCalledTimes(1))
+    expect(ctx.addScene.mock.calls[0][0]).toMatchObject({ scene_number: 4, name: formatSceneCode(ctx.project, 4) })
+  })
+
+  it('a new shot takes the number after every shot of its scene, in every list (The far lamp, 30, only in the other list)', async () => {
+    const { ctx } = page(TWO_LISTS())
+    openScene('Lighthouse, dawn')
+    fireEvent.click(within(rowOf('Lighthouse, dawn').nextElementSibling).getByRole('button', { name: 'Add shot' }))
+    await waitFor(() => expect(ctx.addShot).toHaveBeenCalledTimes(1))
+    expect(ctx.addShot.mock.calls[0][0]).toMatchObject({ scene_id: 'sc1', shot_number: 31, name: formatShotCode(ctx.project, 1, 31) })
+  })
+
+  it('a scene\'s delete deletes every shot it has, in every list, each by its own call (so each has its own undo), then the scene', async () => {
+    const { ctx } = page(TWO_LISTS())
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Delete scene' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(ctx.deleteScene).toHaveBeenCalledWith('sc1'))
+    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2', 'sh4'])
+  })
+
+  it('the bulk delete does the same for each scene ticked', () => {
+    const { ctx } = page(TWO_LISTS())
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    fireEvent.click(within(document.querySelector('.rb-scene-bulk')).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh1', 'sh2', 'sh4'])
+    expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1'])
+  })
+
+  it('a shot and a scene only the other list holds open their popups ("Open in Scenes"): each found among every row, the shot\'s code and parent scene its own', () => {
+    const { ctx } = page(TWO_LISTS())
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', shotId: 'sh3' }))
+    const shot = screen.getByRole('dialog', { name: 'The kettle' })
+    expect(shot.querySelector('.rb-scene-detail-code').textContent).toBe(formatShotCode(ctx.project, 3, 10))
+    const parent = within(shot).getByText('Parent scene').closest('.rb-scene-prop')
+    expect(parent.querySelector('.rb-scene-prop-words').textContent).toBe('Harbour café')
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', sceneId: 'sc3' }))
+    const scene = screen.getByRole('dialog', { name: 'Harbour café' })
+    // The list on screen does not hold it, so its popup lists every shot it has.
+    expect([...scene.querySelectorAll('.rb-scene-shot-name')].map((b) => b.textContent)).toEqual(['The kettle'])
+  })
+
+  it('each popup\'s task form offers every scene and shot: the row only the other list holds is the task\'s own, not "—"', () => {
+    page({ ...TWO_LISTS(), projectFields: { scenes_enabled: true } })
+    const formSelects = (dialog) => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Add new task' }))
+      const form = screen.getByPlaceholderText('Task title…').closest('.rb-rel-task')
+      return ['Scene', 'Shot'].map((label) => within(form).getByText(label).closest('.ui-field').querySelector('select'))
+    }
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', shotId: 'sh3' }))
+    const shotPopup = screen.getByRole('dialog', { name: 'The kettle' })
+    let [sceneSelect, shotSelect] = formSelects(shotPopup)
+    expect([...sceneSelect.options].map((o) => o.textContent)).toEqual(['—', 'Lighthouse, dawn', 'Cliff path', 'Harbour café'])
+    expect([shotSelect.value, shotSelect.selectedOptions[0].textContent]).toEqual(['sh3', 'The kettle'])
+    fireEvent.click(within(shotPopup.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', sceneId: 'sc3' }));
+    [sceneSelect, shotSelect] = formSelects(screen.getByRole('dialog', { name: 'Harbour café' }))
+    expect([sceneSelect.value, sceneSelect.selectedOptions[0].textContent]).toEqual(['sc3', 'Harbour café'])
+    expect([...shotSelect.options].map((o) => o.textContent)).toEqual(['—', 'The kettle'])
+  })
+
+  it('the take picker opened from such a shot\'s popup finds the shot, and its scene, among every row', () => {
+    page({ ...TWO_LISTS(), ...TAKES })
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', shotId: 'sh3' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'The kettle' })).getByRole('button', { name: /Add takes/ }))
+    const picker = screen.getByRole('dialog', { name: 'Add takes to "The kettle"' })
+    expect(picker.querySelector('.ui-dialog-subtitle').textContent).toMatch(/^Harbour café · /)
   })
 })

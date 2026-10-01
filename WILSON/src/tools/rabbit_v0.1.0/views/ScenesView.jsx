@@ -236,6 +236,22 @@ function fmtNumber(n) {
   return n.toLocaleString()
 }
 
+// Shots keyed by their scene (unlinked ones under '__unlinked__'), each
+// scene's in shot-number order — for the list on screen and, since S3b, for
+// every shot of the project.
+function groupShotsByScene(shots) {
+  const map = {}
+  for (const s of shots) {
+    const key = s.scene_id || '__unlinked__'
+    if (!map[key]) map[key] = []
+    map[key].push(s)
+  }
+  for (const key of Object.keys(map)) {
+    map[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+  }
+  return map
+}
+
 // ── The tables' cell selects (surface 6a) ──
 // The words in sentence case: a status's from the kit's one STATUS map
 // (R3-11), the rest humanised from their value. Framing keeps its long
@@ -270,6 +286,13 @@ export default function ScenesView() {
   const project = ctx?.project
   const scenes = ctx?.scenes || []
   const shots = ctx?.shots || []
+  // Post-overhaul S3b, step 1: `scenes` / `shots` are one LIST's rows (S3a,
+  // D10), so a fact about the whole PROJECT — the next scene or shot number,
+  // every shot of a scene a delete takes with it — reads every row. A scene
+  // held only by another list would otherwise get its number reused, and its
+  // shots would be cascaded away by the database with no undo of their own.
+  const allScenes = ctx?.allScenes || []
+  const allShots = ctx?.allShots || []
   const assets = ctx?.assets || []
   const tasks = ctx?.tasks || []
   const phases = ctx?.phases || []
@@ -373,16 +396,20 @@ export default function ScenesView() {
   // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
   // Declined (false) until the shot is in state, so the request is retried
   // rather than lost; a payload for another project is dropped by the hook.
+  // S3b: found among EVERY row (ctx.shotById), as the popup finds it — a
+  // shot another list holds still opens.
+  const shotById = ctx?.shotById
+  const sceneById = ctx?.sceneById
   const onNavigate = useCallback((p) => {
     if (p?.shotId) {
-      if (!shots.some(s => s.id === p.shotId)) return false
+      if (!shotById?.(p.shotId)) return false
       setDetailShotId(p.shotId); setDetailSceneId(null)
     } else if (p?.sceneId) {
-      if (!scenes.some(s => s.id === p.sceneId)) return false
+      if (!sceneById?.(p.sceneId)) return false
       setDetailSceneId(p.sceneId)
     }
     return true
-  }, [shots, scenes])
+  }, [shotById, sceneById])
   useNavigateTarget('scenes', onNavigate, project?.id || null)
   // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
   // them: the provider's history holds every takes mutation (and every
@@ -435,18 +462,10 @@ export default function ScenesView() {
     return map
   }, [tasks])
 
-  const shotsByScene = useMemo(() => {
-    const map = {}
-    for (const s of shots) {
-      const key = s.scene_id || '__unlinked__'
-      if (!map[key]) map[key] = []
-      map[key].push(s)
-    }
-    for (const key of Object.keys(map)) {
-      map[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
-    }
-    return map
-  }, [shots])
+  const shotsByScene = useMemo(() => groupShotsByScene(shots), [shots])
+  // Every shot of each scene, in every list (S3b step 1): what a scene's
+  // delete takes with it, and what its next shot number counts past.
+  const allShotsByScene = useMemo(() => groupShotsByScene(allShots), [allShots])
 
   // ── Frame / runtime totals per scene ──
   const sceneTotals = useMemo(() => {
@@ -473,9 +492,11 @@ export default function ScenesView() {
   // ── Auto-naming helpers ──
   // Thin wrappers over ../entityNaming so this view, the settings preview and
   // S26's folder tree all produce the same strings. See that module's header.
+  // Numbers count past EVERY scene and shot of the project (S3b step 1), not
+  // only the rows of the list on screen.
   const nextSceneNumber = useMemo(
-    () => nextSceneNumberFor(scenes, project),
-    [scenes, project?.scene_start_number],
+    () => nextSceneNumberFor(allScenes, project),
+    [allScenes, project?.scene_start_number],
   )
 
   const formatSceneCode = useCallback(
@@ -484,8 +505,8 @@ export default function ScenesView() {
   )
 
   const nextShotNumberForScene = useCallback(
-    (sceneId) => nextShotNumberFor(shotsByScene[sceneId] || [], project),
-    [shotsByScene, project?.scene_start_number],
+    (sceneId) => nextShotNumberFor(allShotsByScene[sceneId] || [], project),
+    [allShotsByScene, project?.scene_start_number],
   )
 
   const formatShotCode = useCallback(
@@ -508,7 +529,7 @@ export default function ScenesView() {
   }, [ctx, nextSceneNumber, formatSceneCode])
 
   const handleNewShot = useCallback(async (sceneId) => {
-    const scene = scenes.find(s => s.id === sceneId)
+    const scene = sceneById?.(sceneId)
     const nextNum = nextShotNumberForScene(sceneId)
     const name = formatShotCode(scene?.scene_number ?? 0, nextNum)
     try {
@@ -521,11 +542,14 @@ export default function ScenesView() {
         frame_count: 0,
       })
     } catch (err) { console.error('Failed to create shot:', err) }
-  }, [ctx, scenes, nextShotNumberForScene, formatShotCode])
+  }, [ctx, sceneById, nextShotNumberForScene, formatShotCode])
 
+  // Every shot of the scene, in every list (S3b step 1), each deleted on its
+  // own first so each has its own undo; the database's cascade would take a
+  // shot only another list holds with none.
   const handleDeleteScene = useCallback(async (id) => {
     try {
-      const childShots = shotsByScene[id] || []
+      const childShots = allShotsByScene[id] || []
       for (const shot of childShots) {
         await ctx?.deleteShot?.(shot.id)
       }
@@ -533,7 +557,7 @@ export default function ScenesView() {
     } catch (err) { console.error('Failed to delete scene:', err) }
     setConfirmDelete(null)
     if (detailSceneId === id) setDetailSceneId(null)
-  }, [ctx, shotsByScene, detailSceneId])
+  }, [ctx, allShotsByScene, detailSceneId])
 
   const handleDeleteShot = useCallback(async (id) => {
     try {
@@ -1054,6 +1078,7 @@ export default function ScenesView() {
                       scenes={g.scenes}
                       takes={takesApi}
                       shotsByScene={shotsByScene}
+                      allShotsByScene={allShotsByScene}
                       sceneTotals={sceneTotals}
                       assetCountByScene={assetCountByScene}
                       taskCountByScene={taskCountByScene}
@@ -1076,6 +1101,7 @@ export default function ScenesView() {
                 scenes={sorted}
                 takes={takesApi}
                 shotsByScene={shotsByScene}
+                allShotsByScene={allShotsByScene}
                 sceneTotals={sceneTotals}
                 assetCountByScene={assetCountByScene}
                 taskCountByScene={taskCountByScene}
@@ -1109,8 +1135,9 @@ export default function ScenesView() {
           sceneId={detailSceneId}
           ctx={ctx}
           fps={fps}
-          shotsByScene={shotsByScene}
-          sceneTotals={sceneTotals}
+          // The shots its row shows; for a scene the list on screen does not
+          // hold (opened from another tab), every shot it has (S3b step 1).
+          sceneShots={(sceneMap[detailSceneId] ? shotsByScene[detailSceneId] : allShotsByScene[detailSceneId]) || []}
           assetCountByScene={assetCountByScene}
           taskCountByScene={taskCountByScene}
           projectMembers={projectMembers}
@@ -1152,11 +1179,13 @@ export default function ScenesView() {
           carries the class, so the picker's list scrolls on the app's dark
           bar as it did in the page (review round one, R1-12). */}
       {takesShotId && (() => {
-        const shot = shots.find(s => s.id === takesShotId)
+        // S3b: every row, as the shot popup finds its shot (the picker opens
+        // from it, and the popup can show a shot another list holds).
+        const shot = shotById?.(takesShotId)
         if (!shot) return null
         return createPortal(
           <div className="wilson-dark-scroll">
-            <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
+            <ShotTakesDialog shot={shot} scene={sceneById?.(shot.scene_id) || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
               entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
               onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
               onOpenPicker={() => setPickerShotId(shot.id)}>
@@ -1167,12 +1196,12 @@ export default function ScenesView() {
         )
       })()}
       {pickerShotId && (() => {
-        const shot = shots.find(s => s.id === pickerShotId)
+        const shot = shotById?.(pickerShotId)
         if (!shot) return null
         const entries = takesByShotMap.get(shot.id) || []
         return createPortal(
           <div className="wilson-dark-scroll">
-            <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
+            <TakePickerDialog shot={shot} scene={sceneById?.(shot.scene_id) || null} files={binFiles} bins={bins}
               assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
               onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
           </div>,
@@ -1218,7 +1247,7 @@ function BigTile({ label, value }) {
 // one row that spans the table and holds a table of the shots, indented as
 // before, opened and closed by the same toggle. Widths are the sheet's
 // (`.rb-scene-table-wrap`), each column's thumbnail box its size's.
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, allShotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
@@ -1245,9 +1274,11 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allIds)) }
   function clearSelection() { setSelected(new Set()) }
   function bulkUpdate(patch) { for (const id of selected) ctx?.updateScene?.(id, patch); clearSelection() }
+  // Every shot of each scene, in every list (S3b step 1), as the row's own
+  // delete: a shot only another list holds gets its own undo.
   function bulkDelete() {
     for (const id of selected) {
-      const childShots = shotsByScene[id] || []
+      const childShots = allShotsByScene[id] || []
       for (const shot of childShots) ctx?.deleteShot?.(shot.id)
       ctx?.deleteScene?.(id)
     }
@@ -2291,10 +2322,12 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 //
 // R4-26's twin — a related asset's click sets `nestedAssetId`, which nothing
 // renders — is RECORDED, not changed (C1), as B4c recorded it.
-function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
-  const scene = (ctx?.scenes || []).find(s => s.id === sceneId)
-  const sceneShots = shotsByScene[sceneId] || []
-  const totals = sceneTotals[sceneId] || { totalFrames: 0, runtime: '00:00:00:00' }
+function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
+  // S3b step 1: found among EVERY scene (ctx.sceneById, S3a), so a scene of
+  // a list that is not the active one opens; ctx.scenes is the active list's.
+  const scene = ctx?.sceneById?.(sceneId) || null
+  const totalFrames = sceneShots.reduce((sum, sh) => sum + (Number(sh.frame_count) || 0), 0)
+  const totals = { totalFrames, runtime: framesToTimecode(totalFrames, fps) }
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
@@ -2401,8 +2434,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                   entityId={scene.id}
                   assets={ctx?.assets || []}
                   phases={ctx?.phases || []}
-                  scenes={ctx?.scenes || []}
-                  shots={ctx?.shots || []}
+                  // Every scene and shot (S3b step 1): a task may link to a
+                  // row another list holds, this scene among them.
+                  scenes={ctx?.allScenes || []}
+                  shots={ctx?.allShots || []}
                   levels={ctx?.levels || []}
                   experiences={ctx?.experiences || []}
                   projectMembers={projectMembers || []}
@@ -2748,8 +2783,10 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
 // before, BinPoster at the 142 × 80 it is handed; its "From primary take"
 // caption at the Label step (it was 7.5px, R3-07's floor is 11).
 function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
-  const shot = (ctx?.shots || []).find(s => s.id === shotId)
-  const scene = shot ? (ctx?.scenes || []).find(s => s.id === shot.scene_id) : null
+  // S3b step 1: the shot and its scene found among EVERY row (S3a's
+  // ctx.shotById / ctx.sceneById), as the scene popup finds its scene.
+  const shot = ctx?.shotById?.(shotId) || null
+  const scene = shot ? ctx?.sceneById?.(shot.scene_id) || null : null
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
@@ -2853,8 +2890,9 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   entityId={shot.id}
                   assets={ctx?.assets || []}
                   phases={ctx?.phases || []}
-                  scenes={ctx?.scenes || []}
-                  shots={ctx?.shots || []}
+                  // Every scene and shot, as the scene popup's form (S3b step 1).
+                  scenes={ctx?.allScenes || []}
+                  shots={ctx?.allShots || []}
                   levels={ctx?.levels || []}
                   experiences={ctx?.experiences || []}
                   projectMembers={projectMembers || []}
