@@ -46,7 +46,7 @@
 //   • phase.start_date / phase.end_date  (ISO YYYY-MM-DD)
 //   • task.phase_id                      (uuid, optional)
 
-import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
   CalendarDays, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown,
@@ -95,7 +95,13 @@ import {
 import './rabbitTimeline.css'
 // UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
 // span readout and snap marks, computed and tested outside this file.
-import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth } from './timelineMinimap.js'
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown, dayIndexAtX } from './timelineMinimap.js'
+// Post-overhaul S1 (rulings B3–B5): every stored date is read as the LOCAL
+// day it names and written as local y-m-d, through the one shared helper.
+import { parseIsoDate, toIsoDate } from '../dates.js'
+// Post-overhaul S1 (ruling B7): the minimap's window animates for one
+// response duration after the gantt's zoom changes.
+import { DURATION } from '../../../ui/tokens.js'
 import { IconButton } from '../../../ui/IconButton'
 import { Button } from '../../../ui/Button'
 import { Toolbar } from '../../../ui/Toolbar'
@@ -488,13 +494,27 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   const detailRef = useRef(null)
   const [detailScrollLeft, setDetailScrollLeft] = useState(0)
   const [detailViewportW, setDetailViewportW]   = useState(800)
+  // The gantt's scroll as of the last scroll event, in the scale it was made
+  // in. Post-overhaul S1 (review round 1): the re-anchoring below must read
+  // the scroll from BEFORE a zoom or span change, and the DOM's cannot give
+  // it — by the time a layout effect runs, a narrower chart (zooming out) has
+  // already clamped `scrollLeft` to its new maximum, so the anchor day was
+  // wrong and the gantt jumped (Week → Quarter moved the left edge from
+  // 15 Sep 2026 to 16 May, measured).
+  const lastScrollRef = useRef(0)
 
+  // S1 review round 2: attached when the gantt EXISTS. With `[]` it ran
+  // once, and a Timeline opened while the project was still loading (the
+  // no-project return below renders no gantt) never listened — the scroll
+  // state, and now the re-anchoring's lastScrollRef, went stale for good.
+  const hasProject = !!project
   useEffect(() => {
     const el = detailRef.current
     if (!el) return
-    function onScroll() { setDetailScrollLeft(el.scrollLeft) }
+    function onScroll() { lastScrollRef.current = el.scrollLeft; setDetailScrollLeft(el.scrollLeft) }
     function onResize() { setDetailViewportW(el.clientWidth) }
     onResize()
+    onScroll()
     el.addEventListener('scroll', onScroll)
     const ro = new ResizeObserver(onResize)
     ro.observe(el)
@@ -502,7 +522,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       el.removeEventListener('scroll', onScroll)
       ro.disconnect()
     }
-  }, [])
+  }, [hasProject])
 
   // First mount: scroll detail to today so the user lands on
   // something useful instead of the very start of the buffer.
@@ -512,6 +532,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     if (!detailRef.current) return
     const todayDays = daysBetween(overviewSpan.start, TODAY)
     detailRef.current.scrollLeft = Math.max(0, todayDays * DAY_PX - 200)
+    lastScrollRef.current = detailRef.current.scrollLeft // S1 review round 2: a scripted scroll is a scroll
     didCenterOnTodayRef.current = true
   }, [overviewSpan.start, DAY_PX])
 
@@ -525,9 +546,17 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // stays in the same place on screen. Same compensation when
   // DAY_PX changes (zoom level switch) — keep the centered date
   // anchored under the cursor instead of jumping to scrollLeft 0.
+  //
+  // Post-overhaul S1 (ruling B7): a LAYOUT effect, and it sets the
+  // scroll state itself. As a passive effect it ran after the paint, so a
+  // zoom change first painted the minimap's window with the NEW scale and
+  // the OLD scroll (a wrong box), and the scroll event corrected it on the
+  // next render. Now the corrected scroll and the state that places the
+  // window land in the same pass, before anything is painted, and the
+  // window's animation runs from the old box to the right one.
   const prevSpanStartRef = useRef(overviewSpan.start)
   const prevDayPxRef     = useRef(DAY_PX)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = detailRef.current
     if (!el) return
     const prevStart = prevSpanStartRef.current
@@ -535,9 +564,10 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     const currStart = overviewSpan.start
     const currPx    = DAY_PX
 
-    // Day at the left edge of the visible window before this update.
-    const visibleDayBefore = (el.scrollLeft / Math.max(1, prevPx)) +
-      (prevStart && currStart ? 0 : 0)
+    // Day at the left edge of the visible window before this update: from
+    // the scroll recorded BEFORE it (lastScrollRef), never the DOM's, which a
+    // narrower chart has already clamped by now (S1 review round 1).
+    const visibleDayBefore = lastScrollRef.current / Math.max(1, prevPx)
 
     // Where that same calendar day lands AFTER the update.
     const startDeltaDays = (prevStart && currStart) ? daysBetween(currStart, prevStart) : 0
@@ -551,12 +581,35 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       const zoomChanged = prevPx !== currPx
       if (startMoved || zoomChanged) {
         el.scrollLeft = newScrollLeft
+        // Read back: the browser clamps to the new scroll width. It is the
+        // baseline for the next change too.
+        lastScrollRef.current = el.scrollLeft
+        setDetailScrollLeft(el.scrollLeft)
       }
     }
 
     prevSpanStartRef.current = currStart
     prevDayPxRef.current     = currPx
   }, [overviewSpan.start, DAY_PX])
+
+  // A zoom tab's change (the four tabs, or the keyboard on them — the only
+  // writer of zoomId). Post-overhaul S1 (ruling B7): it carries the scroll
+  // that keeps the view's left date, IN THE SAME RENDER as the new scale. A
+  // render with the new scale and the old scroll puts the minimap's window
+  // in a wrong box — measured, Day → Quarter put it past the minimap's right
+  // edge, which unmounts it, and a remounted window has nothing to animate
+  // from (it jumped). The click is the last moment the DOM's scroll is in
+  // the old scale, so it is recorded here too, and the layout effect above
+  // re-anchors from exactly this value and reads back the browser's clamp.
+  const changeZoom = useCallback((id) => {
+    const next = ZOOM_LEVELS.find((z) => z.id === id)
+    const el = detailRef.current
+    if (next && el && next.dayPx !== DAY_PX) {
+      lastScrollRef.current = el.scrollLeft
+      setDetailScrollLeft((el.scrollLeft / Math.max(1, DAY_PX)) * next.dayPx)
+    }
+    setZoomId(id)
+  }, [DAY_PX])
 
   // Visible window in days from overviewSpan.start.
   const visibleStartDays = Math.max(0, detailScrollLeft / DAY_PX)
@@ -567,6 +620,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     if (!detailRef.current) return
     const px = Math.max(0, dayOffset * DAY_PX)
     detailRef.current.scrollLeft = px
+    lastScrollRef.current = detailRef.current.scrollLeft
   }
 
   // Center the detail viewport on today (or any date offset). Used
@@ -580,6 +634,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     const viewportContentW = Math.max(100, (el.clientWidth || detailViewportW) - LABEL_W)
     const targetPx = todayDays * DAY_PX - viewportContentW / 2
     el.scrollLeft = Math.max(0, targetPx)
+    lastScrollRef.current = el.scrollLeft
   }
 
   // ── overview measurement ────────────────────────────────
@@ -793,6 +848,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         canWrite={canWrite}
         writeReason={writeReason}
         milestones={allMilestones}
+        detailZoom={zoomId}
       />
 
       {/* ── The legend, once, for both charts (B3c) ── */}
@@ -801,7 +857,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
       <DetailZoomToolbar
         zoomId={zoomId}
-        onChange={setZoomId}
+        onChange={changeZoom}
         onCenterToday={centerDetailOnToday}
         sortOrder={settings.sortOrder}
         onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
@@ -1009,7 +1065,41 @@ export const OverviewPane = forwardRef(function OverviewPane({
   // of the same screen.
   canWrite = true, writeReason = null,
   milestones = [],
+  // Post-overhaul S1 (ruling B7): the gantt's zoom id. Only the four zoom
+  // tabs (and the arrow keys on them) change it; when it changes, the
+  // window animates to its new size (below).
+  detailZoom = null,
 }, forwardedRef) {
+  // S1 (B7): after the gantt's zoom changes, the window slides to its new
+  // box over one --duration-response (200ms); otherwise scroll-follow, the
+  // frame's drag, Fit, Today, the zoom slider, Ctrl+wheel and click-to-jump
+  // move it instantly (a move that lands while it slides — a scroll straight
+  // after the click — slides with it; review round 1 measured it). The flag
+  // is raised in the SAME render as the new zoom (an update during render,
+  // React's pattern for state that follows a prop), so the window's new box
+  // is first drawn under the transition.
+  const [frameAnimate, setFrameAnimate] = useState(false)
+  const [animatedZoom, setAnimatedZoom] = useState(detailZoom)
+  const frameEdgeRef = useRef(null)
+  if (detailZoom !== animatedZoom) {
+    setAnimatedZoom(detailZoom)
+    setFrameAnimate(true)
+  }
+  // The flag drops when the slide ENDS — the outline's transitionend — so it
+  // never cuts a slide short (review round 1: a timer started at the commit
+  // dropped it before a slide that began a frame or two later had finished,
+  // and the window jumped 1–10px). Nothing slides under reduced motion or
+  // when the box did not change; then a fallback of three response
+  // durations drops it.
+  useEffect(() => {
+    if (!frameAnimate) return undefined
+    const el = frameEdgeRef.current
+    const done = (e) => { if (!e || e.target === el) setFrameAnimate(false) }
+    el?.addEventListener('transitionend', done)
+    const t = setTimeout(done, DURATION.response * 3)
+    return () => { el?.removeEventListener('transitionend', done); clearTimeout(t) }
+  }, [frameAnimate, animatedZoom])
+
   // The minimap ALWAYS shows phases regardless of the active
   // group-by mode. Phases are the project's backbone and the
   // minimap should always reflect them so the user can orient
@@ -1395,11 +1485,13 @@ export const OverviewPane = forwardRef(function OverviewPane({
             )
           })}
 
-          {/* Visible-window frame — only drawn when at least part
-              of the detail pane's visible window intersects the
-              current minimap span. When it's off-screen we hide
-              the frame entirely and show an edge arrow instead. */}
-          {!frameOffLeft && !frameOffRight && (
+          {/* Visible-window frame. Post-overhaul S1 (review round 1): it
+              is ALWAYS drawn — the body clips it (overflow hidden), and an
+              edge arrow still says where it went when it is wholly off the
+              minimap. It was drawn only while it touched the minimap, so a
+              zoom-tab change that moved it off or back on popped instead of
+              sliding (a new element has nothing to animate from). */}
+          {(
             <>
               {/* The frame you DRAG: below the bars (zIndex 5), so a bar
                   inside the window still takes its own click and drag
@@ -1409,6 +1501,7 @@ export const OverviewPane = forwardRef(function OverviewPane({
               <div
                 data-minimap-nojump="1"
                 className="absolute cursor-grab active:cursor-grabbing rb-tl-ov-frame"
+                data-animate={frameAnimate ? 'true' : 'false'}
                 style={{
                   left: frameLeft,
                   width: Math.max(8, frameWidth),
@@ -1423,8 +1516,10 @@ export const OverviewPane = forwardRef(function OverviewPane({
                   ABOVE the bars that takes no pointer events, so it reads
                   over them and changes no hit test. The same box. */}
               <div
+                ref={frameEdgeRef}
                 aria-hidden="true"
                 className="absolute rb-tl-ov-frame-edge"
+                data-animate={frameAnimate ? 'true' : 'false'}
                 style={{
                   left: frameLeft,
                   width: Math.max(8, frameWidth),
@@ -1986,7 +2081,10 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
 // DetailPane — zoomed gantt with drag affordances
 // ============================================================
 
-function DetailPane({
+// Exported for its render test (timelineMinimapRender.test.jsx: the header's
+// ticks and the grid's month lines, with weekends shown and hidden), as
+// OverviewPane is; TimelineView is its one caller.
+export function DetailPane({
   scrollRef, rows, span, totalDays, chartW, dayPx, rowPx, zoom, zoomId,
   hideWeekends,
   criticalSet, todayDays,
@@ -2037,7 +2135,17 @@ function DetailPane({
 
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases])
 
-  const ticks = useMemo(() => buildAxisTicks(span.start, totalDays, zoom), [span.start, totalDays, zoom])
+  // The header's ticks: timelineMinimap.js's buildAxisTicks since S1 (ruling
+  // B2, option B): every tick keeps its line, a label prints only where it
+  // fits before the next tick, a month's start always wins, and with weekends
+  // hidden a month whose 1st is a weekend shows on its first shown day.
+  const ticks = useMemo(() => buildAxisTicks(span.start, totalDays, zoom, {
+    ...(dayMask ? {
+      hidden: (i) => !!dayMask.mask[i]?.hidden,
+      xOf: (i) => dayMask.mask[i]?.offsetPx ?? i * zoom.dayPx,
+    } : {}),
+    end: effectiveChartW,
+  }), [span.start, totalDays, zoom, dayMask, effectiveChartW])
 
   // Row index lookup for dependency arrow positioning.
   // For each visible row, we know its y-center and bar x-range.
@@ -2247,10 +2355,19 @@ function DetailPane({
         window.removeEventListener('mouseup', onUp)
         previewEl.remove()
         if (!preview || preview.hi - preview.lo < MIN_DRAG_PX) return
-        const startDays = preview.lo / dayPx
-        const endDays   = Math.max(startDays + 1, preview.hi / dayPx)
-        const startDate = addDays(span.start, Math.round(startDays))
-        const endDate   = addDays(span.start, Math.round(endDays))
+        // S1 (ruling B8a, review round 1): the task covers every day cell
+        // the drag swept, from the cell under one end of it to the cell
+        // under the other (the weekend mask honoured), at least one day.
+        // Its end date is the day AFTER the last cell, because a bar is drawn
+        // up to the start of its end day (how the Timeline has always drawn
+        // an end). It rounded each end to the nearest column edge; floored
+        // (S1's first cut), the cell you let go on was never drawn and a drag
+        // across two cells made a one-day task. `hi - 1`: letting go exactly
+        // on a column edge does not take the next day.
+        const startIdx  = dayIndexAtX(preview.lo, dayPx, dayMask?.mask)
+        const endIdx    = Math.max(startIdx + 1, dayIndexAtX(preview.hi - 1, dayPx, dayMask?.mask) + 1)
+        const startDate = addDays(span.start, startIdx)
+        const endDate   = addDays(span.start, endIdx)
         // Asset row without a bar: set the asset's dates instead of creating a task
         if (row.assetRef && (!row.start || !row.end)) {
           onUpdateAsset?.(row.assetRef.id, {
@@ -2629,6 +2746,10 @@ function DetailPane({
             style={{ height: HEADER_PX }}
           >
             {ticks.map(tick => {
+              // A hidden day is never a tick (buildAxisTicks skips it, given
+              // the mask); this skip stays as well, so a call that lost the
+              // mask cannot draw a hidden day's tick (S1 review round 1). A
+              // label that does not fit is null and its line stays.
               if (dayMask && dayMask.mask[tick.offset]?.hidden) return null
               return (
                 <div
@@ -2673,12 +2794,34 @@ function DetailPane({
               const dow = d.getDay()
               const isWeek = dow === 1
               const isWeekend = dow === 0 || dow === 6
-              const isMonthStart = d.getDate() === 1
+              // S1 (ruling B8b): with weekends hidden, a month whose 1st is a
+              // Saturday or Sunday takes its bold line on its first shown day
+              // (the header's month label goes there too, buildAxisTicks).
+              const isMonthStart = isMonthStartShown(d, hideWeekends)
               const isQuarterStart = isMonthStart && [0, 3, 6, 9].includes(d.getMonth())
+              // Month-1st boundaries are always drawn as bold lines in
+              // week + day views so months are clearly divided.
+              // Quarter-1st boundaries are bold in quarter + month views.
+              const isMajorBoundary =
+                (isMonthStart && (zoomId === 'week' || zoomId === 'day')) ||
+                (isQuarterStart && (zoomId === 'quarter' || zoomId === 'month'))
+              const majorLine = isMajorBoundary && (
+                <div
+                  key={`g-${i}`}
+                  className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
+                  style={{
+                    left: dayToX(i),
+                    width: 1,
+                  }}
+                />
+              )
               // In day view we paint a soft tint on the entire weekend
-              // column so the user can spot Sat/Sun at a glance.
+              // column so the user can spot Sat/Sun at a glance. A 1st on a
+              // weekend keeps its month's line over the tint (S1: the tint
+              // alone was drawn, so the header's bold tick had no line under
+              // it).
               if (zoomId === 'day' && !hideWeekends && isWeekend) {
-                return (
+                return [
                   <div
                     key={`wk-${i}`}
                     className="absolute top-0 bottom-0 pointer-events-none rb-tl-weekend"
@@ -2687,28 +2830,12 @@ function DetailPane({
                       left: dayToX(i),
                       width: dayPx,
                     }}
-                  />
-                )
+                  />,
+                  majorLine,
+                ]
               }
               if (dayMask && dayMask.mask[i]?.hidden) return null
-              // Month-1st boundaries are always drawn as bold lines in
-              // week + day views so months are clearly divided.
-              // Quarter-1st boundaries are bold in quarter + month views.
-              const isMajorBoundary =
-                (isMonthStart && (zoomId === 'week' || zoomId === 'day')) ||
-                (isQuarterStart && (zoomId === 'quarter' || zoomId === 'month'))
-              if (isMajorBoundary) {
-                return (
-                  <div
-                    key={`g-${i}`}
-                    className="absolute top-0 bottom-0 pointer-events-none rb-tl-grid-major"
-                    style={{
-                      left: dayToX(i),
-                      width: 1,
-                    }}
-                  />
-                )
-              }
+              if (majorLine) return majorLine
               // In quarter view, also draw lighter month-1st lines so
               // months within each quarter are visibly separated.
               if (isMonthStart && zoomId === 'quarter') {
@@ -2821,13 +2948,26 @@ function DetailPane({
                 const dzPhaseId = r.phase?.id || null
                 const isDzHover = dropZoneHover?.phaseId === dzPhaseId
                 const isReparentHoverDz = reparentHoverPhaseId === dzPhaseId
-                // Ghost width is a fixed 7-day default; X position
-                // follows the mouse cursor so the user can pick
-                // where in the timeline the task should start.
-                const ghostWidth = Math.max(60, 7 * dayPx)
+                // The ghost is the task a click here makes. Post-overhaul S1
+                // (review round 1, ruling B8a's picture): it starts on the day
+                // cell under the pointer and spans the seven days "+ New task"
+                // proposes, the weekend mask honoured, so it shows where the
+                // click lands. It was centred on the pointer and 7 × dayPx
+                // wide. Review round 2: exactly those seven days at every
+                // zoom (a 60px minimum made it 7.5 days at Month and 15 at
+                // Quarter; its label truncates instead), never past the
+                // chart's end, and — with no pointer (a task dragged over the
+                // gutter's row) — centred on today through the weekend mask.
                 const mouseXInChart = isDzHover && dropZoneHover?.mouseX != null
                   ? dropZoneHover.mouseX
                   : null
+                const ghostDay = mouseXInChart != null ? dayIndexAtX(mouseXInChart, dayPx, dayMask?.mask) : null
+                const ghostFrom = ghostDay != null ? ghostDay : Math.max(0, todayDays)
+                const ghostSpan = dayToX(ghostFrom + 7) - dayToX(ghostFrom)
+                const ghostLeft = ghostDay != null
+                  ? dayToX(ghostDay)
+                  : (isReparentHoverDz ? Math.max(0, dayToX(ghostFrom) - ghostSpan / 2) : 0)
+                const ghostWidth = Math.max(0, Math.min(ghostSpan, effectiveChartW - ghostLeft))
                 return (
                   <div
                     key={r.key}
@@ -2856,7 +2996,10 @@ function DetailPane({
                       // tweak.
                       const rect = e.currentTarget.getBoundingClientRect()
                       const clickX = e.clientX - rect.left
-                      const clickDays = Math.max(0, Math.round(clickX / dayPx))
+                      // S1 (ruling B8a): the day cell under the pointer. It
+                      // rounded to the nearest column edge, so a click past
+                      // a cell's middle made the task on the next day.
+                      const clickDays = dayIndexAtX(clickX, dayPx, dayMask?.mask)
                       const startDate = addDays(span.start, clickDays)
                       const endDate   = addDays(startDate, 7)
                       onNewTaskInPhase?.(dzPhaseId, startDate, endDate)
@@ -2883,11 +3026,7 @@ function DetailPane({
                       <div
                         className="absolute rounded-control flex items-center justify-center pointer-events-none rb-tl-dz-ghost"
                         style={{
-                          left: mouseXInChart != null
-                            ? Math.max(0, mouseXInChart - ghostWidth / 2)
-                            : (isReparentHoverDz
-                                ? Math.max(0, todayDays * dayPx - ghostWidth / 2)
-                                : 0),
+                          left: ghostLeft,
                           width: ghostWidth,
                           top: 4,
                           height: rowPx - 8,
@@ -5114,21 +5253,14 @@ function groupPhasesByParent(phases) {
   return out
 }
 
+// A date input's value: the local y-m-d, '' for none. Post-overhaul S1 (B3):
+// through dates.js, which reads a stored 'YYYY-MM-DD' as the LOCAL day it
+// names. `new Date(value)` read it as UTC midnight, so on Audrey's Eastern
+// machine the phase, asset and key-date editors opened a day early and their
+// Save wrote that day back. (`toIsoDate` is dates.js's since S1 too; the
+// local copy it replaced parsed a string the same wrong way.)
 function toDateInputValue(value) {
-  if (!value) return ''
-  const d = value instanceof Date ? value : new Date(value)
-  if (isNaN(d.getTime())) return ''
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function toIsoDate(d) {
-  if (!d) return null
-  const x = d instanceof Date ? d : new Date(d)
-  if (isNaN(x.getTime())) return null
-  return toDateInputValue(x)
+  return toIsoDate(value) ?? ''
 }
 
 // ============================================================
@@ -7099,102 +7231,18 @@ function daysBetween(a, b) {
   const ms = b.getTime() - a.getTime()
   return Math.round(ms / (24 * 60 * 60 * 1000))
 }
+// A stored date as the local midnight of the day it names. Post-overhaul S1
+// (rulings B3–B5): through dates.js. `new Date('2026-12-01')` is UTC
+// midnight, so west of Greenwich every bar, key date and group row drew a
+// day EARLY — a bar dropped on Dec 3 stored Dec 3 and was redrawn on Dec 2.
 function parseDate(value) {
-  if (!value) return null
-  const d = new Date(value)
-  if (isNaN(d.getTime())) return null
-  return startOfDay(d)
+  const d = parseIsoDate(value)
+  return d ? startOfDay(d) : null
 }
-const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
-function formatDayLabel(d) {
-  // "Apr 9" — compact and readable at tiny font sizes.
-  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`
-}
-function formatMonth(d) {
-  return `${MONTH_ABBR[d.getMonth()]} ${d.getFullYear()}`
-}
-function formatQuarter(d) {
-  const q = Math.floor(d.getMonth() / 3) + 1
-  return `Q${q} ${d.getFullYear()}`
-}
-
-// Detail axis ticks honoring the current zoom level.
-//
-// Rules to prevent stray single-day fragments in the header:
-//   • Week: emit only Mondays and month-1st boundaries. The span
-//     start (i === 0) is NOT force-emitted because it usually
-//     falls mid-week and creates a tiny stub label.
-//   • Month: emit only month-1st boundaries.
-//   • Quarter: emit only quarter-1st boundaries.
-//   • Day: every single day is a tick — no stub possible.
-//
-// The very first tick in the output ALWAYS gets a full "Mon YYYY"
-// label instead of the short day format so the user immediately
-// knows the date context when scrolling to the start of the span.
-function buildAxisTicks(start, totalDays, zoom) {
-  const out = []
-  // Track the last emitted major tick offset so we can suppress
-  // regular ticks that would overlap (e.g. a Monday 1 day after
-  // a month-1st boundary at week zoom).
-  let lastMajorOffset = -Infinity
-  const MIN_GAP = Math.max(3, Math.ceil(60 / zoom.dayPx)) // ≥60px between ticks
-  for (let i = 0; i <= totalDays; i++) {
-    const d = addDays(start, i)
-    let include = false
-    let label = ''
-    let topLabel = null   // optional upper-tier label (month header above day)
-    let major = false
-    switch (zoom.axisFormat) {
-      case 'day':
-        include = true
-        label = formatDayLabel(d)
-        major = d.getDate() === 1
-        if (major) topLabel = formatMonth(d)
-        break
-      case 'week': {
-        const isMonday = d.getDay() === 1
-        const isMonth1 = d.getDate() === 1
-        if (isMonth1) {
-          include = true
-          major = true
-          topLabel = formatMonth(d)
-          label = formatDayLabel(d)
-          lastMajorOffset = i
-        } else if (isMonday) {
-          // Suppress Mondays too close to a month boundary
-          if (i - lastMajorOffset >= MIN_GAP) {
-            include = true
-            label = formatDayLabel(d)
-          }
-        }
-        break
-      }
-      case 'month':
-        include = d.getDate() === 1
-        label = formatMonth(d)
-        major = d.getMonth() === 0
-        break
-      case 'quarter':
-        // Emit every month-1st as a tick. Quarter starts (Jan/Apr/Jul/Oct)
-        // are major — they get bold lines + a "Q1 2026" label on top.
-        // Non-quarter months are minor with just the month abbreviation.
-        include = d.getDate() === 1
-        if ([0, 3, 6, 9].includes(d.getMonth())) {
-          major = true
-          topLabel = formatQuarter(d)
-          label = formatMonth(d)
-        } else {
-          label = MONTH_ABBR[d.getMonth()]
-        }
-        break
-      default:
-        include = false
-    }
-    if (include) out.push({ key: i, offset: i, label, topLabel, major })
-  }
-  return out
-}
+// Detail axis ticks: timelineMinimap.js's buildAxisTicks() since post-overhaul
+// S1 (ruling B2, option B — a label prints only where it fits before the next
+// tick, and a month's start always wins); moved there so it is tested without
+// a DOM.
 
 // Overview ticks: timelineMinimap.js's minimapTicks() since B3 (a line at
 // every month boundary, as before, and a label on a stride that leaves every

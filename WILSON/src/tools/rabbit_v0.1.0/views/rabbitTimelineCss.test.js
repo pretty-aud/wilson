@@ -749,3 +749,253 @@ describe('V2: no cream on the signal among the Timeline\'s hand-drawn primaries 
     expect(buttonOf(second, 'Extend phase\n')).toContain(PAIR)
   })
 })
+
+/* ── 12. post-overhaul S1, the Timeline pass (2026-09-30) ───────────────────── */
+const sameSelector = (s) => s.replace(/\s+/g, ' ').trim()
+/** The value `prop` takes on exactly `sel`: the last rule whose selector list
+    holds it wins, as the cascade decides between equal selectors. */
+const declOf = (css, sel, prop) => rulesOf(css)
+  .filter((r) => selectorsOf(r.sel).map(sameSelector).includes(sel))
+  .map((r) => r.body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`))?.[1]?.trim())
+  .filter(Boolean).pop()
+/** Every (selector, property) that paints with the signal ink. */
+const signalInkUses = (css) => rulesOf(css).flatMap((r) => r.body.split(';')
+  .filter((d) => /var\(--color-signal-ink\)/.test(d))
+  .flatMap((d) => selectorsOf(r.sel).map((s) => `${sameSelector(s)} { ${d.split(':')[0].trim()} }`)))
+/** Every selector that recolours a gutter name under the pointer. */
+const hoverNameInks = (css) => rulesOf(css)
+  .filter((r) => /(?:^|;)\s*color\s*:/.test(r.body))
+  .flatMap((r) => selectorsOf(r.sel).map(sameSelector))
+  .filter((s) => /\[data-hover="true"\][^,]*\.rb-tl-row-label/.test(s))
+
+describe('S1 item 1: the gutter\'s inks — task names the ink, phase names the signal ink (rulings B1, B9)', () => {
+  const PHASE_NAMES = ['.rb-tl-row[data-shape="phase"] > .rb-tl-row-label', '.rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label']
+  it('a task\'s name is the ink at rest, and no rule lifts it under the pointer (the row\'s fill carries the hover)', () => {
+    expect(declOf(sheet, '.rb-tl-row-label', 'color')).toBe('var(--color-ink)')
+    expect(hoverNameInks(sheet)).toEqual([])
+  })
+  it('a phase\'s and a sub-phase\'s name are the signal ink, at 600', () => {
+    for (const sel of PHASE_NAMES) {
+      expect(declOf(sheet, sel, 'color'), sel).toBe('var(--color-signal-ink)')
+      expect(declOf(sheet, sel, 'font-weight'), sel).toBe('600')
+    }
+  })
+  it('the signal ink paints those two names and nothing else: the gutter column only, as text — never the bar\'s label, the minimap or a fill (B9)', () => {
+    expect(signalInkUses(sheet).sort()).toEqual(PHASE_NAMES.map((s) => `${s} { color }`).sort())
+  })
+  it('the ink is the kit\'s token, one value in @theme and tokens.js (its pairs: tokens.test.js)', () => {
+    expect(THEME['color-signal-ink']).toBe('#fb923c')
+    expect(cssCode(indexCss)).toMatch(/--color-signal-ink:\s*#fb923c;/)
+  })
+  it('CONTROL: the old hover lift, the ink-2 rest, the signal ink on the bar\'s label and as a fill are each caught', () => {
+    const lifted = sheet.replace('.rb-tl-row-label { color: var(--color-ink); }',
+      '.rb-tl-row-label { color: var(--color-ink-2); }\n  .rb-tl-row[data-hover="true"] > .rb-tl-row-label { color: var(--color-ink); }')
+    expect(lifted).not.toBe(sheet)
+    expect(declOf(lifted, '.rb-tl-row-label', 'color')).toBe('var(--color-ink-2)')
+    expect(hoverNameInks(lifted)).toEqual(['.rb-tl-row[data-hover="true"] > .rb-tl-row-label'])
+    const onBar = sheet.replace('.rb-tl-bar-label { color: var(--rb-tl-fg); }', '.rb-tl-bar-label { color: var(--color-signal-ink); }')
+    expect(onBar).not.toBe(sheet)
+    expect(signalInkUses(onBar)).toContain('.rb-tl-bar-label { color }')
+    const asFill = `${sheet}\n.rb-tl-row[data-shape="phase"] > .rb-tl-row-label { background-color: var(--color-signal-ink); }`
+    expect(signalInkUses(asFill)).toContain('.rb-tl-row[data-shape="phase"] > .rb-tl-row-label { background-color }')
+    expect(signalInkUses(asFill)).toHaveLength(3)
+  })
+})
+
+/** Every rule on the element itself (no combinator) of one lane class that
+    sets its bottom border, as `selector { declaration }`. */
+const bottomRules = (css, cls) => rulesOf(css).flatMap((r) => {
+  const decl = r.body.match(/(?:^|;)\s*(border-bottom(?:-[a-z]+)?\s*:\s*[^;]+)/)?.[1]?.trim()
+  if (!decl) return []
+  return selectorsOf(r.sel).map(sameSelector)
+    .filter((s) => new RegExp(`^\\.${cls}(?![\\w-])`).test(s) && !/[\s>+~]/.test(s))
+    .map((s) => `${s} { ${decl.replace(/\s*:\s*/, ': ')} }`)
+})
+describe('S1 item 4: no rule under a task row in the gantt half; the gutter and the phase rows keep theirs (ruling B6)', () => {
+  const RULE = 'border-bottom: 1px solid var(--color-rule)'
+  it('a chart row keeps the rule, a task\'s drops it, and "+ New task" in the chart has none', () => {
+    expect(bottomRules(sheet, 'rb-tl-chart-row')).toEqual([`.rb-tl-chart-row { ${RULE} }`, '.rb-tl-chart-row[data-shape="task"] { border-bottom: none }'])
+    expect(bottomRules(sheet, 'rb-tl-chart-dz')).toEqual(['.rb-tl-chart-dz { border-bottom: none }'])
+  })
+  it('the gutter keeps every row\'s rule: nothing overrides it on a task, a phase or a "+ New task" row', () => {
+    expect(bottomRules(sheet, 'rb-tl-row')).toEqual([`.rb-tl-row { ${RULE} }`])
+    expect(bottomRules(sheet, 'rb-tl-dz')).toEqual([`.rb-tl-dz { ${RULE} }`])
+  })
+  it('the chart\'s task rows are the JSX\'s: its chart row writes data-shape="task" for every row that is not a phase', () => {
+    expect(code.timeline).toMatch(/className="absolute left-0 right-0 rb-tl-chart-row"\s+data-shape=\{r\.kind !== 'phase' \? 'task' : r\.isSubgroup \? 'subgroup' : 'phase'\}/)
+  })
+  it('CONTROL: the rule planted back under "+ New task", and a gutter task row losing its, are caught', () => {
+    const back = sheet.replace('.rb-tl-chart-dz { background-color: transparent; border-bottom: none;', `.rb-tl-chart-dz { background-color: transparent; ${RULE};`)
+    expect(back).not.toBe(sheet)
+    expect(bottomRules(back, 'rb-tl-chart-dz')).toEqual([`.rb-tl-chart-dz { ${RULE} }`])
+    const bare = `${sheet}\n.rb-tl-row[data-shape="task"] { border-bottom: none; }`
+    expect(bottomRules(bare, 'rb-tl-row')).toHaveLength(2)
+  })
+})
+
+/** Every (selector, transition declaration) the sheet gives the minimap's
+    window: the shorthand or a longhand, on any selector whose last compound
+    is one of its two layers (review round 1: a longhand or a descendant
+    selector got past the first version). */
+const frameTransitions = (css) => rulesOf(css).flatMap((r) => {
+  const decls = r.body.split(';').map((d) => d.trim()).filter((d) => /^transition(?:-[a-z]+)?\s*:/.test(d)).map((d) => d.replace(/\s*:\s*/, ': '))
+  if (!decls.length) return []
+  return selectorsOf(r.sel).map(sameSelector)
+    .filter((s) => /\.rb-tl-ov-frame(?:-edge)?(?![\w-])/.test(lastCompound(s)))
+    .flatMap((s) => decls.map((d) => `${s} { ${d} }`))
+})
+describe('S1 item 5: the minimap window animates after a zoom-tab change (ruling B7)', () => {
+  const MOVE = 'left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response)'
+  it('the sheet moves both layers under data-animate="true" only, and its one reduced-motion block stops them', () => {
+    expect(frameTransitions(sheet)).toEqual([
+      `.rb-tl-ov-frame[data-animate="true"] { transition: ${MOVE} }`,
+      `.rb-tl-ov-frame-edge[data-animate="true"] { transition: ${MOVE} }`,
+      '.rb-tl-ov-frame[data-animate="true"] { transition: none }',
+      '.rb-tl-ov-frame-edge[data-animate="true"] { transition: none }',
+    ])
+    expect([...cssCode(sheet).matchAll(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g)]).toHaveLength(1)
+  })
+  it('the Timeline hands the minimap its zoom, and only the zoom tabs write that zoom', () => {
+    expect(code.timeline).toMatch(/milestones=\{allMilestones\}\s+detailZoom=\{zoomId\}/)
+    expect(code.timeline.match(/setZoomId/g)).toHaveLength(2) // the useState, and changeZoom
+    expect(code.timeline).toMatch(/<DetailZoomToolbar\s+zoomId=\{zoomId\}\s+onChange=\{changeZoom\}/)
+    // changeZoom sets the scroll that keeps the left date in the same render
+    // as the new scale, so no wrong box is ever committed (measured: without
+    // it Day → Quarter unmounted the window and it jumped).
+    expect(code.timeline).toMatch(/const changeZoom = useCallback\(\(id\) => \{[\s\S]{0,400}?lastScrollRef\.current = el\.scrollLeft\s+setDetailScrollLeft\(\(el\.scrollLeft \/ Math\.max\(1, DAY_PX\)\) \* next\.dayPx\)\s+\}\s+setZoomId\(id\)/)
+    // Both layers carry the flag, as a literal the attribute guards can read.
+    expect(code.timeline.match(/data-animate=\{frameAnimate \? 'true' : 'false'\}/g)).toHaveLength(2)
+  })
+  it('the zoom compensation is a layout effect that sets the scroll state itself, so the wrong first box is never painted', () => {
+    const at = code.timeline.indexOf('const prevDayPxRef')
+    const body = code.timeline.slice(at, code.timeline.indexOf('}, [overviewSpan.start, DAY_PX])', at))
+    expect(body).toMatch(/useLayoutEffect\(\(\) => \{/)
+    expect(body).toMatch(/el\.scrollLeft = newScrollLeft\s+lastScrollRef\.current = el\.scrollLeft\s+setDetailScrollLeft\(el\.scrollLeft\)/)
+    expect(code.timeline).toMatch(/import \{ useEffect, useLayoutEffect, /)
+  })
+  it('it re-anchors on the scroll recorded BEFORE the change, never the DOM\'s, which a narrower chart has already clamped (review round 1: zooming out moved the gantt\'s left date)', () => {
+    const at = code.timeline.indexOf('const prevDayPxRef')
+    const body = code.timeline.slice(at, code.timeline.indexOf('}, [overviewSpan.start, DAY_PX])', at))
+    expect(body).toMatch(/const visibleDayBefore = lastScrollRef\.current \/ Math\.max\(1, prevPx\)/)
+    expect(body).not.toMatch(/el\.scrollLeft \//)
+    expect(code.timeline).toMatch(/function onScroll\(\) \{ lastScrollRef\.current = el\.scrollLeft; setDetailScrollLeft\(el\.scrollLeft\) \}/)
+  })
+  it('the scroll listener attaches when the gantt exists and syncs at once, and every scripted scroll records itself (review round 2)', () => {
+    // With `[]` it ran once, before a loading project's gantt existed, and
+    // never listened; the re-anchoring then read a dead lastScrollRef.
+    expect(code.timeline).toMatch(/const hasProject = !!project\s+useEffect\(\(\) => \{[\s\S]{0,600}?onResize\(\)\s+onScroll\(\)\s+el\.addEventListener\('scroll', onScroll\)[\s\S]{0,300}?\}, \[hasProject\]\)/)
+    // The first-mount centring, scrollDetailToDay, the gantt's Today, and the
+    // re-anchoring's own read-back: every write of the gantt's scroll.
+    expect(code.timeline.match(/scrollLeft = [^\n]+\n\s+lastScrollRef\.current = (?:detailRef\.current|el)\.scrollLeft/g)).toHaveLength(4)
+    expect(code.timeline.match(/\.scrollLeft = (?!.*lastScrollRef)/g)).toHaveLength(4)
+  })
+  it('CONTROL: a transition on the window at rest (it would animate scroll-follow and the drag), and a second reduced-motion block, are caught', () => {
+    const atRest = sheet.replace('.rb-tl-ov-frame { background-color:', '.rb-tl-ov-frame { transition: left 200ms; background-color:')
+    expect(atRest).not.toBe(sheet)
+    expect(frameTransitions(atRest)).toContain('.rb-tl-ov-frame { transition: left 200ms }')
+    const longhand = `${sheet}\n.rb-tl-ov-body .rb-tl-ov-frame { transition-duration: 1s; }`
+    expect(frameTransitions(longhand)).toContain('.rb-tl-ov-body .rb-tl-ov-frame { transition-duration: 1s }')
+    const clamped = code.timeline.replace('const visibleDayBefore = lastScrollRef.current / Math.max(1, prevPx)', 'const visibleDayBefore = el.scrollLeft / Math.max(1, prevPx)')
+    expect(clamped).not.toBe(code.timeline)
+    const at2 = clamped.indexOf('const prevDayPxRef')
+    expect(clamped.slice(at2, clamped.indexOf('}, [overviewSpan.start, DAY_PX])', at2))).toMatch(/el\.scrollLeft \//)
+    const two = `${sheet}\n@layer components { @media (prefers-reduced-motion: reduce) { .rb-tl-x { transition: none; } } }`
+    expect([...cssCode(two).matchAll(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g)]).toHaveLength(2)
+    const passive = code.timeline.replace(/useLayoutEffect\(\(\) => \{(\s+const el = detailRef\.current\s+if \(!el\) return\s+const prevStart)/, 'useEffect(() => {$1')
+    expect(passive).not.toBe(code.timeline)
+    const at = passive.indexOf('const prevDayPxRef')
+    expect(passive.slice(at, passive.indexOf('}, [overviewSpan.start, DAY_PX])', at))).not.toMatch(/useLayoutEffect\(/)
+  })
+})
+
+/** How the gantt turns a pointer's x into a day where it CREATES a task: the
+    "+ New task" click and drag-to-draw. */
+const creationSnaps = (src) => ({
+  helper: (src.match(/dayIndexAtX\((?:clickX|preview\.lo|preview\.hi - 1|mouseXInChart), dayPx, dayMask\?\.mask\)/g) || []).length,
+  rounded: (src.match(/Math\.round\((?:clickX \/ dayPx|startDays|endDays)\)/g) || []).length,
+})
+describe('S1 item 3: a created task lands on the day cell under the pointer (ruling B8a)', () => {
+  it('the "+ New task" click, its ghost and both ends of drag-to-draw read the day under the pointer through dayIndexAtX, weekend mask included; nothing rounds to a column edge', () => {
+    expect(creationSnaps(code.timeline)).toEqual({ helper: 4, rounded: 0 })
+    // Drag-to-draw covers every cell swept: the end is the day after the
+    // cell under the other end (review round 1: floored, the release cell
+    // was never drawn and a drag across two cells made a one-day task).
+    expect(code.timeline).toMatch(/const endIdx\s+= Math\.max\(startIdx \+ 1, dayIndexAtX\(preview\.hi - 1, dayPx, dayMask\?\.mask\) \+ 1\)/)
+    // The ghost starts on the click's day and spans exactly its seven days
+    // (no minimum width; review round 2), clamped to the chart's end.
+    expect(code.timeline).toMatch(/const ghostLeft = ghostDay != null\s+\? dayToX\(ghostDay\)/)
+    expect(code.timeline).toMatch(/const ghostSpan = dayToX\(ghostFrom \+ 7\) - dayToX\(ghostFrom\)/)
+    expect(code.timeline).toMatch(/const ghostWidth = Math\.max\(0, Math\.min\(ghostSpan, effectiveChartW - ghostLeft\)\)/)
+    expect(code.timeline).not.toMatch(/Math\.max\(60,/)
+  })
+  it('CONTROL: the click\'s old rounding, and drag-to-draw\'s floored end, planted back, are caught', () => {
+    const planted = code.timeline.replace('dayIndexAtX(clickX, dayPx, dayMask?.mask)', 'Math.max(0, Math.round(clickX / dayPx))')
+    expect(planted).not.toBe(code.timeline)
+    expect(creationSnaps(planted)).toEqual({ helper: 3, rounded: 1 })
+    const floored = code.timeline.replace('dayIndexAtX(preview.hi - 1, dayPx, dayMask?.mask) + 1)', 'dayIndexAtX(preview.hi, dayPx, dayMask?.mask))')
+    expect(floored).not.toBe(code.timeline)
+    expect(floored).not.toMatch(/const endIdx\s+= Math\.max\(startIdx \+ 1, dayIndexAtX\(preview\.hi - 1, dayPx, dayMask\?\.mask\) \+ 1\)/)
+  })
+})
+
+/** The properties that change how a name's ink reaches the eye (review round 2). */
+const INK_PROPS = /^(?:color|-webkit-text-fill-color|opacity|filter|visibility|mix-blend-mode)$/
+/** Every selector that can reach a gutter name — its last compound is the
+    name's class, or a bare element (or `*`) under a gutter row — with the
+    ink-changing properties it sets, as `selector { props }`. */
+const rowLabelInks = (css) => rulesOf(css).flatMap((r) => {
+  const props = propsOf(r.body).filter((p) => INK_PROPS.test(p))
+  if (!props.length) return []
+  return selectorsOf(r.sel).map(sameSelector)
+    .filter((s) => /\.rb-tl-row-label(?![\w-])/.test(lastCompound(s))
+      || (!/\./.test(lastCompound(s)) && /\.rb-tl-(?:row|gutter)(?![\w-])/.test(s)))
+    .map((s) => `${s} { ${props.join(', ')} }`)
+})
+/** Every rule that reaches a header label and sets anything besides its
+    colour: the backing's declarations, order-insensitive, per rule. */
+const axisBacking = (css) => rulesOf(css)
+  .filter((r) => selectorsOf(r.sel).some((s) => /\.rb-tl-axis-(?:top|label)(?![\w-])/.test(lastCompound(sameSelector(s)))))
+  .map((r) => ({ sels: selectorsOf(r.sel).map(sameSelector), decls: r.body.split(';').map((d) => d.trim().replace(/\s*:\s*/, ': ')).filter(Boolean).filter((d) => !/^color:/.test(d)).sort() }))
+  .filter((r) => r.decls.length)
+describe('S1 review round 1: the header\'s backing and wiring, and the gutter\'s inks by any selector', () => {
+  it('only the three known rules change a gutter name\'s ink — colour, text fill, opacity, filter or visibility — however a selector might be spelled', () => {
+    expect(rowLabelInks(sheet).sort()).toEqual([
+      '.rb-tl-row-label { color }',
+      '.rb-tl-row[data-shape="phase"] > .rb-tl-row-label { color }',
+      '.rb-tl-row[data-shape="subgroup"] > .rb-tl-row-label { color }',
+    ].sort())
+  })
+  it('a month\'s labels sit on the paper, above the tick lines, hugging their own text: the six declarations on exactly the two selectors, and no other rule reaching a header label sets anything but its colour', () => {
+    expect(axisBacking(sheet)).toEqual([{
+      sels: ['.rb-tl-axis-top', '.rb-tl-axis-tick[data-major="true"] .rb-tl-axis-label'],
+      decls: ['align-self: flex-start', 'background-color: var(--color-paper)', 'margin-inline-start: -4px', 'padding-inline: 4px', 'position: relative', 'z-index: 1'],
+    }])
+  })
+  it('no transition reaches an element through a selector whose last compound has no class (a `div`, a `*`): every moving rule names its element', () => {
+    const generic = rulesOf(sheet).flatMap((r) => (/(?:^|;)\s*transition(?:-[a-z]+)?\s*:/.test(r.body)
+      ? selectorsOf(r.sel).map(sameSelector).filter((s) => !/\./.test(lastCompound(s))) : []))
+    expect(generic).toEqual([])
+  })
+  it('DetailPane hands buildAxisTicks the weekend mask, draws no hidden day\'s tick, and puts the month\'s bold line where the header puts its label', () => {
+    expect(code.timeline).toMatch(/buildAxisTicks\(span\.start, totalDays, zoom, \{\s*\.\.\.\(dayMask \? \{\s*hidden: \(i\) => !!dayMask\.mask\[i\]\?\.hidden,\s*xOf: \(i\) => dayMask\.mask\[i\]\?\.offsetPx \?\? i \* zoom\.dayPx,\s*\} : \{\}\),\s*end: effectiveChartW,\s*\}\)/)
+    expect(code.timeline).toMatch(/if \(dayMask && dayMask\.mask\[tick\.offset\]\?\.hidden\) return null/)
+    expect(code.timeline).toMatch(/const isMonthStart = isMonthStartShown\(d, hideWeekends\)/)
+    expect(code.timeline).toMatch(/return \[\s*<div\s+key=\{`wk-\$\{i\}`\}[\s\S]{0,400}?\/>,\s*majorLine,\s*\]/)
+  })
+  it('CONTROL: a gutter name recoloured by another selector, the backing\'s z-index removed, and the mask dropped from the call are caught', () => {
+    const recoloured = `${sheet}\n.rb-tl-gutter .rb-tl-row-label { color: var(--color-ink-2); }`
+    expect(rowLabelInks(recoloured)).toContain('.rb-tl-gutter .rb-tl-row-label { color }')
+    for (const plant of ['.rb-tl-row[data-shape="task"] > span { color: var(--color-ink-2); }', '.rb-tl-row-label { -webkit-text-fill-color: var(--color-ink-3); }', '.rb-tl-row > .rb-tl-row-label { opacity: 0.6; }']) {
+      expect(rowLabelInks(`${sheet}\n${plant}`), plant).toHaveLength(4)
+    }
+    const flat = sheet.replace('    z-index: 1;\n    align-self: flex-start;', '    align-self: flex-start;')
+    expect(flat).not.toBe(sheet)
+    expect(axisBacking(flat)[0].decls).not.toContain('z-index: 1')
+    for (const plant of ['.rb-tl-axis .rb-tl-axis-top { background-color: transparent; }', '.rb-tl-axis .rb-tl-axis-top { z-index: auto; }']) {
+      expect(axisBacking(`${sheet}\n${plant}`), plant).toHaveLength(2)
+    }
+    const unmasked = code.timeline.replace('hidden: (i) => !!dayMask.mask[i]?.hidden,', '')
+    expect(unmasked).not.toBe(code.timeline)
+    expect(unmasked).not.toMatch(/hidden: \(i\) => !!dayMask\.mask\[i\]\?\.hidden/)
+  })
+})

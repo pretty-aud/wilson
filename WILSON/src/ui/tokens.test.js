@@ -178,6 +178,16 @@ const PAIRS = [
   ['ink-light on signal (everything smaller on the frame)', T.INK_LIGHT, T.SIGNAL, 4.5],
   ['ink-light knob on the signal switch track (non-text)', T.INK_LIGHT, T.SIGNAL, 3],
   ['ink-light knob on the ink-3 switch track (non-text)', T.INK_LIGHT, T.INK_3, 3],
+  // The signal ink (post-overhaul S1, ruling B1): the Timeline's phase and
+  // sub-phase names in the gutter, at 13px 600 — text, so 4.5:1 — on every
+  // ground that row paints: the paper, the phase band (a 7% screen of the
+  // ink, as `color-mix(in srgb, ink 7%, transparent)` composites over the
+  // paper), the band under the pointer (11%), and the drop tint under a
+  // dragged task (the signal at 20%). Measured beforehand 7.73 / 6.47 / 5.71.
+  ['signal-ink on paper (phase names)', T.SIGNAL_INK, T.PAPER, 4.5],
+  ['signal-ink on the phase band (7% ink)', T.SIGNAL_INK, screen(T.INK, 7, T.PAPER), 4.5],
+  ['signal-ink on the hovered phase band (11% ink)', T.SIGNAL_INK, screen(T.INK, 11, T.PAPER), 4.5],
+  ['signal-ink on the drop tint (20% signal)', T.SIGNAL_INK, over('rgba(234, 88, 12, 0.2)', T.PAPER), 4.5],
   // light surfaces: one ink
   ['ink-light on ground-light', T.INK_LIGHT, T.GROUND_LIGHT, 4.5],
   ['ink-light on well-light', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
@@ -268,6 +278,26 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
     for (const g of grounds) expect(contrast(T.INK_3, g), g).toBeLessThan(4.5)
     // …and the second ink clears all three.
     for (const g of grounds) expect(contrast(T.INK_2, g), g).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('the plain signal as a phase name fails the signal ink\'s own pairs — why the token exists (post-overhaul S1, B1)', () => {
+    // The pairs' own assertion, run on each signal-ink pair with the signal
+    // (#ea580c) planted in its place: 4.91 on paper passes, and on the band
+    // (4.11:1), its hover (3.63:1) and the drop tint it must throw.
+    const own = PAIRS.filter(([label]) => label.startsWith('signal-ink '))
+    expect(own).toHaveLength(4)
+    expect(own[1][2]).toBe('#2b2826') // the band, flattened exactly as contrast.js does
+    const planted = own.map(([label, , ground, min]) => [label, T.SIGNAL, ground, min])
+    const throws = (ink, ground, min) => {
+      try { expect(contrast(ink, ground)).toBeGreaterThanOrEqual(min); return false } catch { return true }
+    }
+    expect(planted.map(([label, ink, ground, min]) => [label, throws(ink, ground, min)])).toEqual([
+      ['signal-ink on paper (phase names)', false],
+      ['signal-ink on the phase band (7% ink)', true],
+      ['signal-ink on the hovered phase band (11% ink)', true],
+      ['signal-ink on the drop tint (20% signal)', true],
+    ])
+    expect(contrast(T.SIGNAL, own[1][2])).toBeCloseTo(4.11, 2)
   })
 
   it('the ink at 48 percent — the number six reviews copied', () => {

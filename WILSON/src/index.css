@@ -76,6 +76,10 @@
   --color-signal: #ea580c;
   --color-signal-fill: #c2410c;
   --color-signal-tint: rgba(234, 88, 12, 0.16);
+  /* Post-overhaul S1 (ruling B1, 2026-09-29): the signal as small text on
+     dark — headings and names only, never a fill. The Timeline's phase
+     names. The signal itself is 4.11:1 on the phase row's band. */
+  --color-signal-ink: #fb923c;
   --color-on-fill: #ffffff;
   --color-ground-light: #f4a261;
   --color-ink-light: #1c1917;
