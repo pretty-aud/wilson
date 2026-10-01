@@ -374,6 +374,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 64. **Keep D.O.G.'s main column 8px from the sidebar, where the rest of the app uses 24px, so the slide preview stays exactly where it was?**
    Look at: D.O.G. with a deck open, at 1440x900 and 1280x700: the gap between the sidebar and the output panel (a1-dog-preview-after-1440x900.png). Choices: Keep 8px (current) / a preview 32px narrower / a narrower sidebar with its four buttons moved onto a second row. (WT40 Q8a, WT36 Q1)
+   Q64: note 2026-09-30 (post-overhaul S2a, ruling C1): the "Deck outline" title and its four buttons left the sidebar for a full-width bar, so the reason the sidebar is 240px wide (a head holding five controls) is gone. The sidebar stays 240px and the gap 8px this bundle, and the slide preview is exactly where it was (`dog-preview-probe --check`, byte-identical). Whether the sidebar can now be 200px is walkthrough 49's question 1.
 
 65. **Are the "Full deck" switch label in normal-size text, and the Core / Ref file tags as the kit's toggle chips ("CORE" / "REF" in small capitals, an orange edge when on), fine?**
    Look at: D.O.G.'s sidebar: the Full deck switch, and a project's files with their Core / Ref tags. Choices: Fine / change. No alternative given. (WT36 Q3)
