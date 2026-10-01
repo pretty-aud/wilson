@@ -39,7 +39,8 @@
 --    with a false flag stops being a way in. The brief recommended the
 --    expression inline; a helper is used because nine call sites would
 --    otherwise carry nine copies, which is the drift 0042 exists to end.
--- 3. The legal TAG and the LEGAL FOLDER can never disagree (I3):
+-- 3. The legal TAG and the LEGAL FOLDER can never disagree (I3), and the
+--    folder never changes after the file is added (§3d, review round 1):
 --    files_legal_folder_chk ties `tags @> {legal}` to the third segment being
 --    LEGAL (any case, rabbit_legal_segment). So tagging an existing file
 --    Legal fails, un-tagging a Legal file fails, and moving a path across the
@@ -84,6 +85,28 @@
 --       whose path was under LEGAL is hidden from non-money readers; an
 --       invoice's stays visible exactly as before. (Put to Audrey in the S4b
 --       hand-off: reversible by deleting one arm.)
+-- 6. FROM REVIEW ROUND 1 (S4b's security reviewer, measured in rolled-back
+--    runs on wilson-dev):
+--    a. reserve_upload_bytes (0073/0078/0083) let anyone who can write the
+--       project reserve a LOCKED key: past 0078's bound it wrote a row, and
+--       the two definer sweeps then answered 'completed' for a key that
+--       exists (an existence test for a guessed Legal key, measured), the
+--       active-path unique index answered 23505 for a manager's upload in
+--       flight. A key under a locked folder now needs the money gate, in the
+--       FIRST refusal (same words, same code), before the exemption — so the
+--       answer never depends on whether the key exists (§5b).
+--    b. Two extractors disagreed about what a money PATH is: the row's
+--       (split_part, any first segment) and the events' and objects'
+--       (storage.foldername, `projects/` only). A row at `projects/{id}/LEGAL`
+--       or `files/{id}/LEGAL/…` was gated as a row and its events were not.
+--       files_money_key_chk (§3c): a row whose third segment is locked must be
+--       a real `projects/{id}/{SEGMENT}/…` key, so the two always agree.
+--    c. I3 said a path crossing the LEGAL boundary "fails or lands the row
+--       under the gate"; one UPDATE that moved a Legal row OUT and dropped the
+--       tag satisfied the CHECK and declassified it (measured: members then
+--       read its name and note). trg_files_legal_fixed (§3d): whether a row's
+--       path is under LEGAL never changes after the row is added, in either
+--       direction — Audrey's "Legal is chosen when the file is added".
 --
 -- I6, THE QUOTA, DECIDED: Legal inherits 0078's bounded exemption unchanged.
 -- Legal bodies must live in Supabase whatever storage the workspace chose
@@ -207,6 +230,17 @@ BEGIN
         v_files, v_thumbs, v_objects, v_events, v_reserve, v_gc;
     END IF;
   END IF;
+
+  -- 0d. files_money_key_chk's precondition (§3c, review round 1): every row
+  --     whose third segment is a locked folder (INVOICES / FINANCE, and LEGAL
+  --     — none, by 0c) is a real projects/{id}/{SEGMENT}/… key. Refused by
+  --     name rather than by a bare ADD CONSTRAINT failure.
+  SELECT count(*) INTO v_files FROM public.files
+   WHERE (upper(split_part(storage_path, '/', 3)) IN ('INVOICES', 'FINANCE', 'LEGAL'))
+     AND NOT public.rabbit_money_key(storage_path);
+  IF v_files > 0 THEN
+    RAISE EXCEPTION '0088 refused: % files row(s) have a locked third segment (INVOICES / FINANCE / LEGAL) on a key that is not projects/{id}/{SEGMENT}/…; their events would not be gated. Correct their storage_path first.', v_files;
+  END IF;
 END $$;
 
 
@@ -329,6 +363,55 @@ ALTER TABLE public.files
 
 COMMENT ON CONSTRAINT files_legal_not_core_chk ON public.files IS
   '0088 (I5): a Legal file cannot be a core project file. Intake and D.O.G. read core files as the project''s context, and a Legal file''s text must not reach an ingestion chunk or a deck that the whole project can read.';
+
+-- 3c. ONE money path (review round 1, S1-SEC-04). The row's classifier reads
+--     split_part at depth three from any first segment; the events'
+--     (rabbit_money_key, 0074) and the storage policies read
+--     storage.foldername and require `projects/`. A row on which they would
+--     disagree — `projects/{id}/LEGAL` with no deeper segment, or
+--     `files/{id}/LEGAL/…` — is refused, so a gated row's events are gated
+--     too. Every key the clients write is projects/{id}/{SEGMENT}/{id}/{name}.
+ALTER TABLE public.files DROP CONSTRAINT IF EXISTS files_money_key_chk;
+ALTER TABLE public.files
+  ADD CONSTRAINT files_money_key_chk
+    CHECK (NOT public.rabbit_money_segment(split_part(storage_path, '/', 3))
+           OR public.rabbit_money_key(storage_path));
+
+COMMENT ON CONSTRAINT files_money_key_chk ON public.files IS
+  '0088 (review round 1): a files row whose storage path''s third segment is a locked folder (rabbit_money_segment) is a real projects/{id}/{SEGMENT}/… key (rabbit_money_key), so the row''s gate (file_row_is_money, split_part) and its events'' and object''s gate (storage.foldername) can never disagree.';
+
+-- 3d. Legal is chosen when the file is ADDED, and never after (review round
+--     1, S1-SEC-05). files_legal_folder_chk ties the tag to the folder, but a
+--     single UPDATE that moved a Legal row OUT of LEGAL and dropped the tag
+--     satisfied it — and the row, with its name and note, was every member's
+--     again (measured). Whether a row's path is under LEGAL is fixed at
+--     INSERT: an UPDATE may not change it, in either direction, for anyone.
+--     (The object cannot be renamed across either: rabbit_files_money_update's
+--     WITH CHECK.) 23514, as the CHECK beside it answers.
+CREATE OR REPLACE FUNCTION public.fn_files_legal_fixed()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF public.rabbit_legal_segment(split_part(COALESCE(OLD.storage_path, ''), '/', 3))
+     <> public.rabbit_legal_segment(split_part(COALESCE(NEW.storage_path, ''), '/', 3)) THEN
+    RAISE EXCEPTION 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_files_legal_fixed() FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.fn_files_legal_fixed() IS
+  '0088 (review round 1): BEFORE UPDATE OF storage_path on files — refuses any change to whether the path''s third segment is LEGAL. Legal is chosen when the file is added (Audrey, 2026-10-01). Trigger-only; no client role executes it.';
+
+DROP TRIGGER IF EXISTS trg_files_legal_fixed ON public.files;
+CREATE TRIGGER trg_files_legal_fixed
+  BEFORE UPDATE OF storage_path ON public.files
+  FOR EACH ROW EXECUTE FUNCTION public.fn_files_legal_fixed();
 
 
 -- =============================================================================
@@ -472,6 +555,147 @@ GRANT  EXECUTE ON FUNCTION public.log_file_downloaded(UUID) TO authenticated;
 
 COMMENT ON FUNCTION public.log_file_downloaded(UUID) IS
   'S33 (TPN-CONT-008/TPN-LOG-002, AS-2.9): appends a downloaded event to file_events for a file the caller can read (explicit workspace + membership + live-project + money-arm checks, the private-project arm of projects_select (0072) via passes_project_privacy (0082, since 0083), and since 0088 the money arm on BOTH axes via file_row_is_money, so a Legal file is refused like an invoice; DEFINER so the table stays append-only). Track C / 0074 flags the event is_financial. Called best-effort by supabaseAdapter.downloadFile; the Local Server twin logs bundle-side in the Express download route.';
+
+
+-- =============================================================================
+-- 5b. reserve_upload_bytes — a locked key needs the money gate (0083's body)
+-- =============================================================================
+-- 0083's body word for word, its first refusal gaining one arm (review round
+-- 1, S1-SEC-02; see the header, 6a). Grants are unchanged by CREATE OR
+-- REPLACE; post-condition 15 replays 0083's post-condition 4 on this body.
+
+CREATE OR REPLACE FUNCTION public.reserve_upload_bytes(p_path TEXT, p_bytes BIGINT)
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_uid      UUID := auth.uid();
+  v_project  UUID;
+  v_ws       UUID;
+  v_status   TEXT;
+  v_quota    BIGINT;
+  v_used     BIGINT;
+  v_id       BIGINT;
+  v_leaf     TEXT;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'reserve_upload_bytes: not signed in'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_bytes IS NULL OR p_bytes <= 0 THEN
+    RAISE EXCEPTION 'reserve_upload_bytes: bytes must be a positive count'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_path IS NULL
+     OR (storage.foldername(p_path))[1] IS DISTINCT FROM 'projects'
+     OR char_length(p_path) > 1024 THEN
+    RAISE EXCEPTION 'reserve_upload_bytes: not a project object path'
+      USING ERRCODE = '22023';
+  END IF;
+
+  v_project := public.fn_try_uuid((storage.foldername(p_path))[2]);
+  SELECT p.workspace_id INTO v_ws FROM public.projects p WHERE p.id = v_project;
+
+  -- The caller must be a member of the workspace their claim names, and the
+  -- project must be in it. Same shape as rabbit_files_insert (0042). 🚨 0047's
+  -- RPC lesson: a NULL from a predicate DENIES in a policy and PASSES in an
+  -- `IF NOT`, so every predicate here is COALESCEd to false.
+  -- 0083: and the project must be one this caller can SEE — 0072's private-
+  -- project arm, restated for definer bodies by passes_project_privacy
+  -- (0082). Same message, same code: a private project's existence is not
+  -- confirmed by the shape of the refusal.
+  -- 0088 (review round 1, S1-SEC-02): and a key under a LOCKED folder
+  -- (INVOICES / FINANCE / LEGAL, rabbit_money_key) needs the money gate —
+  -- here, in the first refusal, before the exemption, so the answer is the
+  -- same whether or not the key exists. Past this point a definer sweep reads
+  -- storage.objects and files for the reserved path, and the active-path
+  -- index answers 23505 for an upload in flight: both were existence tests
+  -- for a guessed Legal key, measured on dev.
+  IF v_ws IS NULL
+     OR v_ws IS DISTINCT FROM public.current_workspace_id()
+     OR NOT COALESCE(public.has_active_membership(v_ws), false)
+     OR NOT COALESCE(public.passes_project_privacy(v_project), false)
+     OR (public.rabbit_money_key(p_path)
+         AND NOT COALESCE(public.can_access_project_money(v_project), false)) THEN
+    RAISE EXCEPTION 'reserve_upload_bytes: you cannot write to this project'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Money paths and the manifest are exempt from the quota (0055) UP TO
+  -- rabbit_quota_exempt_max_bytes() (0078), so they are reservation-exempt on
+  -- the same bound: nothing to weigh, nothing to write. Over the bound this
+  -- falls through and is weighed like ordinary media. The object itself is
+  -- still gated by rabbit_files_money_insert at commit either way.
+  IF public.rabbit_quota_exempt_bytes(p_path, p_bytes) THEN
+    RETURN NULL;
+  END IF;
+
+  IF NOT COALESCE(public.can_write_project(v_project), false) THEN
+    RAISE EXCEPTION 'reserve_upload_bytes: you cannot write to this project'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Serialise reservations per workspace: two reserves racing through the
+  -- check below would otherwise both pass, which is the hole one layer up.
+  PERFORM pg_advisory_xact_lock(hashtext('upload_reservations:' || v_ws::text));
+
+  SELECT COALESCE(pl.status, 'active'),
+         COALESCE(pl.quota_bytes, public.storage_free_tier_bytes())
+    INTO v_status, v_quota
+    FROM public.workspace_storage_plans pl
+   WHERE pl.workspace_id = v_ws;
+  IF v_status IS NULL THEN
+    v_status := 'active';
+    v_quota  := public.storage_free_tier_bytes();
+  END IF;
+
+  IF v_status <> 'active' THEN
+    RAISE EXCEPTION 'Petal cloud storage for this company is suspended — contact Petal.'
+      USING ERRCODE = 'PT402';
+  END IF;
+
+  -- THE ONE PREDICATE. The policy will re-evaluate exactly this at creation and
+  -- at completion; a reservation that lapses cannot admit an over-quota object.
+  IF NOT public.rabbit_petal_storage_ok(v_project, p_bytes, p_path) THEN
+    v_used := public.workspace_petal_committed_bytes(v_ws)
+            + public.workspace_upload_reserved_bytes(v_ws, p_path);
+    v_leaf := regexp_replace(p_path, '^.*/', '');
+    -- 🚨 NEVER TELL THEM TO DELETE FILES: a cloud delete is soft and the object
+    -- holds quota for 30 days (uploadNotices.js says the same, for the same
+    -- reason). Two facts, two sentences, as classifyUpload does.
+    IF v_used >= v_quota THEN
+      RAISE EXCEPTION 'This company has used all % of its Petal cloud storage (uploads in progress count). Contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
+        pg_size_pretty(v_quota)
+        USING ERRCODE = 'PT402';
+    ELSE
+      RAISE EXCEPTION 'Not enough Petal cloud storage for "%": it needs %, but only % of this company''s % is left once uploads already in progress are counted. Add a smaller file, or contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
+        v_leaf, pg_size_pretty(p_bytes), pg_size_pretty(v_quota - v_used), pg_size_pretty(v_quota)
+        USING ERRCODE = 'PT402';
+    END IF;
+  END IF;
+
+  INSERT INTO public.upload_reservations
+    (workspace_id, project_id, storage_path, bytes, created_by)
+  VALUES
+    (v_ws, v_project, p_path, p_bytes, v_uid)
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.reserve_upload_bytes(TEXT, BIGINT) IS
+  'Session C1 (0073) / Track C 2026-09-09 (0078) / merge review 2026-09-30 (0083) / S4b (0088): '
+  'reserve quota for an upload before the bytes move. Quota-exempt paths return '
+  'NULL and write no row — but only up to rabbit_quota_exempt_max_bytes(); over '
+  'that bound a money path is weighed like ordinary media. The first refusal '
+  'carries the private-project arm (0083) and, since 0088, the money gate for a '
+  'key under a locked folder (INVOICES / FINANCE / LEGAL), so a reservation can '
+  'never test whether a money key exists.';
 
 
 -- =============================================================================
@@ -1141,5 +1365,57 @@ BEGIN
     RAISE EXCEPTION '0088 post-condition 14 failed: a LEGAL key is not quota-exempt up to the bound, not weighed above it, or not a money key for file_events';
   END IF;
 
-  RAISE NOTICE '0088 OK: LEGAL locked; four files policies on file_row_is_money; tag and folder tied, never core; realtime, edit history, trash, download log and certificates gated.';
+  -- 15. reserve_upload_bytes: the money arm, in the first refusal, before the
+  --     exemption — and everything 0083's post-condition 4 pinned.
+  v_body := regexp_replace(regexp_replace(
+              pg_get_functiondef('public.reserve_upload_bytes(text, bigint)'::regprocedure),
+              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+  IF strpos(v_body, 'OR (public.rabbit_money_key(p_path)') = 0
+     OR strpos(v_body, 'AND NOT COALESCE(public.can_access_project_money(v_project), false)) THEN') = 0
+     OR strpos(v_body, 'public.rabbit_money_key(p_path)') > strpos(v_body, 'public.rabbit_quota_exempt_bytes(p_path, p_bytes)') THEN
+    RAISE EXCEPTION '0088 post-condition 15 failed: reserve_upload_bytes lost the money arm of its first refusal, or it no longer comes before the exemption';
+  END IF;
+  IF strpos(v_body, '42501') = 0 OR strpos(v_body, '22023') = 0 OR strpos(v_body, 'PT402') = 0
+     OR strpos(v_body, 'rabbit_quota_exempt_path(p_path)') > 0
+     OR v_body NOT LIKE '%public.can_write_project(v_project)%'
+     OR v_body NOT LIKE '%public.has_active_membership(v_ws)%'
+     OR v_body NOT LIKE '%public.current_workspace_id()%'
+     OR v_body NOT LIKE '%public.passes_project_privacy(v_project)%'
+     OR v_body NOT LIKE '%pg_advisory_xact_lock(%'
+     OR v_body NOT LIKE '%public.rabbit_petal_storage_ok(v_project, p_bytes, p_path)%'
+     OR v_body NOT LIKE '%INSERT INTO public.upload_reservations%'
+     OR v_body NOT LIKE '%uploads in progress count%'
+     OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.reserve_upload_bytes(text, bigint)'::regprocedure
+                     AND prosecdef AND proconfig @> ARRAY['search_path=public']) THEN
+    RAISE EXCEPTION '0088 post-condition 15 failed: reserve_upload_bytes lost something 0083 pinned (a gate, the bounded exemption, its lock, its quota predicate, its row, its sentence, SECURITY DEFINER or its search_path)';
+  END IF;
+
+  -- 16. files_money_key_chk, whole; and no row breaks it.
+  SELECT pg_get_constraintdef(oid) INTO v FROM pg_constraint
+   WHERE conrelid = 'public.files'::regclass AND contype = 'c' AND conname = 'files_money_key_chk';
+  IF v IS DISTINCT FROM 'CHECK (((NOT rabbit_money_segment(split_part(storage_path, ''/''::text, 3))) OR rabbit_money_key(storage_path)))' THEN
+    RAISE EXCEPTION '0088 post-condition 16 failed: files_money_key_chk reads %', v;
+  END IF;
+
+  -- 17. trg_files_legal_fixed: BEFORE UPDATE OF storage_path, FOR EACH ROW,
+  --     enabled, on its function — whose comment-stripped body compares the
+  --     OLD and NEW Legal-ness of the path and raises.
+  SELECT tg.tgtype INTO v_tgtype FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
+   WHERE tg.tgrelid = 'public.files'::regclass AND tg.tgname = 'trg_files_legal_fixed'
+     AND p.proname = 'fn_files_legal_fixed' AND tg.tgenabled = 'O'
+     AND tg.tgattr::text = (SELECT attnum::text FROM pg_attribute
+                             WHERE attrelid = 'public.files'::regclass AND attname = 'storage_path');
+  IF v_tgtype IS NULL OR (v_tgtype & 1) = 0 OR (v_tgtype & 2) = 0 OR (v_tgtype & 16) = 0 OR (v_tgtype & 4) <> 0 OR (v_tgtype & 8) <> 0 THEN
+    RAISE EXCEPTION '0088 post-condition 17 failed: trg_files_legal_fixed is missing, disabled, or not BEFORE UPDATE OF storage_path FOR EACH ROW (tgtype %)', v_tgtype;
+  END IF;
+  v_body := regexp_replace(regexp_replace(
+              pg_get_functiondef('public.fn_files_legal_fixed()'::regprocedure),
+              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+  IF strpos(v_body, 'public.rabbit_legal_segment(split_part(COALESCE(OLD.storage_path, ''''), ''/'', 3))') = 0
+     OR strpos(v_body, '<> public.rabbit_legal_segment(split_part(COALESCE(NEW.storage_path, ''''), ''/'', 3)) THEN') = 0
+     OR strpos(v_body, 'RAISE EXCEPTION ''files_legal_fixed:') = 0 THEN
+    RAISE EXCEPTION '0088 post-condition 17 failed: fn_files_legal_fixed no longer compares the OLD and NEW path''s Legal-ness and refuses';
+  END IF;
+
+  RAISE NOTICE '0088 OK: LEGAL locked; four files policies on file_row_is_money; tag and folder tied, fixed at add, never core; one money path; realtime, edit history, trash, download log, reservations and certificates gated.';
 END $$;

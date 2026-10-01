@@ -31,6 +31,9 @@
 --   * The structure the behaviour stands on: the list, the two classifiers,
 --     the four policies and the CHECKs WHOLE as Postgres prints them (S4a
 --     trap 16), the sixteen storage policies untouched, the quota inherited.
+--   * Review round 1 (§K): a Legal path is fixed when the file is added (no
+--     move in or out, for anyone); a locked third segment is always a real
+--     projects/… key; a reservation for a locked key needs the money gate.
 --
 -- Every absence probe has a presence control, so an empty answer cannot pass
 -- by accident. Proven by breakers against 0088 before it was applied
@@ -43,7 +46,7 @@
 
 BEGIN;
 
-SELECT plan(85);
+SELECT plan(100);
 
 SELECT * FROM tests.rls_setup();
 
@@ -383,10 +386,13 @@ SELECT lives_ok(
   $$UPDATE public.files SET description = 'member column-free'$$,
   'the member''s column-free UPDATE runs — files_update''s USING never offers it a money row');           -- 37
 
--- …and the column-free MOVE into LEGAL (tag included, so the CHECK is
--- satisfied): only files_update's WITH CHECK can refuse it. Run in a
--- sub-block that is undone whatever happens, so that if the gate ever fails
--- here the moved rows do not take the rest of this suite down with them.
+-- …and the column-free UPDATE that makes every row it reaches MONEY by the
+-- flag: only files_update's WITH CHECK can refuse it. (Until review round 1
+-- this was a column-free MOVE into LEGAL; since then trg_files_legal_fixed, a
+-- BEFORE trigger, refuses a move before WITH CHECK is consulted, so the move
+-- has its own probe, 86, and this one isolates WITH CHECK on the flag axis.)
+-- Run in a sub-block that is undone whatever happens, so that if the gate
+-- ever fails here the changed rows do not take the rest of this suite down.
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 CREATE TEMP TABLE legal90_move (outcome TEXT);
@@ -398,12 +404,10 @@ DECLARE
   v_outcome TEXT;
 BEGIN
   BEGIN
-    UPDATE public.files
-       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-moved.pdf',
-           tags = ARRAY['legal'];
+    UPDATE public.files SET is_financial = true;
     GET DIAGNOSTICS v_n = ROW_COUNT;
-    v_outcome := 'moved ' || v_n || ' row(s)';
-    RAISE EXCEPTION 'legal90: undo the column-free move';
+    v_outcome := 'flagged ' || v_n || ' row(s)';
+    RAISE EXCEPTION 'legal90: undo the column-free flag';
   EXCEPTION
     WHEN raise_exception THEN NULL;
     WHEN OTHERS THEN v_outcome := SQLSTATE;
@@ -411,7 +415,7 @@ BEGIN
   INSERT INTO legal90_move VALUES (v_outcome);
 END $$;
 SELECT is((SELECT outcome FROM legal90_move), '42501',
-  '🚨 the member cannot turn a file Legal by moving it, even with the tag (files_update WITH CHECK)');   -- 38
+  '🚨 the member cannot make a file money by flagging it (files_update WITH CHECK, alone)');             -- 38
 
 SELECT throws_ok(
   $$UPDATE public.files SET tags = ARRAY['legal'] WHERE id = 'f9000000-0000-0000-0000-000000000004'$$,
@@ -445,11 +449,11 @@ SELECT is(
   (SELECT count(*)::int FROM public.file_events WHERE file_id = 'f9000000-0000-0000-0000-000000000001'),
   0, '🚨 the member reads none of the Legal file''s events');                                             -- 46
 
-SELECT is(
-  public.reserve_upload_bytes(
-    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small.pdf', 4000),
-  NULL::bigint,
-  'a small LEGAL key is reservation-exempt like an invoice: NULL, no row, nothing else said');            -- 47
+SELECT throws_ok(
+  $$SELECT public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small.pdf', 4000)$$,
+  '42501', 'reserve_upload_bytes: you cannot write to this project',
+  'the member cannot reserve a LEGAL key, even a small one — the refusal any non-writer gets (0088 §5b)');  -- 47
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
@@ -624,8 +628,8 @@ SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-contract.pdf'
      WHERE id = 'f9000000-0000-0000-0000-000000000001'$$,
-  '23514', 'new row for relation "files" violates check constraint "files_legal_folder_chk"',
-  'I3: moving a Legal file out of LEGAL with its tag on is refused');                                    -- 74
+  '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
+  'I3: moving a Legal file out of LEGAL with its tag on is refused (trg_files_legal_fixed answers first)'); -- 74
 SELECT throws_ok(
   $$UPDATE public.files SET tags = ARRAY['legal'] WHERE id = 'f9000000-0000-0000-0000-000000000002'$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_folder_chk"',
@@ -753,6 +757,155 @@ SELECT ok(
   pg_temp.legal_broadcast_status() IN ('withheld', 'no-schema', 'no-partition'),
   'broadcast status=' || pg_temp.legal_broadcast_status()
   || ' — no Legal or invoice row reaches rabbit:project:{id}, while the plain file does');               -- 85
+
+
+-- ══ K. Review round 1 — the path is fixed at add; one money path; reservations ═
+-- S4b's security reviewer, measured on dev before these were written: a
+-- money-cleared person declassified a Legal file with one UPDATE (out of
+-- LEGAL, tag dropped); a row at projects/{id}/LEGAL was gated as a row and not
+-- as an event; a member reserved a locked key and learned from the sweep
+-- whether it existed.
+
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+-- The old probe 38: the member's column-free MOVE into LEGAL, tag included.
+CREATE TEMP TABLE legal90_move2 (outcome TEXT);
+GRANT ALL ON legal90_move2 TO PUBLIC;
+DO $$
+DECLARE
+  v_n INT;
+  v_outcome TEXT;
+BEGIN
+  BEGIN
+    UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-moved.pdf',
+           tags = ARRAY['legal'];
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_outcome := 'moved ' || v_n || ' row(s)';
+    RAISE EXCEPTION 'legal90: undo the column-free move';
+  EXCEPTION
+    WHEN raise_exception THEN NULL;
+    WHEN OTHERS THEN v_outcome := SQLSTATE;
+  END;
+  INSERT INTO legal90_move2 VALUES (v_outcome);
+END $$;
+SELECT is((SELECT outcome FROM legal90_move2), '23514',
+  '🚨 the member cannot turn a file Legal by moving it, even with the tag (trg_files_legal_fixed)');       -- 86
+SELECT throws_ok(
+  $$SELECT public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-guess.pdf', 27262976)$$,
+  '42501', 'reserve_upload_bytes: you cannot write to this project',
+  '🚨 the member cannot reserve a large LEGAL key — the existence test the reviewer measured');           -- 87
+SELECT throws_ok(
+  $$SELECT public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-big-guess.pdf', 27262976)$$,
+  '42501', 'reserve_upload_bytes: you cannot write to this project',
+  'nor an INVOICES key: the arm is the money gate, not a Legal special case');                           -- 88
+SELECT isnt(
+  public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-big-plain.mov', 27262976),
+  NULL::bigint,
+  'CONTROL: the member still reserves a large ORDINARY key');                                            -- 89
+
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+-- A fresh Legal row: the fixture Legal file was purged in §I, and an UPDATE
+-- of a row that is not there raises nothing (the first draft of 90 and 92
+-- passed and failed on exactly that).
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
+VALUES ('f9000000-0000-0000-0000-0000000000d7', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'k-contract.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
+        10, false, ARRAY['legal']);
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
+           tags = ARRAY[]::text[]
+     WHERE id = 'f9000000-0000-0000-0000-0000000000d7'$$,
+  '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
+  '🚨 the project manager cannot DECLASSIFY a Legal file (out of LEGAL, tag dropped) — measured open in round 1'); -- 90
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/2-plain.pdf',
+           tags = ARRAY['legal']
+     WHERE id = 'f9000000-0000-0000-0000-000000000002'$$,
+  '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
+  'nor make an existing file Legal by moving it in with the tag (Legal is chosen when the file is added)'); -- 91
+-- CONTROL: a path change that stays inside LEGAL is not the trigger's
+-- business (undone in a sub-block; the fixture path is used below).
+CREATE TEMP TABLE legal90_rename (outcome TEXT);
+GRANT ALL ON legal90_rename TO PUBLIC;
+DO $$
+DECLARE
+  v_n INT;
+  v_outcome TEXT;
+BEGIN
+  BEGIN
+    UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/7-k-contract-renamed.pdf'
+     WHERE id = 'f9000000-0000-0000-0000-0000000000d7';
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_outcome := 'renamed ' || v_n;
+    RAISE EXCEPTION 'legal90: undo the rename';
+  EXCEPTION
+    WHEN raise_exception THEN NULL;
+    WHEN OTHERS THEN v_outcome := SQLSTATE;
+  END;
+  INSERT INTO legal90_rename VALUES (v_outcome);
+END $$;
+SELECT is((SELECT outcome FROM legal90_rename), 'renamed 1',
+  'CONTROL: the project manager may change a Legal file''s path WITHIN LEGAL');                           -- 92
+SELECT throws_ok(
+  $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
+    VALUES ('f9000000-0000-0000-0000-0000000000d5', '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-0000-0000-0000-000000000001', 'settlement.pdf', 'supabase',
+            'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL', 10, false, ARRAY['legal'])$$,
+  '23514', 'new row for relation "files" violates check constraint "files_money_key_chk"',
+  'one money path: a Legal row at projects/{id}/LEGAL (no deeper) is refused (files_money_key_chk)');   -- 93
+SELECT throws_ok(
+  $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
+    VALUES ('f9000000-0000-0000-0000-0000000000d6', '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-0000-0000-0000-000000000001', 'release_form.pdf', 'supabase',
+            'files/aaaa1111-0000-0000-0000-000000000001/LEGAL/x/1-release_form.pdf', 10, false, ARRAY['legal'])$$,
+  '23514', 'new row for relation "files" violates check constraint "files_money_key_chk"',
+  'nor one whose key does not start projects/ — its events would not be gated');                         -- 94
+SELECT is(
+  public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small-pm.pdf', 4000),
+  NULL::bigint,
+  'CONTROL: for the project manager a small LEGAL key is still reservation-exempt (NULL, no row)');     -- 95
+SELECT isnt(
+  public.reserve_upload_bytes(
+    'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-pm.pdf', 27262976),
+  NULL::bigint,
+  'CONTROL: and a large one is reserved like any upload past 0078''s bound');                            -- 96
+
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The structure the four above stand on.
+SELECT is(
+  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conrelid = 'public.files'::regclass AND contype = 'c' AND conname = 'files_money_key_chk'),
+  'CHECK (((NOT rabbit_money_segment(split_part(storage_path, ''/''::text, 3))) OR rabbit_money_key(storage_path)))',
+  'files_money_key_chk, whole');                                                                         -- 97
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
+           WHERE tg.tgrelid = 'public.files'::regclass AND tg.tgname = 'trg_files_legal_fixed'
+             AND p.proname = 'fn_files_legal_fixed' AND tg.tgenabled = 'O'
+             AND (tg.tgtype & 1) <> 0 AND (tg.tgtype & 2) <> 0 AND (tg.tgtype & 16) <> 0
+             AND (tg.tgtype & 4) = 0 AND (tg.tgtype & 8) = 0),
+  'trg_files_legal_fixed is BEFORE UPDATE, FOR EACH ROW, enabled');                                       -- 98
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'public.fn_files_legal_fixed()', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.fn_files_legal_fixed()', 'EXECUTE'),
+  'the trigger function is closed to client roles');                                                     -- 99
+SELECT ok(
+  strpos(regexp_replace(regexp_replace(
+           pg_get_functiondef('public.reserve_upload_bytes(text, bigint)'::regprocedure),
+           '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g'),
+         'OR (public.rabbit_money_key(p_path)') > 0,
+  'reserve_upload_bytes carries the money arm in its comment-stripped body');                             -- 100
 
 SELECT * FROM finish();
 ROLLBACK;

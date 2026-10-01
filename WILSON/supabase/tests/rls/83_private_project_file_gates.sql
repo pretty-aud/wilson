@@ -456,6 +456,19 @@ SELECT throws_ok(
 -- Suite 77 probe 10's shape: a small money path on a project the caller CAN
 -- see is reservation-exempt and writes no row — NULL, not a refusal and not
 -- an id. Had the retype lost the bounded exemption this would return an id.
+-- Asked by the ADMIN since 0088 (S4b): a key under a locked folder now needs
+-- the money gate in reserve_upload_bytes's first refusal, so this member is
+-- refused before the exemption is reached (suite 90 probes 47 and 87-88).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
 SELECT is(
   (SELECT public.reserve_upload_bytes(
      'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv83/1-small-invoice.pdf', 4000)),
