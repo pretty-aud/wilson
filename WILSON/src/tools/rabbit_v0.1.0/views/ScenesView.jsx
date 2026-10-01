@@ -29,7 +29,7 @@ import {
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
   Sun, FolderOpen, ImagePlus, ImageOff,
-  MoreHorizontal, ArrowUp, ArrowDown,
+  ArrowUp, ArrowDown,
 } from 'lucide-react'
 // Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
 // on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
@@ -38,7 +38,7 @@ import {
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
-  SectionTitle, Menu,
+  SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -46,6 +46,7 @@ import { useRabbit } from '../state/RabbitProvider'
 import { usePermissions } from '../../../permissions/usePermissions'
 import { useViewedShotList } from './scenes/useViewedShotList'
 import ShotLists from './scenes/ShotLists'
+import MenuButton from './scenes/MenuButton'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -1377,31 +1378,11 @@ function BigTile({ label, value }) {
 // shot-list verbs as WORDS — Move up / Move down in List order, Remove from
 // this list, Add to list… in the "Not in any list" view — so the trash keeps
 // its place and a removal is never a second lookalike icon beside a delete.
-// The kit Menu, PORTALLED into <body>: inside the row's HoverActions it
-// would fade out with the slot's opacity the moment the pointer left the
-// row. Nothing to offer, no button: the slot keeps its width.
+// The kit Menu through MenuButton (portalled: inside the row's HoverActions
+// it would fade out with the slot's opacity the moment the pointer left the
+// row). Nothing to offer, no button: the slot keeps its width.
 function RowMore({ name, items }) {
-  const [at, setAt] = useState(null)
-  if (!items || items.length === 0) return null
-  return (
-    <>
-      <IconButton
-        size="sm"
-        Icon={MoreHorizontal}
-        title={`Shot list actions for ${name}`}
-        aria-expanded={!!at}
-        onClick={e => {
-          e.stopPropagation()
-          const r = e.currentTarget.getBoundingClientRect()
-          setAt({ x: r.right - 200, y: r.bottom + 4 })
-        }}
-      />
-      {at && createPortal(
-        <Menu x={at.x} y={at.y} items={items} onClose={() => setAt(null)} />,
-        document.body,
-      )}
-    </>
-  )
+  return <MenuButton title={`Shot list actions for ${name}`} items={items} />
 }
 
 

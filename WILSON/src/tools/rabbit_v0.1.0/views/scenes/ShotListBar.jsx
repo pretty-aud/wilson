@@ -31,12 +31,11 @@
 // toolbar's New scene / New shot.
 // ============================================================
 
-import { useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Plus, MoreHorizontal } from 'lucide-react'
-import { Toolbar, Button, IconButton, StatusBadge, Menu } from '../../../../ui'
+import { Plus } from 'lucide-react'
+import { Toolbar, Button, StatusBadge } from '../../../../ui'
 import GatedAction from '../../../../permissions/GatedAction'
 import { showDate } from '../../dates'
+import MenuButton from './MenuButton'
 import '../rabbitScenes.css'
 
 /** The words for what is on screen when it is not one list. */
@@ -60,7 +59,6 @@ function viewName(viewed, hasLiveList) {
  *   moreItems   the More menu's kit Menu items (empty: no menu)
  */
 export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, withdrawn, recent, recentLabel, gate, on, moreItems }) {
-  const [menuAt, setMenuAt] = useState(null)
   const { mode, list } = viewed
   const onList = mode === 'list' || mode === 'archived'
   const isActive = mode === 'list' && !!activeList && activeList.id === list?.id
@@ -96,18 +94,7 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
           )}
         </>
       )}
-      {moreItems.length > 0 && (
-        <IconButton
-          size="sm"
-          Icon={MoreHorizontal}
-          title="More shot list actions"
-          aria-expanded={!!menuAt}
-          onClick={e => {
-            const r = e.currentTarget.getBoundingClientRect()
-            setMenuAt({ x: r.right - 240, y: r.bottom + 4 })
-          }}
-        />
-      )}
+      <MenuButton title="More shot list actions" items={moreItems} minWidth={240} />
     </>
   )
 
@@ -140,10 +127,6 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
           </span>
         )}
       </Toolbar>
-      {menuAt && createPortal(
-        <Menu x={menuAt.x} y={menuAt.y} minWidth={240} items={moreItems} onClose={() => setMenuAt(null)} />,
-        document.body,
-      )}
     </>
   )
 }

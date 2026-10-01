@@ -1384,10 +1384,103 @@
   .rb-scene-shot:hover .rb-scene-shot-time,
   .rb-scene-shot:hover .rb-scene-inline { color: var(--color-ink-2); }
 
+  /* ═══ "Shot lists…", the picker (post-overhaul S3b, step 4) ═══════════════
+     views/scenes/ShotListPicker.jsx: the kit Dialog at the reading width
+     (720: 672 inside its 24px padding) holding the kit Table. Its columns
+     are declared here, as the scene table's are, each its widest content
+     measured in the browser plus the kit's 12px a side: the Active badge
+     (the bar's own, 71px; the archived view's "Withdrawn", 103), the title,
+     "VERSION" (56), the system's short date (75), the actions' one button;
+     the summary takes what is left (184px at the reading width, 152 in the
+     archived view). */
+  .rb-scene-lists-table {
+    --rb-scene-lists-col-mark: 96px;
+    --rb-scene-lists-col-title: 160px;
+    --rb-scene-lists-col-version: 80px;
+    --rb-scene-lists-col-created: 100px;
+    --rb-scene-lists-col-acts: 52px;
+  }
+  .rb-scene-lists-table[data-view="archived"] { --rb-scene-lists-col-mark: 128px; }
+  /* A row's title is its keyboard target (Space selects, Enter opens): a
+     button that reads as the row's anchor, 600 in the ink, cut short with an
+     ellipsis like every cell beside it. The row's own click selects it too. */
+  .rb-scene-lists-pick {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+  .rb-scene-lists-figure { font-variant-numeric: tabular-nums; color: var(--color-ink-2); }
+  .rb-scene-lists-summary { color: var(--color-ink-2); }
+  .rb-scene-lists-summary[data-empty="true"] { color: var(--color-ink-3); }
+  /* New shot list… at the footer's left, as the popups' Delete is. */
+  .rb-scene-lists-foot-start { margin-right: auto; }
+  /* "Recently removed" at the top of the picker: one quiet line on the
+     recessed paper with its Open and Restore. */
+  .rb-scene-lists-recent-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 4px 4px 4px 12px;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-scene-lists-recent-row > .rb-scene-lists-recent-words { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Below the lists, a hairline, then "Not in any list (N)" and
+     "Archived…": rows of their own, a selected one in the kit Row's one
+     selected treatment (the signal tint and its 2px edge). */
+  .rb-scene-lists-more {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .rb-scene-lists-more > .ui-btn { align-self: flex-start; }
+  .rb-scene-lists-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    width: 100%;
+    min-height: var(--control-md);
+    padding: 0 12px;
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-scene-lists-entry:hover { background-color: var(--color-hover); }
+  .rb-scene-lists-entry[data-selected="true"] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .rb-scene-lists-entry-name { line-height: var(--control-md); font-size: var(--text-dense); font-weight: 600; white-space: nowrap; }
+  .rb-scene-lists-entry-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-3); }
+  .rb-scene-lists-entry:hover > .rb-scene-lists-entry-note,
+  .rb-scene-lists-entry[data-selected="true"] > .rb-scene-lists-entry-note { color: var(--color-ink-2); }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's
      keyframes must keep playing (C5). */
   @media (prefers-reduced-motion: reduce) {
+    .rb-scene-lists-entry { transition: none; }
     .rb-scene-picker-item { transition: none; }
     .rb-scene-check { transition: none; }
     .rb-scene-thumb-over { transition: none; }

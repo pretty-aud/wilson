@@ -1765,7 +1765,7 @@ describe('S3b step 3: the list bar', () => {
       expect(greyed('New shot list'), role).toBeNull()
       expect(greyed('Save as…'), role).toBeNull()
       expect(greyed('Set active').getAttribute('title'), role).toBe('Only a project manager or a workspace admin can make a shot list active or archive one.')
-      expect(barMenu().find(([w]) => w === 'Archive…'), role).toEqual(['Archive…', true])
+      expect(barMenu().find(([w]) => w === 'Archive'), role).toEqual(['Archive', true])
       cleanup()
       localStorage.clear()
     }
@@ -1774,21 +1774,21 @@ describe('S3b step 3: the list bar', () => {
   it('the More menu: Clear only on a list never Saved, Withdraw only where S3a says this person may, Archive for a manager — each asks first', async () => {
     remember('list-b')
     const { ctx } = page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
-    expect(barMenu()).toEqual([['Clear this list…', false], ['Withdraw…', false], ['Archive…', false]])
-    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list…'))
+    expect(barMenu()).toEqual([['Clear this list', false], ['Withdraw', false], ['Archive', false]])
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
     let dialog = screen.getByRole('dialog', { name: 'Clear this list?' })
     expect(dialog.textContent).toContain('Takes 2 scenes and 2 shots out of “Pickups · v1”. Nothing is deleted: each stays in the project and in any other list that holds it.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Clear list' }))
     await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-b', { sceneIds: ['sc1', 'sc3'], shotIds: ['sh4', 'sh3'] }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     barMenu()
-    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw…'))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
     dialog = screen.getByRole('dialog', { name: 'Withdraw this list?' })
     expect(document.activeElement.textContent).toBe('Cancel')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }))
     await waitFor(() => expect(ctx.withdrawShotList).toHaveBeenCalledWith('list-b'))
     barMenu()
-    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Archive…'))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Archive'))
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Archive this list?' })).getByRole('button', { name: 'Archive' }))
     await waitFor(() => expect(ctx.archiveShotList).toHaveBeenCalledWith('list-b', true))
     cleanup()
@@ -1862,5 +1862,179 @@ describe('S3b step 3: the list bar', () => {
     expect(barControls()).toEqual(['New shot list', 'Shot lists…'])
     expect(screen.getByRole('combobox', { name: 'Sort' }).selectedOptions[0].textContent).toBe('Sort…')
     expect(screen.queryByRole('button', { name: /^Shot list actions for/ })).toBeNull()
+  })
+})
+
+/* ── post-overhaul S3b, step 4: "Shot lists…", the picker ───────────────────
+   The kit Dialog at the reading width with a kit Table: Active · Title ·
+   Version · Created · Summary · actions, newest first; select, then Open. */
+const openPicker = () => {
+  fireEvent.click(within(bar()).getByRole('button', { name: 'Shot lists…' }))
+  return screen.getByRole('dialog', { name: /shot lists$/i })
+}
+/** The picker's rows: [mark, title, version, created, summary]. */
+const pickerRows = (dialog) => [...dialog.querySelectorAll('tbody > tr')].map((tr) => [...tr.querySelectorAll('td')].slice(0, 5).map((td) => td.textContent.trim()))
+const pickerRow = (dialog, title) => within(dialog).getByRole('button', { name: title }).closest('tr')
+/** TWO_LISTS with Harbour café's twin, scene 4, in no list at all. */
+const WITH_UNLISTED = () => {
+  const two = TWO_LISTS()
+  return { ...two, scenes: [...two.scenes, { id: 'sc4', name: 'The jetty', scene_number: 4, status: 'not_started', type: 'exterior' }] }
+}
+
+describe('S3b step 4: the picker', () => {
+  it('the kit Dialog at the reading width in <body>, its table newest first: the active list badged, dates by dates.js; the list on screen selected, its title focused', () => {
+    remember('list-b')
+    page(TWO_LISTS())
+    const dialog = openPicker()
+    expect([dialog.getAttribute('data-width'), dialog.closest('.ui-dialog-backdrop').parentElement]).toEqual(['reading', document.body])
+    expect(dialog.querySelector('.ui-dialog-title').textContent).toBe('Shot lists')
+    const heads = [...dialog.querySelectorAll('thead th')].map(visibleLabel)
+    expect(heads).toEqual(['', 'Title', 'Version', 'Created', 'Summary', ''])
+    expect([...dialog.querySelectorAll('thead th .sr-only')].map((s) => s.textContent)).toEqual(['Active', 'Actions'])
+    expect(pickerRows(dialog)).toEqual([
+      ['', 'Pickups', 'v1', showDate('2026-09-30T12:00:00Z'), 'Second unit'],
+      ['Active', 'Shoot', 'v1', showDate('2026-09-30T10:00:00Z'), 'The main unit'],
+    ])
+    expect(pickerRow(dialog, 'Pickups').getAttribute('data-selected')).toBe('true')
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Pickups' }))
+    // The footer: New shot list… on the left, then Cancel and Open.
+    expect([...dialog.querySelectorAll('.ui-dialog-foot button')].map((b) => b.textContent)).toEqual(['New shot list…', 'Cancel', 'Open'])
+  })
+
+  it('a click selects a row; Open shows it in the tab (and remembers it); a double-click, or Enter on its title, opens at once; Cancel and Escape change nothing', () => {
+    page(TWO_LISTS())
+    let dialog = openPicker()
+    fireEvent.click(pickerRow(dialog, 'Pickups'))
+    expect(pickerRow(dialog, 'Pickups').getAttribute('data-selected')).toBe('true')
+    expect(pickerRow(dialog, 'Shoot').getAttribute('data-selected')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
+    dialog = openPicker()
+    fireEvent.click(pickerRow(dialog, 'Pickups'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    expect(JSON.parse(localStorage.getItem(VIEWED_LISTS_KEY))).toEqual({ 'local|p1': 'list-b' })
+    dialog = openPicker()
+    fireEvent.doubleClick(pickerRow(dialog, 'Shoot'))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
+    dialog = openPicker()
+    fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Pickups' }), { key: 'Enter' })
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
+    openPicker()
+    escape()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a row\'s actions by seat (D8): a manager sets active and archives; a member sees both greyed, "managers only"; a list never Saved can be cleared; the active one is neither archived nor made active again', () => {
+    page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
+    let dialog = openPicker()
+    const rowMenu = (title) => {
+      fireEvent.click(within(pickerRow(dialog, title)).getByRole('button', { name: `Actions for ${title} · v1` }))
+      const out = [...document.querySelectorAll('.ui-menu .ui-menu-item')].map((b) => [b.querySelector('.ui-menu-item-label').textContent, b.disabled])
+      fireEvent.keyDown(document, { key: 'Escape' })
+      return out
+    }
+    expect(rowMenu('Pickups')).toEqual([['Set active', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
+    expect(rowMenu('Shoot')).toEqual([['Clear this list', false]])
+    // The menu's Escape is the menu's: the picker stays.
+    expect(screen.getByRole('dialog', { name: 'Shot lists' })).toBe(dialog)
+    cleanup()
+    page({ ...TWO_LISTS(), ...seat('member') })
+    dialog = openPicker()
+    expect(rowMenu('Pickups')).toEqual([['Set active', true], ['Clear this list', false], ['Archive', true]])
+  })
+
+  it('Set active from a row asks over the picker, and the picker stays to show the change', async () => {
+    const { ctx } = page(TWO_LISTS())
+    const dialog = openPicker()
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Actions for Pickups · v1' }))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Set active'))
+    const question = screen.getByRole('dialog', { name: 'Make this the active list?' })
+    expect(after(dialog.closest('.ui-dialog-backdrop'), question)).toBe(true)
+    expect(question.textContent).toContain('“Pickups · v1” becomes the list')
+    fireEvent.click(within(question).getByRole('button', { name: 'Make active' }))
+    await waitFor(() => expect(ctx.setActiveShotList).toHaveBeenCalledWith('list-b'))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Make this the active list?' })).toBeNull())
+    expect(screen.getByRole('dialog', { name: 'Shot lists' })).toBe(dialog)
+  })
+
+  it('"Not in any list (N)" — only while there are such rows and a list to compare them with — selects and opens like a list: the tab shows those rows', () => {
+    page(WITH_UNLISTED())
+    const dialog = openPicker()
+    const entry = within(dialog).getByRole('button', { name: /^Not in any list/ })
+    expect(entry.textContent).toBe('Not in any list (1)1 scene · 0 shots no list holds')
+    // Just above "Archived…", after the lists and a hairline (Audrey, 2026-09-30).
+    expect(entry.closest('.rb-scene-lists-more')).toBeTruthy()
+    fireEvent.click(entry)
+    expect(entry.getAttribute('data-selected')).toBe('true')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open' }))
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Not in any list')
+    expect(rowNames(sceneTable())).toEqual(['The jetty'])
+    // Not a list: never remembered.
+    expect(localStorage.getItem(VIEWED_LISTS_KEY)).toBeNull()
+    cleanup()
+    page(TWO_LISTS())
+    expect(within(openPicker()).queryByRole('button', { name: /^Not in any list/ })).toBeNull()
+    cleanup()
+    // No list at all: every row is "unlisted", and the tab already shows them all.
+    page({ ...WITH_UNLISTED(), shotLists: [], shotListItems: [], activeListId: null })
+    const empty = openPicker()
+    expect(within(empty).queryByRole('button', { name: /^Not in any list/ })).toBeNull()
+    expect(empty.querySelector('.ui-empty-title').textContent).toBe('No shot lists yet')
+  })
+
+  it('"Archived…" is the same table over the archived and withdrawn lists: Restore for whoever may, Open shows one read-only, and back to all lists', async () => {
+    const two = TWO_LISTS()
+    const archived = { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9', created_by: 'u-1' }
+    const { ctx } = page({ ...two, shotLists: [two.shotLists[0], archived], isWithdrawn: (r) => r.archived_by === r.created_by })
+    let dialog = openPicker()
+    expect(pickerRows(dialog).map((r) => r[1])).toEqual(['Shoot'])
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Archived…/ }))
+    expect(dialog.querySelector('.ui-dialog-title').textContent).toBe('Archived shot lists')
+    expect(pickerRows(dialog)).toEqual([['Archived', 'Pickups', 'v1', showDate('2026-09-30T12:00:00Z'), 'Second unit']])
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Restore “Pickups · v1”' }))
+    await waitFor(() => expect(ctx.archiveShotList).toHaveBeenCalledWith('list-b', false))
+    fireEvent.click(pickerRow(dialog, 'Pickups'))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bar().querySelector('.ui-status').textContent).toBe('Archived')
+    expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
+    dialog = openPicker()
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Archived…/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'All shot lists' }))
+    expect(dialog.querySelector('.ui-dialog-title').textContent).toBe('Shot lists')
+  })
+
+  it('a Restore the backend refuses is said in the picker\'s own error slot, word for word', async () => {
+    const two = TWO_LISTS()
+    const archived = { ...two.shotLists[1], archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    const refusal = 'only a project manager or a workspace admin can archive or restore a shot list'
+    page({ ...two, shotLists: [two.shotLists[0], archived], archiveShotList: vi.fn().mockRejectedValue(new Error(refusal)) })
+    const dialog = openPicker()
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Archived…/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Restore “Pickups · v1”' }))
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toBe(refusal))
+    expect(document.querySelector('.ui-banner')).toBeNull()
+  })
+
+  it('"Recently removed" heads the picker with Open and Restore', async () => {
+    const two = TWO_LISTS()
+    const withdrawn = { ...two.shotLists[1], created_by: 'u-1', archived_by: 'u-1', archived_at: '2026-10-01T09:00:00Z' }
+    const { ctx, rerender } = page({ ...two, shotLists: [two.shotLists[0], withdrawn], recentlyWithdrawn: { kind: 'shot_list', id: 'list-b', row: withdrawn } })
+    const dialog = openPicker()
+    const line = dialog.querySelector('.rb-scene-lists-recent-row')
+    expect(line.querySelector('.rb-scene-lists-recent-words').textContent).toBe('Recently removed: Pickups · v1')
+    fireEvent.click(within(line).getByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(ctx.restoreWithdrawn).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // The restored list is the one to show: remembered now, on screen as soon
+    // as the provider has it live again (the mark ends with it).
+    expect(JSON.parse(localStorage.getItem(VIEWED_LISTS_KEY))).toEqual({ 'local|p1': 'list-b' })
+    rabbit.current = { ...ctx, shotLists: [two.shotLists[0], { ...withdrawn, archived_at: null, archived_by: null }], recentlyWithdrawn: null }
+    rerender(<ScenesView pageActive />)
+    expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
   })
 })

@@ -62,11 +62,18 @@ const FILES = {
     min: 2000,
     staged: [],
   },
+  // …and "Shot lists…", the picker.
+  picker: {
+    file: './scenes/ShotListPicker.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
     they get the leak checks alone (section 7e). */
-const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx']
+const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/MenuButton.jsx']
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. The file
     writes none: every size is the sheet's, keyed on `data-thumb` (the
@@ -456,6 +463,7 @@ const NEAR_MISSES = {
   // renaming destructure, the `{ style: s } =` spelling's near miss.
   scenes: ['width="confirm"', 'onConfirm={', 'setConfirmBulk(', '<ConfirmDialog', 'data-width="confirm"', 'const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()'],
   bar: [],
+  picker: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
