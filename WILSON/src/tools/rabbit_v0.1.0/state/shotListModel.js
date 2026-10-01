@@ -202,6 +202,17 @@ function listedShotIds(shotListItems) {
   return new Set((shotListItems || []).filter(i => i.shot_id).map(i => i.shot_id))
 }
 
+// The items of LIVE lists only, when the lists are given; every item when
+// they are not (a caller that holds items alone). An item whose list is not
+// loaded counts as live: a scene is never called homeless because its home
+// is one this client cannot see yet (review R1).
+function liveItemsOf(shotLists, shotListItems) {
+  if (!shotLists) return shotListItems || []
+  const known = new Set(shotLists.map(l => l.id))
+  const live = new Set(shotLists.filter(l => !l.archived_at).map(l => l.id))
+  return (shotListItems || []).filter(i => live.has(i.shot_list_id) || !known.has(i.shot_list_id))
+}
+
 /**
  * ctx.scenes (D10, as Audrey ruled it): the ACTIVE list's scenes, in the order
  * they were LOADED (every existing view sorts by number itself, so the order
@@ -215,8 +226,9 @@ function listedShotIds(shotListItems) {
  * new row whose membership write fails is removed again and the error raised
  * (RabbitProvider addScene / addShot) — and any row that still ends up in no
  * list stays reachable through unlistedScenesOf / unlistedShotsOf, for S3b's
- * Scenes tab. Whether a row in no list should show elsewhere is recorded in
- * the S3a hand-off as a question for Audrey.
+ * Scenes tab. Audrey ruled on 2026-09-30 that such a row stays off the other
+ * tabs ("copy"), and that the Scenes tab's list picker reaches it through a
+ * "Not in any list (N)" entry.
  */
 export function activeScenesOf({ project, shotLists, shotListItems, scenes, shots }) {
   const active = activeShotListOf(project, shotLists)
@@ -233,15 +245,25 @@ export function activeShotsOf({ project, shotLists, shotListItems, shots }) {
   return (shots || []).filter(s => ids.has(s.id))
 }
 
-/** Scenes that belong to no list (S3b's "not in any list" bucket in the Scenes tab). */
-export function unlistedScenesOf({ shotListItems, scenes, shots }) {
-  const listed = listedSceneIds(shotListItems, shots)
+/**
+ * Scenes that belong to no LIVE list: S3b's "Not in any list (N)" entry near
+ * the end of the Scenes tab's list picker, just above "Archived…" (Audrey,
+ * 2026-09-30, in the preview she picked), shown only when there are any;
+ * each row offers "Add to list…". An ARCHIVED or
+ * WITHDRAWN list does not count as a home: to the person who withdrew it the
+ * list is gone ("my most recently deleted list"), so the scenes only it held
+ * must not vanish with it. Pass shotLists; without it every item counts.
+ * With NO active list, ctx.scenes is every row, so these rows also show on
+ * every other tab; in a project that has no list at all, every scene is here.
+ */
+export function unlistedScenesOf({ shotLists, shotListItems, scenes, shots }) {
+  const listed = listedSceneIds(liveItemsOf(shotLists, shotListItems), shots)
   return (scenes || []).filter(s => !listed.has(s.id))
 }
 
-/** Shots that belong to no list. */
-export function unlistedShotsOf({ shotListItems, shots }) {
-  const listed = listedShotIds(shotListItems)
+/** Shots that belong to no LIVE list (the same bucket). */
+export function unlistedShotsOf({ shotLists, shotListItems, shots }) {
+  const listed = listedShotIds(liveItemsOf(shotLists, shotListItems))
   return (shots || []).filter(s => !listed.has(s.id))
 }
 
@@ -325,6 +347,125 @@ export function assertUniqueEdit(edits, { id, shot_list_id, title, version }) {
   const clash = (edits || []).find(e => e.id !== id && e.shot_list_id === shot_list_id
     && String(e.title || '').trim() === t && Number(e.version) === Number(version))
   if (clash) throw new Error(`This shot list already has an edit called "${formatShotListLabel(clash)}".`)
+}
+
+// ── withdraw (0086, Audrey 2026-09-30) ──────────────────────────────────────
+//
+// Her answer to "members get no undo for New list": "allow users to view their
+// most recently deleted list. only right after they deleted." Then, from the
+// options put to her: WITHDRAW, briefly viewable — the person who made a new
+// list or edit sets it aside (archived, never deleted, D18) and, right after,
+// sees it as "Recently removed" and can open or restore it; ONLY UNTOUCHED
+// new ones. Migration 0086 gives the maker that path in archive_shot_list /
+// archive_edit. These helpers refuse what the database refuses, with the
+// database's sentence for the same condition, so the provider can refuse
+// before any write on every backend. What they do NOT mirror: the seat
+// (can_edit_shot_lists — S3b adds can('project.shotlist.write')) and the
+// manager / admin bypass (a manager's verb is Archive).
+
+export const WITHDRAW_LIST_REFUSAL =
+  'only an untouched shot list you made can be withdrawn — a project manager or a workspace admin can archive it'
+export const WITHDRAW_EDIT_REFUSAL =
+  'only an untouched edit you made can be withdrawn — a project manager or a workspace admin can archive it'
+export const ACTIVE_LIST_ARCHIVE_REFUSAL =
+  'the active shot list cannot be archived — make another list active first'
+// 0084's seat sentences: the database's answer to a caller who did not make
+// the row (and is not a manager or admin), withdrawing or restoring.
+export const ARCHIVE_SEAT_REFUSAL_LIST =
+  'only a project manager or a workspace admin can archive or restore a shot list'
+export const ARCHIVE_SEAT_REFUSAL_EDIT =
+  'only a project manager or a workspace admin can archive or restore an edit'
+// 0086's answer to a maker restoring a SAVED row they archived (as a manager
+// who has since lost the seat, review R2): a withdraw never leaves one.
+export const RESTORE_SAVED_LIST_REFUSAL =
+  'a Saved shot list you archived can be restored only by a project manager or a workspace admin'
+export const RESTORE_SAVED_EDIT_REFUSAL =
+  'a Saved edit you archived can be restored only by a project manager or a workspace admin'
+
+function isEmptyObject(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0
+}
+
+/**
+ * Untouched list: not Saved (snapshot still {} — the database's NOT NULL
+ * default; a backend that leaves it out counts as {}) and no LIVE edit on it.
+ * "Not Saved" is the column as it is now: undoing one's own Save puts {} back.
+ * Membership changes do not count (her option: "not the active list, never
+ * saved, and no edits made on it"); the active list is refused separately.
+ */
+export function isShotListUntouched(list, edits) {
+  if (!list) return false
+  if (list.snapshot != null && !isEmptyObject(list.snapshot)) return false
+  return !(edits || []).some(e => e.shot_list_id === list.id && !e.archived_at)
+}
+
+/** Untouched edit: not Saved (snapshot still null) and no LIVE edit continues it. */
+export function isEditUntouched(edit, edits) {
+  if (!edit) return false
+  if (edit.snapshot != null) return false
+  return !(edits || []).some(e => e.parent_edit_id === edit.id && !e.archived_at)
+}
+
+/**
+ * Set aside by the person who made it: 0086's "withdrawn", which has no
+ * column of its own (archived_by = created_by). S3b's Archived section can
+ * label such a row "set aside by the person who made it" (also true of a
+ * manager archiving a list they made themselves). Always false on a backend
+ * without users: the Local Server leaves both columns NULL.
+ */
+export function isWithdrawn(row) {
+  return !!(row && row.archived_at && row.created_by && row.archived_by === row.created_by)
+}
+
+// `userId`, in the three helpers below: the signed-in user on a backend with
+// users (the cloud, and the dev fixtures); null while that user is not known
+// (refused: never offer what the database may refuse); UNDEFINED on a backend
+// without users (Local Server, Drive), where the maker tests are skipped, as
+// D8's roles are.
+
+/**
+ * Why this person may NOT withdraw this live list now — the database's own
+ * sentence for that condition — or null when they may. The database's order:
+ * the maker (0084's seat sentence when it is not theirs), untouched (0086's
+ * sentence), then the active list (D4, for everyone). An archived list is the
+ * caller's business (the provider treats withdrawing one as a no-op).
+ */
+export function shotListWithdrawRefusal({ list, edits, activeListId, userId }) {
+  if (!list) return 'shot list not found'
+  if (userId !== undefined && (!userId || list.created_by !== userId)) return ARCHIVE_SEAT_REFUSAL_LIST
+  if (!isShotListUntouched(list, edits)) return WITHDRAW_LIST_REFUSAL
+  if (activeListId && activeListId === list.id) return ACTIVE_LIST_ARCHIVE_REFUSAL
+  return null
+}
+
+/** The same for an edit: the maker, then untouched. */
+export function editWithdrawRefusal({ edit, edits, userId }) {
+  if (!edit) return 'edit not found'
+  if (userId !== undefined && (!userId || edit.created_by !== userId)) return ARCHIVE_SEAT_REFUSAL_EDIT
+  if (!isEditUntouched(edit, edits)) return WITHDRAW_EDIT_REFUSAL
+  return null
+}
+
+/**
+ * Why this person may NOT restore this withdrawn row (kind 'shot_list' |
+ * 'edit') — or null. The maker restores what THEY set aside (archived_by is
+ * theirs) while it is not Saved — what every withdraw left (an archived row
+ * cannot be Saved) — whatever landed on it since: a restore only un-hides.
+ * Someone else's row, or one a manager archived, gets 0084's seat sentence;
+ * a Saved one 0086's. A live row is nothing to restore (null; the provider
+ * treats it as a no-op).
+ */
+export function withdrawnRestoreRefusal({ row, kind, userId }) {
+  const isEdit = kind === 'edit'
+  if (!row) return isEdit ? 'edit not found' : 'shot list not found'
+  if (!row.archived_at) return null
+  if (userId === undefined) return null
+  if (!userId || row.created_by !== userId || row.archived_by !== userId) {
+    return isEdit ? ARCHIVE_SEAT_REFUSAL_EDIT : ARCHIVE_SEAT_REFUSAL_LIST
+  }
+  const saved = isEdit ? row.snapshot != null : (row.snapshot != null && !isEmptyObject(row.snapshot))
+  if (saved) return isEdit ? RESTORE_SAVED_EDIT_REFUSAL : RESTORE_SAVED_LIST_REFUSAL
+  return null
 }
 
 // ── plans: each returns the NEW full item set of ONE list ───────────────────

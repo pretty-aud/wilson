@@ -3399,7 +3399,11 @@ projects they are not seated on. That is the intent; legacy projects are
 unchanged. **One exception to the bypass since 0084:** making a shot list
 active and archiving a list or an edit (`project.shotlist.activate`) need a
 workspace ADMIN or the PROJECT manager — a workspace manager without that
-seat is refused, and an unstaffed project opens neither (Audrey D8).
+seat is refused, and an unstaffed project opens neither (Audrey D8). Since
+0086 the person who MADE a list or an edit, while they may still write shot
+lists there, may also withdraw (archive) it while it is untouched, and
+restore what they withdrew — a rule about one row, so it is not a matrix
+action.
 
 > **LOCKSTEP INVARIANT.** `src/permissions/projectRoleMatrix.js` mirrors the
 > SQL helpers `can_write_project()`, `can_comment_project()` and
@@ -3413,6 +3417,12 @@ seat is refused, and an unstaffed project opens neither (Audrey D8).
 > loop from both ends.
 > (0084: `can_edit_shot_lists`'s comment names the file; the three RPCs'
 > comments do not, so this box is where their seat check is found.)
+> (0086: the two archive RPCs' MAKER path is per row — `created_by` and
+> `can_edit_shot_lists`, plus an untouched row to withdraw, or `archived_by`
+> = the caller and an unsaved row to restore — so it has no matrix action.
+> `shotListModel.js`'s `shotListWithdrawRefusal` / `editWithdrawRefusal` /
+> `withdrawnRestoreRefusal` mirror its row tests with the database's
+> sentences; the seat is `project.shotlist.write`, which the caller asks.)
 
 **Intake pipeline**: `is_core_definer` files only → text extraction (`.txt`,
 `.md`, `.fountain` direct; `.docx` via mammoth; `.pdf` via the local Express
@@ -3522,20 +3532,25 @@ its position in one list, and the scene and shot rows themselves are shared by
 every list that holds them (a rename in one list is a rename everywhere). A
 list is `title` + integer `version`, unique per project ("Title · v3"); "Save"
 writes the list's current contents into `shot_lists.snapshot`; lists and
-edits are archived, never deleted. An ARCHIVED list's membership is frozen
-too (review R1): every backend refuses an add, a move or a removal on it
-("this shot list is archived — restore it before changing it"; in the cloud,
-the `shot_list_items` write policies) — with one exception, the shared-row
-rule: deleting a scene or a shot still takes it out of every list, archived
-ones included (in the cloud the FK CASCADE, which RLS does not judge).
+edits are archived, never deleted. An ARCHIVED list's ROW is frozen (title,
+version, summary, snapshot: "this shot list is archived — restore it before
+changing it"), and the UI verbs refuse to change its membership — but the
+DATABASE does not freeze that membership (review R2 reverted R1's freeze):
+the undo of a scene delete must put the scene back into every list it was
+in, archived ones included, and deleting a scene or a shot takes it out of
+every list (in the cloud the FK CASCADE, which RLS does not judge).
 `projects.active_shot_list_id` names the ACTIVE list, and every surface
 except the Scenes tab reads it — `ctx.scenes` / `ctx.shots` are the active
-list's rows PLUS every row that belongs to NO list at all (every row when
-there is no active list, or when the pointer names a list this window has not
-loaded). The "plus no list" half is deliberate (review R1): a row in no list
-was put nowhere — an older client, a failed membership write, an import —
-and hiding it would lose it from every surface, so nothing is ever hidden by
-accident; only a row that ANOTHER list holds drops out.
+list's rows and only those (every row when there is no active list, or when
+the pointer names a list this window has not loaded). While a project has an
+active list, a row in no live list shows on no other surface: D10 as Audrey
+ruled it, restored by review R2 after R1 had added "plus every row in no
+list", which also undid every deliberate removal from a project's only list.
+Accidents are stopped where they start (a new row whose membership write
+fails is deleted again), and Audrey's answer for reaching such rows is a
+"Not in any list (N)" entry in the Scenes tab's list picker (2026-09-30; S3b
+builds it on `ctx.unlistedScenes` / `unlistedShots`, which count LIVE lists
+only).
 `ctx.allScenes` / `allShots` / `scenesOf(listId)` / `shotsOf(listId)` give
 the rest. An edit is an ordered JSONB array of items referencing shot ids
 (repeats allowed), and a list's edits form ONE chain (D6): one root, each
@@ -3544,9 +3559,26 @@ is made (0084's `edits_one_root_per_list_key` and `edits_one_child_key` and
 its guard; the same refusals on every backend). Writes to
 lists, items and edits pass `can_edit_shot_lists()` — `can_write_project`
 plus the REVIEWER seat, the first thing a reviewer may write — while set
-active and archive go through three SECURITY DEFINER RPCs that admit only a
+active and archive go through three SECURITY DEFINER RPCs that admit a
 workspace admin or the project manager, backed by guard triggers so the plain
-UPDATE policies cannot do either. Same-project composite FKs keep every link
+UPDATE policies cannot do either. **Withdraw (0086, Audrey 2026-09-30):** the
+two archive RPCs also let a row's MAKER, while they may still write shot
+lists there, set it aside while it is untouched — a list not Saved, with no
+live edit on it and not the active one; an edit not Saved and continued by
+no live edit — and restore what they set aside themselves while it is not
+Saved (what every withdraw left; a live edit that landed on it since does not
+block a restore, which only un-hides). The undo of "New list" / "New edit" is
+that withdraw, so a member or reviewer can take back what they just made; right
+after, the provider's `recentlyWithdrawn` lets the Scenes tab show it as
+"Recently removed" (openable, restorable) until the person leaves the tab.
+0086's trigger pins `created_by` to the inserting user and freezes it,
+because that right rests on it (`fn_audit_touch` kept whatever a client
+sent). No new column: a withdrawn row is one whose `archived_by` equals its
+`created_by` (as is a list a manager archived after making it). The undo of a
+Save goes back only while the stored Save is still the one it left, so a
+teammate's later Save is not erased by it, unless it lands between the
+undo's re-read and its write (the hand-off's known limits).
+Same-project composite FKs keep every link
 (items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
 the active pointer) inside its own project. ⚠️ `0034_tasks_without_assets.sql`'s
 header still says scenes are "local-only BY DESIGN" and leaves `scene_id` /
