@@ -250,7 +250,12 @@ async function fileTagsAvailable(client) {
   if (fileTagsKnown !== null) return fileTagsKnown;
   const { error } = await client.from('files').select('tags').limit(1);
   if (!error) { fileTagsKnown = true; return true; }
-  if (error.code === '42703' || /\btags\b/.test(error.message || '')) {
+  // The missing-column sentence itself, not any message with the word
+  // "tags" in it (review round 1, R1-SEC-05): "absent" is remembered for the
+  // session, and a wrong "absent" drops every tag write — the silent loss
+  // this probe exists to prevent. `tags` is an ordinary word, unlike 0081's
+  // `duration_sec`.
+  if (error.code === '42703' || /column\s+(?:"?\w+"?\.)?"?tags"?\s+does not exist/i.test(error.message || '')) {
     fileTagsKnown = false;
     return false;
   }

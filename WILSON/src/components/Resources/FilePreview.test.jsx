@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
-  previewKindFor, tooLargeToRead, PREVIEW_TEXT_MAX, unavailableSentence, CODE_LANGUAGE,
+  previewKindFor, tooLargeToRead, PREVIEW_TEXT_MAX, PREVIEW_PDF_BLOB_MAX, unavailableSentence, CODE_LANGUAGE,
 } from './filePreview'
 
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
@@ -174,12 +174,25 @@ describe('the preview dialog (E9)', () => {
     expect(a.hasAttribute('controls')).toBe(true)
   })
 
-  it('a cloud PDF goes straight into the browser\'s viewer (an iframe on the signed URL)', async () => {
+  it('🚨 a cloud PDF is read and handed to the viewer as a TYPED blob, never framed by its URL (round 1, R1-SEC-02)', async () => {
+    // The stored type is the attacker's to choose: say text/html.
+    globalThis.fetch = vi.fn(async () => new Response('<script>top.location="https://evil.example"</script>', { status: 200, headers: { 'content-type': 'text/html' } }))
     await mountTable()
     openByDoubleClick('d-brief.pdf')
-    const f = await waitFor(() => { const x = dialog().querySelector('iframe[data-pv-pdf]'); expect(x).not.toBeNull(); return x })
-    expect(f.getAttribute('src')).toBe('https://signed.example/d4?token=1')
-    expect(f.hasAttribute('sandbox')).toBe(false)
+    const f = await waitFor(() => { const x = dialog().querySelector('iframe[data-pv-pdf]'); expect(x).toBeTruthy(); return x })
+    expect(f.getAttribute('src')).toBe('blob:preview-1')
+    expect(globalThis.URL.createObjectURL.mock.calls[0][0].type).toBe('application/pdf')
+    // Fetched from the signed URL without the app's cookies.
+    expect(globalThis.fetch).toHaveBeenCalledWith('https://signed.example/d4?token=1', expect.objectContaining({ credentials: 'omit' }))
+    expect(dialog().querySelector('iframe[src^="https://"]')).toBeNull()
+  })
+
+  it('a cloud PDF over the size bound is not read: "too large", with its action', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('x', { status: 200, headers: { 'content-length': String(PREVIEW_PDF_BLOB_MAX + 1) } }))
+    await mountTable()
+    openByDoubleClick('d-brief.pdf')
+    expect(await within(dialog()).findByText(/This PDF is too large to preview here/)).toBeTruthy()
+    expect(dialog().querySelector('iframe')).toBeNull()
   })
 
   it('a PDF from the desktop\'s own server is read and handed to the viewer as a typed blob', async () => {

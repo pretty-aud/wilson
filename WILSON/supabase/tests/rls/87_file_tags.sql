@@ -25,13 +25,19 @@
 --   * E2, CORE IN HER WORDS (probes 9-10): the comment carries her definition
 --     and the column kept NOT NULL DEFAULT false (0075's tripwire).
 --
+--   * ONE DIMENSION (probes 25-28, review round 1, R1-SEC-04): the flat
+--     CHECK by definition; a 2-D array — which `<@` and cardinality() both
+--     flatten, so the other two checks let it in — is refused; the same
+--     four tags flat are accepted (the presence control), and so is the
+--     empty array, which has no dimensions at all.
+--
 -- Every absence check has a presence control one probe away. 🚨 RUNS INSIDE
 -- ONE TRANSACTION THAT ROLLS BACK. Nothing here survives.
 -- =============================================================================
 
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(28);
 
 SELECT * FROM tests.rls_setup();
 
@@ -235,6 +241,30 @@ SELECT ok(EXISTS (
      AND action = 'update'
      AND diff ? 'tags'),
   'the tag edit left an update row in the edit history (E13)');             -- 24
+
+-- ══ 3. One dimension (R1-SEC-04) ═══════════════════════════════════════════
+
+SELECT ok(EXISTS (
+  SELECT 1 FROM pg_constraint
+   WHERE conrelid = 'public.files'::regclass AND contype = 'c'
+     AND conname = 'files_tags_flat_chk'
+     AND pg_get_constraintdef(oid) LIKE '%array_ndims(tags)%= 1)%'),
+  'files_tags_flat_chk keeps tags one-dimensional');                         -- 25
+
+SELECT throws_ok($$
+  UPDATE public.files SET tags = '{{code,legal},{shots,assets}}'::TEXT[]
+   WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
+$$, '23514', NULL, 'a 2-D array is refused (a tag the client would not see)'); -- 26
+
+SELECT lives_ok($$
+  UPDATE public.files SET tags = ARRAY['code','legal','shots','assets']
+   WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
+$$, 'the same four tags, flat, are accepted');                              -- 27
+
+SELECT lives_ok($$
+  UPDATE public.files SET tags = '{}'
+   WHERE id = 'aaaa1111-0000-0000-0000-0000000087f1'
+$$, 'the empty array (no dimensions) is still accepted');                   -- 28
 
 SELECT * FROM finish();
 ROLLBACK;

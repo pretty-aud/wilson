@@ -52,7 +52,7 @@ desktop app or a cloud project to see previews.
 | 13 | Preview an **.html** or **.svg** file | Its text, never the page itself. |
 | 14 | Preview a **Photoshop** (.psd) file | *"No preview available"* and *"WILSON cannot draw this image format here. Open it in its own app."*, with the file's action under it. |
 | 15 | On the cloud, click **Download** in the file window | The browser saves a copy under the file's own name. |
-| 16 | In the desktop app, on a file stored on this computer, click **Show in folder**, then the arrow-out icon beside it (**Open in default app**) | File Explorer opens with the file selected; then the file opens in the program Windows uses for it. A program or script is refused: *"WILSON does not open programs or scripts. Use Show in folder to see it."* |
+| 16 | In the desktop app, on a file stored on this computer, click **Show in folder**, then the arrow-out icon beside it (**Open in default app**) | File Explorer opens with the file selected; then the file opens in the program Windows uses for it. Only documents, pictures, video, audio and 3D files open this way. A program or script is refused with *"WILSON does not open programs or scripts. Use Show in folder to see it."*; anything else off the list (a Maya or Nuke scene, say) with *"WILSON opens documents, pictures, video, audio and 3D files in their own app. Use Show in folder for this one."* |
 | 17 | Open **Summary** | No file list any more. The Control panel's **Files & storage** keeps the project folder and says *"The project's files are in the Files tab: add files, relink missing ones and see each file's activity there."* |
 | 18 | In **Bins**, select a file. Open **D.O.G.**, click an empty part of the page and press **Delete**. Go back to Bins | The file is still there and still selected. Bins' keys only act while R.A.B.B.I.T. is on screen. |
 | 19 | In Bins with a file selected, open R.A.B.B.I.T.'s settings (the gear) and press **Escape** | The settings panel closes; the selection stays. Before this, Escape cleared the selection and the panel stayed open, and Delete on one of its buttons removed the selected files behind it. |
@@ -113,7 +113,7 @@ app or a cloud project, not the test data.
 - **The R.A.B.B.I.T. bar with twelve tabs** (`scripts/tool-strip-probe.mjs
   5277 --check`, before and after): Help and Settings sit at the same
   pixels as before at every size, the gear's right edge 24px in from the
-  window's. With a game project open (all twelve tabs), the tab list is
+  window's. With a game project open (twelve tabs now, eleven before), the tab list is
   wider than the bar at the three narrowest desktop windows, 935, 853 and
   711 pixels wide (zoomed in), by 83, 165 and 307px, against 37, 119 and
   261px with eleven. The last tabs scroll out of view there, as they

@@ -4692,9 +4692,12 @@ ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
   });
   if (!target.ok) return target;
   if (req.reveal) { shell.showItemInFolder(target.diskPath); return { ok: true }; }
-  const refusal = refuseToOpen(target.diskPath);
+  // The REAL target is judged and opened (review round 1, R1-SEC-01): a
+  // link named brief.pdf that leads to an .exe is refused, and what opens is
+  // exactly what was judged. The link's own name must pass too.
+  const refusal = refuseToOpen(target.realPath) || refuseToOpen(target.diskPath);
   if (refusal) return { ok: false, error: refusal };
-  const err = await shell.openPath(target.diskPath);
+  const err = await shell.openPath(target.realPath);
   return err ? { ok: false, error: err } : { ok: true };
 });
 

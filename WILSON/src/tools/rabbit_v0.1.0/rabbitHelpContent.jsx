@@ -214,7 +214,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Download</span> — Saves a copy of a file stored in the cloud.</li>
               <li>• <span className={T.listBold}>Show in folder</span> — For a file already on this computer: opens its folder with the file selected.</li>
-              <li>• <span className={T.listBold}>Open in default app</span> — Opens it in the program your computer uses for it. WILSON does not open programs or scripts; use Show in folder for those.</li>
+              <li>• <span className={T.listBold}>Open in default app</span> — Opens a document, picture, video, audio or 3D file in the program your computer uses for it. Anything else (a program, a script, another app's project file) opens from Show in folder instead.</li>
             </ul>
           </div>
         </div>

@@ -21,11 +21,16 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 
 const { supabaseAdapter, resetSupabaseAdapter } = await import('./supabaseAdapter')
 
-/** A client whose `files` table has (or lacks) the tags column. */
-function makeClient({ hasTags }) {
+/**
+ * A client whose `files` table has (or lacks) the tags column. `probeErrors`
+ * answers the first probes with these errors, in turn, before the table's
+ * real answer (round 1, R1-SEC-05).
+ */
+function makeClient({ hasTags, probeErrors = [] }) {
   const updates = []
   const probes = []
   const rpcs = []
+  const queued = [...probeErrors]
   const files = () => {
     let op = 'select'
     let payload = null
@@ -40,9 +45,11 @@ function makeClient({ hasTags }) {
         let result
         if (op === 'select' && cols === 'tags') {
           probes.push(cols)
-          result = hasTags
-            ? { data: [], error: null }
-            : { data: null, error: { code: '42703', message: 'column files.tags does not exist' } }
+          result = queued.length
+            ? { data: null, error: queued.shift() }
+            : hasTags
+              ? { data: [], error: null }
+              : { data: null, error: { code: '42703', message: 'column files.tags does not exist' } }
         } else if (op === 'update') {
           updates.push(payload)
           result = { data: { id: 'f1', ...payload }, error: null }
@@ -107,6 +114,24 @@ describe('updateFile and files.tags', () => {
     await supabaseAdapter().updateFile('f1', { description: 'n', project_id: 'p1' })
     expect(client.probes).toEqual([])
     expect(client.updates).toEqual([{ description: 'n', project_id: 'p1' }])
+  })
+
+  it('an unrelated error that merely says "tags" is NOT remembered as "absent" (round 1, R1-SEC-05)', async () => {
+    const client = makeClient({ hasTags: true, probeErrors: [{ code: 'XX000', message: 'too many tags requests, try again' }] })
+    globalThis.__testSupabase = client
+    expect(await supabaseAdapter().supportsFileTags()).toBe(false) // not now…
+    expect(await supabaseAdapter().supportsFileTags()).toBe(true)  // …probed again, and the column is there
+    expect(client.probes.length).toBe(2)
+    await supabaseAdapter().updateFile('f1', { tags: ['shots'], project_id: 'p1' })
+    expect(client.updates).toEqual([{ tags: ['shots'], project_id: 'p1' }])
+  })
+
+  it('CONTROL: the missing-column sentence alone (no code) IS remembered as "absent"', async () => {
+    const client = makeClient({ hasTags: true, probeErrors: [{ message: 'column files.tags does not exist' }] })
+    globalThis.__testSupabase = client
+    expect(await supabaseAdapter().supportsFileTags()).toBe(false)
+    expect(await supabaseAdapter().supportsFileTags()).toBe(false)
+    expect(client.probes.length).toBe(1)
   })
 
   it('the answer is remembered for the session, and resetSupabaseAdapter forgets it', async () => {

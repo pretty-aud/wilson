@@ -21,7 +21,10 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
-const { resolveOpenTarget, refuseToOpen, OPEN_REFUSED_EXT } = require(resolve(here, '../../../../electron/openPath.cjs'))
+const { resolveOpenTarget, refuseToOpen, OPEN_REFUSED_EXT, OPEN_ALLOWED_EXT } = require(resolve(here, '../../../../electron/openPath.cjs'))
+const PROGRAMS = 'WILSON does not open programs or scripts. Use Show in folder to see it.'
+const OFF_THE_LIST = 'WILSON opens documents, pictures, video, audio and 3D files in their own app. Use Show in folder for this one.'
+const real = (p) => fs.realpathSync(p)
 const { checkMediaKey, insideByRealPath } = require(resolve(here, '../../../../electron/localMedia.cjs'))
 const { resolveContainedFilePath } = require(resolve(here, '../../../../electron/pathContainment.cjs'))
 const mainCjs = readFileSync(resolve(here, '../../../../electron/main.cjs'), 'utf8')
@@ -66,8 +69,8 @@ const deps = (over = {}) => ({
 
 describe('rabbit:open-path resolves a ROW to a file on this disk', () => {
   it('a Local Server file and a managed file resolve through the locator', () => {
-    expect(resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'f1' }, deps())).toEqual({ ok: true, diskPath: projectFile })
-    expect(resolveOpenTarget({ source: 'managed', projectId: 'p1', fileId: 'm1' }, deps())).toEqual({ ok: true, diskPath: managedFile })
+    expect(resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'f1' }, deps())).toEqual({ ok: true, diskPath: projectFile, realPath: real(projectFile) })
+    expect(resolveOpenTarget({ source: 'managed', projectId: 'p1', fileId: 'm1' }, deps())).toEqual({ ok: true, diskPath: managedFile, realPath: real(managedFile) })
   })
 
   it('a row the locator does not know, or another project\'s, is "not on this computer"', () => {
@@ -80,7 +83,7 @@ describe('rabbit:open-path resolves a ROW to a file on this disk', () => {
   })
 
   it('a private project\'s media key resolves under the media root', () => {
-    expect(resolveOpenTarget({ source: 'media', mediaKey: KEY }, deps())).toEqual({ ok: true, diskPath: join(media, ...KEY.split('/')) })
+    expect(resolveOpenTarget({ source: 'media', mediaKey: KEY }, deps())).toEqual({ ok: true, diskPath: join(media, ...KEY.split('/')), realPath: real(join(media, ...KEY.split('/'))) })
   })
 
   it('a key WILSON did not write is refused: traversal, a drive letter, a bare path', () => {
@@ -108,16 +111,59 @@ describe('rabbit:open-path resolves a ROW to a file on this disk', () => {
 })
 
 describe('a program or a script is never OPENED (its default app runs it)', () => {
-  it('refuses the executable and script extensions, in any case', () => {
+  it('refuses the executable and script extensions, in any case, in their own words', () => {
     for (const p of ['C:\\a\\setup.exe', 'x/run.BAT', 'y/tool.cmd', 'z/thing.js', 'w/x.vbs', 'v/link.lnk', 'u/a.ps1', 'q/i.msi', 'r/a.hta', 's/x.JSE']) {
-      expect(refuseToOpen(p), p).toBe('WILSON does not open programs or scripts. Use Show in folder to see it.')
+      expect(refuseToOpen(p), p).toBe(PROGRAMS)
     }
   })
-  it('CONTROL: production files open', () => {
-    for (const p of ['a/brief.pdf', 'b/take.mov', 'c/notes.md', 'd/board.png', 'e/budget.xlsx', 'f/script.fdx']) {
+  it('DENY BY DEFAULT (round 1, R1-SEC-01): the launch types a refusal list missed, and anything unknown, are refused', () => {
+    for (const p of ['a/report.settingcontent-ms', 'b/fix.diagcab', 'c/help.chm', 'd/x.msc', 'e/lib.library-ms', 'f/app.jnlp', 'g/x.website', 'h/x.wsc', 'i/x.sct']) {
+      expect(refuseToOpen(p), p).toBe(PROGRAMS)
+    }
+    // Not a known launcher, and not on the list: still refused.
+    for (const p of ['j/pkg.appx', 'k/thing.xyz', 'l/README', 'm/evil.exe.', 'n/evil.exe ', 'o/page.html', 'p/vector.svg', 'q/scene.ma', 'r/comp.nk', 's/a.docm']) {
+      expect(refuseToOpen(p), JSON.stringify(p)).toBe(OFF_THE_LIST)
+    }
+  })
+  it('CONTROL: production files open (documents, pictures, video, audio, 3D)', () => {
+    for (const p of ['a/brief.pdf', 'b/take.MOV', 'c/notes.md', 'd/board.png', 'e/budget.xlsx', 'f/script.fdx', 'g/vo.wav',
+      'h/plate.exr', 'i/hero.fbx', 'j/set.usdz', 'k/subs.srt', 'l/cut.edl', 'm/raw.dng', 'n/a.mxf']) {
       expect(refuseToOpen(p), p).toBeNull()
     }
-    expect(OPEN_REFUSED_EXT.has('.pdf')).toBe(false)
+  })
+  it('the two lists never overlap (a refused type can never be let in by the other)', () => {
+    expect([...OPEN_ALLOWED_EXT].filter((e) => OPEN_REFUSED_EXT.has(e))).toEqual([])
+    expect(OPEN_ALLOWED_EXT.size).toBeGreaterThan(60)
+  })
+})
+
+describe('a link is judged by where it LEADS (round 1, R1-SEC-01)', () => {
+  it('a row whose path is brief.pdf but really leads to an .exe resolves to the .exe, which is refused', () => {
+    const exe = join(outside, 'calc.exe')
+    const linked = deps({ fs: { ...fs, realpathSync: (p) => (p === projectFile ? exe : fs.realpathSync(p)) } })
+    const t = resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'f1' }, linked)
+    expect(t).toEqual({ ok: true, diskPath: projectFile, realPath: exe })
+    expect(refuseToOpen(t.realPath)).toBe(PROGRAMS)
+    // CONTROL: the same row with no link leads to itself and opens.
+    const plain = resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'f1' }, deps())
+    expect(refuseToOpen(plain.realPath)).toBeNull()
+  })
+
+  it('a real file symlink, where this machine lets a test make one', () => {
+    const exe = join(outside, 'tool.exe')
+    writeFileSync(exe, 'MZ')
+    const link = join(base, 'files', 'linked-brief.pdf')
+    try { symlinkSync(exe, link, 'file') } catch { return } // no symlink privilege here: the injected case above stands
+    const t = resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'lnk' },
+      deps({ locateRow: (p, f) => (p === 'p1' && f === 'lnk' ? link : null) }))
+    expect(t.ok).toBe(true)
+    expect(t.realPath.toLowerCase().endsWith('tool.exe')).toBe(true)
+    expect(refuseToOpen(t.realPath)).toBe(PROGRAMS)
+  })
+
+  it('a path that cannot be resolved to a real one is "not on this computer"', () => {
+    const broken = deps({ fs: { ...fs, realpathSync: () => { throw new Error('EACCES') } } })
+    expect(resolveOpenTarget({ source: 'files', projectId: 'p1', fileId: 'f1' }, broken)).toEqual({ ok: false, error: 'This file is not on this computer.' })
   })
 })
 
@@ -132,6 +178,9 @@ describe('the wiring: main resolves, the page names a row', () => {
     expect(body).not.toMatch(/filePath/)
     expect(body.indexOf('shell.showItemInFolder')).toBeLessThan(body.indexOf('refuseToOpen('))
     expect(body.indexOf('refuseToOpen(')).toBeLessThan(body.indexOf('shell.openPath'))
+    // The real target is judged, AND it is what opens (round 1, R1-SEC-01).
+    expect(body).toContain('const refusal = refuseToOpen(target.realPath) || refuseToOpen(target.diskPath);')
+    expect(body).toContain('await shell.openPath(target.realPath)')
   })
 
   it('the locator lives in the server closure and uses the download route\'s resolvers', () => {

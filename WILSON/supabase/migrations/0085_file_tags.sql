@@ -53,6 +53,15 @@
 -- there is never a reason for a tenth element. The 0075 idiom (a sanity
 -- bound on a column every project member can UPDATE), not a product limit.
 --
+-- And ONE dimension (S4a review round 1, R1-SEC-04, measured on dev): `<@`
+-- and cardinality() both flatten, so '{{code,legal},{shots,assets}}' passed
+-- the two checks above. The client reads top-level elements only, so such a
+-- row shows no tags while a containment query (`tags @> '{legal}'`, the
+-- shape S4b's Legal gate will want) still finds 'legal' in it: a hidden tag.
+-- coalesce, because the empty array has no dimensions (array_ndims is NULL).
+-- Duplicates stay allowed: readers dedupe, and a CHECK cannot hold the
+-- subquery DISTINCT would need.
+--
 -- ORDERING: depends on 0000 (public.files) and on nothing after it. Applied
 -- by `supabase db query --linked --file supabase/migrations/0085_file_tags.sql`
 -- (never `db push`); the dev and staging commands are in the S4a hand-off's
@@ -80,6 +89,12 @@ ALTER TABLE public.files
 ALTER TABLE public.files
   ADD CONSTRAINT files_tags_len_chk
     CHECK (cardinality(tags) <= 9);
+
+ALTER TABLE public.files
+  DROP CONSTRAINT IF EXISTS files_tags_flat_chk;
+ALTER TABLE public.files
+  ADD CONSTRAINT files_tags_flat_chk
+    CHECK (COALESCE(array_ndims(tags), 1) = 1);
 
 -- "Every file tagged Legal", "every Shots file": a containment query, which
 -- is what a GIN index on an array serves.
@@ -196,5 +211,28 @@ BEGIN
        AND indexname = 'files_tags_gin' AND indexdef ILIKE '%USING gin (tags)%'
   ) THEN
     RAISE EXCEPTION '0085 post-condition failed: files_tags_gin is missing or not a GIN index on tags';
+  END IF;
+
+  -- 8. The size bound, by definition (review round 1, R1-SEC-03: the one
+  --    guard against an unbounded array on a column every member can UPDATE
+  --    was the one check this block did not make). The closing parenthesis
+  --    is part of the pattern, so '<= 99' does not pass.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.files'::regclass AND contype = 'c'
+       AND conname = 'files_tags_len_chk'
+       AND pg_get_constraintdef(oid) LIKE '%cardinality(tags) <= 9)%'
+  ) THEN
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_len_chk is missing or does not bound tags at nine';
+  END IF;
+
+  -- 9. One dimension, by definition (R1-SEC-04).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.files'::regclass AND contype = 'c'
+       AND conname = 'files_tags_flat_chk'
+       AND pg_get_constraintdef(oid) LIKE '%array_ndims(tags)%= 1)%'
+  ) THEN
+    RAISE EXCEPTION '0085 post-condition failed: files_tags_flat_chk is missing or does not keep tags one-dimensional';
   END IF;
 END $$;

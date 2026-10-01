@@ -241,22 +241,26 @@ function SourcedStage({ node, pk, projectId, adapterMode, onRead, actions }) {
 }
 
 /**
- * The browser's own PDF viewer. A signed cloud URL goes straight into the
- * frame. The desktop's loopback server answers anything that is not media as
- * an opaque download (safeMediaContentType — a same-origin execution defence),
- * so a PDF from it is read into memory (bounded) and handed to the viewer as
- * a typed blob instead of weakening that rule.
+ * The browser's own PDF viewer, always over a TYPED blob: the bytes are read
+ * into memory (bounded) and handed to the viewer as `application/pdf`.
+ *  · A cloud URL used to go straight into the frame, so a file named .pdf
+ *    whose STORED type said text/html rendered as a live page in an
+ *    unsandboxed frame that could navigate WILSON's window (review round 1,
+ *    R1-SEC-02). The typed blob can only be a PDF.
+ *  · The desktop's loopback server answers anything that is not media as an
+ *    opaque download (safeMediaContentType — a same-origin execution
+ *    defence), and the blob leaves that rule as it is.
  */
 function PdfStage({ url, name, onFail, actions }) {
-  const [frameSrc, setFrameSrc] = useState(sameOriginUrl(url) ? null : url)
+  const [frameSrc, setFrameSrc] = useState(null)
   const [tooLarge, setTooLarge] = useState(false)
   useEffect(() => {
-    if (!sameOriginUrl(url)) { setFrameSrc(url); return undefined }
+    setFrameSrc(null)
     const ctrl = new AbortController()
     let made = null
     ;(async () => {
       try {
-        const res = await fetch(url, { credentials: 'same-origin', signal: ctrl.signal })
+        const res = await fetch(url, { credentials: sameOriginUrl(url) ? 'same-origin' : 'omit', signal: ctrl.signal })
         if (!res.ok) { onFail(); return }
         const declared = Number(res.headers.get('content-length'))
         if (Number.isFinite(declared) && declared > PREVIEW_PDF_BLOB_MAX) { setTooLarge(true); ctrl.abort(); return }
