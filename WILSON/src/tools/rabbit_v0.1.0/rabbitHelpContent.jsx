@@ -299,7 +299,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>Save</span> — Records that the list was saved as it is now: the bar says "Saved" with the date until the list next changes.</li>
               <li>• <span className={T.listBold}>Save as…</span> — A new list from this one, by default the same title at the next version.</li>
               <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
-              <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (never on the active list, and only before it is first saved), Withdraw and Archive.</li>
+              <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
             </ul>
           </div>
           <div className={T.card}>
@@ -317,6 +317,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Remove from this list</span> — In a row's shot-list menu (the … beside Delete), or Remove from list for a selection. Takes the scene or shot out of the list on screen only: nothing is deleted, and every other list keeps it. One no other list holds is found under "Not in any list".</li>
               <li>• <span className={T.listBold}>Delete</span> — Deletes the scene or shot from the project, and so from every list that holds it. The question names those lists.</li>
+              <li>• <span className={T.listBold}>A selection</span> — Holds only what is on screen: opening another list, a search or a filter unticks the rows it hides, and closing a scene unticks its shots. A scene's own bar acts on its own ticked shots.</li>
             </ul>
           </div>
           <div className={T.card}>
@@ -334,9 +335,9 @@ export function RabbitHelpContent({ helpPage, theme }) {
               On the Local Server, <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Z</Kbd> undoes
               and <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Y</Kbd> redoes
               on the Scenes tab, in its scene and shot windows and in the
-              windows they open, but not while you type in a field, nor while
-              a menu, a question, the settings drawer or a shot-list window
-              is open.
+              windows they open, but not while you type in a field, while a
+              menu, a question, the settings drawer or a shot-list window is
+              open, or while a delete of several rows is still going.
             </p>
           </div>
         </div>

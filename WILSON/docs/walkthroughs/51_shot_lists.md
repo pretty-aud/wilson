@@ -47,7 +47,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 | 2 | Hover a scene's name | Its tooltip names the lists that hold it: *In: Shot list 1 · v1*. A row no live list holds says *In no shot list*. |
 | 3 | Click **New shot list** | The form: **Title** (the list on screen's, selected, so typing replaces it), the switch **Same title, next version**, **Summary**, and **Start from**: the list on screen, every scene and shot in this project, or empty. A line says what "linked" means. Type *Second unit*, choose **Empty**. (02) |
 | 4 | Click **Create shot list** | The bar shows **Second unit · v1**, no badge, and **Active: Shot list 1 · v1** (click it to go back to the active list). **Set active** appears. The table is empty. The other tabs still show the active list. (03) |
-| 5 | Click **⋯** | **Add from another list…** first, then **Edit details…**, **Clear this list** (only before the list is first saved, and never on the active list), **Withdraw** (only for the list you made, while it is untouched) and **Archive**. (04) |
+| 5 | Click **⋯** | **Add from another list…** first, then **Edit details…**, **Clear this list** (only before the list is first saved), **Withdraw** (only for the list you made, while it is untouched; on the Local Server, which has no users, for any untouched list) and **Archive**. (04) |
 | 6 | Click **Add from another list…** | *Add from another list*, **From** the first list with something to add (here *Shot list 1 · v1*), a search, and the rows scene by scene. Tick scene 1: its three shots tick with it. Tick one shot of scene 2: scene 2 shows a dash (some of its shots). The button counts what will be added: **Add 2 scenes and 4 shots**. Rows the list already holds are ticked and greyed. (05) |
 | 7 | Click the **Add** button | The rows appear in *Second unit*; the totals count them. (06) |
 | 8 | Hover a row and click its **⋯** (between View details and Delete) | **Move up**, **Move down** (List order only) and **Remove from this list**. (07) |
@@ -65,7 +65,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 | 20 | **Shot lists… → Not in any list (1) → Open** | The scenes and shots no live list holds: *Salt hours*. The bar says **Not in any list**. (19) |
 | 21 | Click *Salt hours*'s **⋯** | **ADD TO LIST** and each live list: one click adds it there. (20) |
 | 22 | Open a scene, change its **Description**, and press **Escape** (or ✕, Close, or click outside) | *Discard your changes?*: what you typed is not saved. **Cancel** (focused) keeps it; **Discard** drops it. With nothing changed, Escape closes as before. The notes too, and the shot window too. If someone changes the description meanwhile, what you typed stays. (21) |
-| 23 | Tick two scenes | The selection bar has **Remove from list** beside **Delete**, in the plain button, not the red one. |
+| 23 | Tick two scenes | The selection bar has **Remove from list** beside **Delete**, in the plain button, not the red one. A selection holds only what is on screen: another list, a search or a filter unticks what it hides, and closing a scene unticks its shots. |
 | 24 | Open **Help (?) → Scenes & shot lists** | The page that says all of this in short. |
 | 24a | Open an archived list (**Shot lists… → Archived… → Open**) | It reads like any list, marked **Archived**. **New scene**, **New shot** and **Add shot** are greyed: hovering says the list is archived, to restore it or open another list to add scenes and shots. |
 
@@ -82,7 +82,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 
 | # | Do | You should see |
 |---|----|----------------|
-| 29 | Open R.A.B.B.I.T. on **D.O.G.** or any other page, and press **Ctrl+Z** | Nothing: Scenes' undo keys act only while R.A.B.B.I.T. is on screen (before this, they undid R.A.B.B.I.T.'s last edit from any page). On the Scenes tab, Ctrl+Z still undoes, also inside a scene or shot window, but not while a menu, a question, the settings drawer or the shot lists' windows are open. |
+| 29 | Open R.A.B.B.I.T. on **D.O.G.** or any other page, and press **Ctrl+Z** | Nothing: Scenes' undo keys act only while R.A.B.B.I.T. is on screen (before this, they undid R.A.B.B.I.T.'s last edit from any page). On the Scenes tab, Ctrl+Z still undoes, also inside a scene or shot window, but not while a menu, a question, the settings drawer or the shot lists' windows are open, nor while a delete of several rows is still going. |
 
 ## 2. How to check it
 
@@ -133,6 +133,9 @@ seat). On the Local Server there are no roles, so every verb is open.
   **the task form inside a popup is dropped without asking** (S3b-05).
 - **The Budget and Timeline tabs' Ctrl+Z still acts from other pages**
   (S4a-07): S3c's files.
+- **An edit made while a delete of several rows is still going joins that
+  delete's undo step**, and the undo toast can still be pressed in that
+  moment (S3b-10): the provider's, not this tab's.
 
 ---
 
@@ -155,11 +158,6 @@ seat). On the Local Server there are no roles, so every verb is open.
    Local Server, as it did before (S3b-03). Want them on the cloud too?
 6. **"Not in any list".** It adds one row at a time (each row's ⋯). Do you
    want a selection's "Add to list" as well?
-8. **Clear on the active list.** Every project's backfilled "Shot list 1 ·
-   v1" is the active list and has never been saved, so by D4 it could always
-   be cleared, and clearing it would empty every other tab. Since the
-   review, **Clear this list** is never offered on the active list (Archive
-   never was). Keep it off, or offer it there with a warning?
 7. **Walkthrough 47's Scenes questions.** This bundle decides **Q192**: all
    four older Scenes bugs are fixed (a shot's delete in the scene window no
    longer opens it; a related asset opens; "Files (N)" once; the ungrouped
@@ -168,6 +166,12 @@ seat). On the Local Server there are no roles, so every verb is open.
    Q183 it becomes "Shot list"), **Q185** (the actions column is wider now,
    Description narrower) and **Q191** (a reviewer's read-only fields follow
    "no box"). Q184, Q186 to Q190 and Q193 are untouched.
+8. **Clear on the active list.** Every project's backfilled "Shot list 1 ·
+   v1" is the active list and has never been saved, so by D4 it can be
+   cleared, which empties every other tab. Clear is offered there, as D4
+   rules, and its question now ends: *This is the active list, so the
+   Timeline, Budget and every other tab will no longer show them.* Keep it,
+   or withhold Clear on the active list (as Archive is)?
 
 ---
 

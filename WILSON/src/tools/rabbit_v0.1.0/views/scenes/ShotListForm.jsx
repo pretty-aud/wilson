@@ -41,6 +41,18 @@ const TITLES = { new: 'New shot list', saveAs: 'Save as a new version', details:
 const VERBS = { new: 'Create shot list', saveAs: 'Save new version', details: 'Save details' }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+/** The project's first list is "Shot list 1" (D11's name) — or, when a list
+    set aside already holds that name, the first "Shot list N" free at v1,
+    by the model's own uniqueness rule (review round 2, R2-05: the form
+    opened on a taken name, and its hint hid why Create was greyed). */
+function firstFreeTitle(lists) {
+  for (let n = 1; n <= (lists || []).length + 1; n += 1) {
+    const title = `Shot list ${n}`
+    try { assertUniqueShotList(lists, { title, version: 1 }); return title } catch { /* taken */ }
+  }
+  return ''
+}
+
 /**
  * mode        'new' | 'saveAs' | 'details'
  * source      the list on screen (new, saveAs) or the list being edited (details); may be null for new
@@ -54,7 +66,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 export default function ShotListForm({ mode, source, lists, counts, defaultFrom, label, onSubmit, onClose }) {
   const formId = useId()
   const initial = useRef({
-    title: source?.title || (mode === 'new' && !(lists || []).some(l => !l.archived_at) ? 'Shot list 1' : ''),
+    title: source?.title || (mode === 'new' && !(lists || []).some(l => !l.archived_at) ? firstFreeTitle(lists) : ''),
     same: mode === 'saveAs',
     summary: mode === 'new' ? '' : (source?.summary || ''),
     from: mode === 'saveAs' ? 'screen' : (defaultFrom || 'empty'),
@@ -86,11 +98,13 @@ export default function ShotListForm({ mode, source, lists, counts, defaultFrom,
   // than greeting the person with a refusal (review round 1, R1-14: the
   // second case opened on "A shot list needs a title."); once they have
   // changed the title or the toggle, the refusal reads in the model's own
-  // words.
+  // words. "Type a title" only while there is none (review round 2, R2-05:
+  // it stood in for "There is already a shot list called …", and stayed).
   const touched = title !== initial.title || same !== initial.same
   const nextLabel = source ? label({ title: source.title, version: nextShotListVersion(lists, source.title) }) : ''
   const untouchedHint = problem && !touched && mode === 'new'
-    ? (source && !same ? `Type a new title, or turn on “Same title, next version” for “${nextLabel}”.` : 'Type a title for the new shot list.')
+    ? (source && !same ? `Type a new title, or turn on “Same title, next version” for “${nextLabel}”.`
+      : !effectiveTitle.trim() ? 'Type a title for the new shot list.' : null)
     : null
   const takesLine = !problem ? `Will be “${label({ title: effectiveTitle.trim(), version })}”` : (untouchedHint || problem)
   const takesState = !problem ? 'ok' : (untouchedHint ? 'hint' : 'refused')

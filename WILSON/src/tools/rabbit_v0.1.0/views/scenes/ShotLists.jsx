@@ -154,11 +154,13 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     out.push(gate.write
       ? { label: 'Edit details…', Icon: Pencil, onClick: () => setDialog({ kind: 'form', mode: 'details', row }) }
       : { label: 'Edit details…', Icon: Pencil, disabled: true, hint: 'read-only' })
-    // Review round 1 (R1-08): not on the ACTIVE list — clearing it empties
-    // every other tab (D4 already keeps Archive off it), and every project's
-    // backfilled "Shot list 1" is active and never saved. For Audrey: should
-    // Clear ever reach the active list?
-    if (gate.write && rowSave?.kind === 'never' && held && !rowActive) {
+    // D4: Clear empties a list never saved — the active one too. Review
+    // round 1 (R1-08) took it off the active list (clearing that empties
+    // every other tab, and every project's backfilled "Shot list 1" is
+    // active and never saved); round 2 (R2-07) put it back, since that
+    // narrowed Audrey's ruling without her: the question says what it does
+    // to the other tabs instead, and walkthrough 51 asks her.
+    if (gate.write && rowSave?.kind === 'never' && held) {
       out.push({ label: 'Clear this list', Icon: Eraser, onClick: () => setDialog({ kind: 'clear', row }) })
     }
     if (gate.write && ctx?.canWithdrawShotList?.(row.id)) {
@@ -442,7 +444,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             close()
           })}
         >
-          {`Takes ${plural(rowsOf(target).scenes, 'scene')} and ${plural(rowsOf(target).shots, 'shot')} out of “${label(target)}”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved.`}
+          {`Takes ${plural(rowsOf(target).scenes, 'scene')} and ${plural(rowsOf(target).shots, 'shot')} out of “${label(target)}”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved.${target.id === activeId ? ' This is the active list, so the Timeline, Budget and every other tab will no longer show them.' : ''}`}
         </ListConfirm>
       )}
 

@@ -24,6 +24,19 @@
 //    trap holds the items too — in <body> they were outside it. And the
 //    button closes its own menu: the Menu's outside press closed it on the
 //    mousedown and the click re-opened it (UsersSection's armSwallow).
+//
+// Review round 2 (R2-02): in Chromium that fix did not hold. A trusted
+// event runs a microtask checkpoint after each listener, and React 19
+// flushes the Menu's close (made in its document-capture mousedown) right
+// there — so by the time the button's own onMouseDown ran, the menu was
+// already closed in state and the swallow was never armed; the click opened
+// it again. jsdom and act() run the old order, so the old test passed.
+// Now a WINDOW-capture listener, live only while the menu is open, sees the
+// press first: a press on the button arms the swallow before anything
+// closes. The same listener says a press closed the menu, so focus is left
+// where the person pressed — it went back to the button (scrolling a ⋯
+// scrolled out of view back into it) before the browser could move it. It
+// goes back only after Escape, and never scrolls.
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
@@ -36,26 +49,51 @@ export default function MenuButton({ title, items, minWidth = 200, Icon = MoreHo
   const buttonRef = useRef(null)
   const wrapRef = useRef(null)
   const swallowNextRef = useRef(false)
+  const pressedRef = useRef(false)
 
-  // Focus into the menu as it opens; back to the button when it closes, if
-  // focus went with the menu (an item was chosen, or Escape) — never away
-  // from a control the person clicked outside it, nor from a dialog an item
-  // opened (that dialog takes focus in its own effect, after this).
+  // A press on the button while its menu is open: its click must not open
+  // the menu the press closed. Cleared by a release off the button (a press
+  // slid off is a click cancelled) and by the next click anywhere, so no
+  // other gesture is ever swallowed.
+  const armSwallow = () => {
+    swallowNextRef.current = true
+    const clear = () => { swallowNextRef.current = false }
+    document.addEventListener('mouseup', (e) => { if (!buttonRef.current?.contains(e.target)) clear() }, { capture: true, once: true })
+    document.addEventListener('click', clear, { once: true })
+  }
+
+  // Focus into the menu as it opens. While it is open a press anywhere
+  // outside it is seen FIRST (window, capture — before the Menu's own
+  // document listener closes it). When it closes, focus goes back to the
+  // button only if no press closed it and focus went with the menu (Escape;
+  // an item hands focus to the button itself, below) — never from where a
+  // press is about to put it, nor from a dialog an item opened (that dialog
+  // takes focus in its own effect, after this) — and without scrolling.
   useEffect(() => {
     if (!at) return undefined
+    pressedRef.current = false
+    const onPress = (e) => {
+      if (wrapRef.current?.contains(e.target)) return
+      pressedRef.current = true
+      if (buttonRef.current?.contains(e.target)) armSwallow()
+    }
+    window.addEventListener('mousedown', onPress, true)
     wrapRef.current?.querySelector('.ui-menu-item:not(:disabled)')?.focus()
     return () => {
+      window.removeEventListener('mousedown', onPress, true)
+      if (pressedRef.current) return
       const active = document.activeElement
-      if (!active || active === document.body) buttonRef.current?.focus()
+      if (!active || active === document.body) buttonRef.current?.focus({ preventScroll: true })
     }
   }, [at])
 
   if (!items || items.length === 0) return null
   // An item's choice hands focus to the button first, while it is still in
   // the page, so a dialog the item opens remembers the button — not the item
-  // about to go — as what to give focus back to.
+  // about to go — as what to give focus back to. Without scrolling: the
+  // table may have scrolled the button out of view while the menu was open.
   const live = items.map(it => (it && it.onClick && !it.disabled
-    ? { ...it, onClick: () => { buttonRef.current?.focus(); it.onClick() } }
+    ? { ...it, onClick: () => { buttonRef.current?.focus({ preventScroll: true }); it.onClick() } }
     : it))
   return (
     <>
@@ -65,14 +103,6 @@ export default function MenuButton({ title, items, minWidth = 200, Icon = MoreHo
         Icon={Icon}
         title={title}
         aria-expanded={!!at}
-        onMouseDown={() => {
-          // The Menu's outside press closes it on this mousedown; the click
-          // that follows must not open it again. Cleared by the next click
-          // anywhere, so a press slid off the button suppresses nothing.
-          if (!at) return
-          swallowNextRef.current = true
-          document.addEventListener('click', () => { swallowNextRef.current = false }, { once: true })
-        }}
         onClick={e => {
           e.stopPropagation()
           if (swallowNextRef.current) { swallowNextRef.current = false; return }

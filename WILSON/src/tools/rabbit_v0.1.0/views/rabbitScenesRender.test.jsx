@@ -157,15 +157,23 @@ function page({ scenes = SCENES(), shots = SHOTS(), shotLists, shotListItems, ac
 }
 
 /** A runBatch that knows when it is running, and mutators that note whether
-    each call came INSIDE it (review round 1: R1-01, R1-11 — a count of
-    runBatch calls passed with a call moved out of the batch). */
+    each one's history step lands INSIDE it (review round 1: R1-01, R1-11 —
+    a count of runBatch calls passed with a call moved out of the batch).
+    The provider pushes a step when the backend has answered (deleteScene,
+    after its optimistic() write), so the note is taken then: a macrotask
+    after the call, as a round trip is. Round 2 (R2-03) moved it there —
+    noted at the call, a delete fired just after an EMPTY batch had opened
+    read as inside it. */
 function batchProbe() {
   let depth = 0
   const calls = []
   return {
     calls,
     runBatch: vi.fn(async (fn) => { depth += 1; try { return await fn() } finally { depth -= 1 } }),
-    mark: (name, result = () => undefined) => vi.fn(async (...args) => { calls.push([name, depth > 0]); return result(...args) }),
+    mark: (name, result = () => undefined) => vi.fn(async (...args) => {
+      await new Promise((r) => setTimeout(r, 0))
+      try { return await result(...args) } finally { calls.push([name, depth > 0]) }
+    }),
   }
 }
 
@@ -522,9 +530,11 @@ describe('surface 6a', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
-  it('W9: the nested shots\' bulk Delete asks on the kit Dialog — Cancel keeps them, Delete deletes them through the context', () => {
+  it('W9: the nested shots\' bulk Delete asks on the kit Dialog — Cancel keeps them, Delete deletes them through the context', async () => {
     const confirm = vi.spyOn(window, 'confirm')
-    const { ctx } = page()
+    // Review round 2 (R2-03): every delete INSIDE the one batch (R1-01).
+    const probe = batchProbe()
+    const { ctx } = page({ runBatch: probe.runBatch, deleteShot: probe.mark('deleteShot') })
     openScene('Lighthouse, dawn')
     fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
     const bar = () => document.querySelector('.rb-scene-nest-bulk')
@@ -541,6 +551,7 @@ describe('surface 6a', () => {
     fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
     dialog = screen.getByRole('dialog', { name: 'Delete shots' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(probe.calls).toEqual([['deleteShot', true]]))
     expect(ctx.deleteShot).toHaveBeenCalledTimes(1)
     expect(ctx.deleteShot).toHaveBeenCalledWith('sh1')
     expect(ctx.deleteScene).not.toHaveBeenCalled()
@@ -550,7 +561,8 @@ describe('surface 6a', () => {
 
   it('W9: the shot table\'s bulk Delete asks on the kit Dialog — Cancel keeps the shots, Delete deletes them through the context', async () => {
     const confirm = vi.spyOn(window, 'confirm')
-    const { ctx } = page()
+    const probe = batchProbe()
+    const { ctx } = page({ runBatch: probe.runBatch, deleteShot: probe.mark('deleteShot') })
     toShots()
     fireEvent.click(screen.getByRole('button', { name: 'Select every shot' }))
     const bulk = () => document.querySelector('.rb-scene-bulk')
@@ -567,8 +579,10 @@ describe('surface 6a', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Delete' }))
     dialog = screen.getByRole('dialog', { name: 'Delete shots' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
-    // R1-01: awaited in turn, inside one batch — one undo step.
-    await waitFor(() => expect(ctx.deleteShot.mock.calls.map((c) => c[0]).sort()).toEqual(['sh1', 'sh2']))
+    // R1-01: awaited in turn, inside one batch — one undo step (round 2,
+    // R2-03: each call INSIDE it, not only one runBatch).
+    await waitFor(() => expect(probe.calls).toEqual([['deleteShot', true], ['deleteShot', true]]))
+    expect(ctx.deleteShot.mock.calls.map((c) => c[0]).sort()).toEqual(['sh1', 'sh2'])
     expect(ctx.runBatch).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(bulk()).toBeNull()
@@ -1493,8 +1507,8 @@ describe('S3b step 1: the tab is safe with more than one list', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
     fireEvent.click(within(document.querySelector('.rb-scene-bulk')).getByRole('button', { name: 'Delete' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
-    await waitFor(() => expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2']))
-    expect(probe.calls).toEqual([['deleteScene', true], ['deleteScene', true]])
+    await waitFor(() => expect(probe.calls).toEqual([['deleteScene', true], ['deleteScene', true]]))
+    expect(ctx.deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2'])
     expect(ctx.runBatch).toHaveBeenCalledTimes(1)
     expect(ctx.deleteShot).not.toHaveBeenCalled()
   })
@@ -1971,7 +1985,7 @@ describe('S3b step 4: the picker', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('a row\'s actions by seat (D8): a manager sets active and archives; a member sees both greyed, "managers only"; a list never Saved can be cleared; the active one is neither archived, cleared nor made active again', () => {
+  it('a row\'s actions by seat (D8): a manager sets active and archives; a member sees both greyed, "managers only"; a list never Saved can be cleared; the active one is neither archived nor made active again', () => {
     page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
     let dialog = openPicker()
     const rowMenu = (title) => {
@@ -1981,9 +1995,11 @@ describe('S3b step 4: the picker', () => {
       return out
     }
     expect(rowMenu('Pickups')).toEqual([['Set active', false], ['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
-    // Review round 1 (R1-08): the active list is not cleared either — it
-    // would empty every other tab — though it was never Saved.
-    expect(rowMenu('Shoot')).toEqual([['Edit details…', false]])
+    // The active list, never Saved, can be cleared (D4). Review round 1
+    // (R1-08) took Clear off it; round 2 (R2-07) put it back — that
+    // narrowed Audrey's ruling — and its question says what it does to the
+    // other tabs (the R2-07 test below).
+    expect(rowMenu('Shoot')).toEqual([['Edit details…', false], ['Clear this list', false]])
     // The menu's Escape is the menu's: the picker stays.
     expect(screen.getByRole('dialog', { name: 'Shot lists' })).toBe(dialog)
     cleanup()
@@ -2180,8 +2196,8 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     // Both inside the one batch: one Ctrl+Z takes back the activation, then
     // the list (review round 1, R1-11: the count alone passed with the
     // activation moved out of the batch).
+    await waitFor(() => expect(probe.calls).toEqual([['addShotList', true], ['setActiveShotList', true]]))
     expect(ctx.runBatch).toHaveBeenCalledTimes(1)
-    expect(probe.calls).toEqual([['addShotList', true], ['setActiveShotList', true]])
     cleanup()
     ;({ ctx } = page({ shotLists: [], shotListItems: [], activeListId: null, ...seat('member') }))
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
@@ -2928,6 +2944,13 @@ describe('S3b review round 1', () => {
     fireEvent.click(within(nest).getByRole('button', { name: 'Add shot' }))
     const popup = openScenePopup()
     expect(gateOf(within(popup.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Add shot' }))?.getAttribute('title')).toBe(ARCHIVED_REASON)
+    escape()
+    // The shot table's Add shot too (review round 2, R2-03).
+    toShots()
+    const shotAdds = within(shotTable()).getAllByRole('button', { name: 'Add shot' })
+    expect(shotAdds.length).toBeGreaterThan(0)
+    for (const b of shotAdds) expect(gateOf(b)?.getAttribute('title')).toBe(ARCHIVED_REASON)
+    fireEvent.click(shotAdds[0])
     await act(async () => {})
     expect([ctx.addScene.mock.calls.length, ctx.addShot.mock.calls.length]).toEqual([0, 0])
     cleanup()
@@ -3060,6 +3083,16 @@ describe('S3b review round 1', () => {
     openMore('Lighthouse, dawn')
     fireEvent.click(menuItem('Remove from this list'))
     expect(askWords(removeDialog())).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Pickups · v1”. Nothing is deleted: it stays in the project. It is still in “Shoot · v1”. 1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”.')
+    cleanup()
+    localStorage.clear()
+    // An ARCHIVED list is no home (S3a's rule for rows, round 2's R2-03 for
+    // a scene's shots): The cold lamp, held by an archived list besides
+    // Shoot, still counts as in no other list.
+    const old = { ...LIST_1, id: 'list-o', title: 'Old cut', archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    page({ ...data, shotLists: [...data.shotLists, old], shotListItems: [...data.shotListItems, ...itemsFor('list-o', [{ scene_id: 'sc1', position: 0 }, { shot_id: 'sh2', position: 0 }])] })
+    openMore('Lighthouse, dawn')
+    fireEvent.click(menuItem('Remove from this list'))
+    expect(askWords(removeDialog())).toContain('1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”.')
   })
 
   it('R1-09: the menu takes focus as it opens and gives it back; its button closes it; in the picker it sits inside the dialog', () => {
@@ -3180,5 +3213,151 @@ describe('S3b review round 1', () => {
     toShots()
     fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
     expect(gateOf(within(bulkBarOf()).getByRole('combobox', { name: 'Status' })).classList.contains('rb-scene-bulk-gate')).toBe(true)
+  })
+})
+
+/* ── post-overhaul S3b, review round 2 ──────────────────────────────────────
+   The second adversarial review attacked round 1's corrections. One test
+   (or more) for each defect it found in S3b's files; R2-02's (the ⋯ under
+   Chromium's event order) is views/scenes/MenuButton.test.jsx, R2-03's are
+   the strengthened tests above. */
+/** A promise and the hands that settle it. */
+const deferred = () => { let resolve; let reject; const promise = new Promise((res, rej) => { resolve = res; reject = rej }); return { promise, resolve, reject } }
+/** Salt Hours with a second scene that has a shot: Cliff path's The gate. */
+const TWO_NESTS = () => {
+  const shots = [...SHOTS(), { id: 'sh5', scene_id: 'sc2', name: 'The gate', shot_number: 10, status: 'not_started', type: 'other', frame_count: 0, description: '' }]
+  return { shots, shotListItems: itemsFor(LIST_1.id, backfillItems(SCENES(), shots)) }
+}
+
+describe('S3b review round 2', () => {
+  it('R2-01: while a bulk delete runs, Ctrl+Z and Ctrl+Y stand down — the run is not yet a step, so an undo would take back the one before it; after it, they act', async () => {
+    const undo = vi.fn()
+    const redo = vi.fn()
+    const first = deferred()
+    const deleteScene = vi.fn((id) => (id === 'sc1' ? first.promise : Promise.resolve()))
+    const { ctx } = page({ ...TAKES, undo, redo, deleteScene })
+    fireEvent.click(screen.getByRole('button', { name: 'Select Lighthouse, dawn' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select Cliff path' }))
+    fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete scenes' })).getByRole('button', { name: 'Delete' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1'])
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: 'y', ctrlKey: true })
+    expect([undo.mock.calls.length, redo.mock.calls.length]).toEqual([0, 0])
+    await act(async () => { first.resolve() })
+    await waitFor(() => expect(deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2']))
+    // CONTROL: the run done, the keys act again.
+    await act(async () => {})
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(undo).toHaveBeenCalledTimes(1)
+    expect(ctx.runBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('R2-01: a refused delete does not stop the rest of the run, which stays one batch', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const probe = batchProbe()
+    const refused = 'new row violates row-level security policy for table "scenes"'
+    const deleteScene = probe.mark('deleteScene', (id) => { if (id === 'sc1') throw new Error(refused) })
+    page({ runBatch: probe.runBatch, deleteScene })
+    fireEvent.click(screen.getByRole('button', { name: 'Select every scene' }))
+    fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Delete scenes' })).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(probe.calls).toEqual([['deleteScene', true], ['deleteScene', true]]))
+    expect(deleteScene.mock.calls.map((c) => c[0])).toEqual(['sc1', 'sc2'])
+    expect(error.mock.calls.some(([words, err]) => words === 'Failed to delete scenes:' && err?.message === refused)).toBe(true)
+  })
+
+  it('R2-04: each open scene\'s bar counts AND acts on its own ticked shots; closing a scene unticks its shots', async () => {
+    const { ctx } = page(TWO_NESTS())
+    openScene('Lighthouse, dawn')
+    openScene('Cliff path')
+    fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select The gate' }))
+    const bars = () => [...document.querySelectorAll('.rb-scene-nest-bulk')]
+    expect(bars().map((b) => b.querySelector('.rb-scene-bulk-count').textContent)).toEqual(['1 selected', '1 selected'])
+    // Cliff path's bar: its Delete asks about, and deletes, The gate alone.
+    const cliffBar = () => rowOf('Cliff path').nextElementSibling.querySelector('.rb-scene-nest-bulk')
+    fireEvent.click(within(cliffBar()).getByRole('button', { name: 'Delete' }))
+    const ask = screen.getByRole('dialog', { name: 'Delete shots' })
+    expect(ask.textContent).toContain('This will permanently delete shot “The gate” from the project.')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(ctx.deleteShot.mock.calls.map((c) => c[0])).toEqual(['sh5']))
+    // Lighthouse's tick is still there, and its bar.
+    expect(rowOf('The door').getAttribute('data-selected')).toBe('true')
+    // With The gate ticked again, Lighthouse's Remove from list takes The
+    // door alone…
+    fireEvent.click(screen.getByRole('button', { name: 'Select The gate' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn').nextElementSibling.querySelector('.rb-scene-nest-bulk')).getByRole('button', { name: 'Remove from list' }))
+    expect(askWords(removeDialog())).toMatch(/^Takes shot “The door” out of/)
+    fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
+    await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-1', { shotIds: ['sh1'] }))
+    // …and leaves The gate ticked; Cliff path's Clear the selection clears its own.
+    expect(rowOf('The gate').getAttribute('data-selected')).toBe('true')
+    fireEvent.click(within(cliffBar()).getByRole('button', { name: 'Clear the selection' }))
+    expect(rowOf('The gate').getAttribute('data-selected')).toBeNull()
+    // Closing a scene unticks its shots: open again, nothing is ticked.
+    fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
+    fireEvent.click(within(rowOf('Lighthouse, dawn')).getByRole('button', { name: 'Hide shots' }))
+    openScene('Lighthouse, dawn')
+    expect(rowOf('The cold lamp').getAttribute('data-selected')).toBeNull()
+    expect(rowOf('Lighthouse, dawn').nextElementSibling.querySelector('.rb-scene-nest-bulk')).toBeNull()
+  })
+
+  it('R2-05: with every list set aside, New shot list opens on the first free "Shot list N"; a taken title — typed, or taken under the open form — is refused in the model\'s words', () => {
+    const archived = { ...LIST_1, archived_at: '2026-10-01T09:00:00Z', archived_by: 'u-9' }
+    const items = itemsFor(LIST_1.id, backfillItems(SCENES(), SHOTS()))
+    const { ctx, rerender } = page({ shotLists: [archived], shotListItems: items, activeListId: null })
+    fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
+    const dialog = formDialog('New shot list')
+    expect(titleField(dialog).value).toBe('Shot list 2')
+    expect([takes(dialog).textContent, takes(dialog).getAttribute('data-state')]).toEqual(['Will be “Shot list 2 · v1”', 'ok'])
+    // A teammate makes "Shot list 2 · v1" while the form sits untouched: it
+    // says so — not "Type a title", which stood in for it before round 2.
+    swapRows(ctx, rerender, { scenes: SCENES(), shots: SHOTS(), shotLists: [archived, { ...LIST_1, id: 'list-2', title: 'Shot list 2' }], shotListItems: items })
+    expect([takes(dialog).textContent, takes(dialog).getAttribute('data-state')]).toEqual(['There is already a shot list called "Shot list 2 · v1".', 'refused'])
+    fireEvent.change(titleField(dialog), { target: { value: 'Shot list 1' } })
+    expect([takes(dialog).textContent, takes(dialog).getAttribute('data-state')]).toEqual(['There is already a shot list called "Shot list 1 · v1".', 'refused'])
+    expect(create(dialog, 'Create shot list').disabled).toBe(true)
+  })
+
+  it('R2-07: Clear is offered on the active list, never Saved (D4), and its question says the other tabs lose the rows; on another list it does not', async () => {
+    const { ctx } = page(TWO_LISTS())
+    expect(barMenu().map(([w]) => w)).toContain('Clear this list')
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
+    const ask = screen.getByRole('dialog', { name: 'Clear this list?' })
+    expect(ask.querySelector('.ui-dialog-body').textContent).toBe('Takes 2 scenes and 2 shots out of “Shoot · v1”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved. This is the active list, so the Timeline, Budget and every other tab will no longer show them.')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Clear list' }))
+    await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-a', { sceneIds: ['sc1', 'sc2'], shotIds: ['sh1', 'sh2'] }))
+    cleanup()
+    remember('list-b')
+    page(TWO_LISTS())
+    barMenu()
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
+    expect(screen.getByRole('dialog', { name: 'Clear this list?' }).querySelector('.ui-dialog-body').textContent).not.toMatch(/active list/)
+  })
+
+  it('R1-22: a refused New scene or New shot is said in the tab\'s Banner, not only the console', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refused = 'this shot list is archived — restore it before changing it'
+    page({ ...TWO_LISTS(), addScene: vi.fn().mockRejectedValue(new Error(refused)), addShot: vi.fn().mockRejectedValue(new Error(refused)) })
+    fireEvent.click(screen.getByRole('button', { name: 'New scene' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(refused))
+    cleanup()
+    page({ ...TWO_LISTS(), addShot: vi.fn().mockRejectedValue(new Error('the network is down')) })
+    openScene('Lighthouse, dawn')
+    fireEvent.click(within(rowOf('Lighthouse, dawn').nextElementSibling).getByRole('button', { name: 'Add shot' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('the network is down'))
+  })
+
+  it('a popup is its row\'s own: another scene opened over it (an "Open in Scenes" target) shows that scene, not the first one\'s draft', () => {
+    page()
+    const first = openScenePopup()
+    fireEvent.click(within(first.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(first).getByRole('textbox', { name: 'Description' }), { target: { value: 'Typed for the lighthouse.' } })
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', sceneId: 'sc2' }))
+    const second = screen.getByRole('dialog', { name: 'Cliff path' })
+    expect(within(second).queryByRole('textbox', { name: 'Description' })).toBeNull()
+    expect(second.textContent).not.toContain('Typed for the lighthouse.')
   })
 })

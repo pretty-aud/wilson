@@ -2113,8 +2113,12 @@ Audrey are in walkthrough 51, not here.
   The shot popup's takes panel switches tab (`ShotTakesPanel.jsx` 121 →
   `Rabbit.jsx` 114), which unmounts the Scenes tab and its popup: a typed
   description or notes is gone without D21's question (review round 1,
-  R1-19, traced in the code). Owner: S3c (the leave guard) or the Bins
-  lane.
+  R1-19, traced in the code). So is one when another scene's or shot's
+  popup is opened over it by a navigation target ("Open in Scenes"): since
+  review round 2 each popup is keyed by its row, so the first one's draft
+  no longer carries into the second — it goes, unasked (MEASURED by the
+  "a popup is its row's own" test). Owner: S3c (the leave guard) or the
+  Bins lane.
 - **S3b-09 · The asset popup the Scenes popups open is ungated, and lists
   the active list's rows.** Since P1-23 a related asset opens the Assets
   tab's own `AssetDetailPopup` (`ProjectAssetsView.jsx` 1655), which
@@ -2122,3 +2126,26 @@ Audrey are in walkthrough 51, not here.
   and shot pickers read `ctx.scenes` / `ctx.shots`, the active list's
   (2023, 2037; review round 1, R1-20, read from the code). Owner: the
   Assets lane, and S3c for the relation pickers.
+- **S3b-10 · The provider's undo batch is one global slot, and a replay
+  records nothing.** `RabbitProvider.jsx` `runBatch`, `pushHistory`,
+  `undo` / `redo`. (a) Any mutation that completes while a batch is open
+  joins it: an edit made on the tab while a bulk delete runs is undone with
+  the delete, in one step. (b) A mutation that completes while an undo or
+  redo replays pushes no step at all (`suspended`): it can never be undone.
+  (c) `runBatch`'s `finally` reads `b.entries` from the slot after
+  `clearHistory` (or a project or adapter switch) has emptied it: a
+  TypeError, which ScenesView's bulk delete logs as "Failed to delete …".
+  Review round 2 (R2-01), MEASURED by its probes over the real provider.
+  ScenesView keeps its own keys off (b) — Ctrl+Z / Ctrl+Y stand down while a
+  bulk delete runs — but the undo toast's Undo can still start a replay in
+  that window. Owner: S3a's lane (the provider): guard `b`, and decide
+  whether a batch should collect only its own calls.
+- **S3b-11 · Admin Terminal → Users: "Add people" likely cannot close its
+  own menu in the app.** `UsersSection.jsx` `armSwallow` arms the swallow
+  in the button's onMouseDown only `if (addMenuAt)` — but in Chromium React
+  19 has already flushed the Menu's close (made in its document-capture
+  mousedown) in the microtask checkpoint before that handler runs, so it is
+  never armed and the click re-opens the menu (READ; the same order MEASURED
+  for S3b's MenuButton by emulation in review round 2, R2-02, and fixed
+  there with a window-capture listener: `views/scenes/MenuButton.jsx`).
+  Owner: the Admin Terminal lane.

@@ -313,9 +313,10 @@ export default function ScenesView({ pageActive = false } = {}) {
   const viewingList = viewed.mode === 'list' || viewed.mode === 'archived'
   // Post-overhaul S3b, step 1: `scenes` / `shots` are one LIST's rows (S3a,
   // D10), so a fact about the whole PROJECT — the next scene or shot number,
-  // every shot of a scene a delete takes with it — reads every row. A scene
-  // held only by another list would otherwise get its number reused, and its
-  // shots would be cascaded away by the database with no undo of their own.
+  // every shot the Delete question counts for a scene — reads every row. A
+  // scene held only by another list would otherwise get its number reused.
+  // (S3a's deleteScene takes every shot of the scene, in every list, in one
+  // undo step: review round 1, R1-01.)
   const allScenes = ctx?.allScenes || []
   const allShots = ctx?.allShots || []
   const assets = ctx?.assets || []
@@ -491,6 +492,13 @@ export default function ScenesView({ pageActive = false } = {}) {
   // re-open the popup by itself when Ctrl+Y brings the row back: such an id
   // is cleared (below).
   const ownSurfaceRef = useRef(false)
+  // Review round 2 (R2-01): how many bulk deletes are running. Each is ONE
+  // undo step (deleteAsOneStep), and its step joins the history only when
+  // its last delete has answered — until then a Ctrl+Z took back the step
+  // BEFORE it (and a delete that landed during that undo was dropped from
+  // the history: the provider's batch is one global slot, and a replay
+  // records nothing). So the keys stand down while one runs.
+  const bulkPendingRef = useRef(0)
   ownSurfaceRef.current = !!((detailSceneId && sceneById?.(detailSceneId)) || (detailShotId && shotById?.(detailShotId))
     || (takesShotId && shotById?.(takesShotId)) || (pickerShotId && shotById?.(pickerShotId)))
   useEffect(() => {
@@ -504,6 +512,7 @@ export default function ScenesView({ pageActive = false } = {}) {
     const h = (e) => {
       if (questionOnScreen()) return
       if (!(e.ctrlKey || e.metaKey)) return
+      if (bulkPendingRef.current > 0) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (menuOnScreen() || drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest('.ui-drawer'))) return
@@ -546,7 +555,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   // other sort, shot-number order as before.
   const shotsByScene = useMemo(() => groupShotsByScene(shots, { keepOrder: listOrder }), [shots, listOrder])
   // Every shot of each scene, in every list (S3b step 1): what a scene's
-  // delete takes with it, and what its next shot number counts past.
+  // Delete question counts (deleteScene takes them all, R1-01), and what its
+  // next shot number counts past.
   const allShotsByScene = useMemo(() => groupShotsByScene(allShots), [allShots])
 
   // ── Frame / runtime totals per scene ──
@@ -624,7 +634,13 @@ export default function ScenesView({ pageActive = false } = {}) {
         status: 'not_started',
         type: 'interior',
       }, newRowOpts)
-    } catch (err) { console.error('Failed to create scene:', err) }
+    } catch (err) {
+      // Said, not only logged (review round 2, R1-22): the provider's
+      // addScene throws without setting ctx.error ("the person sees the
+      // error and nothing half-made"), so the tab's Banner says it.
+      console.error('Failed to create scene:', err)
+      setListError(err?.message || String(err))
+    }
   }, [ctx, nextSceneNumber, formatSceneCode, newRowOpts, canAddRows])
 
   const handleNewShot = useCallback(async (sceneId) => {
@@ -641,7 +657,10 @@ export default function ScenesView({ pageActive = false } = {}) {
         type: 'other',
         frame_count: 0,
       }, newRowOpts)
-    } catch (err) { console.error('Failed to create shot:', err) }
+    } catch (err) {
+      console.error('Failed to create shot:', err)
+      setListError(err?.message || String(err))
+    }
   }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts, canAddRows])
 
   // Review round 1 (R1-01): S3a's deleteScene takes EVERY shot of the scene,
@@ -1318,6 +1337,7 @@ export default function ScenesView({ pageActive = false } = {}) {
               onOpenShotDetail={setDetailShotId}
               onNewShot={handleNewShot}
               onRequestDelete={setConfirmDelete}
+              bulkPending={bulkPendingRef}
             />
           ) : (
             <ShotGallery
@@ -1379,6 +1399,7 @@ export default function ScenesView({ pageActive = false } = {}) {
                       onOpenShotDetail={setDetailShotId}
                       onNewShot={handleNewShot}
                       onRequestDelete={setConfirmDelete}
+                      bulkPending={bulkPendingRef}
                     />
                   )}
                 </div>
@@ -1411,6 +1432,7 @@ export default function ScenesView({ pageActive = false } = {}) {
                 onOpenShotDetail={setDetailShotId}
                 onNewShot={handleNewShot}
                 onRequestDelete={setConfirmDelete}
+                bulkPending={bulkPendingRef}
               />
             )
           ) : (
@@ -1434,6 +1456,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* ── Scene detail popup ── */}
       {detailSceneId && (
         <SceneDetailPopup
+          key={detailSceneId}
           sceneId={detailSceneId}
           ctx={ctx}
           canWrite={canWriteProject}
@@ -1459,6 +1482,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* ── Shot detail popup ── */}
       {detailShotId && (
         <ShotDetailPopup
+          key={detailShotId}
           shotId={detailShotId}
           ctx={ctx}
           canWrite={canWriteProject}
@@ -1558,12 +1582,29 @@ function RowMore({ name, items }) {
 }
 
 
-/** Runs `fn` as ONE undo step — the provider's runBatch (review round 1,
-    R1-01: a bulk delete was one step a row, past the history's ten) — and
-    says a failure in the console, as the single deletes do theirs. */
-function asOneStep(ctx, fn, what) {
-  const run = ctx?.runBatch ? ctx.runBatch(fn) : fn()
-  return Promise.resolve(run).catch(err => console.error(`Failed to delete ${what}:`, err))
+/**
+ * Deletes `ids` as ONE undo step — the provider's runBatch (review round 1,
+ * R1-01: a bulk delete was one step a row, past the history's ten).
+ *  · One after another, each awaited: a refused delete's rollback restores
+ *    the provider's state from before IT began, so it must not run beside
+ *    the others (it would put back rows they had just deleted).
+ *  · A refusal does not stop the rest (review round 2, R2-01): each is said
+ *    in the console, and the provider's optimistic() puts it in ctx.error,
+ *    which the tab's Banner shows.
+ *  · `pending` counts the run, and the tab's Ctrl+Z / Ctrl+Y stand down
+ *    while it is above nought (R2-01, the key handler).
+ */
+function deleteAsOneStep(ctx, ids, remove, what, pending) {
+  if (pending) pending.current += 1
+  const run = async () => {
+    for (const id of ids) {
+      try { await remove(id) } catch (err) { console.error(`Failed to delete ${what}:`, err) }
+    }
+  }
+  const out = ctx?.runBatch ? ctx.runBatch(run) : run()
+  return Promise.resolve(out)
+    .catch(err => console.error(`Failed to delete ${what}:`, err))
+    .finally(() => { if (pending) pending.current -= 1 })
 }
 
 // ─── Scene table ───
@@ -1575,25 +1616,34 @@ function asOneStep(ctx, fn, what) {
 // S3b: `rowMenu` (a row's shot-list menu), `nameTitle` (a name's lists, D10)
 // and `onBulkRemove` (the bulk bars' Remove from list, while a list is on
 // screen and this person writes lists) come from ScenesView.
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
-  // W9: the two bulk deletes ask on the kit Dialog ('scenes' | 'shots'); each
-  // was a window.confirm, and each question keeps its words.
+  // W9: the two bulk deletes ask on the kit Dialog ('scenes', or
+  // { shots: ids } — one nest's ticked shots); each was a window.confirm, and
+  // each question keeps its words.
   const [confirmBulk, setConfirmBulk] = useState(null)
 
   // ── Nested-shot multi-select ──
+  // One set over every nest, but each nest's bar counts AND acts on its own
+  // scene's ticks only (review round 2, R2-04: a bar said "1 selected" and
+  // deleted or removed every nest's ticks, a closed scene's among them).
   const [selectedNestedShots, setSelectedNestedShots] = useState(new Set())
   function toggleNestedShot(id) { setSelectedNestedShots(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
-  function clearNestedSelection() { setSelectedNestedShots(new Set()) }
-  function bulkUpdateNestedShots(patch) { if (!canWrite) return; for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
-  // Review round 1 (R1-01): a bulk delete is ONE undo step (runBatch), not
-  // one per row: the history keeps ten, and a selection can be larger.
-  function bulkDeleteNestedShots() {
+  function clearNestedSelection(ids) {
+    setSelectedNestedShots(prev => {
+      const s = new Set(prev)
+      for (const id of ids) s.delete(id)
+      return s
+    })
+  }
+  function bulkUpdateNestedShots(ids, patch) { if (!canWrite) return; for (const id of ids) ctx?.updateShot?.(id, patch); clearNestedSelection(ids) }
+  // Review round 1 (R1-01): a bulk delete is ONE undo step, not one per row:
+  // the history keeps ten, and a selection can be larger.
+  function bulkDeleteNestedShots(ids) {
     if (!canWrite) return
-    const ids = [...selectedNestedShots]
-    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteShot?.(id) }, 'shots')
-    clearNestedSelection()
+    deleteAsOneStep(ctx, ids, (id) => ctx?.deleteShot?.(id), 'shots', bulkPending)
+    clearNestedSelection(ids)
   }
 
   // ── Scene multi-select ──
@@ -1611,7 +1661,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
   function bulkDelete() {
     if (!canWrite) return
     const ids = [...selected]
-    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteScene?.(id) }, 'scenes')
+    deleteAsOneStep(ctx, ids, (id) => ctx?.deleteScene?.(id), 'scenes', bulkPending)
     clearSelection()
   }
 
@@ -1625,7 +1675,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
       return keep.size === prev.size ? prev : keep
     })
   }, [allIds])
-  const tableShotIds = useMemo(() => new Set(scenes.flatMap(sc => (shotsByScene[sc.id] || []).map(s => s.id))), [scenes, shotsByScene])
+  // The nested ticks: the shots of the scenes OPEN here (review round 2,
+  // R2-04: a closed scene's ticks stayed, unseen, in the selection).
+  const tableShotIds = useMemo(() => new Set(scenes.filter(sc => expandedScenes.has(sc.id)).flatMap(sc => (shotsByScene[sc.id] || []).map(s => s.id))), [scenes, shotsByScene, expandedScenes])
   useEffect(() => {
     setSelectedNestedShots(prev => {
       const keep = new Set([...prev].filter(id => tableShotIds.has(id)))
@@ -1878,26 +1930,27 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                       {(() => {
                         const selInScene = sceneShots.filter(s => selectedNestedShots.has(s.id))
                         if (selInScene.length === 0) return null
+                        const selIds = selInScene.map(s => s.id)
                         return (
                           <div className="rb-scene-nest-bulk">
                             <span className="rb-scene-bulk-count">{selInScene.length} selected</span>
                             <GatedAction allowed={canWrite} className="rb-scene-bulk-gate">
-                              <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
-                              <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
-                              <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                              <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots(selIds, { status: v })} />
+                              <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots(selIds, { type: v })} />
+                              <SceneBulkSelect label="Time of day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots(selIds, { time_of_day: v })} />
                             </GatedAction>
                             {onBulkRemove && (
-                              <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', [...selectedNestedShots], clearNestedSelection)}>
+                              <Button size="sm" Icon={ListMinus} onClick={() => onBulkRemove('shot', selIds, () => clearNestedSelection(selIds))}>
                                 Remove from list
                               </Button>
                             )}
                             {/* Its wrapper, drawn only while it greys, keeps the Delete's place at the end. */}
                             <GatedAction allowed={canWrite} className="rb-scene-nest-delete-gate">
-                              <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk('shots')}>
+                              <Button size="sm" variant="danger" Icon={Trash2} className="rb-scene-nest-delete" onClick={() => setConfirmBulk({ shots: selIds })}>
                                 Delete
                               </Button>
                             </GatedAction>
-                            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearNestedSelection} />
+                            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={() => clearNestedSelection(selIds)} />
                           </div>
                         )
                       })()}
@@ -2074,13 +2127,13 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
           onConfirm={() => { setConfirmBulk(null); bulkDelete() }}
         />
       )}
-      {confirmBulk === 'shots' && (
+      {confirmBulk?.shots && (
         <ConfirmDialog
           title="Delete shots"
-          message={describeDelete('shot', [...selectedNestedShots], 'bar')}
+          message={describeDelete('shot', confirmBulk.shots, 'bar')}
           dismissOnBackdrop={false}
           onCancel={() => setConfirmBulk(null)}
-          onConfirm={() => { setConfirmBulk(null); bulkDeleteNestedShots() }}
+          onConfirm={() => { const ids = confirmBulk.shots; setConfirmBulk(null); bulkDeleteNestedShots(ids) }}
         />
       )}
     </div>
@@ -2176,7 +2229,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, can
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -2197,7 +2250,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
   function bulkDelete() {
     if (!canWrite) return
     const ids = [...selected]
-    asOneStep(ctx, async () => { for (const id of ids) await ctx?.deleteShot?.(id) }, 'shots')
+    deleteAsOneStep(ctx, ids, (id) => ctx?.deleteShot?.(id), 'shots', bulkPending)
     clearSelection()
   }
   // Only rows this table shows stay selected (R1-05).
