@@ -34,13 +34,14 @@ function rabbitTouch(row) {
 function rabbitLogFileEvent(bundle, evt) { (bundle.fileEvents ||= []).push({ ...evt, at: new Date().toISOString() }) }
 const rabbitNotFound = (res, what = 'project') => res.status(404).json({ error: `${what} not found` })
 
-let root, filesDir, invoicesDir, server, base
+let root, filesDir, invoicesDir, legalDir, server, base
 const logged = []
 
 beforeAll(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-files-stream-'))
   filesDir = path.join(root, 'Legend-Road-Series_FILES')
   invoicesDir = path.join(root, 'INVOICES')
+  legalDir = path.join(root, 'LEGAL')
   store.set(PID, JSON.stringify({ project: { id: PID, title: 'Legend Road Series' }, files: [] }))
   const app = express()
   app.use(express.json({ limit: '50mb' })) // exactly what main.cjs mounts globally
@@ -48,6 +49,7 @@ beforeAll(async () => {
     readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
     resolveProjectFilesDir: () => filesDir,
     resolveProjectInvoicesDir: () => invoicesDir,
+    resolveProjectLegalDir: () => legalDir,
     uuidv4: randomUUID,
     log: (line) => logged.push(line),
   })
@@ -119,6 +121,35 @@ describe('PUT …/files-stream', () => {
     expect(row.is_financial).toBe(true)
     expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(true)
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
+  })
+
+  // Post-overhaul S4b (0088): a Legal file goes to the LEGAL folder beside
+  // INVOICES and carries the legal tag from upload — the cloud's LEGAL
+  // segment and tag, written together. CONTROL: an ordinary upload carries
+  // no tag and lands in the files dir.
+  it('a Legal scope goes to LEGAL, carries the legal tag, and is not financial (S4b)', async () => {
+    const r = await put(PID, { name: 'release.pdf', mimeType: 'application/pdf', sizeBytes: '3', scope: JSON.stringify({ type: 'project', legal: true }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row.tags).toEqual(['legal'])
+    expect(row.is_financial).toBe(false)
+    expect(fs.existsSync(path.join(legalDir, row.storage_path))).toBe(true)
+    expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
+    expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(false)
+    expect(readRabbitBundle(PID).files.find(f => f.id === row.id).tags).toEqual(['legal'])
+    const plain = await (await put(PID, { name: 'plain.pdf', sizeBytes: '3', scope: JSON.stringify({ type: 'project' }) }, Buffer.from('pdf'))).json()
+    expect(plain.tags).toBeUndefined()
+    expect(fs.existsSync(path.join(filesDir, plain.storage_path))).toBe(true)
+  })
+
+  it('Legal AND financial together is refused, and nothing is written (S4b)', async () => {
+    const before = [legalDir, invoicesDir, filesDir].map(d => (fs.existsSync(d) ? fs.readdirSync(d).length : 0))
+    const rows = readRabbitBundle(PID).files.length
+    const r = await put(PID, { name: 'both.pdf', sizeBytes: '3', scope: JSON.stringify({ legal: true, financial: true }) }, Buffer.from('pdf'))
+    expect(r.status).toBe(400)
+    expect((await r.json()).code).toBe('legal_and_financial')
+    expect([legalDir, invoicesDir, filesDir].map(d => (fs.existsSync(d) ? fs.readdirSync(d).length : 0))).toEqual(before)
+    expect(readRabbitBundle(PID).files.length).toBe(rows)
   })
 
   it('a scope with a document kind and a description lands both on the row (0075, Track C / C3)', async () => {

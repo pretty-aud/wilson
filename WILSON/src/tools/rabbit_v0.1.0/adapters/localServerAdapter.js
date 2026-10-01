@@ -303,6 +303,10 @@ export function localServerAdapter() {
     // S4a (0085): the bundle holds whatever the PATCH merges, and the route
     // holds `tags` to the nine (electron/fileTags.cjs) — always available.
     supportsFileTags: async () => true,
+    // S4b: the desktop files a Legal file in the project's LEGAL folder
+    // (beside INVOICES). No roles here, so nothing is hidden by WHO asks —
+    // the file window says so in one line (fileTags.LEGAL_LOCAL_NOTE).
+    supportsLegalFiles: async () => true,
 
     // S4a (E9): a Local Server file has URLs at last, so ctx.fileUrl and
     // ctx.downloadUrl answer on all three backends. Same-origin paths: the

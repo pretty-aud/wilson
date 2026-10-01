@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
   FILE_TAGS, FILE_TAG_IDS, DERIVED_TAG, GATED_TAG, LEGAL_HINT, LEGAL_SEGMENT,
-  LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON,
+  LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON,
   tagLabel, storedTags, displayTags, writableTags, toggleTag, tagSettable, tagsMatch, isLegalFile,
 } from './fileTags'
 
@@ -23,7 +23,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 const cjs = require(resolve(here, '../../../electron/fileTags.cjs'))
 const migration = readFileSync(resolve(here, '../../../supabase/migrations/0085_file_tags.sql'), 'utf8')
-const mainCjs = readFileSync(resolve(here, '../../../electron/main.cjs'), 'utf8')
+const mainCjs = readFileSync(resolve(here, '../../../electron/main.cjs'), 'utf8').replace(/\r\n/g, '\n')
+const patchCjs = readFileSync(resolve(here, '../../../electron/projectFilePatch.cjs'), 'utf8').replace(/\r\n/g, '\n')
 
 const NINE = ['production', 'creative', 'legal', 'finance', 'reference', 'assets', 'code', 'shots', 'documentation']
 
@@ -167,14 +168,17 @@ describe('the Local Server refuses what the cloud refuses (electron/fileTags.cjs
   })
 
   it('both PATCH routes run it BEFORE they merge the body', () => {
+    // Since S4b the two routes live in projectFilePatch.cjs (served for real
+    // in storage/projectFilePatch.test.js); main.cjs mounts it where the
+    // files PATCH stood, with the real checks.
     const route = (sig) => {
-      const at = mainCjs.indexOf(sig)
+      const at = patchCjs.indexOf(sig)
       expect(at, `no route ${sig}`).toBeGreaterThan(-1)
-      return mainCjs.slice(at, mainCjs.indexOf('res.json(', at))
+      return patchCjs.slice(at, patchCjs.indexOf('res.json(', at))
     }
     for (const sig of [
-      "expressApp.patch('/api/rabbit/projects/:projectId/files/:id'",
-      "expressApp.patch('/api/rabbit/projects/:projectId/managed-files/:id'",
+      'expressApp.patch(FILES_PATCH,',
+      'expressApp.patch(MANAGED_PATCH,',
     ]) {
       const body = route(sig)
       const check = body.indexOf('checkFileTags(patch)')
@@ -186,7 +190,64 @@ describe('the Local Server refuses what the cloud refuses (electron/fileTags.cjs
       expect(body).toContain("const tagCheck = checkFileTags(patch);")
       expect(body).toContain("if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });")
       expect(body.indexOf('if (!tagCheck.ok) return')).toBeLessThan(merge)
+      // S4b: the Legal check, acting on its verdict, also before the merge.
+      expect(body).toMatch(/if \(!legalCheck\.ok\) return res\.status\(400\)\.json\(\{ error: legalCheck\.error, code: legalCheck\.code \}\);/)
+      expect(body.indexOf('if (!legalCheck.ok) return')).toBeLessThan(merge)
     }
-    expect(mainCjs).toContain("const { checkFileTags } = require('./fileTags.cjs');")
+    expect(patchCjs).toContain("const FILES_PATCH = '/api/rabbit/projects/:projectId/files/:id';")
+    expect(patchCjs).toContain("const MANAGED_PATCH = '/api/rabbit/projects/:projectId/managed-files/:id';")
+    expect(mainCjs).toContain("const { checkFileTags, checkLegalPatch, checkManagedLegal, isLegalRow, LEGAL_DIR } = require('./fileTags.cjs');")
+    expect(mainCjs).toContain("require('./projectFilePatch.cjs').mountProjectFilePatch(expressApp, {")
+    expect(mainCjs).toContain('checkFileTags, checkLegalPatch, checkManagedLegal,')
+    // The routes are not ALSO still defined in main.cjs (two would race).
+    expect(mainCjs).not.toContain("expressApp.patch('/api/rabbit/projects/:projectId/files/:id'")
+    expect(mainCjs).not.toContain("expressApp.patch('/api/rabbit/projects/:projectId/managed-files/:id'")
+  })
+})
+
+describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () => {
+  it('the desktop\'s sentences are the client\'s, word for word', () => {
+    expect(cjs.LEGAL_LOCKED_REASON).toBe(LEGAL_LOCKED_REASON)
+    expect(cjs.LEGAL_AT_ADD_REASON).toBe(LEGAL_AT_ADD_REASON)
+    expect(cjs.LEGAL_NOT_CORE_REASON).toBe(LEGAL_NOT_CORE_REASON)
+    expect(cjs.LEGAL_TAG).toBe(GATED_TAG)
+    expect(cjs.LEGAL_DIR).toBe(LEGAL_SEGMENT)
+  })
+
+  it('checkLegalPatch: the tag never moves, a Legal file is never core; everything else passes', () => {
+    const plain = { tags: ['code'] }
+    const legal = { tags: ['legal'] }
+    expect(cjs.checkLegalPatch(plain, { tags: ['legal'] })).toMatchObject({ ok: false, code: 'legal_fixed' })
+    expect(cjs.checkLegalPatch(legal, { tags: [] })).toMatchObject({ ok: false, code: 'legal_fixed' })
+    expect(cjs.checkLegalPatch(legal, { is_core_definer: true })).toMatchObject({ ok: false, code: 'legal_not_core' })
+    expect(cjs.checkLegalPatch(legal, { tags: ['legal', 'shots'], is_core_definer: false })).toEqual({ ok: true })
+    expect(cjs.checkLegalPatch(plain, { tags: ['shots'], is_core_definer: true })).toEqual({ ok: true })
+    expect(cjs.checkLegalPatch(plain, { description: 'x' })).toEqual({ ok: true })
+    expect(cjs.checkManagedLegal({ tags: ['legal'] })).toMatchObject({ ok: false, code: 'bad_tags' })
+    expect(cjs.checkManagedLegal({ tags: ['shots'] })).toEqual({ ok: true })
+  })
+
+  it('main.cjs: a LEGAL folder beside INVOICES, the base-dir branch, both uploads and the relink skip', () => {
+    // Made with the project, beside INVOICES (so a NAS can lock it).
+    const dirs = mainCjs.slice(mainCjs.indexOf('function ensureProjectFolders(bundle)'), mainCjs.indexOf('for (const d of dirs)'))
+    expect(dirs).toContain("path.join(root, 'INVOICES'),")
+    expect(dirs).toContain('path.join(root, LEGAL_DIR),')
+    // A Legal row resolves against LEGAL before the invoice branch.
+    const base = mainCjs.slice(mainCjs.indexOf('function resolveFileBaseDir('), mainCjs.indexOf('// ── File lifecycle helpers'))
+    expect(base.indexOf('if (isLegalRow(file)) {')).toBeGreaterThan(-1)
+    expect(base.indexOf('if (isLegalRow(file)) {')).toBeLessThan(base.indexOf('if (!file?.is_financial) return filesDir;'))
+    expect(base).toContain('const legalDir = resolveProjectLegalDir(bundle, projectId);')
+    // The base64 POST: LEGAL for a Legal scope, the tag, never with financial.
+    const post = mainCjs.slice(mainCjs.indexOf("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {"))
+    const postBody = post.slice(0, post.indexOf('res.json(row);'))
+    expect(postBody).toContain('const isLegal = !!scope.legal;')
+    expect(postBody).toMatch(/if \(isLegal && isFinancial\) \{\s*return res\.status\(400\)/)
+    expect(postBody).toMatch(/const filesDir = isLegal\s*\?\s*resolveProjectLegalDir\(bundle, req\.params\.projectId\)/)
+    expect(postBody).toContain("...(isLegal ? { tags: ['legal'] } : {}),")
+    // The relink scan leaves Legal files where they are.
+    const relink = mainCjs.slice(mainCjs.indexOf("'/api/rabbit/projects/:projectId/files/relink-scan'"))
+    expect(relink.slice(0, relink.indexOf('const { folderPath }'))).toContain('if (isLegalRow(f)) continue;')
+    // The stream route is handed the LEGAL resolver.
+    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
   })
 })

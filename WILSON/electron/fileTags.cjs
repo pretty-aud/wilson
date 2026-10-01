@@ -40,4 +40,55 @@ function checkFileTags(body) {
   return { ok: true };
 }
 
-module.exports = { FILE_TAG_IDS, FILE_TAG_MAX, checkFileTags };
+// ── Post-overhaul S4b (0088): Legal is chosen when a file is ADDED ──────────
+// Audrey, 2026-10-01: "its just the folder that is locked". On the cloud the
+// legal tag goes with the LEGAL third path segment (files_legal_folder_chk)
+// and a Legal file is never core (files_legal_not_core_chk). The desktop's
+// row keeps a bare filename, so here the TAG is the fact: it is written once,
+// by the upload that puts the body in the project's LEGAL folder, and these
+// checks refuse every later attempt to add it, remove it, or make the file
+// core — the cloud's refusals, answered 400 with a code. Copies of the
+// client's sentences (src/tools/rabbit_v0.1.0/fileTags.js), pinned there.
+const LEGAL_TAG = 'legal';
+const LEGAL_DIR = 'LEGAL';
+const LEGAL_LOCKED_REASON = 'Added as Legal. To change this, add the file again.';
+const LEGAL_AT_ADD_REASON = 'Legal is chosen when a file is added.';
+const LEGAL_NOT_CORE_REASON = 'A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.';
+const LEGAL_MANAGED_REASON = 'A file of an asset, a shot or a scene is never Legal: add it to the project with Add as Legal.';
+
+/** A desktop row is Legal when it carries the tag (written only at upload). */
+function isLegalRow(row) {
+  return Array.isArray(row?.tags) && row.tags.includes(LEGAL_TAG);
+}
+
+/**
+ * A files PATCH against the stored row: the legal tag may not be added or
+ * removed, and a Legal file may not become core. `{ ok: true }` otherwise.
+ */
+function checkLegalPatch(existing, patch) {
+  if (!patch || typeof patch !== 'object') return { ok: true };
+  const wasLegal = isLegalRow(existing);
+  if (Object.prototype.hasOwnProperty.call(patch, 'tags') && Array.isArray(patch.tags)) {
+    if (patch.tags.includes(LEGAL_TAG) !== wasLegal) {
+      return { ok: false, code: 'legal_fixed', error: wasLegal ? LEGAL_LOCKED_REASON : LEGAL_AT_ADD_REASON };
+    }
+  }
+  if (wasLegal && patch.is_core_definer === true) {
+    return { ok: false, code: 'legal_not_core', error: LEGAL_NOT_CORE_REASON };
+  }
+  return { ok: true };
+}
+
+/** A managed file (an asset's, a shot's, a scene's) is never Legal. */
+function checkManagedLegal(patch) {
+  if (patch && Array.isArray(patch.tags) && patch.tags.includes(LEGAL_TAG)) {
+    return { ok: false, code: 'bad_tags', error: LEGAL_MANAGED_REASON };
+  }
+  return { ok: true };
+}
+
+module.exports = {
+  FILE_TAG_IDS, FILE_TAG_MAX, checkFileTags,
+  LEGAL_TAG, LEGAL_DIR, LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON, LEGAL_MANAGED_REASON,
+  isLegalRow, checkLegalPatch, checkManagedLegal,
+};

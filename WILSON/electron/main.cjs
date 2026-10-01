@@ -26,7 +26,7 @@ const {
 const ffmpeg = require('./ffmpeg.cjs');
 // Post-overhaul S4a (0085): the nine file tags, checked on the two PATCH
 // routes exactly as the cloud's CHECK checks them. See fileTags.cjs.
-const { checkFileTags } = require('./fileTags.cjs');
+const { checkFileTags, checkLegalPatch, checkManagedLegal, isLegalRow, LEGAL_DIR } = require('./fileTags.cjs');
 // Post-overhaul S3a (0084): shot lists, their membership and edits on the
 // Local Server. The routes are mounted inside startLocalServer; the three
 // read-time helpers run in readRabbitBundle (D11's backfill, and the prune of
@@ -1677,6 +1677,11 @@ function startLocalServer(distPath) {
         // replaced. Existing folders on disk are left exactly where they are
         // — this stops making new empty ones, it never deletes.
         path.join(root, 'INVOICES'),
+        // Post-overhaul S4b (Audrey, 2026-10-01): Legal files go in their own
+        // LEGAL folder beside INVOICES, made with the project so it is there
+        // before the first one — and so the NAS can lock it with its own
+        // permissions, which is the only lock this backend has (no roles).
+        path.join(root, LEGAL_DIR),
       ];
       for (const d of dirs) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -1935,6 +1940,19 @@ function startLocalServer(distPath) {
       return resolveProjectFilesDir(bundle, projectId);
     }
 
+    // Post-overhaul S4b: the LEGAL folder, INVOICES's twin — a sibling of
+    // <slug>_FILES, made on demand, falling back to the files dir when no
+    // project folder is configured (exactly as invoices do).
+    function resolveProjectLegalDir(bundle, projectId) {
+      const root = resolveProjectFolder(bundle);
+      if (root) {
+        const dir = path.join(root, LEGAL_DIR);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+      return resolveProjectFilesDir(bundle, projectId);
+    }
+
     // Which base a given file row resolves against. storage_path stays a bare
     // filename either way, so the containment guard keeps working unchanged.
     //
@@ -1948,6 +1966,16 @@ function startLocalServer(distPath) {
     // back to wherever the body actually is.
     function resolveFileBaseDir(bundle, projectId, file) {
       const filesDir = resolveProjectFilesDir(bundle, projectId);
+      // S4b: a Legal file's home is LEGAL, with the same "where the body
+      // actually is" fallback (a Legal file added before a folder was set).
+      if (isLegalRow(file)) {
+        const legalDir = resolveProjectLegalDir(bundle, projectId);
+        const inLegal = resolveContainedFilePath(legalDir, file.storage_path);
+        if (inLegal && fs.existsSync(inLegal)) return legalDir;
+        const legacyLegal = resolveContainedFilePath(filesDir, file.storage_path);
+        if (legacyLegal && fs.existsSync(legacyLegal)) return filesDir;
+        return legalDir;
+      }
       if (!file?.is_financial) return filesDir;
       const invoicesDir = resolveProjectInvoicesDir(bundle, projectId);
       const here = resolveContainedFilePath(invoicesDir, file.storage_path);
@@ -2913,9 +2941,17 @@ function startLocalServer(distPath) {
       const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
       const diskName = `${fileId}-${safeName}`;
       const isFinancial = !!scope.financial;
-      const filesDir = isFinancial
-        ? resolveProjectInvoicesDir(bundle, req.params.projectId)
-        : resolveProjectFilesDir(bundle, req.params.projectId);
+      // S4b (0088): a Legal file — its own LEGAL folder, the tag written now
+      // and never after. Never an invoice too (the cloud refuses the pair).
+      const isLegal = !!scope.legal;
+      if (isLegal && isFinancial) {
+        return res.status(400).json({ error: 'A file is added as Legal or as an invoice or receipt, not both.', code: 'legal_and_financial' });
+      }
+      const filesDir = isLegal
+        ? resolveProjectLegalDir(bundle, req.params.projectId)
+        : isFinancial
+          ? resolveProjectInvoicesDir(bundle, req.params.projectId)
+          : resolveProjectFilesDir(bundle, req.params.projectId);
       fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
 
       const row = rabbitTouch({
@@ -2946,6 +2982,8 @@ function startLocalServer(distPath) {
         // decides which directory the body resolves against.
         is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
+        // S4b: the legal tag, written with the LEGAL folder (and only then).
+        ...(isLegal ? { tags: ['legal'] } : {}),
       });
       bundle.files.push(row);
       rabbitLogFileEvent(bundle, {
@@ -3030,21 +3068,14 @@ function startLocalServer(distPath) {
       rabbitLogFileEvent, writeRabbitBundle, safeMediaContentType, shouldLogManagedRead,
     });
 
-    expressApp.patch('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const idx = bundle.files.findIndex(f => f.id === req.params.id);
-      if (idx < 0) return rabbitNotFound(res, 'file');
-      // Session 14: path fields are NOT patchable here — a crafted
-      // storage_path turned download/delete into arbitrary-path fs calls.
-      // Path changes go through relink-apply, which containment-checks.
-      const { storage_path: _sp, storage_provider: _spr, id: _id, ...patch } = req.body || {};
-      // S4a (0085): the nine tags, refused as the cloud's CHECK refuses them.
-      const tagCheck = checkFileTags(patch);
-      if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });
-      bundle.files[idx] = { ...bundle.files[idx], ...patch, id: req.params.id };
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(bundle.files[idx]);
+    // Post-overhaul S4b: the two file PATCH routes (this one and the
+    // managed-files one) live in projectFilePatch.cjs, moved word for word
+    // with the Legal rules added (0088's two CHECKs, fileTags.cjs), so they
+    // are served for real in projectFilePatch.test.js. Mounted HERE, where
+    // the files PATCH always stood.
+    require('./projectFilePatch.cjs').mountProjectFilePatch(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound,
+      checkFileTags, checkLegalPatch, checkManagedLegal,
     });
 
     expressApp.delete('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
@@ -3118,6 +3149,9 @@ function startLocalServer(distPath) {
         // one as missing — and a relink would then offer to move the
         // project's financial record somewhere else.
         if (f.is_financial) continue;
+        // S4b: nor Legal files, which live in <project>/LEGAL for the same
+        // reason — a relink must not offer to move them out of it.
+        if (isLegalRow(f)) continue;
         const p = resolveContainedFilePath(filesDir, f.storage_path);
         (p && fs.existsSync(p) ? resolved : missing).push({
           id: f.id, name: f.name, storage_path: f.storage_path,
@@ -3349,31 +3383,7 @@ function startLocalServer(distPath) {
       res.json(row);
     });
 
-    expressApp.patch('/api/rabbit/projects/:projectId/managed-files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      if (!bundle.managedFiles) bundle.managedFiles = [];
-      const idx = bundle.managedFiles.findIndex(f => f.id === req.params.id);
-      if (idx < 0) return rabbitNotFound(res, 'managed-file');
-      // Session 17: path fields are NOT patchable here — the same class the
-      // sibling files PATCH was hardened against in S14 (:1362). A crafted
-      // folder_path/stored_name turned the hard-delete and thumbnail routes
-      // into arbitrary-path fs calls. Path changes are server-derived on
-      // POST, or come from the asset-rename route which rewrites them itself.
-      const { folder_path: _fp, stored_name: _sn, storage_provider: _spr, id: _id, ...patch } = req.body || {};
-      // S4a (E11): a managed file carries notes and tags too, the tags held
-      // to the same nine as a files row (0085's CHECK, fileTags.cjs).
-      const tagCheck = checkFileTags(patch);
-      if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });
-      bundle.managedFiles[idx] = {
-        ...bundle.managedFiles[idx],
-        ...patch,
-        id: req.params.id,
-        updated_at: new Date().toISOString(),
-      };
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(bundle.managedFiles[idx]);
-    });
+    // (PATCH …/managed-files/:id — projectFilePatch.cjs, mounted beside the files PATCH.)
 
     expressApp.delete('/api/rabbit/projects/:projectId/managed-files/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
@@ -4048,7 +4058,7 @@ function startLocalServer(distPath) {
     // row, directory and event. Same placement rule as the bins.
     require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
-      resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,
+      resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
       log: (line) => console.info(line),
     });
 

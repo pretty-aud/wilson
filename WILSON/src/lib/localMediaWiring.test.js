@@ -149,7 +149,8 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     const at = mainCjs.indexOf("require('./projectFileStream.cjs')")
     expect(at).toBeGreaterThan(mainCjs.indexOf("expressApp.use('/api/rabbit', localDemoMissingGuard)"))
     expect(at).toBeLessThan(mainCjs.indexOf("expressApp.get('/{*splat}'"))
-    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,')
+    // S4b (0088): and the LEGAL resolver beside INVOICES's.
+    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
     // the base64 POST stays for anything that still calls it
     expect(mainCjs).toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
   })

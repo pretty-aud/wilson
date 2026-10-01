@@ -20,8 +20,9 @@
 // on either side, and the global JSON parser never sees an octet-stream body.
 //
 // It records EXACTLY what the base64 POST records — the same row shape, the
-// same directory choice (INVOICES for a financial scope, the project's
-// files dir otherwise), the same 'uploaded' file event — so every reader of
+// same directory choice (LEGAL for a Legal scope since S4b, INVOICES for a
+// financial one, the project's files dir otherwise), the same 'uploaded'
+// file event — so every reader of
 // bundle.files is unchanged. The POST stays for anything that still calls
 // it. Every host dependency is injected (the helpers are closures inside
 // main.cjs's startLocalServer); projectFileStream.test.js drives it through
@@ -72,12 +73,13 @@ function mountProjectFileStream(expressApp, {
   rabbitNotFound,
   resolveProjectFilesDir,
   resolveProjectInvoicesDir,
+  resolveProjectLegalDir,
   uuidv4,
   log = () => {},
 } = {}) {
   for (const [name, fn] of Object.entries({
     readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
-    resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,
+    resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
   })) {
     if (typeof fn !== 'function') throw new Error(`mountProjectFileStream: ${name} is required`);
   }
@@ -99,11 +101,20 @@ function mountProjectFileStream(expressApp, {
     const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
     const diskName = `${fileId}-${safeName}`;
     const isFinancial = !!scope.financial;
+    // Post-overhaul S4b (0088): a Legal file goes to the project's LEGAL
+    // folder and carries the legal tag from now on — the base64 POST's rule,
+    // and the cloud's (the LEGAL segment). Never an invoice too.
+    const isLegal = !!scope.legal;
+    if (isLegal && isFinancial) {
+      return res.status(400).json({ error: 'A file is added as Legal or as an invoice or receipt, not both.', code: 'legal_and_financial' });
+    }
     let filesDir;
     try {
-      filesDir = isFinancial
-        ? resolveProjectInvoicesDir(bundle, req.params.projectId)
-        : resolveProjectFilesDir(bundle, req.params.projectId);
+      filesDir = isLegal
+        ? resolveProjectLegalDir(bundle, req.params.projectId)
+        : isFinancial
+          ? resolveProjectInvoicesDir(bundle, req.params.projectId)
+          : resolveProjectFilesDir(bundle, req.params.projectId);
       if (!filesDir) throw new Error('no files directory');
       if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
     } catch (err) {
@@ -167,6 +178,8 @@ function mountProjectFileStream(expressApp, {
         description:      scope.description  || null,
         is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
+        // S4b: the legal tag, written with the LEGAL folder (and only then).
+        ...(isLegal ? { tags: ['legal'] } : {}),
         // 0081's two columns, mirrored on the local row (demo 2026-09-11).
         duration_sec:       durationSec,
         source_modified_at: sourceModifiedAt,
