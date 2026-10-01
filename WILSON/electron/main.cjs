@@ -4055,10 +4055,10 @@ function startLocalServer(distPath) {
     });
 
     // ── Static file serving (SPA fallback) ──
+    // Root-relative (spaFallback.cjs): an absolute path under a dot-folder
+    // answered every in-app address but `/` with "internal error".
     expressApp.use(express.static(distPath));
-    expressApp.get('/{*splat}', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    expressApp.get('/{*splat}', require('./spaFallback.cjs').sendSpaIndex(distPath));
 
     // Demo sprint (2026-09-10, review round 2): an id that would leave its
     // data directory throws from inside a route (dataFileOrThrow); answered
