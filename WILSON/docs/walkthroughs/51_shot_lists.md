@@ -67,7 +67,7 @@ steps below. The before pictures are `po-s3b-before-scenes-1440.png` and
 | 22 | Open a scene, change its **Description**, and press **Escape** (or ✕, Close, or click outside) | *Discard your changes?*: what you typed is not saved. **Cancel** (focused) keeps it; **Discard** drops it. With nothing changed, Escape closes as before. The notes too, and the shot window too. If someone changes the description meanwhile, what you typed stays. (21) |
 | 23 | Tick two scenes | The selection bar has **Remove from list** beside **Delete**, in the plain button, not the red one. A selection holds only what is on screen: another list, a search or a filter unticks what it hides, and closing a scene unticks its shots. |
 | 24 | Open **Help (?) → Scenes & shot lists** | The page that says all of this in short. |
-| 24a | Open an archived list (**Shot lists… → Archived… → Open**) | It reads like any list, marked **Archived**. **New scene**, **New shot** and **Add shot** are greyed: hovering says the list is archived, to restore it or open another list to add scenes and shots. |
+| 24a | Open an archived list (**Shot lists… → Archived… → Open**) | It reads like any list, marked **Archived**. **New scene**, **New shot** and **Add shot** are greyed: hovering says the list is archived, to restore it or open another list to add scenes and shots. (22) |
 
 ### As a reviewer (the cloud, a project you are a reviewer on)
 

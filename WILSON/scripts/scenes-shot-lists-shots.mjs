@@ -8,8 +8,9 @@
  * the tab with its one list, a second list made empty, Add from another
  * list…, a row's shot-list menu and the Remove question, the Delete
  * question, Save, Save as…, Set active, Withdraw and Restore, the picker
- * and its Archived view, "Not in any list" and its Add to list menu, and
- * the scene popup's draft question (D21). Each file is
+ * and its Archived view, "Not in any list" and its Add to list menu, the
+ * scene popup's draft question (D21), and an archived list on screen, whose
+ * New scene and New shot are greyed (review round 1). Each file is
  * `<prefix><nn>-<state>-<W>x<H>.png`.
  *
  * Needs the worktree's own dev server with VITE_DEV_AUTOLOGIN=tester and
@@ -178,6 +179,18 @@ try {
   await page.keyboard.press('Escape');
   await must(dialog('Discard your changes?'), 'the draft question');
   await shot('discard-question');
+  await click(button('Discard', dialog('Discard your changes?')), 'Discard');
+  await page.keyboard.press('Escape');
+
+  // An archived list on screen: read-only, so New scene and New shot are
+  // greyed (review round 1, R1-02: a new row went to the active list).
+  await click(button('Shot lists…', bar()), 'Shot lists…');
+  await click(dialog('Shot lists').getByRole('button', { name: /^Archived…/ }), 'Archived…');
+  await click(dialog('Archived shot lists').getByRole('button', { name: 'Pickups', exact: true }), 'Pickups');
+  await click(button('Open', dialog('Archived shot lists')), 'Open');
+  await must(page.locator('[aria-disabled="true"]', { hasText: 'New scene' }).first(), 'the greyed New scene');
+  await park();
+  await shot('archived-list');
 } finally {
   await browser.close();
 }
