@@ -33,6 +33,7 @@
 
 import { devWriteRefused } from '../devFixtures'
 import { planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN } from '../../tools/rabbit_v0.1.0/folderPaths'
+import { FILE_TAG_IDS } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
 } from './store'
@@ -432,7 +433,18 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       for (const p of paths || []) { const u = store.thumbnails.get(p); if (u) out.set(p, u) }
       return out
     },
-    async updateFile(id, fields) { return clone(patch(store.files, id, stampBy(fields))) },
+    async updateFile(id, fields) {
+      // S4a (0085): the fake cloud refuses what the real CHECK refuses.
+      if (fields && 'tags' in fields) {
+        const tags = fields.tags
+        if (!Array.isArray(tags) || tags.length > FILE_TAG_IDS.length || tags.some(t => !FILE_TAG_IDS.includes(t))) {
+          throw new Error('[fixtures] new row for relation "files" violates check constraint "files_tags_known_chk"')
+        }
+      }
+      return clone(patch(store.files, id, stampBy(fields)))
+    },
+    // S4a: the fake cloud has migration 0085.
+    async supportsFileTags() { return true },
     async deleteFile(id) {
       softDelete(store.files, id, by)
       store.fileEvents.push({ id: newId(), file_id: id, project_id: findById(store.files, id)?.project_id ?? null, event: 'trashed', actor_id: by, actor_name: 'You', detail: {}, created_at: now() })
@@ -444,6 +456,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     },
     async listFileEvents(fileId) {
       return clone(store.fileEvents.filter(e => e.file_id === fileId).sort((a, b) => b.created_at.localeCompare(a.created_at)))
+    },
+    // S4a (E13): the cloud's log_file_downloaded, as an event the activity
+    // drawer can show. No bytes exist here, so nothing calls it today (the
+    // fixtures mint no preview URL); it is the contract, kept whole.
+    async logFileDownloaded(file) {
+      if (!file?.id) return false
+      store.fileEvents.push({ id: newId(), file_id: file.id, project_id: findById(store.files, file.id)?.project_id ?? null, event: 'downloaded', actor_id: by, actor_name: 'You', detail: {}, created_at: now() })
+      return true
     },
 
     // ── Versions, comments, history ─────────────────────────────────────────

@@ -85,6 +85,25 @@ describe('every client-written table has an allowlist entry', () => {
       .toEqual({ id: 'x', document_kind: 'brief', description: 'note' })
   })
 
+  // ── Post-overhaul S4a (migration 0085) ────────────────────────────────────
+  it('files carries tags — 0085, the nine tags (Audrey\'s E3)', () => {
+    // The same silent failure as 0075's two columns, a third time: the file
+    // window's tag chips write `tags`, and without this name toColumns strips
+    // it and the PATCH is a 200 no-op the optimistic update hides.
+    expect(COLUMN_ALLOWLIST.files.has('tags'), 'files allowlist is missing tags (0085)').toBe(true)
+    expect(toColumns('files', { id: 'x', tags: ['shots', 'legal'] })).toEqual({ id: 'x', tags: ['shots', 'legal'] })
+    expect(toColumns('files', { id: 'x', tags: [] })).toEqual({ id: 'x', tags: [] })
+    // CONTROL, against the REAL toColumns: plant the fault (the name taken
+    // out of the real Set), watch the tags drop, put it back.
+    COLUMN_ALLOWLIST.files.delete('tags')
+    try {
+      expect(toColumns('files', { id: 'x', tags: ['shots'] })).toEqual({ id: 'x' })
+    } finally {
+      COLUMN_ALLOWLIST.files.add('tags')
+    }
+    expect(COLUMN_ALLOWLIST.files.has('tags')).toBe(true)
+  })
+
   it('files still carries is_core_definer — the §6 #31 (b) polarity flag', () => {
     // The flag D.O.G.'s CORE/REF split reads. If it ever left the allowlist,
     // the Core checkbox would go quiet exactly as document_kind did.

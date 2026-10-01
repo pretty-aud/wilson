@@ -147,14 +147,21 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       }
     }
     // The fixtures directory imports only pure modules from the app: the folder
-    // planner, the O.T.T.E.R. route parser and the note encoder.
-    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels']
+    // planner, the O.T.T.E.R. route parser and the note encoder — and, since
+    // post-overhaul S4a, the file-tag vocabulary (fileTags.js), so the fake
+    // cloud refuses what 0085's CHECK refuses.
+    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
         .filter((m) => !m.startsWith('devFixtures'))
       for (const m of external) expect(allowed, `${rel(f)} imports ${m}`).toContain(m)
     }
+    // The S4a loosening, proven: the module added above imports NOTHING, so it
+    // cannot carry the fixtures to the network, storage or the client.
+    const tags = read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js'))
+    expect(tags).not.toMatch(/^\s*import\s/m)
+    expect(tags).not.toMatch(/\brequire\(/)
   })
 
   it('a built dist/, when one is present, carries none of the fixture text', () => {

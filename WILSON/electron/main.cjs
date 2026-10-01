@@ -24,6 +24,9 @@ const {
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
 const ffmpeg = require('./ffmpeg.cjs');
+// Post-overhaul S4a (0085): the nine file tags, checked on the two PATCH
+// routes exactly as the cloud's CHECK checks them. See fileTags.cjs.
+const { checkFileTags } = require('./fileTags.cjs');
 // Post-overhaul S3a (0084): shot lists, their membership and edits on the
 // Local Server. The routes are mounted inside startLocalServer; the three
 // read-time helpers run in readRabbitBundle (D11's backfill, and the prune of
@@ -2955,6 +2958,9 @@ function startLocalServer(distPath) {
       // storage_path turned download/delete into arbitrary-path fs calls.
       // Path changes go through relink-apply, which containment-checks.
       const { storage_path: _sp, storage_provider: _spr, id: _id, ...patch } = req.body || {};
+      // S4a (0085): the nine tags, refused as the cloud's CHECK refuses them.
+      const tagCheck = checkFileTags(patch);
+      if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });
       bundle.files[idx] = { ...bundle.files[idx], ...patch, id: req.params.id };
       writeRabbitBundle(req.params.projectId, bundle);
       res.json(bundle.files[idx]);
@@ -3274,6 +3280,10 @@ function startLocalServer(distPath) {
       // into arbitrary-path fs calls. Path changes are server-derived on
       // POST, or come from the asset-rename route which rewrites them itself.
       const { folder_path: _fp, stored_name: _sn, storage_provider: _spr, id: _id, ...patch } = req.body || {};
+      // S4a (E11): a managed file carries notes and tags too, the tags held
+      // to the same nine as a files row (0085's CHECK, fileTags.cjs).
+      const tagCheck = checkFileTags(patch);
+      if (!tagCheck.ok) return res.status(400).json({ error: tagCheck.error, code: 'bad_tags' });
       bundle.managedFiles[idx] = {
         ...bundle.managedFiles[idx],
         ...patch,

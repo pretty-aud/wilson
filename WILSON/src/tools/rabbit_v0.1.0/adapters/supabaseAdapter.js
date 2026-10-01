@@ -122,7 +122,9 @@ export function resetSupabaseAdapter() {
   // not change the schema: there is one database per build. Only a
   // successful read of shot_lists clears it (probeShotLists), and tests use
   // resetShotListSchemaState(). localMediaWiring.test.js pins
-  // `fileMetaKnown = null;` as this function's LAST line.
+  // `fileMetaKnown = null;` as this function's LAST line, right after
+  // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
+  fileTagsKnown = null;
   privateColumnKnown = null;
   fileMetaKnown = null;
 }
@@ -236,6 +238,24 @@ async function fileMetaAvailable(client) {
     fileMetaKnown = false;
     return false;
   }
+  return false;
+}
+// Post-overhaul S4a: files.tags arrives with migration 0085 and is probed the
+// same way, so the beta keeps working on a database Audrey has not migrated
+// yet: the file window hides the tag chips (supportsFileTags) and updateFile
+// strips `tags` from a patch rather than letting PGRST204 take the whole
+// request — a note typed beside a tag still saves.
+let fileTagsKnown = null;
+async function fileTagsAvailable(client) {
+  if (fileTagsKnown !== null) return fileTagsKnown;
+  const { error } = await client.from('files').select('tags').limit(1);
+  if (!error) { fileTagsKnown = true; return true; }
+  if (error.code === '42703' || /\btags\b/.test(error.message || '')) {
+    fileTagsKnown = false;
+    return false;
+  }
+  // Any other failure (network, RLS) says nothing about the column: answer
+  // "not now" and probe again next time.
   return false;
 }
 async function projectIsPrivate(client, projectId) {
@@ -607,6 +627,10 @@ const FILE_COLUMNS = new Set([
   'uploaded_at',
   // 0081 (demo 2026-09-11) — the file's own duration and modified time.
   'duration_sec', 'source_modified_at',
+  // 0085 (post-overhaul S4a) — the nine tags (Audrey's E3). Probed before
+  // every write that carries it (fileTagsAvailable): a client ahead of the
+  // database strips it instead of PGRST204-ing the whole patch.
+  'tags',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
@@ -2119,7 +2143,39 @@ export function supabaseAdapter() {
       // store uses field names — stored_name, notes, version_label — that have
       // no columns here and would otherwise arrive intact from shared code.
       const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at']));
+      // S4a (0085): a database without files.tags gets the patch without it.
+      // A patch that was ONLY tags refuses in words — a silent no-op would
+      // leave the chip lit until the next list (the 0075 trap, again).
+      if ('tags' in row && !(await fileTagsAvailable(client))) {
+        delete row.tags;
+        const left = Object.keys(row).filter((k) => k !== 'project_id');
+        if (left.length === 0) {
+          throw new Error('[supabase] Tags are not on this database yet (migration 0085). Nothing was changed.');
+        }
+      }
       return unwrap(await client.from('files').update(row).eq('id', id).select().single());
+    },
+
+    // S4a: whether files.tags exists here (0085), for the file window.
+    async supportsFileTags() {
+      const client = await requireClient();
+      return fileTagsAvailable(client);
+    },
+
+    // S4a (E13): opening a preview is a read, and a read leaves a record —
+    // the same log_file_downloaded RPC downloadFile and downloadUrl call,
+    // best-effort and never silent (rpc() resolves for every status, so
+    // .error is checked). The provider calls it once per file per session.
+    async logFileDownloaded(file) {
+      const client = await requireClient();
+      try {
+        const logged = await client.rpc('log_file_downloaded', { p_file_id: file.id });
+        if (logged.error) console.warn('[supabase] preview not logged:', logged.error.message);
+        return !logged.error;
+      } catch (err) {
+        console.warn('[supabase] preview not logged:', err?.message || err);
+        return false;
+      }
     },
 
     async deleteFile(id) {

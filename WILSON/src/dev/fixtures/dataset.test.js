@@ -18,6 +18,7 @@ import * as Y from 'yjs'
 import { TASK_STATUSES, PRIORITIES } from '../../components/Dashboard/dashboardTaskModel'
 import { b64ToU8 } from '../../components/Dashboard/noteSync'
 import { BIN_KINDS, COLORS, REVIEW_FLAGS, MEDIA_TYPES } from '../../tools/rabbit_v0.1.0/bins/binMedia'
+import { FILE_TAG_IDS } from '../../tools/rabbit_v0.1.0/fileTags'
 import { FIXTURE_ID_PREFIX, fid } from './ids'
 import { WORKSPACE, MEMBERS, PERMISSIONS, FIXTURE_USER, MEMBER_ID } from './data/workspace'
 import {
@@ -357,6 +358,22 @@ describe('folders and files', () => {
     }
     expect(FILES.filter((f) => f.thumbnail_url).length).toBeGreaterThan(15)
     for (const e of FILE_EVENTS) expect(ids(FILES).has(e.file_id)).toBe(true)
+  })
+
+  // Post-overhaul S4a (0085): every row carries `tags`, every tag is one of the
+  // nine, none is Finance (E4: Finance is is_financial, never written), and
+  // some rows carry none (E12: tags start empty).
+  it('every file carries tags from the nine, never Finance, some none at all', () => {
+    for (const f of FILES) {
+      expect(Array.isArray(f.tags), f.name).toBe(true)
+      for (const t of f.tags) expect(FILE_TAG_IDS, `${f.name}: ${t}`).toContain(t)
+      expect(f.tags, f.name).not.toContain('finance')
+      expect(new Set(f.tags).size, `${f.name} repeats a tag`).toBe(f.tags.length)
+    }
+    expect(FILES.some((f) => f.tags.length === 0)).toBe(true)
+    expect(FILES.some((f) => f.tags.length > 1)).toBe(true)
+    // The invoices show Finance through is_financial alone.
+    for (const f of FILES.filter((x) => x.is_financial)) expect(f.tags).toEqual([])
   })
 })
 

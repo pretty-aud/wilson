@@ -103,6 +103,23 @@ const FILE_ROWS = [
   [32, '',                  'Salt_Hours_schedule_v3.xlsx',         'other',       88,      null, 'pre', 39, false, 39],
 ]
 
+// Post-overhaul S4a (0085): the nine tags, a believable set per file. The two
+// invoices carry NONE — Finance is shown from is_financial, never written as a
+// tag (E4) — and a few files carry none at all, as most real rows will (E12:
+// tags start empty).
+const TAGS_BY_N = {
+  1: ['creative'], 2: ['creative', 'code'], 3: ['creative', 'reference'],
+  4: ['creative'], 5: ['creative', 'reference'], 6: ['reference'], 7: ['reference'],
+  8: ['reference'], 9: ['creative', 'shots'], 10: ['creative', 'shots'],
+  11: ['shots'], 12: ['shots'], 13: ['shots'], 14: ['reference', 'production'],
+  15: ['reference', 'production'], 16: ['reference'], 17: ['assets'],
+  18: ['production', 'documentation'], 19: ['production', 'documentation'],
+  20: ['production'], 21: ['reference', 'production'], 22: ['reference', 'production'],
+  23: ['reference', 'shots'], 24: ['reference', 'assets'],
+  25: ['production', 'documentation'], 26: ['shots', 'assets'], 27: ['code', 'shots'],
+  28: ['production', 'shots'], 29: ['production', 'legal'], 32: ['production'],
+}
+
 export const FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, task, is_core_definer, d], i) => {
   const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
   const storage_path = `workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/${folderPath ? folderPath + '/' : ''}${name}`
@@ -127,6 +144,7 @@ export const FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase
     kind,
     is_core_definer,
     is_financial: folderPath === 'INVOICES',
+    tags: TAGS_BY_N[n] || [],
     uploaded_at: stamp(d, 11, i),
     source_modified_at: stamp(d - 1, 18, i),
     created_at: stamp(d, 11, i),

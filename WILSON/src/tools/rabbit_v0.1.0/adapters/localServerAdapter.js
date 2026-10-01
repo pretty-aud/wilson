@@ -300,6 +300,10 @@ export function localServerAdapter() {
       body:    JSON.stringify(patch),
     }),
 
+    // S4a (0085): the bundle holds whatever the PATCH merges, and the route
+    // holds `tags` to the nine (electron/fileTags.cjs) — always available.
+    supportsFileTags: async () => true,
+
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 
     // ── File lifecycle + storage relink (Session 14) ──────────
