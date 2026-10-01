@@ -67,8 +67,10 @@ const KIND_LABELS = {
   pitch_bible: 'Pitch bible', lookbook: 'Lookbook', deck: 'Deck',
   outline: 'Outline', notes: 'Notes', other: 'Other',
 }
-const kindLabel = (k) => KIND_LABELS[k] || String(k).replace(/_/g, ' ')
-const KIND_OPTIONS = DOCUMENT_KINDS.map((k) => ({ value: k, label: kindLabel(k) }))
+// Exported for the Files explorer's file window (post-overhaul S4a, E10): its
+// Kind is this select over this list, so the two cannot drift.
+export const kindLabel = (k) => KIND_LABELS[k] || String(k).replace(/_/g, ' ')
+export const KIND_OPTIONS = DOCUMENT_KINDS.map((k) => ({ value: k, label: kindLabel(k) }))
 
 /* ── auto-detection heuristics ─────────────────────────────── */
 

@@ -106,7 +106,7 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
@@ -116,6 +116,8 @@ import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
 import GatedAction from '../../permissions/GatedAction'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
+import FileEditor from './FileEditor'
+import { desktopBridge, diskSourceFor, downloadCloudFile, downloadName } from './fileActions'
 import {
   Banner, Button, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
   Tabs, Td, Th, Toolbar,
@@ -407,6 +409,96 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const [auditOpen, setAuditOpen] = useState(false)
   useEffect(() => { if (!selectedFile) setAuditOpen(false) }, [selectedFile])
 
+  // ── E10: the file window — the Details panel is the editor now ───────────
+  //
+  // Tags exist where the database has 0085 (the cloud probes it once per
+  // session; the Local Server and the fixtures always have them).
+  const [tagsSupported, setTagsSupported] = useState(false)
+  useEffect(() => {
+    let off = false
+    const a = getAdapter?.()
+    if (typeof a?.supportsFileTags !== 'function') { setTagsSupported(false); return undefined }
+    Promise.resolve(a.supportsFileTags())
+      .then((v) => { if (!off) setTagsSupported(!!v) })
+      .catch(() => { if (!off) setTagsSupported(false) })
+    return () => { off = true }
+  }, [getAdapter, ctx?.adapterMode])
+
+  // Every write goes through the provider's file verbs, with THIS page's
+  // project (patchFile's rule: another project's write is that project's).
+  // The change shows at once (the overlay, Doherty); the stored row lands in
+  // the page's copy when the write returns; a refusal drops the overlay, so
+  // the value goes back to what is stored, and says why. A version per row
+  // keeps an older answer from clearing a newer edit still in flight.
+  const [saveError, setSaveError] = useState('')
+  useEffect(() => { setSaveError('') }, [selectedFileId])
+  const overlayVersions = useRef(new Map())
+  useEffect(() => { overlayVersions.current = new Map() }, [projectId])
+  const patchFile = ctx?.patchFile
+  const markCore = ctx?.markFileCoreDefiner
+  const updateManaged = ctx?.updateManagedFile
+  const saveFile = useCallback(async (node, patch) => {
+    const row = node?.row
+    if (!row || !patch) return
+    const id = row.id
+    const managed = node.meta?.source === 'managed'
+    const v = (overlayVersions.current.get(id) || 0) + 1
+    overlayVersions.current.set(id, v)
+    setOverlay((prev) => { const next = new Map(prev); next.set(id, { ...(prev.get(id) || {}), ...patch }); return next })
+    setSaveError('')
+    try {
+      let saved
+      if (managed) saved = await updateManaged?.(id, patch, projectId)
+      else if (Object.keys(patch).length === 1 && 'is_core_definer' in patch) saved = await markCore?.(id, patch.is_core_definer, projectId)
+      else saved = await patchFile?.(id, patch, projectId)
+      const key = managed ? 'managedFiles' : 'files'
+      const landed = saved && typeof saved === 'object' && saved.id === id ? saved : null
+      setLoaded((prev) => (prev && prev.projectId === projectId
+        ? { ...prev, [key]: prev[key].map((r) => (r.id === id ? { ...r, ...patch, ...(landed || {}) } : r)) }
+        : prev))
+    } catch (err) {
+      setSaveError(err?.message || 'the change was refused')
+    } finally {
+      if (overlayVersions.current.get(id) === v) {
+        overlayVersions.current.delete(id)
+        setOverlay((prev) => { if (!prev.has(id)) return prev; const next = new Map(prev); next.delete(id); return next })
+      }
+    }
+  }, [patchFile, markCore, updateManaged, projectId])
+
+  // E9: Download, Show in folder, Open in default app. A row whose bytes are
+  // on THIS computer reveals or opens through rabbit:open-path (main resolves
+  // the path); a cloud body downloads by the signed URL, the Blob where
+  // nothing can sign.
+  const bridge = desktopBridge()
+  const [actionError, setActionError] = useState('')
+  useEffect(() => { setActionError('') }, [selectedFileId])
+  const adapterMode = ctx?.adapterMode
+  const onDiskOf = useCallback((node) => (bridge ? diskSourceFor(node, { adapterMode, projectId }) : null), [bridge, adapterMode, projectId])
+  const revealOrOpen = useCallback(async (node, reveal) => {
+    const src = onDiskOf(node)
+    if (!src) return
+    setActionError('')
+    try {
+      const res = await bridge.openPath({ ...src, reveal })
+      if (res && res.ok === false) setActionError(res.error || 'That did not work.')
+    } catch (err) {
+      setActionError(err?.message || 'That did not work.')
+    }
+  }, [onDiskOf, bridge])
+  const downloadUrlFn = ctx?.downloadUrl
+  const downloadFileFn = ctx?.downloadFile
+  const download = useCallback(async (node) => {
+    if (onDiskOf(node)) return revealOrOpen(node, true)
+    setActionError('')
+    try {
+      await downloadCloudFile({ downloadUrl: downloadUrlFn, downloadFile: downloadFileFn }, node.row, downloadName(node))
+    } catch (err) {
+      setActionError(err?.message || 'The download did not start.')
+    }
+    return undefined
+  }, [onDiskOf, revealOrOpen, downloadUrlFn, downloadFileFn])
+
   return (
     <div className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
       {/* One 44px toolbar, every child 28px, left and right slots. It replaced
@@ -427,7 +519,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                 type="search"
                 value={query}
                 onChange={setQuery}
-                placeholder="Filter by name or path"
+                placeholder="Filter by name, path or tag"
                 aria-label="Filter"
               />
             </span>
@@ -564,7 +656,40 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                   ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFileId(node.id)} selectedId={selectedFile?.id || null} />
                   : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
               </div>
-              <DetailsPanel node={selectedFile} />
+              <DetailsPanel
+                node={selectedFile}
+                onClose={() => setSelectedFileId(null)}
+                editor={selectedFile && (
+                  <FileEditor
+                    key={selectedFile.id}
+                    node={selectedFile}
+                    canWrite={canWrite}
+                    writeReason={writeReason}
+                    canSeeMoney={canSeeMoney}
+                    tagsSupported={tagsSupported}
+                    saveError={saveError}
+                    onSave={(patch) => saveFile(selectedFile, patch)}
+                  />
+                )}
+                actionError={actionError}
+                actions={selectedFile && (
+                  // E9, one slot per job: a file already on this computer
+                  // is REVEALED by Download (E9), so that slot says what it
+                  // does — Show in folder — and Open in default app joins it.
+                  onDiskOf(selectedFile) ? (
+                    <>
+                      <Button size="sm" Icon={FolderOpen} onClick={() => revealOrOpen(selectedFile, true)} data-file-reveal>
+                        Show in folder
+                      </Button>
+                      <IconButton size="sm" icon={ExternalLink} title="Open in default app" onClick={() => revealOrOpen(selectedFile, false)} data-file-open />
+                    </>
+                  ) : (
+                    <Button size="sm" Icon={Download} onClick={() => download(selectedFile)} data-file-download>
+                      Download
+                    </Button>
+                  )
+                )}
+              />
             </div>
           </Card>
         )}
@@ -688,13 +813,28 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
                   {/* The icon slot is a declared width, so the name text has
                       one x origin at every depth and for both kinds. The
                       indent is on the SLOT, not on the text, so the two move
-                      together and the column keeps one inset per depth (F11). */}
-                  <span className="fx-name">
-                    {isFolder
-                      ? <Folder className="fx-name-icon" aria-hidden="true" />
-                      : <FileIcon className="fx-name-icon" aria-hidden="true" />}
-                    <span className="fx-name-text">{node.name}</span>
-                  </span>
+                      together and the column keeps one inset per depth (F11).
+                      Post-overhaul S4a (E10): a FILE's name is a <button> —
+                      the row stays a plain <tr> (no role, no tab stop), and
+                      the keyboard reaches the file through its name. Same
+                      slot, same origin: `.fx-name` is on the button. */}
+                  {isFolder ? (
+                    <span className="fx-name">
+                      <Folder className="fx-name-icon" aria-hidden="true" />
+                      <span className="fx-name-text">{node.name}</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="fx-name fx-name-btn"
+                      onClick={() => onPick(node)}
+                      title={node.name}
+                      data-file-name
+                    >
+                      <FileIcon className="fx-name-icon" aria-hidden="true" />
+                      <span className="fx-name-text">{node.name}</span>
+                    </button>
+                  )}
                 </Td>
                 <Td>{isFolder ? 'Folder' : m.type}</Td>
                 <Td numeric>{isFolder ? '' : formatBytes(m.sizeBytes)}</Td>
@@ -753,15 +893,15 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile })
   )
 }
 
-function DetailsPanel({ node }) {
-  if (!node) {
-    return (
-      <div className="fx-details" data-file-details="none">
-        <div className="fx-details-title"><Info className="rs-toolbar-glyph" aria-hidden="true" />Details</div>
-        <p className="fx-details-empty">Select a file to see its details.</p>
-      </div>
-    )
-  }
+// ── The file window (post-overhaul S4a, E10) ────────────────────────────────
+// Collapsed at rest — walkthrough 47 Q60, answered by E10: nothing selected,
+// no panel, and the table or the columns take the width back. A selected file
+// opens it: the eight facts (unchanged, pinned), then the editor (FileEditor:
+// notes, Core, Kind, tags), then the actions in a footer that stays in view
+// however far the fields scroll (Fitts: the actions are where the panel
+// ends, at one place for every file). Close clears the selection.
+function DetailsPanel({ node, onClose, editor, actions, actionError }) {
+  if (!node) return null
   const m = node.meta || {}
   const isMedia = m.kind === 'video' || m.kind === 'audio'
   // 🚨 THE SHAPE OF THIS ARRAY IS PINNED. `src/lib/localMediaWiring.test.js`
@@ -778,24 +918,37 @@ function DetailsPanel({ node }) {
     ['Stored', PROVIDER_LABEL[m.provider] || m.provider || '—'],
   ]
   return (
-    <div className="fx-details" data-file-details={node.id}>
-      <div className="fx-details-title"><Info className="rs-toolbar-glyph" aria-hidden="true" />Details</div>
-      {/* Eight pairs that stacked label-over-value at a 0:10px proximity ratio
-          — no gap inside a pair, 10px between pairs — and filled 290px of a
-          300px panel. A two-column definition grid reads them in about half
-          that, and the pairs are held together by position rather than by a
-          type difference the dark ground was about to reduce (F-R33). The
-          numeric facts take the mono with tabular figures; the prose ones
-          do not. */}
-      <dl className="fx-details-grid">
-        {rows.map(([k, v]) => (
-          <div key={k} className="fx-details-pair">
-            <dt>{k}</dt>
-            <dd data-numeric={DETAIL_NUMERIC.has(k) || undefined}>{v}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <aside className="fx-details" data-file-details={node.id} aria-label={`Details: ${node.name}`}>
+      <div className="fx-details-scroll">
+        <div className="fx-details-title">
+          <Info className="rs-toolbar-glyph" aria-hidden="true" />
+          <span className="fx-details-title-text">Details</span>
+          <IconButton size="sm" icon={X} title="Close details" onClick={onClose} className="fx-details-close" />
+        </div>
+        {/* Eight pairs that stacked label-over-value at a 0:10px proximity ratio
+            — no gap inside a pair, 10px between pairs — and filled 290px of a
+            300px panel. A two-column definition grid reads them in about half
+            that, and the pairs are held together by position rather than by a
+            type difference the dark ground was about to reduce (F-R33). The
+            numeric facts take the mono with tabular figures; the prose ones
+            do not. */}
+        <dl className="fx-details-grid">
+          {rows.map(([k, v]) => (
+            <div key={k} className="fx-details-pair">
+              <dt>{k}</dt>
+              <dd data-numeric={DETAIL_NUMERIC.has(k) || undefined}>{v}</dd>
+            </div>
+          ))}
+        </dl>
+        {editor}
+      </div>
+      {(actions || actionError) && (
+        <div className="fx-actions" data-file-actions>
+          {actionError && <Banner tone="danger" data-action-error>{actionError}</Banner>}
+          {actions && <div className="fx-actions-row">{actions}</div>}
+        </div>
+      )}
+    </aside>
   )
 }
 

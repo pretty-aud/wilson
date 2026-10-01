@@ -164,6 +164,22 @@
     color: var(--color-ink-3);
   }
   .fx-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Post-overhaul S4a (E10): a FILE's name is a <button> so the keyboard can
+     reach it; it keeps `.fx-name`'s slot and origin (the rule above, pinned)
+     and sheds every UA button style. The kit's `.ui-td` clips overflow, so
+     its focus ring is drawn inside the button (B4c trap 7). */
+  .fx-name-btn {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .fx-name-btn:focus-visible { outline-offset: -2px; }
   .fx-row[data-node-kind="folder"] .fx-name-icon,
   .fx-col-item[data-node-kind="folder"] .fx-name-icon { color: var(--color-ink-2); }
   .fx-row[data-node-kind="folder"] .fx-name-text { font-weight: 600; }
@@ -307,14 +323,22 @@
      `touches-interaction` and "taste, not error", it changes what the page
      shows at rest, and Q8(b) has just returned 433px of vertical field to
      this page, which is the axis the panel was actually costing. Audrey's
-     call, not this session's. */
+     call, not this session's.
+     📌 2026-09-30, post-overhaul S4a: her call came (E10, walkthrough 47
+     Q60) — collapsed at rest. With nothing selected the component draws no
+     panel at all; selected, it is the file window: the facts and the editor
+     scroll, the actions stay in a footer (Fitts: one place for every file). */
   .fx-details {
     width: var(--panel-lg);
     flex-shrink: 0;
     border-left: 1px solid var(--color-rule);
-    padding: 16px;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
   }
+  .fx-details-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+  .fx-details-title-text { flex: 1; min-width: 0; }
   .fx-details-title {
     display: flex;
     align-items: center;
@@ -357,12 +381,55 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
-  .fx-details-empty {
+
+  /* ── The editor (FileEditor.jsx, S4a) ──────────────────────────────────
+     One hairline between what you READ and what you CHANGE (Common Region
+     without a card); the kit Field's proximity inside a field (4px label to
+     control) and between fields (16px). Labels are the Label step, as the
+     facts' are; hints the Caption step in the third ink (4.66:1 on the
+     card's raised paper). */
+  .fx-edit {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-rule);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .fx-edit-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .fx-edit-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .fx-edit-hint {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .fx-edit-reason {
     margin: 0;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
-    color: var(--color-ink-3);
+    color: var(--color-ink-2);
   }
+  .fx-edit-notes { min-height: calc(var(--control-md) * 2); }
+  /* The nine chips wrap as one group: 4px apart, so they read as one set. */
+  .fx-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+  /* The actions footer: outside the scroller, so it never scrolls away. */
+  .fx-actions {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .fx-actions-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
   /* === PROJECTS ======================================================== */
 

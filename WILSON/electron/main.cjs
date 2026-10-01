@@ -202,6 +202,10 @@ const userAuthorizedImages = new Set();
 // falls through to the per-machine defaultRootDir exactly as before.
 let workspaceRootDir = null;
 
+// Post-overhaul S4a: set inside startLocalServer (it needs the bundle
+// readers that live there) and read by the rabbit:open-path IPC.
+let rabbitFileLocator = null;
+
 function readJSON(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
 }
@@ -2905,6 +2909,24 @@ function startLocalServer(distPath) {
       res.json(row);
     });
 
+    // ── Post-overhaul S4a: where a row's bytes are on THIS disk ─────────────
+    // For the rabbit:open-path IPC ("Open in default app", the explorer's
+    // "Show in folder"): the path is resolved here, from the bundle, by the
+    // same contained resolvers the download and stream routes use — never
+    // taken from the page. A row the user deleted (a soft-deleted managed
+    // file) resolves to nothing, as the stream route's does.
+    rabbitFileLocator = (projectId, fileId, source) => {
+      const bundle = readRabbitBundle(projectId);
+      if (!bundle) return null;
+      if (source === 'managed') {
+        const mf = (bundle.managedFiles || []).find(f => f.id === fileId && !f.deleted_at);
+        return mf ? resolveManagedFileDiskPath(bundle, mf) : null;
+      }
+      const file = (bundle.files || []).find(f => f.id === fileId);
+      if (!file) return null;
+      return resolveContainedFilePath(resolveFileBaseDir(bundle, projectId, file), file.storage_path);
+    };
+
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
@@ -4581,6 +4603,34 @@ ipcMain.handle('rabbit:get-file-stats', (_event, { filePath }) => {
 ipcMain.handle('rabbit:open-in-explorer', (_event, { filePath }) => {
   if (fs.existsSync(filePath)) shell.showItemInFolder(filePath);
   return { ok: true };
+});
+
+// ── Post-overhaul S4a (Audrey's E9): "Open in default app", and the Files
+// explorer's "Show in folder", for a row whose bytes are on THIS computer ──
+//
+// The page names the ROW, never a path; electron/openPath.cjs resolves it
+// (the bundle through rabbitFileLocator — the download route's own contained
+// resolvers — or a private project's media key through checkMediaKey and the
+// local-media routes' lexical + real-path containment), requires an existing
+// regular file, and refuses to OPEN a program or a script (their default app
+// runs them; revealing them is fine). Returns { ok, error? }.
+ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
+  const { resolveOpenTarget, refuseToOpen } = require('./openPath.cjs');
+  const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
+  const target = resolveOpenTarget(req, {
+    fs,
+    locateRow: rabbitFileLocator,
+    mediaRoot: () => getLocalMediaRoot({ create: false }),
+    checkMediaKey,
+    resolveContainedFilePath,
+    insideByRealPath,
+  });
+  if (!target.ok) return target;
+  if (req.reveal) { shell.showItemInFolder(target.diskPath); return { ok: true }; }
+  const refusal = refuseToOpen(target.diskPath);
+  if (refusal) return { ok: false, error: refusal };
+  const err = await shell.openPath(target.diskPath);
+  return err ? { ok: false, error: err } : { ok: true };
 });
 
 // Pick an image file for asset thumbnail

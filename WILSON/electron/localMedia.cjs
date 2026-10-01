@@ -274,4 +274,6 @@ function mountLocalMedia(expressApp, {
   });
 }
 
-module.exports = { mountLocalMedia, checkMediaKey, mimeForLeaf, contentDisposition, ROUTE_BASE };
+// insideByRealPath: post-overhaul S4a's rabbit:open-path IPC applies the same
+// real-path containment to a private project's media before opening it.
+module.exports = { mountLocalMedia, checkMediaKey, mimeForLeaf, contentDisposition, insideByRealPath, ROUTE_BASE };

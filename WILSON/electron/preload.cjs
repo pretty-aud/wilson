@@ -97,6 +97,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     copyFile:             (opts) => ipcRenderer.invoke('rabbit:copy-file', opts),
     getFileStats:         (opts) => ipcRenderer.invoke('rabbit:get-file-stats', opts),
     openInExplorer:       (opts) => ipcRenderer.invoke('rabbit:open-in-explorer', opts),
+    // Post-overhaul S4a (E9): open a desktop row in its default app, or reveal
+    // it — the row is named ({ source, projectId, fileId } or { source:
+    // 'media', mediaKey }), main resolves the path. → { ok, error? }
+    openPath:             (opts) => ipcRenderer.invoke('rabbit:open-path', opts),
     ensureProjectFolder:  (opts) => ipcRenderer.invoke('rabbit:ensure-project-folder', opts),
     pickImage:            ()     => ipcRenderer.invoke('rabbit:pick-image'),
     generateAssetThumbnail: (opts) => ipcRenderer.invoke('rabbit:generate-asset-thumbnail', opts),

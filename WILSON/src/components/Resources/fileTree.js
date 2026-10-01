@@ -19,6 +19,7 @@
 // =============================================================================
 
 import { fileTypeLabel, mediaKind } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
+import { tagsMatch } from '../../tools/rabbit_v0.1.0/fileTags'
 
 export const ROOT_ID = '__root__'
 const ENTITY_FKS = ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']
@@ -139,13 +140,16 @@ export function flattenTree(root) {
 }
 
 /** Case-insensitive name filter over the flattened tree; folders whose
- *  descendants match are kept so the path stays readable. */
+ *  descendants match are kept so the path stays readable. Since
+ *  post-overhaul S4a a file also matches by one of its tags ("shots",
+ *  "Legal"; Finance from is_financial) — E10's filter. */
 export function filterFlat(rows, query) {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return rows
   const keep = new Set()
   for (const r of rows) {
-    if (String(r.node.name).toLowerCase().includes(q) || String(r.node.path).toLowerCase().includes(q)) {
+    const byTag = r.node.kind === 'file' && tagsMatch(r.node.row, q)
+    if (byTag || String(r.node.name).toLowerCase().includes(q) || String(r.node.path).toLowerCase().includes(q)) {
       keep.add(r.node)
       let p = r.node.parent
       while (p) { keep.add(p); p = p.parent }

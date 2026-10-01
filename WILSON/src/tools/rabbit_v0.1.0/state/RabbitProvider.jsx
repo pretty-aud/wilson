@@ -3222,21 +3222,38 @@ export function RabbitProvider({ children }) {
     return created;
   }, [activeProjectId]);
 
-  const markFileCoreDefiner = useCallback((fileId, isCore) => optimistic(
-    prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, is_core_definer: isCore } : f),
-    }),
-    () => adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: activeProjectId }),
-  ), [optimistic, activeProjectId]);
+  // Post-overhaul S4a: the file verbs take the project a file belongs to.
+  // RESOURCES → FILES edits any project's files without opening it, and
+  // only the OPEN project's rows live in the bundle — so a write for another
+  // project goes straight to the adapter WITH ITS OWN id (the Local Server
+  // builds the URL from it, and in the cloud project_id is a column: sending
+  // the open project's id would move the row into it). Omitted, it is the
+  // open project, exactly as before.
+  const markFileCoreDefiner = useCallback((fileId, isCore, projectId = activeProjectId) => {
+    if (projectId && projectId !== activeProjectId) {
+      return adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: projectId });
+    }
+    return optimistic(
+      prev => ({
+        ...prev,
+        files: prev.files.map(f => f.id === fileId ? { ...f, is_core_definer: isCore } : f),
+      }),
+      () => adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: activeProjectId }),
+    );
+  }, [optimistic, activeProjectId]);
 
-  const patchFile = useCallback((fileId, patch) => optimistic(
-    prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, ...patch } : f),
-    }),
-    () => adapterRef.current.updateFile(fileId, { ...patch, project_id: activeProjectId }),
-  ), [optimistic, activeProjectId]);
+  const patchFile = useCallback((fileId, patch, projectId = activeProjectId) => {
+    if (projectId && projectId !== activeProjectId) {
+      return adapterRef.current.updateFile(fileId, { ...patch, project_id: projectId });
+    }
+    return optimistic(
+      prev => ({
+        ...prev,
+        files: prev.files.map(f => f.id === fileId ? { ...f, ...patch } : f),
+      }),
+      () => adapterRef.current.updateFile(fileId, { ...patch, project_id: activeProjectId }),
+    );
+  }, [optimistic, activeProjectId]);
 
   // Session 27. `files` had upload and patch on the context but no delete and
   // no download, because the only consumer was a read-mostly table. FileManager
@@ -3322,7 +3339,12 @@ export function RabbitProvider({ children }) {
     return created;
   }, [activeProjectId]);
 
-  const updateManagedFile = useCallback(async (id, patch) => {
+  // S4a (E11): managed files get notes and tags through this PATCH; the
+  // project id rule is patchFile's (above).
+  const updateManagedFile = useCallback(async (id, patch, projectId = activeProjectId) => {
+    if (projectId && projectId !== activeProjectId) {
+      return adapterRef.current.updateManagedFile(id, { ...patch, project_id: projectId });
+    }
     return optimistic(
       prev => ({
         ...prev,
