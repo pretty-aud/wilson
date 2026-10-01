@@ -1,6 +1,7 @@
 // =============================================================================
 // scenes.js — six scenes, sixteen shots, five bins, twelve bin files, eight
-// takes. The bin rows follow docs/BINS_DESIGN.md §4.4; `online` is the list
+// takes, two shot lists (one active, one archived) and no edits. The bin rows
+// follow docs/BINS_DESIGN.md §4.4; `online` is the list
 // route's computed flag and is true for every fixture file (there is no disk
 // behind them — the posters are the SVG placeholders, and `probe_status` is
 // 'done' so the renderer's own probe never runs on them).
@@ -190,6 +191,131 @@ export const SHOT_TAKES = TAKE_ROWS.map(([n, shot, file, role, position]) => ({
   created_at: stamp(55, 14, n),
   updated_at: stamp(55, 14, n),
 }))
+
+// ── Shot lists and edits (post-overhaul S3a, migration 0084) ────────────────
+// A list is MEMBERSHIP, not copies (D1 + D3): each item names ONE scene or ONE
+// shot row, and the rows themselves are shared by every list. Scene items
+// order a list's scenes; shot items order the shots WITHIN their scene,
+// restarting at 0 per scene (and for the unlinked bucket).
+//
+// List 1 is exactly what 0084's D11 backfill writes for this project: "Shot
+// list 1 · v1", every scene and every shot in today's order, ACTIVE
+// (PROJECT.active_shot_list_id in project.js). created_by is null because the
+// backfill runs as the migration, with no signed-in user. List 2 is an
+// ARCHIVED second-unit pickups list (D4: archived, never deleted), so the
+// archive / restore / "set active refuses an archived list" paths have a row
+// to act on. No edit is seeded (D11 creates none).
+//
+// The ordering restates shotListModel.js's compareScenesForList /
+// compareShotsForList (0084's backfill ORDER BY: number nulls last, then
+// sort_order, created_at, id) because devFixtures.test.js allow-lists what
+// src/dev may import — the byMilestoneDate precedent in rabbitFixturesAdapter.
+
+function cmpNullsLast(a, b) {
+  const an = a === null || a === undefined || a === ''
+  const bn = b === null || b === undefined || b === ''
+  if (an && bn) return 0
+  if (an) return 1
+  if (bn) return -1
+  return Number(a) - Number(b)
+}
+function cmpText(a, b) {
+  const x = a == null ? '' : String(a)
+  const y = b == null ? '' : String(b)
+  return x < y ? -1 : x > y ? 1 : 0
+}
+const listOrder = (numberKey) => (a, b) => cmpNullsLast(a[numberKey], b[numberKey])
+  || cmpNullsLast(a.sort_order, b.sort_order)
+  || cmpText(a.created_at, b.created_at)
+  || cmpText(a.id, b.id)
+
+/**
+ * One list's items for these scenes and shots, in backfillItems() order:
+ * scenes first (position = scene order), then each scene's shots (position
+ * restarts at 0), then the unlinked bucket. Item ids count up from `firstN`.
+ */
+function listItems({ listId, scenes, shots, firstN, at, by }) {
+  const rows = []
+  let n = firstN
+  const push = (scene_id, shot_id, position) => rows.push({
+    id: fid('shotListItem', n++),
+    shot_list_id: listId,
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    scene_id,
+    shot_id,
+    position,
+    created_at: at,
+    created_by: by,
+    updated_at: at,
+    updated_by: by,
+  })
+  const ordered = [...scenes].sort(listOrder('scene_number'))
+  ordered.forEach((s, i) => push(s.id, null, i))
+  for (const s of ordered) {
+    shots.filter(sh => sh.scene_id === s.id).sort(listOrder('shot_number')).forEach((sh, i) => push(null, sh.id, i))
+  }
+  shots.filter(sh => !sh.scene_id).sort(listOrder('shot_number')).forEach((sh, i) => push(null, sh.id, i))
+  return rows
+}
+
+const LIST_1_AT = stamp(22, 9)
+const LIST_2_AT = stamp(31, 15)
+const LIST_2_ARCHIVED_AT = stamp(37, 11, 30)
+const PICKUP_SCENES = SCENES.filter(s => s.scene_number === 3 || s.scene_number === 5)
+const PICKUP_SCENE_IDS = new Set(PICKUP_SCENES.map(s => s.id))
+
+export const SHOT_LISTS = [
+  {
+    id: fid('shotList', 1),
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    title: 'Shot list 1',
+    version: 1,
+    summary: 'Created from existing scenes',
+    snapshot: {},
+    archived_at: null,
+    archived_by: null,
+    created_at: LIST_1_AT,
+    created_by: null,
+    updated_at: LIST_1_AT,
+    updated_by: null,
+  },
+  {
+    id: fid('shotList', 2),
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    title: 'Pickups',
+    version: 1,
+    summary: 'Scenes 3 and 5, second unit',
+    snapshot: {},
+    // Archived by Mara (a workspace admin — D8: archive is manager/admin only).
+    // archive_shot_list() is an UPDATE, so the audit trigger stamps the row's
+    // updated_at / updated_by with the same moment and person.
+    archived_at: LIST_2_ARCHIVED_AT,
+    archived_by: MEMBER_ID.mara,
+    created_at: LIST_2_AT,
+    created_by: MEMBER_ID.theo,
+    updated_at: LIST_2_ARCHIVED_AT,
+    updated_by: MEMBER_ID.mara,
+  },
+]
+
+export const SHOT_LIST_ITEMS = [
+  // Items 1..22: all 6 scenes, then all 16 shots.
+  ...listItems({ listId: fid('shotList', 1), scenes: SCENES, shots: SHOTS, firstN: 1, at: LIST_1_AT, by: null }),
+  // Items 23..29: scenes 3 and 5, then their 3 + 2 shots.
+  ...listItems({
+    listId: fid('shotList', 2),
+    scenes: PICKUP_SCENES,
+    shots: SHOTS.filter(sh => PICKUP_SCENE_IDS.has(sh.scene_id)),
+    firstN: 23,
+    at: LIST_2_AT,
+    by: MEMBER_ID.theo,
+  }),
+]
+
+export const EDITS = []
 
 export const LEVELS = []
 export const EXPERIENCES = []

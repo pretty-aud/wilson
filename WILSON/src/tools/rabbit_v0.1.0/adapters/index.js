@@ -206,6 +206,78 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   `rabbit:workspace:{id}` carrying projects / workspace_members /
  *   assigned-task events for index + Dashboard liveness. Same event
  *   shape and opts contract as subscribeProjectChanges.
+ *
+ * @property {(projectId: string) => Promise<object[]>}             listShotLists
+ * @property {(list: object) => Promise<object>}                    upsertShotList
+ * @property {(projectId: string) => Promise<object[]>}             listShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} replaceShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} upsertShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id: string, position: number}>) => Promise<object[]>} repositionShotListItems
+ * @property {(projectId: string, listId: string, itemIds: string[]) => Promise<{deleted: string[]}>} deleteShotListItems
+ * @property {(projectId: string) => Promise<object[]>}             listEdits
+ * @property {(edit: object) => Promise<object>}                    upsertEdit
+ * @property {(projectId: string, listId: string|null) => Promise<string|null>} setActiveShotList
+ * @property {(projectId: string, listId: string, archived?: boolean) => Promise<object>} archiveShotList
+ * @property {(projectId: string, editId: string, archived?: boolean) => Promise<object>} archiveEdit
+ *   Shot lists, their membership and edits (migration 0084, post-overhaul
+ *   S3a; the rulings are D1–D22 in docs/design/POST_OVERHAUL_PLAN.md §0.1).
+ *   Same names, signatures and row shapes on supabase, local_server and the
+ *   dev fixtures; google_drive answers the three reads from its exported
+ *   bundle ([] when it has none) and throws readOnly() on the nine writes.
+ *   loadProject carries the same three collections as `shotLists` /
+ *   `shotListItems` / `edits` — lists and edits ordered created_at, id;
+ *   items position, id.
+ *   - A list is MEMBERSHIP (D1 + D3): scene and shot rows are shared by
+ *     every list; only item rows and their positions are per list. Scene
+ *     items order a list's scenes; shot items order shots within their
+ *     scene (restarting at 0 per scene and for the unlinked bucket).
+ *   - upsertShotList / upsertEdit need `project_id` on the row and return
+ *     the stored row (the cloud sends neither the audit columns nor
+ *     archived_at / archived_by — the database stamps the first four and
+ *     only the archive RPCs change the last two).
+ *   - Membership is written as DELTAS (S3a review round 1): items are not
+ *     broadcast, so a whole-list write from one client's view would delete
+ *     what a collaborator added since it loaded.
+ *     upsertShotListItems writes ONLY the named rows ([{ id?, scene_id |
+ *     shot_id, position? }], a missing position = its index): new ids are
+ *     inserted, ids of THIS list updated, an id of ANOTHER list skipped;
+ *     nothing is deleted; it returns the rows written.
+ *     repositionShotListItems (S3a review round 2) is the REORDER and its
+ *     undo / redo: [{ id, position }], it sets `position` on rows that EXIST
+ *     in THIS list and changes nothing else — an id that names no row (one
+ *     a collaborator removed since this client loaded) or another list's
+ *     row is skipped, NEVER inserted; it returns the rows updated. Refused
+ *     (code invalid): not an array, an item without an id, a position that
+ *     is not a whole number ≥ 0, an id named twice. deleteShotListItems
+ *     deletes exactly the named ids of THIS list (others are ignored) and
+ *     returns { deleted: [ids actually deleted] }; when a named row is still
+ *     in the list afterwards the caller lacked the right to change it
+ *     (supabase: 42501 "you cannot change this shot list" — RLS filters a
+ *     DELETE instead of refusing it). replaceShotListItems replaces the
+ *     WHOLE membership of that one list — for tooling and bulk restores —
+ *     and returns that list's rows, ordered.
+ *   - An ARCHIVED list's membership is NOT frozen (round 2 reverted round
+ *     1's freeze): every item write is allowed on it, so the undo of a scene
+ *     delete can put the scene back in archived lists too. The provider
+ *     refuses UI verbs on an archived list. Deleting a scene or shot removes
+ *     its items from every list, archived ones included.
+ *   - setActiveShotList(projectId, null) clears the pointer; it returns the
+ *     new active id. archive* with archived = false restores; they return
+ *     the row. Lists and edits are archived, never deleted (D4 / D18): no
+ *     adapter has a delete for either.
+ *   - Set-active and archive are workspace-admin / PROJECT-manager decisions
+ *     (D8), enforced by the SECURITY DEFINER RPCs on supabase; the Local
+ *     Server has no roles, so there they are labels.
+ *   - Refusals carry `code`: supabase keeps the Postgres / PostgREST code
+ *     (42501, P0001, P0002, 23505, …) on the thrown Error; local_server and
+ *     the fixtures answer invalid / conflict / forbidden / not_found. The
+ *     collision rules read the same everywhere: supabase words a 23505 on
+ *     the one-root / one-child chain indexes, the two "Title · vN" keys and
+ *     the two once-per-list item keys as the contract's sentences (the two
+ *     title ones without the title: "There is already a shot list with this
+ *     title and version." / "This shot list already has an edit with this
+ *     title and version."). A supabase database without 0084 answers [] to
+ *     the reads and code `shot_lists_unavailable` to every write.
  */
 
 // --- bins ---

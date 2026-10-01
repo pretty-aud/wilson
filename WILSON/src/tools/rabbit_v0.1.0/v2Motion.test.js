@@ -41,7 +41,12 @@ function motionCoverage(css) {
   for (const m of c.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const sel = m[1].trim()
     if (sel.startsWith('@') || inBlock(m.index)) continue
-    if (!/(?:^|;)\s*transition(?:-[a-z]+)?\s*:\s*(?!none\s*(?:;|$))/.test(m[2])) continue
+    // Post-overhaul S1: the lookahead sits right after the colon. Written
+    // `:\s*(?!none…)`, the `\s*` could match nothing and the lookahead then
+    // saw " none", so every `transition: none` state rule (a dragged thumb
+    // that must not fade) counted as motion. None of the first three sheets
+    // had one outside its block; the Timeline's does.
+    if (!/(?:^|;)\s*transition(?:-[a-z]+)?\s*:(?!\s*none\s*(?:;|$))/.test(m[2])) continue
     for (const one of selectorsOf(sel)) moving.push({ sel: sameSel(one), at: m.index })
   }
   const quiet = new Map()
@@ -67,9 +72,13 @@ const SHEETS = {
   'views/bins/bins.css': 5,
   'views/rabbitTasks.css': 10,
   'rabbitShell.css': 3,
+  // Post-overhaul S1 (ruling B7): the Timeline's sheet joins. Its two blocks
+  // became one at the end; the minimap scroll thumb's fade had no twin; the
+  // minimap window's zoom animation (data-animate) is the sixth.
+  'views/rabbitTimeline.css': 6,
 }
 
-describe('V2: reduced motion stops every transition in the Bins, Tasks and shell sheets (plan §3.4; B4c §4.2 item 14)', () => {
+describe('V2: reduced motion stops every transition in the Bins, Tasks, shell and Timeline sheets (plan §3.4; B4c §4.2 item 14; post-overhaul S1)', () => {
   for (const [file, least] of Object.entries(SHEETS)) {
     it(`${file}: one block, only \`transition: none\` in it, no \`*\`, and every moving selector's twin declared before it`, () => {
       const css = read(file)
@@ -107,5 +116,16 @@ describe('V2: reduced motion stops every transition in the Bins, Tasks and shell
     const loud = css.replace('.rb-gen { transition: none; }', '.rb-gen { transition: none; opacity: 1; }')
     expect(loud).not.toBe(css)
     expect(motionCoverage(loud).loud).toHaveLength(1)
+  })
+
+  it('CONTROL (post-overhaul S1): a `transition: none` state rule is not motion, however it is spaced; any other transition is', () => {
+    const one = (decl) => motionCoverage(`.rb-v2-x { color: red; ${decl} }\n@media (prefers-reduced-motion: reduce) { .rb-v2-y { transition: none; } }`)
+    for (const decl of ['transition: none;', 'transition:none;', 'transition:  none ;', 'transition: none']) {
+      expect(one(decl).moving, decl).toBe(0)
+    }
+    for (const decl of ['transition: left 1s;', 'transition:width 200ms ease;', 'transition-property: left;', 'transition: nonesuch 1s;']) {
+      expect(one(decl).moving, decl).toBe(1)
+      expect(one(decl).uncovered, decl).toEqual(['.rb-v2-x'])
+    }
   })
 })

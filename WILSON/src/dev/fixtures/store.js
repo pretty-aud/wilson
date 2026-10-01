@@ -18,7 +18,7 @@ import {
 } from './data/project'
 import {
   SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES,
-  GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS,
+  GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
 } from './data/scenes'
 import { fid } from './ids'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
@@ -51,6 +51,10 @@ export function now() {
  * switched on, four levels, three experiences and five assets linked to them.
  * Applied to a store AFTER `createStore()`, only when the page asked for it,
  * so the default dataset is untouched. Returns the store.
+ *
+ * It adds levels and experiences and touches no scene or shot, so the seeded
+ * shot lists (0084) stay whole: every item still names a live row
+ * (rabbitFixturesAdapter.contract.test.js checks the variant's bundle).
  */
 export function applyGameVariant(store) {
   const project = store.projects[0]
@@ -105,6 +109,10 @@ export function createStore() {
     posters: new Map(BIN_FILES.map(f => [f.id, f.__poster])),
     binRoots: clone(BIN_ROOTS),
     shotTakes: clone(SHOT_TAKES),
+    // 0084 (S3a): lists are archived, never deleted; items are the membership.
+    shotLists: clone(SHOT_LISTS),
+    shotListItems: clone(SHOT_LIST_ITEMS),
+    edits: clone(EDITS),
 
     folders: clone(FOLDERS),
     files: clone(FILES),

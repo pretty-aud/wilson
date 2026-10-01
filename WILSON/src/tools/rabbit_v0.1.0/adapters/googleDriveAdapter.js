@@ -220,6 +220,14 @@ export function googleDriveAdapter() {
         // Session 17 (§6 #47): same omission as localServerAdapter — see the
         // comment there. Milestones reverted to [] on every reload.
         milestones:    bundle.milestones || [],
+        // Post-overhaul S3a (0084): the three shot-list keys every adapter's
+        // bundle carries. A bundle exported before shot lists existed has
+        // none, which reads as [] — "no active list", so every scene and shot
+        // shows (D10). Nothing is backfilled here: Drive is read-only, and
+        // the Local Server's backfill-on-read belongs to the writer.
+        shotLists:     bundle.shotLists || [],
+        shotListItems: bundle.shotListItems || [],
+        edits:         bundle.edits || [],
       };
     },
 
@@ -234,6 +242,21 @@ export function googleDriveAdapter() {
     async listFolders(projectId) {
       const bundle = await this.loadProject(projectId);
       return bundle.folders || [];
+    },
+
+    // Post-overhaul S3a (0084). The reads answer from the exported bundle,
+    // for listFolders' reason: a bare `() => []` would give a second answer
+    // to the question loadProject already answers. For every bundle that
+    // predates shot lists — every bundle Drive holds today — that answer is
+    // []. The nine writes are with the other readOnly() stubs below.
+    async listShotLists(projectId) {
+      return (await this.loadProject(projectId)).shotLists;
+    },
+    async listShotListItems(projectId) {
+      return (await this.loadProject(projectId)).shotListItems;
+    },
+    async listEdits(projectId) {
+      return (await this.loadProject(projectId)).edits;
     },
 
     async downloadFile(file) {
@@ -304,6 +327,20 @@ export function googleDriveAdapter() {
     deleteExperience:     readOnly('deleteExperience'),
     upsertMilestone:      readOnly('upsertMilestone'),
     deleteMilestone:      readOnly('deleteMilestone'),
+    // Post-overhaul S3a (0084) — shot lists, membership, edits. Loud, like
+    // every write here: a silent no-op would report a list as created, made
+    // active or archived when nothing changed anywhere.
+    upsertShotList:       readOnly('upsertShotList'),
+    replaceShotListItems: readOnly('replaceShotListItems'),
+    // S3a review round 1 (addendum A): the membership deltas the provider
+    // writes instead of whole-list replaces; round 2 (R2-2): the reorder.
+    upsertShotListItems:  readOnly('upsertShotListItems'),
+    repositionShotListItems: readOnly('repositionShotListItems'),
+    deleteShotListItems:  readOnly('deleteShotListItems'),
+    upsertEdit:           readOnly('upsertEdit'),
+    setActiveShotList:    readOnly('setActiveShotList'),
+    archiveShotList:      readOnly('archiveShotList'),
+    archiveEdit:          readOnly('archiveEdit'),
     // Session 26 — folders. The READ is implemented above, beside listFiles.
     // These three are writes and stay loud: a silent no-op would report a
     // folder as created when nothing exists anywhere.

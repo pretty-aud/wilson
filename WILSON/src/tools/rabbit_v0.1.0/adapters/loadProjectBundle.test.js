@@ -45,6 +45,10 @@ const EXPECTED_KEYS = [
   'folders',
   // The bin system (demo 2026-09-11): same trap, four more keys.
   'bins', 'binFiles', 'binRoots', 'shotTakes',
+  // Post-overhaul S3a (0084): omitted, the EMPTY_BUNDLE spread would reset
+  // them and every surface reading the ACTIVE list (D10) would silently fall
+  // back to "every scene and shot".
+  'shotLists', 'shotListItems', 'edits',
 ]
 
 /** A server bundle with one identifiable row in every collection. */
@@ -241,6 +245,228 @@ describe('byMilestoneDate matches ORDER BY date, id', () => {
     ] })
     expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
       .toEqual(['m-ok', 'm-bad'])
+  })
+})
+
+
+// ── Shot lists, items and edits (post-overhaul S3a, 0084) ───────────────────
+//
+// The twelve adapter methods the S3a contract (its round-1 addendum, A: the
+// two membership DELTA writes; its round-2 addendum, R2-2: the positions-only
+// reorder) gives every backend, driven against a
+// fetch spy: each must hit the route electron/rabbitShotLists.cjs registers,
+// with the verb and body that route reads. A wrong URL here is a 404 on the
+// desktop and nothing anywhere else — the routes' own test mounts the module
+// on a fresh app and never sees the adapter.
+
+describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
+  function spyFetch(reply = { ok: true }) {
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: init?.method || 'GET',
+        body: init?.body === undefined ? undefined : JSON.parse(init.body),
+      })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply }
+    })
+    return calls
+  }
+
+  // Rows deliberately out of order: insertion order is NOT the answer.
+  const L_B = { id: 'l-b', created_at: '2026-09-30T10:00:00.000Z' }
+  const L_A = { id: 'l-a', created_at: '2026-09-30T10:00:00.000Z' }
+  const L_OLD = { id: 'l-z', created_at: '2026-09-01T09:00:00.000Z' }
+  const I_2 = { id: 'i-2', position: 2 }
+  const I_0B = { id: 'i-b', position: 0 }
+  const I_0A = { id: 'i-a', position: 0 }
+  const I_10 = { id: 'i-10', position: 10 }
+
+  it('loadProject orders shotLists and edits by created_at then id, shotListItems by position then id', async () => {
+    stubFetch({ project: { id: 'p1' }, shotLists: [L_B, L_OLD, L_A], shotListItems: [I_10, I_2, I_0B, I_0A], edits: [L_B, L_A, L_OLD] })
+    const b = await localServerAdapter().loadProject('p1')
+    expect(b.shotLists.map(r => r.id)).toEqual(['l-z', 'l-a', 'l-b'])
+    expect(b.edits.map(r => r.id)).toEqual(['l-z', 'l-a', 'l-b'])
+    // 10 after 2: a numeric sort, not a string one.
+    expect(b.shotListItems.map(r => r.id)).toEqual(['i-a', 'i-b', 'i-2', 'i-10'])
+  })
+
+  it('FAILING CONTROL: the sort copies — the server bundle arrays keep their order', async () => {
+    const payload = { project: { id: 'p1' }, shotLists: [L_B, L_A], shotListItems: [I_2, I_0A], edits: [] }
+    stubFetch(payload)
+    await localServerAdapter().loadProject('p1')
+    expect(payload.shotLists.map(r => r.id)).toEqual(['l-b', 'l-a'])
+    expect(payload.shotListItems.map(r => r.id)).toEqual(['i-2', 'i-a'])
+  })
+
+  it('the three list* methods read the bundle (GET /projects/:id) and sort the same way', async () => {
+    const calls = spyFetch({ project: { id: 'p1' }, shotLists: [L_B, L_A], shotListItems: [I_2, I_0A], edits: [L_B, L_OLD] })
+    const a = localServerAdapter()
+    expect((await a.listShotLists('p1')).map(r => r.id)).toEqual(['l-a', 'l-b'])
+    expect((await a.listShotListItems('p1')).map(r => r.id)).toEqual(['i-a', 'i-2'])
+    expect((await a.listEdits('p1')).map(r => r.id)).toEqual(['l-z', 'l-b'])
+    expect(calls.map(c => [c.method, c.url])).toEqual([
+      ['GET', '/api/rabbit/projects/p1'],
+      ['GET', '/api/rabbit/projects/p1'],
+      ['GET', '/api/rabbit/projects/p1'],
+    ])
+  })
+
+  it('the list* methods answer [] for a bundle without the keys', async () => {
+    spyFetch({ project: { id: 'p1' } })
+    const a = localServerAdapter()
+    expect(await a.listShotLists('p1')).toEqual([])
+    expect(await a.listShotListItems('p1')).toEqual([])
+    expect(await a.listEdits('p1')).toEqual([])
+  })
+
+  it('upsertShotList POSTs the row to …/projects/:project_id/shot-lists', async () => {
+    const calls = spyFetch({ id: 'l1' })
+    const list = { id: 'l1', project_id: 'p1', title: 'Pickups', version: 2 }
+    expect(await localServerAdapter().upsertShotList(list)).toEqual({ id: 'l1' })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists', body: list }])
+  })
+
+  it('upsertEdit POSTs the row to …/projects/:project_id/edits', async () => {
+    const calls = spyFetch({ id: 'e1' })
+    const edit = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }
+    await localServerAdapter().upsertEdit(edit)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/edits', body: edit }])
+  })
+
+  it('upsertShotList and upsertEdit refuse a row with no project_id, without a request', async () => {
+    const calls = spyFetch()
+    await expect(localServerAdapter().upsertShotList({ title: 'x' })).rejects.toThrow(/project_id/)
+    await expect(localServerAdapter().upsertEdit({ title: 'x' })).rejects.toThrow(/project_id/)
+    expect(calls).toEqual([])
+  })
+
+  it('replaceShotListItems PUTs { items } to …/shot-lists/:listId/items', async () => {
+    const rows = [{ id: 'i1', shot_list_id: 'l1', scene_id: 's1', shot_id: null, position: 0 }]
+    const calls = spyFetch(rows)
+    const items = [{ id: 'i1', scene_id: 's1', position: 0 }, { shot_id: 'sh1' }]
+    expect(await localServerAdapter().replaceShotListItems('p1', 'l1', items)).toEqual(rows)
+    expect(calls).toEqual([{ method: 'PUT', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('upsertShotListItems POSTs { items } to …/shot-lists/:listId/items — the DELTA, not the whole-set PUT', async () => {
+    // Same URL as replace; the verb is the whole difference, and a PUT here
+    // would delete every row of the list this client did not name (R1
+    // provider#0) — so the method is pinned, not just the URL.
+    const rows = [{ id: 'i9', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 4 }]
+    const calls = spyFetch(rows)
+    const items = [{ scene_id: 's2', position: 4 }]
+    expect(await localServerAdapter().upsertShotListItems('p1', 'l1', items)).toEqual(rows)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('deleteShotListItems POSTs { ids } to …/shot-lists/:listId/items/delete and answers { deleted }', async () => {
+    const calls = spyFetch({ deleted: ['i1'] })
+    expect(await localServerAdapter().deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toEqual({ deleted: ['i1'] })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items/delete', body: { ids: ['i1', 'i2'] } }])
+  })
+
+  it('repositionShotListItems POSTs { items: [{ id, position }], positionsOnly: true } to …/shot-lists/:listId/items (R2-2)', async () => {
+    // Same URL and verb as the upsert; the FLAG is the whole difference, and
+    // without it a reorder from a stale view re-inserts a row a collaborator
+    // removed — so the body is pinned exactly, flag included. scene_id /
+    // shot_id are cut: a move changes position only.
+    const rows = [{ id: 'i2', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 0 }]
+    const calls = spyFetch(rows)
+    const changed = [
+      { id: 'i2', shot_list_id: 'l1', project_id: 'p1', scene_id: 's2', shot_id: null, position: 0 },
+      { id: 'i1', scene_id: 's1', position: 1 },
+    ]
+    expect(await localServerAdapter().repositionShotListItems('p1', 'l1', changed)).toEqual(rows)
+    expect(calls).toEqual([{
+      method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items',
+      body: { items: [{ id: 'i2', position: 0 }, { id: 'i1', position: 1 }], positionsOnly: true },
+    }])
+  })
+
+  it('repositionShotListItems leaves a bad payload for the ROUTE to refuse, never inventing a position', async () => {
+    // A missing position is dropped by JSON (the route answers 400 rather
+    // than defaulting it), and a non-array is sent as is instead of throwing
+    // a TypeError before any request.
+    const calls = spyFetch([])
+    const a = localServerAdapter()
+    await a.repositionShotListItems('p1', 'l1', [{ id: 'i1' }])
+    await a.repositionShotListItems('p1', 'l1', 'x')
+    await a.repositionShotListItems('p1', 'l1')
+    expect(calls.map(c => c.body)).toEqual([
+      { items: [{ id: 'i1' }], positionsOnly: true },
+      { items: 'x', positionsOnly: true },
+      { positionsOnly: true },
+    ])
+  })
+
+  it('a delta\'s refusal arrives with its status and code', async () => {
+    // (Round 1 pinned this with the archived-list 409; round 2's R2-1 removed
+    // that refusal, so the duplicate-membership 409 carries the pin now.)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 409, headers: { get: () => 'application/json' },
+      json: async () => ({ error: 'a shot list holds each scene and each shot once', code: 'conflict' }),
+    }))
+    const err = await localServerAdapter().upsertShotListItems('p1', 'l1', [{ scene_id: 's1' }]).catch(e => e)
+    expect(err.status).toBe(409)
+    expect(err.code).toBe('conflict')
+    expect(err.message).toBe('[localServer] a shot list holds each scene and each shot once')
+  })
+
+  it('setActiveShotList POSTs { listId } and answers the new active id', async () => {
+    const calls = spyFetch({ active_shot_list_id: 'l1' })
+    expect(await localServerAdapter().setActiveShotList('p1', 'l1')).toBe('l1')
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/active-shot-list', body: { listId: 'l1' } }])
+  })
+
+  it('setActiveShotList(null) — and an undefined listId — send an EXPLICIT null, and answer null', async () => {
+    // The route refuses a body without the key rather than guessing "clear";
+    // JSON.stringify would drop an undefined value, so the adapter must not
+    // pass one through.
+    const calls = spyFetch({ active_shot_list_id: null })
+    expect(await localServerAdapter().setActiveShotList('p1', null)).toBeNull()
+    expect(await localServerAdapter().setActiveShotList('p1', undefined)).toBeNull()
+    expect(calls.map(c => c.body)).toEqual([{ listId: null }, { listId: null }])
+  })
+
+  it('archiveShotList POSTs { archived } to …/shot-lists/:listId/archive, true by default', async () => {
+    const calls = spyFetch({ id: 'l1', archived_at: 'x' })
+    const a = localServerAdapter()
+    await a.archiveShotList('p1', 'l1')
+    await a.archiveShotList('p1', 'l1', false)
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/archive', body: { archived: true } },
+      { method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/archive', body: { archived: false } },
+    ])
+  })
+
+  it('archiveEdit POSTs { archived } to …/edits/:editId/archive, true by default', async () => {
+    const calls = spyFetch({ id: 'e1' })
+    const a = localServerAdapter()
+    await a.archiveEdit('p1', 'e1')
+    await a.archiveEdit('p1', 'e1', false)
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/rabbit/projects/p1/edits/e1/archive', body: { archived: true } },
+      { method: 'POST', url: '/api/rabbit/projects/p1/edits/e1/archive', body: { archived: false } },
+    ])
+  })
+
+  it('a route refusal arrives as an Error carrying the status and the code', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 409, headers: { get: () => 'application/json' },
+      json: async () => ({ error: 'the active shot list cannot be archived — make another list active first', code: 'conflict' }),
+    }))
+    const err = await localServerAdapter().archiveShotList('p1', 'l1').catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toBe('[localServer] the active shot list cannot be archived — make another list active first')
+    expect(err.status).toBe(409)
+    expect(err.code).toBe('conflict')
+  })
+
+  it('there is no delete method for lists or edits (D4/D18: archived, never deleted)', () => {
+    const a = localServerAdapter()
+    expect(a.deleteShotList).toBeUndefined()
+    expect(a.deleteEdit).toBeUndefined()
   })
 })
 

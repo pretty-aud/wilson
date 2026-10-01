@@ -41,12 +41,14 @@ import {
   Select, Table, Td, Th, Toolbar,
 } from '../../ui'
 import '../Resources/resources.css'
+import { showDate } from '../../tools/rabbit_v0.1.0/dates.js'
 
+// P1-20, post-overhaul S1 (ruling B5): a project's start and end are DATE
+// columns ('YYYY-MM-DD'), and `new Date(iso)` read them as UTC midnight, so
+// west of Greenwich every date on this page printed a day early. dates.js
+// reads the day the string names; the format is unchanged ("Dec 1, 2026").
 function formatDate(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  } catch { return iso }
+  return showDate(iso, { locale: 'en-US', month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function truncate(str, len = 40) {

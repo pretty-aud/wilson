@@ -292,7 +292,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_references.json`, `_corrections.json`. **Legacy per-course `_quiz-history.json` files remain on existing installs and are no longer read or created (S30) — all six were empty, because nothing ever wrote one.** |
 | `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json`, **`_quiz-history.json`** | Single-object stores. Quiz history lives at the ROOT, beside `software/`, because a quiz spans courses and deleting a course must not take somebody's marks with it. |
 | `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
-| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents` |
+| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents`; since S3a (0084) also `shotLists, shotListItems, edits` |
 | `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
 | `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/{id}.json` | Workspace-scoped flat stores |
 | `{userData}/rabbit-data/thumbnails/` | Thumbnail cache |
@@ -304,7 +304,8 @@ exists anywhere); product name `WILSON`.
 A project may additionally have a **user-visible folder** on disk, created and
 maintained by `ensureProjectFolders` / `mirrorProjectDatabases`
 (`main.cjs:819-891`): `ASSETS/`, `{slug}_DATABASES/` (mirrors of project /
-team / tasks / timeline / budget JSON), `{slug}_FILES/`,
+team / tasks / timeline / budget JSON, and since S3a `scenes.json` — shot
+lists, their items, scenes, shots and edits; Audrey D21), `{slug}_FILES/`,
 `{slug}_RECEIPTS&INVOICES/`, `{slug}_CREWINVOICES/`, `{slug}_TALENTINVOICES/`,
 and `.trash/`.
 
@@ -716,6 +717,17 @@ change it, change the ruling, the trigger, `TABLE_TO_COLLECTION` in
 `state/realtimeMerge.js` and those probes together — the client merge standing
 ready for events the database never sends is worse than the limit, because it
 reads as working live sync.
+
+**Since 0084, `shot_lists`, `shot_list_items` and `edits` are off the channel
+too** — the same choice, carried over (0084 adds no broadcast arm; unlike the
+four above, no probe pins it yet). The consequence to know: `projects` IS
+broadcast, so a change of `projects.active_shot_list_id` reaches every window
+at once, and it can name a list another window has not loaded (one made after
+that window loaded the project). That window finds no active list for a
+moment — `activeShotListOf` returns null for an id it cannot find, so
+`ctx.scenes` / `ctx.shots` show every row — while the provider refreshes its
+lists; then they narrow to the new active list. A collaborator's membership
+changes likewise arrive only with the next load.
 
 *Operational gotcha:* on a hosted project whose Realtime tenant has never been
 active, `realtime.messages` has no partitions and `realtime.send()` silently
@@ -3375,7 +3387,7 @@ and restore. Hard purge at 30 days.
 |---|---|
 | `manager` | Everything a member can, plus manage the project roster |
 | `member` | Create/edit/delete entities; comment |
-| `reviewer` | Comment only — reads and comments, no entity writes |
+| `reviewer` | Reads and comments, no entity writes — and, since 0084, create and edit shot lists and edits (never scenes, shots, tasks or budgets) |
 
 Gating order: app admin/manager bypass everything → an **unstaffed** project is
 open to every active member for entity and comment writes (but roster
@@ -3384,14 +3396,23 @@ from somewhere) → once staffed, the seat rules apply. Because `fn_projects_aut
 seats the creator and producer on client creates, projects made in-app are
 staffed from birth — so plain members no longer get write access to **new**
 projects they are not seated on. That is the intent; legacy projects are
-unchanged.
+unchanged. **One exception to the bypass since 0084:** making a shot list
+active and archiving a list or an edit (`project.shotlist.activate`) need a
+workspace ADMIN or the PROJECT manager — a workspace manager without that
+seat is refused, and an unstaffed project opens neither (Audrey D8).
 
 > **LOCKSTEP INVARIANT.** `src/permissions/projectRoleMatrix.js` mirrors the
 > SQL helpers `can_write_project()`, `can_comment_project()` and
-> `can_manage_project_roster()` from migration 0013. Any change to one must
+> `can_manage_project_roster()` from migration 0013 — and, since 0084,
+> `can_edit_shot_lists()` (`project.shotlist.write`) and the seat check in
+> `set_active_shot_list()` / `archive_shot_list()` / `archive_edit()`
+> (`project.shotlist.activate`: workspace admin OR project manager, no
+> workspace-manager leg, no unstaffed opening). Any change to one must
 > ship with the matching change to the other. The migration's
 > `COMMENT ON FUNCTION` points back at the JavaScript file by name, closing the
 > loop from both ends.
+> (0084: `can_edit_shot_lists`'s comment names the file; the three RPCs'
+> comments do not, so this box is where their seat check is found.)
 
 **Intake pipeline**: `is_core_definer` files only → text extraction (`.txt`,
 `.md`, `.fountain` direct; `.docx` via mammoth; `.pdf` via the local Express
@@ -3493,6 +3514,51 @@ and a one-click "use take length" (frame_count is never written otherwise).
 omitted hidden and counted, several shots at once), "Used in shots" on the
 inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
 carries open-in-Scenes / show-in-Bins across the shell's tabs.
+
+**Shot lists and edits** (post-overhaul S3a, migration 0084, 2026-09-30;
+Audrey's rulings D1–D22 in `docs/design/POST_OVERHAUL_PLAN.md` §0.1). A shot
+list is MEMBERSHIP, not copies: `shot_list_items` names a scene or a shot and
+its position in one list, and the scene and shot rows themselves are shared by
+every list that holds them (a rename in one list is a rename everywhere). A
+list is `title` + integer `version`, unique per project ("Title · v3"); "Save"
+writes the list's current contents into `shot_lists.snapshot`; lists and
+edits are archived, never deleted. An ARCHIVED list's membership is frozen
+too (review R1): every backend refuses an add, a move or a removal on it
+("this shot list is archived — restore it before changing it"; in the cloud,
+the `shot_list_items` write policies) — with one exception, the shared-row
+rule: deleting a scene or a shot still takes it out of every list, archived
+ones included (in the cloud the FK CASCADE, which RLS does not judge).
+`projects.active_shot_list_id` names the ACTIVE list, and every surface
+except the Scenes tab reads it — `ctx.scenes` / `ctx.shots` are the active
+list's rows PLUS every row that belongs to NO list at all (every row when
+there is no active list, or when the pointer names a list this window has not
+loaded). The "plus no list" half is deliberate (review R1): a row in no list
+was put nowhere — an older client, a failed membership write, an import —
+and hiding it would lose it from every surface, so nothing is ever hidden by
+accident; only a row that ANOTHER list holds drops out.
+`ctx.allScenes` / `allShots` / `scenesOf(listId)` / `shotsOf(listId)` give
+the rest. An edit is an ordered JSONB array of items referencing shot ids
+(repeats allowed), and a list's edits form ONE chain (D6): one root, each
+edit continued by at most one next edit, and an edit's parent fixed when it
+is made (0084's `edits_one_root_per_list_key` and `edits_one_child_key` and
+its guard; the same refusals on every backend). Writes to
+lists, items and edits pass `can_edit_shot_lists()` — `can_write_project`
+plus the REVIEWER seat, the first thing a reviewer may write — while set
+active and archive go through three SECURITY DEFINER RPCs that admit only a
+workspace admin or the project manager, backed by guard triggers so the plain
+UPDATE policies cannot do either. Same-project composite FKs keep every link
+(items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
+the active pointer) inside its own project. ⚠️ `0034_tasks_without_assets.sql`'s
+header still says scenes are "local-only BY DESIGN" and leaves `scene_id` /
+`shot_id` off `tasks` for that reason: 0040 (cloud scenes and shots) and 0084
+(the two columns) have overtaken it. Applied migrations are history and are
+not edited; only `level_id` / `experience_id` stay local-only. The D11
+backfill gave every
+project with scenes or shots "Shot list 1 · v1", active, in the cloud (the
+migration) and on the Local Server (on read, once, for bundles that predate
+the keys). The Local Server routes live in `electron/rabbitShotLists.cjs`;
+the pure model in `state/shotListModel.js`; the API is documented in
+`docs/sessions/handoffs/po-s3a-2026-09-30.md`.
 
 ### 13.4 The shell and the shared surfaces
 

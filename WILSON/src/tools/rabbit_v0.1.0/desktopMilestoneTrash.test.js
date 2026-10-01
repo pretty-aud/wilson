@@ -26,8 +26,15 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 
 const MAIN_CJS = readFileSync(new URL('../../../electron/main.cjs', import.meta.url), 'utf-8')
+// Post-overhaul S3a: the factory's DELETE calls cascadeSceneOrShotDelete
+// (required by main.cjs from electron/rabbitShotLists.cjs) for scenes and
+// shots, so the lifted factory is handed the real one — see
+// desktopDeleteSweep.test.js.
+const require = createRequire(import.meta.url)
+const { cascadeSceneOrShotDelete } = require('../../../electron/rabbitShotLists.cjs')
 
 /** Lift `function name(...) { ... }` out of the source by brace matching. */
 function extractFunction(source, name) {
@@ -86,14 +93,14 @@ function harness(bundle) {
   // eslint-disable-next-line no-new-func
   const register = new Function(
     'expressApp', 'readRabbitBundle', 'writeRabbitBundle', 'rabbitNotFound',
-    'ensureEntityFolderRow', 'materializeFolderDirs', 'uuidv4',
+    'ensureEntityFolderRow', 'materializeFolderDirs', 'uuidv4', 'cascadeSceneOrShotDelete',
     `${extractFunction(MAIN_CJS, 'rabbitTouch')}
      ${extractFunction(MAIN_CJS, 'rabbitUpsertInto')}
      ${extractFunction(MAIN_CJS, 'rabbitRemoveFrom')}
      ${extractFunction(MAIN_CJS, 'sweepDependencyEdges')}
      ${extractFunction(MAIN_CJS, 'rabbitSubentityRoutes')}
      return rabbitSubentityRoutes;`,
-  )(expressApp, readRabbitBundle, writeRabbitBundle, rabbitNotFound, ensureEntityFolderRow, materializeFolderDirs, uuidv4)
+  )(expressApp, readRabbitBundle, writeRabbitBundle, rabbitNotFound, ensureEntityFolderRow, materializeFolderDirs, uuidv4, cascadeSceneOrShotDelete)
   return { routes, writes, register }
 }
 
@@ -114,11 +121,18 @@ const RESTORE_MS = '/api/rabbit/projects/:projectId/milestones/:id/restore'
 const DEL_SCENE  = '/api/rabbit/projects/:projectId/scenes/:id'
 const ids = rows => rows.map(r => r.id)
 
-/** Register exactly as main.cjs does. */
+/**
+ * Register exactly as main.cjs does. Scenes carry S3a's shotListLinks (rule
+ * 8), so a scene's hard delete answers an `unlinked` count as well — and
+ * still no `softDeleted`, which is what the controls below are about. A
+ * scene's count names its shots too (review R1, addendum C: they go with it);
+ * this fixture's scene has none.
+ */
 function registerLikeMain(h) {
   h.register('milestones', 'milestones', null, { softDelete: true })
-  h.register('scenes', 'scenes')
+  h.register('scenes', 'scenes', 'scene', { shotListLinks: 'scene' })
 }
+const SCENE_HARD_DELETED = { ok: true, swept: 0, unlinked: { items: 0, tasks: 0, shots: 0 } }
 
 
 describe('deleting a milestone on the desktop trashes it instead of destroying it', () => {
@@ -241,7 +255,7 @@ describe('the opt does not leak to the other eight entities', () => {
     const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' })
 
     expect(res.code).toBe(200)
-    expect(res.body).toEqual({ ok: true, swept: 0 })
+    expect(res.body).toEqual(SCENE_HARD_DELETED)
     expect(bundle.scenes).toEqual([])
   })
 
@@ -335,7 +349,7 @@ describe('?purge=1 hard-deletes, and only with the flag', () => {
     const h = harness(bundle)
     registerLikeMain(h)
     const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' }, {}, { purge: '1' })
-    expect(res.body).toEqual({ ok: true, swept: 0 })
+    expect(res.body).toEqual(SCENE_HARD_DELETED)
     expect(bundle.scenes).toEqual([])
   })
 })

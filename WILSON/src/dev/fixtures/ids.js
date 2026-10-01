@@ -24,6 +24,8 @@ const KINDS = {
   course: '0020', subject: '0021', quiz: '0022', run: '0023',
   // B4 (2026-09-25): the `?fixtures=game` variant's levels and experiences.
   level: '0024', experience: '0025',
+  // Post-overhaul S3a (migration 0084): shot lists, their membership rows and edits.
+  shotList: '0026', shotListItem: '0027', edit: '0028',
 }
 
 export function fid(kind, n) {

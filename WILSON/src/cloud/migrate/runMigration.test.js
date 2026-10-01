@@ -131,6 +131,43 @@ describe('a real run writes both edge tables after their endpoints', () => {
   })
 })
 
+describe('the project row leaves the local active shot list behind (0084; S3a review round 1, scope#9)', () => {
+  // The Local Server sets project.active_shot_list_id (its read-time backfill
+  // on every legacy bundle, set-active after that). It names a LOCAL list the
+  // runner never copies, so on a 0084 database the composite FK refused the
+  // project — and the runner then skips all of its children.
+  function servesAnActiveList() {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        return { ok: true, json: async () => ({ ...bundle(), project: { id: 'p1', title: 'Fixture', status: 'active', active_shot_list_id: 'local-list-1' } }) }
+      }
+      return { ok: false, status: 404 }
+    })
+    fake.state.failWith = (table, row) => (table === 'projects' && row.active_shot_list_id != null)
+      ? { code: '23503', message: 'insert or update on table "projects" violates foreign key constraint "projects_active_shot_list_fk"' }
+      : null
+  }
+
+  it('does not send active_shot_list_id, so the project and its children migrate', async () => {
+    servesAnActiveList()
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.errors).toEqual([])
+    expect(report.projects).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
+    expect(fake.state.inserts.projects[0]).not.toHaveProperty('active_shot_list_id')
+    expect(fake.state.inserts.phases).toHaveLength(2)
+    expect(fake.state.inserts.tasks).toHaveLength(3)
+  })
+
+  it('every other project field still goes out, with the target workspace', async () => {
+    servesAnActiveList()
+    await runMigration({ workspaceId: 'ws1' })
+    expect(fake.state.inserts.projects).toStrictEqual([
+      { id: 'p1', title: 'Fixture', status: 'active', workspace_id: 'ws1' },
+    ])
+  })
+})
+
 describe('the dry run reports the links it would write and writes nothing', () => {
   it('counts task links and phase links alongside the other tables', async () => {
     const notes = []

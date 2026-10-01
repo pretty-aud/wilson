@@ -72,6 +72,7 @@ export const THEME = Object.freeze({
   'color-signal': '#ea580c',
   'color-signal-fill': '#c2410c',
   'color-signal-tint': 'rgba(234, 88, 12, 0.16)',
+  'color-signal-ink': '#fb923c',
   'color-on-fill': '#ffffff',
   'color-ground-light': '#f4a261',
   'color-ink-light': '#1c1917',
@@ -225,6 +226,11 @@ export const SIGNAL = THEME['color-signal']
 export const SIGNAL_FILL = THEME['color-signal-fill']
 /** The signal as a 16% tint: active chips, active icon buttons, the selected row. */
 export const SIGNAL_TINT = THEME['color-signal-tint']
+/** The signal as small text on dark — headings and names only, never a fill
+ *  (post-overhaul S1, ruling B1: the Timeline's phase names). 7.73:1 on paper,
+ *  6.47:1 on the phase row's 7% band, 5.71:1 on its hover; the signal itself
+ *  is 4.11:1 on that band, which is why this exists. */
+export const SIGNAL_INK = THEME['color-signal-ink']
 export const ON_FILL = THEME['color-on-fill']
 
 // ── Light surfaces ──────────────────────────────────────────────────────────

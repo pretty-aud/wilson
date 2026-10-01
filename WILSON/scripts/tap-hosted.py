@@ -155,6 +155,22 @@ RETURNS text LANGUAGE sql AS $tapx$
     $4, NULL);
 $tapx$;
 
+-- S3a (2026-09-30): the twin of col_not_null. Suite 81 already called it, so
+-- under this shim it aborted the hosted run ("function col_is_null(...) does not
+-- exist") while CI's real pgTAP passed it; the 0084 suites call it too. A
+-- MISSING column must come out false, never true — hence the COALESCE on the
+-- whole NOT, the same direction col_not_null fails in.
+CREATE OR REPLACE FUNCTION public.col_is_null(name, name, name, text)
+RETURNS text LANGUAGE sql AS $tapx$
+  SELECT tapx.record(
+    COALESCE((SELECT NOT a.attnotnull FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text
+        AND a.attnum > 0 AND NOT a.attisdropped), false),
+    $4, NULL);
+$tapx$;
+
 CREATE OR REPLACE FUNCTION public.col_default_is(name, name, name, text, text)
 RETURNS text LANGUAGE sql AS $tapx$
   SELECT tapx.record(

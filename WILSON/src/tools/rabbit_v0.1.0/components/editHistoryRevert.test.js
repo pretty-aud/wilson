@@ -69,6 +69,35 @@ describe('buildRevertPlan — update entries', () => {
     expect(plan.kind).toBe('noop')
   })
 
+  // 0084 (S3a review round 1, sql#3): projects.active_shot_list_id changes
+  // only through set_active_shot_list(); trg_projects_active_shot_list_guard
+  // refuses it in ANY projects UPDATE, for an admin too, so a revert that
+  // carried it could only fail. The backfill and every set-active write a
+  // projects history entry for it.
+  it('never offers to revert the active shot list — a pointer-only entry is a noop', () => {
+    const entry = {
+      entity_type: 'projects', entity_id: 'p1', action: 'update',
+      diff: { active_shot_list_id: { old: null, new: 'l1' } },
+    }
+    expect(buildRevertPlan(entry)).toEqual({ kind: 'noop' })
+    expect(canRevertEntry(entry)).toBe(false)
+  })
+
+  it('a mixed projects entry reverts its other fields and leaves the active list out of both patches', () => {
+    const plan = buildRevertPlan({
+      entity_type: 'projects', entity_id: 'p1', action: 'update',
+      diff: {
+        title:               { old: 'Old title', new: 'New title' },
+        active_shot_list_id: { old: 'l1', new: 'l2' },
+      },
+    })
+    expect(plan).toEqual({
+      kind: 'inverse-patch', table: 'projects', id: 'p1',
+      patch: { title: 'Old title' },
+      forwardPatch: { title: 'New title' },
+    })
+  })
+
   it('classifies a Deleted transition as restore', () => {
     const plan = buildRevertPlan({
       ...base, action: 'update',
