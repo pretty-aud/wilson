@@ -20,6 +20,9 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, act } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
 const state = vi.hoisted(() => ({ ctx: null }))
 vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
@@ -27,7 +30,7 @@ vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canW
 const { default: BinsView } = await import('../BinsView')
 const { BINS_SHORTCUTS } = await import('../../rabbitHelpContent')
 const { COLORS } = await import('../../bins/binMedia')
-const { Dialog } = await import('../../../../ui')
+const { Dialog, Drawer } = await import('../../../../ui')
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -42,7 +45,8 @@ const makeCtx = (n) => ({
   refreshBins: vi.fn(async () => null), undo: vi.fn(), redo: vi.fn(),
   bulkUpdateBinFiles: vi.fn(async () => {}), updateBinFile: vi.fn(async () => {}), removeBinFiles: vi.fn(async () => {}),
 })
-const mount = async (n) => { state.ctx = makeCtx(n); render(<BinsView />); await act(async () => {}) }
+// R.A.B.B.I.T. on screen (S2a-01: the keys are closed without it).
+const mount = async (n) => { state.ctx = makeCtx(n); render(<BinsView pageActive />); await act(async () => {}) }
 // The frame view's tiles carry aria-selected (a grid); the list view's rows
 // are the kit Table's <tr>, whose selection is `data-selected` — the kit Row
 // carries no aria-selected (B4c surface 8), so the old `[role="row"]` branch
@@ -169,7 +173,7 @@ describe('Q10 — every key Help documents does WHAT Help says (round 2)', () =>
 describe('the keys stand down for a kit dialog that is ON SCREEN, not one hidden on another page (round 2)', () => {
   function Wrap({ foreign, hidden = false }) {
     const d = foreign ? <Dialog title="Foreign" onClose={() => {}}><p>elsewhere</p></Dialog> : null
-    return <><BinsView />{hidden ? <div hidden>{d}</div> : d}</>
+    return <><BinsView pageActive />{hidden ? <div hidden>{d}</div> : d}</>
   }
   const saved = Element.prototype.checkVisibility
   afterEach(() => { Element.prototype.checkVisibility = saved })
@@ -193,6 +197,117 @@ describe('the keys stand down for a kit dialog that is ON SCREEN, not one hidden
     await act(async () => {})
     fireEvent.keyDown(document.body, { key: 'ArrowDown' })
     expect(selectedCount()).toBe(1)
+  })
+})
+
+describe('S2a-01 — the Bins keys act only on R.A.B.B.I.T.\'s own page, with nothing over the view (post-overhaul S4a)', () => {
+  // The hazard: R.A.B.B.I.T. stays mounted on a hidden page with Bins as its
+  // view, and this listener is on the document. Each key below did its work
+  // there (Delete removed the selected file unasked) and cancelled the key,
+  // so D.O.G.'s Enter died.
+  const HIDDEN_PAGE_KEYS = [
+    { key: 'Delete' }, { key: 'Backspace' }, { key: 'Enter' }, { key: 'F2' }, { key: 's' }, { key: 'r' },
+    { key: 'u' }, { key: 'c' }, { key: '1' }, { key: '0' }, { key: 'a' }, { key: 'z', ctrlKey: true },
+    { key: 'y', ctrlKey: true }, { key: 'ArrowDown' }, { key: 'Escape' },
+  ]
+
+  it('on another page: no key acts, and none is cancelled; back on R.A.B.B.I.T. the same Delete removes', async () => {
+    state.ctx = makeCtx(3)
+    const { rerender } = render(<BinsView pageActive />)
+    await act(async () => {})
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' }) // Clip 00 selected, on R.A.B.B.I.T.
+    expect(selectedCount()).toBe(1)
+    rerender(<BinsView pageActive={false} />) // she opens D.O.G.
+    for (const init of HIDDEN_PAGE_KEYS) {
+      let notPrevented
+      await act(async () => { notPrevented = fireEvent.keyDown(document.body, init) })
+      expect(notPrevented, `${init.ctrlKey ? 'Ctrl+' : ''}${init.key} was taken on another page`).toBe(true)
+    }
+    expect(state.ctx.removeBinFiles).not.toHaveBeenCalled()
+    expect(state.ctx.updateBinFile).not.toHaveBeenCalled()
+    expect(state.ctx.bulkUpdateBinFiles).not.toHaveBeenCalled()
+    expect(state.ctx.undo).not.toHaveBeenCalled()
+    expect(state.ctx.redo).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('New name')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(selectedCount()).toBe(1) // Escape did not clear it either
+    // CONTROL: the gate, not a broken handler — back on the page, Delete removes.
+    rerender(<BinsView pageActive />)
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'Delete' }) })
+    expect(state.ctx.removeBinFiles).toHaveBeenCalledWith(['f0'])
+  })
+
+  it('closed by default: a host that does not say R.A.B.B.I.T. is on screen gets no keys', async () => {
+    state.ctx = makeCtx(3)
+    render(<BinsView />)
+    await act(async () => {})
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+    expect(selectedCount()).toBe(0)
+  })
+
+  it('Rabbit.jsx says it: pageActive is currentPage === \'rabbit\'', () => {
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../Rabbit.jsx'), 'utf8')
+    expect(src).toContain("{activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}")
+  })
+
+  describe('a drawer over the view (R.A.B.B.I.T.\'s settings): the keys stand down', () => {
+    function WithDrawer({ open, hidden = false, onClose = () => {} }) {
+      const d = open ? <Drawer open onClose={onClose} backdrop title="Settings"><button type="button">Editable</button></Drawer> : null
+      return <><BinsView pageActive />{hidden ? <div hidden>{d}</div> : d}</>
+    }
+    const saved = Element.prototype.checkVisibility
+    afterEach(() => { Element.prototype.checkVisibility = saved })
+
+    it('Delete on its button removes nothing; Escape closes the DRAWER and keeps the selection', async () => {
+      state.ctx = makeCtx(3)
+      const onClose = vi.fn()
+      const { rerender } = render(<WithDrawer open={false} onClose={onClose} />)
+      await act(async () => {})
+      fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+      rerender(<WithDrawer open onClose={onClose} />)
+      const btn = screen.getByRole('button', { name: 'Editable' })
+      btn.focus()
+      await act(async () => { fireEvent.keyDown(btn, { key: 'Delete' }) })
+      expect(state.ctx.removeBinFiles).not.toHaveBeenCalled()
+      fireEvent.keyDown(document.body, { key: 's' })
+      expect(state.ctx.updateBinFile).not.toHaveBeenCalled()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(selectedCount()).toBe(1)
+      // CONTROL: the drawer closed, the same Delete removes.
+      rerender(<WithDrawer open={false} onClose={onClose} />)
+      await act(async () => { fireEvent.keyDown(document.body, { key: 'Delete' }) })
+      expect(state.ctx.removeBinFiles).toHaveBeenCalledWith(['f0'])
+    })
+
+    it('focus inside a window the overlay stack cannot see (a drawer with no backdrop, a hand-rolled dialog): Delete stays its', async () => {
+      state.ctx = makeCtx(3)
+      render(<>
+        <BinsView pageActive />
+        <Drawer open onClose={() => {}} title="Panel"><button type="button">In the drawer</button></Drawer>
+        <div role="dialog" aria-label="Hand-rolled"><button type="button">In the dialog</button></div>
+      </>)
+      await act(async () => {})
+      fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+      for (const name of ['In the drawer', 'In the dialog']) {
+        const btn = screen.getByRole('button', { name })
+        btn.focus()
+        await act(async () => { fireEvent.keyDown(btn, { key: 'Delete' }) })
+      }
+      expect(state.ctx.removeBinFiles).not.toHaveBeenCalled()
+      // CONTROL: from the page itself the same Delete removes.
+      await act(async () => { fireEvent.keyDown(document.body, { key: 'Delete' }) })
+      expect(state.ctx.removeBinFiles).toHaveBeenCalledWith(['f0'])
+    })
+
+    it('a drawer left open on a HIDDEN page does not hold the Bins keys', async () => {
+      Element.prototype.checkVisibility = function () { return !this.closest('[hidden]') }
+      state.ctx = makeCtx(3)
+      render(<WithDrawer open hidden />)
+      await act(async () => {})
+      fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+      expect(selectedCount()).toBe(1)
+    })
   })
 })
 

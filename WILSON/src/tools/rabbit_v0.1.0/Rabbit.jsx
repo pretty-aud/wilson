@@ -243,7 +243,7 @@ export default function Rabbit({ currentPage } = {}) {
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}
             {activeView === 'scenes'      && <ScenesView />}
-            {activeView === 'bins'        && <BinsView />}
+            {activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}
             {activeView === 'levels'      && <LevelsView />}
             {activeView === 'experiences' && <ExperiencesView />}
             {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} />}

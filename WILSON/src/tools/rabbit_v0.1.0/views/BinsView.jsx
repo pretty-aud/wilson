@@ -17,7 +17,8 @@
 // Keyboard, on the files pane: arrows move, shift extends, ctrl toggles,
 // ctrl+A selects all, S / R / U flag, C circles, 1–8 colour, 0 clears the
 // colour, Enter or F2 renames, Delete removes (undo in the toast), Escape
-// clears the selection, Space plays the preview.
+// clears the selection, Space plays the preview. Only while R.A.B.B.I.T. is
+// the page on screen and nothing is over the view (S2a-01, below).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -53,6 +54,19 @@ import { useNavigateTarget } from '../state/rabbitNavigate'
 // 1). The words are the Caption step, sentence as written.
 const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
 
+// Where focus belongs to a window over the view, not to the view.
+const OVER_THE_VIEW = '.ui-drawer, [role="dialog"], [role="alertdialog"], [aria-modal="true"]'
+// A kit Drawer with a backdrop ON SCREEN (not one left open on a hidden page:
+// the reasoning visibleOverlayOpen follows). The kit Drawer is not on the
+// overlay stack, so visibleOverlayOpen cannot see it.
+function drawerUp() {
+  if (typeof document === 'undefined') return false
+  for (const n of document.querySelectorAll('.ui-drawer-backdrop')) {
+    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
+  }
+  return false
+}
+
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
   { name: 'Audio', kind: 'audio', color: 'green' },
@@ -62,7 +76,13 @@ const TYPE_STARTER = [
   { name: 'Selects', kind: 'selects', color: 'yellow' },
 ]
 
-export default function BinsView() {
+/**
+ * `pageActive`: R.A.B.B.I.T. is the page on screen (Rabbit.jsx passes
+ * `currentPage === 'rabbit'`). It defaults CLOSED: a host that forgets it
+ * gets keys that do nothing, which a test sees, rather than keys that act
+ * from every page, which nobody does (S2a-01).
+ */
+export default function BinsView({ pageActive = false } = {}) {
   const ctx = useRabbit()
   const { canWrite, writeReason } = useProjectAccess()
   const supports = !!ctx?.supportsBins
@@ -519,6 +539,14 @@ export default function BinsView() {
 
   // ── Keyboard ──
   const onKeyDown = useCallback((e) => {
+    // 🚨 S2a-01 (post-overhaul S4a): every page stays mounted, and this
+    // handler is on the DOCUMENT, so with a file selected here it took Enter,
+    // Delete (up to five files, unasked), S / R / U / C, 0–8 and Ctrl+Z on
+    // every OTHER page (MEASURED for Enter by S2a's review round 2: D.O.G.'s
+    // "Enter generates" died). It acts only while R.A.B.B.I.T. is on screen;
+    // Bins is its view whenever this is mounted (Rabbit renders it for the
+    // Bins tab only).
+    if (!pageActive) return
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
     // …and while ANY kit dialog or menu is ON SCREEN, not only the ones this
@@ -526,6 +554,12 @@ export default function BinsView() {
     // the kit. On screen, not merely open (round 2: one left open on a hidden
     // page held every Bins key dead in the web build).
     if (menu || addDlg || deleteDlg || relinkOpen || assignDlg || removeAsk || visibleOverlayOpen()) return
+    // …and a drawer (S4a): R.A.B.B.I.T.'s settings drawer opens over this
+    // view, and the kit Drawer is not on the overlay stack. Delete on one of
+    // its buttons removed the selected files behind it, and Escape cleared
+    // the selection instead of closing it: the Drawer listens on `window`,
+    // after this, and leaves a key that was already handled.
+    if (drawerUp() || (t && typeof t.closest === 'function' && t.closest(OVER_THE_VIEW))) return
     // The grid's REAL column count, read from its computed tracks (review
     // round 2: a formula guessed it and ↓ walked diagonally at some widths).
     const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
@@ -566,7 +600,7 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
+  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
