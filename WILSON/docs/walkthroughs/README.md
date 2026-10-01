@@ -56,3 +56,4 @@ Sessions on `feat/post-overhaul-edit-versioning` (plan:
 | 48 | [48_timeline_pass.md](48_timeline_pass.md) | S1: the Timeline pass (phase-name ink, the week header, the date parse). |
 | 49 | [49_settings_placement_and_orange.md](49_settings_placement_and_orange.md) | S2a: each tool's Help and Settings at its strip's right end, the orange she named, the pet's Shift tap. |
 | 50 | [50_otter_functions_and_lesson.md](50_otter_functions_and_lesson.md) | S2b: the function library's code coloured like an editor, its categories kept (yours reads "General"), the lesson page at the 66-character ceiling, centred, with a one-line breadcrumb. |
+| 54 | [54_legal_files.md](54_legal_files.md) | S4b: Add as Legal on the Files tab for managers and admins; a Legal file, its name, note, activity and bytes are theirs alone (migration 0088); on the Local Server a LEGAL folder you lock on the NAS. |
