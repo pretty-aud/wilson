@@ -1955,3 +1955,23 @@ session's or the decision is Audrey's. Her questions are in walkthrough 50
   that is not a string throws on every later merge. Its keying on
   `category || name` was already right. INFERRED from S2b's review of the
   functions merge (A-L2, A-L3). Owner: whoever next edits the hotkeys merge.
+- **S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
+  subject title nearly fills the column.** The subject (`.otter-crumb-current`,
+  capped at the line) and the note do not share the line: a subject within
+  about 50px of the column pushes "[outline]" out of sight. MEASURED by S2b's
+  review round 2 (B-L1) on stress titles; her real subjects (296px at most)
+  only meet it below a 345px column, and the outline page's column is 595px
+  or more at every window measured. A fix (measured by the reviewer):
+  `.otter-crumb-current:has(+ .otter-crumb-note) { max-width: calc(100% -
+  4px - 3.84em) }`. Owner: the next session on O.T.T.E.R.'s reading pages.
+- **S2b-04 · The breadcrumb's accessible names are not the convention.**
+  "Where this lesson sits" / "Where this subject sits" (A3's) where
+  "Breadcrumb" is what screen-reader users expect, and the run's zero-width
+  space shows as its own text node in the accessibility tree. From S2b's
+  review round 2 (B-L4). Owner: the next accessibility pass.
+- **S2b-05 · A function entry that is not an object breaks the Search
+  dialog's function search** (`fnSearchText` reads `f.name`), and the
+  Functions view's card. Pre-existing (the old search read `f.name` the same
+  way); the merge no longer writes such entries since S2b, but an imported
+  library can carry one. INFERRED. Owner: the next session in the Search
+  dialog.
