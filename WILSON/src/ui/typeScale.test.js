@@ -519,8 +519,8 @@ function longhands(p, v) {
 function cascadeOn(css, el) {
   return cascadeOnRules(allRules(css), el);
 }
-/** The same, over a sheet parsed once (the pinned-map test reads 18 elements
- *  under 37 plants: parsing per element ran past vitest's 5s under load). */
+/** The same, over a sheet parsed once (the pinned-map test reads 19 elements
+ *  under 36 plants: parsing per element ran past vitest's 5s under load). */
 function cascadeOnRules(rules, el) {
   const hits = [];
   rules.forEach((r, i) => {
