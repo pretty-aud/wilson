@@ -295,6 +295,14 @@ describe('rule 1 — upsertShotList', () => {
     expect(r.body.title).toBe('Shot list') // a partial body merges over the stored row
   })
 
+  it('post-overhaul S3b\'s patch: the body localServerAdapter.patchShotList sends — the title alone — keeps the stored version, summary and snapshot', async () => {
+    seed({ shotLists: [list('L1', { version: 3, summary: 'Theirs, newer', snapshot: { kind: 'shot_list', saved_at: T0 } })] })
+    const r = await POST('/shot-lists', { title: 'Main shoot', id: 'L1' })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ id: 'L1', title: 'Main shoot', version: 3, summary: 'Theirs, newer', snapshot: { kind: 'shot_list', saved_at: T0 } })
+    expect(disk().shotLists).toHaveLength(1)
+  })
+
   it('an update keeps created_at and project_id, and moves updated_at', async () => {
     seed({ shotLists: [list('L1')] })
     const r = await POST('/shot-lists', { id: 'L1', title: 'Renamed', version: 4, project_id: 'elsewhere', created_at: '1999-01-01T00:00:00.000Z' })

@@ -1498,14 +1498,69 @@ describe('upsertShotList / upsertEdit send no audit or archive column (R1 addend
   })
 })
 
+describe('patchShotList (post-overhaul S3b): an UPDATE of the named columns, nothing else', () => {
+  // Its own small fake: the recording client keeps no filters for an update.
+  function patchClient(result) {
+    const sent = []
+    const client = {
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+      from: (table) => {
+        const entry = { table, op: null, row: null, filters: [], select: undefined }
+        const b = {
+          update: (row) => { entry.op = 'update'; entry.row = row; sent.push(entry); return b },
+          upsert: (row) => { entry.op = 'upsert'; entry.row = row; sent.push(entry); return b },
+          eq: (col, v) => { entry.filters.push([col, v]); return b },
+          select: (cols) => { entry.select = cols ?? '*'; return b },
+          single: () => b, order: () => b, in: () => b,
+          then: (resolve, reject) => Promise.resolve(typeof result === 'function' ? result(entry) : result).then(resolve, reject),
+        }
+        return b
+      },
+      rpc: async () => ({ data: null, error: null }),
+    }
+    return { client, sent }
+  }
+
+  it('sends exactly the named columns as an UPDATE filtered by the list and its project, and answers the row — no cached summary rides along', async () => {
+    const rec = patchClient({ data: [{ id: 'l1', project_id: 'p1', title: 'Main shoot', summary: 'Theirs, newer' }], error: null })
+    const row = await install(rec).patchShotList('p1', 'l1', { title: 'Main shoot' })
+    expect(rec.sent).toEqual([{ table: 'shot_lists', op: 'update', row: { title: 'Main shoot' }, filters: [['id', 'l1'], ['project_id', 'p1']], select: '*' }])
+    expect(row).toMatchObject({ id: 'l1', title: 'Main shoot', summary: 'Theirs, newer' })
+  })
+
+  it('never sends the row\'s identity or a server-owned column, whatever the patch carries', async () => {
+    const rec = patchClient({ data: [{ id: 'l1' }], error: null })
+    await install(rec).patchShotList('p1', 'l1', {
+      id: 'x', project_id: 'y', workspace_id: 'w', created_at: 'a', created_by: 'u', updated_at: 'b', updated_by: 'u',
+      archived_at: 't', archived_by: 'u', summary: 'Kept', version: 3,
+    })
+    expect(rec.sent.map(e => e.row)).toEqual([{ summary: 'Kept', version: 3 }])
+  })
+
+  it('no row back — RLS let the UPDATE through to nothing — is the contract\'s refusal, 42501; a patch that names nothing sends nothing', async () => {
+    const rec = patchClient({ data: [], error: null })
+    const adapter = install(rec)
+    const err = await adapter.patchShotList('p1', 'l1', { title: 'Main shoot' }).then(() => null, e => e)
+    expect([err?.message, err?.code]).toEqual(['[supabase] you cannot change this shot list', '42501'])
+    expect(await adapter.patchShotList('p1', 'l1', { id: 'l1', created_by: 'u' })).toBeNull()
+    expect(rec.sent).toHaveLength(1)
+  })
+
+  it('the database\'s refusals keep their code, a taken "Title · vN" in the contract\'s words', async () => {
+    const rec = patchClient({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "shot_lists_project_title_version_key"' } })
+    const err = await install(rec).patchShotList('p1', 'l1', { title: 'Pickups', version: 1 }).then(() => null, e => e)
+    expect([err?.message, err?.code]).toEqual(['[supabase] There is already a shot list with this title and version.', '23505'])
+  })
+})
+
 describe('Google Drive: every cloud shot-list write is a LOUD read-only stub there', () => {
   it('each shot-list write on supabaseAdapter has a googleDriveAdapter twin that throws readOnly', async () => {
-    const WRITE = /^(upsert|replace|reposition|delete|set|archive)(ShotList|ShotListItems|ActiveShotList|Edit)$/
+    const WRITE = /^(upsert|patch|replace|reposition|delete|set|archive)(ShotList|ShotListItems|ActiveShotList|Edit)$/
     const writes = Object.keys(supabaseAdapter()).filter(k => WRITE.test(k)).sort()
-    // The instrument finds them at all — round 1's two deltas and round 2's
-    // reorder included.
+    // The instrument finds them at all — round 1's two deltas, round 2's
+    // reorder and S3b's patch included.
     expect(writes).toEqual([
-      'archiveEdit', 'archiveShotList', 'deleteShotListItems', 'replaceShotListItems',
+      'archiveEdit', 'archiveShotList', 'deleteShotListItems', 'patchShotList', 'replaceShotListItems',
       'repositionShotListItems', 'setActiveShotList', 'upsertEdit', 'upsertShotList',
       'upsertShotListItems',
     ])

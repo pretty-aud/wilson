@@ -591,6 +591,18 @@ export function localServerAdapter() {
         body:    JSON.stringify(list),
       })
     },
+    // Post-overhaul S3b: change ONLY the named columns of a stored list (the
+    // cloud's UPDATE). The route (rabbitShotLists.cjs, rule 1) takes each
+    // column from the body when the body names it and from the stored row
+    // otherwise, so a body carrying only the change IS a patch there. The
+    // provider sends it only for a list it holds (requireEditableShotList);
+    // the route would make a list of an id it had never seen.
+    patchShotList: (projectId, listId, patch) =>
+      jfetch(`${BASE}/projects/${projectId}/shot-lists`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ...patch, id: listId }),
+      }),
     listShotListItems: async (projectId) =>
       sortByPositionThenId((await jfetch(`${BASE}/projects/${projectId}`)).shotListItems),
     // The WHOLE membership of one list, in one request: rows not named are

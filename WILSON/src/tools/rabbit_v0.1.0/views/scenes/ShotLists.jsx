@@ -25,10 +25,11 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2 } from 'lucide-react'
+import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil } from 'lucide-react'
 import { Banner, IconButton } from '../../../../ui'
 import ShotListBar from './ShotListBar'
 import ShotListPicker from './ShotListPicker'
+import ShotListForm from './ShotListForm'
 import ListConfirm from './ListConfirm'
 import { listSaveState, restoreRouteFor } from './shotListState'
 import { UNLISTED } from './useViewedShotList'
@@ -133,6 +134,9 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
         ? { label: 'Set active', Icon: CheckCircle2, onClick: () => setDialog({ kind: 'setActive', row }) }
         : { label: 'Set active', Icon: CheckCircle2, disabled: true, hint: 'managers only' })
     }
+    out.push(gate.write
+      ? { label: 'Edit details…', Icon: Pencil, onClick: () => setDialog({ kind: 'form', mode: 'details', row }) }
+      : { label: 'Edit details…', Icon: Pencil, disabled: true, hint: 'read-only' })
     if (gate.write && rowSave?.kind === 'never' && held) {
       out.push({ label: 'Clear this list', Icon: Eraser, onClick: () => setDialog({ kind: 'clear', row }) })
     }
@@ -159,6 +163,54 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
     ? { scenes: viewed.scenes.length, shots: viewed.shots.length }
     : { scenes: (ctx?.scenesOf?.(row.id) || []).length, shots: (ctx?.shotsOf?.(row.id) || []).length })
   const target = dialog?.row
+
+  // ── New shot list, Save as…, Edit details (step 5) ──
+  const formSource = dialog?.kind === 'form' ? (dialog.mode === 'details' ? dialog.row : list) : null
+  // Where a new list starts by default: the list on screen; with none, what
+  // the tab shows — every scene and shot (the project's first list, D11's
+  // set); in the "Not in any list" view, nothing (those rows are added to it
+  // from there, one "Add to list…" at a time).
+  const defaultFrom = viewed.mode === 'list' || viewed.mode === 'archived' ? 'screen'
+    : viewed.mode === 'unlisted' ? 'empty' : 'all'
+  const submitForm = async ({ title, version, summary, from }) => {
+    if (dialog.mode === 'details') {
+      const row = dialog.row
+      // Only what changed: a rename does not re-send the summary, nor the
+      // other way round (S3a's last-write-wins, closed by the patch path).
+      const patch = {}
+      if (title !== row.title) patch.title = title
+      if ((summary || null) !== (row.summary || null)) patch.summary = summary
+      if (Object.keys(patch).length) await inDialog(() => ctx.updateShotList(row.id, patch))
+      close()
+      return
+    }
+    // New / Save as…: the new list becomes the one on screen. It becomes the
+    // ACTIVE one only when the project has none and this person may make one
+    // active (the first-list rule) — in one undo step with its making. An
+    // activation the backend refuses does not unmake the list: it is said in
+    // the Banner, and the bar offers Set active to whoever may.
+    let made = null
+    let notActive = null
+    await inDialog(() => ctx.runBatch(async () => {
+      made = await ctx.addShotList({
+        title,
+        version,
+        summary,
+        // Save as… is always 'screen' (the form fixes it).
+        ...(from === 'screen' ? { from: formSource.id } : from === 'all' ? { fromAll: true } : {}),
+      })
+      if (!activeId && gate.activate) {
+        try { await ctx.setActiveShotList(made.id) } catch (err) { notActive = err?.message || String(err) }
+      }
+    }))
+    close()
+    closePicker()
+    if (made) showList(made.id)
+    if (notActive) {
+      shown.current = notActive
+      onError(`“${label(made)}” was made, but not made active: ${notActive}`)
+    }
+  }
 
   return (
     <>
@@ -216,6 +268,22 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError })
             newList: () => setDialog({ kind: 'form', mode: 'new' }),
             close: closePicker,
           }}
+        />
+      )}
+
+      {dialog?.kind === 'form' && (
+        <ShotListForm
+          mode={dialog.mode}
+          source={formSource}
+          lists={lists}
+          counts={{
+            screen: { scenes: viewed.scenes.length, shots: viewed.shots.length },
+            all: { scenes: (allScenes || []).length, shots: (allShots || []).length },
+          }}
+          defaultFrom={defaultFrom}
+          label={label}
+          onSubmit={submitForm}
+          onClose={close}
         />
       )}
 

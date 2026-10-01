@@ -1124,3 +1124,54 @@ describe('0086 — review round 3 of the withdraw', () => {
     expect(holder.adapter.db.shotLists.find(l => l.id === alt.id).snapshot).toEqual(theirs)
   })
 })
+
+// ── post-overhaul S3b: the patch path (S3a's known limit, closed before the
+// Scenes tab's "Edit details" reached a rename) ─────────────────────────────
+describe('S3b — a change to a list sends only the columns it names (adapter.patchShotList)', () => {
+  /** The in-memory backend's patch: an UPDATE of the named columns. */
+  function withPatch() {
+    const a = holder.adapter
+    a.patchShotList = async (_pid, listId, patch) => {
+      a.calls.push(['patchShotList', listId, JSON.parse(JSON.stringify(patch))])
+      const stored = a.db.shotLists.find(l => l.id === listId)
+      if (!stored) throw httpError(404, 'shot list not found')
+      const next = { ...stored, ...JSON.parse(JSON.stringify(patch)) }
+      a.db.shotLists = a.db.shotLists.map(l => (l.id === listId ? next : l))
+      return JSON.parse(JSON.stringify(next))
+    }
+    return a
+  }
+  const patches = (a) => a.calls.filter(c => c[0] === 'patchShotList').map(c => c.slice(1))
+
+  it('a rename sends the title alone: a collaborator\'s newer summary survives it, and so does it Ctrl+Z, which sends the old title alone', async () => {
+    const a = withPatch()
+    await mount()
+    // Written by another client after this one loaded (lists are not broadcast).
+    a.db.shotLists = a.db.shotLists.map(l => ({ ...l, summary: 'Theirs, newer' }))
+    await act(async () => { await ctxRef.updateShotList('L1', { title: '  Main shoot ' }) })
+    expect(patches(a)).toEqual([['L1', { title: 'Main shoot' }]])
+    expect(a.calls.some(c => c[0] === 'upsertShotList')).toBe(false)
+    expect(a.db.shotLists[0]).toMatchObject({ title: 'Main shoot', summary: 'Theirs, newer' })
+    await act(async () => { await ctxRef.undo() })
+    expect(patches(a).at(-1)).toEqual(['L1', { title: 'Shot list 1' }])
+    expect(a.db.shotLists[0]).toMatchObject({ title: 'Shot list 1', summary: 'Theirs, newer' })
+  })
+
+  it('a Save sends the snapshot alone (and a summary only when it rides along)', async () => {
+    const a = withPatch()
+    await mount()
+    await act(async () => { await ctxRef.saveShotListSnapshot('L1') })
+    const [listId, patch] = patches(a).at(-1)
+    expect([listId, Object.keys(patch)]).toEqual(['L1', ['snapshot']])
+    expect(patch.snapshot.kind).toBe('shot_list')
+    await act(async () => { await ctxRef.saveShotListSnapshot('L1', { summary: 'v2 pass' }) })
+    expect(Object.keys(patches(a).at(-1)[1]).sort()).toEqual(['snapshot', 'summary'])
+  })
+
+  it('CONTROL: an adapter without the path still gets the whole row, less the snapshot this change does not write', async () => {
+    await mount()
+    await act(async () => { await ctxRef.updateShotList('L1', { title: 'Main shoot' }) })
+    expect(holder.adapter.calls.filter(c => c[0] === 'upsertShotList')).toEqual([['upsertShotList', 'L1']])
+    expect(holder.adapter.db.shotLists[0].title).toBe('Main shoot')
+  })
+})

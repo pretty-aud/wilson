@@ -1476,6 +1476,47 @@
   .rb-scene-lists-entry:hover > .rb-scene-lists-entry-note,
   .rb-scene-lists-entry[data-selected="true"] > .rb-scene-lists-entry-note { color: var(--color-ink-2); }
 
+  /* ═══ New shot list, Save as…, Edit details (post-overhaul S3b, step 5) ═══
+     views/scenes/ShotListForm.jsx: the kit Dialog at the form width, the
+     kit's Field stack and Switch. The toggle with the name the list will
+     take under it, in the second ink — or the refusal, in the danger ink. */
+  .rb-scene-listform-version { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .rb-scene-listform-takes { font-size: var(--text-caption); color: var(--color-ink-2); }
+  .rb-scene-listform-takes[data-state="refused"] { color: var(--color-danger); }
+  /* "Start from": three choices as native radios (the kit has none; R3-18's
+     Segmented request is open), each a row with its words and its count;
+     the radio in the signal (the one selection). */
+  .rb-scene-listform-from { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .rb-scene-listform-from > .ui-field-label { margin-bottom: 4px; padding: 0; }
+  .rb-scene-listform-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 6px 8px;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+  .rb-scene-listform-option:hover { background-color: var(--color-hover); }
+  .rb-scene-listform-option[data-disabled="true"] { cursor: not-allowed; }
+  .rb-scene-listform-option[data-disabled="true"]:hover { background-color: transparent; }
+  .rb-scene-listform-option > input {
+    flex-shrink: 0;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    margin: 2px 0 0;
+    accent-color: var(--color-signal);
+    cursor: inherit;
+  }
+  .rb-scene-listform-option-words { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .rb-scene-listform-option-name { font-size: var(--text-dense); color: var(--color-ink); }
+  .rb-scene-listform-option-note { font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* The third ink measures 4.34:1 on the hover wash: lift it there. */
+  .rb-scene-listform-option:hover .rb-scene-listform-option-note { color: var(--color-ink-2); }
+  .rb-scene-listform-option[data-disabled="true"] .rb-scene-listform-option-name,
+  .rb-scene-listform-option[data-disabled="true"] .rb-scene-listform-option-note { color: var(--color-ink-3); }
+  /* D3, said where a list is made: one row in every list. */
+  .rb-scene-listform-shared { max-width: 60ch; margin: 8px 0 0; font-size: var(--text-caption); color: var(--color-ink-2); }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's
      keyframes must keep playing (C5). */

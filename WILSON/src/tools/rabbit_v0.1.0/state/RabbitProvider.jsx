@@ -2165,11 +2165,20 @@ export function RabbitProvider({ children }) {
     // old, and re-sending it with a rename erased a collaborator's newer Save
     // (review R1 of 0086) — and, since 0086, made the list look untouched.
     // Unsent, every backend keeps the stored value.
+    // Post-overhaul S3b — the patch path S3a's known limits asked for before
+    // a rename reached the UI (Edit details): ONLY the columns this change
+    // names go out (adapter.patchShotList, an UPDATE in the cloud), never the
+    // cached title, version or summary beside them, so a collaborator's newer
+    // summary survives a rename from here. An adapter without the path gets
+    // the whole row as before, less the snapshot this change does not write.
     const wire = { ...nextRow };
     if (!Object.prototype.hasOwnProperty.call(allowed, 'snapshot')) delete wire.snapshot;
+    const write = typeof a.patchShotList === 'function'
+      ? () => a.patchShotList(pid, id, allowed)
+      : () => a.upsertShotList(wire);
     const res = await optimistic(
       prev => ({ ...prev, shotLists: (prev.shotLists || []).map(l => (l.id === id ? nextRow : l)) }),
-      () => (++shotListWriteSeqRef.current, a.upsertShotList(wire)),
+      () => (++shotListWriteSeqRef.current, write()),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('shotLists', res, pid);

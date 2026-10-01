@@ -3254,6 +3254,32 @@ export function supabaseAdapter() {
         missing0084Table,
       );
     },
+    // Post-overhaul S3b — the patch path S3a's "Known limits" asked for
+    // before any rename reached the UI: change ONLY the columns named, as an
+    // UPDATE, so nothing the caller did not name (a collaborator's newer
+    // summary, a Save this client never saw) is re-sent from its stale view.
+    // An upsert cannot be a patch here: it must carry the NOT NULL title
+    // (23502). Never sent: the six server-owned columns, and the row's
+    // identity (it is the filter). An UPDATE that RLS does not let through
+    // matches nothing and returns no row — not an error — so no row back is
+    // the contract's refusal sentence. The database's guard and unique index
+    // answer as for an upsert (unwrapShotList).
+    async patchShotList(projectId, listId, patch) {
+      const client = await requireClient();
+      requireShotLists();
+      const cols = toColumns('shot_lists', blankDatesToNull(sanitize(patch, [...SHOT_LIST_SERVER_OWNED, 'id', 'project_id', 'workspace_id'])));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapShotList(
+        await client.from('shot_lists').update(cols).eq('id', listId ?? null).eq('project_id', projectId ?? null).select(),
+        missing0084Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) {
+        const err = new Error('[supabase] you cannot change this shot list');
+        err.code = '42501';
+        throw err;
+      }
+      return rows[0];
+    },
     async listShotListItems(projectId) {
       const client = await requireClient();
       return listShotListItemsWith(client, projectId);

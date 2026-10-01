@@ -327,6 +327,12 @@ describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
     expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists', body: list }])
   })
 
+  it('patchShotList (S3b) POSTs ONLY the change, with the stored row\'s id, to …/projects/:projectId/shot-lists — the route merges a partial body', async () => {
+    const calls = spyFetch({ id: 'l1', title: 'Main shoot' })
+    expect(await localServerAdapter().patchShotList('p1', 'l1', { title: 'Main shoot' })).toEqual({ id: 'l1', title: 'Main shoot' })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists', body: { title: 'Main shoot', id: 'l1' } }])
+  })
+
   it('upsertEdit POSTs the row to …/projects/:project_id/edits', async () => {
     const calls = spyFetch({ id: 'e1' })
     const edit = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }

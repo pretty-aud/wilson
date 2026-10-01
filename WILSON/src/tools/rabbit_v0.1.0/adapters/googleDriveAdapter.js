@@ -331,6 +331,8 @@ export function googleDriveAdapter() {
     // every write here: a silent no-op would report a list as created, made
     // active or archived when nothing changed anywhere.
     upsertShotList:       readOnly('upsertShotList'),
+    // Post-overhaul S3b: the patch path (Edit details), as loud as the rest.
+    patchShotList:        readOnly('patchShotList'),
     replaceShotListItems: readOnly('replaceShotListItems'),
     // S3a review round 1 (addendum A): the membership deltas the provider
     // writes instead of whole-list replaces; round 2 (R2-2): the reorder.

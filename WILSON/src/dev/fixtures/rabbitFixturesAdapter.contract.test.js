@@ -63,6 +63,8 @@ const SHOT_LIST_SURFACE = [
   'listShotLists', 'upsertShotList', 'listShotListItems', 'replaceShotListItems',
   'upsertShotListItems', 'repositionShotListItems', 'deleteShotListItems',
   'listEdits', 'upsertEdit', 'setActiveShotList', 'archiveShotList', 'archiveEdit',
+  // Post-overhaul S3b: the patch path (Edit details), on every adapter.
+  'patchShotList',
 ]
 
 describe('the fixtures adapter implements the Supabase adapter contract', () => {
@@ -373,6 +375,31 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     const { project } = await fx.loadProject(PROJECT_ID)
     expect((await fx.updateProject(PROJECT_ID, { ...project, title: 'Salt Hours II' })).title).toBe('Salt Hours II') // whole row back
     expect((await fx.updateProject(PROJECT_ID, { description: 'x' })).active_shot_list_id).toBe(LIST_1)
+  })
+
+  it('patchShotList (S3b): changes only the named columns of a stored list — the upsert\'s rules, never a new list', async () => {
+    const fx = fresh()
+    const before = (await fx.listShotLists(PROJECT_ID)).find((l) => l.id === LIST_1)
+    // Another client's newer summary is on the row; this patch names only the title.
+    await fx.patchShotList(PROJECT_ID, LIST_1, { summary: 'Theirs, newer' })
+    const renamed = await fx.patchShotList(PROJECT_ID, LIST_1, { title: '  Main shoot ' })
+    expect(renamed).toMatchObject({ id: LIST_1, project_id: PROJECT_ID, title: 'Main shoot', version: before.version, summary: 'Theirs, newer' })
+    expect(renamed.snapshot).toEqual(before.snapshot)
+    // The row's identity comes from the arguments, not the patch.
+    expect((await fx.patchShotList(PROJECT_ID, LIST_1, { id: 'other', project_id: 'other', version: 2 })).id).toBe(LIST_1)
+    // The upsert's rules: a blank title, a taken pair, an archived row.
+    await expect(fx.patchShotList(PROJECT_ID, LIST_1, { title: ' ' })).rejects.toMatchObject(no(400, 'invalid', 'A shot list needs a title.'))
+    await fx.archiveShotList(PROJECT_ID, LIST_2, false)
+    await expect(fx.patchShotList(PROJECT_ID, LIST_2, { title: 'Main shoot', version: 2 })).rejects.toMatchObject(
+      no(409, 'conflict', 'There is already a shot list called "Main shoot · v2".'))
+    await fx.archiveShotList(PROJECT_ID, LIST_2)
+    await expect(fx.patchShotList(PROJECT_ID, LIST_2, { summary: 'x' })).rejects.toMatchObject(
+      no(409, 'conflict', 'this shot list is archived — restore it before changing it'))
+    // Not a list of this project: not found, and nothing made.
+    const count = (await fx.listShotLists(PROJECT_ID)).length
+    await expect(fx.patchShotList(PROJECT_ID, fid('shotList', 99), { title: 'Ghost' })).rejects.toMatchObject(no(404, 'not_found', 'shot list not found'))
+    await expect(fx.patchShotList(fid('project', 99), LIST_1, { title: 'Ghost' })).rejects.toMatchObject(no(404, 'not_found', 'shot list not found'))
+    expect((await fx.listShotLists(PROJECT_ID)).length).toBe(count)
   })
 
   it('upsertShotList: title, version, snapshot, one (title, version) per project, and the archive guard', async () => {

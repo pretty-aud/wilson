@@ -717,6 +717,19 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         : { ...row, workspace_id: project.workspace_id ?? workspaceId, created_by: by, updated_by: by }))
     },
 
+    /**
+     * Post-overhaul S3b: change ONLY the named columns of a stored list — the
+     * cloud's UPDATE, the Local Server's partial POST. Every rule of the
+     * upsert above applies (it is the upsert, given the stored row's id and
+     * project), but a list this project does not hold is not found here,
+     * never a new one; the row's identity comes from the arguments.
+     */
+    async patchShotList(projectId, listId, patch) {
+      if (!listIn(projectId, listId)) throw missing('shot list not found')
+      const { id: _id, project_id: _project, workspace_id: _workspace, ...cols } = patch || {}
+      return adapter.upsertShotList({ ...cols, id: listId, project_id: projectId })
+    },
+
     async listShotListItems(projectId) {
       return clone(store.shotListItems.filter(i => i.project_id === projectId).sort(byPosition))
     },
