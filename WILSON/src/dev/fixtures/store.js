@@ -71,9 +71,25 @@ export function applyGameVariant(store) {
   return store
 }
 
-/** `game` when the page was loaded with `?fixtures=game`, else null. */
+/**
+ * Post-overhaul S4b: `?fixtures=member` — the same project seen by a plain
+ * project MEMBER. The reviewer's own seat (Mara: workspace admin, project
+ * manager) is lowered to a workspace 'user' holding a 'member' seat, and the
+ * fixtures adapter then hides every money-gated row — an invoice, a Legal
+ * file — from her reads, as RLS does on the cloud (0038, 0088). Nothing else
+ * changes, so a screenshot pair (this and the default) differs only in what
+ * the money gate withholds.
+ */
+export function applyMemberVariant(store, userId) {
+  for (const m of store.projectMembers) if (m.user_id === userId) m.project_role = 'member'
+  for (const m of store.members) if (m.user_id === userId) m.app_role = 'user'
+  return store
+}
+
+/** `game` or `member` from `?fixtures=…`, else null. */
 export function fixtureVariant(search = typeof location === 'undefined' ? '' : location.search) {
-  return new URLSearchParams(search).get('fixtures') === 'game' ? 'game' : null
+  const v = new URLSearchParams(search).get('fixtures')
+  return v === 'game' || v === 'member' ? v : null
 }
 
 export function createStore() {

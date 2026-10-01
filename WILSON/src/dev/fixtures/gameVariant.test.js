@@ -62,6 +62,8 @@ describe('the game variant', () => {
   it('reads the variant from the query string, and only the one value', () => {
     expect(fixtureVariant('?fixtures=game')).toBe('game')
     expect(fixtureVariant('?x=1&fixtures=game')).toBe('game')
+    // S4b: the plain-member view (the money gate's absences).
+    expect(fixtureVariant('?fixtures=member')).toBe('member')
     expect(fixtureVariant('')).toBe(null)
     expect(fixtureVariant('?fixtures=other')).toBe(null)
     expect(fixtureVariant('?fixtures=')).toBe(null)

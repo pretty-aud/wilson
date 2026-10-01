@@ -28,6 +28,7 @@ import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments'
+import { isLegalFile } from '../../tools/rabbit_v0.1.0/fileTags'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
 import { Banner, Button, Field, Input } from '../../ui'
@@ -208,7 +209,9 @@ export default function ProjectsPage({ onNavigate }) {
       // manager finding them mixed in with the project's ordinary documents.
       // Local Server mirrors is_financial on its own rows (0038's twin in
       // electron/main.cjs), so the one filter is right on both backends.
-      setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))
+      // S4b (0088): Legal files likewise — their home is the Files tab's
+      // LEGAL folder, and this table offers Core, which a Legal file never is.
+      setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial && !isLegalFile(f)))
     } catch {
       // A backend that cannot list files is not an error on this page; the
       // legacy arrays below still render.

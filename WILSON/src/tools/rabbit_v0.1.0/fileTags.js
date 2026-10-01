@@ -5,11 +5,17 @@
 //   E3  NINE tags, several per file, beside Kind, monochrome — Production,
 //       Creative, Legal, Finance, Reference, Assets, Code, Shots,
 //       Documentation ("remove the notes tag option").
-//   E4  labels only for now: FINANCE is shown read-only, derived from
-//       files.is_financial, and never written as a tag; LEGAL is a plain
-//       label ("not restricted yet") that only people who pass the money gate
-//       may set or clear, so it is in the right hands when S4b's gate lands.
+//   E4  FINANCE is shown read-only, derived from files.is_financial, and
+//       never written as a tag.
 //   E12 tags start empty on every existing row; the old files.kind is ignored.
+// And since post-overhaul S4b (migration 0088), Audrey 2026-10-01: a LEGAL
+// file is seen by "same as money files for now" (workspace admins and the
+// project's managers), and Legal is chosen when the file is ADDED — "its
+// just the folder that is locked". So Legal, like Finance, is a fact about
+// the file and never a toggle: the legal tag goes with the LEGAL folder (the
+// cloud's third path segment, files_legal_folder_chk; the Local Server's
+// LEGAL directory beside INVOICES), is written once by uploadFile, and is
+// neither set nor cleared afterwards by anyone.
 //
 // ONE vocabulary in three places, held together by fileTags.test.js:
 // FILE_TAG_IDS here, `FILE_TAG_IDS` in electron/fileTags.cjs (the Local
@@ -34,11 +40,40 @@ export const FILE_TAG_IDS = Object.freeze(FILE_TAGS.map((t) => t.id))
 /** Finance is the one tag the client never writes (E4): it is is_financial. */
 export const DERIVED_TAG = 'finance'
 
-/** Legal: settable only by people who pass the money gate (E4). */
+/** Legal: chosen when the file is added, never set or cleared after (0088). */
 export const GATED_TAG = 'legal'
 
-/** The sentence beside Legal until S4b builds its gate. */
-export const LEGAL_HINT = 'Not restricted yet: anyone who can open the file can still see it.'
+/**
+ * The locked folder a Legal file is added under: the third segment of its
+ * cloud object key (projects/<id>/LEGAL/…, public.rabbit_money_segment) and
+ * the LEGAL directory beside INVOICES on the Local Server. Written in
+ * capitals; the database matches it in any case, and so does isLegalFile.
+ */
+export const LEGAL_SEGMENT = 'LEGAL'
+
+/** Who sees a Legal file — Audrey's ruling, "same as money files". */
+export const LEGAL_HINT = 'Only project managers and workspace admins can see this file.'
+
+/** Beside Add files' Legal choice (only people past the money gate see it). */
+export const LEGAL_ADD_HINT = 'Only project managers and workspace admins will see these files.'
+
+/** The Legal chip on a Legal file: a fact, not a toggle. */
+export const LEGAL_LOCKED_REASON = 'Added as Legal. To change this, add the file again.'
+
+/** The Legal chip on every other file. */
+export const LEGAL_AT_ADD_REASON = 'Legal is chosen when a file is added.'
+
+/** The Core switch on a Legal file (files_legal_not_core_chk, 0088). */
+export const LEGAL_NOT_CORE_REASON = 'A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.'
+
+/** The Local Server has no roles (A9): the one line that says so. */
+export const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
+
+/** Refused before any byte moves: a database without 0088. */
+export const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+
+/** Refused before any byte moves: someone outside the money gate. */
+export const LEGAL_GATE_REFUSAL = 'Only project managers and workspace admins can add Legal files.'
 
 const ORDER = new Map(FILE_TAG_IDS.map((id, i) => [id, i]))
 
@@ -73,27 +108,48 @@ export function writableTags(ids) {
   return storedTags({ tags: ids }).filter((t) => t !== DERIVED_TAG)
 }
 
-/** The next stored array once `id` is switched on or off for `row`. */
+/**
+ * The next stored array once `id` is switched on or off for `row`. Legal is
+ * never switched (0088): asked to, this returns the row's tags unchanged —
+ * which keep 'legal' on a Legal file, as files_legal_folder_chk requires.
+ */
 export function toggleTag(row, id) {
   const current = writableTags(storedTags(row))
+  if (id === GATED_TAG) return current
   const next = current.includes(id) ? current.filter((t) => t !== id) : [...current, id]
   return writableTags(next)
 }
 
 /**
+ * Is this a Legal file? The tag, or a third path segment LEGAL in any case
+ * (the cloud's CHECK keeps the two together; the Local Server's row carries
+ * the tag and a bare filename). Every surface that must leave Legal files
+ * out — D.O.G.'s attachments, the Projects page's list, the entity file
+ * managers, Core — asks this one function.
+ */
+export function isLegalFile(row) {
+  if (!row || typeof row !== 'object') return false
+  if (storedTags(row).includes(GATED_TAG)) return true
+  const seg = String(row.storage_path || '').split('/')[2]
+  return typeof seg === 'string' && seg.toUpperCase() === LEGAL_SEGMENT
+}
+
+/**
  * May this person set or clear `id`? Returns `{ ok, reason }` so a refused
  * chip says why (Session 29: denied controls are shown, greyed, with the
- * reason). `canSeeMoney` is canSeeProjectMoney's answer; on the Local Server
- * (no roles) it is true.
+ * reason). `legal` is whether the file IS Legal (isLegalFile). Finance and
+ * Legal are facts about the file, never toggles, for anyone — so since S4b
+ * nothing here depends on the money gate (who may ADD a Legal file is the
+ * upload's question, not this one's).
  */
-export function tagSettable(id, { canWrite = true, canSeeMoney = false } = {}) {
+export function tagSettable(id, { canWrite = true, legal = false } = {}) {
   if (id === DERIVED_TAG) {
     return { ok: false, reason: 'Finance comes from the file being marked financial when it was added; it is not set by hand.' }
   }
-  if (!canWrite) return { ok: false, reason: 'You can view this project\'s files but not change them.' }
-  if (id === GATED_TAG && !canSeeMoney) {
-    return { ok: false, reason: 'Only workspace admins and the project\'s managers can set or clear Legal.' }
+  if (id === GATED_TAG) {
+    return { ok: false, reason: legal ? LEGAL_LOCKED_REASON : LEGAL_AT_ADD_REASON }
   }
+  if (!canWrite) return { ok: false, reason: 'You can view this project\'s files but not change them.' }
   return { ok: true, reason: null }
 }
 

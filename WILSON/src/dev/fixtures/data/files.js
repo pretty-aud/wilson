@@ -117,10 +117,13 @@ const TAGS_BY_N = {
   20: ['production'], 21: ['reference', 'production'], 22: ['reference', 'production'],
   23: ['reference', 'shots'], 24: ['reference', 'assets'],
   25: ['production', 'documentation'], 26: ['shots', 'assets'], 27: ['code', 'shots'],
-  28: ['production', 'shots'], 29: ['production', 'legal'], 32: ['production'],
+  // S4b (0088): no ordinary file carries 'legal' — a Legal file is added as
+  // one (LEGAL_FILE below); S4a's label on the weather cover is gone, as
+  // 0088 strips such a tag from a real database.
+  28: ['production', 'shots'], 29: ['production'], 32: ['production'],
 }
 
-export const FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, task, is_core_definer, d], i) => {
+const ROW_FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, task, is_core_definer, d], i) => {
   const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
   const storage_path = `workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/${folderPath ? folderPath + '/' : ''}${name}`
   return {
@@ -157,6 +160,50 @@ export const FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase
     deleted_by: null,
   }
 })
+
+// ── Post-overhaul S4b (0088): one Legal file ─────────────────────────────────
+// A location release, added AS Legal by Theo (a project manager): the legal
+// tag with the LEGAL folder (the cloud's third path segment; here the
+// fixture's own path shape), never core, not is_financial. Its folder_id is
+// the project root, as on the cloud — no folder ROW is made for LEGAL;
+// fileTree.js groups Legal files under a LEGAL folder for the people who can
+// see them. A plain member never receives this row (`?fixtures=member`).
+export const LEGAL_FILE = {
+  id: fid('file', 33),
+  project_id: PROJECT_ID,
+  workspace_id: WORKSPACE_ID,
+  phase_id: PHASE_ID.pre,
+  asset_id: null,
+  task_id: null,
+  scene_id: null,
+  shot_id: null,
+  level_id: null,
+  experience_id: null,
+  folder_id: folderIdFor(''),
+  name: 'Location_release_Saltmarsh_Light.pdf',
+  mime_type: MIME.pdf,
+  size_bytes: 640 * 1024,
+  storage_provider: 'supabase',
+  storage_path: `workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/LEGAL/Location_release_Saltmarsh_Light.pdf`,
+  thumbnail_url: null,
+  kind: 'other',
+  is_core_definer: false,
+  is_financial: false,
+  tags: ['legal'],
+  description: 'Signed by the lighthouse trust, 12 Sept. Covers the lamp room and the cliff path; drone over the keeper\'s cottage is NOT cleared.',
+  uploaded_at: stamp(30, 15, 0),
+  source_modified_at: stamp(29, 18, 0),
+  created_at: stamp(30, 15, 0),
+  created_by: MEMBER_ID.theo,
+  updated_at: stamp(30, 15, 0),
+  updated_by: MEMBER_ID.theo,
+  last_updated_at: stamp(30, 15, 0),
+  last_updated_by: MEMBER_ID.theo,
+  deleted_at: null,
+  deleted_by: null,
+}
+
+export const FILES = [...ROW_FILES, LEGAL_FILE]
 
 /** Object path → generated picture, what thumbnailUrls() and fileUrl() serve. */
 export const THUMBNAILS = new Map(

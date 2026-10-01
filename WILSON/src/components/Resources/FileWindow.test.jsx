@@ -6,7 +6,8 @@
 // Mounted with real rows through the explorer's own seam (useRabbit), like
 // ProjectFilesExplorer.test.jsx. Every rule carries a control a broken build
 // would trip: the panel absent at rest AND present when selected; Finance never
-// written AND shown; Legal refused below the money gate AND allowed above it;
+// written AND shown; Legal a locked fact on every file (S4b) AND lit on a
+// Legal one, with Core locked beside it;
 // another project's write carrying ITS id AND the open project's carrying
 // the open id; a refusal reverting AND a success staying.
 // =============================================================================
@@ -45,6 +46,9 @@ vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: ()
 vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => perms }))
 
 const { default: ProjectFilesExplorer } = await import('./ProjectFilesExplorer')
+const {
+  LEGAL_HINT, LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON, LEGAL_NOT_CORE_REASON, LEGAL_LOCAL_NOTE,
+} = await import('../../tools/rabbit_v0.1.0/fileTags')
 
 function reset() {
   for (const k of Object.keys(ctx)) delete ctx[k]
@@ -66,6 +70,16 @@ function reset() {
   ctx.markFileCoreDefiner = vi.fn(async (id, on, pid) => { ctx.calls.push(['markFileCoreDefiner', id, on, pid]); return { id, ...FILES.find(f => f.id === id), is_core_definer: on } })
   ctx.updateManagedFile = vi.fn(async (id, patch, pid) => { ctx.calls.push(['updateManagedFile', id, patch, pid]); return { id, ...MANAGED.find(f => f.id === id), ...patch } })
   perms.role = 'admin'
+}
+
+/** Add a Legal file (S4b) to the listed rows for one test. */
+const LEGAL_ROW = { id: '9', project_id: 'p1', name: 'release.pdf', folder_id: 'root', size_bytes: 700, mime_type: 'application/pdf',
+  created_at: '2026-09-04T10:00:00Z', storage_provider: 'supabase', storage_path: 'projects/p1/LEGAL/p1/9-release.pdf',
+  tags: ['legal'], is_financial: false, is_core_definer: false }
+function withLegalFile() {
+  const base = ctx.getAdapter()
+  ctx.getAdapter = () => ({ ...base, listFiles: async () => [...FILES, LEGAL_ROW] })
+  ctx.patchFile = vi.fn(async (id, patch, pid) => { ctx.calls.push(['patchFile', id, patch, pid]); return { ...([...FILES, LEGAL_ROW].find(f => f.id === id)), ...patch } })
 }
 
 beforeEach(reset)
@@ -344,25 +358,49 @@ describe('tags (E3 nine, E4 Finance derived and Legal gated)', () => {
     expect(chip('finance').disabled).toBe(true)
   })
 
-  it('Legal: below the money gate it is refused with the reason; the hint says "not restricted yet"', async () => {
-    perms.role = 'user'
-    ctx.myProjectRole = 'member'
-    await mount()
-    fireEvent.click(nameButton('treatment.pdf'))
-    expect(chip('legal').disabled).toBe(true)
-    expect(chip('legal').getAttribute('title')).toMatch(/admins and the project's managers/)
-    expect(chip('shots').disabled).toBe(false)
-    expect(panel().querySelector('[data-legal-hint]').textContent).toMatch(/not restricted yet/)
-  })
-
-  it('CONTROL: a project manager may set Legal', async () => {
+  // S4b (0088, Audrey 2026-10-01): Legal is chosen when the file is ADDED —
+  // "its just the folder that is locked". In the file window it is a fact,
+  // never a toggle, for everyone, the money gate included.
+  it('Legal is a locked fact: dark on an ordinary file, for a project manager too, and clicking writes nothing', async () => {
     perms.role = 'user'
     ctx.myProjectRole = 'manager'
     await mount()
     fireEvent.click(nameButton('treatment.pdf'))
-    expect(chip('legal').disabled).toBe(false)
+    expect(chip('legal').disabled).toBe(true)
+    expect(chip('legal').getAttribute('aria-pressed')).toBe('false')
+    expect(chip('legal').getAttribute('title')).toBe(LEGAL_AT_ADD_REASON)
+    expect(chip('shots').disabled).toBe(false)                        // CONTROL: the rest still toggle
     fireEvent.click(chip('legal'))
-    await waitFor(() => expect(ctx.patchFile).toHaveBeenCalledWith('1', { tags: ['creative', 'legal'] }, 'p1'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ctx.patchFile).not.toHaveBeenCalled()
+    expect(panel().querySelector('[data-legal-hint]')).toBeNull()     // no Legal line on an ordinary file
+    expect(panel().querySelector('[data-file-core]').disabled).toBe(false) // CONTROL: Core is offered
+  })
+
+  it('on a Legal file: lit and locked, "Added as Legal…" and who can see it; Core off and locked with its reason', async () => {
+    withLegalFile()
+    await mount()
+    fireEvent.click(nameButton('release.pdf'))
+    expect(chip('legal').getAttribute('aria-pressed')).toBe('true')
+    expect(chip('legal').disabled).toBe(true)
+    expect(chip('legal').getAttribute('title')).toBe(LEGAL_LOCKED_REASON)
+    const hint = panel().querySelector('[data-legal-hint]').textContent
+    expect(hint).toContain(LEGAL_LOCKED_REASON)
+    expect(hint).toContain(LEGAL_HINT)
+    const core = panel().querySelector('[data-file-core]')
+    expect(core.disabled).toBe(true)
+    expect(panel().querySelector('[data-core-hint]').textContent).toBe(LEGAL_NOT_CORE_REASON)
+    fireEvent.click(core)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ctx.markFileCoreDefiner).not.toHaveBeenCalled()
+  })
+
+  it('another tag toggled on a Legal file keeps legal in the write (the CHECK would refuse it otherwise)', async () => {
+    withLegalFile()
+    await mount()
+    fireEvent.click(nameButton('release.pdf'))
+    fireEvent.click(chip('reference'))
+    await waitFor(() => expect(ctx.patchFile).toHaveBeenCalledWith('9', { tags: ['legal', 'reference'] }, 'p1'))
   })
 
   it('a database without 0085 shows a sentence instead of the chips', async () => {
@@ -482,20 +520,21 @@ describe('who may edit, and for which project', () => {
     expect(panel().querySelector('[data-save-error]').textContent).toMatch(/Open this project in R\.A\.B\.B\.I\.T\./)
   })
 
-  it('Legal on a project the Resources page shows WITHOUT opening it: a workspace admin only, not a manager', async () => {
+  it('a project the Resources page shows WITHOUT opening it: a manager writes ordinary tags; Legal stays a fact, an admin\'s included', async () => {
     perms.role = 'manager'
     ctx.activeProjectId = 'p2'
     await mount({ host: 'resources' })
     fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } })
     fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
     expect(panel().querySelector('[data-tag="shots"]').disabled).toBe(false) // a manager may write…
-    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(true)  // …but not Legal, unopened
+    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(true)  // …never Legal
     cleanup()
     perms.role = 'admin'
     await mount({ host: 'resources' })
     fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } })
     fireEvent.click(await screen.findByRole('button', { name: 'treatment.pdf' }))
-    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(false) // CONTROL: an admin may
+    expect(panel().querySelector('[data-tag="shots"]').disabled).toBe(false) // CONTROL: the admin writes…
+    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(true)  // …and Legal is still a fact
   })
 
   it('CONTROL: the same person on the OPEN, unstaffed project may edit', async () => {
@@ -506,13 +545,25 @@ describe('who may edit, and for which project', () => {
     expect(panel().querySelector('[data-write-reason]')).toBeNull()
   })
 
-  it('the Local Server has no roles: everything is allowed, Legal included', async () => {
+  it('the Local Server has no roles: everything is allowed but Legal, which is a fact there too', async () => {
     perms.role = null
     ctx.adapterMode = 'local_server'
     await mount()
     fireEvent.click(nameButton('treatment.pdf'))
-    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(false)
+    expect(panel().querySelector('[data-tag="shots"]').disabled).toBe(false)
+    expect(panel().querySelector('[data-tag="legal"]').disabled).toBe(true)
     expect(panel().querySelector('textarea[data-file-notes]').disabled).toBe(false)
+  })
+
+  it('…and a Legal file there says, in one line, that the folder is not a lock on this storage (A9)', async () => {
+    perms.role = null
+    ctx.adapterMode = 'local_server'
+    withLegalFile()
+    await mount()
+    fireEvent.click(nameButton('release.pdf'))
+    const hint = panel().querySelector('[data-legal-hint]').textContent
+    expect(hint).toContain(LEGAL_LOCAL_NOTE)
+    expect(hint).not.toContain(LEGAL_HINT)
   })
 })
 

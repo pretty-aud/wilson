@@ -102,7 +102,9 @@ describe('scope.financial closes both gates in the cloud writer', () => {
     // the four base rabbit_files_* policies negate it (0042 — NOT
     // rabbit_files_invoices_*, which 0042:212-214 dropped). This line is the
     // only thing that puts a file on the money side of that test.
-    expect(SUPA).toMatch(/const entity\s*=\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
+    // S4b (0088): Legal's own locked folder comes first in the same line; a
+    // receipt still takes INVOICES.
+    expect(SUPA).toMatch(/const entity\s*=\s*legal\s*\?\s*LEGAL_SEGMENT\s*:\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
   })
 
   it('writes files.is_financial — the row gate', () => {
@@ -114,7 +116,10 @@ describe('scope.financial closes both gates in the cloud writer', () => {
     // and pinned TWO. Deleting the provider pin turned no probe here red (it
     // was caught only over in storageRegistry.test.js), so the file's own
     // claim outran its own probes. This is the missing third.
-    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*!!scope\.financial/)
+    // S4b (0088): the pin reads `moneyGated`, which is scope.financial OR a
+    // Legal upload — a receipt still pins exactly as before.
+    expect(SUPA).toMatch(/const moneyGated\s*=\s*!!scope\.financial\s*\|\|\s*legal;/)
+    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*moneyGated/)
   })
 
   it('keeps the two in one function, so they cannot drift apart', () => {
@@ -271,6 +276,7 @@ describe('a money-gated receipt cannot become a deck attachment', () => {
     // moment they carry the flag — so this is the test that says the two
     // bundles agree, rather than a new rule.
     const CONTRACT = read('../../tools/rabbit_v0.1.0/deckAttachments.js')
-    expect(CONTRACT).toMatch(/row\.is_financial\)\s*return false/)
+    // S4b (0088) adds a Legal file to the same refusal, in the same line.
+    expect(CONTRACT).toMatch(/row\.is_financial\s*\|\|\s*isLegalFile\(row\)\)\s*return false/)
   })
 })

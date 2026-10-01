@@ -171,6 +171,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
             <h4 className={T.cardTitle}>The toolbar</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Add files</span> — Puts files into the project.</li>
+              <li>• <span className={T.listBold}>Add as Legal</span> — For project managers and workspace admins: puts files into the project's LEGAL folder. Only project managers and workspace admins will see these files.</li>
               <li>• <span className={T.listBold}>Relink</span> — Appears when files are missing from disk, and finds them again.</li>
               <li>• <span className={T.listBold}>File activity</span> — The selected file's history: uploaded, moved, relinked, downloaded, trashed or restored.</li>
             </ul>
@@ -188,7 +189,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>Notes</span> — Anything worth knowing about the file.</li>
               <li>• <span className={T.listBold}>Core project file</span> — The files that give context about the project: the script, the treatment, storyboards, mood boards. Intake and D.O.G. read them as the project's context.</li>
               <li>• <span className={T.listBold}>Kind</span> — What the document is, from the same list as Intake.</li>
-              <li>• <span className={T.listBold}>Tags</span> — Production, Creative, Legal, Finance, Reference, Assets, Code, Shots and Documentation; a file can carry several. Finance comes from the file being marked financial when it was added; it is not set by hand. Only someone who can see the project's money can set Legal, and Legal does not hide a file yet: anyone who can open the file can still see it.</li>
+              <li>• <span className={T.listBold}>Tags</span> — Production, Creative, Legal, Finance, Reference, Assets, Code, Shots and Documentation; a file can carry several. Finance comes from the file being marked financial when it was added; it is not set by hand. Legal is chosen when a file is added, with Add as Legal, and stays with the file: only project managers and workspace admins can see a Legal file, it is never a core file, and to change it you add the file again. On this computer's storage (the Local Server) Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.</li>
               <li>• <span className={T.listBold}>A file of an asset, a shot or a scene</span> — Takes notes and tags. Core and Kind are for the project's own files.</li>
             </ul>
           </div>

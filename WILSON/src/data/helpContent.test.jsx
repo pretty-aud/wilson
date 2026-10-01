@@ -116,7 +116,10 @@ const PROPER = new Set(['D.O.G.', 'O.T.T.E.R.', 'R.A.B.B.I.T.', 'Wilson', 'Slide
   // key legends ('Shift': the pet's key since post-overhaul S2a, C12)
   'Enter', 'Up/Down', 'Shift',
   // the pet breeds, as src/components/sprites/index.jsx labels them (C5)
-  'Otter', 'Bird', 'Octopus', 'Blob', 'Rabbit', 'Pig', 'Monkey'])
+  'Otter', 'Bird', 'Octopus', 'Blob', 'Rabbit', 'Pig', 'Monkey',
+  // the restricted file tag's own name (Audrey's E3 vocabulary), as the Files
+  // tab's "Add as Legal" writes it (post-overhaul S4b)
+  'Legal'])
 // A tool's spelled-out name, a product's two-word name, a page's name as the
 // nav writes it, D.O.G.'s layout names as its constants.js writes them, the
 // name Help tells the reader to give their Apps Script project, and a name

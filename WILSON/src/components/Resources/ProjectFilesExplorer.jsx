@@ -792,6 +792,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                     writeReason={writeReason}
                     canSeeMoney={canSeeMoney}
                     tagsSupported={tagsSupported}
+                    noRoles={noRoles}
                     saveError={saveError}
                     onSave={(patch) => saveFile(selectedFile, patch)}
                   />

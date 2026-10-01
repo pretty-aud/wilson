@@ -33,7 +33,7 @@
 
 import { devWriteRefused } from '../devFixtures'
 import { planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN } from '../../tools/rabbit_v0.1.0/folderPaths'
-import { FILE_TAG_IDS } from '../../tools/rabbit_v0.1.0/fileTags'
+import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
 } from './store'
@@ -110,6 +110,22 @@ function fileTagsRefusal(tags) {
   return check && `new row for relation "files" violates check constraint "${check}"`
 }
 
+// S4b (0088): the two Legal CHECKs, as the fake cloud's row can show them.
+// A fixture row's path is not the cloud's key, so the "folder" is what the
+// row was created as (isLegalFile of the row BEFORE the write): the legal
+// tag may not be added to or removed from a file after it is added
+// (files_legal_folder_chk), and a Legal file may not be core
+// (files_legal_not_core_chk). Both sort before files_tags_*, so they are
+// reported first, as Postgres would.
+function legalRefusal(before, after) {
+  const wasLegal = isLegalFile(before)
+  const tagged = storedTags(after).includes(GATED_TAG)
+  const check = tagged !== wasLegal ? 'files_legal_folder_chk'
+    : (after.is_core_definer && (tagged || wasLegal)) ? 'files_legal_not_core_chk'
+      : null
+  return check && `new row for relation "files" violates check constraint "${check}"`
+}
+
 function isPlainObject(v) {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
   const proto = Object.getPrototypeOf(v)
@@ -161,10 +177,21 @@ function validateVersioned(row, noun) {
   }
 }
 
-export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
+export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }) {
   const by = userId
   const stampBy = (row) => ({ ...row, updated_by: by, last_updated_by: by, last_updated_at: now() })
   const projectOf = (id) => findById(store.projects, id)
+
+  // S4b: the money gate, as can_access_project_money answers it (0037): a
+  // workspace admin, or the project's manager. A reader who does not pass it
+  // gets no money-gated row — an invoice (is_financial) or a Legal file — from
+  // any file read, exactly as the cloud's RLS hides them (0038, 0088). The
+  // default reviewer passes (Mara: admin and manager); `?fixtures=member`
+  // does not.
+  const passesMoneyGate = (projectId) => appRole === 'admin'
+    || store.projectMembers.some(m => m.project_id === projectId && m.user_id === userId && m.project_role === 'manager')
+  const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
+  const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id))
 
   // ── Folders (shared by the folder methods and entity creation) ─────────────
   function folderByPath(projectId, path) {
@@ -353,7 +380,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
         tasks: live(inProject(store.tasks)),
         dependencies: store.dependencies.filter(d => !d.deleted_at),
         taskLinks: store.taskLinks.filter(l => taskIds.has(l.task_id)),
-        files: live(inProject(store.files)),
+        files: readableFiles(live(inProject(store.files))),
         assetVersions: store.assetVersions.filter(v => assetIds.has(v.asset_id)),
         comments: live(store.comments),
         ingestionRuns: inProject(store.ingestionRuns),
@@ -435,7 +462,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
 
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
-    async listFiles(projectId) { return clone(live(store.files.filter(f => f.project_id === projectId))) },
+    async listFiles(projectId) { return clone(readableFiles(live(store.files.filter(f => f.project_id === projectId)))) },
     // There are no file bodies. A download is refused loudly (a data URI handed
     // to the anchor FileManager clicks would be a silent no-op — review round 1),
     // and fileUrl answers null, which the provider documents as "this backend
@@ -449,7 +476,17 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       return out
     },
     async updateFile(id, fields) {
-      // S4a (0085): the fake cloud refuses what the real CHECK refuses.
+      // S4a (0085): the fake cloud refuses what the real CHECK refuses. A
+      // value that is not a list never reaches a CHECK (Postgres cannot read
+      // it as text[]); otherwise S4b's Legal CHECKs sort first (0088).
+      if (fields && 'tags' in fields && !Array.isArray(fields.tags)) {
+        throw new Error(`[fixtures] ${fileTagsRefusal(fields.tags)}`)
+      }
+      const before = findById(store.files, id)
+      if (before) {
+        const refused = legalRefusal(before, { ...before, ...(fields || {}) })
+        if (refused) throw new Error(`[fixtures] ${refused}`)
+      }
       if (fields && 'tags' in fields) {
         const refused = fileTagsRefusal(fields.tags)
         if (refused) throw new Error(`[fixtures] ${refused}`)
@@ -458,6 +495,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     },
     // S4a: the fake cloud has migration 0085.
     async supportsFileTags() { return true },
+    // S4b: …and 0088 — the LEGAL folder is locked here. (Uploads are refused
+    // in the fixtures, Legal or not: there are no bodies.)
+    async supportsLegalFiles() { return true },
     async deleteFile(id) {
       softDelete(store.files, id, by)
       store.fileEvents.push({ id: newId(), file_id: id, project_id: findById(store.files, id)?.project_id ?? null, event: 'trashed', actor_id: by, actor_name: 'You', detail: {}, created_at: now() })
@@ -468,6 +508,10 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
       return ok
     },
     async listFileEvents(fileId) {
+      // S4b: a money file's history is the money gate's, like its row (0074,
+      // 0088's certificate arm for Legal).
+      const f = findById(store.files, fileId)
+      if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id)) return []
       return clone(store.fileEvents.filter(e => e.file_id === fileId).sort((a, b) => b.created_at.localeCompare(a.created_at)))
     },
     // S4a (E13): the cloud's log_file_downloaded, as an event the activity

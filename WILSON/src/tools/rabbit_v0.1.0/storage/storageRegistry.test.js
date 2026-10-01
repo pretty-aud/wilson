@@ -301,7 +301,10 @@ describe('the adapter actually calls the registry (no dead path)', () => {
   })
 
   it('passes the money flag from the same scope that picks the INVOICES segment', () => {
-    expect(adapter).toContain('financial: !!scope.financial')
+    // S4b (0088): money-gated = an invoice/receipt OR a Legal file, both from
+    // the scope that picks the locked segment.
+    expect(adapter).toContain('const moneyGated = !!scope.financial || legal;')
+    expect(adapter).toContain('financial: moneyGated,')
   })
 
   it('downloads through resolveFileProvider', () => {

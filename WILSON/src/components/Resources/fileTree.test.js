@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, ROOT_ID } from './fileTree.js'
+import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, ROOT_ID, LEGAL_FOLDER_ID } from './fileTree.js'
 
 const folders = [
   { id: 'r', kind: 'root', path: '', parent_id: null },
@@ -24,6 +24,29 @@ const managedFiles = [
   { id: 'm1', file_name: 'Hero_v001.mov', stored_name: 'x_Hero_v001.mov', folder_path: 'ASSETS/hero-shot/', size_bytes: 4000, uploaded_at: '2026-09-11T02:00:00Z', mime_type: 'video/quicktime', duration_sec: 4 },
   { id: 'm2', file_name: 'loose.png', folder_path: 'ASSETS/unknown/', size_bytes: 1 },
 ]
+
+describe('Legal files (S4b, 0088) sit in a LEGAL folder drawn from the rows given', () => {
+  const legalRow = { id: 'L1', name: 'release.pdf', folder_id: 'a1', asset_id: 'asset-1', tags: ['legal'],
+    storage_path: 'projects/p/LEGAL/p/1-release.pdf', mime_type: 'application/pdf' }
+  it('groups a Legal row under LEGAL at the root, whatever folder or entity it names', () => {
+    const t = buildFileTree({ folders, files: [...files, legalRow], managedFiles })
+    const legal = t.byId.get(LEGAL_FOLDER_ID)
+    expect(legal.parent.id).toBe('r')
+    expect(legal.name).toBe('LEGAL')
+    expect(legal.children.map(c => c.name)).toEqual(['release.pdf'])
+    expect(t.byId.get('a1').children.map(c => c.name)).not.toContain('release.pdf')
+    expect(t.folderCount).toBe(6)
+    // …by its folder segment too, in any case, when the tag is missing.
+    const byPath = buildFileTree({ folders, files: [{ ...legalRow, tags: [], storage_path: 'projects/p/legal/p/1-x.pdf' }] })
+    expect(byPath.byId.get(LEGAL_FOLDER_ID).children).toHaveLength(1)
+  })
+  it('CONTROL: no Legal row given (a member is never given one), no LEGAL folder at all', () => {
+    const t = buildFileTree({ folders, files, managedFiles })
+    expect(t.byId.has(LEGAL_FOLDER_ID)).toBe(false)
+    expect(t.root.children.map(c => c.name)).not.toContain('LEGAL')
+    expect(t.folderCount).toBe(5)
+  })
+})
 
 describe('buildFileTree', () => {
   const t = buildFileTree({ folders, files, managedFiles })

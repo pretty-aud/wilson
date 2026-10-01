@@ -14,8 +14,9 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
-  FILE_TAGS, FILE_TAG_IDS, DERIVED_TAG, GATED_TAG, LEGAL_HINT,
-  tagLabel, storedTags, displayTags, writableTags, toggleTag, tagSettable, tagsMatch,
+  FILE_TAGS, FILE_TAG_IDS, DERIVED_TAG, GATED_TAG, LEGAL_HINT, LEGAL_SEGMENT,
+  LEGAL_LOCKED_REASON, LEGAL_AT_ADD_REASON,
+  tagLabel, storedTags, displayTags, writableTags, toggleTag, tagSettable, tagsMatch, isLegalFile,
 } from './fileTags'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -91,14 +92,40 @@ describe('what a row shows and what the client writes', () => {
     expect(naive(['finance', 'code'])).not.toEqual(['code'])
   })
 
-  it('who may set what: Finance never, Legal only past the money gate, the rest with write access', () => {
+  it('who may set what: Finance and Legal never (facts about the file), the rest with write access', () => {
     expect(tagSettable(DERIVED_TAG, { canWrite: true, canSeeMoney: true }).ok).toBe(false)
+    // S4b (0088): Legal is chosen when the file is added — for NOBODY after,
+    // the money gate included (Audrey: "its just the folder that is locked").
+    expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: true }).ok).toBe(false)
     expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: false }).ok).toBe(false)
-    expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: false }).reason).toMatch(/admins and the project's managers/)
-    expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: true }).ok).toBe(true)
+    expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: true, legal: true }).reason).toBe(LEGAL_LOCKED_REASON)
+    expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: true, legal: false }).reason).toBe(LEGAL_AT_ADD_REASON)
     expect(tagSettable('shots', { canWrite: false, canSeeMoney: true }).ok).toBe(false)
     expect(tagSettable('shots', { canWrite: true, canSeeMoney: false }).ok).toBe(true)
-    expect(LEGAL_HINT).toMatch(/^Not restricted yet/)
+    // The hint is the truth now, not "not restricted yet".
+    expect(LEGAL_HINT).toBe('Only project managers and workspace admins can see this file.')
+    expect(LEGAL_LOCKED_REASON).toBe('Added as Legal. To change this, add the file again.')
+  })
+
+  it('Legal is never toggled: asked to, toggleTag returns the tags unchanged (and keeps legal on a Legal file)', () => {
+    expect(toggleTag({ tags: ['code'] }, GATED_TAG)).toEqual(['code'])
+    expect(toggleTag({ tags: ['legal', 'code'] }, GATED_TAG)).toEqual(['legal', 'code'])
+    // Other tags still toggle on a Legal file, and the legal tag rides along —
+    // files_legal_folder_chk would refuse a write that dropped it.
+    expect(toggleTag({ tags: ['legal'] }, 'shots')).toEqual(['legal', 'shots'])
+    expect(toggleTag({ tags: ['legal', 'shots'] }, 'shots')).toEqual(['legal'])
+  })
+
+  it('isLegalFile: the tag, or a LEGAL third path segment in any case; nothing else', () => {
+    expect(isLegalFile({ tags: ['legal'] })).toBe(true)
+    expect(isLegalFile({ storage_path: 'projects/p/LEGAL/p/1-a.pdf' })).toBe(true)
+    expect(isLegalFile({ storage_path: 'projects/p/legal/p/1-a.pdf', tags: [] })).toBe(true)
+    expect(isLegalFile({ storage_path: 'projects/p/project/p/1-legal.pdf', tags: ['shots'] })).toBe(false)
+    expect(isLegalFile({ storage_path: 'projects/p/INVOICES/p/1-a.pdf', is_financial: true })).toBe(false)
+    expect(isLegalFile({ storage_path: 'LEGAL' })).toBe(false)
+    expect(isLegalFile(null)).toBe(false)
+    expect(isLegalFile({})).toBe(false)
+    expect(LEGAL_SEGMENT).toBe('LEGAL')
   })
 
   it('the filter matches a tag by its word, Finance included', () => {

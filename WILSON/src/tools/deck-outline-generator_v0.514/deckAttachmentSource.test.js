@@ -90,6 +90,18 @@ describe('isDeckAttachmentRow', () => {
       .toBe(false)
   })
 
+  it('🚨 NEVER takes a Legal file — by its tag or by its LEGAL folder (S4b, 0088)', () => {
+    // A manager's D.O.G. sees Legal rows (RLS admits them) and a deck goes to
+    // the whole project. The CONTROL is the same row without the Legal mark:
+    // a classified brief at project level, which qualifies.
+    const brief = { document_kind: 'brief', mime_type: 'application/pdf',
+      storage_path: 'projects/p/project/p/1-brief.pdf', tags: [] }
+    expect(isDeckAttachmentRow(row(brief))).toBe(true)
+    expect(isDeckAttachmentRow(row({ ...brief, tags: ['legal'] }))).toBe(false)
+    expect(isDeckAttachmentRow(row({ ...brief, storage_path: 'projects/p/LEGAL/p/1-brief.pdf' }))).toBe(false)
+    expect(isDeckAttachmentRow(row({ mime_type: 'image/png', tags: ['legal'] }))).toBe(false)
+  })
+
   it('never takes a trashed row', () => {
     // Cloud deletes are soft (0014): the row survives with deleted_at set and
     // the blob is still there, so nothing but this check stops a deleted brief

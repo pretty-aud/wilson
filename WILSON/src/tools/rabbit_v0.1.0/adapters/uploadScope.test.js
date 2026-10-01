@@ -23,6 +23,7 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
 
 const { uploadContainerFor } = await import('./supabaseAdapter')
 const { RATES_SEGMENT } = await import('../projectRates')
+const { LEGAL_SEGMENT } = await import('../fileTags')
 
 describe('the container decides the folder', () => {
   it('prefers the most specific entity, scene before shot', () => {
@@ -70,7 +71,9 @@ describe('no container segment can reach the money-gated namespace', () => {
 
   it('never emits a reserved segment, in any case', () => {
     // Case-insensitive, because rabbit_money_segment() compares on upper().
-    const reserved = ['INVOICES', RATES_SEGMENT.toUpperCase()]
+    // LEGAL since 0088 (S4b): an ordinary file filed under it would be hidden
+    // from the person who added it, exactly like INVOICES.
+    const reserved = ['INVOICES', RATES_SEGMENT.toUpperCase(), LEGAL_SEGMENT]
     for (const scope of EVERY_SCOPE) {
       const seg = uploadContainerFor(scope, 'p1').seg
       expect(reserved).not.toContain(seg.toUpperCase())
@@ -103,11 +106,12 @@ describe('no container segment can reach the money-gated namespace', () => {
     const c = uploadContainerFor(attachmentScope, 'p1')
     expect(c.seg).toBe('project')
     expect(c.id).toBe('p1')
-    expect(['INVOICES', RATES_SEGMENT.toUpperCase()]).not.toContain(c.seg.toUpperCase())
+    expect(['INVOICES', RATES_SEGMENT.toUpperCase(), LEGAL_SEGMENT]).not.toContain(c.seg.toUpperCase())
     // And nothing in that scope is truthy under the name uploadFile reads for
     // the money branch — `scope.financial`. An attachment reaching the
     // INVOICES segment would be readable only by managers, so the person who
     // uploaded it could not read their own brief back.
     expect(attachmentScope.financial).toBeUndefined()
+    expect(attachmentScope.legal).toBeUndefined()
   })
 })

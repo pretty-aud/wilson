@@ -18,9 +18,15 @@
 //              (KIND_OPTIONS), so the two lists cannot drift. Project files
 //              only, like Core: nothing reads a managed file's kind.
 //   TAGS   E3/E4  the nine, as toggles (kit Chip, aria-pressed), monochrome.
-//              Finance is shown from is_financial and never set by hand;
-//              Legal is a label that only people past the money gate may set
-//              or clear, with the one-line "not restricted yet" hint.
+//              Finance is shown from is_financial and never set by hand.
+//   LEGAL  S4b (0088, Audrey 2026-10-01: "same as money files"; "its just
+//              the folder that is locked") — a FACT about the file, chosen
+//              when it was added: its chip is lit and locked on a Legal file
+//              ("Added as Legal. To change this, add the file again."),
+//              unlit and locked on every other, for everyone. On a Legal file
+//              Core is off and locked with its reason (files_legal_not_core_chk),
+//              and one line says who can see it — or, on the Local Server,
+//              that the folder is not a lock there (A9).
 //
 // Laws of UX that shaped it (the laws-of-ux skill, applied, not cited):
 //   · Law of Proximity — label 4px over its control, 16px between fields
@@ -42,7 +48,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Banner, CellSelect, Chip, Switch, TextArea } from '../../ui'
 import { KIND_OPTIONS } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import {
-  FILE_TAGS, DERIVED_TAG, LEGAL_HINT, displayTags, toggleTag, tagSettable,
+  FILE_TAGS, DERIVED_TAG, GATED_TAG, LEGAL_HINT, LEGAL_LOCKED_REASON, LEGAL_NOT_CORE_REASON,
+  LEGAL_LOCAL_NOTE, displayTags, toggleTag, tagSettable, isLegalFile,
 } from '../../tools/rabbit_v0.1.0/fileTags'
 
 /** files.description's CHECK (0075); a managed note is held to the same. */
@@ -58,8 +65,13 @@ export default function FileEditor({
   node,
   canWrite = false,
   writeReason = null,
-  canSeeMoney = false,
+  // Kept for the explorer's call shape; since S4b no tag depends on it (who
+  // may ADD a Legal file is Add files' question, not the editor's).
+  canSeeMoney: _canSeeMoney = false,
   tagsSupported = false,
+  // The Local Server has no roles (A9): there a Legal file's line says the
+  // folder is not a lock.
+  noRoles = false,
   saveError = '',
   onSave,
 }) {
@@ -100,6 +112,7 @@ export default function FileEditor({
   }
 
   const shown = new Set(displayTags(row))
+  const legal = !managed && isLegalFile(row)
 
   return (
     <div className="fx-edit" data-file-editor={node?.id}>
@@ -138,14 +151,14 @@ export default function FileEditor({
         <>
           <div className="fx-edit-field">
             <Switch
-              checked={!!row.is_core_definer}
-              onChange={(on) => onSave?.({ is_core_definer: on })}
+              checked={!!row.is_core_definer && !legal}
+              onChange={(on) => { if (!legal) onSave?.({ is_core_definer: on }) }}
               label="Core project file"
-              disabled={!canWrite}
-              title={canWrite ? undefined : writeReason || undefined}
+              disabled={!canWrite || legal}
+              title={legal ? LEGAL_NOT_CORE_REASON : (canWrite ? undefined : writeReason || undefined)}
               data-file-core
             />
-            <span className="fx-edit-hint">{CORE_HINT}</span>
+            <span className="fx-edit-hint" data-core-hint>{legal ? LEGAL_NOT_CORE_REASON : CORE_HINT}</span>
           </div>
 
           <div className="fx-edit-field">
@@ -171,8 +184,10 @@ export default function FileEditor({
           <>
             <div className="fx-tags">
               {FILE_TAGS.map(({ id, label }) => {
-                const gate = tagSettable(id, { canWrite, canSeeMoney })
-                const on = shown.has(id)
+                const gate = tagSettable(id, { canWrite, legal })
+                // A managed file is never Legal; a project file's Legal chip
+                // is lit exactly when the file is Legal (tag or folder).
+                const on = id === GATED_TAG ? legal : shown.has(id)
                 return (
                   <Chip
                     key={id}
@@ -182,13 +197,18 @@ export default function FileEditor({
                     onClick={() => { if (gate.ok) onSave?.({ tags: toggleTag(row, id) }) }}
                     data-tag={id}
                     data-derived={id === DERIVED_TAG ? 'true' : undefined}
+                    data-locked={id === GATED_TAG ? 'true' : undefined}
                   >
                     {label}
                   </Chip>
                 )
               })}
             </div>
-            <span className="fx-edit-hint" data-legal-hint>Legal is {LEGAL_HINT.charAt(0).toLowerCase() + LEGAL_HINT.slice(1)}</span>
+            {legal && (
+              <span className="fx-edit-hint" data-legal-hint>
+                {LEGAL_LOCKED_REASON} {noRoles ? LEGAL_LOCAL_NOTE : LEGAL_HINT}
+              </span>
+            )}
           </>
         ) : (
           <span className="fx-edit-hint" data-tags-unavailable>

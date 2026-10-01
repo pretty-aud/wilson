@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent'
-import { FILE_TAGS, LEGAL_HINT, tagSettable } from './fileTags'
+import { FILE_TAGS, LEGAL_ADD_HINT, LEGAL_LOCAL_NOTE, tagSettable } from './fileTags'
 
 afterEach(cleanup)
 
@@ -41,8 +41,15 @@ describe('the "Files" help page (E13)', () => {
   it('says Finance and Legal as the editor does', () => {
     const text = page()
     expect(text).toContain(tagSettable('finance').reason)
-    // LEGAL_HINT's second clause, in a sentence of its own.
-    expect(text).toContain(LEGAL_HINT.split(': ')[1])
+    // S4b (0088): Legal is chosen at Add files and stays; who sees it is the
+    // money gate's audience, in Add as Legal's own sentence; and the Local
+    // Server line says the folder is not a lock there (A9).
+    expect(text).toContain(LEGAL_ADD_HINT)
+    expect(text).toContain('Legal is chosen when a file is added, with Add as Legal')
+    expect(text).toContain('to change it you add the file again')
+    expect(text).toContain('Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.')
+    expect(LEGAL_LOCAL_NOTE).toContain('Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.')
+    expect(text).not.toMatch(/not restricted yet|does not hide a file yet/)
   })
 
   it('names the controls the explorer draws, by the explorer\'s own labels', () => {
