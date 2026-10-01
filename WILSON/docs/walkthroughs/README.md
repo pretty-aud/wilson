@@ -44,3 +44,14 @@ parts still missing. Nothing below needs opening to answer it.
 | 45 | [45_ui_rabbit_budget_scenes.md](45_ui_rabbit_budget_scenes.md) | B5, B5b: Budget and Scenes. |
 | 46 | [46_ui_v2_visual_qa.md](46_ui_v2_visual_qa.md) | V2: the second visual check, after the tool lanes. |
 | **47** | **[47_ui_overhaul_final.md](47_ui_overhaul_final.md)** | **P1: the overhaul in one read — the one to read.** |
+
+## Post-overhaul, 48 onward
+
+Sessions on `feat/post-overhaul-edit-versioning` (plan:
+`docs/design/POST_OVERHAUL_PLAN.md`). Copies are on the Desktop in
+`WILSON walkthroughs\Post-overhaul\`.
+
+| # | File | Session |
+|---|---|---|
+| 48 | [48_timeline_pass.md](48_timeline_pass.md) | S1: the Timeline pass (phase-name ink, the week header, the date parse). |
+| 49 | [49_settings_placement_and_orange.md](49_settings_placement_and_orange.md) | S2a: each tool's Help and Settings at its strip's right end, the orange she named, the pet's Shift tap. |

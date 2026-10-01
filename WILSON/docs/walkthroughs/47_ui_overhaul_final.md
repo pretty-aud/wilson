@@ -256,6 +256,7 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 33. **Enter on any focused button toggles the pet instead of pressing the button (Space works): fix it in P1?**
    Look at: Tab to any button and press Enter. Choices: Fix it in P1 / leave; it waits for Audrey because the pets are hers to change. The code is `App.jsx` about lines 1404–1417 (P1-01). (WT45 Q30, WT44 Q25, WT42 Q7, WT39 Q10)
+   Q33: answered 2026-09-29 (post-overhaul ruling C12): the pet's toggle moves from Enter to a bare Shift tap (never while typing in a field, never over a dialog), and Enter presses whatever is focused. Done by post-overhaul S2a, 2026-09-30 (P1-01 closed); see walkthrough 49.
 
 34. **The Undo toast now sits over menus as well as dialogs (the standard order), so a context menu opened near the bottom centre (Bins, Tasks) can sit under a live toast: keep?**
    Look at: Delete something in Bins, then right-click near the bottom centre while the Undo toast shows. Choices: Keep? yes / no; no recommendation. (WT45 Q32)
@@ -423,9 +424,11 @@ These need the real app, your data or Windows scaling at 125% and 150%: report w
 
 80. **Are the progress bars (lessons completed, and the sweeping generation bar) right in grey, orange being kept for selected and current?**
    Look at: O.T.T.E.R.: a course's lessons-completed bar, and '+ New' while a course generates. Choices: Grey (current), or orange. (WT41 Q8)
+   Q80: unchanged, 2026-09-29 (post-overhaul ruling C8: the new orange is exactly the list she named, and the progress bars are not on it). Recorded by post-overhaul S2a, 2026-09-30; see walkthrough 49.
 
 81. **Are links in lessons right as white and underlined rather than orange?**
    Look at: O.T.T.E.R.: a lesson with a link. Choices: White and underlined (current), or orange. (WT41 Q9)
+   Q81: unchanged, 2026-09-29 (post-overhaul ruling C8: lesson links stay white and underlined; the new orange is exactly the list she named). Recorded by post-overhaul S2a, 2026-09-30; see walkthrough 49.
 
 82. **Do the kept node type colours match the host application's socket colours, and if not, should they become one warm family?**
    Look at: O.T.T.E.R.: a real node-system course's Nodes page in the packaged build, beside Blender's sockets (the test data has no nodes). Choices: Keep as written (Q9), or one warm family if they do not match. Plan Q9 kept them as an exempt ramp on the assumption that they mirror the host application's sockets; this asks you to confirm that assumption. (WT41 Q10)
