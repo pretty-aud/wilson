@@ -13,6 +13,9 @@
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 
@@ -360,6 +363,28 @@ describe('the actions (E9)', () => {
     fireEvent.click(nameButton('treatment.pdf'))
     fireEvent.click(within(panel()).getByRole('button', { name: 'Open in default app' }))
     expect(await within(panel()).findByText('WILSON does not open programs or scripts. Use Show in folder to see it.')).toBeTruthy()
+  })
+
+  it('Show in folder and Open are ONE unit that wraps whole, and Preview fills its line (no stray icon in a narrow footer)', async () => {
+    window.electronAPI = { rabbit: { openPath: vi.fn(async () => ({ ok: true })) } }
+    ctx.adapterMode = 'local_server'
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    const reveal = within(panel()).getByRole('button', { name: /Show in folder/ })
+    const open = within(panel()).getByRole('button', { name: 'Open in default app' })
+    expect(reveal.parentElement).toBe(open.parentElement)
+    expect(reveal.parentElement.className).toBe('fx-actions-pair')
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'resources.css'), 'utf8')
+    expect(css).toMatch(/\.fx-actions-pair \{ display: inline-flex;[^}]*\}/)
+    expect(css).toMatch(/\.fx-actions-row > \[data-file-preview-open\] \{ flex: 1 0 auto; \}/)
+    // CONTROL: a cloud row has no pair; its Download sits in the row itself.
+    ctx.adapterMode = 'supabase'
+    window.electronAPI = undefined
+    cleanup()
+    await mount()
+    fireEvent.click(nameButton('treatment.pdf'))
+    const dl = within(panel()).getByRole('button', { name: /Download/ })
+    expect(dl.parentElement.className).toBe('fx-actions-row')
   })
 
   it('CONTROL: off the desktop (no bridge) a cloud row is not offered Show in folder or Open', async () => {

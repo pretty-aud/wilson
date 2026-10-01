@@ -304,6 +304,23 @@ export function localServerAdapter() {
     // holds `tags` to the nine (electron/fileTags.cjs) — always available.
     supportsFileTags: async () => true,
 
+    // S4a (E9): a Local Server file has URLs at last, so ctx.fileUrl and
+    // ctx.downloadUrl answer on all three backends. Same-origin paths: the
+    // httpOnly launch cookie carries them for an <img>, a <video>, an
+    // <audio> or a fetch, which cannot set the token header (B3).
+    //   fileUrl     → the stream route (inline, Range, one 'downloaded' a
+    //                 minute — the preview's read is logged there, E13)
+    //   downloadUrl → the download route as an ATTACHMENT under the file's
+    //                 name (`?download=1`), so an <a> click saves it
+    async fileUrl(file) {
+      if (!file?.id || !file?.project_id) return null;
+      return `${BASE}/projects/${encodeURIComponent(file.project_id)}/files/${encodeURIComponent(file.id)}/stream`;
+    },
+    async downloadUrl(file) {
+      if (!file?.id || !file?.project_id) return null;
+      return `${BASE}/projects/${encodeURIComponent(file.project_id)}/files/${encodeURIComponent(file.id)}/download?download=1`;
+    },
+
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 
     // ── File lifecycle + storage relink (Session 14) ──────────

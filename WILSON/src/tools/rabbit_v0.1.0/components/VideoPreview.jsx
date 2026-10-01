@@ -54,8 +54,54 @@ const MAX_REMINTS = 1
 // build one is FileManager's own handleDownload — it already folds in
 // project.folder_root, the S34 workspace root and the parent-type folder. A
 // second path builder in this component is how the two start disagreeing.
+//
+// Post-overhaul S4a: the player is ALSO the Files explorer's video preview
+// (Audrey's E9: "video (the existing player, autoplay OFF)"), inside that
+// preview's own Dialog. So the stage — the source, the re-mint, the named
+// failure — is VideoStage, and VideoPreview is it in a Dialog, exactly as
+// before. `autoPlay` stays on here, where the click that opens the player is
+// "Play <name>"; the Files preview passes it OFF, because arrowing through a
+// folder must not start every clip in it.
 export default function VideoPreview({ file, projectId, managed, onClose, onOpenExternally }) {
+  // The name as stored. The fallback only titles a row with no name at all.
+  const label = file?.stored_name || file?.name || 'File'
+
+  return createPortal(
+    <Dialog
+      // The form width holds the 480×270 stage; the sheet lets the dialog
+      // grow to a video wider than that, so the player keeps its own size.
+      width="form"
+      className="rb-vid-dialog"
+      title={label}
+      // 🚨 CLOSE ONLY WHEN THE PRESS *STARTED* ON THE BACKDROP. Dragging the
+      // native <video> scrub bar and releasing outside the panel dispatches the
+      // resulting `click` on the backdrop — so a plain `onClick={onClose}` shut
+      // the player every time someone scrubbed past the edge, which is the
+      // single most common gesture in a video preview (found by the pre-push
+      // adversarial review). The hand-rolled backdrop recorded where the press
+      // began; the kit's backdrop closes on the press itself and only when
+      // that press's target IS the backdrop (src/ui/Dialog.jsx), so a drag
+      // that began on the scrub bar never closes it. This turns it on.
+      dismissOnBackdrop
+      onClose={onClose}
+      // A click inside the player stays inside it, as the hand-rolled panel's
+      // did: through the portal, React would otherwise carry it up through
+      // FileManager into the popup that hosts it.
+      onClick={(e) => e.stopPropagation()}
+    >
+      <VideoStage file={file} projectId={projectId} managed={managed} onClose={onClose} onOpenExternally={onOpenExternally} />
+    </Dialog>,
+    document.body,
+  )
+}
+
+/** The player itself: source, re-mint, named failure. Key it on the file.
+ *  `onSourceReady(url)` (S4a) tells the Files preview a source exists, so it
+ *  logs the read once (E13); held in a ref so it never re-mints the URL. */
+export function VideoStage({ file, projectId, managed, onClose, onOpenExternally, autoPlay = true, onSourceReady }) {
   const ctx = useRabbit()
+  const onSourceReadyRef = useRef(onSourceReady)
+  onSourceReadyRef.current = onSourceReady
   const [src, setSrc] = useState(null)
   const [status, setStatus] = useState('loading') // loading | playing | unavailable
   const [detail, setDetail] = useState(null)
@@ -90,6 +136,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
         return
       }
       setSrc(url)
+      onSourceReadyRef.current?.(url)
     } catch (err) {
       setStatus('unavailable')
       // A signing refusal is a real answer and must not be dressed up as a
@@ -121,32 +168,7 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
       : 'Preview isn\'t available for this format. Download it to view it.')
   }, [managed, load])
 
-  // The name as stored. The fallback only titles a row with no name at all.
-  const label = file?.stored_name || file?.name || 'File'
-
-  return createPortal(
-    <Dialog
-      // The form width holds the 480×270 stage; the sheet lets the dialog
-      // grow to a video wider than that, so the player keeps its own size.
-      width="form"
-      className="rb-vid-dialog"
-      title={label}
-      // 🚨 CLOSE ONLY WHEN THE PRESS *STARTED* ON THE BACKDROP. Dragging the
-      // native <video> scrub bar and releasing outside the panel dispatches the
-      // resulting `click` on the backdrop — so a plain `onClick={onClose}` shut
-      // the player every time someone scrubbed past the edge, which is the
-      // single most common gesture in a video preview (found by the pre-push
-      // adversarial review). The hand-rolled backdrop recorded where the press
-      // began; the kit's backdrop closes on the press itself and only when
-      // that press's target IS the backdrop (src/ui/Dialog.jsx), so a drag
-      // that began on the scrub bar never closes it. This turns it on.
-      dismissOnBackdrop
-      onClose={onClose}
-      // A click inside the player stays inside it, as the hand-rolled panel's
-      // did: through the portal, React would otherwise carry it up through
-      // FileManager into the popup that hosts it.
-      onClick={(e) => e.stopPropagation()}
-    >
+  return (
       <div className="rb-vid-stage">
         {status === 'unavailable' ? (
           <div className="rb-vid-unavailable">
@@ -174,7 +196,9 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
             key={src}
             src={src}
             controls
-            autoPlay
+            // On in FileManager's player (its button is "Play"), OFF in the
+            // Files preview (E9) — the caller says which.
+            autoPlay={autoPlay}
             // Same reason as the thumbnail path: set BEFORE the source is
             // fetched, and required the day an s3 presigned URL lands here.
             crossOrigin="anonymous"
@@ -193,7 +217,5 @@ export default function VideoPreview({ file, projectId, managed, onClose, onOpen
           <Spinner size="lg" />
         )}
       </div>
-    </Dialog>,
-    document.body,
   )
 }

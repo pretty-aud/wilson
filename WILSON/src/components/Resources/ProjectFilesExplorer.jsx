@@ -106,7 +106,7 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
@@ -117,6 +117,7 @@ import GatedAction from '../../permissions/GatedAction'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import FileEditor from './FileEditor'
+import FilePreviewDialog from './FilePreviewDialog'
 import { desktopBridge, diskSourceFor, downloadCloudFile, downloadName } from './fileActions'
 import {
   Banner, Button, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
@@ -499,6 +500,60 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     return undefined
   }, [onDiskOf, revealOrOpen, downloadUrlFn, downloadFileFn])
 
+  // ── E9: the preview ───────────────────────────────────────────────────────
+  // Opened by Preview, by Enter on a file's name, by a double-click. Its
+  // previous / next walk the list the person is LOOKING at (E14, Drive's
+  // arrows): the table's rows as filtered and sorted, or the files of the
+  // selected file's folder in the Columns view — read live, so a refetch
+  // under an open preview keeps it on the same file.
+  const [previewId, setPreviewId] = useState(null)
+  useEffect(() => { setPreviewId(null) }, [projectId])
+  const previewItems = useMemo(() => {
+    if (!previewId || !tree) return []
+    if (view === 'table') return tableRows.map(r => r.node).filter(n => n.kind === 'file')
+    const open = tree.byId.get(previewId)
+    return (open?.parent?.children || []).filter(n => n.kind === 'file')
+  }, [previewId, tree, view, tableRows])
+  const previewIndex = previewItems.findIndex(n => n.id === previewId)
+  const openPreview = useCallback((node) => {
+    if (!node || node.kind !== 'file') return
+    setSelectedFileId(node.id)
+    setPreviewId(node.id)
+  }, [])
+  const stepPreview = useCallback((i) => {
+    const next = previewItems[i]
+    if (!next) return
+    setSelectedFileId(next.id)
+    setPreviewId(next.id)
+  }, [previewItems])
+  // E13: one 'downloaded' per file per session through the cloud's RPC
+  // (best-effort, the module-level set below). The Local Server's stream
+  // route records the read itself, throttled — so nothing is sent from here.
+  const logPreviewRead = useCallback((row) => {
+    if (!row?.id || adapterMode === 'local_server') return
+    const a = getAdapter?.()
+    if (typeof a?.logFileDownloaded !== 'function') return
+    if (PREVIEW_READS_LOGGED.has(row.id)) return
+    PREVIEW_READS_LOGGED.add(row.id)
+    Promise.resolve(a.logFileDownloaded(row)).catch(() => {})
+  }, [adapterMode, getAdapter])
+  // The file's actions, in the file window's footer and the preview's bar.
+  // The on-disk pair is ONE unit: the footer is too narrow for Preview and
+  // both, so the pair wraps whole instead of stranding the icon on a line
+  // of its own (measured in Electron, 271px wanted of 268).
+  const fileActions = useCallback((node) => (onDiskOf(node) ? (
+    <span className="fx-actions-pair">
+      <Button size="sm" Icon={FolderOpen} onClick={() => revealOrOpen(node, true)} data-file-reveal>
+        Show in folder
+      </Button>
+      <IconButton size="sm" icon={ExternalLink} title="Open in default app" onClick={() => revealOrOpen(node, false)} data-file-open />
+    </span>
+  ) : (
+    <Button size="sm" Icon={Download} onClick={() => download(node)} data-file-download>
+      Download
+    </Button>
+  )), [onDiskOf, revealOrOpen, download])
+
   return (
     <div className="rs-page" data-files-explorer data-view={view} data-host={showPicker ? 'resources' : 'rabbit'}>
       {/* One 44px toolbar, every child 28px, left and right slots. It replaced
@@ -653,8 +708,8 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             <div className="fx-split">
               <div className="fx-main">
                 {view === 'table'
-                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFileId(node.id)} selectedId={selectedFile?.id || null} />
-                  : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
+                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFileId(node.id)} onOpen={openPreview} selectedId={selectedFile?.id || null} />
+                  : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} onOpenFile={openPreview} />}
               </div>
               <DetailsPanel
                 node={selectedFile}
@@ -673,21 +728,16 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
                 )}
                 actionError={actionError}
                 actions={selectedFile && (
-                  // E9, one slot per job: a file already on this computer
-                  // is REVEALED by Download (E9), so that slot says what it
-                  // does — Show in folder — and Open in default app joins it.
-                  onDiskOf(selectedFile) ? (
-                    <>
-                      <Button size="sm" Icon={FolderOpen} onClick={() => revealOrOpen(selectedFile, true)} data-file-reveal>
-                        Show in folder
-                      </Button>
-                      <IconButton size="sm" icon={ExternalLink} title="Open in default app" onClick={() => revealOrOpen(selectedFile, false)} data-file-open />
-                    </>
-                  ) : (
-                    <Button size="sm" Icon={Download} onClick={() => download(selectedFile)} data-file-download>
-                      Download
+                  // E9, one slot per job: Preview first (the primary), then a
+                  // cloud file's Download — or, for a file already on this
+                  // computer, Show in folder (E9: Download REVEALS it, so the
+                  // slot says what it does) and Open in default app.
+                  <>
+                    <Button size="sm" variant="primary" Icon={Eye} onClick={() => openPreview(selectedFile)} data-file-preview-open>
+                      Preview
                     </Button>
-                  )
+                    {fileActions(selectedFile)}
+                  </>
                 )}
               />
             </div>
@@ -713,9 +763,30 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           onClose={() => setAuditOpen(false)}
         />
       )}
+      {previewId && previewIndex >= 0 && (
+        <FilePreviewDialog
+          items={previewItems}
+          index={previewIndex}
+          onIndex={stepPreview}
+          onClose={() => setPreviewId(null)}
+          projectId={projectId}
+          adapterMode={adapterMode}
+          actionsFor={fileActions}
+          onRead={logPreviewRead}
+          onReveal={(node) => revealOrOpen(node, true)}
+        />
+      )}
     </div>
   )
 }
+
+// E13: the files whose preview has been logged this session (the cloud's
+// log_file_downloaded, once per file). Module-level on purpose: a session is
+// the app's life, not one mount of this page.
+const PREVIEW_READS_LOGGED = new Set()
+
+/** Tests only (overlay.js's `_resetOverlaysForTests` pattern): one session per test. */
+export function _resetPreviewReadsForTests() { PREVIEW_READS_LOGGED.clear() }
 
 // The seven columns, their widths, their alignment and their type, declared
 // once. `table-layout: fixed` reads the header row, so these ARE the grid
@@ -775,7 +846,7 @@ const HEADERS = [
 // every row, which is what the review itself prescribes for the flattened case
 // ("show the path in the Location column rather than silently removing
 // indentation"), and the Columns view beside it is the actual tree.
-function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
+function TableView({ rows, sortKey, sortDir, onSort, onPick, onOpen, selectedId }) {
   return (
     <Table
         aria-label="Project folders and files"
@@ -805,6 +876,8 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
                 key={node.id}
                 className="fx-row"
                 onClick={() => { if (!isFolder) onPick(node) }}
+                // E10: a double-click previews (single click selects).
+                onDoubleClick={() => { if (!isFolder) onOpen?.(node) }}
                 data-node-kind={node.kind}
                 interactive={!isFolder}
                 selected={node.id === selectedId}
@@ -828,6 +901,11 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
                       type="button"
                       className="fx-name fx-name-btn"
                       onClick={() => onPick(node)}
+                      // E10: Enter previews; Space still selects (the
+                      // button's own click). Enter presses the focused
+                      // control app-wide since S2a, so this is the button's
+                      // own key, not a global hook.
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); onOpen?.(node) } }}
                       title={node.name}
                       data-file-name
                     >
@@ -854,7 +932,7 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId }) {
   )
 }
 
-function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile }) {
+function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile, onOpenFile }) {
   return (
     <div className="fx-columns" data-files-columns>
       {cols.map((col, depth) => (
@@ -874,6 +952,15 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile })
                 type="button"
                 className="fx-col-item"
                 onClick={() => (isFolder ? onOpenFolder(depth, node.id) : onPickFile(depth, node))}
+                // E10 in the Columns view too: a file previews on a
+                // double-click or Enter (a folder's Enter still opens it).
+                onDoubleClick={() => { if (!isFolder) onOpenFile?.(node) }}
+                onKeyDown={(e) => {
+                  if (isFolder || e.key !== 'Enter' || e.altKey || e.ctrlKey || e.metaKey) return
+                  e.preventDefault()
+                  onPickFile(depth, node)
+                  onOpenFile?.(node)
+                }}
                 data-node-kind={node.kind}
                 data-selected={isSel || undefined}
               >
