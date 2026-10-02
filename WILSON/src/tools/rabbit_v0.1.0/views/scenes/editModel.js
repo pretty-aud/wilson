@@ -267,6 +267,58 @@ export function itemsForShots(shots, newId, { sceneId } = {}) {
   }))
 }
 
+// ── a drop, as a change (step 6, D16) ──────────────────────────────────────
+
+/**
+ * A drop on an EDIT's cut. drag / target: { kind: 'item' | 'band', id } — an
+ * item's id, or a block's FIRST item's id (stable while the block is). An
+ * item before or after an item joins that item's block; onto a block, it
+ * goes to the block's top. A block moves whole. null: nothing changes.
+ */
+export function dropOnCut(items, drag, target, where) {
+  if (drag.kind === 'item' && target.kind === 'item') return moveItemTo(items, drag.id, target.id, where)
+  if (drag.kind === 'item' && target.kind === 'band') return moveItemTo(items, drag.id, target.id, 'before')
+  if (drag.kind === 'band' && target.kind === 'band') {
+    const from = indexOfItem(items, drag.id)
+    const to = indexOfItem(items, target.id)
+    if (from < 0 || to < 0) return null
+    const band = bandAt(items, from)
+    return moveBandTo(items, band.start, band.end, to, where)
+  }
+  return null
+}
+
+/**
+ * A drop on the LIST (its own order on screen), applied to the list's
+ * string-out (`items`: one per shot, in list order — S3a's
+ * editItemsFromList). drag / target: { kind: 'scene' | 'shot', id } — a
+ * scene's or a shot's own id. A shot before or after a shot, or to the top
+ * of a scene's block; a scene's block before or after another's. A scene
+ * with no shot is no block of a cut: a drop onto it changes nothing (null).
+ */
+export function dropOnList(items, drag, target, where) {
+  const ofShot = (id) => (items || []).find(i => i.shot_id === id) || null
+  const topOf = (sceneId) => (items || []).find(i => (i.scene_id || null) === sceneId) || null
+  if (drag.kind === 'shot' && target.kind === 'shot') {
+    const a = ofShot(drag.id)
+    const b = ofShot(target.id)
+    return a && b ? moveItemTo(items, a.id, b.id, where) : null
+  }
+  if (drag.kind === 'shot' && target.kind === 'scene') {
+    const a = ofShot(drag.id)
+    const b = topOf(target.id)
+    return a && b ? moveItemTo(items, a.id, b.id, 'before') : null
+  }
+  if (drag.kind === 'scene' && target.kind === 'scene') {
+    const a = topOf(drag.id)
+    const b = topOf(target.id)
+    if (!a || !b) return null
+    const band = bandAt(items, indexOfItem(items, a.id))
+    return moveBandTo(items, band.start, band.end, indexOfItem(items, b.id), where)
+  }
+  return null
+}
+
 function sameOrder(a, b) {
   return a.length === b.length && a.every((x, i) => x.id === b[i].id && (x.scene_id || null) === (b[i].scene_id || null))
 }

@@ -1,6 +1,6 @@
 // editCopy.test.js — the first-change question's sentences (S3c step 4, D13).
 import { describe, it, expect } from 'vitest'
-import { firstChangeQuestion, recoverWords, discardWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords } from './editCopy'
+import { firstChangeQuestion, recoverWords, discardWords, dropWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords } from './editCopy'
 
 const list = { id: 'L1', title: 'Shoot', version: 2 }
 const v1 = { id: 'e1', title: "Director's cut", version: 1 }
@@ -69,5 +69,11 @@ describe('each change in words', () => {
     expect(moveBlockWords('Lighthouse', -1)).toBe('Move the scene “Lighthouse” up')
     expect(duplicateBlockWords('Lighthouse')).toBe('Duplicate the scene “Lighthouse” in the edit')
     expect(removeBlockWords('Lighthouse')).toBe('Remove the scene “Lighthouse” from the edit')
+  })
+  it('a drop says what moved, and where to', () => {
+    expect(dropWords({ dragName: 'The door', targetName: 'Boats', where: 'before' })).toBe('Move “The door” before “Boats”')
+    expect(dropWords({ dragName: 'The door', targetName: 'Boats', where: 'after' })).toBe('Move “The door” after “Boats”')
+    expect(dropWords({ dragName: 'The door', targetName: 'Cliff path', targetIsScene: true, where: 'after' })).toBe('Move “The door” to the top of “Cliff path”')
+    expect(dropWords({ dragName: 'Cliff path', dragIsScene: true, targetName: 'Harbour', targetIsScene: true, where: 'before' })).toBe('Move the scene “Cliff path” before “Harbour”')
   })
 })

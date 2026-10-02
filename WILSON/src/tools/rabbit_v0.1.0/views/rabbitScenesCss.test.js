@@ -812,3 +812,42 @@ describe('reduced motion (plan §3.4): every transition this sheet declares is s
     expect(motionCoverage(withBlock.replace('.rb-scene-y { transition: none; }', '.rb-scene-y { transition: none; opacity: 1; }')).loud).toHaveLength(1)
   })
 })
+
+/* ── 9. Post-overhaul S3c, step 6: the drop line and the grip's room ───────
+   The mounted tests see a row's data-drop and a cell's data-grip; only the
+   sheet draws them, and a rule taken out passed every other test (step 6's
+   planted faults). Each is read off the sheet, with a CONTROL that the
+   reading fails without it. */
+describe('S3c step 6: the drop line and the grip cell are on the sheet', () => {
+  const LINE = {
+    '.rb-scene-table .ui-tr.rb-scene-row[data-drop="before"] > .ui-td': 'inset 0 2px 0 0 var(--color-signal)',
+    '.rb-scene-table .ui-tr.rb-scene-group-row[data-drop="before"] > .ui-td': 'inset 0 2px 0 0 var(--color-signal)',
+    '.rb-scene-table .ui-tr.rb-scene-row[data-drop="after"] > .ui-td': 'inset 0 -2px 0 0 var(--color-signal)',
+    '.rb-scene-table .ui-tr.rb-scene-group-row[data-drop="after"] > .ui-td': 'inset 0 -2px 0 0 var(--color-signal)',
+  }
+  const ROOM = [
+    '.rb-scene-table .ui-tr > .ui-td.rb-scene-num-cell[data-grip="true"]',
+    '.rb-scene-table .ui-tr > .ui-td.rb-scene-cut-pos[data-grip="true"]',
+  ]
+  it('a 2px signal line along the edge the row will land on — its top before, its bottom after — on a row and on a band, over the kit\'s selected first cell', () => {
+    for (const [sel, v] of Object.entries(LINE)) {
+      expect(declaredValue(sheet, sel, 'box-shadow'), sel).toBe(v)
+      expect(gt(specificity(sel), specificity('.ui-tr[data-selected="true"] > .ui-td:first-child')), sel).toBeGreaterThan(0)
+    }
+  })
+  it('a number cell with a grip is the grip\'s box and keeps its figure clear of it (4px in, 20 wide, 28px of room)', () => {
+    for (const sel of ROOM) {
+      expect(declaredValue(sheet, sel, 'position'), sel).toBe('relative')
+      expect(declaredValue(sheet, sel, 'padding-left'), sel).toBe('28px')
+    }
+    expect(declaredValue(sheet, '.rb-scene-grip', 'position')).toBe('absolute')
+    expect(declaredValue(sheet, '.rb-scene-grip', 'left')).toBe('4px')
+    expect(declaredValue(sheet, '.rb-scene-grip', 'width')).toBe('20px')
+    expect(declaredValue(sheet, '.rb-scene-grip', 'cursor')).toBe('grab')
+    expect(declaredValue(sheet, '.rb-scene-group-head > .rb-scene-grip', 'position')).toBe('static')
+  })
+  it('CONTROL: each taken out, it no longer reads', () => {
+    for (const sel of Object.keys(LINE)) expect(declaredValue(withDeclaration(sheet, sel, 'box-shadow', null), sel, 'box-shadow'), sel).toBe(null)
+    for (const sel of ROOM) expect(declaredValue(withDeclaration(sheet, sel, 'padding-left', null), sel, 'padding-left'), sel).toBe(null)
+  })
+})

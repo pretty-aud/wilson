@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   cutRows, cutBands, cutTotals, draftName, labelled, bandAt,
   moveItemTo, moveBandTo, stepItem, stepBand, duplicateItem, removeItem, insertAfter, itemsForShots,
-  duplicateBand, removeBand,
+  duplicateBand, removeBand, dropOnCut, dropOnList,
 } from './editModel'
 
 const it_ = (id, scene, shot, label = shot) => ({ id, scene_id: scene, shot_id: shot, label, notes: '' })
@@ -140,5 +140,37 @@ describe('the draft\'s changes (D16)', () => {
     expect(ids(removeBand(ITEMS, 0, 1))).toEqual(['x3', 'x4'])
     expect(removeBand(ITEMS, 2, 9)).toBeNull()
     expect(duplicateBand(ITEMS, 3, 2, newId)).toBeNull()
+  })
+})
+
+describe('a drop, as a change (step 6, D16)', () => {
+  it('on a cut: an item lands before or after an item, joining its block; onto a block, at its top', () => {
+    expect(ids(dropOnCut(ITEMS, { kind: 'item', id: 'x4' }, { kind: 'item', id: 'x1' }, 'before'))).toEqual(['x4', 'x1', 'x2', 'x3'])
+    const after = dropOnCut(ITEMS, { kind: 'item', id: 'x1' }, { kind: 'item', id: 'x3' }, 'after')
+    expect(ids(after)).toEqual(['x2', 'x3', 'x1', 'x4'])
+    expect(after[2].scene_id).toBe('B')
+    const top = dropOnCut(ITEMS, { kind: 'item', id: 'x4' }, { kind: 'band', id: 'x3' }, 'after')
+    expect(ids(top)).toEqual(['x1', 'x2', 'x4', 'x3'])
+    expect(top[2].scene_id).toBe('B')
+  })
+  it('on a cut: a block moves whole (named by its first item); onto itself, or a block onto an item, nothing', () => {
+    expect(ids(dropOnCut(ITEMS, { kind: 'band', id: 'x1' }, { kind: 'band', id: 'x3' }, 'after'))).toEqual(['x3', 'x1', 'x2', 'x4'])
+    expect(ids(dropOnCut(ITEMS, { kind: 'band', id: 'x4' }, { kind: 'band', id: 'x1' }, 'before'))).toEqual(['x4', 'x1', 'x2', 'x3'])
+    expect(dropOnCut(ITEMS, { kind: 'band', id: 'x1' }, { kind: 'band', id: 'x1' }, 'after')).toBeNull()
+    expect(dropOnCut(ITEMS, { kind: 'band', id: 'x1' }, { kind: 'item', id: 'x3' }, 'after')).toBeNull()
+  })
+  // The list's string-out: Harbour (a1, a2), Lighthouse (b1), Pier (empty: no block).
+  const OUT = [it_('s1', 'A', 'a1'), it_('s2', 'A', 'a2'), it_('s3', 'B', 'b1')]
+  it('on the list: a shot before or after a shot, or to the top of a scene\'s block, in the string-out', () => {
+    expect(dropOnList(OUT, { kind: 'shot', id: 'b1' }, { kind: 'shot', id: 'a2' }, 'before').map(i => i.shot_id)).toEqual(['a1', 'b1', 'a2'])
+    const top = dropOnList(OUT, { kind: 'shot', id: 'a2' }, { kind: 'scene', id: 'B' }, 'after')
+    expect(top.map(i => [i.shot_id, i.scene_id])).toEqual([['a1', 'A'], ['a2', 'B'], ['b1', 'B']])
+  })
+  it('on the list: a scene\'s block before or after another\'s; a scene with no shot is no block, and changes nothing', () => {
+    expect(dropOnList(OUT, { kind: 'scene', id: 'B' }, { kind: 'scene', id: 'A' }, 'before').map(i => i.shot_id)).toEqual(['b1', 'a1', 'a2'])
+    expect(dropOnList(OUT, { kind: 'scene', id: 'A' }, { kind: 'scene', id: 'B' }, 'after').map(i => i.shot_id)).toEqual(['b1', 'a1', 'a2'])
+    expect(dropOnList(OUT, { kind: 'shot', id: 'a1' }, { kind: 'scene', id: 'P' }, 'after')).toBeNull()
+    expect(dropOnList(OUT, { kind: 'scene', id: 'P' }, { kind: 'scene', id: 'A' }, 'before')).toBeNull()
+    expect(dropOnList(OUT, { kind: 'scene', id: 'A' }, { kind: 'shot', id: 'b1' }, 'before')).toBeNull()
   })
 })

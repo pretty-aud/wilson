@@ -99,5 +99,11 @@ export const removeWords = (name) => `Remove ${q(name)} from the edit`
 export const addWords = (n) => `Add ${n} shot${n === 1 ? '' : 's'}`
 export const newShotWords = (sceneLabel) => `Add a new shot to ${q(sceneLabel)}`
 export const moveBlockWords = (label, dir) => `Move the scene ${q(label)} ${dir < 0 ? 'up' : 'down'}`
+/** A drop (step 6): a shot before / after a shot, or to the top of a scene; a scene before / after a scene. */
+export function dropWords({ dragName, dragIsScene, targetName, targetIsScene, where }) {
+  if (dragIsScene) return `Move the scene ${q(dragName)} ${where} ${q(targetName)}`
+  if (targetIsScene) return `Move ${q(dragName)} to the top of ${q(targetName)}`
+  return `Move ${q(dragName)} ${where} ${q(targetName)}`
+}
 export const duplicateBlockWords = (label) => `Duplicate the scene ${q(label)} in the edit`
 export const removeBlockWords = (label) => `Remove the scene ${q(label)} from the edit`

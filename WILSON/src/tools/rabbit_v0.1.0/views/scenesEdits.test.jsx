@@ -655,3 +655,213 @@ describe('S3c step 5: Save edit, the pulse, Discard', () => {
     expect(cutRowNames(container)).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
   })
 })
+
+// ── Step 6: drag-and-drop (D16) ─────────────────────────────────────────────
+// Native drag events, dispatched as the browser sends them (a MouseEvent with
+// its clientY, the dataTransfer beside it); each row's box is stubbed so the
+// half the pointer is over can be chosen.
+const dt = () => ({ setData: vi.fn(), setDragImage: vi.fn(), effectAllowed: '', dropEffect: '' })
+function fire(type, el, transfer, clientY = 0) {
+  const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientY })
+  Object.defineProperty(ev, 'dataTransfer', { value: transfer })
+  act(() => { el.dispatchEvent(ev) })
+  return ev
+}
+const boxed = (row) => { row.getBoundingClientRect = () => ({ top: 0, height: 40, bottom: 40, left: 0, right: 100, width: 100 }); return row }
+const BEFORE = 10
+const AFTER = 30
+/** Drag `grip` to `row`: start, over, drop, end — as one gesture. */
+function dragTo(grip, row, clientY) {
+  const transfer = dt()
+  fire('dragstart', grip, transfer)
+  fire('dragover', boxed(row), transfer, clientY)
+  const line = row.getAttribute('data-drop')
+  fire('drop', row, transfer, clientY)
+  fire('dragend', grip, transfer)
+  return { transfer, line }
+}
+const cutRow = (name, n = 0) => [...document.querySelectorAll('.rb-scene-cut-row')].filter(r => r.querySelector('.rb-scene-cut-name')?.textContent === name)[n]
+const cutGrip = (name, n = 0) => cutRow(name, n).querySelector('.rb-scene-grip')
+const cutBand = (label, n = 0) => [...document.querySelectorAll('.rb-scene-table-cut .rb-scene-group-row')].filter(r => r.querySelector('.rb-scene-group-label')?.textContent === label)[n]
+
+describe('S3c step 6: drag-and-drop on a cut', () => {
+  it('a row is dragged by the grip in its cut cell — only the grip is draggable, hidden from a screen reader (Move up / Move down are the keyboard\'s way)', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const grip = cutGrip('The door')
+    expect(grip.getAttribute('draggable')).toBe('true')
+    expect(grip.getAttribute('aria-hidden')).toBe('true')
+    expect(grip.closest('td').classList.contains('rb-scene-cut-pos')).toBe(true)
+    expect(grip.closest('td').getAttribute('data-grip')).toBe('true')
+    expect(document.querySelectorAll('.rb-scene-table-cut [draggable="true"]')).toHaveLength(5 + 3)
+  })
+
+  it('on a saved edit the first drop asks — naming the move — and Yes makes the draft with it; the drop line shows while over', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    const { line, transfer } = dragTo(cutGrip('The cold lamp'), cutRow('The climb'), BEFORE)
+    expect(line).toBe('before')
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-wilson-cut', expect.any(String))
+    expect(transfer.setDragImage).toHaveBeenCalledWith(cutRow('The cold lamp'), 16, 16)
+    expect(cutRow('The climb').getAttribute('data-drop')).toBeNull()
+    expect(question().textContent).toContain('with this change: Move “The cold lamp” before “The climb”.')
+    await yes('Start new version')
+    expect(cutNames()).toEqual(['The cold lamp', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan'])
+    // It joined the block it landed in.
+    expect(bandLabels(document)[0]).toBe('Cliff path')
+  })
+
+  it('on a draft every drop applies at once: after a row, to a block\'s top, a block whole', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    await yes('Start new version')
+    expect(cutNames()).toEqual(['The climb', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    dragTo(cutGrip('The climb', 1), cutRow('The cold lamp'), AFTER)
+    expect(question()).toBeNull()
+    expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp', 'The climb'])
+    // Onto a block: its top (the line under its heading).
+    const { line } = dragTo(cutGrip('The cold lamp'), cutBand('Lighthouse, dawn'), BEFORE)
+    expect(line).toBe('after')
+    expect(cutNames()).toEqual(['The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan', 'The climb'])
+    // A block, whole, by the grip before its name.
+    const bandGrip = cutBand('Cliff path', 1).querySelector('.rb-scene-grip')
+    dragTo(bandGrip, cutBand('Cliff path', 0), BEFORE)
+    expect(bandLabels(document)).toEqual(['Cliff path', 'Lighthouse, dawn'])
+    expect(cutNames()).toEqual(['The climb', 'The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan'])
+    // The first change made the draft; the three drops each changed it.
+    expect(log.start).toHaveLength(1)
+    expect(log.change).toHaveLength(3)
+  })
+
+  it('a row that takes the drag says so to the browser (its dragover\'s default is prevented — no drop happens otherwise); one that does not, does not', () => {
+    draftPage()
+    pickEdit('edit-1')
+    let transfer = dt()
+    fire('dragstart', cutGrip('The door'), transfer)
+    expect(fire('dragover', boxed(cutRow('The climb')), transfer, AFTER).defaultPrevented).toBe(true)
+    fire('dragend', cutGrip('The door'), transfer)
+    transfer = dt()
+    const bandGrip = cutBand('Lighthouse, dawn').querySelector('.rb-scene-grip')
+    fire('dragstart', bandGrip, transfer)
+    expect(fire('dragover', boxed(cutRow('The climb')), transfer, AFTER).defaultPrevented).toBe(false)
+    fire('dragend', bandGrip, transfer)
+  })
+
+  it('the line goes when the drag is called off (dragend alone: Escape, or let go elsewhere), and when it lands', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const transfer = dt()
+    fire('dragstart', cutGrip('The door'), transfer)
+    fire('dragover', boxed(cutRow('The climb')), transfer, BEFORE)
+    expect(cutRow('The climb').getAttribute('data-drop')).toBe('before')
+    fire('dragend', cutGrip('The door'), transfer)
+    expect(cutRow('The climb').getAttribute('data-drop')).toBeNull()
+    expect(question()).toBeNull()
+    // Lands, with no dragend after it: the line goes with the drop.
+    const t2 = dt()
+    fire('dragstart', cutGrip('The cold lamp'), t2)
+    fire('dragover', boxed(cutRow('The climb')), t2, BEFORE)
+    fire('drop', cutRow('The climb'), t2, BEFORE)
+    expect(cutRow('The climb').getAttribute('data-drop')).toBeNull()
+    expect(question()).not.toBeNull()
+  })
+
+  it('a block never lands on a row, and a row dropped back where it was asks nothing', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const bandGrip = cutBand('Lighthouse, dawn').querySelector('.rb-scene-grip')
+    const { line } = dragTo(bandGrip, cutRow('The climb'), AFTER)
+    expect(line).toBeNull()
+    expect(question()).toBeNull()
+    // The second door, dropped just after the first: where it already is.
+    dragTo(cutGrip('The door', 1), cutRow('The door', 0), AFTER)
+    expect(question()).toBeNull()
+    expect(log.start).toEqual([])
+    // CONTROL: after the climb it would join the climb's block — a change, asked.
+    dragTo(cutGrip('The door'), cutRow('The climb'), AFTER)
+    expect(question()).not.toBeNull()
+  })
+
+  it('nothing to drag where nothing may change: an archived edit, or a seat without list writes', () => {
+    draftPage({ edits: [{ ...EDIT_1, archived_at: '2026-10-02T09:00:00Z' }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Shot lists…' }))
+    fireEvent.doubleClick(within(screen.getByRole('dialog', { name: 'Shot lists' })).getByRole('button', { name: "Director's cut" }).closest('tr'))
+    expect(document.querySelectorAll('.rb-scene-table-cut .rb-scene-grip')).toHaveLength(0)
+    cleanup()
+    perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
+    draftPage({ adapterMode: 'supabase', myProjectRole: null, projectIsStaffed: true })
+    pickEdit('edit-1')
+    expect(document.querySelectorAll('.rb-scene-table-cut .rb-scene-grip')).toHaveLength(0)
+  })
+})
+
+describe('S3c step 6: a drag on the LIST asks to make an edit (Audrey\'s flow)', () => {
+  const sceneRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+  it('in List order a scene row is dragged by its number cell; the drop asks "Make a new edit from this list?" and Yes puts the draft on screen', async () => {
+    draftPage({ edits: [] })
+    const grip = sceneRow('Cliff path').querySelector('.rb-scene-num-cell > .rb-scene-grip')
+    expect(grip.getAttribute('draggable')).toBe('true')
+    const { line } = dragTo(grip, sceneRow('Lighthouse, dawn'), BEFORE)
+    expect(line).toBe('before')
+    const q = question()
+    expect(screen.getByRole('dialog', { name: 'Make a new edit from this list?' })).toBe(q)
+    expect(q.textContent).toContain('Yes starts “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order with this change: Move the scene “Cliff path” before “Lighthouse, dawn”.')
+    await yes('Start new edit')
+    expect(editSelect().selectedOptions[0].textContent).toBe('Shoot · v1 (not saved)')
+    expect(cutNames()).toEqual(['The climb', 'The door', 'The cold lamp'])
+    // The list itself did not move.
+    expect(rabbit.current.reorderShotListItems).not.toHaveBeenCalled()
+  })
+
+  it('Cancel leaves the list as it was and makes nothing', () => {
+    draftPage({ edits: [] })
+    dragTo(sceneRow('Cliff path').querySelector('.rb-scene-grip'), sceneRow('Lighthouse, dawn'), BEFORE)
+    fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
+    expect(log.start).toEqual([])
+    expect(document.querySelector('.rb-scene-table-cut')).toBeNull()
+    // The rows sprang back: the list's own order, as before the drag.
+    const order = [...document.querySelectorAll('.rb-scene-table-scenes button[aria-label^="Select "]')]
+      .map(b => b.getAttribute('aria-label')).filter(l => l !== 'Select every scene')
+    expect(order).toEqual(['Select Lighthouse, dawn', 'Select Cliff path'])
+  })
+
+  it('a nested shot onto a shot of another scene joins that scene\'s block in the draft', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(within(sceneRow('Lighthouse, dawn')).getByRole('button', { name: 'Show shots' }))
+    fireEvent.click(within(sceneRow('Cliff path')).getByRole('button', { name: 'Show shots' }))
+    const shotRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+    dragTo(shotRow('The door').querySelector('.rb-scene-grip'), shotRow('The climb'), AFTER)
+    expect(question().textContent).toContain('with this change: Move “The door” after “The climb”.')
+    await yes('Start new edit')
+    expect(cutNames()).toEqual(['The cold lamp', 'The climb', 'The door'])
+    expect(bandLabels(document)).toEqual(['Lighthouse, dawn', 'Cliff path'])
+  })
+
+  it('the shot table (grouped by scene): a shot to the top of another scene; a scene\'s band before another', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Shots' }))
+    const shotRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+    const band = (label) => [...document.querySelectorAll('.rb-scene-table-shots .rb-scene-group-row')].find(r => r.querySelector('.rb-scene-group-label')?.textContent === label)
+    const { line } = dragTo(shotRow('The cold lamp').querySelector('.rb-scene-grip'), band('Cliff path'), BEFORE)
+    expect(line).toBe('after')
+    expect(question().textContent).toContain('with this change: Move “The cold lamp” to the top of “Cliff path”.')
+    fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
+    dragTo(band('Cliff path').querySelector('.rb-scene-grip'), band('Lighthouse, dawn'), BEFORE)
+    await yes('Start new edit')
+    expect(bandLabels(document)).toEqual(['Cliff path', 'Lighthouse, dawn'])
+  })
+
+  it('no grips when the rows are not in the list\'s order: another sort, or the shots grouped by something else', () => {
+    draftPage({ edits: [] })
+    expect(document.querySelectorAll('.rb-scene-table-scenes .rb-scene-grip').length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'name' } })
+    expect(document.querySelectorAll('.rb-scene-grip')).toHaveLength(0)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Shots' }))
+    expect(document.querySelectorAll('.rb-scene-table-shots .rb-scene-grip').length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
+    expect(document.querySelectorAll('.rb-scene-grip')).toHaveLength(0)
+  })
+})

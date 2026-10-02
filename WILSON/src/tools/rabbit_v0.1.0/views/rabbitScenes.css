@@ -1622,11 +1622,12 @@
 
   /* ═══ An edit's cut (post-overhaul S3c, step 3) ═══════════════════════════
      EditTable: the shot table's band and row, the CUT position first (an
-     editor's event numbers), the drag handle in a cell of its own (step 6).
-     Its columns are the shot table's tokens, plus two. */
-  .rb-scene-cut { --rb-scene-col-grip: var(--control-sm); --rb-scene-col-cut: 56px; }
+     editor's event numbers) — and, from step 6, the cell a row is dragged
+     by (the grip at its left). Its columns are the shot table's tokens,
+     plus the cut's. */
+  .rb-scene-cut { --rb-scene-col-cut: 64px; }
   .ui-table.rb-scene-table-cut {
-    min-width: calc(var(--rb-scene-col-grip) + var(--rb-scene-col-cut) + var(--rb-scene-col-thumb)
+    min-width: calc(var(--rb-scene-col-cut) + var(--rb-scene-col-thumb)
       + var(--rb-scene-col-num) + var(--rb-scene-col-name) + var(--rb-scene-col-status)
       + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
   }
@@ -1650,9 +1651,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-2);
   }
-  /* The drag handle's cell (step 6): the 28px handle at the row's height,
-     4px in from the scroller's edge. */
-  .rb-scene-table .ui-tr > .ui-td.rb-scene-cut-grip-cell { padding: 4px 0 3px 4px; }
   /* The shot's name: the row's anchor, 600 in the ink — words, not a field
      (its name does not change in an edit). A missing shot reads in the
      third ink at 400 (D17: still in the cut, counting for nothing). */
@@ -1669,6 +1667,43 @@
   .rb-scene-cut-row[data-missing="true"] .rb-scene-cut-name { font-weight: 400; color: var(--color-ink-3); }
   .rb-scene-cut-none { color: var(--color-ink-3); }
   .rb-scene-cut-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
+
+  /* ═══ Drag-and-drop (post-overhaul S3c, step 6; D16) ══════════════════════
+     A row is dragged by the cell its number is in — the cut's position, the
+     list's scene or shot number — the grip at the cell's left, the figure at
+     its right: no column is added, so the scene table's 1280 fit (S3b)
+     holds. A scene block is dragged by the grip before its name. The grip is
+     a quiet third-ink mark that comes up to the ink under the pointer and
+     grabs; Move up / Move down are the keyboard's way (D16). The drop is a
+     2px signal line along the edge the row will land on, inset on the
+     target row's cells — the selected row's inset edge, turned — from the
+     row's data-drop, never a style from script. (0,5,0) over the kit's
+     selected first cell. */
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-num-cell[data-grip="true"],
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-cut-pos[data-grip="true"] { position: relative; padding-left: 28px; }
+  .rb-scene-grip {
+    position: absolute;
+    top: 50%;
+    left: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 24px;
+    margin-top: -12px;
+    border-radius: var(--radius-control);
+    color: var(--color-ink-3);
+    cursor: grab;
+  }
+  .rb-scene-grip:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-scene-grip:active { cursor: grabbing; }
+  .rb-scene-grip > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  /* A block's grip sits in its heading's row of words, before its name. */
+  .rb-scene-group-head > .rb-scene-grip { position: static; flex-shrink: 0; margin: 0 0 0 4px; }
+  .rb-scene-table .ui-tr.rb-scene-row[data-drop="before"] > .ui-td,
+  .rb-scene-table .ui-tr.rb-scene-group-row[data-drop="before"] > .ui-td { box-shadow: inset 0 2px 0 0 var(--color-signal); }
+  .rb-scene-table .ui-tr.rb-scene-row[data-drop="after"] > .ui-td,
+  .rb-scene-table .ui-tr.rb-scene-group-row[data-drop="after"] > .ui-td { box-shadow: inset 0 -2px 0 0 var(--color-signal); }
 
   /* ═══ The bar's edit selector (post-overhaul S3c, step 3) ═════════════════
      After the list's words: a divider, the Label-step eyebrow "EDIT", the

@@ -61,11 +61,15 @@ import { useEditChanges } from './scenes/useEditChanges'
 import AddShotsDialog from './scenes/AddShotsDialog'
 import {
   stepItem, stepBand, duplicateItem, removeItem, duplicateBand, removeBand, insertAfter, itemsForShots,
+  dropOnCut, dropOnList,
 } from './scenes/editModel'
 import {
   firstChangeQuestion, moveWords, duplicateWords, removeWords, addWords, newShotWords,
-  moveBlockWords, duplicateBlockWords, removeBlockWords,
+  moveBlockWords, duplicateBlockWords, removeBlockWords, dropWords,
 } from './scenes/editCopy'
+// …and (step 6) the drag.
+import { useCutDrag } from './scenes/useCutDrag'
+import { Grip } from './scenes/EditTable'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -817,6 +821,34 @@ export default function ScenesView({ pageActive = false } = {}) {
     setAddShotsAt(null)
   }, [addShotsAt, shotById, requestCut])
 
+  // ── Drag-and-drop (post-overhaul S3c, step 6; D16) ──
+  // On an edit or a draft a drop changes the cut — asking first on a saved
+  // edit (D13). On the LIST, in its own order, a drop is Audrey's way to an
+  // edit ("before applying the changes please ask the user to confirm if they
+  // would like to make a new edit"): it asks D13's question, and Yes puts the
+  // draft on screen; the list itself never moves by a drag (its Move up /
+  // Move down still reorder it, S3b). Only a list in List order can be
+  // dragged (another sort's rows are not in the list's order), and the shot
+  // table only while it groups by scene. No drop writes anything: the change
+  // is the draft's, and the provider's one batch slot is never held (S3b-10).
+  const listDragOn = canEditCut && viewed.mode === 'list' && editSession.mode === 'none' && listOrder
+  const cutDragOn = canEditCut && editSession.mode !== 'none'
+  const onCutDrop = useCallback((d, t, where) => {
+    const onList = d.kind === 'scene' || d.kind === 'shot'
+    const sceneName = (id) => sceneById?.(id)?.name || 'Untitled scene'
+    const shotName = (id) => shotById?.(id)?.name || 'Untitled shot'
+    const rowName = (id) => editSession.rows?.find(r => r.item.id === id)?.name || ''
+    const bandName = (id) => {
+      const at = (editSession.items || []).findIndex(it => it.id === id)
+      return editSession.bands?.find(b => b.start === at)?.label || ''
+    }
+    const what = onList
+      ? dropWords({ dragName: d.kind === 'scene' ? sceneName(d.id) : shotName(d.id), dragIsScene: d.kind === 'scene', targetName: t.kind === 'scene' ? sceneName(t.id) : shotName(t.id), targetIsScene: t.kind === 'scene', where })
+      : dropWords({ dragName: d.kind === 'band' ? bandName(d.id) : rowName(d.id), dragIsScene: d.kind === 'band', targetName: t.kind === 'band' ? bandName(t.id) : rowName(t.id), targetIsScene: t.kind === 'band', where })
+    requestCut({ what, apply: (its) => (onList ? dropOnList(its, d, t, where) : dropOnCut(its, d, t, where)) })
+  }, [sceneById, shotById, editSession.rows, editSession.items, editSession.bands, requestCut])
+  const cutDrag = useCutDrag({ onDrop: onCutDrop })
+
   // Review round 1 (R1-01): S3a's deleteScene takes EVERY shot of the scene,
   // in every list, and its ONE undo step puts the scene, each shot, every
   // membership and every task link back. Deleting each shot first (as this
@@ -1524,6 +1556,7 @@ export default function ScenesView({ pageActive = false } = {}) {
             menuFor={cutRowMenu}
             bandMenuFor={cutBandMenu}
             onOpenShot={setDetailShotId}
+            drag={cutDragOn ? cutDrag : null}
             empty={{
               body: 'Every shot was taken out of this cut.',
               action: canEditCut
@@ -1553,6 +1586,7 @@ export default function ScenesView({ pageActive = false } = {}) {
               onNewShot={handleNewShot}
               onRequestDelete={setConfirmDelete}
               bulkPending={bulkPendingRef}
+              drag={listDragOn && shotGroupBy === 'scene' ? cutDrag : null}
             />
           ) : (
             <ShotGallery
@@ -1648,6 +1682,7 @@ export default function ScenesView({ pageActive = false } = {}) {
                 onNewShot={handleNewShot}
                 onRequestDelete={setConfirmDelete}
                 bulkPending={bulkPendingRef}
+                drag={listDragOn ? cutDrag : null}
               />
             )
           ) : (
@@ -1865,7 +1900,10 @@ function deleteAsOneStep(ctx, ids, remove, what, pending) {
 // S3b: `rowMenu` (a row's shot-list menu), `nameTitle` (a name's lists, D10)
 // and `onBulkRemove` (the bulk bars' Remove from list, while a list is on
 // screen and this person writes lists) come from ScenesView.
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending }) {
+// Post-overhaul S3c, step 6: `drag` (useCutDrag's, or null) — in the list's
+// own order a scene row and a nested shot row are dragged by their number
+// cell; a drop asks D13's question (ScenesView's onCutDrop).
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   // W9: the two bulk deletes ask on the kit Dialog ('scenes', or
@@ -2015,11 +2053,20 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
           const isChecked = selected.has(sc.id)
           // What each unnamed control on the row is named for.
           const name = sc.name || 'Untitled'
+          const dropAt = drag?.at('scene', sc.id)
           return (
             <Fragment key={sc.id}>
               {/* The kit Row: its one selected treatment (R3-38 — it was an
                   orange tint AND a full orange border), the lane's hover. */}
-              <Row className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+              <Row
+                className="rb-scene-row"
+                selected={isChecked}
+                data-ticked={isChecked ? 'true' : 'false'}
+                data-drop={dropAt === 'before' ? 'before' : dropAt === 'after' ? 'after' : undefined}
+                onDragOver={drag ? drag.over('scene', sc.id) : undefined}
+                onDragLeave={drag ? drag.leave('scene', sc.id) : undefined}
+                onDrop={drag ? drag.drop('scene', sc.id) : undefined}
+              >
                 {/* Checkbox: one 28px square (R3-40) */}
                 <Td className="rb-scene-check-cell">
                   <button type="button" onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}
@@ -2071,8 +2118,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   </div>
                 </Td>
 
-                {/* Scene # */}
-                <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined}>
+                {/* Scene # — and, in the list's own order, its grip (S3c step 6) */}
+                <Td numeric className="rb-scene-num-cell" data-empty={sc.scene_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                  {drag && <Grip drag={drag} kind="scene" id={sc.id} name={name} />}
                   {sc.scene_number ?? '—'}
                 </Td>
 
@@ -2211,8 +2259,18 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                             const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
                             const nestedThumbH = Math.max(rowH - 8, 28)
                             const shotName = shot.name || 'Untitled'
+                            const shotDropAt = drag?.at('shot', shot.id)
                             return (
-                              <Row key={shot.id} className="rb-scene-row" selected={isNested} data-ticked={isNested ? 'true' : 'false'}>
+                              <Row
+                                key={shot.id}
+                                className="rb-scene-row"
+                                selected={isNested}
+                                data-ticked={isNested ? 'true' : 'false'}
+                                data-drop={shotDropAt === 'before' ? 'before' : shotDropAt === 'after' ? 'after' : undefined}
+                                onDragOver={drag ? drag.over('shot', shot.id) : undefined}
+                                onDragLeave={drag ? drag.leave('shot', shot.id) : undefined}
+                                onDrop={drag ? drag.drop('shot', shot.id) : undefined}
+                              >
                                 {/* Checkbox: the 28px square (R3-40; it was the 12px glyph alone) */}
                                 <Td className="rb-scene-check-cell">
                                   <button type="button" onClick={() => toggleNestedShot(shot.id)}
@@ -2258,8 +2316,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                     )}
                                   </div>
                                 </Td>
-                                {/* Shot # */}
-                                <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
+                                {/* Shot # — and its grip (S3c step 6) */}
+                                <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                                  {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
                                   {shot.shot_number ?? '—'}
                                 </Td>
                                 {/* Name */}
@@ -2478,7 +2537,10 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, can
 // The kit Table (R3-20), the same columns in the same order; a group's
 // header is a row of the table (the Tasks and Expenses tables' bands), its
 // Add shot the row after its shots.
-function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending }) {
+// Post-overhaul S3c, step 6: `drag` (useCutDrag's, or null) — grouped by
+// scene in the list's own order, a shot row is dragged by its number cell and
+// a scene's band by the grip before its name; a drop asks D13's question.
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, canWrite = false, canAdd = false, addReason, rowMenu, nameTitle, onBulkRemove, describeDelete, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete, bulkPending, drag = null }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -2595,6 +2657,10 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
           const isGrouped = g.groupType !== 'none'
           const collapsed = isGrouped && collapsedGroups.has(g.key)
           const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
+          // S3c step 6: a scene's band takes a drag (and can be dragged) only
+          // as a scene's — a band of no scene is no block.
+          const bandDrag = drag && g.groupType === 'scene' && g.sceneId ? drag : null
+          const bandAt = bandDrag?.at('scene', g.sceneId)
           return (
             <Fragment key={g.key}>
               {/* A group's band (none for ungrouped): one row across the
@@ -2603,9 +2669,16 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                   inside it. A scene's status is the kit's StatusDot (the 3px
                   accent in its colour is gone, R3-11); names in the ink. */}
               {isGrouped && (
-                <Row className="rb-scene-group-row">
+                <Row
+                  className="rb-scene-group-row"
+                  data-drop={bandAt === 'before' ? 'before' : bandAt === 'after' ? 'after' : undefined}
+                  onDragOver={bandDrag ? bandDrag.over('scene', g.sceneId) : undefined}
+                  onDragLeave={bandDrag ? bandDrag.leave('scene', g.sceneId) : undefined}
+                  onDrop={bandDrag ? bandDrag.drop('scene', g.sceneId) : undefined}
+                >
                   <Td colSpan={span} className="rb-scene-group-cell">
                     <span className="rb-scene-group-head">
+                      {bandDrag && <Grip drag={bandDrag} kind="scene" id={g.sceneId} name={g.label} />}
                       <button type="button" onClick={() => toggleGroup(g.key)}
                         aria-expanded={!collapsed}
                         className="rb-scene-group-toggle">
@@ -2641,8 +2714,18 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                 const shotTakeEntries = takes?.map?.get(shot.id) || []
                 const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
                 const shotName = shot.name || 'Untitled'
+                const shotDropAt = drag?.at('shot', shot.id)
                 return (
-                  <Row key={shot.id} className="rb-scene-row" selected={isChecked} data-ticked={isChecked ? 'true' : 'false'}>
+                  <Row
+                    key={shot.id}
+                    className="rb-scene-row"
+                    selected={isChecked}
+                    data-ticked={isChecked ? 'true' : 'false'}
+                    data-drop={shotDropAt === 'before' ? 'before' : shotDropAt === 'after' ? 'after' : undefined}
+                    onDragOver={drag ? drag.over('shot', shot.id) : undefined}
+                    onDragLeave={drag ? drag.leave('shot', shot.id) : undefined}
+                    onDrop={drag ? drag.drop('shot', shot.id) : undefined}
+                  >
                     {/* Checkbox: one 28px square (R3-40) */}
                     <Td className="rb-scene-check-cell">
                       <button type="button" onClick={() => toggleOne(shot.id)}
@@ -2687,8 +2770,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       </div>
                     </Td>
 
-                    {/* Shot # */}
-                    <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined}>
+                    {/* Shot # — and, grouped by scene in the list's own order, its grip (S3c step 6) */}
+                    <Td numeric className="rb-scene-num-cell" data-empty={shot.shot_number == null ? 'true' : undefined} data-grip={drag ? 'true' : undefined}>
+                      {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
                       {shot.shot_number ?? '—'}
                     </Td>
 

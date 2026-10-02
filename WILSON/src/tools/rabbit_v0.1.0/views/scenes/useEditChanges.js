@@ -54,6 +54,9 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
     }
     const from = mode === 'edit' ? row : null
     const base = from ? (from.items || []) : (ctx?.editItemsFromList?.(list.id) || [])
+    // A change that changes nothing (a row dropped back where it was) asks
+    // nothing. Only a change with no `prepare` can be tried before Yes.
+    if (apply && !prepare && !apply(base)) return false
     setAsking({
       listId: list.id,
       list,

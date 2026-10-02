@@ -18,20 +18,40 @@
 //
 // Row and band verbs come in as menus (`menuFor`, `bandMenuFor`) from the
 // edit session (useEditSession), which decides what each does: on a saved
-// edit the first change asks (D13), on a draft it changes the draft. The
-// drag handle (step 6) is the first cell, on its own, so the row's inline
-// editors stay clickable.
+// edit the first change asks (D13), on a draft it changes the draft.
+//
+// Step 6 (D16): a row is dragged by its CUT cell — the grip at the cell's
+// left, the position at its right — and a scene block by the grip before
+// its name; only the grips are draggable, so the inline editors stay
+// clickable. The list tables take a row by its number cell the same way
+// (useCutDrag says what may land where). A row's `data-drop` draws the line.
 // ============================================================
 
 import { Fragment, useMemo } from 'react'
-import { Film, Eye, Clapperboard } from 'lucide-react'
+import { Film, Eye, Clapperboard, GripVertical } from 'lucide-react'
 import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState } from '../../../../ui'
 import MenuButton from './MenuButton'
 import { framesToTimecode } from './timecode'
 import '../rabbitScenes.css'
 
-/** Every column: what a band row and an empty cut span. */
-const SPAN = 9
+/** Every column: what a band row spans. */
+const SPAN = 8
+
+/** The grip a row or a block is dragged by (decorative to a screen reader: Move up / Move down are the keyboard's way, D16). */
+export function Grip({ drag, kind, id, name }) {
+  return (
+    <span
+      className="rb-scene-grip"
+      draggable="true"
+      aria-hidden="true"
+      title={`Drag ${name} to move it`}
+      onDragStart={drag.start(kind, id)}
+      onDragEnd={drag.end}
+    >
+      <GripVertical />
+    </span>
+  )
+}
 
 /**
  * rows / bands   editModel.cutRows / cutBands
@@ -43,12 +63,10 @@ const SPAN = 9
  * menuFor(row)   the row's ⋯ items (none: no ⋯)
  * bandMenuFor(band)   the band's ⋯ items
  * onOpenShot(id) View details
- * grip(kind, target)  step 6: the drag handle for a row or a band, or null
- * dropAt(kind, target)  step 6: 'before' | 'after' | undefined — where a drop would land
- * drop           step 6: { over(kind, target), leave(kind, target), drop(kind, target) }, or null
+ * drag           step 6: useCutDrag's handlers, or null (nothing can be dragged here)
  * empty          what an empty cut says, and offers ({ body, action })
  */
-export default function EditTable({ rows, bands, fps, ctx, canWrite = false, statusOptions = [], search = '', menuFor, bandMenuFor, onOpenShot, grip = null, dropAt = null, drop = null, empty = null }) {
+export default function EditTable({ rows, bands, fps, ctx, canWrite = false, statusOptions = [], search = '', menuFor, bandMenuFor, onOpenShot, drag = null, empty = null }) {
   const needle = String(search || '').trim().toLowerCase()
   const shown = useMemo(() => {
     if (!needle) return bands
@@ -71,7 +89,6 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
         className="rb-scene-table rb-scene-table-cut"
         head={(
           <Row>
-            <Th width="var(--rb-scene-col-grip)"><span className="sr-only">Move</span></Th>
             <Th width="var(--rb-scene-col-cut)" numeric title="The shot's place in the cut">Cut</Th>
             <Th width="var(--rb-scene-col-thumb)" className="rb-scene-thumb-cell"><span className="sr-only">Thumbnail</span></Th>
             <Th width="var(--rb-scene-col-num)" numeric>#</Th>
@@ -86,17 +103,21 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
         {shown.map(band => {
           const bandFrames = band.rows.reduce((n, r) => n + r.frames, 0)
           const bandItems = bandMenuFor?.(band) || []
+          // A block is named by its first item (stable while the block is).
+          const bandId = rows[band.start]?.item.id
+          const bandAt = drag?.at('band', bandId)
           return (
             <Fragment key={band.key}>
               <Row
                 className="rb-scene-group-row"
-                onDragOver={drop ? drop.over('band', band) : undefined}
-                onDragLeave={drop ? drop.leave('band', band) : undefined}
-                onDrop={drop ? drop.drop('band', band) : undefined}
+                data-drop={bandAt === 'before' ? 'before' : bandAt === 'after' ? 'after' : undefined}
+                onDragOver={drag ? drag.over('band', bandId) : undefined}
+                onDragLeave={drag ? drag.leave('band', bandId) : undefined}
+                onDrop={drag ? drag.drop('band', bandId) : undefined}
               >
-                <Td className="rb-scene-cut-grip-cell">{grip?.('band', band) || null}</Td>
-                <Td colSpan={SPAN - 2} className="rb-scene-group-cell">
+                <Td colSpan={SPAN - 1} className="rb-scene-group-cell">
                   <span className="rb-scene-group-head">
+                    {drag && <Grip drag={drag} kind="band" id={bandId} name={`the ${band.label} block`} />}
                     <span className="rb-scene-cut-band-name">
                       {band.scene && <StatusDot status={band.scene.status || 'not_started'} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
                       <Film className="rb-scene-group-icon" aria-hidden="true" />
@@ -115,17 +136,21 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
               {band.rows.map(r => {
                 const shot = r.shot
                 const items = menuFor?.(r) || []
+                const at = drag?.at('item', r.item.id)
                 return (
                   <Row
                     key={r.item.id}
                     className="rb-scene-row rb-scene-cut-row"
                     data-missing={r.missing ? 'true' : undefined}
-                    onDragOver={drop ? drop.over('item', r) : undefined}
-                    onDragLeave={drop ? drop.leave('item', r) : undefined}
-                    onDrop={drop ? drop.drop('item', r) : undefined}
+                    data-drop={at === 'before' ? 'before' : at === 'after' ? 'after' : undefined}
+                    onDragOver={drag ? drag.over('item', r.item.id) : undefined}
+                    onDragLeave={drag ? drag.leave('item', r.item.id) : undefined}
+                    onDrop={drag ? drag.drop('item', r.item.id) : undefined}
                   >
-                    <Td className="rb-scene-cut-grip-cell">{grip?.('item', r) || null}</Td>
-                    <Td numeric className="rb-scene-cut-pos">{r.index + 1}</Td>
+                    <Td numeric className="rb-scene-cut-pos" data-grip={drag ? 'true' : undefined}>
+                      {drag && <Grip drag={drag} kind="item" id={r.item.id} name={`${r.name} (cut ${r.index + 1})`} />}
+                      {r.index + 1}
+                    </Td>
                     <Td className="rb-scene-thumb-cell">
                       <div className="rb-scene-thumb" data-static="true">
                         {shot?.thumbnail_image
