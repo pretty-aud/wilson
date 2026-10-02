@@ -265,7 +265,7 @@ const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], 
 /** The stand-in provider's leave guard answers: 'stay', 'discard' (drops the draft, goes on) or 'go'. */
 const leave = { answer: 'stay' }
 function DraftHarness({ edits: given, extra, pageActive }) {
-  const [drafts, setDrafts] = useState({})
+  const [drafts, setDrafts] = useState(() => extra.initialDrafts || {})
   // As the provider's (step 7): its drafts are the unsaved work every exit asks about.
   const draftsRef = useRef(drafts)
   draftsRef.current = drafts
@@ -344,7 +344,7 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     fireEvent.click(menuItem('Duplicate in edit'))
     const q = question()
     expect(screen.getByRole('dialog', { name: 'Make a new version of this edit?' })).toBe(q)
-    expect(q.textContent).toContain('Yes starts “Director\'s cut · v2” from “Director\'s cut · v1” with this change: Duplicate “The climb” in the edit.')
+    expect(q.textContent).toContain('Start new version makes “Director\'s cut · v2” from “Director\'s cut · v1” with this change: Duplicate “The climb” in the edit.')
     expect(q.textContent).toContain('“Director\'s cut · v1” stays as it was saved. Nothing is saved until you choose Save edit.')
     expect(document.activeElement.textContent).toBe('Cancel')
     fireEvent.click(within(q).getByRole('button', { name: 'Cancel' }))
@@ -520,7 +520,7 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     draftPage({ edits: [] })
     fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
     fireEvent.click(menuItem('New edit from this list'))
-    expect(question().textContent).toContain('Yes starts “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order.')
+    expect(question().textContent).toContain('Start new edit makes “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order.')
     expect(question().textContent).toContain('The list itself does not change.')
     await yes('Start new edit')
     expect(log.start[0]).toMatchObject({ listId: 'list-1', basedOnEditId: null, title: 'Shoot', version: 1 })
@@ -551,6 +551,22 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     draftPage({ recoverableEditDrafts: [copy], recoverEditDraft, dismissStoredEditDraft })
     await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).getByRole('button', { name: 'Discard edit' })) })
     expect(dismissStoredEditDraft).toHaveBeenCalledWith('list-1')
+  })
+  it('a three-answer question is a question: the draft\'s Ctrl+Z stands down under it (CONTROL: once answered, it acts)', () => {
+    const base = EDIT_1.items
+    const initialDrafts = { 'list-1': startDraft({ projectId: 'p1', listId: 'list-1', basedOnEditId: 'edit-1', title: "Director's cut", version: 2, base, items: base.slice(1), now: 't' }) }
+    const { container } = draftPage({ initialDrafts, recoverableEditDrafts: [{ ...copy, listId: 'gone-list' }] })
+    expect(screen.getByRole('dialog', { name: 'Recover unsaved edit?' }).getAttribute('data-width')).toBe('form')
+    // A shot's popup open beneath: the tab's own surface keeps the keys, so
+    // only the question's own count can stand them down (the form width is
+    // not the confirm width questionOnScreen otherwise reads).
+    fireEvent.click(screen.getAllByRole('button', { name: 'View details of The door' })[0])
+    expect(screen.getByRole('dialog', { name: 'The door' })).toBeTruthy()
+    fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+    expect(log.undo).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+    expect(log.undo).toBe(1)
   })
   it('never over another page; a copy whose list is archived can only be discarded', () => {
     draftPage({ recoverableEditDrafts: [copy], pageActive: false })
@@ -623,7 +639,7 @@ describe('S3c step 5: Save edit, the pulse, Discard', () => {
     // After a Save, the next change asks again (D13).
     rowMenu('The door', 1)
     fireEvent.click(menuItem('Duplicate in edit'))
-    expect(question().textContent).toContain('Yes starts “Director\'s cut · v3” from “Director\'s cut · v2”')
+    expect(question().textContent).toContain('Start new version makes “Director\'s cut · v3” from “Director\'s cut · v2”')
   })
 
   it('"Same title, next version" off: a title of one\'s own at ITS next version; an empty one is refused before anything is sent', async () => {
@@ -824,7 +840,7 @@ describe('S3c step 6: a drag on the LIST asks to make an edit (Audrey\'s flow)',
     expect(line).toBe('before')
     const q = question()
     expect(screen.getByRole('dialog', { name: 'Make a new edit from this list?' })).toBe(q)
-    expect(q.textContent).toContain('Yes starts “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order with this change: Move the scene “Cliff path” before “Lighthouse, dawn”.')
+    expect(q.textContent).toContain('Start new edit makes “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order with this change: Move the scene “Cliff path” before “Lighthouse, dawn”.')
     await yes('Start new edit')
     expect(editSelect().selectedOptions[0].textContent).toBe('Shoot · v1 (not saved)')
     expect(cutNames()).toEqual(['The climb', 'The door', 'The cold lamp'])

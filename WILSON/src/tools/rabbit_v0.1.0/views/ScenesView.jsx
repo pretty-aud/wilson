@@ -73,6 +73,8 @@ import { Grip } from './scenes/EditTable'
 // …and (step 7) the leave guard: a popup's typed text, a jump between rows.
 import { useLeaveGuard } from './scenes/useLeaveGuard'
 import { confirmLeave, hasUnsavedWork } from '../state/leaveGuard'
+// The three-answer questions (leave, recover) are at the form width: they count themselves.
+import { answersOpen } from './scenes/AnswerDialog'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -4187,7 +4189,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // is the kit Dialog at another width, so the keys still undo there (C1).
 const openQuestions = { count: 0 }
 function questionOnScreen() {
-  return openQuestions.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+  return openQuestions.count > 0 || answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
 }
 /** A kit menu ON SCREEN (a row's shot-list menu, the bar's More): a key
     pressed with one open is not an undo (S4a-07; visibleOverlayOpen's

@@ -11,28 +11,40 @@ describe('the first-change question says what Yes makes, from what, and what sta
     const qn = firstChangeQuestion({ list, name: { title: 'Shoot', version: 1 }, what: 'Move “The door” down' })
     expect(qn.title).toBe('Make a new edit from this list?')
     expect(qn.lines).toEqual([
-      'Yes starts “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order with this change: Move “The door” down.',
+      'Start new edit makes “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order with this change: Move “The door” down.',
       'The list itself does not change. Nothing is saved until you choose Save edit.',
     ])
     expect(qn.confirmLabel).toBe('Start new edit')
   })
   it('from a list whose chain has edits: the next edit — and with no change yet, no change named', () => {
     const qn = firstChangeQuestion({ list, tip: v3, name: { title: "Director's cut", version: 4 } })
-    expect(qn.lines[0]).toBe('Yes starts “Director\'s cut · v4”, the next edit of “Shoot · v2”, from the list\'s order.')
+    expect(qn.lines[0]).toBe('Start new edit makes “Director\'s cut · v4”, the next edit of “Shoot · v2”, from the list\'s order.')
   })
   it('from the latest edit: its next version; the saved one stays', () => {
     const qn = firstChangeQuestion({ list, from: v3, tip: v3, name: { title: "Director's cut", version: 4 }, what: 'Duplicate “The door” in the edit' })
     expect(qn.title).toBe('Make a new version of this edit?')
     expect(qn.lines).toEqual([
-      'Yes starts “Director\'s cut · v4” from “Director\'s cut · v3” with this change: Duplicate “The door” in the edit.',
+      'Start new version makes “Director\'s cut · v4” from “Director\'s cut · v3” with this change: Duplicate “The door” in the edit.',
       '“Director\'s cut · v3” stays as it was saved. Nothing is saved until you choose Save edit.',
     ])
     expect(qn.confirmLabel).toBe('Start new version')
   })
   it('from an OLDER edit: the next version after the latest (one chain, D6), from the one on screen', () => {
     const qn = firstChangeQuestion({ list, from: v1, tip: v3, name: { title: "Director's cut", version: 4 }, what: 'Move “Boats” up' })
-    expect(qn.lines[0]).toBe('Yes starts “Director\'s cut · v4”, the next version after “Director\'s cut · v3”, the latest, from “Director\'s cut · v1” with this change: Move “Boats” up.')
+    expect(qn.lines[0]).toBe('Start new version makes “Director\'s cut · v4”, the next version after “Director\'s cut · v3”, the latest, from “Director\'s cut · v1” with this change: Move “Boats” up.')
     expect(qn.lines[1]).toBe('Saved versions stay as they are. Nothing is saved until you choose Save edit.')
+  })
+  it('names its go-ahead by the button\'s own label in every case — there is no "Yes" to look for', () => {
+    const cases = [
+      firstChangeQuestion({ list, name: { title: 'Shoot', version: 1 } }),
+      firstChangeQuestion({ list, tip: v3, name: { title: "Director's cut", version: 4 } }),
+      firstChangeQuestion({ list, from: v3, tip: v3, name: { title: "Director's cut", version: 4 } }),
+      firstChangeQuestion({ list, from: v1, tip: v3, name: { title: "Director's cut", version: 4 } }),
+    ]
+    for (const qn of cases) {
+      expect(qn.lines[0].startsWith(`${qn.confirmLabel} makes “`)).toBe(true)
+      expect(qn.lines.join(' ')).not.toMatch(/\bYes\b/)
+    }
   })
 })
 

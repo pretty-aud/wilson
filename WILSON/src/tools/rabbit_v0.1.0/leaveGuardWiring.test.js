@@ -54,8 +54,16 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
     expect(dialog).toMatch(/>Close WILSON<\/h2>/)
     expect(app.match(/<LeaveEditDialog \/>/g)).toHaveLength(1)
   })
+  // Step 8: the pin reaches the prompt itself (both halves Chromium needs) and
+  // its listener, not only the guard's first line.
+  const UNLOAD = /useEffect\(\(\) => \{\s*if \(window\.electronAPI\) return;\s*const onBeforeUnload = \(e\) => \{\s*if \(!hasUnsavedWork\('close'\)\) return;\s*e\.preventDefault\(\);\s*e\.returnValue = '';\s*\};\s*window\.addEventListener\('beforeunload', onBeforeUnload\);\s*return \(\) => window\.removeEventListener\('beforeunload', onBeforeUnload\);\s*\}, \[\]\);/
   it('the browser\'s own leave prompt only outside the desktop app (never a second prompt there)', () => {
-    expect(app).toMatch(/useEffect\(\(\) => \{\s*if \(window\.electronAPI\) return;\s*const onBeforeUnload = \(e\) => \{\s*if \(!hasUnsavedWork\('close'\)\) return;/)
+    expect(app).toMatch(UNLOAD)
+  })
+  it('CONTROL: a prompt that never prevents the unload, or is never listened for, fails the pin', () => {
+    expect(app.replace("e.preventDefault();\n      e.returnValue = '';", '')).not.toMatch(UNLOAD)
+    expect(app.replace("window.addEventListener('beforeunload', onBeforeUnload);", '')).not.toMatch(UNLOAD)
+    expect(app.replace('if (window.electronAPI) return;\n    const onBeforeUnload', 'const onBeforeUnload')).not.toMatch(UNLOAD)
   })
   it('the leave question is rendered inside RabbitProvider (it reads the provider)', () => {
     const open = app.indexOf('<RabbitProvider>')

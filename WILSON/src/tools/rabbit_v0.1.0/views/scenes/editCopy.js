@@ -8,7 +8,9 @@
 // first-change question (D13) names what Yes makes ("Shoot · v4"), what it
 // starts from (the list's order, or the edit on screen), the change itself,
 // and what does NOT change; and its verb says which: "Start new edit" from a
-// list, "Start new version" from an edit. Pure (editCopy.test.js).
+// list, "Start new version" from an edit. The sentence names that answer by
+// its own label, as the leave question names its three (there is no "Yes"
+// button to look for). Pure (editCopy.test.js).
 // ============================================================
 
 import { formatShotListLabel } from '../../state/shotListModel'
@@ -32,7 +34,7 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
     return {
       title: 'Make a new edit from this list?',
       lines: [
-        `Yes starts ${making}, ${tip ? 'the next edit' : 'a new edit'} of ${q(formatShotListLabel(list))}, from the list's order${change}.`,
+        `Start new edit makes ${making}, ${tip ? 'the next edit' : 'a new edit'} of ${q(formatShotListLabel(list))}, from the list's order${change}.`,
         'The list itself does not change. Nothing is saved until you choose Save edit.',
       ],
       confirmLabel: 'Start new edit',
@@ -43,7 +45,7 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
     return {
       title: 'Make a new version of this edit?',
       lines: [
-        `Yes starts ${making}, the next version after ${q(formatShotListLabel(tip))}, the latest, from ${fromLabel}${change}.`,
+        `Start new version makes ${making}, the next version after ${q(formatShotListLabel(tip))}, the latest, from ${fromLabel}${change}.`,
         'Saved versions stay as they are. Nothing is saved until you choose Save edit.',
       ],
       confirmLabel: 'Start new version',
@@ -52,7 +54,7 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
   return {
     title: 'Make a new version of this edit?',
     lines: [
-      `Yes starts ${making} from ${fromLabel}${change}.`,
+      `Start new version makes ${making} from ${fromLabel}${change}.`,
       `${fromLabel} stays as it was saved. Nothing is saved until you choose Save edit.`,
     ],
     confirmLabel: 'Start new version',

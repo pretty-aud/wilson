@@ -90,3 +90,52 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
     expect(page('light').length).toBeGreaterThan(1500)
   })
 })
+
+// Post-overhaul S3c, step 8: the page gains edits, in the controls' own words.
+describe('the help page\'s edits (S3c)', () => {
+  const EDIT_CONTROLS = [
+    ['List order', './views/scenes/ShotListBar.jsx', /placeholder="List order"/],
+    ['Edit runtime', './views/ScenesView.jsx', /<BigTile label="Edit runtime"/],
+    ['Missing shot', './views/scenes/editModel.js', /export const MISSING_SHOT = 'Missing shot'/],
+    ['Make a new edit from this list?', './views/scenes/editCopy.js', /title: 'Make a new edit from this list\?'/],
+    ['Make a new version of this edit?', './views/scenes/editCopy.js', /title: 'Make a new version of this edit\?'/],
+    ['Start new edit', './views/scenes/editCopy.js', /confirmLabel: 'Start new edit'/],
+    ['Start new version', './views/scenes/editCopy.js', /confirmLabel: 'Start new version'/],
+    ['New edit from this list', './views/scenes/ShotLists.jsx', /label: 'New edit from this list', Icon: Scissors, onClick/],
+    ['Move up', './views/ScenesView.jsx', /\{ label: 'Move up', Icon: ArrowUp, disabled: cutSearching/],
+    ['Duplicate in edit', './views/ScenesView.jsx', /label: 'Duplicate in edit'/],
+    ['Add shot…', './views/ScenesView.jsx', /label: 'Add shot…'/],
+    ['New shot', './views/ScenesView.jsx', /label: 'New shot',/],
+    ['Remove from edit', './views/ScenesView.jsx', /label: 'Remove from edit'/],
+    ['Move scene up', './views/ScenesView.jsx', /label: 'Move scene up'/],
+    ['Duplicate scene in edit', './views/ScenesView.jsx', /label: 'Duplicate scene in edit'/],
+    ['Remove scene from edit', './views/ScenesView.jsx', /label: 'Remove scene from edit'/],
+    ['Save edit', './views/scenes/ShotLists.jsx', />\s*Save edit\s*</],
+    ['Same title, next version', './views/scenes/SaveEditDialog.jsx', /label="Same title, next version"/],
+    ['Discard changes', './views/scenes/ShotLists.jsx', />Discard changes</],
+    ['Unsaved', '../../ui/Button.jsx', /: 'Unsaved'/],
+    ['Recover unsaved edit?', './views/scenes/ShotLists.jsx', /title="Recover unsaved edit\?"/],
+    ['Keep editing', './views/scenes/LeaveEditDialog.jsx', /stayLabel="Keep editing"/],
+    ['Archive this edit', './views/scenes/ShotLists.jsx', /label: 'Archive this edit', Icon: Archive, onClick/],
+  ]
+  it('names the edit controls by the tab\'s own labels', () => {
+    const text = page()
+    for (const [name, file, drawn] of EDIT_CONTROLS) {
+      expect(text, name).toContain(name)
+      expect(read(file), `${file} no longer says "${name}"`).toMatch(drawn)
+    }
+  })
+  it('says what an edit is, that a drag on the list never moves the list, what asks and what does not', () => {
+    const text = page()
+    expect(text).toContain('A shot keeps its name in every edit; only the order is the edit\'s.')
+    expect(text).toContain('the list itself does not change')
+    expect(text).toContain('Nothing asks again until the edit is saved or discarded.')
+    expect(text).toContain('A change WILSON makes by itself (a tab turned off, the project closed) does not ask, and the unsaved edit is kept.')
+    expect(text).toContain('While an edit is unsaved they undo and redo its own changes instead, on every backend.')
+    expect(text).toContain('with reduced motion the pulse stops and the word stays')
+  })
+  it('CONTROL: a label renamed on the tab fails its pin', () => {
+    const [, file, drawn] = EDIT_CONTROLS.find(([n]) => n === 'Duplicate in edit')
+    expect(read(file).replace(/label: 'Duplicate in edit'/g, "label: 'Repeat in edit'")).not.toMatch(drawn)
+  })
+})

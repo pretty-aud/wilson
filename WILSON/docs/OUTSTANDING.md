@@ -2060,6 +2060,11 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   of the tab's own popups or takes dialogs is open (the Bins keys' rule;
   the popups keep the keys, C1). **Budget and the Timeline are left**: S3b's
   brief gave `BudgetView.jsx` and `TimelineView.jsx` to S3c. Owner: S3c.
+  **Budget and the Timeline FIXED by post-overhaul S3c** (2026-10-02, step
+  1, `25083448`): each handler acts only while R.A.B.B.I.T. is the page on
+  screen (`pageActive`, Rabbit.jsx's) and stands down under the settings
+  drawer or with focus in one, as the Scenes and Bins keys do; each has an
+  off-page CONTROL (rabbitBudgetRender, timelineShotLists).
 - ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
   test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
   "the task form hands focus back to 'Add new task'…". Measured red in 4
@@ -2208,6 +2213,10 @@ Audrey are in walkthrough 51, not here.
   `onCreateTask`, so the popups now hand it only with the gate, and their
   `handleCreateTask` refuses (writeGate.test.js holds both). The rest of
   the panel is S3c's file. Owner: S3c.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 1): RelationsPanel takes
+  the seat (`canWrite`, `writeReason`): "Add asset relation" and each
+  relation's remove are greyed with the reason (GatedAction), and both
+  funnels refuse; the Scenes popups hand it theirs.
 - **S3b-02 · FileManager in the scene and shot popups is ungated.** A
   reviewer sees Add files and each file's delete (`FileManager.jsx` reads no
   permission; INFERRED from the code). Owner: the Files lane, or S3c with
@@ -2225,6 +2234,10 @@ Audrey are in walkthrough 51, not here.
 - **S3b-05 · The popups' task form is dropped without asking.** D21 covers
   the popups' own drafts; NewTaskSidePopup's (RelationsPanel's) closes with
   the popup. INFERRED from the code. Owner: S3c.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 7): the form reports
+  typed work (`onDirtyChange`), and a popup with a typed task form asks
+  D21's question before it closes ("What you typed in the new task is not
+  saved. Discard it, or go back to it.").
 - **S3b-06 · The popup name's Escape reverts without asking.** A one-line
   field reverting on Escape is the kit's convention (useEscapeRevert), so
   D21 left it; recorded in case Audrey wants the question there too.
@@ -2244,6 +2257,11 @@ Audrey are in walkthrough 51, not here.
   no longer carries into the second — it goes, unasked (MEASURED by the
   "a popup is its row's own" test). Owner: S3c (the leave guard) or the
   Bins lane.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 7): each popup with
+  typed work registers with the leave guard (`state/leaveGuard.js`):
+  "Show in Bins", any other way off the tab, a project switch, and a jump
+  opening another row's popup ask D21's question first; Cancel keeps the
+  typed text. Leaving the page does not ask: the tab stays mounted.
 - **S3b-09 · The asset popup the Scenes popups open is ungated, and lists
   the active list's rows.** Since P1-23 a related asset opens the Assets
   tab's own `AssetDetailPopup` (`ProjectAssetsView.jsx` 1655), which
@@ -2251,6 +2269,11 @@ Audrey are in walkthrough 51, not here.
   and shot pickers read `ctx.scenes` / `ctx.shots`, the active list's
   (2023, 2037; review round 1, R1-20, read from the code). Owner: the
   Assets lane, and S3c for the relation pickers.
+  **The relation pickers FIXED by post-overhaul S3c** (2026-10-02, step 1):
+  they offer the active list's scenes and shots by default with "Show all
+  lists", keep a row already linked, and name each row's list; the popup
+  takes the seat (`canWrite`), so a reviewer's relation badges are greyed
+  and its funnels refuse. The rest of the popup is the Assets lane's.
 - **S3b-10 · The provider's undo batch is one global slot, and a replay
   records nothing.** `RabbitProvider.jsx` `runBatch`, `pushHistory`,
   `undo` / `redo`. (a) Any mutation that completes while a batch is open
@@ -2265,6 +2288,9 @@ Audrey are in walkthrough 51, not here.
   bulk delete runs — but the undo toast's Undo can still start a replay in
   that window. Owner: S3a's lane (the provider): guard `b`, and decide
   whether a batch should collect only its own calls.
+  Post-overhaul S3c does not lean on it: a draft's changes write nothing,
+  and Save edit records its write and its Save as ONE step pushed directly
+  (`saveEditDraft`), never through the batch slot.
 - **S3b-11 · Admin Terminal → Users: "Add people" likely cannot close its
   own menu in the app.** `UsersSection.jsx` `armSwallow` arms the swallow
   in the button's onMouseDown only `if (addMenuAt)` — but in Chromium React
@@ -2274,3 +2300,51 @@ Audrey are in walkthrough 51, not here.
   for S3b's MenuButton by emulation in review round 2, R2-02, and fixed
   there with a window-capture listener: `views/scenes/MenuButton.jsx`).
   Owner: the Admin Terminal lane.
+
+## Post-overhaul S3c (`po/s3c-edits`) — left open (2026-10-02)
+
+What S3c (edits: the cut, the draft, Save edit, drag-and-drop, the leave
+guard, the budget's shot list, what links belong to) built around or found
+and did not fix. S3b-01, S3b-05, S3b-08, S3b-09's relation pickers and
+S4a-07's Budget and Timeline handlers are closed above. Questions for
+Audrey are in walkthrough 53 and the hand-off's "Waiting on Audrey".
+
+- **S3c-01 · Another project's unsaved edit is not part of the window's
+  close question.** An automatic switch (the project cleared) leaves a
+  draft in memory under its own project; the close question names the open
+  project's only. Its stored copy survives, and that project's next visit
+  offers "Recover unsaved edit?". By design (D12: an automatic switch cannot
+  ask). Owner: Audrey (should the close question name it?).
+- **S3c-02 · A drop onto a scene with no shot in the list changes
+  nothing.** A cut is shots; a scene with none is no block of it, so a shot
+  dropped on its heading has nowhere to land. Owner: Audrey (should the
+  shot make that scene a block of its own?).
+- **S3c-03 · New shot in an edit makes a real shot on the list at once.**
+  D6: "entirely new shots" are real shot rows. The draft's own undo, and
+  Discard changes, take it out of the edit, not out of the list (delete it
+  there). Owner: Audrey.
+- **S3c-04 · An edit made by Save edit is Saved at once.** Its snapshot
+  holds the names "Missing shot: …" shows (D17), so its maker's Withdraw
+  this edit never applies to it; Ctrl+Z straight after Save edit takes the
+  Save back and withdraws it (one step, "Recently removed"); later it is a
+  manager's Archive. Owner: Audrey (the reading S3c took of "createEditFrom,
+  or saveEdit where the API calls for it").
+- **S3c-05 · Save edit from the leave or close question saves without a
+  summary.** Under the name the first-change question gave it, at that
+  title's next version. Owner: Audrey.
+- **S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
+  tab was reloaded too.** Copy. Owner: a session.
+- **S3c-07 · A list's first edit takes the list's own title** (D13's
+  rule), so the bar can read "Shot list 1 · v1 — Edit Shot list 1 · v1 (not
+  saved)". Owner: Audrey.
+- **S3c-08 · The shells' exits are held by source pins.** No test mounts
+  Rabbit.jsx or App.jsx: the tab strip, the cross-tab jump, navigateTo and
+  the close question's fold are pinned on their source
+  (leaveGuardWiring.test.js, each pin with a CONTROL) and were exercised
+  for real in Chromium and once in the desktop app. Owner: a session that
+  mounts the shell.
+- **S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
+  unsaved edit on screen** (then the draft's own undo, on every backend);
+  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).
+- **S3c-10 · P1-32b is still open** (the Timeline's weekends-off
+  conversions): S5's, as the brief said.

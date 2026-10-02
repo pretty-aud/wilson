@@ -338,7 +338,68 @@ export function RabbitHelpContent({ helpPage, theme }) {
               on the Scenes tab, in its scene and shot windows and in the
               windows they open, but not while you type in a field, while a
               menu, a question, the settings drawer or a shot-list window is
-              open, or while a delete of several rows is still going.
+              open, or while a delete of several rows is still going. While
+              an edit is unsaved they undo and redo its own changes instead,
+              on every backend.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className={T.sectionTitle}>Edits</h3>
+        <p className={`${T.bodyText} mb-2`}>
+          An edit is a cut of a shot list: its shots in the order the film
+          plays them. A shot can play more than once, a shot can be left
+          out, and a new shot can be added to the list for it. A shot keeps
+          its name in every edit; only the order is the edit's. Each list
+          has one line of edits, each saved as a version (Title · v2).
+        </p>
+        <div className="space-y-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Seeing an edit</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Edit</span> — On the shot list bar, after the list's name: List order shows the list itself, and each saved edit of it can be chosen.</li>
+              <li>• <span className={T.listBold}>The cut</span> — The edit's shots in order, numbered by their place in the cut, under the scene they play in; a scene that comes back later in the cut shows again there. The totals count the cut: Edit runtime, each shot as often as it plays.</li>
+              <li>• <span className={T.listBold}>Missing shot</span> — A shot deleted from the project stays in the edit as "Missing shot:" and its old name, and counts for nothing. Undoing the delete brings it back.</li>
+              <li>• <span className={T.listBold}>Shot lists…</span> — Shows each list's edits: title, version, when it was made and its summary.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Making an edit</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, it asks "Make a new version of this edit?", and Start new version shows the next version.</li>
+              <li>• <span className={T.listBold}>New edit from this list</span> — In the bar's More menu: the same question, starting from the list's order.</li>
+              <li>• <span className={T.listBold}>A row's edit actions</span> — Move up, Move down, Duplicate in edit, Add shot…, New shot and Remove from edit; a scene's: Move scene up, Move scene down, Duplicate scene in edit and Remove scene from edit. New shot adds a real shot to the list.</li>
+              <li>• <span className={T.listBold}>After the first change</span> — Nothing asks again until the edit is saved or discarded.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Saving an edit</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Unsaved</span> — An unsaved edit is saved nowhere yet: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
+              <li>• <span className={T.listBold}>Save edit</span> — Saves it as the next version: by default the same title, next version, which "Same title, next version" turns off for a title of your own; add a summary of what changed.</li>
+              <li>• <span className={T.listBold}>Discard changes</span> — Drops the unsaved edit; what was on screen before comes back.</li>
+              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — If WILSON closes before an edit is saved, the next visit to the Scenes tab offers it back.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Leaving with an edit unsaved</h4>
+            <p className={T.listItem}>
+              Another tab, another tool or page, another project, another
+              list or edit on the bar, and closing WILSON each ask first:
+              Save edit, Discard changes or Keep editing. A change WILSON
+              makes by itself (a tab turned off, the project closed) does not
+              ask, and the unsaved edit is kept.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Who can do what with edits</h4>
+            <p className={T.listItem}>
+              Reviewers can make and save edits, but New shot is for the
+              members who add scenes and shots. Archive this edit is for
+              project managers and workspace admins. On the Local Server
+              there are no roles.
             </p>
           </div>
         </div>

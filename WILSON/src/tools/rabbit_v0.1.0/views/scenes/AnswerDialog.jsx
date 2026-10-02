@@ -6,7 +6,9 @@
 // ListConfirm's sibling for the edit questions that have THREE answers:
 // "Recover unsaved edit?" (Not now / Discard edit / Recover edit) and the
 // leave guard (D12: Keep editing / Discard changes / Save edit). The kit
-// Dialog at the confirm width, portalled into <body>; the answer that
+// Dialog at the FORM width — three answers at the kit's button size do not
+// fit the confirm width's one row (they wrapped, the go-ahead alone on a
+// second line) — portalled into <body>; the answer that
 // changes nothing first and focused, so Enter and Escape both keep things
 // as they are (D12: "Escape = keep editing"; S3b's D21 iii for every
 // question); then each answer in the variant its effect deserves — the
@@ -16,14 +18,18 @@
 // second press); a refusal lands in its error slot verbatim and the
 // question stays.
 //
-// At the confirm width on purpose: ScenesView's Ctrl+Z / Ctrl+Y stand down
-// while a kit Dialog at that width is on screen (questionOnScreen).
+// It counts itself while open (`answersOpen`): ScenesView's Ctrl+Z / Ctrl+Y
+// stand down under a question (questionOnScreen), which they otherwise
+// recognise by the confirm width.
 // ============================================================
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Dialog, Button } from '../../../../ui'
 import '../rabbitScenes.css'
+
+/** How many of these questions are open now (ScenesView's questionOnScreen reads it). */
+export const answersOpen = { count: 0 }
 
 /**
  * title / children   the question, and what each answer does
@@ -40,6 +46,10 @@ export default function AnswerDialog({ title, children, stayLabel, onStay, answe
   // Focus on the staying answer after the Dialog's own effect, whatever
   // opened it (ListConfirm's lesson).
   useEffect(() => { stayRef.current?.focus() }, [])
+  useEffect(() => {
+    answersOpen.count += 1
+    return () => { answersOpen.count -= 1 }
+  }, [])
   async function answer(i) {
     setRunning(i)
     setError(null)
@@ -53,7 +63,7 @@ export default function AnswerDialog({ title, children, stayLabel, onStay, answe
   const busy = running != null
   return createPortal(
     <Dialog
-      width="confirm"
+      width="form"
       title={title}
       busy={busy}
       error={error}
