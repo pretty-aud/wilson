@@ -2135,6 +2135,13 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   `projectRoleMatrix.js` in step — but it changes who can staff projects.
   Owner: Audrey's decision (S4b hand-off, Waiting on Audrey), then its own
   migration.
+  **2026-10-02 — ACCEPTED by Audrey, no fix:** "workspace managers can have
+  access to the files that is okay. inherently workspace manager may need to
+  access a folder to review things." The gate is unchanged (admins and the
+  project's managers); a workspace manager reaches a project's Legal and
+  money files by taking its manager seat, and nothing records that step.
+  Not to be "fixed" without a new ruling (`POST_OVERHAUL_ANSWERS.md`,
+  2026-10-02).
 - **S4b-06 · Storage totals tell a member when a hidden file arrives, and
   one function answers any company's.** PRE-EXISTING (0055/0057/0073).
   MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
