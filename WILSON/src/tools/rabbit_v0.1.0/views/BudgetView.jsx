@@ -49,6 +49,11 @@ import {
   SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs, Spinner,
 } from '../../../ui'
 import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
+// Post-overhaul S3c, step 1: which shot list a scene or shot is in (the
+// reports' tooltips), and the undo keys' "is the settings drawer in front of
+// me?" (Bins', Scenes' and the Timeline's keys ask it too).
+import { useHomeIndex } from './scenes/LinkHome'
+import { drawerOnScreen } from './bins/binUi'
 import './rabbitBudget.css'
 
 const TABS = [
@@ -95,7 +100,7 @@ const STATUS_FILTER_OPTIONS = [
   { id: 'omitted', label: 'Omitted' },
 ]
 
-export default function BudgetView() {
+export default function BudgetView({ pageActive = false } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
   const phases       = ctx?.phases       || []
@@ -103,6 +108,14 @@ export default function BudgetView() {
   const tasks        = ctx?.tasks        || []
   const scenes       = ctx?.scenes       || []
   const shots        = ctx?.shots        || []
+  // Post-overhaul S3c, step 1: a task linked to a scene or shot only ANOTHER
+  // shot list holds read "Unknown scene" here — `scenes` / `shots` are the
+  // active list's (D10). The reports name it through the provider's lookups
+  // over every row, and each row's tooltip says which list holds it (the
+  // tables are too dense to print it).
+  const sceneById    = ctx?.sceneById
+  const shotById     = ctx?.shotById
+  const homeOf       = useHomeIndex(ctx)
   const levels       = ctx?.levels       || []
   const experiences  = ctx?.experiences  || []
   const loading = ctx?.loadingProject
@@ -266,10 +279,10 @@ export default function BudgetView() {
           <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_scene' && (
-          <BySceneTab scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <BySceneTab scenes={scenes} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_shot' && (
-          <ByShotTab shots={shots} scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByShotTab shots={shots} scenes={scenes} sceneById={sceneById} shotById={shotById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_level' && (
           <ByLevelTab levels={levels} tasks={tasks} budget={budget} roleRates={roleRates} />
@@ -285,6 +298,9 @@ export default function BudgetView() {
             tasks={tasks}
             scenes={scenes}
             shots={shots}
+            sceneById={sceneById}
+            shotById={shotById}
+            homeOf={homeOf}
             levels={levels}
             experiences={experiences}
             budget={budget}
@@ -316,6 +332,7 @@ export default function BudgetView() {
         {tab === 'expenses' && (
           <ExpensesTab
             ctx={ctx}
+            pageActive={pageActive}
             project={project}
             phases={phases}
             assets={assets}
@@ -1313,7 +1330,11 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
 }
 
 // ─── By Scene tab (conditional — visible when scenes_enabled) ──
-function BySceneTab({ scenes, tasks, budget, roleRates }) {
+// Post-overhaul S3c, step 1: a scene is found among EVERY row (`lookup`, the
+// provider's sceneById), not only the active list's, and its row's tooltip
+// names the list that holds it (`homeOf`). "Unknown scene" is left for a
+// link to a row that is gone.
+function BySceneTab({ scenes, sceneById: lookup = null, homeOf = null, tasks, budget, roleRates }) {
   const rows = useMemo(() => {
     const groups = {}
     for (const t of tasks) {
@@ -1322,14 +1343,20 @@ function BySceneTab({ scenes, tasks, budget, roleRates }) {
       groups[sceneId].push(t)
     }
     const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
+    const find = (id) => sceneById[id] || lookup?.(id) || null
     return Object.entries(groups)
-      .map(([sceneId, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: sceneId === '__unscened__' ? 'No scene' : (sceneById[sceneId]?.name || 'Unknown scene'),
-        sortOrder: sceneId === '__unscened__' ? 9999 : (sceneById[sceneId]?.scene_number ?? 0),
-      }))
+      .map(([sceneId, list]) => {
+        const scene = sceneId === '__unscened__' ? null : find(sceneId)
+        const name = sceneId === '__unscened__' ? 'No scene' : (scene?.name || 'Unknown scene')
+        return {
+          ...aggregateTasks(list, roleRates),
+          name,
+          title: scene && homeOf ? homeOf(scene.id).title(name) : undefined,
+          sortOrder: sceneId === '__unscened__' ? 9999 : (scene?.scene_number ?? 0),
+        }
+      })
       .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [scenes, tasks, roleRates])
+  }, [scenes, lookup, homeOf, tasks, roleRates])
 
   if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
 
@@ -1341,7 +1368,9 @@ function BySceneTab({ scenes, tasks, budget, roleRates }) {
 }
 
 // ─── By Shot tab (conditional — visible when scenes_enabled) ──
-function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
+// Post-overhaul S3c, step 1: as BySceneTab — the shot and its scene found
+// among every row, the shot's list in the row's tooltip.
+function ByShotTab({ shots, scenes, sceneById: findScene = null, shotById: findShot = null, homeOf = null, tasks, budget, roleRates }) {
   const rows = useMemo(() => {
     const groups = {}
     for (const t of tasks) {
@@ -1353,17 +1382,19 @@ function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
     const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
     return Object.entries(groups)
       .map(([shotId, list]) => {
-        const shot = shotById[shotId]
-        const parentScene = shot ? sceneById[shot.scene_id] : null
+        const shot = shotId === '__unshot__' ? null : (shotById[shotId] || findShot?.(shotId) || null)
+        const parentScene = shot?.scene_id ? (sceneById[shot.scene_id] || findScene?.(shot.scene_id) || null) : null
         const prefix = parentScene ? `${parentScene.name} › ` : ''
+        const name = shotId === '__unshot__' ? 'No shot' : `${prefix}${shot?.name || 'Unknown shot'}`
         return {
           ...aggregateTasks(list, roleRates),
-          name: shotId === '__unshot__' ? 'No shot' : `${prefix}${shot?.name || 'Unknown shot'}`,
+          name,
+          title: shot && homeOf ? homeOf(shot.id).title(name) : undefined,
           sortOrder: shotId === '__unshot__' ? 9999 : (shot?.shot_number ?? 0),
         }
       })
       .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [shots, scenes, tasks, roleRates])
+  }, [shots, scenes, findScene, findShot, homeOf, tasks, roleRates])
 
   if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
 
@@ -1431,7 +1462,7 @@ function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
 }
 
 // ─── Custom tab ───────────────────────────────────────────
-function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, experiences, budget, roleRates }) {
+function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: findScene = null, shotById: findShot = null, homeOf = null, levels, experiences, budget, roleRates }) {
   const storageKey = `rabbit-budget-custom-${project.id}`
 
   const [prefs, setPrefs] = useState(() => {
@@ -1466,9 +1497,13 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
     const shotById  = Object.fromEntries((shots || []).map(s => [s.id, s]))
     const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
     const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
+    // Post-overhaul S3c, step 1: scenes and shots among every row, as the
+    // two reports above find them; a group's tooltip names the list.
+    const sceneOf = (id) => sceneById[id] || findScene?.(id) || null
+    const shotOf = (id) => shotById[id] || findShot?.(id) || null
     const groups = {}
     for (const t of filteredTasks) {
-      let key, label
+      let key, label, title
       switch (prefs.groupBy) {
         case 'phase': {
           const a = assetById[t.asset_id]
@@ -1478,12 +1513,19 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
         }
         case 'role':       key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
         case 'asset':      key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
-        case 'scene':      key = t.scene_id || '__none__'; label = key === '__none__' ? 'No scene' : (sceneById[key]?.name || 'Unknown scene'); break
+        case 'scene': {
+          key = t.scene_id || '__none__'
+          const sc = key === '__none__' ? null : sceneOf(key)
+          label = key === '__none__' ? 'No scene' : (sc?.name || 'Unknown scene')
+          if (sc && homeOf) title = homeOf(sc.id).title(label)
+          break
+        }
         case 'shot': {
           key = t.shot_id || '__none__'
           if (key === '__none__') { label = 'No shot' } else {
-            const sh = shotById[key]; const sc = sh ? sceneById[sh.scene_id] : null
+            const sh = shotOf(key); const sc = sh?.scene_id ? sceneOf(sh.scene_id) : null
             label = sc ? `${sc.name} › ${sh?.name || 'Unknown'}` : (sh?.name || 'Unknown shot')
+            if (sh && homeOf) title = homeOf(sh.id).title(label)
           }
           break
         }
@@ -1493,13 +1535,13 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
         case 'priority':   key = t.priority || 'medium'; label = key; break
         default:           key = 'all'; label = 'All'
       }
-      if (!groups[key]) groups[key] = { key, label, tasks: [] }
+      if (!groups[key]) groups[key] = { key, label, title, tasks: [] }
       groups[key].tasks.push(t)
     }
     return Object.values(groups)
-      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label }))
+      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label, title: g.title }))
       .sort((a, b) => b.bid - a.bid)
-  }, [filteredTasks, assets, phases, scenes, shots, levels, experiences, prefs.groupBy, roleRates])
+  }, [filteredTasks, assets, phases, scenes, shots, findScene, findShot, homeOf, levels, experiences, prefs.groupBy, roleRates])
 
   const totalCost = rows.reduce((acc, r) => acc + r.cost, 0)
   const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
@@ -1669,7 +1711,7 @@ function fmtExpLabel(str) {
 //   · The two questions window.confirm asked are the kit Dialog (W9).
 //   · The toolbar, the tiles, the filters and the table share one left edge
 //     (R3-31): the shell's gutter.
-function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, currency }) {
+function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, expensesHook, currency }) {
   const {
     expenses, loading: expLoading, addExpense, updateExpense, deleteExpense,
     undo, redo, canUndo, canRedo,
@@ -1771,10 +1813,21 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   // token on its surface (`data-width="confirm"`, Dialog.jsx); the expense
   // popup is the kit Dialog at the form width, so the keys still undo there.
   const questionOpen = deleteConfirmId != null || confirmBulkDelete || confirmResetMc
+  // 🚨 S4a-07 (post-overhaul S3c, step 1): every page stays mounted and this
+  // listens on the WINDOW, so from another page Ctrl+Z undid R.A.B.B.I.T.'s
+  // last edit. It acts only while R.A.B.B.I.T. is the page on screen
+  // (`pageActive`, Rabbit.jsx's, as Scenes and Bins take it), and stands
+  // down under the settings drawer (not on the kit's overlay stack, S4a trap
+  // 10) as well as under a question.
+  const pageActiveRef = useRef(pageActive)
+  pageActiveRef.current = pageActive
   useEffect(() => {
     function onKey(e) {
+      if (!pageActiveRef.current) return
       if (questionOpen || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
+      if (drawerOnScreen()) return
       const t = e.target
+      if (t && typeof t.closest === 'function' && t.closest('.ui-drawer')) return
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
@@ -3067,7 +3120,10 @@ function BreakdownTable({ rows, currency, labelHeader, countHeader, foot }) {
     >
       {rows.map((row, i) => (
         <Row key={`${row.name}-${i}`}>
-          <Td>{row.name}</Td>
+          {/* A scene's or shot's row says in its tooltip which shot list
+              holds it (post-overhaul S3c, D10): the table is too dense to
+              print it. */}
+          <Td title={row.title}>{row.name}</Td>
           <Td numeric className="rb-budget-quiet">{row.taskCount}</Td>
           <Td numeric className="rb-budget-quiet">{formatTenths(row.bid)}</Td>
           <Td numeric className="rb-budget-quiet">{formatTenths(row.logged)}</Td>
@@ -3158,4 +3214,4 @@ function varianceTone(v) {
 
 // Surfaces 2a and 2b's mounted tests render these directly; the default
 // export is unchanged.
-export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup }
+export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, BySceneTab, ByShotTab, CenterMsg, ExpensesTab, ExpensePopup }

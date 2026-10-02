@@ -1362,6 +1362,10 @@
   .rb-rel-picker .ui-dialog-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
   .rb-rel-pick-search { flex: none; padding: 12px; border-bottom: 1px solid var(--color-rule); }
   .rb-rel-picker .rb-rel-pick-search { padding: 12px var(--spacing-gutter); }
+  /* Post-overhaul S3c, step 1: a scene or shot picker's "Show all lists"
+     switch, under the search on the same gutter (the active shot list's rows
+     are the default; D10). */
+  .rb-rel-pick-scope { flex: none; display: flex; align-items: center; padding: 8px var(--spacing-gutter); border-bottom: 1px solid var(--color-rule); }
   .rb-rel-pick-field { position: relative; display: flex; align-items: center; }
   .rb-rel-pick-search-icon {
     position: absolute;

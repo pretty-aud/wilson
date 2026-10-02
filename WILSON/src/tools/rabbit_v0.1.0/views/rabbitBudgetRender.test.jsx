@@ -171,6 +171,59 @@ describe('surface 2a', () => {
     expect(inlineColours(container)).toEqual([])
   })
 
+  // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE list's
+  // (D10); a task linked to a scene or shot only another list holds read
+  // "Unknown scene" / "Unknown shot". The reports find it among every row
+  // (ctx.sceneById / shotById) and say in the row's tooltip which list holds
+  // it — the tables are too dense to print it (D10's floor).
+  describe('By scene, By shot and Custom name a row only another shot list holds (S3c step 1)', () => {
+    const sceneA = { id: 'sA', name: 'Harbour', scene_number: 1 }
+    const sceneB = { id: 'sB', name: 'Lighthouse', scene_number: 2 }
+    const shotA = { id: 'hA', scene_id: 'sA', name: 'SC001_SH010', shot_number: 10 }
+    const shotB = { id: 'hB', scene_id: 'sB', name: 'SC002_SH010', shot_number: 10 }
+    const linked = [
+      { id: 'k1', asset_id: 'a1', scene_id: 'sA', shot_id: 'hA', assigned_role_slug: 'anim', bid_days: 1, logged_days: 0 },
+      { id: 'k2', asset_id: 'a1', scene_id: 'sB', shot_id: 'hB', assigned_role_slug: 'anim', bid_days: 2, logged_days: 0 },
+    ]
+    const all = { sA: sceneA, sB: sceneB, hA: shotA, hB: shotB }
+    const lookup = (id) => all[id] || null
+    const homeOf = (id) => ({ title: (name) => `${name}\nIn: ${id === 'sB' || id === 'hB' ? 'Pickups · v1' : 'Shoot · v2 (active)'}` })
+    const firstCells = (root) => [...root.querySelectorAll('table.rb-budget-report tbody tr')].map(tr => tr.querySelector('td'))
+
+    it('By scene: the other list\'s scene by name, its list in the tooltip', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'Lighthouse'])
+      expect(cells[1].getAttribute('title')).toBe('Lighthouse\nIn: Pickups · v1')
+      cleanup()
+      // CONTROL: without the lookup (the old path) it is the "Unknown scene" this fixes.
+      const { container: old } = render(<BySceneTab scenes={[sceneA]} tasks={linked} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(old).map(td => td.textContent).sort()).toEqual(['Harbour', 'Unknown scene'])
+    })
+    it('By shot: the other list\'s shot and its scene by name, its list in the tooltip', async () => {
+      const { ByShotTab } = await import('./BudgetView')
+      const { container } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} sceneById={lookup} shotById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent).sort()).toEqual(['Harbour › SC001_SH010', 'Lighthouse › SC002_SH010'])
+      expect(cells.find(td => td.textContent.startsWith('Lighthouse')).getAttribute('title')).toBe('Lighthouse › SC002_SH010\nIn: Pickups · v1')
+      cleanup()
+      const { container: old } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} tasks={linked} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(old).map(td => td.textContent)).toContain('Unknown shot')
+    })
+    it('Custom, grouped by shot: the same', () => {
+      try { localStorage.setItem('rabbit-budget-custom-p9', JSON.stringify({ groupBy: 'shot' })) } catch { /* ignore */ }
+      const { container } = render(
+        <CustomTab project={{ id: 'p9' }} phases={[]} assets={[{ id: 'a1' }]} tasks={linked} scenes={[sceneA]} shots={[shotA]}
+          sceneById={lookup} shotById={lookup} homeOf={homeOf} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
+      )
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent)).toContain('Lighthouse › SC002_SH010')
+      expect(cells.find(td => td.textContent.startsWith('Lighthouse')).getAttribute('title')).toBe('Lighthouse › SC002_SH010\nIn: Pickups · v1')
+      try { localStorage.removeItem('rabbit-budget-custom-p9') } catch { /* ignore */ }
+    })
+  })
+
   it('BreakdownTable passes its `foot` through into the one table', () => {
     const { container } = render(
       <BreakdownTable
@@ -324,8 +377,11 @@ describe('surface 2b', () => {
     ...over,
   })
   const PROJECT = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }
-  const tab = (h = hook(), project = PROJECT) => (
-    <ExpensesTab ctx={{ getAdapter: () => ({}) }} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
+  // Post-overhaul S3c (S4a-07): the tab's undo keys act only while
+  // R.A.B.B.I.T. is the page on screen, as BudgetView is told; these tests
+  // put it there unless they say otherwise (the off-page tests below).
+  const tab = (h = hook(), project = PROJECT, pageActive = true) => (
+    <ExpensesTab ctx={{ getAdapter: () => ({}) }} pageActive={pageActive} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
   )
   const rowsOf = (root) => [...root.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
   const titles = (root) => rowsOf(root).map((r) => r.querySelector('.rb-budget-exp-title').textContent)
@@ -786,6 +842,47 @@ describe('surface 2b', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     press(screen.getByRole('button', { name: 'Reset M/C' }))
     expect(calls()).toEqual([1, 1])
+  })
+
+  // Post-overhaul S3c, step 1 (S4a-07): every page stays mounted and the
+  // keys listen on the window, so Ctrl+Z on D.O.G. undid the Budget's last
+  // change. binsView.test.jsx's off-page test is the shape.
+  it('S4a-07: on another page Ctrl+Z and Ctrl+Shift+Z do nothing and are not cancelled; back on R.A.B.B.I.T. the same keys undo and redo', () => {
+    const h = hook()
+    const { rerender } = render(tab(h))
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    const button = screen.getByRole('button', { name: 'Reset M/C' })
+    rerender(tab(h, PROJECT, false)) // she opens D.O.G.
+    for (const init of [{ key: 'z', ctrlKey: true }, { key: 'z', ctrlKey: true, shiftKey: true }, { key: 'y', ctrlKey: true }]) {
+      expect(fireEvent.keyDown(button, init), `${init.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+'}${init.key} was taken on another page`).toBe(true)
+    }
+    expect(calls()).toEqual([0, 0])
+    // CONTROL: the gate, not a broken handler — back on the page they act.
+    rerender(tab(h, PROJECT, true))
+    fireEvent.keyDown(button, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(button, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(calls()).toEqual([1, 1])
+  })
+  it('S4a-07: closed by default — a host that does not say R.A.B.B.I.T. is on screen gets no keys', () => {
+    const h = hook()
+    render(<ExpensesTab ctx={{ getAdapter: () => ({}) }} project={PROJECT} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+  })
+  it('S4a-07: the keys stand down under R.A.B.B.I.T.\'s settings drawer (not on the kit\'s overlay stack, S4a trap 10), and act again once it is gone', () => {
+    const h = hook()
+    const drawer = <div className="ui-drawer-backdrop"><aside className="ui-drawer"><button type="button">Editable</button></aside></div>
+    const { rerender } = render(<>{tab(h)}{drawer}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Editable' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    rerender(tab(h))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+  })
+  it('S4a-07: Rabbit.jsx says it — BudgetView\'s pageActive is currentPage === \'rabbit\', and the tab hands it to the Expenses tab', () => {
+    expect(read('../Rabbit.jsx')).toContain("{activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}")
+    expect(read('./BudgetView.jsx')).toMatch(/<ExpensesTab\s+ctx=\{ctx\}\s+pageActive=\{pageActive\}/)
   })
 
   it('R1-12: the expense popup carries the app\'s dark scrollbar class itself — in <body> it is outside the app\'s root, and its form and lists scroll', () => {

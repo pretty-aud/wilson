@@ -62,6 +62,10 @@ import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
+// Post-overhaul S3c, step 1: the relation pickers' active-list default and
+// each row's shot list (S3b-09).
+import { useHomeIndex } from './scenes/LinkHome'
+import { pickerRows, otherListRows } from './scenes/linkHomes'
 import FileManager from '../components/FileManager'
 
 // ── Thumbnail sizing ──
@@ -647,6 +651,8 @@ export default function ProjectAssetsView() {
           thumbRevision={thumbRevision}
           onThumbChanged={() => setThumbRevision(r => r + 1)}
           onClose={() => setDetailAssetId(null)}
+          canWrite={canWrite}
+          writeReason={writeReason}
         />
       )}
 
@@ -1652,7 +1658,12 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 // their chrome is the kit's.
 // Exported (post-overhaul S3b, P1-23): the Scenes popups open a related
 // asset in it, over themselves, as a task opens in TaskDetailPopup.
-export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChanged, onClose }) {
+// `canWrite` (post-overhaul S3c, S3b-01 / S3b-09's relation pickers): whether
+// this seat may change the asset's relations. A reviewer sees the relation
+// fields and the sidebar's links greyed with the reason, and the pickers'
+// funnels refuse. Open by default for a caller that does not say. The rest
+// of the popup's gate is the Assets lane's (OUTSTANDING S3b-09).
+export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChanged, onClose, canWrite = true, writeReason = null }) {
   const tm = useTeamMembers()
   const guard = useDependencyStatusGuard(ctx)
   const tt = useTaskTemplates()
@@ -1678,6 +1689,11 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
   const [showShotPicker, setShowShotPicker] = useState(false)
   const [showLevelPicker, setShowLevelPicker] = useState(false)
   const [showExperiencePicker, setShowExperiencePicker] = useState(false)
+  // Post-overhaul S3c, step 1 (S3b-09): the scene and shot pickers offer the
+  // ACTIVE shot list's rows (D10), with "Show all lists" for the rest, and
+  // each row names its list; what the asset already links stays offered.
+  const [showAllLists, setShowAllLists] = useState(false)
+  const homeOf = useHomeIndex(ctx)
 
   const project = ctx?.project
 
@@ -1837,7 +1853,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
       <div className="rb-asset-detail-body">
         {/* LEFT COLUMN — Relations sidebar (RelationsPanel's) */}
         <div className="rb-asset-detail-side">
-          <AssetRelationsSidebar asset={asset} ctx={ctx} />
+          <AssetRelationsSidebar asset={asset} ctx={ctx} canWrite={canWrite} writeReason={writeReason} />
         </div>
 
         {/* RIGHT COLUMN — Properties */}
@@ -1989,28 +2005,39 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
                 anything is linked, named "Scenes: N linked"; the "(s)" words
                 and the em dash went with it. Each keeps its place and its
                 click: it opens that field's picker. */}
+            {/* Post-overhaul S3c (S3b-09's relation pickers): each badge
+                greyed with the reason for a seat that may not change the
+                asset, as the sidebar's links are. */}
             {project?.scenes_enabled && (
               <PropField label="Scenes">
-                <RelationBadge icon={Film} count={linked.scenes} label="Scenes"
-                  onClick={() => setShowScenePicker(true)} />
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <RelationBadge icon={Film} count={linked.scenes} label="Scenes"
+                    onClick={() => { if (canWrite) setShowScenePicker(true) }} />
+                </GatedAction>
               </PropField>
             )}
             {project?.scenes_enabled && (
               <PropField label="Shots">
-                <RelationBadge icon={Clapperboard} count={linked.shots} label="Shots"
-                  onClick={() => setShowShotPicker(true)} />
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <RelationBadge icon={Clapperboard} count={linked.shots} label="Shots"
+                    onClick={() => { if (canWrite) setShowShotPicker(true) }} />
+                </GatedAction>
               </PropField>
             )}
             {project?.levels_enabled && (
               <PropField label="Levels">
-                <RelationBadge icon={Gamepad2} count={linked.levels} label="Levels"
-                  onClick={() => setShowLevelPicker(true)} />
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <RelationBadge icon={Gamepad2} count={linked.levels} label="Levels"
+                    onClick={() => { if (canWrite) setShowLevelPicker(true) }} />
+                </GatedAction>
               </PropField>
             )}
             {project?.experiences_enabled && (
               <PropField label="Experiences">
-                <RelationBadge icon={Sparkles} count={linked.experiences} label="Experiences"
-                  onClick={() => setShowExperiencePicker(true)} />
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <RelationBadge icon={Sparkles} count={linked.experiences} label="Experiences"
+                    onClick={() => { if (canWrite) setShowExperiencePicker(true) }} />
+                </GatedAction>
               </PropField>
             )}
           </div>
@@ -2020,9 +2047,12 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
             <RelationPickerPopup
               title="Link scenes"
               icon={Film}
-              items={ctx?.scenes || []}
+              items={pickerRows({ active: ctx?.scenes || [], all: ctx?.allScenes || ctx?.scenes || [], showAll: showAllLists, keep: asset.scene_ids })}
+              scope={otherListRows({ active: ctx?.scenes || [], all: ctx?.allScenes || [] }) ? { on: showAllLists, onChange: setShowAllLists } : null}
+              homeOf={Array.isArray(ctx?.shotLists) ? homeOf : null}
               selectedIds={asset.scene_ids || []}
               onToggle={id => {
+                if (!canWrite) return
                 const current = asset.scene_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { scene_ids: next })
@@ -2034,9 +2064,12 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
             <RelationPickerPopup
               title="Link shots"
               icon={Clapperboard}
-              items={ctx?.shots || []}
+              items={pickerRows({ active: ctx?.shots || [], all: ctx?.allShots || ctx?.shots || [], showAll: showAllLists, keep: asset.shot_ids })}
+              scope={otherListRows({ active: ctx?.shots || [], all: ctx?.allShots || [] }) ? { on: showAllLists, onChange: setShowAllLists } : null}
+              homeOf={Array.isArray(ctx?.shotLists) ? homeOf : null}
               selectedIds={asset.shot_ids || []}
               onToggle={id => {
+                if (!canWrite) return
                 const current = asset.shot_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { shot_ids: next })
@@ -2051,6 +2084,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.levels || []}
               selectedIds={asset.level_ids || []}
               onToggle={id => {
+                if (!canWrite) return
                 const current = asset.level_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { level_ids: next })
@@ -2065,6 +2099,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
               items={ctx?.experiences || []}
               selectedIds={asset.experience_ids || []}
               onToggle={id => {
+                if (!canWrite) return
                 const current = asset.experience_ids || []
                 const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
                 ctx?.updateAsset?.(asset.id, { experience_ids: next })

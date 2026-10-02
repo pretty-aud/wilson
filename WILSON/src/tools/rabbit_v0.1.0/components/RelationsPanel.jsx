@@ -36,8 +36,14 @@ import {
 } from 'lucide-react'
 import {
   Panel, Dialog, Button, IconButton, Field, EmptyState, HoverActions,
-  StatusDot, statusMeta,
+  StatusDot, statusMeta, Switch,
 } from '../../../ui'
+// Post-overhaul S3c, step 1: a seat that may not write sees the relations'
+// verbs greyed with the reason (S3b-01); a linked scene or shot names the
+// shot list that holds it; the pickers offer the active list by default.
+import GatedAction from '../../../permissions/GatedAction'
+import LinkHome, { useHomeIndex } from '../views/scenes/LinkHome'
+import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -90,10 +96,14 @@ function StatusWord({ status }) {
 // The kit's small IconButton in the kit's reserved hover slot: it shows on
 // the row's hover as it did, and now on keyboard focus too (Q17b) — it used
 // to be invisible while it had focus.
-function RemoveButton({ title, onClick }) {
+// Post-overhaul S3c (S3b-01): greyed with the reason for a seat that may not
+// change the asset (a reviewer), as every other write in the lane is.
+function RemoveButton({ title, onClick, allowed = true, reason = null }) {
   return (
     <HoverActions>
-      <IconButton size="sm" Icon={X} danger title={title} onClick={onClick} />
+      <GatedAction allowed={allowed} reason={reason}>
+        <IconButton size="sm" Icon={X} danger title={title} onClick={onClick} />
+      </GatedAction>
     </HoverActions>
   )
 }
@@ -134,6 +144,12 @@ function PickerSearch({ value, onChange, placeholder, label }) {
 //   onOpenAsset    — (assetId) => void — click an asset row
 //   onOpenTask     — (taskId) => void — click a task row
 //   onCreateTask   — () => void — click "+" to create a new task
+//   canWrite       — post-overhaul S3c (S3b-01): whether this seat may change
+//                    an asset's relations (project.entity.write). A reviewer
+//                    sees "Add asset relation" and each remove greyed with
+//                    `writeReason`, and the two funnels refuse. Open by
+//                    default for the callers that do not gate (the Level and
+//                    Experience popups).
 
 export default function RelationsPanel({
   entityType,
@@ -144,6 +160,8 @@ export default function RelationsPanel({
   onOpenAsset,
   onOpenTask,
   onCreateTask,
+  canWrite = true,
+  writeReason = null,
 }) {
   const [collapsedAssets, setCollapsedAssets] = useState(false)
   const [collapsedTasks, setCollapsedTasks] = useState(false)
@@ -166,8 +184,9 @@ export default function RelationsPanel({
     [tasks, taskField, entityId]
   )
 
-  // Add asset relation
+  // Add asset relation (refused for a seat that may not write: S3b-01)
   function addAssetRelation(assetId) {
+    if (!canWrite) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -178,6 +197,7 @@ export default function RelationsPanel({
 
   // Remove asset relation
   function removeAssetRelation(assetId) {
+    if (!canWrite) return
     const asset = assets.find(a => a.id === assetId)
     if (!asset) return
     const current = asset[assetField] || []
@@ -200,7 +220,11 @@ export default function RelationsPanel({
           title={`Assets (${relatedAssets.length})`}
           collapsed={collapsedAssets}
           onToggle={() => setCollapsedAssets(!collapsedAssets)}
-          actions={<IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => setShowAssetPicker(true)} />}
+          actions={(
+            <GatedAction allowed={canWrite} reason={writeReason}>
+              <IconButton size="sm" Icon={Plus} title="Add asset relation" onClick={() => { if (canWrite) setShowAssetPicker(true) }} />
+            </GatedAction>
+          )}
         >
           {relatedAssets.length === 0 ? (
             <p className="rb-rel-empty">No assets linked</p>
@@ -214,7 +238,7 @@ export default function RelationsPanel({
                 {a.name || 'Untitled'}
               </span>
               <StatusWord status={a.status || 'not_started'} />
-              <RemoveButton title="Remove relation"
+              <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason}
                 onClick={e => { e.stopPropagation(); removeAssetRelation(a.id) }} />
             </div>
           ))}
@@ -664,12 +688,27 @@ export function NewTaskSidePopup({
 // related to. Allows adding new relations. Each database
 // section is collapsible.
 
-export function AssetRelationsSidebar({ asset, ctx }) {
+// Post-overhaul S3c, step 1. `ctx.scenes` / `ctx.shots` are the ACTIVE shot
+// list's rows (D10), so a scene or shot only ANOTHER list holds dropped out
+// of this sidebar although the asset is still linked to it (0084's
+// `assets.scene_ids` / `shot_ids`). The links are read against every row
+// (`ctx.allScenes` / `allShots`, in the bundle's own order) and each scene
+// and shot names the list that holds it beside its name (LinkHome; Audrey:
+// assets "need to clearly indicate which edit and shot version they are
+// assigned to"). The Link pickers offer the active list's rows, with "Show
+// all lists" for the rest. `canWrite` (S3b-01): a seat that may not change
+// the asset (a reviewer) sees every link and remove greyed with the reason,
+// and the funnels refuse; open by default for a caller that does not gate.
+export function AssetRelationsSidebar({ asset, ctx, canWrite = true, writeReason = null }) {
   const project = ctx?.project
   const scenes = ctx?.scenes || []
   const shots = ctx?.shots || []
+  const allScenes = ctx?.allScenes || scenes
+  const allShots = ctx?.allShots || shots
   const levels = ctx?.levels || []
   const experiences = ctx?.experiences || []
+  const homeOf = useHomeIndex(ctx)
+  const listsKnown = Array.isArray(ctx?.shotLists)
 
   const scenesOn = project?.scenes_enabled
   const levelsOn = project?.levels_enabled
@@ -678,6 +717,7 @@ export function AssetRelationsSidebar({ asset, ctx }) {
   const [collapsed, setCollapsed] = useState({})
   const [expandedScenes, setExpandedScenes] = useState(new Set())
   const [showPicker, setShowPicker] = useState(null) // 'scenes' | 'shots' | 'levels' | 'experiences' | null
+  const [showAllLists, setShowAllLists] = useState(false)
 
   function toggle(key) { setCollapsed(prev => ({ ...prev, [key]: !prev[key] })) }
   function toggleSceneExpand(sceneId) {
@@ -688,16 +728,16 @@ export function AssetRelationsSidebar({ asset, ctx }) {
     })
   }
 
-  // Related items
+  // Related items — among every row, not only the active list's (S3c)
   const relScenes = useMemo(() => {
     const ids = asset?.scene_ids || []
-    return scenes.filter(s => ids.includes(s.id))
-  }, [scenes, asset?.scene_ids])
+    return allScenes.filter(s => ids.includes(s.id))
+  }, [allScenes, asset?.scene_ids])
 
   const relShots = useMemo(() => {
     const ids = asset?.shot_ids || []
-    return shots.filter(s => ids.includes(s.id))
-  }, [shots, asset?.shot_ids])
+    return allShots.filter(s => ids.includes(s.id))
+  }, [allShots, asset?.shot_ids])
 
   // Group related shots by their parent scene
   const shotsByScene = useMemo(() => {
@@ -728,15 +768,24 @@ export function AssetRelationsSidebar({ asset, ctx }) {
   }, [experiences, asset?.experience_ids])
 
   function toggleRelation(field, id) {
+    if (!canWrite) return
     const current = asset?.[field] || []
     const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id]
     ctx?.updateAsset?.(asset.id, { [field]: next })
   }
 
   function removeRelation(field, id) {
+    if (!canWrite) return
     const current = asset?.[field] || []
     ctx?.updateAsset?.(asset.id, { [field]: current.filter(x => x !== id) })
   }
+  // The shot list beside a linked scene's or shot's name (S3c step 1).
+  const home = (row) => (listsKnown ? <LinkHome homeOf={homeOf} id={row.id} name={row.name || 'Untitled'} /> : null)
+  // The Link pickers: the active list's rows by default (S3c step 1).
+  const scope = (active, all, keep) => ({
+    items: pickerRows({ active, all, showAll: showAllLists, keep }),
+    scope: otherListRows({ active, all }) ? { on: showAllLists, onChange: setShowAllLists } : null,
+  })
 
   if (!asset) return null
   if (!scenesOn && !levelsOn && !experiencesOn) return null
@@ -769,8 +818,12 @@ export function AssetRelationsSidebar({ asset, ctx }) {
             onToggle={() => toggle('scenes_shots')}
             actions={(
               <>
-                <IconButton size="sm" Icon={Film} title="Link scene" onClick={() => setShowPicker('scenes')} />
-                <IconButton size="sm" Icon={Clapperboard} title="Link shot" onClick={() => setShowPicker('shots')} />
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <IconButton size="sm" Icon={Film} title="Link scene" onClick={() => { if (canWrite) setShowPicker('scenes') }} />
+                </GatedAction>
+                <GatedAction allowed={canWrite} reason={writeReason}>
+                  <IconButton size="sm" Icon={Clapperboard} title="Link shot" onClick={() => { if (canWrite) setShowPicker('shots') }} />
+                </GatedAction>
               </>
             )}
           >
@@ -801,12 +854,13 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                         <span className="rb-rel-name" title={sc.name || 'Untitled'}>
                           {sc.name || 'Untitled'}
                         </span>
+                        {home(sc)}
                         {hasShots && (
                           <span className="rb-rel-count">
                             {childShots.length}
                           </span>
                         )}
-                        <RemoveButton title="Remove scene" onClick={() => removeRelation('scene_ids', sc.id)} />
+                        <RemoveButton title="Remove scene" allowed={canWrite} reason={writeReason} onClick={() => removeRelation('scene_ids', sc.id)} />
                       </div>
 
                       {/* Nested shots: the indent and the hairline spine
@@ -821,8 +875,9 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                               <span className="rb-rel-name" title={sh.name || 'Untitled'}>
                                 {sh.name || 'Untitled'}
                               </span>
+                              {home(sh)}
                               <StatusWord status={sh.status || 'not_started'} />
-                              <RemoveButton title="Remove shot" onClick={() => removeRelation('shot_ids', sh.id)} />
+                              <RemoveButton title="Remove shot" allowed={canWrite} reason={writeReason} onClick={() => removeRelation('shot_ids', sh.id)} />
                             </div>
                           ))}
                         </div>
@@ -846,8 +901,9 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                         <span className="rb-rel-name" title={sh.name || 'Untitled'}>
                           {sh.name || 'Untitled'}
                         </span>
+                        {home(sh)}
                         <StatusWord status={sh.status || 'not_started'} />
-                        <RemoveButton title="Remove shot" onClick={() => removeRelation('shot_ids', sh.id)} />
+                        <RemoveButton title="Remove shot" allowed={canWrite} reason={writeReason} onClick={() => removeRelation('shot_ids', sh.id)} />
                       </div>
                     ))}
                   </>
@@ -866,8 +922,10 @@ export function AssetRelationsSidebar({ asset, ctx }) {
             collapsed={collapsed[sec.key]}
             onToggle={() => toggle(sec.key)}
             actions={(
-              <IconButton size="sm" Icon={Plus} title={`Add ${sec.label.toLowerCase()} relation`}
-                onClick={() => setShowPicker(sec.key)} />
+              <GatedAction allowed={canWrite} reason={writeReason}>
+                <IconButton size="sm" Icon={Plus} title={`Add ${sec.label.toLowerCase()} relation`}
+                  onClick={() => { if (canWrite) setShowPicker(sec.key) }} />
+              </GatedAction>
             )}
           >
             {sec.items.length === 0 ? (
@@ -879,19 +937,22 @@ export function AssetRelationsSidebar({ asset, ctx }) {
                   {item.name || 'Untitled'}
                 </span>
                 <StatusWord status={item.status || 'not_started'} />
-                <RemoveButton title="Remove relation" onClick={() => removeRelation(sec.field, item.id)} />
+                <RemoveButton title="Remove relation" allowed={canWrite} reason={writeReason} onClick={() => removeRelation(sec.field, item.id)} />
               </div>
             ))}
           </RelSection>
         ))}
       </div>
 
-      {/* Picker popup (the kit Dialog, in <body>) */}
+      {/* Picker popup (the kit Dialog, in <body>): the active list's rows,
+          "Show all lists" for the rest, each row's list beside its name. */}
       {showPicker === 'scenes' && (
         <RelationPickerPopup
           title="Link scenes"
           icon={Film}
-          items={scenes}
+          items={scope(scenes, allScenes, asset?.scene_ids).items}
+          scope={scope(scenes, allScenes, asset?.scene_ids).scope}
+          homeOf={listsKnown ? homeOf : null}
           selectedIds={asset?.scene_ids || []}
           onToggle={id => toggleRelation('scene_ids', id)}
           onClose={() => setShowPicker(null)}
@@ -901,7 +962,9 @@ export function AssetRelationsSidebar({ asset, ctx }) {
         <RelationPickerPopup
           title="Link shots"
           icon={Clapperboard}
-          items={shots}
+          items={scope(shots, allShots, asset?.shot_ids).items}
+          scope={scope(shots, allShots, asset?.shot_ids).scope}
+          homeOf={listsKnown ? homeOf : null}
           selectedIds={asset?.shot_ids || []}
           onToggle={id => toggleRelation('shot_ids', id)}
           onClose={() => setShowPicker(null)}
@@ -951,6 +1014,12 @@ export function AssetRelationsSidebar({ asset, ctx }) {
 //   onClose()       — close popup
 //   getItemName(item) — optional name accessor
 //   getItemStatus(item) — optional status accessor
+//   scope           — post-overhaul S3c, step 1: { on, onChange } for a
+//                     scene or shot picker that offers the ACTIVE shot list's
+//                     rows by default — a "Show all lists" switch under the
+//                     search widens it to every row; null for none
+//   homeOf          — S3c: the shot-list index (linkHomes.homeIndex); each
+//                     row then names the list that holds it
 
 export function RelationPickerPopup({
   title,
@@ -961,6 +1030,8 @@ export function RelationPickerPopup({
   onClose,
   getItemName,
   getItemStatus,
+  scope = null,
+  homeOf = null,
 }) {
   const [search, setSearch] = useState('')
 
@@ -1001,6 +1072,11 @@ export function RelationPickerPopup({
     >
       {/* Search */}
       <PickerSearch value={search} onChange={setSearch} placeholder="Search…" label="Search" />
+      {scope && (
+        <div className="rb-rel-pick-scope">
+          <Switch checked={!!scope.on} onChange={scope.onChange} label="Show all lists" />
+        </div>
+      )}
 
       {/* Items: each row is the toggle it was, and says so (aria-pressed);
           the box is the lane's checkbox glyph, the signal when linked. */}
@@ -1022,6 +1098,7 @@ export function RelationPickerPopup({
                 <span className="rb-rel-name">
                   {getName(item)}
                 </span>
+                {homeOf && <LinkHome homeOf={homeOf} id={item.id} name={getName(item)} />}
                 <StatusWord status={getStatus(item)} />
               </button>
             )

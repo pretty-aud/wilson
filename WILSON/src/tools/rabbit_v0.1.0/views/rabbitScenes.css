@@ -1620,6 +1620,27 @@
   .rb-scene-addfrom-row[data-locked="true"]:hover { background-image: none; }
   .rb-scene-addfrom-row[data-locked="true"] > .rb-scene-addfrom-name { color: var(--color-ink-3); }
 
+  /* ═══ A linked row's shot list (post-overhaul S3c, step 1) ════════════════
+     LinkHome (views/scenes/LinkHome.jsx): "Shoot · v2 +1" after a linked
+     scene's or shot's name — in the task popup, the asset relations, the
+     Bins inspector and the pickers. The Caption step in the second ink, read
+     after the name and never before it. It gives way before the name does
+     (the label truncates), and "+N" keeps its width. */
+  .rb-scene-home {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 400;
+    color: var(--color-ink-2);
+    white-space: nowrap;
+  }
+  .rb-scene-home-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .rb-scene-home-more { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's
      keyframes must keep playing (C5). */

@@ -638,6 +638,18 @@
   }
   .rb-task-prop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
   .rb-task-prop-grid > .ui-field + .ui-field { margin-top: 0; }
+  /* Post-overhaul S3c, step 1: under Scene and Shot, across both columns,
+     the shot list that holds the link (LinkHome, the Scenes sheet's) and the
+     pickers' "All lists" switch at the row's end. */
+  .rb-task-links {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-top: -8px;
+  }
+  .rb-task-links > .ui-switch.rb-task-links-all { margin-left: auto; flex-shrink: 0; }
 
   /* A value that is set reads in the ink; an empty one in the third ink
      (the light orange it used to be was the light pages' ground). */

@@ -84,6 +84,15 @@ const FILES = {
     min: 3000,
     staged: [],
   },
+  // Post-overhaul S3c, step 1: a linked scene's or shot's shot list beside
+  // its name, in the task popup, the asset relations, the Bins inspector
+  // and the pickers (it carries this sheet into each).
+  home: {
+    file: './scenes/LinkHome.jsx',
+    prefix: 'rb-scene-',
+    min: 1500,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
@@ -481,6 +490,7 @@ const NEAR_MISSES = {
   picker: [],
   form: [],
   addFrom: [],
+  home: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {

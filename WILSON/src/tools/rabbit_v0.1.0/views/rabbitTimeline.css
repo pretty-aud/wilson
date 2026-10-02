@@ -694,6 +694,18 @@
      its groups. The filled zoom chip, the orange grouping and sort, the
      undo pair's two inks and ZoomControls' chips went with their elements. */
   .rb-tl-tb-sep { flex: none; width: 1px; height: 16px; background-color: var(--color-rule); }
+  /* Post-overhaul S3c (D18): grouped by scene, the read-only "Shot list:
+     Title · vN" beside the group selector — words at the Caption step in the
+     second ink, not a control (S5 owns any picker here). It gives way first. */
+  .rb-tl-shotlist {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
 
   /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════
      The kit's Drawer (a backdrop, the right side), Tabs, Toolbar, Switch,

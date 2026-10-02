@@ -14,7 +14,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
-import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './binUi'
+import { C, Btn, IconBtn, Chip, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, Toggle, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './binUi'
+// Post-overhaul S3c, step 1: the pickers' active-list default, and the shot
+// list beside a shot a file is used in.
+import LinkHome from '../scenes/LinkHome'
+import { pickerRows, otherListRows } from '../scenes/linkHomes'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
@@ -63,6 +67,12 @@ export default function BinInspector({
   // Closed by default, as BinsView's is: the preview's Space plays nothing
   // for a host that does not say so.
   pageActive = false,
+  // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE shot list's
+  // (D10) — what the Scene and Shot pickers offer by default; `allScenes` /
+  // `allShots` every row, offered once "All lists" is on (and the row a file
+  // is already logged to, always); `homeOf` names the list that holds each
+  // shot a file is used in (linkHomes.homeIndex; null: no words).
+  allScenes = null, allShots = null, homeOf = null,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -85,9 +95,19 @@ export default function BinInspector({
   const [description, setDescription] = useDraft(mv('description').value, key)
   const [notes, setNotes] = useDraft(mv('notes').value, key)
 
-  const sceneOptions = useMemo(() => (scenes || []).slice().sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0)).map(s => ({ value: s.id, label: s.name || 'Untitled scene' })), [scenes])
+  const [showAllLists, setShowAllLists] = useState(false)
   const sceneVal = mv('scene_id')
-  const shotOptions = useMemo(() => (shots || []).filter(s => !sceneVal.value || s.scene_id === sceneVal.value).sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0)).map(s => ({ value: s.id, label: s.name || 'Untitled shot' })), [shots, sceneVal.value])
+  const shotVal = mv('shot_id')
+  const everyScene = allScenes || scenes
+  const everyShot = allShots || shots
+  const sceneOptions = useMemo(() => pickerRows({ active: scenes, all: everyScene, showAll: showAllLists, keep: sceneVal.value })
+    .slice().sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0)).map(s => ({ value: s.id, label: s.name || 'Untitled scene' })), [scenes, everyScene, showAllLists, sceneVal.value])
+  const shotOptions = useMemo(() => {
+    const ofScene = (rows) => (rows || []).filter(s => !sceneVal.value || s.scene_id === sceneVal.value)
+    return pickerRows({ active: ofScene(shots), all: ofScene(everyShot), showAll: showAllLists, keep: shotVal.value })
+      .slice().sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0)).map(s => ({ value: s.id, label: s.name || 'Untitled shot' }))
+  }, [shots, everyShot, showAllLists, sceneVal.value, shotVal.value])
+  const canShowAllLists = otherListRows({ active: scenes, all: everyScene }) || otherListRows({ active: shots, all: everyShot })
 
   const commit = (k, draft, current) => {
     const v = typeof draft === 'string' ? draft.trim() : draft
@@ -166,6 +186,10 @@ export default function BinInspector({
                       <span className="truncate flex-1" style={{ color: C.text }} title={`${scene?.name ? scene.name + ' · ' : ''}#${shot.shot_number ?? '—'} ${shot.name || 'Untitled shot'}${take.notes ? ' — ' + take.notes : ''}`}>
                         {scene?.name ? <span style={{ color: C.dim }}>{scene.name} · </span> : null}#{shot.shot_number ?? '—'} {shot.name || 'Untitled shot'}
                       </span>
+                      {/* Post-overhaul S3c, step 1: the shot list that holds
+                          the shot, beside its name (Audrey: takes "clearly
+                          indicate" which shot version they are assigned to). */}
+                      {homeOf && <LinkHome homeOf={homeOf} id={shot.id} name={shot.name || 'Untitled shot'} />}
                       <span className="px-1 rounded-control text-label uppercase flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
                         {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
                       </span>
@@ -231,6 +255,11 @@ export default function BinInspector({
             <Select value={mv('shot_id').mixed ? '' : mv('shot_id').value} placeholder={mv('shot_id').mixed ? 'mixed' : '— none —'} disabled={!canWrite}
               options={shotOptions} onChange={v => onPatch({ shot_id: v })} />
           </Field>
+          {/* Post-overhaul S3c, step 1: the two pickers offer the active shot
+              list's rows; this offers every list's. */}
+          {canShowAllLists && (
+            <Toggle checked={showAllLists} onChange={setShowAllLists} label="Scenes and shots of all lists" />
+          )}
         </Section>
 
         <Section title="Notes" open={notesOpen} onToggle={() => setNotesOpen(o => !o)}>

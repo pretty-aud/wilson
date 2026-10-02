@@ -554,6 +554,119 @@ describe('the asset popup — its four relation fields and the pickers they open
   })
 })
 
+// ── Post-overhaul S3c, step 1 ────────────────────────────────────────────────
+// (a) S3b-01: a seat that may not write an asset (a reviewer) sees the
+// relations' verbs greyed with the reason, and the funnels refuse.
+// (b) `ctx.scenes` / `ctx.shots` are the ACTIVE shot list's (D10): an asset's
+// link to a scene or shot only ANOTHER list holds dropped out of the asset
+// sidebar. It shows now, naming its list, and the Link pickers offer the
+// active list's rows with "Show all lists" for the rest.
+describe('S3c step 1: the relations gate (S3b-01) and links to another shot list\'s rows', () => {
+  const LISTS = [{ id: 'L1', title: 'Shoot', version: 2 }, { id: 'L2', title: 'Pickups', version: 1 }]
+  // Shoot (active) holds Harbour at dawn and Shot 010; Pickups holds Night market and Shot 020.
+  const ITEMS = [
+    { id: 'i1', shot_list_id: 'L1', scene_id: 's1' }, { id: 'i2', shot_list_id: 'L1', shot_id: 'sh1' },
+    { id: 'i3', shot_list_id: 'L2', scene_id: 's2' }, { id: 'i4', shot_list_id: 'L2', shot_id: 'sh2' },
+  ]
+  const listsCtx = {
+    scenes: [SCENES[0]], shots: [SHOTS[0]], allScenes: SCENES, allShots: SHOTS,
+    shotLists: LISTS, shotListItems: ITEMS, edits: [], project: { ...ALL_ON, active_shot_list_id: 'L1' },
+  }
+  const sideWith = (asset, extra = {}) => {
+    const ctx = { ...listsCtx, levels: LEVELS, experiences: EXPERIENCES, updateAsset: vi.fn(), ...extra }
+    return { ctx, ...render(<AssetRelationsSidebar asset={asset} ctx={ctx} {...(extra.gate || {})} />) }
+  }
+
+  it('(a) RelationsPanel for a reviewer: "Add asset relation" and each remove greyed with the reason; neither writes', () => {
+    const ctx = { updateAsset: vi.fn() }
+    render(
+      <RelationsPanel entityType="scene" entityId="s1" assets={PANEL_ASSETS()} tasks={PANEL_TASKS} ctx={ctx}
+        onOpenAsset={() => {}} onOpenTask={() => {}} canWrite={false} writeReason="Reviewers can comment but not change assets." />,
+    )
+    const add = screen.getByRole('button', { name: 'Add asset relation' })
+    expect(add.closest('[aria-disabled="true"]')?.getAttribute('title')).toBe('Reviewers can comment but not change assets.')
+    fireEvent.click(add) // jsdom does not honour inert (S3b trap 1): the funnel must refuse
+    expect(document.querySelector('.rb-rel-pick'), 'the asset picker opened for a reviewer').toBeNull()
+    const remove = screen.getByRole('button', { name: 'Remove relation' })
+    expect(remove.closest('[aria-disabled="true"]')).toBeTruthy()
+    fireEvent.click(remove)
+    expect(ctx.updateAsset).not.toHaveBeenCalled()
+  })
+  it('(a) CONTROL: the same panel for a writer removes, opens the asset picker, and nothing is greyed', () => {
+    const { ctx } = panel()
+    expect(document.querySelector('[aria-disabled="true"]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove relation' }))
+    expect(ctx.updateAsset).toHaveBeenCalledWith('a1', { scene_ids: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'Add asset relation' }))
+    expect(document.querySelector('.rb-rel-pick')).toBeTruthy()
+  })
+  it('(a) the asset sidebar for a reviewer: Link scene, Link shot, the level link and every remove greyed; none writes', () => {
+    const { ctx } = sideWith({ id: 'a1', scene_ids: ['s1'], shot_ids: ['sh2'], level_ids: ['l1'], experience_ids: [] }, { gate: { canWrite: false, writeReason: 'Read only' } })
+    for (const name of ['Link scene', 'Link shot', 'Add levels relation']) {
+      const b = screen.getByRole('button', { name })
+      expect(b.closest('[aria-disabled="true"]'), name).toBeTruthy()
+      fireEvent.click(b)
+    }
+    expect(screen.queryByRole('dialog')).toBeNull()
+    for (const b of screen.getAllByRole('button', { name: /^Remove/ })) fireEvent.click(b)
+    expect(ctx.updateAsset).not.toHaveBeenCalled()
+  })
+  it('(b) a shot only another list holds is in the sidebar, with its list beside its name; one in the active list names that', () => {
+    sideWith({ id: 'a1', scene_ids: ['s1'], shot_ids: ['sh1', 'sh2'], level_ids: [], experience_ids: [] })
+    const row = [...document.querySelectorAll('.rb-rel-row')].find(r => r.textContent.includes('Shot 020'))
+    expect(row, 'the other list\'s shot dropped out').toBeTruthy()
+    expect(row.querySelector('.rb-scene-home').getAttribute('title')).toBe('Shot 020\nIn: Pickups · v1')
+    fireEvent.click(screen.getByRole('button', { name: 'Shots in Harbour at dawn' }))
+    const own = [...document.querySelectorAll('.rb-rel-row')].find(r => r.textContent.includes('Shot 010'))
+    expect(own.querySelector('.rb-scene-home-label').textContent).toBe('Shoot · v2')
+  })
+  it('(b) CONTROL: without every row (the old path) that shot is not shown — what this fixes', () => {
+    sideWith({ id: 'a1', scene_ids: ['s1'], shot_ids: ['sh1', 'sh2'], level_ids: [], experience_ids: [] }, { allShots: undefined, allScenes: undefined })
+    expect([...document.querySelectorAll('.rb-rel-row')].some(r => r.textContent.includes('Shot 020'))).toBe(false)
+  })
+  it('(b) Link shots offers the active list\'s shots and the ones linked; "Show all lists" offers every shot; each row names its list', () => {
+    sideWith({ id: 'a1', scene_ids: [], shot_ids: [], level_ids: [], experience_ids: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'Link shot' }))
+    const picker = screen.getByRole('dialog', { name: 'Link shots' })
+    const names = () => [...picker.querySelectorAll('.rb-rel-pick-row .rb-rel-name')].map(n => n.textContent)
+    expect(names()).toEqual(['Shot 010'])
+    expect(picker.querySelector('.rb-rel-pick-row .rb-scene-home-label').textContent).toBe('Shoot · v2')
+    fireEvent.click(within(picker).getByRole('switch', { name: 'Show all lists' }))
+    expect(names()).toEqual(['Shot 010', 'Shot 020'])
+  })
+  it('(b) a picker for a project with one list has no switch: it would add nothing', () => {
+    sideWith({ id: 'a1', scene_ids: [], shot_ids: [], level_ids: [], experience_ids: [] }, { allShots: [SHOTS[0]], allScenes: [SCENES[0]] })
+    fireEvent.click(screen.getByRole('button', { name: 'Link shot' }))
+    expect(within(screen.getByRole('dialog', { name: 'Link shots' })).queryByRole('switch')).toBeNull()
+  })
+  it('(a) the asset popup for a reviewer: its four relation fields greyed with the reason, and none opens a picker', () => {
+    page({ myProjectRole: 'reviewer', projectIsStaffed: true })
+    perms.current = { role: 'member', ready: true, can: () => false }
+    cleanup()
+    rabbit.current = { ...rabbit.current, myProjectRole: 'reviewer', projectIsStaffed: true }
+    render(<ProjectAssetsView />)
+    fireEvent.click(screen.getByRole('button', { name: 'View asset details' }))
+    const popup = screen.getByRole('dialog', { name: 'Mara' })
+    const badges = [...popup.querySelectorAll('.rb-asset-prop-grid .rb-rel-badge')]
+    expect(badges).toHaveLength(4)
+    for (const b of badges) {
+      expect(b.closest('[aria-disabled="true"]'), b.getAttribute('aria-label')).toBeTruthy()
+      fireEvent.click(b)
+    }
+    expect(screen.queryByRole('dialog', { name: 'Link scenes' })).toBeNull()
+    expect(rabbit.current.updateAsset).not.toHaveBeenCalled()
+  })
+  it('the Scenes popups hand their seat to the relations and to the asset popup they open (S3b-01, S3b-09)', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'ScenesView.jsx'), 'utf8').replace(/\r\n/g, '\n')
+    // Each element on its own: from its tag to the first `/>` after it.
+    const panels = src.match(/<RelationsPanel\b[^]*?\/>/g) || []
+    expect(panels).toHaveLength(2)
+    for (const p of panels) expect(p).toMatch(/\n\s*canWrite=\{canWrite\}\n/)
+    expect(src.match(/<NestedAsset [^\n]*canWrite=\{canWrite\} \/>/g)).toHaveLength(2)
+    expect(src).toMatch(/<AssetDetailPopup[\s\S]*?canWrite=\{canWrite\}[\s\S]*?\/>/)
+  })
+})
+
 // Last, on purpose: React reports a nesting ONCE per tag pair per load, so
 // this control would blind the check above if it ran first.
 describe('CONTROL', () => {

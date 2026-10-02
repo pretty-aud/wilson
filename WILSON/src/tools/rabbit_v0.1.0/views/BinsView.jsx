@@ -46,6 +46,8 @@ import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatD
 // bar and the inspector; "used in" on the inspector; a badge on tiles and rows.
 import AssignToShotDialog from './bins/AssignToShotDialog'
 import { usageByFile, usageCounts } from '../bins/shotTakeSelectors'
+// Post-overhaul S3c, step 1: which shot list holds a shot a file is used in.
+import { useHomeIndex } from './scenes/LinkHome'
 import { useNavigateTarget } from '../state/rabbitNavigate'
 
 // A filter chip whose label is the user's own data (a camera, a day, a scene,
@@ -79,6 +81,15 @@ export default function BinsView({ pageActive = false } = {}) {
   const roots = ctx?.binRoots || []
   const scenes = ctx?.scenes || []
   const shots = ctx?.shots || []
+  // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE shot list's
+  // (D10). A take on a shot only ANOTHER list holds dropped out of a file's
+  // "Used in shots" and its count, and a file logged to such a scene read no
+  // scene: where a file is used, and what it is logged to, read EVERY row;
+  // the pickers offer the active list's by default, "Show all lists" for the
+  // rest; and each shot names the list that holds it (homeOf).
+  const allScenes = ctx?.allScenes || scenes
+  const allShots = ctx?.allShots || shots
+  const homeOf = useHomeIndex(ctx)
   const shotTakes = ctx?.shotTakes || []
   const fps = Number(ctx?.project?.fps) > 0 ? Number(ctx.project.fps) : 24
   const ffmpeg = ctx?.binsInfo?.ffmpeg ?? null
@@ -209,12 +220,13 @@ export default function BinsView({ pageActive = false } = {}) {
   const shownStats = useMemo(() => binStats(rows), [rows])
   const offlineAll = useMemo(() => files.filter(f => f.online === false), [files])
   const selectedRows = useMemo(() => rows.filter(r => selection.has(r.id)), [rows, selection])
-  const scenesById = useMemo(() => new Map(scenes.map(s => [s.id, s])), [scenes])
+  const scenesById = useMemo(() => new Map(allScenes.map(s => [s.id, s])), [allScenes])
   const filterCount = activeFilterCount(filters)
   // Where each file is used (milestone 2): the inspector's "Used in shots",
   // and the count badge on tiles and rows. Takes of a deleted shot are skipped.
-  const usage = useMemo(() => usageByFile(shotTakes, shots, scenes, files), [shotTakes, shots, scenes, files])
-  const usageCount = useMemo(() => usageCounts(shotTakes, shots), [shotTakes, shots])
+  // Every shot of the project, in whichever list (S3c step 1).
+  const usage = useMemo(() => usageByFile(shotTakes, allShots, allScenes, files), [shotTakes, allShots, allScenes, files])
+  const usageCount = useMemo(() => usageCounts(shotTakes, allShots), [shotTakes, allShots])
 
   // Selection survives only for rows that still exist here.
   useEffect(() => {
@@ -867,7 +879,8 @@ export default function BinsView({ pageActive = false } = {}) {
           </div>
         </div>
 
-        <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
+        <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} allScenes={allScenes} allShots={allShots} homeOf={Array.isArray(ctx?.shotLists) ? homeOf : null}
+          fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive} />
@@ -901,7 +914,8 @@ export default function BinsView({ pageActive = false } = {}) {
           onClose={() => setRelinkOpen(false)} />
       )}
       {assignDlg && (
-        <AssignToShotDialog files={assignDlg} binFiles={files} scenes={scenes} shots={shots} shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy} error={assignError}
+        <AssignToShotDialog files={assignDlg} binFiles={files} scenes={scenes} shots={shots} allScenes={allScenes} allShots={allShots} homeOf={Array.isArray(ctx?.shotLists) ? homeOf : null}
+          shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy} error={assignError}
           onConfirm={confirmAssign} onCancel={() => { if (!assignBusy) { setAssignDlg(null); setAssignError(null) } }} />
       )}
     </div>

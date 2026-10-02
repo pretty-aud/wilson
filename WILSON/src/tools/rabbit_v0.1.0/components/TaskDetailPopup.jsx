@@ -31,7 +31,11 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
-import { Dialog, Button, Field, EmptyState, StatusBadge, StatusDot, statusMeta } from '../../../ui'
+import { Dialog, Button, Field, EmptyState, StatusBadge, StatusDot, statusMeta, Switch } from '../../../ui'
+// Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
+// and the pickers' active-list default.
+import LinkHome from '../views/scenes/LinkHome'
+import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard renders this popup over its own task table, and the two must
 // not disagree about which priorities are marked.
@@ -139,6 +143,10 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // Collapsible left-column sections
   const [collapsed, setCollapsed] = useState({})
 
+  // Post-overhaul S3c, step 1: the Scene and Shot pickers offer the ACTIVE
+  // list's rows (D10), and every row of the project once "All lists" is on.
+  const [showAllLists, setShowAllLists] = useState(false)
+
   // The files column holds FileManager (lane B4's), read-only here. The one
   // layer it opens, its VideoPreview, is the kit Dialog on the modal stack
   // since B4c, so an Escape there is the player's alone and this popup needs
@@ -151,13 +159,26 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   if (!task) return null
 
   const linkedAsset = task.asset_id ? assets.find(a => a.id === task.asset_id) : null
-  const linkedScene = task.scene_id ? scenes.find(s => s.id === task.scene_id) : null
-  const linkedShot = task.shot_id ? shots.find(s => s.id === task.shot_id) : null
-
+  // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE list's
+  // (D10), so a task linked to a scene or shot only ANOTHER list holds lost
+  // its files column and read "—" in its pickers. The link is found among
+  // every row (the provider's lookups); the pickers keep the row chosen
+  // whatever the switch says; and the list that holds it is printed under
+  // the Shot field (LinkHome) — Audrey: tasks "need to clearly indicate"
+  // which shot version they are assigned to.
+  const linkedScene = task.scene_id ? (ctx?.sceneById?.(task.scene_id) || scenes.find(s => s.id === task.scene_id) || null) : null
+  const linkedShot = task.shot_id ? (ctx?.shotById?.(task.shot_id) || shots.find(s => s.id === task.shot_id) || null) : null
+  const allScenes = ctx?.allScenes || scenes
+  const allShots = ctx?.allShots || shots
+  const ofScene = (rows) => (task.scene_id ? rows.filter(s => s.scene_id === task.scene_id) : rows)
+  const sceneOptions = pickerRows({ active: scenes, all: allScenes, showAll: showAllLists, keep: task.scene_id })
   // Shots filtered by selected scene (for cascading dropdown)
-  const shotsForScene = task.scene_id
-    ? shots.filter(s => s.scene_id === task.scene_id)
-    : shots
+  const shotsForScene = pickerRows({ active: ofScene(shots), all: ofScene(allShots), showAll: showAllLists, keep: task.shot_id })
+  const canShowAllLists = otherListRows({ active: scenes, all: allScenes }) || otherListRows({ active: shots, all: allShots })
+  // The words beside a link need the project's lists; the Dashboard hands
+  // this popup a context without them, where they would say "In no shot
+  // list" of a shot that is in one.
+  const linkHere = Array.isArray(ctx?.shotLists) ? (linkedShot || linkedScene) : null
 
   function handleUpdate(patch) {
     guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
@@ -389,7 +410,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     className="ui-input rb-task-prop"
                     data-empty={task.scene_id ? 'false' : 'true'}>
                     <option value="">—</option>
-                    {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
+                    {sceneOptions.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                   </select>
                 </Field>
               )}
@@ -402,6 +423,17 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                     {shotsForScene.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
                   </select>
                 </Field>
+              )}
+              {/* Post-overhaul S3c, step 1: which shot list holds the link
+                  (the shot's, else the scene's), and the pickers' switch —
+                  one row, both about which list (Proximity). */}
+              {scenesOn && (linkHere || canShowAllLists) && (
+                <div className="rb-task-links">
+                  {linkHere && <LinkHome ctx={ctx} id={linkHere.id} name={linkHere.name || 'Untitled'} />}
+                  {canShowAllLists && (
+                    <Switch className="rb-task-links-all" checked={showAllLists} onChange={setShowAllLists} label="All lists" />
+                  )}
+                </div>
               )}
               {levelsOn && (
                 <Field label="Level">

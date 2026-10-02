@@ -11,15 +11,28 @@
 
 import { useMemo, useState } from 'react'
 import { Search, X, Check, Film, Clapperboard } from 'lucide-react'
-import { C, Btn, Modal, Select, StatusBadge } from './binUi'
+import { C, Btn, Modal, Select, StatusBadge, Toggle } from './binUi'
 import BinPoster from './BinPoster'
 import { assignableShotGroups, commonSceneId, matchesShotSearch, TAKE_ROLES, TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
+// Post-overhaul S3c, step 1: the active-list default, and each shot's list.
+import LinkHome from '../scenes/LinkHome'
+import { pickerRows, otherListRows } from '../scenes/linkHomes'
 
-export default function AssignToShotDialog({ files, binFiles, scenes, shots, shotTakes, thumbUrlFor, onConfirm, onCancel, busy, error = null }) {
+// Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE shot list's
+// (D10) and are what the picker offers by default; "Shot lists: all" offers
+// `allScenes` / `allShots`, every row of the project (a take may belong to a
+// shot only another list holds). `homeOf` names each shot's list.
+export default function AssignToShotDialog({ files, binFiles, scenes, shots, allScenes = null, allShots = null, homeOf = null, shotTakes, thumbUrlFor, onConfirm, onCancel, busy, error = null }) {
   const fileIds = useMemo(() => new Set((files || []).map(f => f.id)), [files])
   const liveFiles = useMemo(() => new Set((binFiles || []).map(f => f.id)), [binFiles])
   const preferSceneId = useMemo(() => commonSceneId(files), [files])
-  const { groups, hiddenOmitted } = useMemo(() => assignableShotGroups(shots, scenes, { preferSceneId }), [shots, scenes, preferSceneId])
+  const [showAllLists, setShowAllLists] = useState(false)
+  const everyScene = allScenes || scenes
+  const everyShot = allShots || shots
+  const canShowAllLists = otherListRows({ active: shots, all: everyShot })
+  const pickShots = showAllLists ? everyShot : shots
+  const pickScenes = showAllLists ? everyScene : pickerRows({ active: scenes, all: everyScene, showAll: false, keep: (shots || []).map(s => s.scene_id) })
+  const { groups, hiddenOmitted } = useMemo(() => assignableShotGroups(pickShots, pickScenes, { preferSceneId }), [pickShots, pickScenes, preferSceneId])
   // Counted through the live files, like every other consumer: a take whose
   // file was just removed is an orphan in state until the next response and
   // must not be counted (adversarial review).
@@ -71,6 +84,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
           {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
         <span className="flex-1 min-w-0 text-caption" style={{ color: C.dimmer }}>Tick several to use these takes in more than one shot. A shot's first take is always its primary.</span>
+        {canShowAllLists && <Toggle checked={showAllLists} onChange={setShowAllLists} label="All lists" />}
       </div>
 
       <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
@@ -96,6 +110,7 @@ export default function AssignToShotDialog({ files, binFiles, scenes, shots, sho
                     <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dimmer }} />
                     <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
                     <span className="flex-1 min-w-0 truncate text-dense" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
+                    {homeOf && <LinkHome homeOf={homeOf} id={shot.id} name={shot.name || 'Untitled shot'} />}
                     {shot.framing && <span className="text-label uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
                     <StatusBadge status={shot.status || 'not_started'} className="flex-shrink-0" />
                     <span className="bn-take-count w-44 text-right text-dense tabular-nums flex-shrink-0" data-assigned={t?.ofThese ? 'true' : undefined}>

@@ -72,6 +72,11 @@ import { useProjectAccess } from '../state/useProjectAccess'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+// Post-overhaul S3c, step 1: the undo keys' "is the settings drawer in front
+// of me?" (the Bins and Scenes keys ask it too), and which shot list a linked
+// scene or shot is in (D10's tooltip, Audrey's "clearly indicate").
+import { drawerOnScreen } from './bins/binUi'
+import { useHomeIndex } from './scenes/LinkHome'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -204,7 +209,7 @@ export function saveRabbitSettings(s) {
 // TimelineView
 // ============================================================
 
-export default function TimelineView({ settings, patchSettings, holidays }) {
+export default function TimelineView({ settings, patchSettings, holidays, pageActive = false }) {
   const ctx = useRabbit()
   const project = ctx?.project
   const phases = ctx?.phases || []
@@ -319,9 +324,24 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // Ctrl+Z (Cmd+Z on mac) → undo, Ctrl+Shift+Z / Ctrl+Y → redo.
   // Skipped while the user is typing inside an input / textarea /
   // contenteditable so the editor modal still gets normal text undo.
+  //
+  // 🚨 S4a-07 (post-overhaul S3c, step 1): every page stays mounted and this
+  // listens on the WINDOW, so from another page Ctrl+Z undid R.A.B.B.I.T.'s
+  // last edit (measured by S4a: a task renamed on the Timeline came back from
+  // D.O.G.). It acts only while R.A.B.B.I.T. is the page on screen
+  // (`pageActive`, Rabbit.jsx's `currentPage === 'rabbit'`, as Scenes and
+  // Bins take it), and stands down under the settings drawer, which is not on
+  // the kit's overlay stack (S4a trap 10), and under any kit question at the
+  // confirm width, as the Budget's keys do. The page's own popups keep the
+  // keys, as they always did (C1).
+  const pageActiveRef = useRef(pageActive)
+  pageActiveRef.current = pageActive
   useEffect(() => {
     function onKey(e) {
+      if (!pageActiveRef.current) return
+      if (drawerOnScreen() || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
       const t = e.target
+      if (t && typeof t.closest === 'function' && t.closest('.ui-drawer')) return
       const tag = t?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return
       const mod = e.ctrlKey || e.metaKey
@@ -467,16 +487,27 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
     [phases, assets, tasks, dependencies]
   )
 
+  // Post-overhaul S3c, step 1: group-by-scene reads the ACTIVE list (D10),
+  // and a task linked to a scene or shot only ANOTHER list holds is found
+  // through the provider's lookups over every row instead of dropping out;
+  // every scene and shot row says in its tooltip which list holds it.
+  const sceneById = ctx?.sceneById
+  const shotById = ctx?.shotById
+  const homeOf = useHomeIndex(ctx)
   const rows = useMemo(
     () => buildRowsByGrouping({
       groupBy, phases, assets, tasks, schedule,
       sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds,
       teamAssignments, teamMembers: tm?.members || [],
       scenes, shots, levels, experiences,
+      sceneById, shotById, homeOf,
     }),
     [groupBy, phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds,
-     teamAssignments, tm?.members, scenes, shots, levels, experiences]
+     teamAssignments, tm?.members, scenes, shots, levels, experiences, sceneById, shotById, homeOf]
   )
+  // The group-by-scene header's read-only "Shot list: Title · vN" (D18; S5
+  // owns any selector here).
+  const activeListLabel = ctx?.activeShotList ? ctx.formatShotListLabel?.(ctx.activeShotList) || '' : ''
 
   const summary = useMemo(
     () => buildSummary({ phases, assets, tasks, schedule, criticalSet, holidays }),
@@ -874,6 +905,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         groupBy={groupBy}
         onGroupByChange={handleGroupByChange}
         project={project}
+        shotListLabel={activeListLabel}
       />
 
       {/* ── Detail pane (bottom half) ── */}
@@ -2700,7 +2732,9 @@ export function DetailPane({
                   ? (canWrite
                       ? 'Click to edit · drag to move to another phase'
                       : 'Click to view')
-                  : undefined}
+                  // A scene or shot row (group by scene): its name and the
+                  // shot list that holds it (post-overhaul S3c, D10).
+                  : (r.tooltip || undefined)}
               >
                 {/* Collapse chevron — always visible on phase rows
                     so the user can hide the "+ New task" drop-zone
@@ -5275,6 +5309,7 @@ function DetailZoomToolbar({
   onNewPhase, onNewTask, onNewMilestone, onOpenMilestoneTrash,
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
+  shotListLabel = '',
 }) {
   // UI overhaul B3b: the kit Toolbar (44px, the 24px gutter, one 28px
   // control height), and ONE segmented idiom for the three selectors
@@ -5351,6 +5386,14 @@ function DetailZoomToolbar({
       {/* Group-by selector */}
       {onGroupByChange && (
         <Tabs label="Group by" panelId={DETAIL_PANEL_ID} items={groupItems} value={groupBy} onChange={onGroupByChange} />
+      )}
+      {/* Post-overhaul S3c (D18): grouped by scene, the rows are the ACTIVE
+          shot list's (D10), and this says which — words, not a control (S5
+          owns any picker here). Beside the selector it qualifies. */}
+      {groupBy === 'scene' && shotListLabel && (
+        <span className="rb-tl-shotlist" title="The scenes and shots grouped here are the active shot list's. The Scenes tab changes which list is active.">
+          {`Shot list: ${shotListLabel}`}
+        </span>
       )}
 
       <span className="rb-tl-tb-sep" aria-hidden="true" />
@@ -6266,10 +6309,13 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
 // buildRowsByGrouping — dispatches to the right row builder
 // ============================================================
 
-function buildRowsByGrouping({
+// Exported for timelineShotLists.test.jsx (post-overhaul S3c), which holds
+// group-by-scene's resolution of another list's rows to account.
+export function buildRowsByGrouping({
   groupBy, phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null,
   teamAssignments = [], teamMembers = [],
   scenes = [], shots = [], levels = [], experiences = [],
+  sceneById = null, shotById = null, homeOf = null,
 }) {
   switch (groupBy) {
     case 'team':
@@ -6277,7 +6323,7 @@ function buildRowsByGrouping({
     case 'asset':
       return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet })
     case 'scene':
-      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet })
+      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet, sceneById, shotById, homeOf })
     case 'level':
       return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet })
     case 'experience':
@@ -6694,13 +6740,48 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 
 // ── buildRowsByScene ────────────────────────────────────────
 // Flat Scene → Shot → Tasks (no phase wrappers)
-function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet }) {
+//
+// Post-overhaul S3c, step 1. `scenes` / `shots` are the ACTIVE list's rows
+// (D10), so a task linked to a shot only ANOTHER list holds was bucketed
+// under a shot this never visited — and vanished from the Timeline (a task
+// on a scene another list holds, likewise). `sceneById` / `shotById` (the
+// provider's lookups over EVERY row) now resolve such a link: its scene and
+// shot join the groups, in the same order as the rest, and only because a
+// task needs them — another list's rows without tasks stay off (D10). A link
+// that resolves to nothing at all (a row gone) lands under "No Scene"
+// rather than nowhere. `homeOf` (linkHomes.homeIndex) gives every scene and
+// shot row the tooltip that names its list: the gutter is too dense to
+// print it (S3c brief, step 1).
+function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
+  const tip = (row) => (homeOf ? homeOf(row.id).title(row.name || null) : undefined)
+
+  // The groups: the active list's scenes and shots, and those a task links
+  // to that another list holds.
+  const sceneSet = new Map(scenes.map(s => [s.id, s]))
+  const shotSet = new Map(shots.map(s => [s.id, s]))
+  // A task whose shot has no scene had no group either (the shot is grouped
+  // under its scene): it goes under "No Scene" with the unresolved.
+  const unresolved = new Set()
+  for (const t of tasks) {
+    if (t.shot_id) {
+      const sh = shotSet.get(t.shot_id) || shotById?.(t.shot_id) || null
+      const sc = sh?.scene_id ? (sceneSet.get(sh.scene_id) || sceneById?.(sh.scene_id) || null) : null
+      if (!sh || !sc) { unresolved.add(t.id); continue }
+      if (!shotSet.has(sh.id)) shotSet.set(sh.id, sh)
+      if (!sceneSet.has(sc.id)) sceneSet.set(sc.id, sc)
+    } else if (t.scene_id) {
+      const sc = sceneSet.get(t.scene_id) || sceneById?.(t.scene_id) || null
+      if (!sc) { unresolved.add(t.id); continue }
+      if (!sceneSet.has(sc.id)) sceneSet.set(sc.id, sc)
+    }
+  }
+  scenes = [...sceneSet.values()]
 
   // Group shots by scene
   const shotsByScene = {}
-  for (const sh of shots) {
+  for (const sh of shotSet.values()) {
     if (!sh.scene_id) continue
     if (!shotsByScene[sh.scene_id]) shotsByScene[sh.scene_id] = []
     shotsByScene[sh.scene_id].push(sh)
@@ -6722,7 +6803,9 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
   const tasksByShot = {}    // { shotId: Task[] }
   const noSceneTasks = []
   for (const t of tasks) {
-    if (t.shot_id) {
+    if (unresolved.has(t.id)) {
+      noSceneTasks.push(t)
+    } else if (t.shot_id) {
       if (!tasksByShot[t.shot_id]) tasksByShot[t.shot_id] = []
       tasksByShot[t.shot_id].push(t)
     } else if (t.scene_id) {
@@ -6752,6 +6835,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
       key: `grp-sc-${scene.id}`, kind: 'phase',
       isSubgroup: true,
       label: scene.name || 'Untitled scene',
+      tooltip: tip(scene),
       phase: { id: scene.id, name: scene.name, start_date: scene.start_date, end_date: scene.end_date, status: scene.status },
       phaseHint: scene.id, depth: 0,
       collapsed, hasChildren: true, start: sStart, end: sEnd,
@@ -6769,6 +6853,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
         key: `grp-sh-${shot.id}`, kind: 'phase',
         isSubgroup: true,
         label: shot.name || 'Untitled shot',
+        tooltip: tip(shot),
         phase: { id: shot.id, name: shot.name, start_date: shot.start_date, end_date: shot.end_date, status: shot.status },
         phaseHint: shot.id, depth: 1,
         collapsed: shotCollapsed, hasChildren: true,

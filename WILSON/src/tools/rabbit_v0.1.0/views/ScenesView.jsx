@@ -2977,6 +2977,9 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 // draws it only when it is handed this; greying it is S3c's,
                 // in that file).
                 onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
+                // Post-overhaul S3c (S3b-01): the asset relations' add and
+                // removes, greyed with the reason for the same seat.
+                canWrite={canWrite}
               />
             </div>
 
@@ -3253,7 +3256,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
         document.body,
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup (it portals itself). */}
-      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} />
+      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
       {/* D21: the draft question, over this popup. */}
       {askDiscard && (
         <ListConfirm
@@ -3438,6 +3441,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 onOpenAsset={id => setNestedAssetId(id)}
                 onOpenTask={id => setNestedTaskId(id)}
                 onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
+                canWrite={canWrite}
               />
             </div>
 
@@ -3725,7 +3729,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
         document.body,
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup. */}
-      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} />
+      <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
       {/* D21: the draft question, over this popup. */}
       {askDiscard && (
         <ListConfirm
@@ -4161,7 +4165,9 @@ function discardWords(what, dirty) {
 // AssetDetailPopup (it portals itself into <body>) over the popup, as a task
 // opens TaskDetailPopup — the asset's tasks and phase as the Assets tab
 // hands them. Nothing for an id the project no longer holds.
-function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose }) {
+// Post-overhaul S3c (S3b-09's relation pickers): the popup's seat rides
+// along, so a reviewer cannot change the asset's relations from here.
+function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, canWrite = false }) {
   const asset = assetId ? (ctx?.assets || []).find(a => a.id === assetId) : null
   if (!asset) return null
   return (
@@ -4173,6 +4179,7 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose }) {
       thumbRevision={thumbRevision}
       onThumbChanged={onThumbChanged}
       onClose={onClose}
+      canWrite={canWrite}
     />
   )
 }

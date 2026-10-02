@@ -249,8 +249,11 @@ export default function Rabbit({ currentPage } = {}) {
             {activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}
             {activeView === 'levels'      && <LevelsView />}
             {activeView === 'experiences' && <ExperiencesView />}
-            {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} />}
-            {activeView === 'budget'   && <BudgetView         />}
+            {/* pageActive (post-overhaul S3c, S4a-07): the Timeline's and the
+                Budget's Ctrl+Z / Ctrl+Y act only while R.A.B.B.I.T. is on
+                screen, as Scenes' and Bins' do. */}
+            {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} pageActive={currentPage === 'rabbit'} />}
+            {activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}
           </div>
         )}
       </div>

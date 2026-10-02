@@ -196,6 +196,81 @@ describe('TaskDetailPopup, rendered', () => {
   })
 })
 
+// Post-overhaul S3c, step 1: `ctx.scenes` / `ctx.shots` are the ACTIVE
+// list's (D10). A task linked to a shot only ANOTHER list holds lost its
+// files column and read "—" in its Shot picker; now the link resolves, the
+// popup prints which list holds it, and the pickers offer the active list
+// by default with "All lists" for the rest.
+describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', () => {
+  const sceneA = { id: 'A', name: 'Harbour', scene_number: 1 }
+  const sceneB = { id: 'B', name: 'Lighthouse', scene_number: 2 }
+  const a1 = { id: 'a1', scene_id: 'A', name: 'SC001_SH010' }
+  const b1 = { id: 'b1', scene_id: 'B', name: 'SC002_SH010' }
+  const b2 = { id: 'b2', scene_id: 'B', name: 'SC002_SH020' }
+  const every = { A: sceneA, B: sceneB, a1, b1, b2 }
+  const lists = [{ id: 'L1', title: 'Shoot', version: 2 }, { id: 'L2', title: 'Pickups', version: 1 }]
+  const items = [
+    { id: 'i1', shot_list_id: 'L1', scene_id: 'A' }, { id: 'i2', shot_list_id: 'L1', shot_id: 'a1' },
+    { id: 'i3', shot_list_id: 'L2', scene_id: 'B' }, { id: 'i4', shot_list_id: 'L2', shot_id: 'b1' }, { id: 'i5', shot_list_id: 'L2', shot_id: 'b2' },
+  ]
+  function popupOn(task, over = {}) {
+    const updateTask = vi.fn()
+    const ctx = {
+      tasks: [task], assets: [], phases: [], levels: [], experiences: [],
+      project: { id: 'p1', scenes_enabled: true, active_shot_list_id: 'L1' },
+      scenes: [sceneA], shots: [a1], allScenes: [sceneA, sceneB], allShots: [a1, b1, b2],
+      sceneById: (id) => every[id] || null, shotById: (id) => every[id] || null,
+      shotLists: lists, shotListItems: items, edits: [],
+      teamAssignments: [], managedFiles: [], updateTask, deleteTask: vi.fn(),
+      myProjectRole: 'manager', projectIsStaffed: false, activeProjectId: 'p1',
+      ...over,
+    }
+    render(<TaskDetailPopup taskId={task.id} ctx={ctx} onClose={() => {}} />)
+    return { updateTask }
+  }
+  const optionNames = (label) => [...screen.getByLabelText(label).options].map(o => o.textContent)
+
+  it('the linked shot resolves: its files column, its name in the picker (not "—"), and its list printed under the field', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })
+    expect(screen.getByText('Shot: SC002_SH010')).toBeTruthy()
+    expect(screen.getByLabelText('Shot').value).toBe('b1')
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010'])
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.textContent).toContain('Pickups · v1')
+    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1')
+  })
+  it('"All lists" widens both pickers to every row of the project, and back', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })
+    const toggle = screen.getByRole('switch', { name: 'All lists' })
+    fireEvent.click(toggle)
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010', 'SC002_SH020'])
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+    fireEvent.click(toggle)
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010'])
+  })
+  it('"All lists" adds another list\'s scenes to an unlinked task\'s Scene picker', () => {
+    popupOn({ id: 't8', title: 'Plan', status: 'in_progress', priority: 'medium' })
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour'])
+    fireEvent.click(screen.getByRole('switch', { name: 'All lists' }))
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+  })
+  it('an unlinked task offers the active list\'s rows only, and no words of a list', () => {
+    popupOn({ id: 't8', title: 'Plan', status: 'in_progress', priority: 'medium' })
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour'])
+    expect(document.querySelector('.rb-task-links .rb-scene-home')).toBeNull()
+    expect(screen.getByRole('switch', { name: 'All lists' })).toBeTruthy()
+  })
+  it('the Dashboard\'s context (no lists in it) prints no list words: it would say "In no shot list" of a shot that is in one', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' }, { shotLists: undefined })
+    expect(document.querySelector('.rb-scene-home')).toBeNull()
+  })
+  it('CONTROL: without the provider\'s lookups (the old path) the shot does not resolve — no files column, an empty picker', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' }, { sceneById: undefined, shotById: undefined, allScenes: undefined, allShots: undefined })
+    expect(screen.queryByText('Shot: SC002_SH010')).toBeNull()
+  })
+})
+
 describe('the task template manager, rendered', () => {
   function manager() {
     const updateTemplate = vi.fn()
