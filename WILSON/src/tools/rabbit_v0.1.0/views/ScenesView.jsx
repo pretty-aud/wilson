@@ -70,6 +70,9 @@ import {
 // …and (step 6) the drag.
 import { useCutDrag } from './scenes/useCutDrag'
 import { Grip } from './scenes/EditTable'
+// …and (step 7) the leave guard: a popup's typed text, a jump between rows.
+import { useLeaveGuard } from './scenes/useLeaveGuard'
+import { confirmLeave, hasUnsavedWork } from '../state/leaveGuard'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -255,6 +258,11 @@ const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 // (greyed, saying why), and New scene / New shot give way to the cut's own
 // verbs. Search still finds a shot in the cut.
 const EDIT_ORDER_REASON = 'An edit shows its cut order. Choose List order on the shot-list bar to sort, group, filter or change the view.'
+// Post-overhaul S3c, step 7: the exits that would take a scene or shot popup
+// (and its typed text) away — leaving the tab, switching project, a jump
+// opening another row's popup. Leaving the page does not: the tab stays
+// mounted, the popup with it.
+const POPUP_EXITS = ['tab', 'project', 'popup']
 const EDIT_ADD_REASON = "An edit is on screen. Add shots to it from a row's or a scene's edit actions, or choose List order to add to the list."
 
 // ── Timecode helpers ──
@@ -473,14 +481,29 @@ export default function ScenesView({ pageActive = false } = {}) {
   // shot another list holds still opens.
   const shotById = ctx?.shotById
   const sceneById = ctx?.sceneById
+  // Post-overhaul S3c, step 7 (S3b-08): another row's popup opened over one
+  // with typed text in it would drop the text (each popup is its row's own):
+  // the popup's D21 question asks first, and Cancel keeps it. The same row's
+  // popup is no change.
+  const detailRef = useRef({ shot: null, scene: null })
+  detailRef.current = { shot: detailShotId, scene: detailSceneId }
   const onNavigate = useCallback((p) => {
     if (p?.shotId) {
       if (!shotById?.(p.shotId)) return false
-      setDetailShotId(p.shotId); setDetailSceneId(null)
     } else if (p?.sceneId) {
       if (!sceneById?.(p.sceneId)) return false
-      setDetailSceneId(p.sceneId)
     }
+    const open = () => {
+      if (p?.shotId) { setDetailShotId(p.shotId); setDetailSceneId(null) }
+      else if (p?.sceneId) setDetailSceneId(p.sceneId)
+    }
+    const now = detailRef.current
+    const same = p?.shotId ? (now.shot === p.shotId && !now.scene) : (p?.sceneId && now.scene === p.sceneId)
+    if (!same && hasUnsavedWork('popup')) {
+      confirmLeave('popup').then((go) => { if (go) open() })
+      return true
+    }
+    open()
     return true
   }, [shotById, sceneById])
   useNavigateTarget('scenes', onNavigate, project?.id || null)
@@ -3168,13 +3191,21 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   // D21: the draft a question is about — 'close' (the popup), 'description'
   // or 'notes' (Escape in its box) — while it asks.
   const [askDiscard, setAskDiscard] = useState(null)
+  // Post-overhaul S3c, step 7 (S3b-05, S3b-08): the task form's typed work
+  // counts as the popup's, and an EXIT that would take the popup away — the
+  // tab strip, "Show in Bins", a project switch, a jump opening another
+  // row's popup — asks D21's question first (state/leaveGuard.js).
+  const [taskDirty, setTaskDirty] = useState(false)
+  const [leaveAsk, setLeaveAsk] = useState(null)
+  const dirtyRef = useRef(false)
+  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
   // What opened this popup — a row's "View details" — captured in render, as
   // the kit Dialog captures it (an effect would read the popup's own focus).
   // The delete question asked from here is handed it (ConfirmDialog).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
-  if (!scene) return null
+  if (!scene) { dirtyRef.current = false; return null }
 
   // What the Dialog is named for: the name its title shows.
   const name = scene.name || 'Untitled scene'
@@ -3182,14 +3213,17 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const hasThumbnail = !!scene.thumbnail_image
 
   function handleUpdate(patch) { if (canWrite) ctx?.updateScene?.(scene.id, patch) }
-  // D21: a draft that differs from what is saved, in an open editor.
+  // D21: a draft that differs from what is saved, in an open editor — and
+  // (S3b-05) a task form with anything typed or chosen in it.
   const dirty = {
     description: editingDesc && descDraft !== (scene.description || ''),
     notes: editingNotes && notesDraft !== (scene.notes || ''),
+    task: showCreateTask && taskDirty,
   }
+  dirtyRef.current = dirty.description || dirty.notes || dirty.task
   /** The kit Dialog's onBeforeClose (Escape, ✕, the backdrop) and Close: ask first when a draft would go. */
   const requestClose = () => {
-    if (!dirty.description && !dirty.notes) return true
+    if (!dirty.description && !dirty.notes && !dirty.task) return true
     setAskDiscard('close')
     return false
   }
@@ -3291,6 +3325,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   project={project}
                   onConfirm={handleCreateTask}
                   onClose={() => setShowCreateTask(false)}
+                  onDirtyChange={setTaskDirty}
                 />
               </div>
             )}
@@ -3601,6 +3636,18 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
           {discardWords(askDiscard, dirty)}
         </ListConfirm>
       )}
+      {/* S3c step 7: the same question when an exit would take this popup
+          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
+      {leaveAsk && (
+        <ListConfirm
+          title="Discard your changes?"
+          confirmLabel="Discard"
+          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
+          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
+        >
+          {discardWords('close', dirty)}
+        </ListConfirm>
+      )}
     </>
   )
 }
@@ -3644,11 +3691,17 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const [nestedAssetId, setNestedAssetId] = useState(null)
   // D21: the draft a question is about, while it asks (the scene popup's).
   const [askDiscard, setAskDiscard] = useState(null)
+  // S3c step 7 (S3b-05, S3b-08): the task form's typed work, and the exits
+  // that would take this popup away, as the scene popup's.
+  const [taskDirty, setTaskDirty] = useState(false)
+  const [leaveAsk, setLeaveAsk] = useState(null)
+  const dirtyRef = useRef(false)
+  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
   // What opened this popup, handed to the delete question (the scene popup's).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
 
-  if (!shot) return null
+  if (!shot) { dirtyRef.current = false; return null }
 
   const name = shot.name || 'Untitled shot'
   const status = shot.status || 'not_started'
@@ -3658,9 +3711,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const dirty = {
     description: editingDesc && descDraft !== (shot.description || ''),
     notes: editingNotes && notesDraft !== (shot.notes || ''),
+    task: showCreateTask && taskDirty,
   }
+  dirtyRef.current = dirty.description || dirty.notes || dirty.task
   const requestClose = () => {
-    if (!dirty.description && !dirty.notes) return true
+    if (!dirty.description && !dirty.notes && !dirty.task) return true
     setAskDiscard('close')
     return false
   }
@@ -3759,6 +3814,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   project={project}
                   onConfirm={handleCreateTask}
                   onClose={() => setShowCreateTask(false)}
+                  onDirtyChange={setTaskDirty}
                 />
               </div>
             )}
@@ -4072,6 +4128,18 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
           onConfirm={async () => discard(askDiscard)}
         >
           {discardWords(askDiscard, dirty)}
+        </ListConfirm>
+      )}
+      {/* S3c step 7: the same question when an exit would take this popup
+          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
+      {leaveAsk && (
+        <ListConfirm
+          title="Discard your changes?"
+          confirmLabel="Discard"
+          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
+          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
+        >
+          {discardWords('close', dirty)}
         </ListConfirm>
       )}
     </>
@@ -4488,9 +4556,12 @@ function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, 
 /** D21's words: which draft would go. `what` is 'close', 'description' or 'notes'. */
 function discardWords(what, dirty) {
   const parts = what === 'close'
-    ? [dirty.description && 'the description', dirty.notes && 'the notes'].filter(Boolean)
+    ? [dirty.description && 'the description', dirty.notes && 'the notes', dirty.task && 'the new task'].filter(Boolean)
     : [what === 'notes' ? 'the notes' : 'the description']
-  return `What you typed in ${parts.join(' and ')} is not saved. Discard it, or go back and Save it.`
+  const list = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join(' and ')
+  // S3c (S3b-05): a task is created, not saved — the way back is to it.
+  const back = what === 'close' && dirty.task ? 'go back to it' : 'go back and Save it'
+  return `What you typed in ${list} is not saved. Discard it, or ${back}.`
 }
 
 // ─── NestedAsset (S3b step 7, P1-23) ───

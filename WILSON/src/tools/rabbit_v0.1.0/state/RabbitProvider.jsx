@@ -95,6 +95,7 @@ import {
   draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
   storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
 } from './editDrafts';
+import { addLeaveGuard, confirmLeave } from './leaveGuard';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -2871,6 +2872,57 @@ export function RabbitProvider({ children }) {
   [storedEditDrafts, draftPersonKey, activeProjectId, editDrafts]);
   const hasUnsavedEdit = openProjectDrafts.some(d => d.dirty);
 
+  // ── The unsaved edit, for the leave guard (S3c, step 7; D12) ─────────────
+  // The open project's drafts are what every exit asks about
+  // (state/leaveGuard.js). The question is the kit Dialog LeaveEditDialog
+  // draws from `leaveAsk`, with D12's three answers: Save edit saves every
+  // draft of the open project as its next edit (the name the first-change
+  // question gave it, at that title's next version), Discard changes drops
+  // them, Keep editing stays. The window's close folds the same three into
+  // App's own question (describe / save / discard), so it is one question.
+  // A draft of ANOTHER project (left there by an automatic switch) is not
+  // this project's exit's business: its copy survives for its own visit.
+  const [leaveAsk, setLeaveAsk] = useState(null);
+  const leaveAskRef = useRef(null);
+  function openDraftsNow() {
+    const pid = activeProjectIdRef.current;
+    return pid ? Object.values(editDraftsRef.current).filter(d => d.projectId === pid && d.dirty) : [];
+  }
+  function unsavedEditWords() {
+    const drafts = openDraftsNow();
+    const name = (d) => `“${formatShotListLabel(d)}”`;
+    const of = (d) => { const l = findShotList(d.listId); return l ? `“${formatShotListLabel(l)}”` : 'its list'; };
+    if (drafts.length === 1) return `${name(drafts[0])}, an edit of ${of(drafts[0])}, is not saved.`;
+    const each = drafts.map(d => `${name(d)} (of ${of(d)})`);
+    return `${drafts.length} edits are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
+  }
+  const saveOpenDrafts = useCallback(async () => {
+    for (const d of openDraftsNow()) await saveEditDraft(d.listId, { title: d.title });
+  }, [saveEditDraft]);
+  const discardOpenDrafts = useCallback(() => {
+    for (const d of openDraftsNow()) setDraft(d.projectId, d.listId, null);
+  }, []);
+  const answerLeave = useCallback((go) => {
+    const ask = leaveAskRef.current;
+    leaveAskRef.current = null;
+    setLeaveAsk(null);
+    ask?.resolve(!!go);
+  }, []);
+  const describeUnsavedEdits = useCallback(() => unsavedEditWords(), []);
+  useEffect(() => addLeaveGuard({
+    order: 2,
+    applies: (reason) => reason !== 'popup',
+    dirty: () => editDraftHeldRef.current,
+    ask: (reason) => new Promise((resolve) => {
+      const ask = { reason, resolve };
+      leaveAskRef.current = ask;
+      setLeaveAsk(ask);
+    }),
+    describe: () => unsavedEditWords(),
+    save: () => saveOpenDrafts(),
+    discard: () => discardOpenDrafts(),
+  }), [saveOpenDrafts, discardOpenDrafts]);
+
   // ── Scenes ─────────────────────────────────────────────
   //
   // S3a: a new scene joins a list — opts.listId (the list the Scenes tab is
@@ -5182,6 +5234,13 @@ export function RabbitProvider({ children }) {
     editDraftOf,
     hasUnsavedEdit,
     recoverableEditDrafts,
+    // The leave guard (S3c, step 7; D12): every exit's one question.
+    confirmLeave,
+    leaveAsk,
+    answerLeave,
+    describeUnsavedEdits,
+    saveOpenDrafts,
+    discardOpenDrafts,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -5343,6 +5402,7 @@ export function RabbitProvider({ children }) {
     openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
     startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
     recoverEditDraft, dismissStoredEditDraft,
+    leaveAsk, answerLeave, describeUnsavedEdits, saveOpenDrafts, discardOpenDrafts,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

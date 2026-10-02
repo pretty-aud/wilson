@@ -42,6 +42,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Folder, ChevronDown, Check } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { confirmLeave } from '../state/leaveGuard'
 import { Toolbar } from '../../../ui/Toolbar'
 import { Button } from '../../../ui/Button'
 import { StatusBadge } from '../../../ui/StatusBadge'
@@ -102,9 +103,13 @@ export default function ProjectContextBar({ presenceSlot = null, adapterSlot = n
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => {
-                      setActiveProject?.(p.id)
+                    onClick={async () => {
                       setOpen(false)
+                      // Post-overhaul S3c, step 7 (D12): another project is
+                      // an exit — an unsaved edit, or a popup's typed text,
+                      // asks first (state/leaveGuard.js). Keep editing stays.
+                      if (p.id !== activeProjectId && !(await confirmLeave('project'))) return
+                      setActiveProject?.(p.id)
                     }}
                     className="rb-ctx-option text-dense"
                     data-active={isActive ? 'true' : undefined}

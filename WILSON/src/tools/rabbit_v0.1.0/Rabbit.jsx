@@ -32,7 +32,7 @@
 // effect uses the `currentPage` prop passed down from App.jsx
 // — calling setActiveTool('rabbit') on visibility.
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
@@ -58,7 +58,8 @@ import ExperiencesView from './views/ExperiencesView'
 import ProjectFilesExplorer from '../../components/Resources/ProjectFilesExplorer'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
-import { subscribeNavigate } from './state/rabbitNavigate'
+import { subscribeNavigate, dropPendingNavigate } from './state/rabbitNavigate'
+import { leaveTab } from './state/leaveGuard'
 import { IconButton } from '../../ui/IconButton'
 import { Button } from '../../ui/Button'
 import { EmptyState } from '../../ui/EmptyState'
@@ -107,11 +108,29 @@ export default function Rabbit({ currentPage } = {}) {
     if (hiddenTabs.has(activeView)) setActiveView('summary')
   }, [hiddenTabs, activeView])
 
+  // Post-overhaul S3c, step 7 (D12): leaving the Scenes tab — by the tab
+  // strip, a jump out of it ("Show in Bins"), or a toast's shortcut — asks
+  // first while an edit there is unsaved, or a popup's typed text would go
+  // (state/leaveGuard.js; S3b-05, S3b-08). Keep editing stays, and a jump
+  // that was asked for is dropped, not left pending for later. A jump INTO
+  // Scenes leaves nothing: it opens its row over whatever is on screen. The
+  // AUTOMATIC switches below (a tab hidden, the project cleared) never ask.
+  const activeViewRef = useRef(activeView)
+  activeViewRef.current = activeView
+  const goToView = useCallback(async (view) => {
+    if (!(await leaveTab(activeViewRef.current, view))) return false
+    setActiveView(view)
+    return true
+  }, [])
+
   // Cross-tab navigation (milestone 2): "open this shot in Scenes" from the
   // bin inspector, "show this file in Bins" from a shot's takes. The shell
   // switches the tab; the target view consumes the payload when it mounts
   // (state/rabbitNavigate.js).
-  useEffect(() => subscribeNavigate(d => { if (d?.view) setActiveView(d.view) }), [])
+  useEffect(() => subscribeNavigate(d => {
+    if (!d?.view) return
+    goToView(d.view).then((went) => { if (!went) dropPendingNavigate(d) })
+  }), [goToView])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())
@@ -164,7 +183,7 @@ export default function Rabbit({ currentPage } = {}) {
   // on the toast, jump them straight to the intake wizard so they
   // can hit save.
   function handleJumpToReview() {
-    setActiveView('intake')
+    goToView('intake')
   }
 
   // ── The adapter dot and the presence pill (Q10, B1 2026-09-23) ──
@@ -205,7 +224,7 @@ export default function Rabbit({ currentPage } = {}) {
       {/* ── View tabs ── */}
       <ViewTabs
         activeView={activeView}
-        onChange={setActiveView}
+        onChange={goToView}
         disabled={!activeProjectId && activeView !== 'summary'}
         hiddenTabs={hiddenTabs}
         rightSlot={(

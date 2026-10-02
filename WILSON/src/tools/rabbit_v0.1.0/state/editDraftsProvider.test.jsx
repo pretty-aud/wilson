@@ -5,8 +5,9 @@
 // keeps the contract's rules, driven end to end.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
-import { render, cleanup, act, waitFor } from '@testing-library/react'
+import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
 import { EDIT_DRAFTS_KEY, storedDraftKey } from './editDrafts'
+import { confirmLeave, hasUnsavedWork, unsavedForClose, _resetLeaveGuardsForTests } from './leaveGuard'
 
 const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null, writable: true, fixtures: null }))
 
@@ -33,6 +34,7 @@ vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => holder.fixtures 
 vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
 
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
+const { default: LeaveEditDialog } = await import('../views/scenes/LeaveEditDialog')
 
 function httpError(status, message) {
   const e = new Error(message)
@@ -365,5 +367,90 @@ describe('S3c — "Recover unsaved edit?"', () => {
     expect(ctxRef.recoverableEditDrafts).toHaveLength(1)
     await startDraft()
     expect(ctxRef.recoverableEditDrafts).toEqual([])
+  })
+})
+
+describe('S3c step 7 — the unsaved edit asks before every exit (D12)', () => {
+  const mountWithQuestion = async () => {
+    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+    await waitFor(() => expect(ctxRef.shotLists.length).toBe(2))
+  }
+  afterEach(() => _resetLeaveGuardsForTests())
+
+  it('nothing unsaved: an exit goes on at once, asking nothing', async () => {
+    await mountWithQuestion()
+    expect(hasUnsavedWork('tab')).toBe(false)
+    expect(await confirmLeave('tab')).toBe(true)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('with a draft every exit but a popup jump asks, in the kit Dialog: the edit named, Keep editing first and focused', async () => {
+    await mountWithQuestion()
+    await startDraft()
+    for (const reason of ['tab', 'page', 'project', 'edit', 'close']) expect(hasUnsavedWork(reason), reason).toBe(true)
+    expect(hasUnsavedWork('popup')).toBe(false)
+    let went
+    act(() => { confirmLeave('tab').then((g) => { went = g }) })
+    const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved. Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.')
+    expect([...q.querySelectorAll('.ui-dialog-foot button')].map(b => b.textContent)).toEqual(['Keep editing', 'Discard changes', 'Save edit'])
+    expect(document.activeElement.textContent).toBe('Keep editing')
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Keep editing' })) })
+    expect(went).toBe(false)
+    expect(ctxRef.editDraftOf('L1')).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('Save edit writes it as its next version, then the exit goes on; Discard changes drops it, then goes on', async () => {
+    await mountWithQuestion()
+    await startDraft()
+    let went
+    act(() => { confirmLeave('page').then((g) => { went = g }) })
+    let q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Save edit' })) })
+    await waitFor(() => expect(went).toBe(true))
+    expect(holder.adapter.db.edits.map(e => [e.title, e.version])).toEqual([['Shoot', 1]])
+    expect(ctxRef.hasUnsavedEdit).toBe(false)
+    await startDraft({ version: 2 })
+    went = undefined
+    act(() => { confirmLeave('project').then((g) => { went = g }) })
+    q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Discard changes' })) })
+    await waitFor(() => expect(went).toBe(true))
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    expect(holder.adapter.db.edits).toHaveLength(1)
+  })
+
+  it('a refused Save stays in the question, verbatim, and the exit waits', async () => {
+    await mountWithQuestion()
+    await startDraft()
+    await act(async () => { await ctxRef.saveEditDraft('L1', { title: 'Shoot' }) })
+    await startDraft({ version: 2 })
+    // Someone else's "Shoot · v2" landed meanwhile, unseen here: the backend refuses.
+    holder.adapter.db.edits.push({ ...holder.adapter.db.edits[0], id: 'clash', version: 2 })
+    let went
+    act(() => { confirmLeave('tab').then((g) => { went = g }) })
+    const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Save edit' })) })
+    expect(within(q).getByRole('alert').textContent).toBe('This shot list already has an edit with this title and version.')
+    expect(went).toBeUndefined()
+    expect(ctxRef.editDraftOf('L1')).not.toBeNull()
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Keep editing' })) })
+    expect(went).toBe(false)
+  })
+
+  it('the window\'s close folds the same three answers in: the words, Save, Discard (no second dialog)', async () => {
+    await mountWithQuestion()
+    await startDraft()
+    const [g] = unsavedForClose()
+    expect(g.describe()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    await act(async () => { await g.save() })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(unsavedForClose()).toEqual([])
+    await startDraft({ version: 2 })
+    act(() => { unsavedForClose()[0].discard() })
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

@@ -7,7 +7,7 @@
 // standing aside, the edit's verbs, the picker's edits, "Recently removed".
 // =============================================================================
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 import {
@@ -16,6 +16,7 @@ import {
   editsOfList, editChainTip, nextEditVersion, editItemsFromList,
 } from '../state/shotListModel'
 import { startDraft, changeDraft, undoDraft, redoDraft } from '../state/editDrafts'
+import { addLeaveGuard, _resetLeaveGuardsForTests } from '../state/leaveGuard'
 
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
@@ -31,7 +32,7 @@ const rabbit = vi.hoisted(() => ({ current: null }))
 
 const { default: ScenesView } = await import('./ScenesView')
 
-afterEach(() => { cleanup(); _resetOverlaysForTests(); vi.restoreAllMocks(); localStorage.clear(); perms.current = null })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); _resetLeaveGuardsForTests(); vi.restoreAllMocks(); localStorage.clear(); perms.current = null })
 
 export const SCENES = () => [
   { id: 'sc1', name: 'Lighthouse, dawn', scene_number: 1, status: 'final' },
@@ -260,9 +261,24 @@ describe('S3c step 3: seeing an edit', () => {
 // The page over a stateful stand-in for the provider's draft (the real one is
 // editDraftsProvider.test.jsx's): editDrafts.js's own pure steps, kept in
 // React state, so a change re-renders the page as the provider's does.
-const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], save: [] }
+const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], save: [], leave: [] }
+/** The stand-in provider's leave guard answers: 'stay', 'discard' (drops the draft, goes on) or 'go'. */
+const leave = { answer: 'stay' }
 function DraftHarness({ edits: given, extra, pageActive }) {
   const [drafts, setDrafts] = useState({})
+  // As the provider's (step 7): its drafts are the unsaved work every exit asks about.
+  const draftsRef = useRef(drafts)
+  draftsRef.current = drafts
+  useEffect(() => addLeaveGuard({
+    order: 2,
+    applies: (r) => r !== 'popup',
+    dirty: () => Object.keys(draftsRef.current).length > 0,
+    ask: async (r) => {
+      log.leave.push(r)
+      if (leave.answer === 'discard') { setDrafts({}); return true }
+      return leave.answer === 'go'
+    },
+  }), [])
   const [shots, setShots] = useState(SHOTS)
   const [saved, setSaved] = useState([])
   const edits = useMemo(() => [...given, ...saved], [given, saved])
@@ -310,7 +326,8 @@ function DraftHarness({ edits: given, extra, pageActive }) {
   return <ScenesView pageActive={pageActive} />
 }
 function draftPage({ edits = [EDIT_1], pageActive = true, ...extra } = {}) {
-  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []
+  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []; log.leave = []
+  leave.answer = 'stay'
   return render(<DraftHarness edits={edits} extra={extra} pageActive={pageActive} />)
 }
 const cutNames = () => cutRowNames(document)
@@ -863,5 +880,42 @@ describe('S3c step 6: a drag on the LIST asks to make an edit (Audrey\'s flow)',
     expect(document.querySelectorAll('.rb-scene-table-shots .rb-scene-grip').length).toBeGreaterThan(0)
     fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'status' } })
     expect(document.querySelectorAll('.rb-scene-grip')).toHaveLength(0)
+  })
+})
+
+// ── Step 7: the Scenes tab's own ways off a draft (D12) ────────────────────
+describe('S3c step 7: what would take the draft off screen asks first', () => {
+  it('the edit selector: Keep editing stays on the draft; Discard changes then shows what was chosen', async () => {
+    await draftOnEdit()
+    await act(async () => { pickEdit('') })
+    expect(log.leave).toEqual(['edit'])
+    expect(editSelect().value).toBe('draft')
+    leave.answer = 'discard'
+    await act(async () => { pickEdit('') })
+    expect(editSelect().value).toBe('')
+    expect(document.querySelector('.rb-scene-table-cut')).toBeNull()
+  })
+
+  it('New shot list asks before its form opens; staying opens nothing', async () => {
+    await draftOnEdit()
+    await act(async () => { fireEvent.click(within(lists()).getByRole('button', { name: 'New shot list' })) })
+    expect(log.leave).toEqual(['edit'])
+    expect(screen.queryByRole('dialog', { name: 'New shot list' })).toBeNull()
+    leave.answer = 'go'
+    await act(async () => { fireEvent.click(within(lists()).getByRole('button', { name: 'New shot list' })) })
+    expect(screen.getByRole('dialog', { name: 'New shot list' })).toBeTruthy()
+  })
+
+  it('the picker\'s Open of an edit asks; without a draft nothing asks', async () => {
+    await draftOnEdit()
+    fireEvent.click(screen.getByRole('button', { name: 'Shot lists…' }))
+    const picker = screen.getByRole('dialog', { name: 'Shot lists' })
+    await act(async () => { fireEvent.doubleClick(within(picker).getByRole('button', { name: "Director's cut" }).closest('tr')) })
+    expect(log.leave).toEqual(['edit'])
+    cleanup()
+    draftPage()
+    await act(async () => { pickEdit('edit-1') })
+    await act(async () => { pickEdit('') })
+    expect(log.leave).toEqual([])
   })
 })

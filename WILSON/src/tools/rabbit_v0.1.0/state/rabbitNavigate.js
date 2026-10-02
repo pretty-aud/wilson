@@ -28,6 +28,14 @@ export function navigateTo(detail) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENT, { detail: pending }))
 }
 
+/**
+ * A request the person turned down (post-overhaul S3c: "Keep editing" at the
+ * leave guard) is dropped, not left pending for the next time its view mounts.
+ */
+export function dropPendingNavigate(detail) {
+  if (pending && (pending === detail || (detail && pending.view === detail.view))) pending = null
+}
+
 export function subscribeNavigate(fn) {
   if (typeof window === 'undefined') return () => {}
   const h = (e) => fn(e.detail)

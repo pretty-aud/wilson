@@ -20,6 +20,7 @@ import { ToastProvider } from '../../../ui/Toast'
 import { STATUS } from '../../../ui/StatusDot'
 import { formatSceneCode, formatShotCode } from '../entityNaming'
 import { navigateTo } from '../state/rabbitNavigate'
+import { confirmLeave, _resetLeaveGuardsForTests } from '../state/leaveGuard'
 import { VIEWED_LISTS_KEY } from './scenes/useViewedShotList'
 // Post-overhaul S3b: the context's shot-list selectors are S3a's own pure
 // functions over the mock's rows, so the page meets what the provider gives.
@@ -56,7 +57,7 @@ const { default: IngestionToast } = await import('../components/IngestionToast')
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
 
-afterEach(() => { cleanup(); _resetOverlaysForTests(); vi.restoreAllMocks(); localStorage.clear(); perms.current = null })
+afterEach(() => { cleanup(); _resetOverlaysForTests(); _resetLeaveGuardsForTests(); vi.restoreAllMocks(); localStorage.clear(); perms.current = null })
 
 // Two scenes: Lighthouse, dawn (final, two shots, 240 frames) and Cliff path
 // (needs revisions — the magenta that is the kit's warning now — no time of
@@ -3350,14 +3351,73 @@ describe('S3b review round 2', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('the network is down'))
   })
 
-  it('a popup is its row\'s own: another scene opened over it (an "Open in Scenes" target) shows that scene, not the first one\'s draft', () => {
+  // Post-overhaul S3c, step 7 (S3b-08): that draft used to go UNASKED. The
+  // jump now asks D21's question first; Discard opens the other scene, clean
+  // (still its row's own), and Cancel keeps the first popup and what was typed.
+  it('a popup is its row\'s own: another scene opened over it (an "Open in Scenes" target) shows that scene, not the first one\'s draft — after asking (S3b-08)', async () => {
     page()
     const first = openScenePopup()
     fireEvent.click(within(first.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Mara lets herself in.' }))
     fireEvent.change(within(first).getByRole('textbox', { name: 'Description' }), { target: { value: 'Typed for the lighthouse.' } })
     act(() => navigateTo({ view: 'scenes', projectId: 'p1', sceneId: 'sc2' }))
-    const second = screen.getByRole('dialog', { name: 'Cliff path' })
+    const ask = await screen.findByRole('dialog', { name: 'Discard your changes?' })
+    expect(ask.querySelector('.ui-dialog-body').textContent).toBe('What you typed in the description is not saved. Discard it, or go back and Save it.')
+    expect(screen.queryByRole('dialog', { name: 'Cliff path' })).toBeNull()
+    await act(async () => { fireEvent.click(within(ask).getByRole('button', { name: 'Discard' })) })
+    const second = await screen.findByRole('dialog', { name: 'Cliff path' })
     expect(within(second).queryByRole('textbox', { name: 'Description' })).toBeNull()
     expect(second.textContent).not.toContain('Typed for the lighthouse.')
+  })
+  it('CONTROL (S3b-08): Cancel keeps the first popup and what was typed in it; the jump is dropped', async () => {
+    page()
+    const first = openScenePopup()
+    fireEvent.click(within(first.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(first).getByRole('textbox', { name: 'Description' }), { target: { value: 'Typed for the lighthouse.' } })
+    act(() => navigateTo({ view: 'scenes', projectId: 'p1', sceneId: 'sc2' }))
+    const ask = await screen.findByRole('dialog', { name: 'Discard your changes?' })
+    await act(async () => { fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' })) })
+    expect(screen.queryByRole('dialog', { name: 'Cliff path' })).toBeNull()
+    expect(within(first).getByRole('textbox', { name: 'Description' }).value).toBe('Typed for the lighthouse.')
+  })
+})
+
+// ── Post-overhaul S3c, step 7: the popups' typed work and the leave guard ──
+describe('S3c step 7: a popup\'s typed work is asked about before it goes (S3b-05, S3b-08)', () => {
+  const ask = () => screen.getByRole('dialog', { name: 'Discard your changes?' })
+  it('S3b-05: a task form with something typed counts as the popup\'s draft — closing the popup asks, and says it is the new task', async () => {
+    page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add new task' }))
+    fireEvent.change(screen.getByPlaceholderText('Task title…'), { target: { value: 'Board the pier' } })
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    expect(ask().querySelector('.ui-dialog-body').textContent).toBe('What you typed in the new task is not saved. Discard it, or go back to it.')
+    await act(async () => { fireEvent.click(within(ask()).getByRole('button', { name: 'Cancel' })) })
+    expect(screen.getByPlaceholderText('Task title…').value).toBe('Board the pier')
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    await act(async () => { fireEvent.click(within(ask()).getByRole('button', { name: 'Discard' })) })
+    expect(screen.queryByRole('dialog', { name: 'Lighthouse, dawn' })).toBeNull()
+  })
+  it('CONTROL: an untouched task form goes with the popup at once', () => {
+    page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add new task' }))
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('S3b-08: leaving the tab ("Show in Bins", the strip) with typed text asks D21\'s question; Cancel stays, Discard goes; leaving the PAGE does not ask (the popup stays mounted)', async () => {
+    page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Description' }), { target: { value: 'Typed.' } })
+    expect(await confirmLeave('page')).toBe(true)
+    let went
+    act(() => { confirmLeave('tab').then((g) => { went = g }) })
+    expect(ask().querySelector('.ui-dialog-body').textContent).toBe('What you typed in the description is not saved. Discard it, or go back and Save it.')
+    await act(async () => { fireEvent.click(within(ask()).getByRole('button', { name: 'Cancel' })) })
+    expect(went).toBe(false)
+    expect(within(dialog).getByRole('textbox', { name: 'Description' }).value).toBe('Typed.')
+    act(() => { confirmLeave('project').then((g) => { went = g }) })
+    await act(async () => { fireEvent.click(within(ask()).getByRole('button', { name: 'Discard' })) })
+    expect(went).toBe(true)
   })
 })

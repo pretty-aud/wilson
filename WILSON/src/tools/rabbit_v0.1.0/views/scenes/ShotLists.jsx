@@ -38,6 +38,7 @@ import ListConfirm from './ListConfirm'
 import AnswerDialog from './AnswerDialog'
 import SaveEditDialog from './SaveEditDialog'
 import { recoverWords, discardWords } from './editCopy'
+import { confirmLeave } from '../../state/leaveGuard'
 import { listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
 import { removeQuestion } from './membershipCopy'
 import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
@@ -132,6 +133,16 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   }, [])
 
   // ── the verbs ──
+  // Post-overhaul S3c, step 7 (D12): a draft never hides behind another view,
+  // so showing another list or edit — the selector, the picker's Open, New
+  // shot list, "Active: …", Recently removed — takes it off screen: the
+  // leave guard asks first (Save edit / Discard changes / Keep editing), at
+  // the press, before anything is made or shown.
+  const draftHere = viewed.edit?.mode === 'draft'
+  const guarded = (fn) => async (...args) => {
+    if (draftHere && !(await confirmLeave('edit'))) return undefined
+    return fn(...args)
+  }
   const showList = (id, opts) => viewed.view(id, opts)
   const restoreRow = async (row) => {
     if (restoreRoute(row) === 'archive') await ctx.archiveShotList(row.id, false)
@@ -278,7 +289,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         .map(e => ({ value: e.id, label: `${label(e)}${e.archived_at ? ' (archived)' : ''}` })),
       ...(editOnScreen.mode === 'draft' ? [{ value: 'draft', label: `${editOnScreen.draft.title} · v${editOnScreen.draft.version} (not saved)` }] : []),
     ],
-    onChange: (v) => { if (v !== 'draft') viewed.viewEdit?.(v || null) },
+    onChange: guarded((v) => { if (v !== 'draft') viewed.viewEdit?.(v || null) }),
     title: editRow?.summary || undefined,
     badge: editRow?.archived_at ? <StatusBadge status="archived" label={ctx?.isWithdrawn?.(editRow) ? 'Withdrawn' : 'Archived'} /> : null,
     note: editRow && !editRow.archived_at ? `Saved ${showDate(editRow.created_at)}` : null,
@@ -450,7 +461,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         gate={gate}
         edit={editBar}
         on={{
-          newList: () => setDialog({ kind: 'form', mode: 'new' }),
+          newList: guarded(() => setDialog({ kind: 'form', mode: 'new' })),
           openPicker: () => { setPickerError(null); setPickerOpen(true) },
           // Review round 1 (R1-13): one Save at a time — a double press
           // recorded two version points.
@@ -462,9 +473,9 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           },
           saveAs: () => setDialog({ kind: 'form', mode: 'saveAs' }),
           setActive: () => setDialog({ kind: 'setActive', row: list }),
-          showList: (id) => showList(id),
-          openRecent,
-          restoreRecent: () => restoreRecent(run),
+          showList: guarded((id) => showList(id)),
+          openRecent: guarded(openRecent),
+          restoreRecent: guarded(() => restoreRecent(run)),
         }}
         moreItems={moreItems}
       />
@@ -496,13 +507,13 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             ? (restoreEditRoute(row) ? [{ label: 'Restore this edit', Icon: ArchiveRestore, onClick: () => runInPicker(() => restoreEdit(row)) }] : [])
             : editVerbs(row))}
           on={{
-            open: (id, opts) => { closePicker(); showList(id, opts) },
-            openUnlisted: () => { closePicker(); showList(UNLISTED) },
-            openRecent,
-            restoreRecent: () => restoreRecent(runInPicker),
-            newList: () => setDialog({ kind: 'form', mode: 'new' }),
+            open: guarded((id, opts) => { closePicker(); showList(id, opts) }),
+            openUnlisted: guarded(() => { closePicker(); showList(UNLISTED) }),
+            openRecent: guarded(openRecent),
+            restoreRecent: guarded(() => restoreRecent(runInPicker)),
+            newList: guarded(() => setDialog({ kind: 'form', mode: 'new' })),
             close: closePicker,
-            openEdit: (e) => { closePicker(); showEdit(e) },
+            openEdit: guarded((e) => { closePicker(); showEdit(e) }),
           }}
         />
       )}
@@ -553,7 +564,11 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             ...(recoverList && !recoverList.archived_at ? [{
               label: 'Recover edit',
               variant: 'primary',
-              onClick: () => { ctx.recoverEditDraft(recoverable.listId); showList(recoverable.listId) },
+              onClick: async () => {
+                if (draftHere && recoverable.listId !== list?.id && !(await confirmLeave('edit'))) return
+                ctx.recoverEditDraft(recoverable.listId)
+                showList(recoverable.listId)
+              },
             }] : []),
           ]}
         >

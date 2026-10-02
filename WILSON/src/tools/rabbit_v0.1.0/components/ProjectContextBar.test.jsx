@@ -7,7 +7,8 @@
 // indicators vanish from every view but Summary and nothing else in the suite
 // would notice, because no test mounts Rabbit.jsx.
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { addLeaveGuard, _resetLeaveGuardsForTests } from '../state/leaveGuard'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -83,6 +84,38 @@ describe('Rabbit.jsx docks the dot and the pill instead of floating them', () =>
     for (const body of [dot, strip]) {
       expect(body).not.toMatch(/\babsolute\b/)
       expect(body).not.toMatch(/\b(left|bottom|zIndex)\s*:/)
+    }
+  })
+})
+
+// Post-overhaul S3c, step 7 (D12): another project is an exit.
+describe('S3c step 7: switching project asks first while work is unsaved', () => {
+  afterEach(() => _resetLeaveGuardsForTests())
+  it('Keep editing stays where it is; going on switches; the project already open asks nothing', async () => {
+    const was = { index: ctx.projectsIndex, set: ctx.setActiveProject }
+    ctx.projectsIndex = { ...was.index, p2: { id: 'p2', title: 'Pier', status: 'active' } }
+    ctx.setActiveProject = vi.fn()
+    const answer = { go: false }
+    const ask = vi.fn(async () => answer.go)
+    addLeaveGuard({ order: 2, applies: (r) => r === 'project', dirty: () => true, ask })
+    try {
+      const { getByRole } = render(<ProjectContextBar />)
+      const pick = async (title) => {
+        fireEvent.click(getByRole('button', { name: /^Switch/ }))
+        await act(async () => { fireEvent.click(getByRole('button', { name: new RegExp(`^${title}`) })) })
+      }
+      await pick('Pier')
+      expect(ask).toHaveBeenCalledWith('project')
+      expect(ctx.setActiveProject).not.toHaveBeenCalled()
+      answer.go = true
+      await pick('Pier')
+      expect(ctx.setActiveProject).toHaveBeenCalledWith('p2')
+      ask.mockClear()
+      await pick('Salt Hours')
+      expect(ask).not.toHaveBeenCalled()
+    } finally {
+      ctx.projectsIndex = was.index
+      ctx.setActiveProject = was.set
     }
   })
 })

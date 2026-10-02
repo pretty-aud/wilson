@@ -418,8 +418,11 @@ export function NewTaskSidePopup({
   project,
   onConfirm,
   onClose,
+  // Post-overhaul S3c (S3b-05): told whether the form holds anything typed
+  // or chosen, so the popup it sits in asks before it goes with it.
+  onDirtyChange = null,
 }) {
-  const [draft, setDraft] = useState({
+  const [initial] = useState(() => ({
     title: '',
     status: 'waiting_to_start',
     priority: 'medium',
@@ -435,10 +438,15 @@ export function NewTaskSidePopup({
     start_date: '',
     end_date: '',
     description: '',
-  })
+  }))
+  const [draft, setDraft] = useState(initial)
   // W9: the "Create task …?" question, which was `window.confirm`.
   const [confirming, setConfirming] = useState(false)
   useFocusBackOnClose()
+  const dirty = Object.keys(initial).some(k => (draft[k] ?? null) !== (initial[k] ?? null))
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
+  // Gone (created, or closed): nothing of it is left to lose.
+  useEffect(() => () => { onDirtyChange?.(false) }, [onDirtyChange])
 
   function upd(patch) { setDraft(prev => ({ ...prev, ...patch })) }
 

@@ -8,7 +8,7 @@ import { PageHeader, IconButton, ToastProvider, Button } from './ui'
 // scale from here rather than restating 16px / 13px / 12px by hand.
 import {
   TYPE, LEADING, WEIGHT, PAPER, INK_2, SIGNAL, BACKDROP,
-  RADIUS_FLOAT, SHADOW_FLOAT, DIALOG,
+  RADIUS_FLOAT, SHADOW_FLOAT, DIALOG, DANGER,
 } from './ui/tokens'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
@@ -71,6 +71,9 @@ import SessionWarning, { describeSessionExpiry } from './cloud/auth/SessionWarni
 import ConnectionLostBanner from './cloud/ConnectionLostBanner'
 import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
+// Post-overhaul S3c, step 7 (D12): an unsaved edit asks before every exit.
+import { hasUnsavedWork, confirmLeave, unsavedForClose } from './tools/rabbit_v0.1.0/state/leaveGuard'
+import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
 // Wrapper that bridges AgentProvider context to SettingsPage
@@ -665,13 +668,48 @@ export default function App() {
 
   // Close confirmation dialog (Electron only)
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  // Post-overhaul S3c, step 7 (D12): an unsaved edit is folded INTO this one
+  // question — never a second dialog before or after it. The guards that can
+  // be answered from here (state/leaveGuard.js) are read when it opens: their
+  // words, and Keep editing / Discard and close / Save edit and close.
+  const [closeUnsaved, setCloseUnsaved] = useState([]);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeError, setCloseError] = useState(null);
 
   useEffect(() => {
     if (!window.electronAPI?.onCloseRequested) return;
     const cleanup = window.electronAPI.onCloseRequested(() => {
+      setCloseUnsaved(unsavedForClose());
+      setCloseError(null);
       setShowCloseDialog(true);
     });
     return cleanup;
+  }, []);
+  const closeNow = () => { setShowCloseDialog(false); window.electronAPI?.forceClose(); };
+  const closeAfter = async (how) => {
+    setCloseBusy(true);
+    setCloseError(null);
+    try {
+      for (const g of closeUnsaved) await (how === 'save' ? g.save() : g.discard());
+      setCloseBusy(false);
+      closeNow();
+    } catch (err) {
+      setCloseBusy(false);
+      setCloseError(err?.message || String(err));
+    }
+  };
+  // In a browser (no desktop close question), an unsaved edit asks through
+  // the browser's own leave prompt. Never in the desktop app: there the close
+  // question above asks, and a second prompt would follow it.
+  useEffect(() => {
+    if (window.electronAPI) return;
+    const onBeforeUnload = (e) => {
+      if (!hasUnsavedWork('close')) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
   // Zoom state — track current zoom level so visualizer can counter-scale
@@ -1965,8 +2003,21 @@ export default function App() {
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
   // fromHistory: true when the browser back/forward button initiated the
   // navigation — the URL is already right, so don't push a new entry.
-  const navigateTo = useCallback((targetPage, fromHistory = false) => {
+  const navigateTo = useCallback((targetPage, fromHistory = false, asked = false) => {
     if (transitionRef.current || targetPage === currentPage) return;
+    // Post-overhaul S3c, step 7 (D12): leaving R.A.B.B.I.T. with an unsaved
+    // edit asks first — BEFORE the transition, which is untouchable (C2).
+    // Keep editing stays; after a back/forward press the address goes back
+    // to this page, so the two never disagree.
+    if (!asked && currentPage === 'rabbit' && hasUnsavedWork('page')) {
+      confirmLeave('page').then((go) => {
+        if (go) { navigateToRef.current(targetPage, fromHistory, true); return; }
+        if (fromHistory && URL_ROUTING_ENABLED) {
+          try { window.history.pushState({ page: currentPage }, '', urlForPage(currentPage)); } catch { /* keep the page */ }
+        }
+      });
+      return;
+    }
     transitionRef.current = true;
     // Phase 3: the Create Egg result describes one press, not a lasting state.
     // Without this it survived every later visit to Settings, so a success
@@ -2778,7 +2829,9 @@ export default function App() {
             borderRadius: `${RADIUS_FLOAT}px`,
             boxShadow: SHADOW_FLOAT,
             padding: '32px 36px 28px',
-            maxWidth: `${DIALOG.confirm}px`,
+            // S3c step 7: three answers do not fit the confirm width (they
+            // overflowed its frame); folded, the question takes the form's.
+            maxWidth: `${closeUnsaved.length ? DIALOG.form : DIALOG.confirm}px`,
             width: '90%',
             textAlign: 'center',
           }}>
@@ -2803,8 +2856,22 @@ export default function App() {
               lineHeight: LEADING.dense,
               marginBottom: '24px',
             }}>
-              Make sure you have exported your work before closing.
+              {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
+                  this one question (D12) — what it is, of which list. */}
+              {closeUnsaved.length
+                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} Save it before closing, or discard it.`
+                : 'Make sure you have exported your work before closing.'}
             </p>
+            {closeError && (
+              <p role="alert" style={{
+                color: DANGER,
+                fontSize: `${TYPE.dense}px`,
+                lineHeight: LEADING.dense,
+                marginBottom: '16px',
+              }}>
+                {closeError}
+              </p>
+            )}
             {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
                 first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
                 and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
@@ -2829,20 +2896,35 @@ export default function App() {
                 `e.currentTarget.style.backgroundColor` are gone, and an
                 inline style can no longer beat a hover rule because there is
                 no inline style left to do it. */}
+            {/* With an unsaved edit, D12's three answers, Keep editing first
+                and focused: no Escape is added to this question (C1). */}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
               <Button
                 variant="secondary"
+                autoFocus={closeUnsaved.length > 0}
+                disabled={closeBusy}
                 onClick={() => setShowCloseDialog(false)}
                 style={{ flex: 1 }}
               >
-                Cancel
+                {closeUnsaved.length ? 'Keep editing' : 'Cancel'}
               </Button>
+              {closeUnsaved.length > 0 && (
+                <Button
+                  variant="danger"
+                  disabled={closeBusy}
+                  onClick={() => closeAfter('discard')}
+                  style={{ flex: 1 }}
+                >
+                  Discard and close
+                </Button>
+              )}
               <Button
                 variant="primary"
-                onClick={() => { setShowCloseDialog(false); window.electronAPI?.forceClose(); }}
+                loading={closeBusy}
+                onClick={() => (closeUnsaved.length ? closeAfter('save') : closeNow())}
                 style={{ flex: 1 }}
               >
-                Close
+                {closeUnsaved.length ? 'Save edit and close' : 'Close'}
               </Button>
             </div>
           </div>
@@ -2862,6 +2944,9 @@ export default function App() {
         the only thing that rendered it. */}
     <PetNotice notice={petNotice} onDismiss={dismissPetNotice} />
     </ToastProvider>
+    {/* Post-overhaul S3c, step 7 (D12): the one question every exit asks
+        while an edit is unsaved — any page can ask it (navigateTo). */}
+    <LeaveEditDialog />
     </RabbitProvider>
     </AgentProvider>
   );
