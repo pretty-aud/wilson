@@ -103,3 +103,23 @@ Her answers, verbatim:
 2. thats fine. yes that makes sense that its just the folder that is locked.
 
 Built by bundle S4b (`docs/sessions/briefs/po-s4b-legal-gate.md`).
+
+## 2026-10-02 — five answers to the controller's status list, in chat
+
+Asked (the controller's "Waiting on you", 2026-10-01 evening): (1) S4b-05 — a workspace manager can give themselves a manager seat on any project and then see its Legal files, invoices and budget; fix it, or keep it? (2) dev needs 0085, then 0088, and `storage-presign` redeployed; (3) walkthrough 51 Q8 — should Clear be allowed on the active shot list? (4) the F answers; (5) the smaller items (the CI CLI pin, the permission line, walkthroughs 48–54).
+
+Her answers, verbatim:
+
+1. workspace managers can have access to the files that is okay. inherently workspace manager may need to access a folder to review things.
+2. can you apply them yourself?
+3. lets not allow a clear without giving the user a warning and asking them to confirm they want to clear and let them know it will clear things. but also. i want it that if a shot list is removed. dont delete the budget and timeline. just disconnect the projects tasks and phases from be assigned to shots and scenes instead of straight up deleting the timelines
+4. i will get to this today
+5. ill look into this later
+
+The controller's readings (correct me if wrong):
+
+- **1 — S4b-05 is ACCEPTED; no fix.** A workspace manager may reach a project's Legal and money files. The gate itself is unchanged (workspace admins and the project's managers): a workspace manager gets there by holding a manager seat on that project, which they can give themselves. Nothing records that step; no audit line was asked for. Seeing Legal folders WITHOUT taking the seat would be a change to the money gate (and to d8's "only project admins can access the budget"), and was not asked for.
+- **2 — done by the controller on 2026-10-02**, at her request: 0085 then 0088 on wilson-dev, each rehearsed first in a rolled-back run (suite 87 30/30; suite 90 108/108), each with its history row; both suites pass against the applied database; `storage-presign` redeployed there (version 3 → 4; it boots and refuses an unsigned caller). Staging is untouched and still waits for the beta sitting.
+- **3a — walkthrough 51 Q8: Clear stays available on the active list, behind its confirm**, which says what it clears. (As built by S3b's round 2.)
+- **3b — a new rule: removing a shot list never removes the Timeline or the Budget.** Checked on the branch: it never did in the data — Clear only takes scenes and shots out of a list; no task, phase, key date or budget line is deleted by Clear, Archive, Withdraw, Set active, or by deleting a scene or shot (a deleted scene or shot clears the link on its tasks; phases have no scene or shot link). The fault is on screen: the Timeline's group-by-scene draws only the active list's scenes, so a task assigned to a scene or shot outside it vanishes from that view, and the Budget's By scene / By shot call it "Unknown scene". **Rule for S3c (step 1):** no task ever drops out of the Timeline or the Budget because of what the active list holds; such a task reads as not assigned to a scene (the "No Scene" group, the "No scene" / "No shot" rows); the stored link is KEPT, so the task is under its scene again if the scene returns to the active list, and its tooltip and the task popup say what it points at; the Clear / Set active / Archive / Withdraw questions say this instead of "will no longer show them". Sent to the running S3c session the same day.
+- **4, 5** — S5 stays unbriefed until F arrives; the smaller items stay open.
