@@ -356,6 +356,17 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
   const inCreatedOrder = (rows) => rows.every((r, i) => i === 0 || (cmpText(rows[i - 1].created_at, r.created_at) || cmpText(rows[i - 1].id, r.id)) <= 0)
   const inPositionOrder = (rows) => rows.every((r, i) => i === 0 || ((rows[i - 1].position - r.position) || cmpText(rows[i - 1].id, r.id)) <= 0)
 
+  // Post-overhaul S3c, step 2 (D18): a bid version based on a shot list keeps
+  // the list's id and the label frozen into its snapshot, as the cloud does.
+  it('S3c: a bid version keeps its shot_list_id and its snapshot\'s frozen shot_list, read back by loadProject', async () => {
+    const fx = fresh()
+    await fx.upsertBudgetVersion({ id: 'bv-s3c', project_id: PROJECT_ID, name: 'Bid on Shoot', type: 'bid', is_active: false,
+      shot_list_id: LIST_1, snapshot: { grandTotal: 10, shot_list: { id: LIST_1, title: 'Shot list 1', version: 1 } } })
+    const back = (await fx.loadProject(PROJECT_ID)).budgetVersions.find((v) => v.id === 'bv-s3c')
+    expect(back.shot_list_id).toBe(LIST_1)
+    expect(back.snapshot.shot_list).toEqual({ id: LIST_1, title: 'Shot list 1', version: 1 })
+  })
+
   it('loadProject returns the seeded lists and items in the contract order, and no edits', async () => {
     const fx = fresh()
     const b = await fx.loadProject(PROJECT_ID)

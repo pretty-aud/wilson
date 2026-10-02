@@ -213,6 +213,10 @@
      bottom edge. */
   .rb-budget-new-version { display: flex; align-items: flex-end; gap: 8px; }
   .rb-budget-new-version > .rb-budget-field { flex: 1 1 auto; }
+  /* Post-overhaul S3c, step 2 (D18): "Based on shot list" beside the name,
+     sized to a list's label ("Storyboard pass · v3 (active)"); the name keeps
+     the rest of the row. */
+  .rb-budget-new-version > .rb-budget-field.rb-budget-basedon { flex: 0 1 240px; min-width: 160px; }
 
   /* The column widths of the three tables, declared once and read by their
      header cells (`<Th width="var(--rb-budget-col-money)">`). Each holds
@@ -225,6 +229,9 @@
        date   "12/31/2026" 78 (en-US; a longer locale ellipsizes)       -> 112
        mark   a 28px IconButton; "ACTIVE" 42.5                          ->  72
        acts   a 28px IconButton; "ACTIONS" 52.9                         ->  80
+       list   post-overhaul S3c (D18): a shot list's label at 13px,
+              "Storyboard pass · v3" ~140; longer ellipsizes, its title
+              whole                                                    -> 176
      A header with no `onSort` reserves no sort slot (index.css). The name
      column takes the rest. */
   .rb-budget-report,
@@ -237,7 +244,12 @@
     --rb-budget-col-date: 112px;
     --rb-budget-col-mark: 72px;
     --rb-budget-col-acts: 80px;
+    --rb-budget-col-list: 176px;
   }
+  /* The version's shot list (S3c, D18): one line, ellipsized; none is a dash
+     at the third ink, as a missing date is. */
+  .rb-budget-versions .ui-td.rb-budget-version-list { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-budget-versions .ui-td.rb-budget-version-list[data-empty="true"] { color: var(--color-ink-3); }
 
   /* A cell holding a 28px control pads 4 above and 3 below it, so the row
      stays the kit's 36 and the focus ring's 3px still fits inside the cell's

@@ -437,3 +437,24 @@ describe('the shot-list sweep is opt-in, and main.cjs opts scenes and shots in',
     expect(factory).not.toMatch(/sweepShotListLinks\(/)
   })
 })
+
+// Post-overhaul S3c, step 2 (D18): the Budget's "Based on shot list" on the
+// Local Server — the budget-versions route keeps the column and the label
+// frozen into the snapshot, read back from the bundle the disk would get.
+describe('the Local Server keeps a bid version\'s shot list (S3c step 2, D18)', () => {
+  it('POST budget-versions stores shot_list_id and snapshot.shot_list as sent', () => {
+    const bundle = { project: { id: 'p1' }, budgetVersions: [] }
+    const h = harness(bundle)
+    h.register('budget-versions', 'budgetVersions')
+    const sent = { id: 'bv1', name: 'Bid on Shoot', shot_list_id: 'l1', snapshot: { grandTotal: 10, shot_list: { id: 'l1', title: 'Shoot', version: 2 } } }
+    const res = call(h.routes, 'POST', '/api/rabbit/projects/:projectId/budget-versions', { projectId: 'p1' }, sent)
+    expect(res.code).toBe(200)
+    const stored = h.writes.at(-1).budgetVersions.find((v) => v.id === 'bv1')
+    expect(stored.shot_list_id).toBe('l1')
+    expect(stored.snapshot.shot_list).toEqual({ id: 'l1', title: 'Shoot', version: 2 })
+    expect(res.body.shot_list_id).toBe('l1')
+  })
+  it('main.cjs registers budget versions on that route', () => {
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'budget-versions',\s*'budgetVersions'\s*\)/)
+  })
+})

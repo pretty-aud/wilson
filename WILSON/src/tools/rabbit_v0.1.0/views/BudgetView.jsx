@@ -54,6 +54,10 @@ import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
 // me?" (Bins', Scenes' and the Timeline's keys ask it too).
 import { useHomeIndex } from './scenes/LinkHome'
 import { drawerOnScreen } from './bins/binUi'
+// Post-overhaul S3c, step 2 (D18): the bid version's "Based on shot list" —
+// the kit Select (this file's own `Select` is the report filters').
+import { Select as KitSelect } from '../../../ui'
+import { sortShotLists, formatShotListLabel } from '../state/shotListModel'
 import './rabbitBudget.css'
 
 const TABS = [
@@ -409,6 +413,24 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
   const [versionBusy, setVersionBusy] = useState(false)
   const activeVersion = budgetVersions.find(v => v.is_active)
 
+  // ── Based on shot list (post-overhaul S3c, step 2; D18) ──
+  // Audrey: "a drop down that allows the user to select an existing shot
+  // list when making a budget to clarify what creative the budget is based
+  // on." Beside the bid version's name: the project's LIVE lists, the active
+  // one by default (the list every other tab reads, D10), or none. Written to
+  // `budget_versions.shot_list_id` (0084's column) and frozen into the
+  // version's snapshot as `shot_list = { id, title, version }`, so the label
+  // survives the list being archived. S5 reworks this page next and inherits
+  // it as it is.
+  const shotLists = ctx?.shotLists
+  const liveLists = useMemo(() => sortShotLists((shotLists || []).filter(l => !l.archived_at)), [shotLists])
+  const activeListId = project?.active_shot_list_id || null
+  const [basedOnChoice, setBasedOnChoice] = useState(undefined) // undefined: the default
+  const basedOnId = basedOnChoice === undefined
+    ? (liveLists.some(l => l.id === activeListId) ? activeListId : null)
+    : basedOnChoice
+  const basedOnList = basedOnId ? (liveLists.find(l => l.id === basedOnId) || null) : null
+
   async function createBidVersion() {
     if (!versionName.trim() || !adapter?.upsertBudgetVersion) return
     setVersionBusy(true)
@@ -424,6 +446,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         roleRates: { ...roleRates },
         baseCost, marginPct, contingencyPct, grandTotal,
         totalBidDays: variance.bid,
+        shot_list: basedOnList ? { id: basedOnList.id, title: basedOnList.title, version: basedOnList.version } : null,
       }
       await adapter.upsertBudgetVersion({
         id: uuidv4(),
@@ -432,9 +455,11 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         type: 'bid',
         is_active: budgetVersions.length === 0,
         created_at: new Date().toISOString(),
+        shot_list_id: basedOnList ? basedOnList.id : null,
         snapshot,
       })
       setVersionName('')
+      setBasedOnChoice(undefined)
       // Refresh bundle
       ctx?.setActiveProject?.(project.id)
     } catch (err) {
@@ -482,6 +507,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
   const isActive = project.budget_active === true
   const lockedVersionId = project.budget_active_version_id || null
   const lockedVersion = lockedVersionId ? budgetVersions.find(v => v.id === lockedVersionId) : null
+  const lockedBasedOn = lockedVersion ? basedOnLabel(lockedVersion, shotLists) : null
 
   async function activateBudget() {
     if (!activeVersion) return
@@ -551,6 +577,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <span className="rb-budget-active-title">Budget active — in production</span>
           <span className="rb-budget-active-meta">
             Locked bid: <span className="rb-budget-active-name">{lockedVersion.name}</span>
+            {/* Post-overhaul S3c (D18): the creative it was bid on. */}
+            {lockedBasedOn && (
+              <>{' '}· Shot list: <span className="rb-budget-active-name">{lockedBasedOn.text}</span>{lockedBasedOn.note ? ` (${lockedBasedOn.note})` : ''}</>
+            )}
             {' '}· {lockedVersion.snapshot?.lockedAt
               ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
               : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
@@ -727,6 +757,18 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               aria-label="Save current as bid version"
             />
           </Field>
+          {/* Post-overhaul S3c, step 2 (D18): beside the name, the shot list
+              the bid is based on — the active one by default. */}
+          <Field label="Based on shot list" className="rb-budget-basedon">
+            <KitSelect
+              value={basedOnId || ''}
+              onChange={(v) => setBasedOnChoice(v || null)}
+              placeholder="No shot list"
+              options={liveLists.map(l => ({ value: l.id, label: `${formatShotListLabel(l)}${l.id === activeListId ? ' (active)' : ''}` }))}
+              disabled={isActive || versionBusy}
+              aria-label="Based on shot list"
+            />
+          </Field>
           <Button
             variant="primary"
             Icon={Save}
@@ -751,6 +793,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               <Row>
                 <Th width="var(--rb-budget-col-mark)">Active</Th>
                 <Th>Name</Th>
+                <Th width="var(--rb-budget-col-list)">Shot list</Th>
                 <Th width="var(--rb-budget-col-date)">Date</Th>
                 <Th width="var(--rb-budget-col-money)" numeric>Total</Th>
                 <Th width="var(--rb-budget-col-days)" numeric>Days</Th>
@@ -786,6 +829,18 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                       )}
                     </span>
                   </Td>
+                  {/* Post-overhaul S3c (D18): the shot list it was bid on —
+                      the list's own label while it is live, the frozen one
+                      once it is archived or gone. */}
+                  {(() => {
+                    const based = basedOnLabel(v, shotLists)
+                    return (
+                      <Td className="rb-budget-quiet rb-budget-version-list" data-empty={based ? undefined : 'true'}
+                        title={based ? `${based.text}${based.note ? ` (${based.note})` : ''}` : undefined}>
+                        {based ? `${based.text}${based.note ? ` (${based.note})` : ''}` : '—'}
+                      </Td>
+                    )
+                  })()}
                   <Td className="rb-budget-date" data-empty={v.created_at ? undefined : 'true'}>
                     {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
                   </Td>
@@ -3154,13 +3209,30 @@ function VarianceCell({ value }) {
 // A field: its label at the Label step over a Dense control (R3-06). A
 // <div>, not a <label>: the words were never a click target and do not
 // become one (C1); each control carries its own name.
-function Field({ label, children }) {
+function Field({ label, children, className = '' }) {
   return (
-    <div className="rb-budget-field">
+    <div className={`rb-budget-field ${className}`.trim()}>
       <span className="ui-field-label">{label}</span>
       {children}
     </div>
   )
+}
+
+/**
+ * Post-overhaul S3c, step 2 (D18): the shot list a bid version is based on,
+ * in words — { text, note } or null. While the list is live, its own label
+ * (renamed since? the new name: it is the same list); archived, or gone from
+ * this client, the label frozen into the version's snapshot, noted so.
+ */
+export function basedOnLabel(version, shotLists) {
+  const frozen = version?.snapshot?.shot_list || null
+  const id = version?.shot_list_id || frozen?.id || null
+  if (!id) return null
+  const list = (shotLists || []).find(l => l.id === id) || null
+  if (list && !list.archived_at) return { text: formatShotListLabel(list), note: null }
+  if (frozen?.title) return { text: formatShotListLabel(frozen), note: list ? 'archived' : 'not in this project now' }
+  if (list) return { text: formatShotListLabel(list), note: 'archived' }
+  return null
 }
 
 // The native select in the kit's well at the Dense step. The status colours

@@ -674,6 +674,19 @@ describe('a database WITHOUT 0084 — the load is the probe', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  // Post-overhaul S3c, step 2 (D18): the Budget's "Based on shot list" goes
+  // out whole — the column, and the label frozen into the snapshot.
+  it('S3c: a bid version\'s shot_list_id and its snapshot\'s frozen shot_list both go out', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: { data: [], error: null } })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    await adapter.upsertBudgetVersion({ id: 'bv2', project_id: 'p1', name: 'Bid on Shoot', type: 'bid', is_active: false,
+      shot_list_id: 'l1', snapshot: { grandTotal: 10, shot_list: { id: 'l1', title: 'Shoot', version: 2 } } })
+    const row = rec.writes.find((w) => w.table === 'budget_versions').row
+    expect(row.shot_list_id).toBe('l1')
+    expect(row.snapshot.shot_list).toEqual({ id: 'l1', title: 'Shoot', version: 2 })
+  })
+
   it('PGRST205 (PostgREST\'s own "no such table") is the same answer', async () => {
     const rec = recordingClient({ projects: PROJECT_ROW, shot_lists: MISSING_PGRST205('shot_lists') })
     const adapter = install(rec)

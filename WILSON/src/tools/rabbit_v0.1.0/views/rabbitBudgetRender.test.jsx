@@ -292,7 +292,9 @@ describe('surface 2a', () => {
       const { container } = render(summary())
       const table = container.querySelector('table.ui-table.rb-budget-versions')
       expect(table).not.toBeNull()
-      expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Active', 'Name', 'Date', 'Total', 'Days', 'Actions'])
+      // Post-overhaul S3c (D18): "Shot list" joins after Name — every other
+      // column is unchanged and in its order.
+      expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Active', 'Name', 'Shot list', 'Date', 'Total', 'Days', 'Actions'])
       const rows = [...table.querySelectorAll('tbody tr')]
       expect(rows.map((r) => r.getAttribute('data-selected'))).toEqual(['true', null])
       const active = within(rows[0])
@@ -311,6 +313,84 @@ describe('surface 2a', () => {
       expect(within(rows[1]).getByRole('button', { name: 'Delete version' })).toBeTruthy()
       // Money and days are numeric cells.
       expect([...rows[0].querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)).toEqual(['$5,600', '9.0'])
+    })
+
+    // Post-overhaul S3c, step 2 (D18): "Based on shot list" beside the bid
+    // version's name — the project's live lists, the active one by default —
+    // written to `shot_list_id` and frozen into the snapshot; shown in the
+    // versions table and the active banner, the frozen label once the list
+    // is archived or gone.
+    describe('Based on shot list (S3c step 2, D18)', () => {
+      const LISTS = [
+        { id: 'L1', title: 'Shoot', version: 2, archived_at: null },
+        { id: 'L2', title: 'Pickups', version: 1, archived_at: null },
+        { id: 'L3', title: 'Old cut', version: 4, archived_at: '2026-09-20T00:00:00Z' },
+      ]
+      const bidding = (adapter, extra = {}) => (
+        <SummaryTab
+          ctx={{ updateProject: vi.fn(), setActiveProject: vi.fn(), getAdapter: () => adapter, shotLists: LISTS, ...extra.ctx }}
+          project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', ...extra.project }}
+          variance={{ bid: 9, logged: 6, variance: -3 }}
+          budget={budget} tasks={tasks} roleRates={roleRates} missingRolesCount={0} rateCardName="General"
+          budgetVersions={extra.versions || []} budgetHook={{ lines: [], lineComputations: {} }} rateCard={{ entries: [] }}
+          teamMembers={[]} expensesHook={{ expenses: [] }}
+        />
+      )
+      const select = () => screen.getByRole('combobox', { name: 'Based on shot list' })
+      const name = () => screen.getByRole('textbox', { name: 'Save current as bid version' })
+
+      it('offers the live lists (an archived one is not offered), the active one chosen and marked; the kit Select', () => {
+        render(bidding({ upsertBudgetVersion: vi.fn() }))
+        // In the lists' one order (S3a's sortShotLists: by title), as every picker shows them.
+        expect([...select().options].map(o => o.textContent)).toEqual(['No shot list', 'Pickups · v1', 'Shoot · v2 (active)'])
+        expect(select().value).toBe('L1')
+        expect(select().className).toContain('ui-input')
+      })
+      it('Save writes the chosen list to shot_list_id and freezes its label into the snapshot', async () => {
+        const upsertBudgetVersion = vi.fn(async (v) => v)
+        render(bidding({ upsertBudgetVersion }))
+        fireEvent.change(name(), { target: { value: 'Bid v2' } })
+        fireEvent.change(select(), { target: { value: 'L2' } })
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+        const row = upsertBudgetVersion.mock.calls[0][0]
+        expect(row.shot_list_id).toBe('L2')
+        expect(row.snapshot.shot_list).toEqual({ id: 'L2', title: 'Pickups', version: 1 })
+        // The next version starts from the default again, as its name does.
+        expect(select().value).toBe('L1')
+      })
+      it('the default is written when nobody touches it; "No shot list" writes none', async () => {
+        const upsertBudgetVersion = vi.fn(async (v) => v)
+        render(bidding({ upsertBudgetVersion }))
+        fireEvent.change(name(), { target: { value: 'Bid v2' } })
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+        expect(upsertBudgetVersion.mock.calls[0][0].shot_list_id).toBe('L1')
+        fireEvent.change(name(), { target: { value: 'Bid v3' } })
+        fireEvent.change(select(), { target: { value: '' } })
+        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+        expect(upsertBudgetVersion.mock.calls[1][0].shot_list_id).toBeNull()
+        expect(upsertBudgetVersion.mock.calls[1][0].snapshot.shot_list).toBeNull()
+      })
+      it('a project with no active list defaults to none', () => {
+        render(bidding({ upsertBudgetVersion: vi.fn() }, { project: { active_shot_list_id: null } }))
+        expect(select().value).toBe('')
+      })
+      it('the versions table names each version\'s list: live by its own label, archived by the frozen one, gone by the frozen one, none as a dash', () => {
+        const versions = [
+          { id: 'a', name: 'Live', created_at: '2026-09-04T00:00:00Z', shot_list_id: 'L2', snapshot: { shot_list: { id: 'L2', title: 'Pickups (old name)', version: 1 } } },
+          { id: 'b', name: 'Archived', created_at: '2026-09-03T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } },
+          { id: 'c', name: 'Gone', created_at: '2026-09-02T00:00:00Z', shot_list_id: null, snapshot: { shot_list: { id: 'L9', title: 'Lost', version: 2 } } },
+          { id: 'd', name: 'None', created_at: '2026-09-01T00:00:00Z', snapshot: {} },
+        ]
+        const { container } = render(bidding({ upsertBudgetVersion: vi.fn() }, { versions }))
+        const cells = [...container.querySelectorAll('table.rb-budget-versions tbody tr')].map(r => r.querySelectorAll('td')[2])
+        expect(cells.map(td => td.textContent)).toEqual(['Pickups · v1', 'Old cut · v4 (archived)', 'Lost · v2 (not in this project now)', '—'])
+        expect(cells[3].getAttribute('data-empty')).toBe('true')
+      })
+      it('the active budget\'s banner names the list it was bid on', () => {
+        const versions = [{ id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } }]
+        const { container } = render(bidding({ upsertBudgetVersion: vi.fn() }, { versions, project: { budget_active: true, budget_active_version_id: 'v1' } }))
+        expect(container.querySelector('.rb-budget-active-meta').textContent).toContain('Shot list: Old cut · v4 (archived)')
+      })
     })
 
     it('the Topsheet: a real table whose grand total is its <tfoot>, figures numeric (R3-20, R3-08)', () => {
