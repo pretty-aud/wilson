@@ -18,7 +18,7 @@
 // ============================================================
 
 import { useMemo } from 'react'
-import { homeIndex, NO_LIST_WORDS } from './linkHomes'
+import { homeIndex, NO_LIST_WORDS, NOT_IN_ACTIVE, NOT_IN_ACTIVE_NOTE } from './linkHomes'
 import '../rabbitScenes.css'
 
 /** The index (linkHomes.homeIndex) over the provider's rows, once per change of them. */
@@ -35,18 +35,25 @@ export function useHomeIndex(ctx) {
 }
 
 /**
- * ctx     useRabbit() — or `homeOf`, an index a table already holds
- * id      the scene's or shot's id
- * name    its name, the tooltip's first line
+ * ctx      useRabbit() — or `homeOf`, an index a table already holds
+ * id       the scene's or shot's id
+ * name     its name, the tooltip's first line
+ * outside  the ACTIVE list does not hold it (the task popup, Audrey's rule of
+ *          2026-10-02): ", not in the active list" after the list, kept
+ *          whole while the list's label gives way, and the tooltip says what
+ *          that does to the Timeline and the Budget
  */
-export default function LinkHome({ ctx, homeOf, id, name }) {
+export default function LinkHome({ ctx, homeOf, id, name, outside = false }) {
   const own = useHomeIndex(homeOf ? null : ctx)
   const h = (homeOf || own)(id)
-  const words = h.title(null).split('\n').join('. ')
+  const note = outside ? NOT_IN_ACTIVE_NOTE : null
+  const words = [...h.title(null).split('\n'), note].filter(Boolean).join('. ')
   return (
-    <span className="rb-scene-home" title={h.title(name)}>
+    <span className="rb-scene-home" title={[h.title(name), note].filter(Boolean).join('\n')} data-outside={outside ? 'true' : undefined}>
       <span className="rb-scene-home-label" aria-hidden="true">{h.primary || NO_LIST_WORDS}</span>
       {h.more > 0 && <span className="rb-scene-home-more" aria-hidden="true">{`+${h.more}`}</span>}
+      {/* "In no shot list" already says it is not in the active one. */}
+      {outside && h.primary && <span className="rb-scene-home-outside" aria-hidden="true">{`, ${NOT_IN_ACTIVE}`}</span>}
       <span className="sr-only">{words}</span>
     </span>
   )

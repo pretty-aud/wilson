@@ -122,3 +122,75 @@ export function otherListRows({ active, all }) {
   const have = new Set((active || []).map(r => r.id))
   return (all || []).some(r => !have.has(r.id))
 }
+
+// ── Removing a list never removes the Timeline or the Budget ──────────────
+//
+// Audrey's rule of 2026-10-02 (POST_OVERHAUL_ANSWERS.md): "if a shot list is
+// removed. dont delete the budget and timeline. just disconnect the projects
+// tasks and phases from be assigned to shots and scenes". Nothing is deleted
+// — no task, phase or budget line ever followed a list. On screen, the
+// Timeline's group-by-scene and the Budget's By scene, By shot and Custom
+// read the ACTIVE list (D10), so a task whose scene or shot is not in it
+// (the list cleared, another made active, the row taken out) is NOT dropped:
+// it reads as not assigned there ("No Scene", "No scene", "No shot"), and
+// its tooltip, like the task popup, says what it points at. Its stored link
+// is kept, so it is under its scene again once the scene is back in the
+// active list. This replaces step 1's "resolve through sceneById" for those
+// two views' GROUPS only (the S3c brief's dated section).
+
+/** The words for a row a task points at that the active list does not hold. */
+export const NOT_IN_ACTIVE = 'not in the active list'
+
+/** What LinkHome's tooltip adds for such a row (the task popup). */
+export const NOT_IN_ACTIVE_NOTE = 'Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.'
+
+const q = (s) => `“${s}”`
+
+/** The active list's rows as id sets: ctx.scenes / ctx.shots (D10). */
+export function activeIdsOf(scenes, shots) {
+  return { sceneIds: new Set((scenes || []).map(s => s.id)), shotIds: new Set((shots || []).map(s => s.id)) }
+}
+
+/**
+ * One link that is not in the active list, in words:
+ *   Scene “Cliff path”: in Pickups · v1, not in the active list
+ *   Shot “The door”: in no shot list
+ *   Scene: no longer in the project      (a link to a row that is gone)
+ *   kind    'Scene' | 'Shot'
+ *   row     the row (the provider's lookups over every row), or null
+ *   homeOf  homeIndex, or null (then no list is named)
+ */
+export function pointsAt(kind, row, homeOf = null) {
+  if (!row) return `${kind}: no longer in the project`
+  const lists = (homeOf && homeOf(row.id).lists) || []
+  const name = `${kind} ${q(row.name || 'Untitled')}`
+  return lists.length
+    ? `${name}: in ${lists.map(formatShotListLabel).join(', ')}, ${NOT_IN_ACTIVE}`
+    : `${name}: in no shot list`
+}
+
+/**
+ * Where a task's links stand against the active list.
+ *   task     { scene_id, shot_id }
+ *   active   activeIdsOf(ctx.scenes, ctx.shots)
+ *   sceneById / shotById   the provider's lookups over EVERY row
+ *   homeOf   homeIndex (optional)
+ * → { sceneId, shotId, outside }
+ *   sceneId  its scene when the active list holds it, else null
+ *   shotId   its shot when the active list holds it, else null
+ *   outside  a line (pointsAt) for each link the active list does not hold
+ */
+export function linksInActive(task, { active, sceneById = null, shotById = null, homeOf = null }) {
+  const sceneId = task?.scene_id && active.sceneIds.has(task.scene_id) ? task.scene_id : null
+  const shotId = task?.shot_id && active.shotIds.has(task.shot_id) ? task.shot_id : null
+  const outside = []
+  if (task?.scene_id && !sceneId) outside.push(pointsAt('Scene', sceneById?.(task.scene_id) || null, homeOf))
+  if (task?.shot_id && !shotId) outside.push(pointsAt('Shot', shotById?.(task.shot_id) || null, homeOf))
+  return { sceneId, shotId, outside }
+}
+
+/** A "No scene" / "No shot" row's tooltip: what its tasks point at, each once; undefined when nothing. */
+export function notAssignedTitle(lines) {
+  const each = [...new Set(lines)]
+  return each.length ? ['Tasks here are linked outside the active list:', ...each].join('\n') : undefined
+}

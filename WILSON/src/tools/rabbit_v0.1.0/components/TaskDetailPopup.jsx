@@ -179,6 +179,10 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // this popup a context without them, where they would say "In no shot
   // list" of a shot that is in one.
   const linkHere = Array.isArray(ctx?.shotLists) ? (linkedShot || linkedScene) : null
+  // Audrey's rule of 2026-10-02: a link the ACTIVE list does not hold keeps
+  // its row in the pickers, and the words beside it say so — the Timeline and
+  // the Budget show this task as not assigned until it is back in that list.
+  const linkOutside = !!linkHere && !(linkHere === linkedShot ? shots : scenes).some(r => r.id === linkHere.id)
 
   function handleUpdate(patch) {
     guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
@@ -429,7 +433,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   one row, both about which list (Proximity). */}
               {scenesOn && (linkHere || canShowAllLists) && (
                 <div className="rb-task-links">
-                  {linkHere && <LinkHome ctx={ctx} id={linkHere.id} name={linkHere.name || 'Untitled'} />}
+                  {linkHere && <LinkHome ctx={ctx} id={linkHere.id} name={linkHere.name || 'Untitled'} outside={linkOutside} />}
                   {canShowAllLists && (
                     <Switch className="rb-task-links-all" checked={showAllLists} onChange={setShowAllLists} label="All lists" />
                   )}

@@ -40,7 +40,7 @@ import SaveEditDialog from './SaveEditDialog'
 import { recoverWords, discardWords } from './editCopy'
 import { confirmLeave } from '../../state/leaveGuard'
 import { listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
-import { removeQuestion } from './membershipCopy'
+import { removeQuestion, activeListLeaves, SET_ACTIVE_KEEPS, NOT_ACTIVE_KEEPS } from './membershipCopy'
 import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
 import '../rabbitScenes.css'
 
@@ -600,7 +600,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           onCancel={close}
           onConfirm={() => inDialog(async () => { await ctx.setActiveShotList(target.id); close() })}
         >
-          {`“${label(target)}” becomes the list ${OTHER_TABS} show.`}
+          {`“${label(target)}” becomes the list ${OTHER_TABS} show. ${SET_ACTIVE_KEEPS}`}
           {activeList && activeList.id !== target.id ? ` “${label(activeList)}” is not changed, and can be made active again.` : ''}
         </ListConfirm>
       )}
@@ -612,7 +612,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           onCancel={close}
           onConfirm={() => inDialog(async () => { await ctx.archiveShotList(target.id, true); close() })}
         >
-          {`“${label(target)}” moves to Archived in Shot lists. Nothing in it is deleted, and a project manager or a workspace admin can restore it.`}
+          {`“${label(target)}” moves to Archived in Shot lists. Nothing in it is deleted, and a project manager or a workspace admin can restore it. ${NOT_ACTIVE_KEEPS}`}
         </ListConfirm>
       )}
 
@@ -626,7 +626,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           {/* Review round 1 (R1-15): "You made" only where the maker test
               applies — the Local Server has no users, and offers Withdraw
               on any untouched list. */}
-          {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or started an edit on it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived.`}
+          {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or started an edit on it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived. ${NOT_ACTIVE_KEEPS}`}
         </ListConfirm>
       )}
 
@@ -669,7 +669,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             close()
           })}
         >
-          {`Takes ${plural(rowsOf(target).scenes, 'scene')} and ${plural(rowsOf(target).shots, 'shot')} out of “${label(target)}”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved.${target.id === activeId ? ' This is the active list, so the Timeline, Budget and every other tab will no longer show them.' : ''}`}
+          {`Takes ${plural(rowsOf(target).scenes, 'scene')} and ${plural(rowsOf(target).shots, 'shot')} out of “${label(target)}”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved.${target.id === activeId ? ` ${activeListLeaves(false)}` : ''}`}
         </ListConfirm>
       )}
 

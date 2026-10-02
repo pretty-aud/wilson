@@ -2,7 +2,7 @@
 // and which edits use it (linkHomes.js) — the words LinkHome prints beside a
 // name and every dense row carries in its tooltip.
 import { describe, it, expect } from 'vitest'
-import { homeIndex, homeIndexOf, pickerRows, otherListRows, NO_LIST_WORDS } from './linkHomes'
+import { homeIndex, homeIndexOf, pickerRows, otherListRows, NO_LIST_WORDS, activeIdsOf, pointsAt, linksInActive, notAssignedTitle, NOT_IN_ACTIVE } from './linkHomes'
 
 const L = (id, title, version, extra = {}) => ({ id, title, version, created_at: `2026-09-0${version}T00:00:00Z`, archived_at: null, ...extra })
 const item = (id, listId, ref) => ({ id, shot_list_id: listId, position: 0, scene_id: null, shot_id: null, ...ref })
@@ -101,5 +101,48 @@ describe('pickerRows / otherListRows: the active list by default, every row on "
   it('the switch is offered only when it would add something', () => {
     expect(otherListRows({ active, all })).toBe(true)
     expect(otherListRows({ active: all, all })).toBe(false)
+  })
+})
+
+// Audrey's rule of 2026-10-02: a task linked outside the ACTIVE list reads as
+// not assigned on the Timeline and the Budget, and says what it points at.
+describe('linksInActive / pointsAt / notAssignedTitle (the rule of 2026-10-02)', () => {
+  const rows = { A: { id: 'A', name: 'Harbour' }, B: { id: 'B', name: 'Lighthouse' }, a1: { id: 'a1', name: 'SC001_SH010' }, b1: { id: 'b1', name: 'SC002_SH010' } }
+  const byId = (id) => rows[id] || null
+  const pickups = { id: 'L2', title: 'Pickups', version: 1 }
+  const extra = { id: 'L3', title: 'Night', version: 2 }
+  const homeOf = (id) => ({ lists: id === 'B' ? [pickups, extra] : id === 'b1' ? [pickups] : [] })
+  const active = activeIdsOf([rows.A], [rows.a1])
+  const ask = (task, over = {}) => linksInActive(task, { active, sceneById: byId, shotById: byId, homeOf, ...over })
+
+  it('a link the active list holds is kept as the group; nothing outside', () => {
+    expect(ask({ scene_id: 'A', shot_id: 'a1' })).toEqual({ sceneId: 'A', shotId: 'a1', outside: [] })
+    expect(ask({})).toEqual({ sceneId: null, shotId: null, outside: [] })
+  })
+  it('each link outside it: no group, and a line saying where it points', () => {
+    expect(ask({ scene_id: 'B', shot_id: 'b1' })).toEqual({
+      sceneId: null,
+      shotId: null,
+      outside: [
+        `Scene “Lighthouse”: in Pickups · v1, Night · v2, ${NOT_IN_ACTIVE}`,
+        `Shot “SC002_SH010”: in Pickups · v1, ${NOT_IN_ACTIVE}`,
+      ],
+    })
+    // The scene in, the shot out: the scene stays the group.
+    expect(ask({ scene_id: 'A', shot_id: 'b1' })).toEqual({ sceneId: 'A', shotId: null, outside: [`Shot “SC002_SH010”: in Pickups · v1, ${NOT_IN_ACTIVE}`] })
+  })
+  it('a row in no list, and a row that is gone', () => {
+    expect(pointsAt('Scene', rows.A, () => ({ lists: [] }))).toBe('Scene “Harbour”: in no shot list')
+    expect(pointsAt('Shot', null, homeOf)).toBe('Shot: no longer in the project')
+    expect(pointsAt('Scene', rows.B, null)).toBe('Scene “Lighthouse”: in no shot list')
+    expect(ask({ shot_id: 'zz' }).outside).toEqual(['Shot: no longer in the project'])
+  })
+  it('a "No scene" row\'s tooltip: each line once, under one sentence; none when nothing points outside', () => {
+    expect(notAssignedTitle(['x', 'y', 'x'])).toBe('Tasks here are linked outside the active list:\nx\ny')
+    expect(notAssignedTitle([])).toBeUndefined()
+  })
+  it('activeIdsOf takes ctx.scenes / ctx.shots, empty or missing', () => {
+    expect([...activeIdsOf([rows.A], []).sceneIds]).toEqual(['A'])
+    expect(activeIdsOf(undefined, undefined).shotIds.size).toBe(0)
   })
 })

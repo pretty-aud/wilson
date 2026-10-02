@@ -77,6 +77,9 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 // scene or shot is in (D10's tooltip, Audrey's "clearly indicate").
 import { drawerOnScreen } from './bins/binUi'
 import { useHomeIndex } from './scenes/LinkHome'
+// Audrey's rule of 2026-10-02: a task linked outside the active list reads
+// as not assigned in group-by-scene, never dropped, and says where it points.
+import { activeIdsOf, linksInActive } from './scenes/linkHomes'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -487,10 +490,11 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     [phases, assets, tasks, dependencies]
   )
 
-  // Post-overhaul S3c, step 1: group-by-scene reads the ACTIVE list (D10),
-  // and a task linked to a scene or shot only ANOTHER list holds is found
-  // through the provider's lookups over every row instead of dropping out;
-  // every scene and shot row says in its tooltip which list holds it.
+  // Post-overhaul S3c: group-by-scene reads the ACTIVE list (D10). A task
+  // linked to a scene or shot it does not hold reads as not assigned instead
+  // of dropping out (Audrey's rule of 2026-10-02), and the provider's lookups
+  // over every row say in its tooltip what it points at; every scene and
+  // shot row says in its tooltip which list holds it.
   const sceneById = ctx?.sceneById
   const shotById = ctx?.shotById
   const homeOf = useHomeIndex(ctx)
@@ -2729,9 +2733,12 @@ export function DetailPane({
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
                 onClick={() => handleRowClick(r)}
                 title={isTaskRow
-                  ? (canWrite
+                  // Grouped by scene, a task linked outside the active list
+                  // says first what it points at (Audrey's rule of
+                  // 2026-10-02: it reads as not assigned, its link kept).
+                  ? [r.tooltip, canWrite
                       ? 'Click to edit · drag to move to another phase'
-                      : 'Click to view')
+                      : 'Click to view'].filter(Boolean).join('\n')
                   // A scene or shot row (group by scene): its name and the
                   // shot list that holds it (post-overhaul S3c, D10).
                   : (r.tooltip || undefined)}
@@ -6741,48 +6748,30 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 // ── buildRowsByScene ────────────────────────────────────────
 // Flat Scene → Shot → Tasks (no phase wrappers)
 //
-// Post-overhaul S3c, step 1. `scenes` / `shots` are the ACTIVE list's rows
-// (D10), so a task linked to a shot only ANOTHER list holds was bucketed
-// under a shot this never visited — and vanished from the Timeline (a task
-// on a scene another list holds, likewise). `sceneById` / `shotById` (the
-// provider's lookups over EVERY row) now resolve such a link: its scene and
-// shot join the groups, in the same order as the rest, and only because a
-// task needs them — another list's rows without tasks stay off (D10). A link
-// that resolves to nothing at all (a row gone) lands under "No Scene"
-// rather than nowhere. `homeOf` (linkHomes.homeIndex) gives every scene and
-// shot row the tooltip that names its list: the gutter is too dense to
-// print it (S3c brief, step 1).
+// Post-overhaul S3c. `scenes` / `shots` are the ACTIVE list's rows (D10),
+// and the groups are those and nothing else. Before S3c a task linked to a
+// scene or shot outside them was bucketed under a group this never drew,
+// and VANISHED from the Timeline. Audrey's rule of 2026-10-02
+// (linkHomes.linksInActive): removing a list never removes the Timeline —
+// such a task reads as not assigned ("No Scene"; under its own scene when
+// only its shot is outside), its stored link kept, so it is under its scene
+// again once the scene is back in the active list; its row's tooltip says
+// what it points at (`sceneById` / `shotById`, the provider's lookups over
+// EVERY row, and `homeOf` for the lists that hold it). Every scene and shot
+// row names its list in its tooltip: the gutter is too dense to print it
+// (S3c brief, step 1).
 function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet, sceneById = null, shotById = null, homeOf = null }) {
   const sign = sortOrder === 'desc' ? -1 : 1
   const rows = []
   const tip = (row) => (homeOf ? homeOf(row.id).title(row.name || null) : undefined)
-
-  // The groups: the active list's scenes and shots, and those a task links
-  // to that another list holds.
-  const sceneSet = new Map(scenes.map(s => [s.id, s]))
-  const shotSet = new Map(shots.map(s => [s.id, s]))
-  // A task whose shot has no scene had no group either (the shot is grouped
-  // under its scene): it goes under "No Scene" with the unresolved.
-  const unresolved = new Set()
-  for (const t of tasks) {
-    if (t.shot_id) {
-      const sh = shotSet.get(t.shot_id) || shotById?.(t.shot_id) || null
-      const sc = sh?.scene_id ? (sceneSet.get(sh.scene_id) || sceneById?.(sh.scene_id) || null) : null
-      if (!sh || !sc) { unresolved.add(t.id); continue }
-      if (!shotSet.has(sh.id)) shotSet.set(sh.id, sh)
-      if (!sceneSet.has(sc.id)) sceneSet.set(sc.id, sc)
-    } else if (t.scene_id) {
-      const sc = sceneSet.get(t.scene_id) || sceneById?.(t.scene_id) || null
-      if (!sc) { unresolved.add(t.id); continue }
-      if (!sceneSet.has(sc.id)) sceneSet.set(sc.id, sc)
-    }
-  }
-  scenes = [...sceneSet.values()]
+  const active = activeIdsOf(scenes, shots)
 
   // Group shots by scene
   const shotsByScene = {}
-  for (const sh of shotSet.values()) {
-    if (!sh.scene_id) continue
+  const sceneOfShot = new Map()
+  for (const sh of shots) {
+    if (!sh.scene_id || !active.sceneIds.has(sh.scene_id)) continue
+    sceneOfShot.set(sh.id, sh.scene_id)
     if (!shotsByScene[sh.scene_id]) shotsByScene[sh.scene_id] = []
     shotsByScene[sh.scene_id].push(sh)
   }
@@ -6798,19 +6787,23 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
     })
   }
 
-  // Bucket tasks by scene and shot (flat — ignore phases)
+  // Bucket tasks by scene and shot (flat — ignore phases). Every task lands
+  // in exactly one bucket: under its shot when the active list holds the
+  // shot (and the shot's scene), else under its scene when the active list
+  // holds that, else under "No Scene" — never nowhere.
   const tasksByScene = {}   // { sceneId: Task[] }
   const tasksByShot = {}    // { shotId: Task[] }
   const noSceneTasks = []
+  const outsideOf = new Map() // { taskId: what its outside links point at }
   for (const t of tasks) {
-    if (unresolved.has(t.id)) {
-      noSceneTasks.push(t)
-    } else if (t.shot_id) {
-      if (!tasksByShot[t.shot_id]) tasksByShot[t.shot_id] = []
-      tasksByShot[t.shot_id].push(t)
-    } else if (t.scene_id) {
-      if (!tasksByScene[t.scene_id]) tasksByScene[t.scene_id] = []
-      tasksByScene[t.scene_id].push(t)
+    const { sceneId, shotId, outside } = linksInActive(t, { active, sceneById, shotById, homeOf })
+    if (outside.length) outsideOf.set(t.id, outside.join('\n'))
+    if (shotId && sceneOfShot.has(shotId)) {
+      if (!tasksByShot[shotId]) tasksByShot[shotId] = []
+      tasksByShot[shotId].push(t)
+    } else if (sceneId) {
+      if (!tasksByScene[sceneId]) tasksByScene[sceneId] = []
+      tasksByScene[sceneId].push(t)
     } else {
       noSceneTasks.push(t)
     }
@@ -6844,6 +6837,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
     for (const t of sortTasks(directTasks)) {
       const sched = schedule.tasks[t.id]
       rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+        tooltip: outsideOf.get(t.id),
         phaseHint: scene.id, depth: 1, start: sched?.start, end: sched?.end })
     }
     for (const shot of sceneShots) {
@@ -6863,6 +6857,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
       for (const t of sortTasks(shotTasks)) {
         const sched = schedule.tasks[t.id]
         rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+          tooltip: outsideOf.get(t.id),
           phaseHint: shot.id, depth: 2, start: sched?.start, end: sched?.end })
       }
       rows.push({
@@ -6900,6 +6895,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
       for (const t of sortTasks(noSceneTasks)) {
         const sched = schedule.tasks[t.id]
         rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+          tooltip: outsideOf.get(t.id),
           phaseHint: '__noscene__', depth: 1, start: sched?.start, end: sched?.end })
       }
       rows.push({

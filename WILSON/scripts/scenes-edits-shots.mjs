@@ -11,8 +11,12 @@
  * question, the picker's edits, a missing shot, the leave question at four
  * exits (the tab strip, a page switch, "Show in Bins", the edit selector),
  * "Recover unsaved edit?" after a reload, the Budget's "Based on shot list",
- * the Timeline's "Shot list:" label, and a task showing its shot's list. The
- * window's close question is the desktop app's (a separate run). Each file is
+ * the Timeline's "Shot list:" label, and a task showing its shot's list; then
+ * Audrey's rule of 2026-10-02 (removing a list never removes the Timeline or
+ * the Budget): another list made active, a scene taken out of it, and its
+ * task read as not assigned on the Timeline and the Budget and named "not in
+ * the active list" in its own window. The window's close question is the
+ * desktop app's (a separate run, number 21). Each file is
  * `<prefix><nn>-<state>-<W>x<H>.png`.
  *
  * Needs the worktree's own dev server with VITE_DEV_AUTOLOGIN=tester and
@@ -221,6 +225,60 @@ try {
   await must(page.locator('.rb-task-links'), 'the task\'s links');
   await park();
   await shot('task-shot-list');
+
+  // ── Audrey's rule of 2026-10-02: removing a list never removes the
+  //    Timeline or the Budget. 21 is the desktop app's close question (a
+  //    separate run), so these are 22 onward. ──
+  n += 1;
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  if (await page.getByRole('dialog').count()) throw new Error('not found: the popups closed');
+  // The tab strip's "Scenes" comes first; the content tab is the second.
+  await click(page.getByRole('tab', { name: 'Scenes', exact: true }).nth(1), 'the Scenes content tab');
+  await click(button('New shot list', bar()), 'New shot list');
+  const form = dialog('New shot list');
+  await must(form, 'the New shot list form');
+  await form.getByRole('textbox', { name: 'Title' }).fill('Second unit');
+  await form.locator('input[type="radio"][value="screen"]').check();
+  await click(button('Create shot list', form), 'Create shot list');
+  await click(button('Set active', bar()), 'Set active');
+  await must(dialog('Make this the active list?'), 'the Set active question');
+  await shot('set-active-question');
+  await click(button('Make active', dialog('Make this the active list?')), 'Make active');
+  const lighthouse = sceneRow('Lighthouse, dawn');
+  await lighthouse.hover();
+  await click(lighthouse.getByRole('button', { name: 'Shot list actions for Lighthouse, dawn', exact: true }), 'the shot-list menu of Lighthouse, dawn');
+  await click(menuItem('Remove from this list'), 'Remove from this list');
+  await must(dialog('Remove from this list?'), 'the Remove question');
+  await shot('remove-from-active-question');
+  await click(button('Remove from list', dialog('Remove from this list?')), 'Remove from list');
+  await sleep(300);
+
+  await click(tab('Timeline'), 'the Timeline tab');
+  await click(page.locator('[role="tab"][title="Group by scene"]').first(), 'Group by scene');
+  const graded = page.locator('.rb-tl-row-label', { hasText: /^Grade the doorway$/ }).first();
+  await must(graded, 'Grade the doorway on the Timeline');
+  await graded.scrollIntoViewIfNeeded();
+  console.log(`    its row says: ${JSON.stringify(await graded.locator('xpath=..').getAttribute('title'))}`);
+  await park();
+  await shot('timeline-not-assigned');
+
+  await click(tab('Budget'), 'the Budget tab');
+  await click(tab('By scene'), 'By scene');
+  const noScene = page.locator('table.rb-budget-report tbody td', { hasText: /^No scene$/ }).first();
+  await must(noScene, 'the No scene row');
+  console.log(`    "No scene" says: ${JSON.stringify(await noScene.getAttribute('title'))}`);
+  await park();
+  await shot('budget-not-assigned');
+
+  await click(tab('Timeline'), 'the Timeline tab');
+  await graded.scrollIntoViewIfNeeded();
+  await click(graded, 'Grade the doorway');
+  const taskPop = dialog('Grade the doorway');
+  await must(taskPop.locator('.rb-scene-home[data-outside="true"]'), 'the task\'s "not in the active list"');
+  await park();
+  await shot('task-not-in-active');
 } finally {
   await browser.close();
 }

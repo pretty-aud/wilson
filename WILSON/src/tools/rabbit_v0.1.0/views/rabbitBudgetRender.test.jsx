@@ -171,12 +171,16 @@ describe('surface 2a', () => {
     expect(inlineColours(container)).toEqual([])
   })
 
-  // Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE list's
-  // (D10); a task linked to a scene or shot only another list holds read
-  // "Unknown scene" / "Unknown shot". The reports find it among every row
-  // (ctx.sceneById / shotById) and say in the row's tooltip which list holds
-  // it — the tables are too dense to print it (D10's floor).
-  describe('By scene, By shot and Custom name a row only another shot list holds (S3c step 1)', () => {
+  // Post-overhaul S3c: `scenes` / `shots` are the ACTIVE list's (D10); a
+  // task linked to a scene or shot outside it read "Unknown scene" /
+  // "Unknown shot". Audrey's rule of 2026-10-02 (it narrowed step 1, which
+  // had named such a row through the lookups): the task is counted under
+  // "No scene" / "No shot" — never dropped, never brought back under a scene
+  // from another list — and that row's tooltip says what its tasks point at
+  // (ctx.sceneById / shotById, the lists that hold it). A scene's or shot's
+  // own row says in its tooltip which list holds it (D10's floor). The rule
+  // against real list operations is state/listRemovalKeepsTasks.test.jsx.
+  describe('By scene, By shot and Custom count a task linked outside the active list as not assigned (S3c, Audrey\'s rule of 2026-10-02)', () => {
     const sceneA = { id: 'sA', name: 'Harbour', scene_number: 1 }
     const sceneB = { id: 'sB', name: 'Lighthouse', scene_number: 2 }
     const shotA = { id: 'hA', scene_id: 'sA', name: 'SC001_SH010', shot_number: 10 }
@@ -187,40 +191,63 @@ describe('surface 2a', () => {
     ]
     const all = { sA: sceneA, sB: sceneB, hA: shotA, hB: shotB }
     const lookup = (id) => all[id] || null
-    const homeOf = (id) => ({ title: (name) => `${name}\nIn: ${id === 'sB' || id === 'hB' ? 'Pickups · v1' : 'Shoot · v2 (active)'}` })
-    const firstCells = (root) => [...root.querySelectorAll('table.rb-budget-report tbody tr')].map(tr => tr.querySelector('td'))
-
-    it('By scene: the other list\'s scene by name, its list in the tooltip', async () => {
-      const { BySceneTab } = await import('./BudgetView')
-      const { container } = render(<BySceneTab scenes={[sceneA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
-      const cells = firstCells(container)
-      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'Lighthouse'])
-      expect(cells[1].getAttribute('title')).toBe('Lighthouse\nIn: Pickups · v1')
-      cleanup()
-      // CONTROL: without the lookup (the old path) it is the "Unknown scene" this fixes.
-      const { container: old } = render(<BySceneTab scenes={[sceneA]} tasks={linked} budget={budget} roleRates={roleRates} />)
-      expect(firstCells(old).map(td => td.textContent).sort()).toEqual(['Harbour', 'Unknown scene'])
+    const pickups = { id: 'L2', title: 'Pickups', version: 1 }
+    const homeOf = (id) => ({
+      lists: id === 'sB' || id === 'hB' ? [pickups] : [{ id: 'L1', title: 'Shoot', version: 2 }],
+      title: (name) => `${name}\nIn: ${id === 'sB' || id === 'hB' ? 'Pickups · v1' : 'Shoot · v2 (active)'}`,
     })
-    it('By shot: the other list\'s shot and its scene by name, its list in the tooltip', async () => {
+    const bodyRows = (root) => [...root.querySelectorAll('table.rb-budget-report tbody tr')]
+    const firstCells = (root) => bodyRows(root).map(tr => tr.querySelector('td'))
+    const figures = (root) => bodyRows(root).map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent))
+
+    it('By scene: the active list\'s scene by name, its list in the tooltip; the other list\'s under "No scene", saying what it points at', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'No scene'])
+      expect(cells[0].getAttribute('title')).toBe('Harbour\nIn: Shoot · v2 (active)')
+      expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nScene “Lighthouse”: in Pickups · v1, not in the active list')
+      // Counted, not dropped: the task, its 2 bid days and their cost.
+      expect(figures(container)[1]).toEqual(['No scene', '1', '2.0', '0.0', '-2.0', '$1,000'])
+      expect(container.textContent).not.toContain('Unknown scene')
+    })
+    it('By shot: the same — "Harbour › SC001_SH010" by name, the other list\'s shot under "No shot"', async () => {
       const { ByShotTab } = await import('./BudgetView')
       const { container } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} sceneById={lookup} shotById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
       const cells = firstCells(container)
-      expect(cells.map(td => td.textContent).sort()).toEqual(['Harbour › SC001_SH010', 'Lighthouse › SC002_SH010'])
-      expect(cells.find(td => td.textContent.startsWith('Lighthouse')).getAttribute('title')).toBe('Lighthouse › SC002_SH010\nIn: Pickups · v1')
-      cleanup()
-      const { container: old } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} tasks={linked} budget={budget} roleRates={roleRates} />)
-      expect(firstCells(old).map(td => td.textContent)).toContain('Unknown shot')
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour › SC001_SH010', 'No shot'])
+      expect(cells[0].getAttribute('title')).toBe('Harbour › SC001_SH010\nIn: Shoot · v2 (active)')
+      expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nShot “SC002_SH010”: in Pickups · v1, not in the active list')
+      expect(figures(container)[1].slice(1, 3)).toEqual(['1', '2.0'])
     })
-    it('Custom, grouped by shot: the same', () => {
-      try { localStorage.setItem('rabbit-budget-custom-p9', JSON.stringify({ groupBy: 'shot' })) } catch { /* ignore */ }
-      const { container } = render(
-        <CustomTab project={{ id: 'p9' }} phases={[]} assets={[{ id: 'a1' }]} tasks={linked} scenes={[sceneA]} shots={[shotA]}
-          sceneById={lookup} shotById={lookup} homeOf={homeOf} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
-      )
-      const cells = firstCells(container)
-      expect(cells.map(td => td.textContent)).toContain('Lighthouse › SC002_SH010')
-      expect(cells.find(td => td.textContent.startsWith('Lighthouse')).getAttribute('title')).toBe('Lighthouse › SC002_SH010\nIn: Pickups · v1')
+    it('the scene back in the active list: the same task is under it again (nothing was written)', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA, sceneB]} shots={[shotA, shotB]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(container).map(td => td.textContent)).toEqual(['Harbour', 'Lighthouse'])
+      expect(firstCells(container)[1].getAttribute('title')).toBe('Lighthouse\nIn: Pickups · v1')
+    })
+    it('Custom, grouped by shot and by scene: the same', () => {
+      for (const groupBy of ['shot', 'scene']) {
+        try { localStorage.setItem('rabbit-budget-custom-p9', JSON.stringify({ groupBy })) } catch { /* ignore */ }
+        const { container } = render(
+          <CustomTab project={{ id: 'p9' }} phases={[]} assets={[{ id: 'a1' }]} tasks={linked} scenes={[sceneA]} shots={[shotA]}
+            sceneById={lookup} shotById={lookup} homeOf={homeOf} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
+        )
+        const none = groupBy === 'shot' ? 'No shot' : 'No scene'
+        const cells = firstCells(container)
+        expect(cells.map(td => td.textContent).sort(), groupBy).toEqual([groupBy === 'shot' ? 'Harbour › SC001_SH010' : 'Harbour', none].sort())
+        expect(cells.find(td => td.textContent === none).getAttribute('title'), groupBy)
+          .toBe(`Tasks here are linked outside the active list:\n${groupBy === 'shot' ? 'Shot “SC002_SH010”' : 'Scene “Lighthouse”'}: in Pickups · v1, not in the active list`)
+        // The total is every task's: nothing dropped.
+        expect(container.querySelector('tfoot').textContent).toContain('3.0')
+        cleanup()
+      }
       try { localStorage.removeItem('rabbit-budget-custom-p9') } catch { /* ignore */ }
+    })
+    it('a "No scene" holding only tasks with no scene at all has nothing to say', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={[{ id: 'k9', asset_id: 'a1', bid_days: 1 }]} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(container).map(td => [td.textContent, td.getAttribute('title')])).toEqual([['No scene', null]])
     })
   })
 

@@ -38,4 +38,31 @@ describe('LinkHome', () => {
     const { container } = render(<LinkHome homeOf={homeOf} id="x" name="SC001_SH010" />)
     expect(container.querySelector('.rb-scene-home-label').textContent).toBe('Pickups · v1')
   })
+
+  // Audrey's rule of 2026-10-02: the task popup says when the active list does
+  // not hold the link — what that does to the Timeline and the Budget.
+  describe('outside the active list', () => {
+    const NOTE = 'Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.'
+    it('", not in the active list" after the list, kept whole; the tooltip and a screen reader say what it does', () => {
+      const homeOf = homeIndex({ shotLists: ctx.shotLists, shotListItems: [{ id: 'i2', shot_list_id: 'L2', shot_id: 'x' }], shots: ctx.allShots, edits: [], activeId: 'L1' })
+      const { container } = render(<LinkHome homeOf={homeOf} id="x" name="SC001_SH010" outside />)
+      const root = container.querySelector('.rb-scene-home')
+      expect(root.getAttribute('data-outside')).toBe('true')
+      expect(root.textContent.replace(root.querySelector('.sr-only').textContent, '')).toBe('Pickups · v1, not in the active list')
+      expect(root.querySelector('.rb-scene-home-outside').getAttribute('aria-hidden')).toBe('true')
+      expect(root.getAttribute('title')).toBe(`SC001_SH010\nIn: Pickups · v1\n${NOTE}`)
+      expect(root.querySelector('.sr-only').textContent).toBe(`In: Pickups · v1. ${NOTE}`)
+    })
+    it('in no shot list: the label already says it; only the tooltip adds what it does', () => {
+      const { container } = render(<LinkHome ctx={ctx} id="nobody" name="Gone" outside />)
+      expect(container.querySelector('.rb-scene-home-label').textContent).toBe('In no shot list')
+      expect(container.querySelector('.rb-scene-home-outside')).toBeNull()
+      expect(container.querySelector('.rb-scene-home').getAttribute('title')).toBe(`Gone\nIn no shot list\n${NOTE}`)
+    })
+    it('not outside: nothing added', () => {
+      const { container } = render(<LinkHome ctx={ctx} id="x" name="SC001_SH010" />)
+      expect(container.querySelector('.rb-scene-home').getAttribute('data-outside')).toBeNull()
+      expect(container.querySelector('.rb-scene-home').getAttribute('title')).not.toContain('Not in the active list')
+    })
+  })
 })

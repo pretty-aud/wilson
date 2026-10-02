@@ -1745,6 +1745,11 @@
   }
   .rb-scene-home-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .rb-scene-home-more { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  /* ", not in the active list" (the task popup; Audrey's rule of 2026-10-02):
+     the words that change what the Timeline and the Budget show keep their
+     width; the list's label gives way first. Same ink: a state, not an
+     error. */
+  .rb-scene-home-outside { flex-shrink: 0; margin-left: -4px; }
 
   /* ═══ Reduced motion (plan §3.4) ═════════════════════════════════════════
      Every transition this sheet declares, stopped. Never a `*`: the pet's

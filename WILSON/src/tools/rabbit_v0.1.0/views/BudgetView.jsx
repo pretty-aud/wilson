@@ -53,6 +53,9 @@ import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
 // reports' tooltips), and the undo keys' "is the settings drawer in front of
 // me?" (Bins', Scenes' and the Timeline's keys ask it too).
 import { useHomeIndex } from './scenes/LinkHome'
+// Audrey's rule of 2026-10-02: a task linked outside the active list is
+// counted under "No scene" / "No shot", never dropped, and says where it points.
+import { activeIdsOf, linksInActive, notAssignedTitle } from './scenes/linkHomes'
 import { drawerOnScreen } from './bins/binUi'
 // Post-overhaul S3c, step 2 (D18): the bid version's "Based on shot list" —
 // the kit Select (this file's own `Select` is the report filters').
@@ -112,11 +115,12 @@ export default function BudgetView({ pageActive = false } = {}) {
   const tasks        = ctx?.tasks        || []
   const scenes       = ctx?.scenes       || []
   const shots        = ctx?.shots        || []
-  // Post-overhaul S3c, step 1: a task linked to a scene or shot only ANOTHER
-  // shot list holds read "Unknown scene" here — `scenes` / `shots` are the
-  // active list's (D10). The reports name it through the provider's lookups
-  // over every row, and each row's tooltip says which list holds it (the
-  // tables are too dense to print it).
+  // Post-overhaul S3c: `scenes` / `shots` are the active list's (D10), and a
+  // task linked to a scene or shot it does not hold read "Unknown scene"
+  // here. The reports count it under "No scene" / "No shot" instead (Audrey's
+  // rule of 2026-10-02), the provider's lookups over every row saying in that
+  // row's tooltip what it points at; each scene's and shot's row says which
+  // list holds it (the tables are too dense to print it).
   const sceneById    = ctx?.sceneById
   const shotById     = ctx?.shotById
   const homeOf       = useHomeIndex(ctx)
@@ -283,7 +287,7 @@ export default function BudgetView({ pageActive = false } = {}) {
           <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_scene' && (
-          <BySceneTab scenes={scenes} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <BySceneTab scenes={scenes} shots={shots} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_shot' && (
           <ByShotTab shots={shots} scenes={scenes} sceneById={sceneById} shotById={shotById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
@@ -1384,34 +1388,78 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
   )
 }
 
+// ─── By Scene / By Shot: the rows (pure; exported for their tests) ──────
+// Post-overhaul S3c. The groups are the ACTIVE list's scenes and shots
+// (D10) and nothing else. Audrey's rule of 2026-10-02
+// (scenes/linkHomes.linksInActive): removing a list never removes the
+// Budget — a task linked to a scene or shot the active list does not hold
+// is counted under "No scene" / "No shot" (never dropped, never "Unknown"),
+// its stored link kept, and that row's tooltip says what its tasks point at
+// (`sceneById` / `shotById`, the provider's lookups over EVERY row; `homeOf`
+// for the lists). A scene's or shot's own row names its list in its tooltip.
+
+/** By scene: a row per active scene with tasks, then "No scene". */
+export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = null, tasks, roleRates }) {
+  const active = activeIdsOf(scenes, shots)
+  const groups = {}
+  const outside = []
+  for (const t of tasks) {
+    const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById, homeOf })
+    const key = sceneId || '__unscened__'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+    outside.push(...o)
+  }
+  const byId = Object.fromEntries(scenes.map(s => [s.id, s]))
+  return Object.entries(groups)
+    .map(([sceneId, list]) => {
+      const scene = sceneId === '__unscened__' ? null : byId[sceneId]
+      const name = scene ? (scene.name || 'Untitled scene') : 'No scene'
+      return {
+        ...aggregateTasks(list, roleRates),
+        name,
+        title: scene ? (homeOf ? homeOf(scene.id).title(name) : undefined) : notAssignedTitle(outside),
+        sortOrder: scene ? (scene.scene_number ?? 0) : 9999,
+      }
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+/** By shot: a row per active shot with tasks ("Scene › Shot"), then "No shot". */
+export function byShotRows({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, roleRates }) {
+  const active = activeIdsOf(scenes, shots)
+  const groups = {}
+  const outside = []
+  for (const t of tasks) {
+    const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById, homeOf })
+    const key = shotId || '__unshot__'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+    outside.push(...o)
+  }
+  const shotOf = Object.fromEntries(shots.map(s => [s.id, s]))
+  const sceneOf = Object.fromEntries(scenes.map(s => [s.id, s]))
+  return Object.entries(groups)
+    .map(([shotId, list]) => {
+      const shot = shotId === '__unshot__' ? null : shotOf[shotId]
+      const parentScene = shot?.scene_id ? (sceneOf[shot.scene_id] || sceneById?.(shot.scene_id) || null) : null
+      const name = shot ? `${parentScene ? `${parentScene.name} › ` : ''}${shot.name || 'Untitled shot'}` : 'No shot'
+      return {
+        ...aggregateTasks(list, roleRates),
+        name,
+        title: shot ? (homeOf ? homeOf(shot.id).title(name) : undefined) : notAssignedTitle(outside),
+        sortOrder: shot ? (shot.shot_number ?? 0) : 9999,
+      }
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
 // ─── By Scene tab (conditional — visible when scenes_enabled) ──
-// Post-overhaul S3c, step 1: a scene is found among EVERY row (`lookup`, the
-// provider's sceneById), not only the active list's, and its row's tooltip
-// names the list that holds it (`homeOf`). "Unknown scene" is left for a
-// link to a row that is gone.
-function BySceneTab({ scenes, sceneById: lookup = null, homeOf = null, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const sceneId = t.scene_id || '__unscened__'
-      if (!groups[sceneId]) groups[sceneId] = []
-      groups[sceneId].push(t)
-    }
-    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
-    const find = (id) => sceneById[id] || lookup?.(id) || null
-    return Object.entries(groups)
-      .map(([sceneId, list]) => {
-        const scene = sceneId === '__unscened__' ? null : find(sceneId)
-        const name = sceneId === '__unscened__' ? 'No scene' : (scene?.name || 'Unknown scene')
-        return {
-          ...aggregateTasks(list, roleRates),
-          name,
-          title: scene && homeOf ? homeOf(scene.id).title(name) : undefined,
-          sortOrder: sceneId === '__unscened__' ? 9999 : (scene?.scene_number ?? 0),
-        }
-      })
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [scenes, lookup, homeOf, tasks, roleRates])
+function BySceneTab({ scenes, shots, sceneById = null, homeOf = null, tasks, budget, roleRates }) {
+  const rows = useMemo(
+    () => bySceneRows({ scenes, shots, sceneById, homeOf, tasks, roleRates }),
+    [scenes, shots, sceneById, homeOf, tasks, roleRates],
+  )
 
   if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
 
@@ -1423,33 +1471,11 @@ function BySceneTab({ scenes, sceneById: lookup = null, homeOf = null, tasks, bu
 }
 
 // ─── By Shot tab (conditional — visible when scenes_enabled) ──
-// Post-overhaul S3c, step 1: as BySceneTab — the shot and its scene found
-// among every row, the shot's list in the row's tooltip.
-function ByShotTab({ shots, scenes, sceneById: findScene = null, shotById: findShot = null, homeOf = null, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const shotId = t.shot_id || '__unshot__'
-      if (!groups[shotId]) groups[shotId] = []
-      groups[shotId].push(t)
-    }
-    const shotById = Object.fromEntries(shots.map(s => [s.id, s]))
-    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
-    return Object.entries(groups)
-      .map(([shotId, list]) => {
-        const shot = shotId === '__unshot__' ? null : (shotById[shotId] || findShot?.(shotId) || null)
-        const parentScene = shot?.scene_id ? (sceneById[shot.scene_id] || findScene?.(shot.scene_id) || null) : null
-        const prefix = parentScene ? `${parentScene.name} › ` : ''
-        const name = shotId === '__unshot__' ? 'No shot' : `${prefix}${shot?.name || 'Unknown shot'}`
-        return {
-          ...aggregateTasks(list, roleRates),
-          name,
-          title: shot && homeOf ? homeOf(shot.id).title(name) : undefined,
-          sortOrder: shotId === '__unshot__' ? 9999 : (shot?.shot_number ?? 0),
-        }
-      })
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [shots, scenes, findScene, findShot, homeOf, tasks, roleRates])
+function ByShotTab({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, budget, roleRates }) {
+  const rows = useMemo(
+    () => byShotRows({ shots, scenes, sceneById, shotById, homeOf, tasks, roleRates }),
+    [shots, scenes, sceneById, shotById, homeOf, tasks, roleRates],
+  )
 
   if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
 
@@ -1552,10 +1578,12 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
     const shotById  = Object.fromEntries((shots || []).map(s => [s.id, s]))
     const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
     const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
-    // Post-overhaul S3c, step 1: scenes and shots among every row, as the
-    // two reports above find them; a group's tooltip names the list.
-    const sceneOf = (id) => sceneById[id] || findScene?.(id) || null
-    const shotOf = (id) => shotById[id] || findShot?.(id) || null
+    // Post-overhaul S3c: as the two reports above — the active list's scenes
+    // and shots, a task linked outside it under "No scene" / "No shot" with
+    // what it points at in that row's tooltip (Audrey's rule of 2026-10-02),
+    // a group's tooltip naming its list.
+    const active = activeIdsOf(scenes, shots)
+    const outside = []
     const groups = {}
     for (const t of filteredTasks) {
       let key, label, title
@@ -1569,18 +1597,22 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
         case 'role':       key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
         case 'asset':      key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
         case 'scene': {
-          key = t.scene_id || '__none__'
-          const sc = key === '__none__' ? null : sceneOf(key)
-          label = key === '__none__' ? 'No scene' : (sc?.name || 'Unknown scene')
+          const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById: findScene, homeOf })
+          outside.push(...o)
+          key = sceneId || '__none__'
+          const sc = sceneId ? sceneById[sceneId] : null
+          label = sc ? (sc.name || 'Untitled scene') : 'No scene'
           if (sc && homeOf) title = homeOf(sc.id).title(label)
           break
         }
         case 'shot': {
-          key = t.shot_id || '__none__'
-          if (key === '__none__') { label = 'No shot' } else {
-            const sh = shotOf(key); const sc = sh?.scene_id ? sceneOf(sh.scene_id) : null
-            label = sc ? `${sc.name} › ${sh?.name || 'Unknown'}` : (sh?.name || 'Unknown shot')
-            if (sh && homeOf) title = homeOf(sh.id).title(label)
+          const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById: findShot, homeOf })
+          outside.push(...o)
+          key = shotId || '__none__'
+          if (!shotId) { label = 'No shot' } else {
+            const sh = shotById[shotId]; const sc = sh?.scene_id ? (sceneById[sh.scene_id] || findScene?.(sh.scene_id) || null) : null
+            label = sc ? `${sc.name} › ${sh.name || 'Untitled shot'}` : (sh.name || 'Untitled shot')
+            if (homeOf) title = homeOf(sh.id).title(label)
           }
           break
         }
@@ -1593,6 +1625,8 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
       if (!groups[key]) groups[key] = { key, label, title, tasks: [] }
       groups[key].tasks.push(t)
     }
+    // "No scene" / "No shot": what its tasks point at outside the active list.
+    if (groups.__none__ && (prefs.groupBy === 'scene' || prefs.groupBy === 'shot')) groups.__none__.title = notAssignedTitle(outside)
     return Object.values(groups)
       .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label, title: g.title }))
       .sort((a, b) => b.bid - a.bid)

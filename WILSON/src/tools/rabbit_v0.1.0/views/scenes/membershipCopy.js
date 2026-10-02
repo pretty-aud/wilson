@@ -22,6 +22,25 @@ const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
     otherwise land in the active list, out of sight. */
 export const ARCHIVED_ADD_REASON = 'This shot list is archived. Restore it, or open another list, to add scenes and shots.'
 
+/**
+ * What taking rows out of the ACTIVE list does to the other tabs (Remove
+ * from this list, Clear this list). Audrey's rule of 2026-10-02: removing a
+ * list never removes the Timeline or the Budget — nothing there is deleted;
+ * a task on those rows reads as not assigned until they are back in the
+ * active list (its link is kept).
+ *   one  a single row ("it") or several ("them")
+ */
+export function activeListLeaves(one) {
+  const it = one ? 'it' : 'them'
+  return `This is the active list, so the other tabs stop showing ${it}. Nothing on the Timeline or the Budget is deleted: a task on ${it} reads there as not assigned until ${one ? 'it is' : 'they are'} in the active list again.`
+}
+
+/** Set active: what the change of list does to the Timeline and the Budget (the same rule). */
+export const SET_ACTIVE_KEEPS = 'Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.'
+
+/** Archive, Withdraw: only a list that is not the active one can be set aside (S3a), so the Timeline and the Budget do not change. */
+export const NOT_ACTIVE_KEEPS = 'It is not the active list, so nothing on the Timeline or the Budget changes.'
+
 /** "A", "A and B", "A, B and C" — the app's lists have no serial comma. */
 export function joinNames(names) {
   if (names.length <= 1) return names.join('')
@@ -50,7 +69,9 @@ function subject({ kind, names, shotCount }) {
  *             scene's homes said nothing of its shots')
  *  listLabel  the list on screen
  *  active     the list on screen is the project's active list: every other
- *             tab stops showing the rows (R1-08)
+ *             tab stops showing the rows (R1-08), and the Timeline and the
+ *             Budget keep their tasks, read as not assigned (the rule of
+ *             2026-10-02)
  * → the sentences, in order
  */
 export function removeQuestion({ kind, rows, shotCount = 0, homelessShots = 0, listLabel, active = false }) {
@@ -78,7 +99,7 @@ export function removeQuestion({ kind, rows, shotCount = 0, homelessShots = 0, l
       : (all ? (shotCount === 1 ? 'Their shot is' : `Their ${shotCount} shots are`) : `${homelessShots} of their shots ${homelessShots === 1 ? 'is' : 'are'}`)
     out.push(`${who} in no other shot list, so Shot lists… will show ${homelessShots === 1 ? 'it' : 'them'} under “Not in any list”.`)
   }
-  if (active) out.push(`This is the active list, so the Timeline, Budget and every other tab will no longer show ${one ? 'it' : 'them'}.`)
+  if (active) out.push(activeListLeaves(one))
   return out
 }
 

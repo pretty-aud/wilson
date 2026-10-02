@@ -21,6 +21,15 @@ edit). Elsewhere: the Budget's new bid version says which shot list it was
 made from, the Timeline grouped by scene names the list it shows, and a
 task, an asset or a take linked to a shot says which list holds it.
 
+Your rule of 2026-10-02 is in too: removing a shot list never removes the
+Timeline or the Budget. Nothing ever deleted a task (the data never
+followed a list); on screen, a task whose scene or shot the active list
+does not hold now stays on the Timeline and in the Budget, read as not
+assigned ("No Scene", "No scene", "No shot"), and says what it points at.
+Its link is kept, so it is under its scene again once the scene is back in
+the active list. Clear, Set active, Archive, Withdraw and Remove from this
+list say so in their questions.
+
 S3a built the data underneath (one chain of edits per list, each a title
 and a version); S3b built the lists on screen; this is bundle S3c. Your
 rulings D6, D10 and D12 to D20 are the shape.
@@ -70,27 +79,33 @@ steps below.
 | 22 | Open **Budget** and scroll to **Budget versions** | Beside **Save current as bid version**, **BASED ON SHOT LIST**: *Shot list 1 · v1 (active)*, with every live list to choose from. The version you save remembers it: the versions table and the active budget's banner name it, and keep its name if the list is archived later. (18) |
 | 23 | Open **Timeline**, and **Group by scene** | The toolbar reads *Shot list: Shot list 1 · v1*: the list whose scenes it groups by. Nothing else in the Timeline changed. (19) |
 | 24 | Open **Scenes → Shots**, *The door*'s details, **Add new task**, and open the task | Under its **Shot**, the list that holds it: *Shot list 1 · v1*. A shot in more than one list or edit adds "+N", and hovering names each. The asset relations panel and the Bins inspector print it the same way; the Budget's By scene and By shot tables and the Timeline's rows say it on hover. (20) |
-| 25 | Open **Help (?) → Scenes & shot lists → Edits** | All of this in short. |
+| 25 | Close the task and the shot window. On **Scenes**, **New shot list** → *Second unit*, **Start from** the list on screen → **Create shot list**, then **Set active** | *Make this the active list?* now also says: *Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.* Click **Make active**. (22) |
+| 26 | *Lighthouse, dawn*'s shot-list **⋯** → **Remove from this list** | The question ends: *This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.* (Clear this list says the same.) Click **Remove from list**. (23) |
+| 27 | Open **Timeline**, **Group by scene**, and find *Grade the doorway* (step 24's task) | Still there: *Lighthouse, dawn* is no group now, and its task is under **No Scene**. Hover it: *Scene "Lighthouse, dawn": in Shot list 1 · v1, not in the active list*, the same for its shot, then the row's usual hint. (24) |
+| 28 | Open **Budget → By scene** | **No scene** counts it with the rest (43 tasks): no task and no day is lost. Hover **No scene**: *Tasks here are linked outside the active list:* and each scene they point at. By shot says the same under **No shot**. (25) |
+| 29 | Open *Grade the doorway* | Under **Scene** and **Shot** (still *Lighthouse, dawn* and *The door*: the link is kept): *Shot list 1 · v1, not in the active list*. Hovering it says the Timeline and the Budget show its tasks as not assigned until it is in the active list again. (26) |
+| 30 | Make *Shot list 1 · v1* active again (or add *Lighthouse, dawn* back to *Second unit*) | *Grade the doorway* is under *Lighthouse, dawn* again, on the Timeline and in the Budget: nothing was written to the task. |
+| 31 | Open **Help (?) → Scenes & shot lists** | All of this in short: the Edits section, and "Tasks stay" under the active list. |
 
 ### As a reviewer (the cloud, a project you are a reviewer on)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 26 | Drag a row, then save the edit | Both work: a reviewer makes and saves edits. A row's **New shot** greys (it adds a real shot to the list, which is for the members who add shots). |
-| 27 | Open a saved edit's **⋯** | **Archive this edit** is greyed (*managers only*). |
+| 32 | Drag a row, then save the edit | Both work: a reviewer makes and saves edits. A row's **New shot** greys (it adds a real shot to the list, which is for the members who add shots). |
+| 33 | Open a saved edit's **⋯** | **Archive this edit** is greyed (*managers only*). |
 
 ### On the Local Server
 
 | # | Do | You should see |
 |---|----|----------------|
-| 28 | Press **Ctrl+Z** after a change to an unsaved edit | It undoes that change in the edit (Ctrl+Y redoes it); the shot list's own undo waits until the edit is saved or discarded. On the cloud Ctrl+Z works the same way while an edit is unsaved, and only then (S3c-09). |
-| 29 | Press **Ctrl+Z** on the **Budget** or **Timeline** tab from another page | Nothing: their undo keys now act only while R.A.B.B.I.T. is on screen (S4a-07), like the Scenes tab's. |
+| 34 | Press **Ctrl+Z** after a change to an unsaved edit | It undoes that change in the edit (Ctrl+Y redoes it); the shot list's own undo waits until the edit is saved or discarded. On the cloud Ctrl+Z works the same way while an edit is unsaved, and only then (S3c-09). |
+| 35 | Press **Ctrl+Z** on the **Budget** or **Timeline** tab from another page | Nothing: their undo keys now act only while R.A.B.B.I.T. is on screen (S4a-07), like the Scenes tab's. |
 
 ## 2. How to check it
 
 Do each step at a large window and again at 1280 by 700. Steps 1 to 18 and
-21 to 25 work on the test data in the development copy. Step 19 needs a
-second project; step 20 needs the desktop app. Steps 26 and 27 need a cloud
+21 to 31 work on the test data in the development copy. Step 19 needs a
+second project; step 20 needs the desktop app. Steps 32 and 33 need a cloud
 project where you are a reviewer. On the Local Server there are no roles,
 so every verb is open.
 
@@ -99,10 +114,12 @@ so every verb is open.
 ## 3. The numbers, measured
 
 - **Tests:** 237 test files / 5,795 tests at the start; 250 files / 6,035
-  tests at the end of the bundle's eight steps, all passing. 213
-  deliberately broken versions of the code were planted, step by step:
-  212 were caught, and the one left is a guard that only matters for a
-  single frame, which no test can see (the hand-off lists them by step).
+  tests at the end of the bundle's eight steps, and 251 / 6,052 with your
+  rule of 2026-10-02 built, all passing. 238 deliberately broken versions
+  of the code were planted, step by step (25 of them against the rule,
+  among them one that brings back the old drop): 237 were caught, and the
+  one left is a guard that only matters for a single frame, which no test
+  can see (the hand-off lists them by step).
 - **The desktop app** (Electron 33.4.11, the development build, a scratch
   data folder, the window off-screen, against a real Local Server): an
   unsaved edit folded into *Close WILSON* at 1440x900 and 1280x700 with
@@ -167,19 +184,33 @@ so every verb is open.
 12. **Ctrl+Z on the cloud** works in the Scenes tab only while an edit is
     unsaved (S3c-09, with S3b-03's question 5 in walkthrough 51). Want it
     on the cloud always?
+13. **Your rule of 2026-10-02, read one level at a time.** A task whose
+    scene IS in the active list but whose shot is not reads under its
+    scene (as a task of the scene), not under "No Scene"; By scene counts
+    it under its scene and By shot under "No shot". Keep, or should any
+    link outside the active list send the whole task to "No Scene"?
+14. **Archive and Withdraw** are only ever offered on a list that is not
+    the active one, so their questions now say the Timeline and the
+    Budget do not change. (Walkthrough 51's question 8 is answered: Clear
+    stays on the active list, behind its question, which now says what it
+    does to the Timeline and the Budget.)
 
 ---
 
 ## What was checked, and what was not
 
 Checked in the development copy with its test data at 1440x900 and
-1280x700 (every step above except 19, 20 and 26 to 29), with native drags
-in a real browser, and in the desktop app (the development build, not the
-packaged one) against a real Local Server for the window's close
+1280x700 (every step above except 19, 20, 30 and 32 to 35), with native
+drags in a real browser, and in the desktop app (the development build,
+not the packaged one) against a real Local Server for the window's close
 question. The project switch, a reviewer's view, the Local Server's
 Ctrl+Z and the Budget's and Timeline's page gate on their undo keys were
 checked by automated tests, not by hand. Saving a bid version with its
-shot list was checked by tests on all three backends.
+shot list was checked by tests on all three backends. Your rule of
+2026-10-02 was checked through the real provider in a test (four tasks;
+clear the active list, make another active, archive the old one, delete
+a scene, bring a scene back: every task drawn and every total the same
+after each), and step 30 by that test, not by hand.
 
 **Not checked:** a real reviewer seat on the cloud; the packaged desktop
 app; staging or production (neither has 0084 or 0086); a Mac; the

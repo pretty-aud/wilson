@@ -2316,6 +2316,17 @@ and did not fix. S3b-01, S3b-05, S3b-08, S3b-09's relation pickers and
 S4a-07's Budget and Timeline handlers are closed above. Questions for
 Audrey are in walkthrough 53 and the hand-off's "Waiting on Audrey".
 
+**Built, 2026-10-02 — Audrey's rule "removing a list never removes the
+Timeline or the Budget"** (the S3c brief's dated section): the Timeline's
+group-by-scene and the Budget's By scene / By shot / Custom read the
+ACTIVE list's scenes and shots only (D10), and a task linked outside it
+reads as not assigned ("No Scene", "No scene", "No shot") — never dropped,
+never under a scene brought back from another list (step 1's first
+reading) — with what it points at in its tooltip and in the task popup
+(", not in the active list"). Its link is never written. Remove from this
+list and Clear on the active list, Set active, Archive and Withdraw say
+so. The executable test: `state/listRemovalKeepsTasks.test.jsx`.
+
 - **S3c-01 · Another project's unsaved edit is not part of the window's
   close question.** An automatic switch (the project cleared) leaves a
   draft in memory under its own project; the close question names the open

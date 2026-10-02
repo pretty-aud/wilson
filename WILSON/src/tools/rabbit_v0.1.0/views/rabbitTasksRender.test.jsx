@@ -238,7 +238,27 @@ describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', ()
     expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
     const home = document.querySelector('.rb-task-links .rb-scene-home')
     expect(home.textContent).toContain('Pickups · v1')
-    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1')
+    // Audrey's rule of 2026-10-02: the field says what the link points at and
+    // that the active list does not hold it — the Timeline and the Budget
+    // show this task as not assigned until it does.
+    expect(home.getAttribute('data-outside')).toBe('true')
+    expect(home.querySelector('.rb-scene-home-outside').textContent).toBe(', not in the active list')
+    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1\nNot in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.')
+    expect(home.querySelector('.sr-only').textContent).toBe('In: Pickups · v1. Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.')
+  })
+  it('a link the active list holds says nothing of it', () => {
+    popupOn({ id: 't7', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'A', shot_id: 'a1' })
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.textContent).toContain('Shoot · v2')
+    expect(home.getAttribute('data-outside')).toBeNull()
+    expect(home.querySelector('.rb-scene-home-outside')).toBeNull()
+    expect(home.getAttribute('title')).toBe('SC001_SH010\nIn: Shoot · v2 (active)')
+  })
+  it('a scene in the active list with a shot outside it: the words are about the shot', () => {
+    popupOn({ id: 't6', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'A', shot_id: 'b1' })
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.getAttribute('title')).toMatch(/^SC002_SH010\n/)
+    expect(home.getAttribute('data-outside')).toBe('true')
   })
   it('"All lists" widens both pickers to every row of the project, and back', () => {
     popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })

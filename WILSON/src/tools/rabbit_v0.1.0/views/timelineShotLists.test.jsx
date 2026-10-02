@@ -1,13 +1,18 @@
 /** @vitest-environment jsdom */
 // =============================================================================
 // Post-overhaul S3c, step 1 — the Timeline's three changes, and nothing else:
-//   1. group by scene resolves a task's link to a scene or shot that only
-//      ANOTHER shot list holds (D10 made `ctx.scenes` / `ctx.shots` the active
-//      list's, and such a task fell out of the Timeline), and each scene and
-//      shot row's tooltip names its list;
+//   1. group by scene draws EVERY task (D10 made `ctx.scenes` / `ctx.shots`
+//      the active list's, and a task linked outside them fell out of the
+//      Timeline). Audrey's rule of 2026-10-02 narrowed step 1: such a task
+//      reads as not assigned ("No Scene", or under its own scene when only
+//      its shot is outside), never under a scene brought back from another
+//      list, and its tooltip says what it points at; each scene and shot
+//      row's tooltip names its list;
 //   2. the read-only "Shot list: Title · vN" beside the group selector (D18);
 //   3. the undo keys act only while R.A.B.B.I.T. is the page on screen
 //      (S4a-07), and stand down under the settings drawer.
+// The rule's end-to-end form (real list operations, the Budget too) is
+// state/listRemovalKeepsTasks.test.jsx.
 // =============================================================================
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen } from '@testing-library/react'
@@ -51,7 +56,12 @@ const tasks = [
   { id: 't5', title: 'Loose one', shot_id: 'l1' },
 ]
 const schedule = { tasks: {}, phases: {} }
-const homeOf = (id) => ({ title: (name) => `${name}\nIn: ${['B', 'b1'].includes(id) ? 'Pickups · v1' : 'Shoot · v2 (active)'}` })
+const pickups = { id: 'L2', title: 'Pickups', version: 1 }
+const shoot = { id: 'L1', title: 'Shoot', version: 2 }
+const homeOf = (id) => {
+  const lists = ['B', 'b1'].includes(id) ? [pickups] : [shoot]
+  return { lists, title: (name) => `${name}\nIn: ${['B', 'b1'].includes(id) ? 'Pickups · v1' : 'Shoot · v2 (active)'}` }
+}
 const build = (over = {}) => buildRowsByGrouping({
   groupBy: 'scene', phases: [], assets: [], tasks, schedule,
   scenes: [sceneA], shots: [a1, loose],
@@ -59,41 +69,63 @@ const build = (over = {}) => buildRowsByGrouping({
   ...over,
 })
 const taskKeys = (rows) => rows.filter(r => r.kind === 'task').map(r => r.task.id).sort()
+const under = (rows, key) => {
+  const at = rows.findIndex(r => r.key === key)
+  const out = []
+  for (let i = at + 1; i < rows.length && !(rows[i].kind === 'phase' && rows[i].depth <= rows[at].depth); i += 1) {
+    if (rows[i].kind === 'task') out.push(rows[i].task.id)
+  }
+  return out.sort()
+}
 
-describe('group by scene finds a row only another shot list holds (S3c step 1)', () => {
-  it('every task is on the Timeline: another list\'s scene and shot join the groups; an unresolvable link and a shot with no scene go under "No Scene"', () => {
+describe('group by scene draws every task; one linked outside the active list reads as not assigned (S3c step 1, Audrey\'s rule of 2026-10-02)', () => {
+  it('every task is on the Timeline, and the groups are the active list\'s alone: another list\'s scene and shot never join them', () => {
     const rows = build()
     expect(taskKeys(rows)).toEqual(['t1', 't2', 't3', 't4', 't5'])
     const groups = rows.filter(r => r.kind === 'phase').map(r => r.label)
-    expect(groups).toEqual(['Harbour', 'SC001_SH010', 'Lighthouse', 'SC002_SH010', 'No Scene'])
-    const noScene = rows.findIndex(r => r.key === 'grp-noscene')
-    expect(rows.slice(noScene).filter(r => r.kind === 'task').map(r => r.task.id).sort()).toEqual(['t4', 't5'])
+    expect(groups).toEqual(['Harbour', 'SC001_SH010', 'No Scene'])
+    expect(under(rows, 'grp-sh-a1')).toEqual(['t1'])
+    // Pickups' scene and shot (t2, t3), a shot that is gone (t4) and a shot
+    // with no scene (t5): not assigned, never dropped.
+    expect(under(rows, 'grp-noscene')).toEqual(['t2', 't3', 't4', 't5'])
   })
-  it('each scene and shot row carries its name and its list as a tooltip; tasks and drop zones carry none', () => {
+  it('the link is kept: the task row still holds the task as stored, and says what it points at — its scene and shot, the lists that hold them', () => {
     const rows = build()
-    expect(rows.find(r => r.key === 'grp-sc-B').tooltip).toBe('Lighthouse\nIn: Pickups · v1')
+    const t2 = rows.find(r => r.key === 'tk-t2')
+    expect(t2.task).toBe(tasks[1])
+    expect(t2.task.scene_id).toBe('B')
+    expect(t2.task.shot_id).toBe('b1')
+    expect(t2.tooltip).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list\nShot “SC002_SH010”: in Pickups · v1, not in the active list')
+    expect(rows.find(r => r.key === 'tk-t3').tooltip).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list')
+    expect(rows.find(r => r.key === 'tk-t4').tooltip).toBe('Shot: no longer in the project')
+    // In the active list, nothing to say: no tooltip of its own.
+    expect(rows.find(r => r.key === 'tk-t1').tooltip).toBeUndefined()
+    expect(rows.find(r => r.key === 'tk-t5').tooltip).toBeUndefined()
+  })
+  it('each scene and shot row carries its name and its list as a tooltip; "No Scene" and the drop zones carry none', () => {
+    const rows = build()
+    expect(rows.find(r => r.key === 'grp-sc-A').tooltip).toBe('Harbour\nIn: Shoot · v2 (active)')
     expect(rows.find(r => r.key === 'grp-sh-a1').tooltip).toBe('SC001_SH010\nIn: Shoot · v2 (active)')
-    for (const r of rows.filter(x => x.kind !== 'phase' || x.key === 'grp-noscene')) expect(r.tooltip, r.key).toBeUndefined()
+    for (const r of rows.filter(x => x.kind === 'drop-zone' || x.key === 'grp-noscene')) expect(r.tooltip, r.key).toBeUndefined()
   })
-  it('a task linked to another list\'s SCENE alone (no shot) finds that scene too', () => {
-    const sceneC = { id: 'C', name: 'Quay', scene_number: 3 }
-    const rows = build({
-      tasks: [{ id: 't6', title: 'Plan C', scene_id: 'C' }],
-      sceneById: (id) => ({ ...every, C: sceneC }[id] || null),
-    })
-    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010', 'Quay'])
-    const at = rows.findIndex(r => r.key === 'grp-sc-C')
-    expect(rows[at + 1]?.task?.id).toBe('t6')
+  it('a task whose scene is in the active list but whose shot is not reads under its scene, saying where its shot is', () => {
+    const rows = build({ tasks: [{ id: 't7', title: 'Comp b1 in A', scene_id: 'A', shot_id: 'b1' }] })
+    expect(under(rows, 'grp-sc-A')).toEqual(['t7'])
+    expect(under(rows, 'grp-sh-a1')).toEqual([])
+    expect(rows.find(r => r.key === 'tk-t7').tooltip).toBe('Shot “SC002_SH010”: in Pickups · v1, not in the active list')
   })
-  it('another list\'s rows WITHOUT tasks stay off (D10: the Timeline reads the active list)', () => {
-    const rows = build({ tasks: tasks.filter(t => t.id === 't1') })
-    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010'])
+  it('the scene back in the active list: the same task is under it again (nothing was written)', () => {
+    const rows = build({ scenes: [sceneA, sceneB], shots: [a1, b1, loose] })
+    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010', 'Lighthouse', 'SC002_SH010', 'No Scene'])
+    expect(under(rows, 'grp-sh-b1')).toEqual(['t2'])
+    expect(rows.find(r => r.key === 'tk-t2').tooltip).toBeUndefined()
   })
-  it('CONTROL: without the lookups another list\'s scene and shot are never grouped — their tasks fall back to "No Scene", the lookups are what place them', () => {
-    const rows = build({ sceneById: null, shotById: null, homeOf: null })
-    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010', 'No Scene'])
-    const noScene = rows.findIndex(r => r.key === 'grp-noscene')
-    expect(rows.slice(noScene).filter(r => r.kind === 'task').map(r => r.task.id).sort()).toEqual(['t2', 't3', 't4', 't5'])
+  it('a row in no list says so; without the lookups a link reads as gone — still not assigned, still drawn', () => {
+    const inNone = build({ homeOf: (id) => ({ lists: [], title: (n) => n }) })
+    expect(inNone.find(r => r.key === 'tk-t3').tooltip).toBe('Scene “Lighthouse”: in no shot list')
+    const bare = build({ sceneById: null, shotById: null, homeOf: null })
+    expect(taskKeys(bare)).toEqual(['t1', 't2', 't3', 't4', 't5'])
+    expect(bare.find(r => r.key === 'tk-t3').tooltip).toBe('Scene: no longer in the project')
   })
 })
 
@@ -131,6 +163,25 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
     const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Harbour')?.parentElement
     expect(row?.getAttribute('title')).toBe('Harbour\nIn: Shoot · v2 (active)')
+  })
+  it('grouped by scene, a task linked outside the active list sits under "No Scene", and its row says first what it points at (the rule of 2026-10-02)', () => {
+    rabbit.current = ctxFor({
+      tasks: [{ id: 't3', title: 'Light B', scene_id: 'B', status: 'not_started' }],
+      shotLists: [{ id: 'L1', title: 'Shoot', version: 2 }, { id: 'L2', title: 'Pickups', version: 1 }],
+      shotListItems: [
+        { id: 'i1', shot_list_id: 'L1', scene_id: 'A' }, { id: 'i2', shot_list_id: 'L1', shot_id: 'a1' },
+        { id: 'i3', shot_list_id: 'L2', scene_id: 'B' }, { id: 'i4', shot_list_id: 'L2', shot_id: 'b1' },
+      ],
+      project: { id: 'p1', scenes_enabled: true, active_shot_list_id: 'L1' },
+      allShots: [a1, b1],
+    })
+    mount(true)
+    fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
+    const labels = [...document.querySelectorAll('.rb-tl-row-label')].map(n => n.textContent)
+    expect(labels).toContain('No Scene')
+    expect(labels).not.toContain('Lighthouse')
+    const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Light B')?.parentElement
+    expect(row?.getAttribute('title')).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list\nClick to edit · drag to move to another phase')
   })
   it('no active list: no label', () => {
     rabbit.current = ctxFor({ activeShotList: null })

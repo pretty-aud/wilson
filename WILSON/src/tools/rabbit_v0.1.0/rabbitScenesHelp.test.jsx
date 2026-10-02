@@ -85,6 +85,19 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
     expect(text).toContain('Holds only what is on screen: opening another list, a search or a filter unticks the rows it hides, and closing a scene unticks its shots. A scene\'s own bar acts on its own ticked shots.')
   })
 
+  // Audrey's rule of 2026-10-02: removing a list never removes the Timeline
+  // or the Budget — said where the page explains the active list.
+  it('says that tasks stay: nothing on the Timeline or the Budget is deleted, a task outside the active list reads as not assigned, its link kept', () => {
+    const text = page()
+    expect(text).toContain('Clearing a list, making another one active, or taking a scene or shot out of the active list never deletes a task, a phase or anything on the Budget.')
+    expect(text).toContain('A task on a scene or shot the active list does not hold reads as not assigned on the Timeline and the Budget ("No Scene", "No scene", "No shot")')
+    expect(text).toContain('The task keeps its link: when the scene is in the active list again, so is the task.')
+    // The groups' own names, as the two views draw them.
+    expect(read('./views/TimelineView.jsx')).toMatch(/label: 'No Scene'/)
+    expect(read('./views/BudgetView.jsx')).toMatch(/: 'No scene'/)
+    expect(read('./views/BudgetView.jsx')).toMatch(/: 'No shot'/)
+  })
+
   it('draws on both surfaces (the Help page is light, the tool\'s dialog dark)', () => {
     expect(page('light')).toBe(page('dark'))
     expect(page('light').length).toBeGreaterThan(1500)
