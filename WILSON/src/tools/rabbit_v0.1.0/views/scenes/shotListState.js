@@ -49,8 +49,22 @@ export function listSaveState({ list, scenes, shots, items }) {
  *   null        neither: no Restore is offered
  */
 export function restoreRouteFor({ list, canActivate, canWrite, makerUserId }) {
-  if (!list?.archived_at) return null
+  return restoreRoute({ row: list, kind: 'shot_list', canActivate, canWrite, makerUserId })
+}
+
+/**
+ * The same for an archived EDIT (post-overhaul S3c, step 3): a manager or an
+ * admin restores with archiveEdit(id, false) ('archive'); the maker of an
+ * edit they withdrew, while it is not Saved, with restoreWithdrawn
+ * ('withdrawn'); anyone else, null.
+ */
+export function restoreEditRouteFor({ edit, canActivate, canWrite, makerUserId }) {
+  return restoreRoute({ row: edit, kind: 'edit', canActivate, canWrite, makerUserId })
+}
+
+function restoreRoute({ row, kind, canActivate, canWrite, makerUserId }) {
+  if (!row?.archived_at) return null
   if (canActivate) return 'archive'
-  if (canWrite && withdrawnRestoreRefusal({ row: list, kind: 'shot_list', userId: makerUserId }) === null) return 'withdrawn'
+  if (canWrite && withdrawnRestoreRefusal({ row, kind, userId: makerUserId }) === null) return 'withdrawn'
   return null
 }

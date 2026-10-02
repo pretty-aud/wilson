@@ -51,6 +51,10 @@ import MenuButton from './scenes/MenuButton'
 import ListConfirm from './scenes/ListConfirm'
 import { deleteQuestion, ARCHIVED_ADD_REASON } from './scenes/membershipCopy'
 import { sortShotLists } from '../state/shotListModel'
+// Post-overhaul S3c: an edit on screen — its cut, its bands, its tiles.
+import { useEditSession } from './scenes/useEditSession'
+import EditTable from './scenes/EditTable'
+import { framesToTimecode } from './scenes/timecode'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -231,19 +235,16 @@ const FILTER_OPS = {
 
 const SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 
+// Post-overhaul S3c, step 3: while an edit is on screen its cut order IS the
+// view — the toolbar's sort, group, filter and view controls stand aside
+// (greyed, saying why), and New scene / New shot give way to the cut's own
+// verbs. Search still finds a shot in the cut.
+const EDIT_ORDER_REASON = 'An edit shows its cut order. Choose List order on the shot-list bar to sort, group, filter or change the view.'
+const EDIT_ADD_REASON = "An edit is on screen. Add shots to it from a row's or a scene's edit actions, or choose List order to add to the list."
+
 // ── Timecode helpers ──
-function framesToTimecode(totalFrames, fps) {
-  if (!totalFrames || !fps || fps <= 0) return '00:00:00:00'
-  const fpsCeil = Math.ceil(fps)
-  const f = Math.round(totalFrames)
-  const secs = Math.floor(f / fpsCeil)
-  const rem = f % fpsCeil
-  const hh = Math.floor(secs / 3600)
-  const mm = Math.floor((secs % 3600) / 60)
-  const ss = secs % 60
-  const fDigits = fpsCeil >= 100 ? 3 : 2
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}:${String(rem).padStart(fDigits, '0')}`
-}
+// framesToTimecode lives in ./scenes/timecode.js since post-overhaul S3c (the
+// edit table needs the same digits); imported above.
 
 function fmtNumber(n) {
   if (n == null || isNaN(n)) return '0'
@@ -311,6 +312,12 @@ export default function ScenesView({ pageActive = false } = {}) {
   // A list on screen (live, or archived and opened on purpose): its order is
   // its own, and its rows can move.
   const viewingList = viewed.mode === 'list' || viewed.mode === 'archived'
+  // Post-overhaul S3c, step 3: an EDIT of that list on screen (a saved one,
+  // or the provider's draft): the body shows its cut and the tiles total it
+  // (D20); the toolbar's sort, group, filter and view stand aside — an edit
+  // is its cut order.
+  const editSession = useEditSession({ ctx, viewed })
+  const editOnScreen = editSession.onScreen
   // Post-overhaul S3b, step 1: `scenes` / `shots` are one LIST's rows (S3a,
   // D10), so a fact about the whole PROJECT — the next scene or shot number,
   // every shot the Delete question counts for a scene — reads every row. A
@@ -618,8 +625,13 @@ export default function ScenesView({ pageActive = false } = {}) {
   // row in the ACTIVE list: on every other tab, and nowhere on this screen.
   const newRowOpts = useMemo(() => (viewed.mode === 'list' ? { listId: viewed.id }
     : viewed.mode === 'unlisted' ? { listId: null } : undefined), [viewed.mode, viewed.id])
-  const canAddRows = canWriteProject && viewed.mode !== 'archived'
-  const addReason = canWriteProject && viewed.mode === 'archived' ? ARCHIVED_ADD_REASON : undefined
+  // Post-overhaul S3c, step 3: nor while an EDIT is on screen — a new row
+  // would land in the list, out of sight of the cut; the cut has its own
+  // verbs for that (a row's or a scene's edit actions).
+  const canAddRows = canWriteProject && viewed.mode !== 'archived' && !editOnScreen
+  const addReason = !canWriteProject ? undefined
+    : editOnScreen ? EDIT_ADD_REASON
+    : viewed.mode === 'archived' ? ARCHIVED_ADD_REASON : undefined
   // S3b step 7: every funnel checks the entity gate too (the Tasks tab's
   // Session 29 rule) — a greyed control is not the only way in (a key, a
   // stale closure, a later caller).
@@ -1011,6 +1023,12 @@ export default function ScenesView({ pageActive = false } = {}) {
   }, [sortedShots, sceneMap, shotGroupBy, listOrder, scenes])
 
   const totalFilteredShots = useMemo(() => shotGroups.reduce((n, g) => n + g.shots.length, 0), [shotGroups])
+  // S3c step 3: how many of the cut's rows the search finds.
+  const cutMatchCount = useMemo(() => {
+    if (!editSession.rows) return 0
+    const q = search.trim().toLowerCase()
+    return q ? editSession.rows.filter(r => r.name.toLowerCase().includes(q)).length : editSession.rows.length
+  }, [editSession.rows, search])
 
   // ── Close shot-picker on outside click ──
   useEffect(() => {
@@ -1060,10 +1078,24 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
           the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
       <div className="rb-scene-stats">
-        <BigTile label="Total runtime" value={grandTotals.runtime} />
-        <BigTile label="Total frames" value={fmtNumber(grandTotals.frames)} />
-        <BigTile label="Scenes" value={grandTotals.scenes} />
-        <BigTile label="Shots" value={grandTotals.shots} />
+        {/* Post-overhaul S3c (D20): with an edit on screen the tiles total
+            its items in order — a repeated shot counts each time, a missing
+            shot not at all — and the runtime says it is the edit's. */}
+        {editSession.totals ? (
+          <>
+            <BigTile label="Edit runtime" value={framesToTimecode(editSession.totals.frames, fps)} />
+            <BigTile label="Total frames" value={fmtNumber(editSession.totals.frames)} />
+            <BigTile label="Scenes" value={editSession.totals.scenes} />
+            <BigTile label="Shots" value={editSession.totals.shots} />
+          </>
+        ) : (
+          <>
+            <BigTile label="Total runtime" value={grandTotals.runtime} />
+            <BigTile label="Total frames" value={fmtNumber(grandTotals.frames)} />
+            <BigTile label="Scenes" value={grandTotals.scenes} />
+            <BigTile label="Shots" value={grandTotals.shots} />
+          </>
+        )}
       </div>
 
       {/* ── The shot-list bar (post-overhaul S3b, D7): a new row between the
@@ -1151,22 +1183,28 @@ export default function ScenesView({ pageActive = false } = {}) {
         <Tabs
           label="Content"
           panelId={CONTENT_PANEL_ID}
-          items={[{ id: 'scenes', label: 'Scenes' }, { id: 'shots', label: 'Shots' }]}
+          items={[
+            { id: 'scenes', label: 'Scenes', disabled: editOnScreen, title: editOnScreen ? EDIT_ORDER_REASON : undefined },
+            { id: 'shots', label: 'Shots', disabled: editOnScreen, title: editOnScreen ? EDIT_ORDER_REASON : undefined },
+          ]}
           value={contentMode}
           onChange={setContentMode}
         />
 
-        {/* Filter: the signal edge while filters apply (it was orange words) */}
-        <Button
-          size="sm"
-          Icon={Filter}
-          className="rb-scene-tool"
-          data-active={filters.length > 0 ? 'true' : 'false'}
-          aria-expanded={showFilterPanel}
-          onClick={() => setShowFilterPanel(!showFilterPanel)}
-        >
-          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-        </Button>
+        {/* Filter: the signal edge while filters apply (it was orange words).
+            S3c: greyed with the reason while an edit is on screen. */}
+        <GatedAction allowed={!editOnScreen} reason={EDIT_ORDER_REASON}>
+          <Button
+            size="sm"
+            Icon={Filter}
+            className="rb-scene-tool"
+            data-active={filters.length > 0 ? 'true' : 'false'}
+            aria-expanded={showFilterPanel}
+            onClick={() => { if (!editOnScreen) setShowFilterPanel(!showFilterPanel) }}
+          >
+            Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+          </Button>
+        </GatedAction>
 
         <span className="rb-scene-divider" aria-hidden="true" />
 
@@ -1176,18 +1214,22 @@ export default function ScenesView({ pageActive = false } = {}) {
             aria-label="Sort"
             className="ui-input rb-scene-tool"
             data-size="sm"
+            disabled={editOnScreen}
+            title={editOnScreen ? EDIT_ORDER_REASON : undefined}
             data-active={sortField ? 'true' : 'false'}>
             {/* S3b step 2: with a list on screen the empty choice is the
                 list's own order, the default; with none it is "Sort…" as before. */}
             <option value="">{viewingList ? 'List order' : 'Sort…'}</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-          <IconButton
-            size="sm"
-            Icon={ArrowUpDown}
-            title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
-            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-          />
+          <GatedAction allowed={!editOnScreen} reason={EDIT_ORDER_REASON}>
+            <IconButton
+              size="sm"
+              Icon={ArrowUpDown}
+              title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
+              onClick={() => { if (!editOnScreen) setSortDir(d => d === 'asc' ? 'desc' : 'asc') }}
+            />
+          </GatedAction>
         </span>
 
         <span className="rb-scene-divider" aria-hidden="true" />
@@ -1198,6 +1240,8 @@ export default function ScenesView({ pageActive = false } = {}) {
             aria-label="Group"
             className="ui-input rb-scene-tool"
             data-size="sm"
+            disabled={editOnScreen}
+            title={editOnScreen ? EDIT_ORDER_REASON : undefined}
             data-active={groupBy ? 'true' : 'false'}>
             {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -1206,6 +1250,8 @@ export default function ScenesView({ pageActive = false } = {}) {
             aria-label="Group"
             className="ui-input rb-scene-tool"
             data-size="sm"
+            disabled={editOnScreen}
+            title={editOnScreen ? EDIT_ORDER_REASON : undefined}
             data-active={shotGroupBy ? 'true' : 'false'}>
             {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -1218,8 +1264,8 @@ export default function ScenesView({ pageActive = false } = {}) {
           label="View"
           panelId={VIEW_PANEL_ID}
           items={[
-            { id: 'table', label: <><TableIcon className="rb-scene-tab-icon" aria-hidden="true" />Table</> },
-            { id: 'gallery', label: <><LayoutGrid className="rb-scene-tab-icon" aria-hidden="true" />Gallery</> },
+            { id: 'table', label: <><TableIcon className="rb-scene-tab-icon" aria-hidden="true" />Table</>, disabled: editOnScreen, title: editOnScreen ? EDIT_ORDER_REASON : undefined },
+            { id: 'gallery', label: <><LayoutGrid className="rb-scene-tab-icon" aria-hidden="true" />Gallery</>, disabled: editOnScreen, title: editOnScreen ? EDIT_ORDER_REASON : undefined },
           ]}
           value={viewMode}
           onChange={setViewMode}
@@ -1258,11 +1304,14 @@ export default function ScenesView({ pageActive = false } = {}) {
           )}
         </span>
 
-        {/* Count: a figure in the third ink (it was #57534e, 2.3:1) */}
+        {/* Count: a figure in the third ink (it was #57534e, 2.3:1). With an
+            edit on screen, the cut's rows the search finds of all of them. */}
         <span className="rb-scene-count">
-          {contentMode === 'scenes'
-            ? `${filtered.length}/${scenes.length}`
-            : `${totalFilteredShots}/${shots.length}`}
+          {editOnScreen
+            ? `${cutMatchCount}/${editSession.rows.length}`
+            : contentMode === 'scenes'
+              ? `${filtered.length}/${scenes.length}`
+              : `${totalFilteredShots}/${shots.length}`}
         </span>
       </Toolbar>
 
@@ -1316,7 +1365,21 @@ export default function ScenesView({ pageActive = false } = {}) {
           the view tabs switch (each tab bar points at its own panel) ── */}
       <div className="rb-scene-body" id={CONTENT_PANEL_ID} role="tabpanel" aria-label={contentMode === 'shots' ? 'Shots' : 'Scenes'}>
        <div className="rb-scene-view" id={VIEW_PANEL_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
-        {contentMode === 'shots' ? (
+        {/* Post-overhaul S3c, step 3: an edit on screen is its cut — the
+            shots-by-scene table's form, the bands following the cut. */}
+        {editOnScreen ? (
+          <EditTable
+            rows={editSession.rows}
+            bands={editSession.bands}
+            fps={fps}
+            ctx={ctx}
+            canWrite={canWriteProject}
+            statusOptions={STATUS_OPTIONS}
+            search={search}
+            onOpenShot={setDetailShotId}
+            empty={{ body: 'Every shot was taken out of this cut.' }}
+          />
+        ) : contentMode === 'shots' ? (
           viewMode === 'table' ? (
             <ShotTable
               shotGroups={shotGroups}

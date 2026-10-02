@@ -26,14 +26,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus } from 'lucide-react'
-import { Banner, IconButton } from '../../../../ui'
+import { Banner, IconButton, StatusBadge } from '../../../../ui'
 import { sortShotLists } from '../../state/shotListModel'
+import { showDate } from '../../dates'
 import ShotListBar from './ShotListBar'
 import ShotListPicker from './ShotListPicker'
 import ShotListForm from './ShotListForm'
 import AddFromListDialog from './AddFromListDialog'
 import ListConfirm from './ListConfirm'
-import { listSaveState, restoreRouteFor } from './shotListState'
+import { listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
 import { removeQuestion } from './membershipCopy'
 import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
 import '../rabbitScenes.css'
@@ -82,6 +83,10 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   const makerUserId = ctx?.adapterMode === 'supabase' ? (userId || null) : undefined
   const restoreRoute = (row) => restoreRouteFor({ list: row, canActivate: gate.activate, canWrite: gate.write, makerUserId })
   const recent = ctx?.recentlyWithdrawn?.kind === 'shot_list' ? ctx.recentlyWithdrawn : null
+  // Post-overhaul S3c, step 3: a withdrawn EDIT is "Recently removed" too
+  // (S3a left it for this bundle): Open shows it on its list, read-only;
+  // Restore puts it back.
+  const recentEdit = ctx?.recentlyWithdrawn?.kind === 'edit' ? ctx.recentlyWithdrawn : null
 
   // ctx.error, when it changes while the tab is open: not the one it held
   // before (another tab's), and not one a dialog or this bar has already
@@ -122,12 +127,24 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     if (restoreRoute(row) === 'archive') await ctx.archiveShotList(row.id, false)
     else await ctx.restoreWithdrawn({ kind: 'shot_list', id: row.id })
   }
-  const openRecent = () => { if (recent) { closePicker(); showList(recent.id, { archived: true }) } }
+  // An edit is shown on its list: the list as it is (archived lists opened
+  // on purpose, read-only), with the edit on screen.
+  const showEdit = (editRow) => {
+    const home = lists.find(l => l.id === editRow?.shot_list_id)
+    if (!home) return
+    showList(home.id, home.archived_at ? { archived: true } : undefined)
+    viewed.viewEdit?.(editRow.id, home.id)
+  }
+  const openRecent = () => {
+    if (recent) { closePicker(); showList(recent.id, { archived: true }) }
+    else if (recentEdit) { closePicker(); showEdit(recentEdit.row) }
+  }
   const restoreRecent = (report) => report(async () => {
-    const id = recent?.id
+    const mark = recent || recentEdit
     await ctx.restoreWithdrawn()
     closePicker()
-    if (id) showList(id)
+    if (mark?.kind === 'edit') showEdit(mark.row)
+    else if (mark?.id) showList(mark.id)
   })
 
   // A live list's verbs by seat (D8), for the bar's More menu (the list on
@@ -174,7 +191,57 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     return out
   }
 
-  const moreItems = viewed.mode === 'list' && list ? listVerbs(list, { onScreen: true })
+  // ── Edits (post-overhaul S3c, step 3) ──
+  // The edit on screen (useViewedShotList's `edit`): the bar's selector
+  // lists the list's live edits — and the archived one on screen, opened on
+  // purpose — then the draft (step 4); "List order" is no edit. While an
+  // edit is on screen the bar's More menu holds the EDIT's verbs, by seat
+  // (D8; S3a's withdraw rule): Withdraw for the maker of an untouched edit,
+  // Archive for a manager or an admin, Restore on an archived one for
+  // whoever may.
+  const editOnScreen = viewed.edit || { mode: 'none' }
+  const editRow = editOnScreen.mode === 'edit' ? editOnScreen.row : null
+  const listEdits = list ? (ctx?.editsOf?.(list.id) || []) : []
+  const restoreEditRoute = (row) => restoreEditRouteFor({ edit: row, canActivate: gate.activate, canWrite: gate.write, makerUserId })
+  const restoreEdit = async (row) => {
+    if (restoreEditRoute(row) === 'archive') await ctx.archiveEdit(row.id, false)
+    else await ctx.restoreWithdrawn({ kind: 'edit', id: row.id })
+  }
+  const editVerbs = (row) => {
+    if (!row) return []
+    if (row.archived_at) {
+      return restoreEditRoute(row)
+        ? [{ label: 'Restore this edit', Icon: ArchiveRestore, onClick: () => run(async () => { await restoreEdit(row) }) }]
+        : []
+    }
+    const out = []
+    if (gate.write && ctx?.canWithdrawEdit?.(row.id)) {
+      out.push({ label: 'Withdraw this edit', Icon: Undo2, onClick: () => setDialog({ kind: 'withdrawEdit', row }) })
+    }
+    out.push(gate.activate
+      ? { label: 'Archive this edit', Icon: Archive, onClick: () => setDialog({ kind: 'archiveEdit', row }) }
+      : { label: 'Archive this edit', Icon: Archive, disabled: true, hint: 'managers only' })
+    return out
+  }
+  const editBar = (viewed.mode === 'list' || viewed.mode === 'archived') && list ? {
+    onScreen: editOnScreen.mode !== 'none',
+    value: editOnScreen.mode === 'draft' ? 'draft' : editRow ? editRow.id : '',
+    options: [
+      ...listEdits
+        .filter(e => !e.archived_at || e.id === editRow?.id)
+        .map(e => ({ value: e.id, label: `${label(e)}${e.archived_at ? ' (archived)' : ''}` })),
+      ...(editOnScreen.mode === 'draft' ? [{ value: 'draft', label: `${editOnScreen.draft.title} · v${editOnScreen.draft.version} (not saved)` }] : []),
+    ],
+    onChange: (v) => { if (v !== 'draft') viewed.viewEdit?.(v || null) },
+    title: editRow?.summary || undefined,
+    badge: editRow?.archived_at ? <StatusBadge status="archived" label={ctx?.isWithdrawn?.(editRow) ? 'Withdrawn' : 'Archived'} /> : null,
+    note: editRow && !editRow.archived_at ? `Saved ${showDate(editRow.created_at)}` : null,
+    verbs: null,
+  } : null
+
+  const moreItems = editRow ? editVerbs(editRow)
+    : editOnScreen.mode === 'draft' ? []
+    : viewed.mode === 'list' && list ? listVerbs(list, { onScreen: true })
     : viewed.mode === 'archived' && list && restoreRoute(list)
       ? [{ label: 'Restore', Icon: ArchiveRestore, onClick: () => run(async () => { await restoreRow(list); showList(list.id) }) }]
       : []
@@ -320,9 +387,11 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         saveState={saveState}
         saving={saving}
         withdrawn={!!(list && ctx?.isWithdrawn?.(list))}
-        recent={recent}
-        recentLabel={recent ? label(recent.row) : ''}
+        recent={recent || recentEdit}
+        recentLabel={recent ? label(recent.row)
+          : recentEdit ? `${label(recentEdit.row)}, an edit of ${label(lists.find(l => l.id === recentEdit.row.shot_list_id)) || 'its list'}` : ''}
         gate={gate}
+        edit={editBar}
         on={{
           newList: () => setDialog({ kind: 'form', mode: 'new' }),
           openPicker: () => { setPickerError(null); setPickerOpen(true) },
@@ -360,11 +429,15 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           label={label}
           isWithdrawn={ctx?.isWithdrawn}
           unlisted={unlisted}
-          recent={recent}
+          recent={recent || recentEdit}
           rowMenu={(row) => listVerbs(row, { onScreen: false })}
           restoreFor={(row) => (restoreRoute(row) ? () => runInPicker(() => restoreRow(row)) : null)}
           gate={gate}
           error={pickerError}
+          editsOf={ctx?.editsOf}
+          editMenu={(row) => (row.archived_at
+            ? (restoreEditRoute(row) ? [{ label: 'Restore this edit', Icon: ArchiveRestore, onClick: () => runInPicker(() => restoreEdit(row)) }] : [])
+            : editVerbs(row))}
           on={{
             open: (id, opts) => { closePicker(); showList(id, opts) },
             openUnlisted: () => { closePicker(); showList(UNLISTED) },
@@ -372,6 +445,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             restoreRecent: () => restoreRecent(runInPicker),
             newList: () => setDialog({ kind: 'form', mode: 'new' }),
             close: closePicker,
+            openEdit: (e) => { closePicker(); showEdit(e) },
           }}
         />
       )}
@@ -427,6 +501,31 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
               applies — the Local Server has no users, and offers Withdraw
               on any untouched list. */}
           {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or started an edit on it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived.`}
+        </ListConfirm>
+      )}
+
+      {/* Post-overhaul S3c, step 3: an edit's own two questions. After
+          either, the list on screen goes back to List order — the edit is
+          set aside, and reads under Archived in Shot lists. */}
+      {dialog?.kind === 'withdrawEdit' && target && (
+        <ListConfirm
+          title="Withdraw this edit?"
+          confirmLabel="Withdraw"
+          onCancel={close}
+          onConfirm={() => inDialog(async () => { await ctx.withdrawEdit(target.id); close(); viewed.viewEdit?.(null) })}
+        >
+          {`${makerUserId === undefined ? `Nobody has continued “${label(target)}” with a newer edit, so it can be taken back.` : `You made “${label(target)}” and nobody has continued it with a newer edit, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under its list's edits.`}
+        </ListConfirm>
+      )}
+
+      {dialog?.kind === 'archiveEdit' && target && (
+        <ListConfirm
+          title="Archive this edit?"
+          confirmLabel="Archive"
+          onCancel={close}
+          onConfirm={() => inDialog(async () => { await ctx.archiveEdit(target.id, true); close(); viewed.viewEdit?.(null) })}
+        >
+          {`“${label(target)}” is set aside: the list's edit selector stops offering it, and Shot lists shows it under its list's edits, archived. Nothing in it is deleted, and a project manager or a workspace admin can restore it.`}
         </ListConfirm>
       )}
 

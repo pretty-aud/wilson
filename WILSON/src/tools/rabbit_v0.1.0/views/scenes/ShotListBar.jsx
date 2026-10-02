@@ -32,7 +32,7 @@
 // ============================================================
 
 import { Plus } from 'lucide-react'
-import { Toolbar, Button, StatusBadge } from '../../../../ui'
+import { Toolbar, Button, StatusBadge, Select } from '../../../../ui'
 import GatedAction from '../../../../permissions/GatedAction'
 import { showDate } from '../../dates'
 import MenuButton from './MenuButton'
@@ -53,16 +53,26 @@ function viewName(viewed, hasLiveList) {
  *   hasLiveList whether the project has any list that is not archived
  *   saveState   { kind: 'never' | 'changed' | 'saved', at? } for the list on screen
  *   withdrawn   the list on screen was set aside by its maker (isWithdrawn)
- *   recent      S3a's recentlyWithdrawn for a list, or null
+ *   recent      S3a's recentlyWithdrawn (a list or, since S3c, an edit), or null
  *   gate        { write, writeReason, activate, activateReason }
  *   on          { newList, openPicker, save, saveAs, setActive, showList, openRecent, restoreRecent }
  *   moreItems   the More menu's kit Menu items (empty: no menu)
+ *   edit        post-overhaul S3c, step 3: the edit selector and what the
+ *               bar says about the edit on screen —
+ *               { onScreen, value, options, onChange, note, badge, verbs }
+ *               (null: no list on screen, no selector). `verbs` is the
+ *               right group's edit buttons (Save edit, Discard changes —
+ *               step 5); while an edit is on screen they stand where the
+ *               list's Save, Save as… and Set active stood, so the bar
+ *               never offers two Saves at once (the one distinction S3c's
+ *               brief asks the design to make).
  */
-export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems }) {
+export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems, edit = null }) {
   const { mode, list } = viewed
   const onList = mode === 'list' || mode === 'archived'
   const isActive = mode === 'list' && !!activeList && activeList.id === list?.id
-  const saveNote = !onList ? null
+  const editOnScreen = !!edit?.onScreen
+  const saveNote = !onList || editOnScreen ? null
     : saveState?.kind === 'never' ? 'Never saved'
     : saveState?.kind === 'changed' ? 'Not saved since changes'
     : saveState?.kind === 'saved' ? `Saved ${showDate(saveState.at)}`
@@ -74,7 +84,13 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
         <Button size="sm" Icon={Plus} onClick={on.newList}>New shot list</Button>
       </GatedAction>
       <Button size="sm" onClick={on.openPicker}>Shot lists…</Button>
-      {onList && (
+      {onList && editOnScreen && edit.verbs && (
+        <>
+          <span className="rb-scene-divider" aria-hidden="true" />
+          {edit.verbs}
+        </>
+      )}
+      {onList && !editOnScreen && (
         <>
           <span className="rb-scene-divider" aria-hidden="true" />
           {mode === 'list' && (
@@ -119,6 +135,29 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
           <span className="rb-scene-lists-note">No active list</span>
         )}
         {saveNote && <span className="rb-scene-lists-note" data-state={saveState?.kind === 'saved' ? 'saved' : 'unsaved'}>{saveNote}</span>}
+        {/* Post-overhaul S3c, step 3: which EDIT of the list is on screen —
+            "List order" is none (D7: the bar holds the shot-list and edit
+            controls; S3b left this place for it, after the list). The list's
+            own words come first, then the edit's: "Shoot · v2 — edit:
+            Director's cut · v3". */}
+        {onList && edit && (
+          <span className="rb-scene-lists-edit">
+            <span className="rb-scene-divider" aria-hidden="true" />
+            <span className="rb-scene-lists-eyebrow">Edit</span>
+            <Select
+              size="sm"
+              className="rb-scene-lists-edit-select"
+              value={edit.value || ''}
+              placeholder="List order"
+              options={edit.options}
+              onChange={edit.onChange}
+              aria-label="Edit on screen"
+              title={edit.title || undefined}
+            />
+            {edit.badge || null}
+            {edit.note && <span className="rb-scene-lists-note" data-state="saved">{edit.note}</span>}
+          </span>
+        )}
         {recent && (
           <span className="rb-scene-lists-recent">
             <span className="rb-scene-divider" aria-hidden="true" />

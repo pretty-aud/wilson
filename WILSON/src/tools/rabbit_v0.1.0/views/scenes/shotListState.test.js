@@ -3,7 +3,24 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { canonicalJson, listSaveState, restoreRouteFor } from './shotListState'
+import { canonicalJson, listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
+
+// Post-overhaul S3c, step 3: who may put an archived EDIT back, and how.
+describe('restoreEditRouteFor (S3c step 3)', () => {
+  const edit = (over = {}) => ({ id: 'e1', archived_at: '2026-10-02T09:00:00Z', archived_by: 'u1', created_by: 'u1', snapshot: null, ...over })
+  it('a live edit: nothing to restore', () => {
+    expect(restoreEditRouteFor({ edit: edit({ archived_at: null }), canActivate: true, canWrite: true, makerUserId: 'u1' })).toBeNull()
+  })
+  it('a manager or an admin: archiveEdit(id, false)', () => {
+    expect(restoreEditRouteFor({ edit: edit(), canActivate: true, canWrite: true, makerUserId: 'u9' })).toBe('archive')
+  })
+  it('the maker of an edit they withdrew: restoreWithdrawn; anyone else, or a Saved one, nothing', () => {
+    expect(restoreEditRouteFor({ edit: edit(), canActivate: false, canWrite: true, makerUserId: 'u1' })).toBe('withdrawn')
+    expect(restoreEditRouteFor({ edit: edit(), canActivate: false, canWrite: true, makerUserId: 'u2' })).toBeNull()
+    expect(restoreEditRouteFor({ edit: edit({ snapshot: { saved_at: 'x' } }), canActivate: false, canWrite: true, makerUserId: 'u1' })).toBeNull()
+    expect(restoreEditRouteFor({ edit: edit(), canActivate: false, canWrite: false, makerUserId: 'u1' })).toBeNull()
+  })
+})
 import { buildShotListSnapshot, backfillItems } from '../../state/shotListModel'
 
 const SCENES = [

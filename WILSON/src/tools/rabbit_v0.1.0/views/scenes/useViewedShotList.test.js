@@ -6,7 +6,27 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { resolveViewedList, unlistedSceneRows, UNLISTED } from './useViewedShotList'
+import { resolveViewedList, unlistedSceneRows, UNLISTED, resolveViewedEdit } from './useViewedShotList'
+
+// Post-overhaul S3c, step 3: which edit of the list on screen is on screen.
+describe('resolveViewedEdit (S3c step 3)', () => {
+  const list = { id: 'L1' }
+  const edits = [{ id: 'e1', shot_list_id: 'L1' }, { id: 'x1', shot_list_id: 'L2' }]
+  it('List order when nothing is chosen, or no list is on screen', () => {
+    expect(resolveViewedEdit({ list, chosen: null, edits, draft: null }).mode).toBe('none')
+    expect(resolveViewedEdit({ list: null, chosen: 'e1', edits, draft: null }).mode).toBe('none')
+  })
+  it('the chosen edit of this list; another list\'s, or a gone one, is List order', () => {
+    expect(resolveViewedEdit({ list, chosen: 'e1', edits, draft: null })).toMatchObject({ mode: 'edit', id: 'e1' })
+    expect(resolveViewedEdit({ list, chosen: 'x1', edits, draft: null }).mode).toBe('none')
+    expect(resolveViewedEdit({ list, chosen: 'gone', edits, draft: null }).mode).toBe('none')
+  })
+  it('the list\'s draft is on screen whatever was chosen (a draft never hides behind another view); another list\'s draft is not', () => {
+    const draft = { listId: 'L1', basedOnEditId: 'e1', items: [] }
+    expect(resolveViewedEdit({ list, chosen: null, edits, draft })).toMatchObject({ mode: 'draft', id: 'e1', draft })
+    expect(resolveViewedEdit({ list, chosen: 'e1', edits, draft: { ...draft, listId: 'L2' } }).mode).toBe('edit')
+  })
+})
 
 const live = (id) => ({ id, title: id, version: 1, archived_at: null })
 const archived = (id) => ({ id, title: id, version: 1, archived_at: '2026-10-01T09:00:00Z' })

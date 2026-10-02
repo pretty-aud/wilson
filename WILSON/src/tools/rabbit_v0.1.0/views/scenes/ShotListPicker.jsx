@@ -54,14 +54,25 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
  * restoreFor   (row) => a Restore handler for an archived row, or null
  * gate         { write, writeReason }
  * error        the Dialog's error slot
- * on           { open(id, { archived }), openUnlisted, openRecent, restoreRecent, newList, close }
+ * on           { open(id, { archived }), openUnlisted, openRecent, restoreRecent, newList, close, openEdit(edit) }
+ * editsOf      post-overhaul S3c, step 3: (listId) => the list's edits, oldest first
+ * editMenu     (edit) => the kit Menu items for an edit (Withdraw, Archive, Restore)
  */
-export default function ShotListPicker({ lists, activeId, viewedId, label, isWithdrawn, unlisted, recent, rowMenu, restoreFor, gate, error, on }) {
+export default function ShotListPicker({ lists, activeId, viewedId, label, isWithdrawn, unlisted, recent, rowMenu, restoreFor, gate, error, on, editsOf = null, editMenu = null }) {
   const [view, setView] = useState('lists')
   const live = useMemo(() => (lists || []).filter(l => !l.archived_at).sort(byNewest), [lists])
   const archived = useMemo(() => (lists || []).filter(l => l.archived_at).sort(byNewest), [lists])
   const rows = view === 'archived' ? archived : live
   const [selected, setSelected] = useState(() => (viewedId === UNLISTED || live.some(l => l.id === viewedId) ? viewedId : null))
+  // S3c step 3: the selected list's edits — the newest first, as the lists
+  // are — and the one selected among them (Open opens it on its list).
+  const [selectedEdit, setSelectedEdit] = useState(null)
+  const selectedList = (lists || []).find(l => l.id === selected) || null
+  const listEdits = useMemo(
+    () => (selectedList && editsOf ? [...editsOf(selectedList.id)].sort(byNewest) : []),
+    [selectedList, editsOf],
+  )
+  const pickEdit = listEdits.find(e => e.id === selectedEdit) || null
   const unlistedCount = (unlisted?.scenes || 0) + (unlisted?.shots || 0)
   const showUnlisted = view === 'lists' && unlistedCount > 0 && live.length > 0
 
@@ -69,7 +80,8 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
     if (id === UNLISTED) on.openUnlisted()
     else on.open(id, { archived: view === 'archived' })
   }
-  const switchTo = (v) => { setView(v); setSelected(null) }
+  const switchTo = (v) => { setView(v); setSelected(null); setSelectedEdit(null) }
+  const selectList = (id) => { setSelected(id); setSelectedEdit(null) }
   // The row's title: a button, so the keyboard reaches it — Space selects
   // (its click), Enter opens (a file dialog's Enter). The picker opens with
   // focus on the list on screen's (else the newest's), not on the ✕: the
@@ -80,7 +92,7 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
       type="button"
       autoFocus={id === focusId}
       className="rb-scene-lists-pick"
-      onClick={e => { e.stopPropagation(); setSelected(id) }}
+      onClick={e => { e.stopPropagation(); selectList(id) }}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); open(id) } }}
     >
       {words}
@@ -107,7 +119,8 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
             <Button Icon={Plus} className="rb-scene-lists-foot-start" onClick={on.newList}>New shot list…</Button>
           </GatedAction>
           <Button onClick={on.close}>Cancel</Button>
-          <Button variant="primary" disabled={!selected} onClick={() => open(selected)}>Open</Button>
+          {/* S3c step 3: an edit selected under its list opens on that list. */}
+          <Button variant="primary" disabled={!selected && !pickEdit} onClick={() => (pickEdit ? on.openEdit?.(pickEdit) : open(selected))}>Open</Button>
         </>
       )}
     >
@@ -142,7 +155,7 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
               const restore = view === 'archived' ? restoreFor(l) : null
               return (
                 <Row key={l.id} interactive selected={selected === l.id}
-                  onClick={() => setSelected(l.id)} onDoubleClick={() => open(l.id)}>
+                  onClick={() => selectList(l.id)} onDoubleClick={() => open(l.id)}>
                   <Td>
                     {view === 'archived'
                       ? <StatusBadge status="archived" label={isWithdrawn?.(l) ? 'Withdrawn' : 'Archived'} />
@@ -169,6 +182,59 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
               )
             })}
           </Table>
+        </div>
+      )}
+
+      {/* Post-overhaul S3c, step 3: the selected list's edits — title ·
+          version · created · summary, newest first — each opened on its list
+          (a click selects it, Open or a double-click opens it), its verbs in
+          its menu. An archived edit reads as one (opened read-only). */}
+      {view === 'lists' && selectedList && editsOf && (
+        <div className="rb-scene-lists-edits" aria-label={`Edits of ${label(selectedList)}`} role="group">
+          <div className="rb-scene-lists-edits-head">{`Edits of “${label(selectedList)}” (${listEdits.length})`}</div>
+          {listEdits.length === 0 ? (
+            <p className="rb-scene-lists-edits-none">No edits yet. Drag a shot or a scene on the list to start one.</p>
+          ) : (
+            <div className="rb-scene-lists-table" data-view="edits">
+              <Table
+                head={(
+                  <Row>
+                    <Th width="var(--rb-scene-lists-col-mark)"><span className="sr-only">State</span></Th>
+                    <Th width="var(--rb-scene-lists-col-title)">Edit</Th>
+                    <Th width="var(--rb-scene-lists-col-version)">Version</Th>
+                    <Th width="var(--rb-scene-lists-col-created)">Created</Th>
+                    <Th>Summary</Th>
+                    <Th width="var(--rb-scene-lists-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+                  </Row>
+                )}
+              >
+                {listEdits.map(e => (
+                  <Row key={e.id} interactive selected={selectedEdit === e.id}
+                    onClick={() => setSelectedEdit(e.id)} onDoubleClick={() => on.openEdit?.(e)}>
+                    <Td>{e.archived_at ? <StatusBadge status="archived" label={isWithdrawn?.(e) ? 'Withdrawn' : 'Archived'} /> : null}</Td>
+                    <Td>
+                      <button
+                        type="button"
+                        className="rb-scene-lists-pick"
+                        onClick={ev => { ev.stopPropagation(); setSelectedEdit(e.id) }}
+                        onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); on.openEdit?.(e) } }}
+                      >
+                        {e.title || 'Untitled'}
+                      </button>
+                    </Td>
+                    <Td className="rb-scene-lists-figure">{`v${Number(e.version) || 1}`}</Td>
+                    <Td className="rb-scene-lists-figure">{showDate(e.created_at)}</Td>
+                    <Td className="rb-scene-lists-summary" title={e.summary || undefined} data-empty={e.summary ? undefined : 'true'}>
+                      {e.summary || '—'}
+                    </Td>
+                    <Td align="right">
+                      <MenuButton title={`Actions for ${label(e)}`} items={editMenu?.(e) || []} minWidth={220} />
+                    </Td>
+                  </Row>
+                ))}
+              </Table>
+            </div>
+          )}
         </div>
       )}
 

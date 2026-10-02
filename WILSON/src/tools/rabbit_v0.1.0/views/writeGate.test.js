@@ -423,7 +423,9 @@ describe('project write gate', () => {
   // to false, so a render without it greys everything — and one handed
   // `true` gates nothing).
   const SCENES = 'tools/rabbit_v0.1.0/views/ScenesView.jsx'
-  const SCENE_SUBVIEWS = ['SceneTable', 'ShotTable', 'SceneGallery', 'ShotGallery', 'SceneDetailPopup', 'ShotDetailPopup']
+  // Post-overhaul S3c, step 3: EditTable (an edit's cut) writes the shot's
+  // status and frame count, so it takes the gate too.
+  const SCENE_SUBVIEWS = ['EditTable', 'SceneTable', 'ShotTable', 'SceneGallery', 'ShotGallery', 'SceneDetailPopup', 'ShotDetailPopup']
   // Review round 1 (R1-04): the scene and shot popups made tasks for a
   // reviewer — RelationsPanel shows "Add new task" whenever it is handed
   // onCreateTask, and the funnel behind it checked nothing. Every hand-off
@@ -451,8 +453,10 @@ describe('project write gate', () => {
     }
     // The toolbar's two creates sit inside a GatedAction whose flag is the
     // gate's — and is off while an archived list, read-only, is on screen
-    // (review round 1, R1-02: a new row there went to the ACTIVE list).
-    expect(code).toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived'\r?\n/)
+    // (review round 1, R1-02: a new row there went to the ACTIVE list), and
+    // (post-overhaul S3c, step 3) while an edit is on screen, where a new row
+    // would land in the list, out of sight of the cut.
+    expect(code).toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
     expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
     expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<span ref=\{shotPickerRef\}/)
     // R1-04: both popups' task creates.
@@ -473,7 +477,9 @@ describe('project write gate', () => {
     const ungated = code.replace(TOOLBAR_GATE, '')
     expect(ungated).not.toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
     // Its flag not the gate's: caught.
-    expect(code.replace(/const canAddRows = canWriteProject && /, 'const canAddRows = true && ')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived'\r?\n/)
+    expect(code.replace(/const canAddRows = canWriteProject && /, 'const canAddRows = true && ')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
+    // S3c: the edit term taken out is caught too.
+    expect(code.replace(" && !editOnScreen\n", '\n').replace(" && !editOnScreen\r\n", '\r\n')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
     // R1-04: a popup handing onCreateTask over whatever the gate, or a
     // handleCreateTask that does not refuse first: caught.
     const handOff = 'onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}'

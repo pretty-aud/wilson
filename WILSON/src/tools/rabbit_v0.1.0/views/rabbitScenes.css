@@ -1620,6 +1620,76 @@
   .rb-scene-addfrom-row[data-locked="true"]:hover { background-image: none; }
   .rb-scene-addfrom-row[data-locked="true"] > .rb-scene-addfrom-name { color: var(--color-ink-3); }
 
+  /* ═══ An edit's cut (post-overhaul S3c, step 3) ═══════════════════════════
+     EditTable: the shot table's band and row, the CUT position first (an
+     editor's event numbers), the drag handle in a cell of its own (step 6).
+     Its columns are the shot table's tokens, plus two. */
+  .rb-scene-cut { --rb-scene-col-grip: var(--control-sm); --rb-scene-col-cut: 56px; }
+  .ui-table.rb-scene-table-cut {
+    min-width: calc(var(--rb-scene-col-grip) + var(--rb-scene-col-cut) + var(--rb-scene-col-thumb)
+      + var(--rb-scene-col-num) + var(--rb-scene-col-name) + var(--rb-scene-col-status)
+      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
+  }
+  /* The band: the shot table's band, its words in a plain span (no toggle:
+     a cut is read whole), at the toggle's padding. */
+  .rb-scene-cut-band-name {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: calc(var(--row) - 1px);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+  }
+  /* The cut position: a figure in the mono, the second ink. (0,4,0): over the
+     kit's numeric cell, which this sheet may load before. */
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-cut-pos {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* The drag handle's cell (step 6): the 28px handle at the row's height,
+     4px in from the scroller's edge. */
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-cut-grip-cell { padding: 4px 0 3px 4px; }
+  /* The shot's name: the row's anchor, 600 in the ink — words, not a field
+     (its name does not change in an edit). A missing shot reads in the
+     third ink at 400 (D17: still in the cut, counting for nothing). */
+  .rb-scene-cut-name {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-scene-cut-row[data-missing="true"] .rb-scene-cut-name { font-weight: 400; color: var(--color-ink-3); }
+  .rb-scene-cut-none { color: var(--color-ink-3); }
+  .rb-scene-cut-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
+
+  /* ═══ The bar's edit selector (post-overhaul S3c, step 3) ═════════════════
+     After the list's words: a divider, the Label-step eyebrow "EDIT", the
+     kit Select at the bar's 28px (sized to its longest edit, at most 240),
+     then the edit's state. The group gives way as the list's name does. */
+  .rb-scene-lists-edit { display: inline-flex; flex-shrink: 1; align-items: center; gap: 8px; min-width: 0; }
+  .ui-input.rb-scene-lists-edit-select { width: auto; min-width: 120px; max-width: 240px; }
+
+  /* ═══ The picker's edits (post-overhaul S3c, step 3) ══════════════════════
+     Under the lists table, the selected list's edits, in the same table. */
+  .rb-scene-lists-edits { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+  .rb-scene-lists-edits-head {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .rb-scene-lists-edits-none { margin: 0; font-size: var(--text-dense); color: var(--color-ink-2); }
+
   /* ═══ A linked row's shot list (post-overhaul S3c, step 1) ════════════════
      LinkHome (views/scenes/LinkHome.jsx): "Shoot · v2 +1" after a linked
      scene's or shot's name — in the task popup, the asset relations, the

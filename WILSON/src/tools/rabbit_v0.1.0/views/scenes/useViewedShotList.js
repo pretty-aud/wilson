@@ -103,16 +103,43 @@ export function unlistedSceneRows({ unlistedScenes, unlistedShots, sceneById }) 
   return out.sort((a, b) => rank(a) - rank(b) || (rank(a) ? 0 : a.scene_number - b.scene_number))
 }
 
+/**
+ * Post-overhaul S3c, step 3: which EDIT of the list on screen is on screen.
+ *   list      the list on screen (a live or an archived one), or null
+ *   chosen    the edit id chosen for that list this visit, or null ("List order")
+ *   edits     every edit of the project
+ *   draft     the provider's draft for that list, or null
+ * → { mode, id, row, draft }
+ *   'draft'   the list has a draft: it is on screen, whatever was chosen
+ *             (S3c step 4) — a draft never hides behind another view
+ *   'edit'    a saved edit of the list (an archived one opened on purpose
+ *             too: read-only)
+ *   'none'    List order: the list's own order, no edit
+ * A chosen edit that is gone, or belongs to another list, is List order.
+ */
+export function resolveViewedEdit({ list, chosen, edits, draft }) {
+  if (!list) return { mode: 'none', id: null, row: null, draft: null }
+  if (draft && draft.listId === list.id) return { mode: 'draft', id: draft.basedOnEditId || null, row: null, draft }
+  const row = chosen ? (edits || []).find(e => e.id === chosen && e.shot_list_id === list.id) || null : null
+  if (row) return { mode: 'edit', id: row.id, row, draft: null }
+  return { mode: 'none', id: null, row: null, draft: null }
+}
+
 export function useViewedShotList({ ctx, personKey }) {
   const projectId = ctx?.project?.id || null
   const key = projectId ? `${personKey || 'local'}|${projectId}` : null
   const [remembered, setRemembered] = useState(() => (key ? readRemembered()[key] || null : null))
   const [session, setSession] = useState(null)
+  // S3c step 3: the edit chosen for each list, for this visit (List order
+  // when none). A visit's choice, as an archived list's is: a draft, which
+  // must survive a tab switch, lives in the provider instead.
+  const [editByList, setEditByList] = useState({})
   // Another project, or another person on this machine: their own memory,
   // and the visit's choice ends.
   useEffect(() => {
     setRemembered(key ? readRemembered()[key] || null : null)
     setSession(null)
+    setEditByList({})
   }, [key])
 
   const shotLists = ctx?.shotLists
@@ -155,5 +182,21 @@ export function useViewedShotList({ ctx, personKey }) {
     if (key) writeRemembered(key, id || null)
   }, [key])
 
-  return { ...resolved, ...rows, view }
+  // S3c step 3: the edit on screen, for a list on screen.
+  const listOnScreen = resolved.mode === 'list' || resolved.mode === 'archived' ? resolved.list : null
+  const edits = ctx?.edits
+  const editDraftOf = ctx?.editDraftOf
+  const draft = listOnScreen && editDraftOf ? editDraftOf(listOnScreen.id) : null
+  const chosen = listOnScreen ? editByList[listOnScreen.id] || null : null
+  const edit = useMemo(
+    () => resolveViewedEdit({ list: listOnScreen, chosen, edits, draft }),
+    [listOnScreen, chosen, edits, draft],
+  )
+  /** Show this edit of the list on screen (null: List order). */
+  const viewEdit = useCallback((editId, listId = listOnScreen?.id) => {
+    if (!listId) return
+    setEditByList(prev => ({ ...prev, [listId]: editId || null }))
+  }, [listOnScreen?.id])
+
+  return { ...resolved, ...rows, view, edit, viewEdit }
 }

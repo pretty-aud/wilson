@@ -93,6 +93,13 @@ const FILES = {
     min: 1500,
     staged: [],
   },
+  // Post-overhaul S3c, step 3: an edit's cut.
+  cut: {
+    file: './scenes/EditTable.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
@@ -491,6 +498,7 @@ const NEAR_MISSES = {
   form: [],
   addFrom: [],
   home: [],
+  cut: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
