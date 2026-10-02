@@ -266,9 +266,9 @@ try {
 
   await click(tab('Budget'), 'the Budget tab');
   await click(tab('By scene'), 'By scene');
-  const noScene = page.locator('table.rb-budget-report tbody td', { hasText: /^No scene$/ }).first();
-  await must(noScene, 'the No scene row');
-  console.log(`    "No scene" says: ${JSON.stringify(await noScene.getAttribute('title'))}`);
+  const noScene = page.locator('table.rb-budget-report tbody td', { hasText: /^No scene in the active list$/ }).first();
+  await must(noScene, 'the "No scene in the active list" row');
+  console.log(`    "No scene in the active list" says: ${JSON.stringify(await noScene.getAttribute('title'))}`);
   await park();
   await shot('budget-not-assigned');
 

@@ -120,8 +120,9 @@ so every verb is open.
   passing. 290 deliberately broken versions of the code were planted, step
   by step and round by round (25 against the rule, among them one that
   brings back the old drop; 52 in the first review round): 288 were
-  caught, and the two left are second guards another guard covers — each
-  pair, planted together, is caught (the hand-off lists them).
+  caught. The two left are second guards: one matters for a single frame
+  only, which no test can see; the other is covered by another guard, and
+  the two planted together are caught (the hand-off lists both).
 - **The desktop app** (Electron 33.4.11, the development build, a scratch
   data folder, the window off-screen, against a real Local Server): an
   unsaved edit folded into *Close WILSON* at 1440x900 and 1280x700 with
