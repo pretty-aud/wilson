@@ -483,12 +483,20 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     bandMenu('Lighthouse, dawn')
     fireEvent.click(menuItem('New shot'))
     expect(question().textContent).toContain('with this change: Add a new shot to “Lighthouse, dawn”.')
+    // Review round 1 (R1-04): it says the shot is written now, and stays.
+    expect(question().textContent).toContain('The new shot is added to the list now, and stays there whatever becomes of the edit. The edit itself is not saved until you choose Save edit.')
+    expect(question().textContent).not.toContain('Nothing is saved until you choose Save edit.')
     await yes('Start new version')
+    expect(log.start[0].made).toEqual(['sh-new-1'])
     expect(log.addShot).toHaveLength(1)
     // The scene's next number past EVERY shot of it (sh1 #10, sh2 #20).
     expect(log.addShot[0][0]).toMatchObject({ scene_id: 'sc1', shot_number: 21, status: 'not_started', frame_count: 0 })
     expect(log.addShot[0][1]).toEqual({ listId: 'list-1' })
     expect(log.start[0].items.map(i => i.shot_id)).toEqual(['sh3', 'sh1', 'sh1', 'gone', 'sh-new-1', 'sh2'])
+    // R1-04: Discard changes says the shot it wrote stays in the list.
+    fireEvent.click(within(document.querySelector('.rb-scene-lists')).getByRole('button', { name: 'Discard changes' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot it added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).textContent).not.toContain('Nothing was written')
   })
 
   it('a reviewer changes edits but not shots: New shot is greyed, "members only"; a seat without list writes gets no edit actions', () => {
@@ -514,6 +522,18 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     fireEvent.doubleClick(within(picker).getByRole('button', { name: "Director's cut" }).closest('tr'))
     expect(document.querySelector('.rb-scene-table-cut')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Edit actions for The climb (cut 1)' })).toBeNull()
+  })
+
+  // Review round 1 (R1-06): Yes swapped the More menu away (a draft has none)
+  // with focus in it, and focus fell to the page.
+  it('R1-06: after Yes, focus is on Save edit — the control the question came from is gone', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('New edit from this list'))
+    await yes('Start new edit')
+    expect(screen.queryByRole('button', { name: 'More shot list actions' })).toBeNull()
+    expect(document.activeElement.tagName).toBe('BUTTON')
+    expect(document.activeElement.textContent).toBe('Save edit')
   })
 
   it('"New edit from this list" (More): asks with no change named; Yes makes a draft of the list\'s order', async () => {
@@ -567,6 +587,28 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
     fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
     expect(log.undo).toBe(1)
+  })
+  // Review round 1 (R1-03): "Not now" kept the copy, but the next new edit of
+  // its list replaced it without a word, and nothing led back to it.
+  it('R1-03: put off, the copy is one menu item away, and a new edit of its list says it replaces it — and how to keep it instead', () => {
+    draftPage({ recoverableEditDrafts: [copy], edits: [] })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByRole('dialog', { name: 'Recover unsaved edit?' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('New edit from this list'))
+    expect(question().textContent).toContain('It replaces “Shoot · v1”, the unsaved edit of this list kept from before (1 shot), which is then gone. To keep that one instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.')
+    fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
+    // …and the way back is where it says.
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('Recover unsaved edit…'))
+    expect(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).toBeTruthy()
+  })
+  it('R1-03 CONTROL: with no copy kept for the list, neither the item nor the sentence', () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    expect(menuItem('Recover unsaved edit…')).toBeUndefined()
+    fireEvent.click(menuItem('New edit from this list'))
+    expect(question().textContent).not.toContain('It replaces')
   })
   it('never over another page; a copy whose list is archived can only be discarded', () => {
     draftPage({ recoverableEditDrafts: [copy], pageActive: false })
@@ -801,6 +843,32 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     expect(question()).not.toBeNull()
   })
 
+  // Review round 1 (R1-07): over the lower half of a block's heading, a
+  // block's line was drawn under the heading while the block landed after
+  // the target block's last row.
+  it('R1-07: a block over the lower half of a block\'s heading draws its line under that block\'s LAST row — where it lands', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const transfer = dt()
+    const bandGrip = cutBand('Cliff path', 1).querySelector('.rb-scene-grip')
+    fire('dragstart', bandGrip, transfer)
+    fire('dragover', boxed(cutBand('Lighthouse, dawn')), transfer, AFTER)
+    expect(cutBand('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
+    expect(cutRow('Missing shot: The lost pan').getAttribute('data-drop')).toBe('after')
+    // Over its top half: the heading's own line, before the block.
+    fire('dragover', boxed(cutBand('Lighthouse, dawn')), transfer, BEFORE)
+    expect(cutBand('Lighthouse, dawn').getAttribute('data-drop')).toBe('before')
+    expect(cutRow('Missing shot: The lost pan').getAttribute('data-drop')).toBeNull()
+    fire('dragend', bandGrip, transfer)
+    // CONTROL: a shot onto the block is its top — the heading's line, as before.
+    const t2 = dt()
+    fire('dragstart', cutGrip('The cold lamp'), t2)
+    fire('dragover', boxed(cutBand('Lighthouse, dawn')), t2, AFTER)
+    expect(cutBand('Lighthouse, dawn').getAttribute('data-drop')).toBe('after')
+    expect(cutRow('Missing shot: The lost pan').getAttribute('data-drop')).toBeNull()
+    fire('dragend', cutGrip('The cold lamp'), t2)
+  })
+
   it('a block never lands on a row, and a row dropped back where it was asks nothing', () => {
     draftPage()
     pickEdit('edit-1')
@@ -884,6 +952,46 @@ describe('S3c step 6: a drag on the LIST asks to make an edit (Audrey\'s flow)',
     dragTo(band('Cliff path').querySelector('.rb-scene-grip'), band('Lighthouse, dawn'), BEFORE)
     await yes('Start new edit')
     expect(bandLabels(document)).toEqual(['Cliff path', 'Lighthouse, dawn'])
+  })
+
+  // Review round 1 (R1-07), the list's two blocks: a scene dropped after an
+  // OPEN scene, or after a scene's band of shots, lands after its shots —
+  // the line is drawn under them, not under the scene's own row.
+  it('R1-07 on the list: a scene after an open scene draws its line under the nest of shots; after a band, under its last shot', () => {
+    draftPage({ edits: [] })
+    const nest = (name) => sceneRow(name).nextElementSibling
+    // Closed: the scene's own row takes the line.
+    let transfer = dt()
+    const grip = sceneRow('Cliff path').querySelector('.rb-scene-num-cell > .rb-scene-grip')
+    fire('dragstart', grip, transfer)
+    fire('dragover', boxed(sceneRow('Lighthouse, dawn')), transfer, AFTER)
+    expect(sceneRow('Lighthouse, dawn').getAttribute('data-drop')).toBe('after')
+    fire('dragend', grip, transfer)
+    // Open: the line is the nest's, under the shots.
+    fireEvent.click(within(sceneRow('Lighthouse, dawn')).getByRole('button', { name: 'Show shots' }))
+    expect(nest('Lighthouse, dawn').classList.contains('rb-scene-nest-row')).toBe(true)
+    transfer = dt()
+    fire('dragstart', grip, transfer)
+    fire('dragover', boxed(sceneRow('Lighthouse, dawn')), transfer, AFTER)
+    expect(sceneRow('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
+    expect(nest('Lighthouse, dawn').getAttribute('data-drop')).toBe('after')
+    fire('dragover', boxed(sceneRow('Lighthouse, dawn')), transfer, BEFORE)
+    expect(sceneRow('Lighthouse, dawn').getAttribute('data-drop')).toBe('before')
+    expect(nest('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
+    fire('dragend', grip, transfer)
+    cleanup()
+    // The shot table grouped by scene: after a band, under its last shot.
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Shots' }))
+    const band = (label) => [...document.querySelectorAll('.rb-scene-table-shots .rb-scene-group-row')].find(r => r.querySelector('.rb-scene-group-label')?.textContent === label)
+    const shotRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+    transfer = dt()
+    const bandGrip = band('Cliff path').querySelector('.rb-scene-grip')
+    fire('dragstart', bandGrip, transfer)
+    fire('dragover', boxed(band('Lighthouse, dawn')), transfer, AFTER)
+    expect(band('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
+    expect(shotRow('The cold lamp').getAttribute('data-drop')).toBe('after')
+    fire('dragend', bandGrip, transfer)
   })
 
   it('no grips when the rows are not in the list\'s order: another sort, or the shots grouped by something else', () => {

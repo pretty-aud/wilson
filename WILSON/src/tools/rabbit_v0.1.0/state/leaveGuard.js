@@ -37,12 +37,22 @@
 export const LEAVE_REASONS = Object.freeze(['tab', 'page', 'project', 'edit', 'popup', 'close'])
 
 const guards = new Set()
+// A guard whose question is open now → how to settle it without an answer.
+const settle = new Map()
 let asking = false
 
 /** Register a guard; returns its removal. */
 export function addLeaveGuard(guard) {
   guards.add(guard)
-  return () => { guards.delete(guard) }
+  return () => {
+    guards.delete(guard)
+    // Review round 1 (R1-10): a guard taken away while its question is open
+    // (its popup closed under it — the row deleted elsewhere, the tab hidden
+    // by itself) can never be answered. Its question counts as "stay", and
+    // the one-question lock is let go: otherwise every later exit was refused
+    // in silence.
+    settle.get(guard)?.(false)
+  }
 }
 
 function dirtyFor(reason) {
@@ -64,9 +74,15 @@ export async function confirmLeave(reason) {
   asking = true
   try {
     for (const g of ask) {
-      // Still holding anything? The answer to an earlier guard may have dealt with it.
-      if (!g.dirty()) continue
-      if (!(await g.ask(reason))) return false
+      // Still there, and still holding anything? The answer to an earlier
+      // guard may have dealt with it, or taken it away.
+      if (!guards.has(g) || !g.dirty()) continue
+      const answer = await new Promise((resolve) => {
+        settle.set(g, resolve)
+        Promise.resolve(g.ask(reason)).then(resolve, () => resolve(false))
+      })
+      settle.delete(g)
+      if (!answer) return false
     }
     return true
   } finally {
@@ -91,5 +107,6 @@ export function unsavedForClose() {
 /** Tests only: the registry empty again. */
 export function _resetLeaveGuardsForTests() {
   guards.clear()
+  settle.clear()
   asking = false
 }

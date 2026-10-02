@@ -197,6 +197,22 @@ export function visibleOverlayOpen({ dialogsOnly = false } = {}) {
   return false
 }
 
+/**
+ * How many kit Dialogs are ON SCREEN (a hidden page's left open are not:
+ * visibleOverlayOpen's reasoning). Post-overhaul S3c review round 1 (R1-05):
+ * a page whose own popups keep its undo keys counts its own, and stands down
+ * when there are more — a dialog over the page that is not the page's own
+ * (Help, a question raised over it).
+ */
+export function visibleDialogCount() {
+  if (typeof document === 'undefined') return 0
+  let n = 0
+  for (const b of document.querySelectorAll('.ui-dialog-backdrop')) {
+    if (typeof b.checkVisibility !== 'function' || b.checkVisibility()) n += 1
+  }
+  return n
+}
+
 // Post-overhaul S4a (S2a-01, and review round 1's R1-UI-03): what the kit's
 // overlay stack cannot see. Both Bins document handlers — BinsView's keys and
 // the inspector's Space — stand down for these.

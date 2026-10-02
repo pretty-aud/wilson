@@ -25,7 +25,8 @@ Your rule of 2026-10-02 is in too: removing a shot list never removes the
 Timeline or the Budget. Nothing ever deleted a task (the data never
 followed a list); on screen, a task whose scene or shot the active list
 does not hold now stays on the Timeline and in the Budget, read as not
-assigned ("No Scene", "No scene", "No shot"), and says what it points at.
+assigned ("No scene in the active list", "No shot in the active list"),
+and says what it points at.
 Its link is kept, so it is under its scene again once the scene is back in
 the active list. Clear, Set active, Archive, Withdraw and Remove from this
 list say so in their questions.
@@ -59,7 +60,7 @@ steps below.
 | 2 | Drag *The storm* by its grip up over *Cliff path*, and hold it there | An orange line across the top of *Cliff path*: where it will land. Over a place it cannot land (a scene over a shot, say), no line. (02) |
 | 3 | Let go | *Make a new edit from this list?*: *Start new edit makes "Shot list 1 · v1", a new edit of "Shot list 1 · v1", from the list's order with this change: Move the scene "The storm" before "Cliff path". The list itself does not change. Nothing is saved until you choose Save edit.* **Cancel** is focused; Cancel (or Escape) puts the row back and makes nothing. (03) |
 | 4 | Click **Start new edit** | The edit on screen, not saved: the selector reads *Shot list 1 · v1 (not saved)*; at the right **● Unsaved**, then **Save edit** with its orange edge pulsing slowly (once every 1.2 seconds), then **Discard changes**. The table is the cut: **CUT** (its place in the cut), the shot's own **#**, **SHOT**, Status, Duration, Frames, under a band per scene with its shot count, runtime and frames; *The storm* now plays second. The first tile reads **Edit runtime**. **New scene** and **New shot** grey: hovering says an edit is on screen and where shots are added to it. Choose **List order** later and the list is as it was. (04) |
-| 5 | Click *Up the stair*'s **⋯** | **Move up**, **Move down**, **Duplicate in edit**, **Add shot…**, **New shot**, and **Remove from edit** (red). A scene band's **⋯** has **Move scene up**, **Move scene down**, **Duplicate scene in edit** and **Remove scene from edit**. Move up and Move down are the keyboard's way to do what a drag does; they grey while a search is on. (05) |
+| 5 | Click *Up the stair*'s **⋯** | **Move up**, **Move down**, **Duplicate in edit**, **Add shot…**, **New shot**, and **Remove from edit** (red). A scene band's **⋯** has **Move scene up**, **Move scene down**, **Duplicate scene in edit** and **Remove scene from edit**. Move up and Move down are the keyboard's way to do what a drag does; they grey while a search is on. **New shot** is the one that writes at once: its question says the shot is added to the list now and stays there, and Discard changes later names it as staying. (05) |
 | 6 | **Duplicate in edit** on *Up the stair*, then **Remove from edit** on *Her side* | No question this time: the edit is already unsaved. *Up the stair* plays twice in a row (you can see it behind the next picture's dialog) and *Harbour café* holds 2 shots. The tiles count the cut: 00:03:06:00 and 4,464 frames, one more stair and one side less. (06) |
 | 7 | *The door*'s **⋯** → **Add shot…** | *Add shots to the edit*: *Into "Shot list 1 · v1", after "The door" (cut 1). A shot added twice plays twice.* The list's shots scene by scene, with a search; a shot already in the cut says *In the cut*. Tick *Lightning, wide*: the button reads **Add 1 shot**. (07) |
 | 8 | Click **Add 1 shot** | It plays second, inside *Lighthouse, dawn*'s band: an added shot joins the scene block it lands in. |
@@ -74,15 +75,15 @@ steps below.
 | 17 | Open *The door*'s details (the eye) and click **Show in Bins** | The same question over the shot window: the jump leaves the Scenes tab. **Keep editing**, then **Close** the window. (15) A shot or scene window's own typed text asks its own question when a jump would drop it (S3b-08), and so does the task form inside it (S3b-05). |
 | 18 | Choose **List order** in the edit selector | The same question: another list or edit on the bar leaves this one. **Keep editing**. Opening another list from **Shot lists…**, or making one, asks too. (16) |
 | 19 | **Switch** to another project | The same question, before the switch. The test data holds one project, so this one is checked by an automated test, not in a picture. |
-| 20 | Close WILSON (the desktop app's ✕) | WILSON's own *Close WILSON*, with the edit folded in: *"Shot list 1 · v1", an edit of "Shot list 1 · v1", is not saved. Save it before closing, or discard it.* **Keep editing** (focused), **Discard and close** (red), **Save edit and close** (orange). One question, never two in a row. In a browser tab, closing or reloading the tab shows the browser's own prompt instead. (21, from the desktop app) |
-| 21 | With an edit unsaved, reload the page and open the Scenes tab | *Recover unsaved edit?*: *WILSON closed before "Shot list 1 · v2", an edit of "Shot list 1 · v1", was saved. It holds 17 shots. It was last changed 10/02/2026, 09:00 AM. Recover it to keep working on it, or discard it.* **Not now** (focused), **Discard edit**, **Recover edit**. (17) |
+| 20 | Close WILSON (the desktop app's ✕) | WILSON's own *Close WILSON*, with the edit folded in: the edit's name, of which list, then *is not saved. Save it before closing, or discard it.* (of two, "them"). **Keep editing** (focused; Escape too), **Discard and close** (red), **Save edit and close** (orange). One question, never two in a row. **Restart & install** for an update asks the same question first. In a browser tab, closing or reloading the tab shows the browser's own prompt instead. (21: from a separate desktop-app run, whose edit is *Shot list 1 · v1*) |
+| 21 | With an edit unsaved, reload the page and open the Scenes tab | *Recover unsaved edit?*: *WILSON closed before "Shot list 1 · v2", an edit of "Shot list 1 · v1", was saved. It holds 17 shots. It was last changed 10/02/2026, 09:00 AM. Recover it to keep working on it, or discard it.* **Not now** (focused), **Discard edit**, **Recover edit**. Not now keeps it: the bar's **⋯** then has **Recover unsaved edit…**, and a new edit of that list says, in its question, that it would replace the one kept. (17) |
 | 22 | Open **Budget** and scroll to **Budget versions** | Beside **Save current as bid version**, **BASED ON SHOT LIST**: *Shot list 1 · v1 (active)*, with every live list to choose from. The version you save remembers it: the versions table and the active budget's banner name it, and keep its name if the list is archived later. (18) |
 | 23 | Open **Timeline**, and **Group by scene** | The toolbar reads *Shot list: Shot list 1 · v1*: the list whose scenes it groups by. Nothing else in the Timeline changed. (19) |
 | 24 | Open **Scenes → Shots**, *The door*'s details, **Add new task**, and open the task | Under its **Shot**, the list that holds it: *Shot list 1 · v1*. A shot in more than one list or edit adds "+N", and hovering names each. The asset relations panel and the Bins inspector print it the same way; the Budget's By scene and By shot tables and the Timeline's rows say it on hover. (20) |
 | 25 | Close the task and the shot window. On **Scenes**, **New shot list** → *Second unit*, **Start from** the list on screen → **Create shot list**, then **Set active** | *Make this the active list?* now also says: *Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.* Click **Make active**. (22) |
 | 26 | *Lighthouse, dawn*'s shot-list **⋯** → **Remove from this list** | The question ends: *This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.* (Clear this list says the same.) Click **Remove from list**. (23) |
-| 27 | Open **Timeline**, **Group by scene**, and find *Grade the doorway* (step 24's task) | Still there: *Lighthouse, dawn* is no group now, and its task is under **No Scene**. Hover it: *Scene "Lighthouse, dawn": in Shot list 1 · v1, not in the active list*, the same for its shot, then the row's usual hint. (24) |
-| 28 | Open **Budget → By scene** | **No scene** counts it with the rest (43 tasks): no task and no day is lost. Hover **No scene**: *Tasks here are linked outside the active list:* and each scene they point at. By shot says the same under **No shot**. (25) |
+| 27 | Open **Timeline**, **Group by scene**, and find *Grade the doorway* (step 24's task) | Still there: *Lighthouse, dawn* is no group now, and its task is under **No scene in the active list** (with the tasks that have no scene at all). Hover it: *Scene "Lighthouse, dawn": in Shot list 1 · v1, not in the active list*, the same for its shot, then the row's usual hint. (24) |
+| 28 | Open **Budget → By scene** | **No scene in the active list** counts it with the rest (43 tasks): no task and no day is lost. Hover that row: *Tasks here are linked outside the active list:* and each scene they point at. By shot says the same under **No shot in the active list**. (25) |
 | 29 | Open *Grade the doorway* | Under **Scene** and **Shot** (still *Lighthouse, dawn* and *The door*: the link is kept): *Shot list 1 · v1, not in the active list*. Hovering it says the Timeline and the Budget show its tasks as not assigned until it is in the active list again. (26) |
 | 30 | Make *Shot list 1 · v1* active again (or add *Lighthouse, dawn* back to *Second unit*) | *Grade the doorway* is under *Lighthouse, dawn* again, on the Timeline and in the Budget: nothing was written to the task. |
 | 31 | Open **Help (?) → Scenes & shot lists** | All of this in short: the Edits section, and "Tasks stay" under the active list. |
@@ -114,12 +115,13 @@ so every verb is open.
 ## 3. The numbers, measured
 
 - **Tests:** 237 test files / 5,795 tests at the start; 250 files / 6,035
-  tests at the end of the bundle's eight steps, and 251 / 6,052 with your
-  rule of 2026-10-02 built, all passing. 238 deliberately broken versions
-  of the code were planted, step by step (25 of them against the rule,
-  among them one that brings back the old drop): 237 were caught, and the
-  one left is a guard that only matters for a single frame, which no test
-  can see (the hand-off lists them by step).
+  tests at the end of the bundle's eight steps, 251 / 6,052 with your rule
+  of 2026-10-02 built, and 251 / 6,084 after the first review round, all
+  passing. 290 deliberately broken versions of the code were planted, step
+  by step and round by round (25 against the rule, among them one that
+  brings back the old drop; 52 in the first review round): 288 were
+  caught, and the two left are second guards another guard covers — each
+  pair, planted together, is caught (the hand-off lists them).
 - **The desktop app** (Electron 33.4.11, the development build, a scratch
   data folder, the window off-screen, against a real Local Server): an
   unsaved edit folded into *Close WILSON* at 1440x900 and 1280x700 with
@@ -186,14 +188,25 @@ so every verb is open.
     on the cloud always?
 13. **Your rule of 2026-10-02, read one level at a time.** A task whose
     scene IS in the active list but whose shot is not reads under its
-    scene (as a task of the scene), not under "No Scene"; By scene counts
-    it under its scene and By shot under "No shot". Keep, or should any
-    link outside the active list send the whole task to "No Scene"?
+    scene (as a task of the scene), not under "No scene in the active
+    list"; By scene counts it under its scene and By shot under "No shot in
+    the active list". Keep, or should any link outside the active list send
+    the whole task to "No scene in the active list"? (The group's name was
+    "No Scene"; it now holds tasks with no scene AND tasks whose scene is
+    elsewhere, so its name says what is true of both.)
 14. **Archive and Withdraw** are only ever offered on a list that is not
     the active one, so their questions now say the Timeline and the
     Budget do not change. (Walkthrough 51's question 8 is answered: Clear
     stays on the active list, behind its question, which now says what it
     does to the Timeline and the Budget.)
+15. **An unsaved edit on a list that is archived or withdrawn** (by you,
+    or by someone else meanwhile) is kept, out of sight and asking
+    nothing, until the list is restored; the Archive and Withdraw
+    questions say so. Keep it, or should archiving a list discard its
+    unsaved edit?
+16. **Signing out** (or the idle timeout) takes an unsaved edit out of
+    memory, so the next person to sign in on the machine never meets it;
+    its copy waits, and the same person's next visit offers it back. Keep?
 
 ---
 

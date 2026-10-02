@@ -53,7 +53,7 @@ vi.mock('../../../components/TaskTemplates/TaskTemplateManager', () => ({ defaul
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
 const { buildRowsByGrouping } = await import('../views/TimelineView.jsx')
 const { bySceneRows, byShotRows } = await import('../views/BudgetView.jsx')
-const { homeIndexOf } = await import('../views/scenes/linkHomes')
+const { homeIndexOf, NO_SCENE_GROUP, NO_SHOT_GROUP } = await import('../views/scenes/linkHomes')
 
 function makeAdapter() {
   let n = 0
@@ -213,75 +213,109 @@ function expectWhole(m, step) {
 }
 const taskWrites = () => holder.adapter.calls.filter(c => /Task$/.test(c[0]))
 
-describe('removing a shot list never removes the Timeline or the Budget (Audrey, 2026-10-02)', () => {
-  it('clear the active list, set another active, archive a list, delete a scene: every task still drawn, every total the same, every link kept but the deleted scene\'s', async () => {
-    render(<RabbitProvider><Probe /></RabbitProvider>)
-    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-    await waitFor(() => expect(ctxRef.tasks).toHaveLength(N))
-    await waitFor(() => expect(ctxRef.shotLists).toHaveLength(1))
-
-    let m = measure()
-    expectWhole(m, 'before')
-    expect(m.groups).toEqual(['One', '1A', 'Two', '2A', 'No Scene'])
-    expect(m.byScene).toEqual(['One', 'Two', 'No scene'])
-    expect(m.byShot).toEqual(['One › 1A', 'Two › 2A', 'No shot'])
-
-    // 1. Clear the active list (the Clear question's own call).
-    const own = ctxRef.shotListItems.filter(i => i.shot_list_id === 'L1')
-    await act(async () => {
-      await ctxRef.removeFromShotList('L1', {
-        sceneIds: own.filter(i => i.scene_id).map(i => i.scene_id),
-        shotIds: own.filter(i => i.shot_id).map(i => i.shot_id),
-      })
+async function mount() {
+  render(<RabbitProvider><Probe /></RabbitProvider>)
+  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+  await waitFor(() => expect(ctxRef.tasks).toHaveLength(N))
+  await waitFor(() => expect(ctxRef.shotLists).toHaveLength(1))
+  const m = measure()
+  expectWhole(m, 'before')
+  expect(m.groups).toEqual(['One', '1A', 'Two', '2A', NO_SCENE_GROUP])
+  expect(m.byScene).toEqual(['One', 'Two', NO_SCENE_GROUP])
+  expect(m.byShot).toEqual(['One › 1A', 'Two › 2A', NO_SHOT_GROUP])
+}
+/** Clear this list — the Clear question's own call. */
+async function clearList(listId) {
+  const own = ctxRef.shotListItems.filter(i => i.shot_list_id === listId)
+  await act(async () => {
+    await ctxRef.removeFromShotList(listId, {
+      sceneIds: own.filter(i => i.scene_id).map(i => i.scene_id),
+      shotIds: own.filter(i => i.shot_id).map(i => i.shot_id),
     })
+  })
+}
+/** A second list holding the given scenes and shots. */
+async function makeList(title, sceneIds, shotIds) {
+  let made
+  await act(async () => { made = await ctxRef.addShotList({ title }) })
+  if (sceneIds.length || shotIds.length) await act(async () => { await ctxRef.addToShotList(made.id, { sceneIds, shotIds }) })
+  return made
+}
+
+// Each operation on its own, from the same four tasks (the controller's
+// "and, separately"), then all of them in a row.
+describe('removing a shot list never removes the Timeline or the Budget (Audrey, 2026-10-02)', () => {
+  it('clear the active list: every task drawn, every total the same, every link kept — read as not assigned', async () => {
+    await mount()
+    await clearList('L1')
     expect(ctxRef.scenes).toEqual([])
-    m = measure()
+    const m = measure()
     expectWhole(m, 'cleared')
-    expect(m.groups).toEqual(['No Scene'])
-    expect(m.byScene).toEqual(['No scene'])
-    expect(m.byShot).toEqual(['No shot'])
+    expect(m.groups).toEqual([NO_SCENE_GROUP])
+    expect(m.byScene).toEqual([NO_SCENE_GROUP])
+    expect(m.byShot).toEqual([NO_SHOT_GROUP])
     expect(m.tip('t3')).toBe('Scene “Two”: in no shot list')
     expect(links()).toEqual(ORIGINAL_LINKS)
+    expect(taskWrites()).toEqual([])
+  })
 
-    // 2. Another list made active, holding scene One and its shot.
-    let alt
-    await act(async () => { alt = await ctxRef.addShotList({ title: 'Alt' }) })
-    await act(async () => { await ctxRef.addToShotList(alt.id, { sceneIds: ['sc1'], shotIds: ['sh1'] }) })
+  it('set another list active (it holds scene One alone): every task drawn, every total the same, every link kept', async () => {
+    await mount()
+    const alt = await makeList('Alt', ['sc1'], ['sh1'])
     await act(async () => { await ctxRef.setActiveShotList(alt.id) })
     expect(ctxRef.scenes.map(s => s.id)).toEqual(['sc1'])
-    m = measure()
+    const m = measure()
     expectWhole(m, 'set active')
-    expect(m.groups).toEqual(['One', '1A', 'No Scene'])
-    expect(m.byScene).toEqual(['One', 'No scene'])
+    expect(m.groups).toEqual(['One', '1A', NO_SCENE_GROUP])
+    expect(m.byScene).toEqual(['One', NO_SCENE_GROUP])
+    expect(m.byShot).toEqual(['One › 1A', NO_SHOT_GROUP])
+    expect(m.tip('t3')).toBe('Scene “Two”: in Shot list 1 · v1, not in the active list')
     expect(links()).toEqual(ORIGINAL_LINKS)
-
-    // 3. Archive the old list (it is no longer the active one).
-    await act(async () => { await ctxRef.archiveShotList('L1') })
-    expect(ctxRef.shotLists.find(l => l.id === 'L1').archived_at).toBeTruthy()
-    m = measure()
-    expectWhole(m, 'archived')
-    expect(m.groups).toEqual(['One', '1A', 'No Scene'])
-    expect(links()).toEqual(ORIGINAL_LINKS)
-
-    // None of the three wrote a task.
     expect(taskWrites()).toEqual([])
+  })
 
-    // 4. Delete scene One: its shot goes with it, and its task is un-linked
-    //    (the database's SET NULL) — still drawn, still counted.
-    await act(async () => { await ctxRef.deleteScene('sc1') })
-    m = measure()
+  it('archive a list (not the active one): nothing on the Timeline or the Budget changes', async () => {
+    await mount()
+    const alt = await makeList('Alt', ['sc2'], ['sh2'])
+    await act(async () => { await ctxRef.archiveShotList(alt.id) })
+    expect(ctxRef.shotLists.find(l => l.id === alt.id).archived_at).toBeTruthy()
+    const m = measure()
+    expectWhole(m, 'archived')
+    expect(m.groups).toEqual(['One', '1A', 'Two', '2A', NO_SCENE_GROUP])
+    expect(links()).toEqual(ORIGINAL_LINKS)
+    expect(taskWrites()).toEqual([])
+  })
+
+  it('delete a scene: its shot goes with it and its tasks are un-linked (the database\'s SET NULL) — still drawn, still counted', async () => {
+    await mount()
+    await act(async () => { await ctxRef.deleteScene('sc2') })
+    const m = measure()
     expectWhole(m, 'deleted')
-    expect(m.groups).toEqual(['No Scene'])
-    expect(links()).toEqual([['t1', null, null], ['t2', 'sc2', 'sh2'], ['t3', 'sc2', null], ['t4', null, null]])
+    expect(m.groups).toEqual(['One', '1A', NO_SCENE_GROUP])
+    expect(links()).toEqual([['t1', 'sc1', 'sh1'], ['t2', null, null], ['t3', null, null], ['t4', null, null]])
+  })
 
-    // 5. Scene Two back in the active list: its tasks are under it again —
-    //    their links were never written.
+  it('all of them in a row, and the scene back in the active list: its tasks are under it again — nothing was written to them', async () => {
+    await mount()
+    await clearList('L1')
+    const alt = await makeList('Alt', ['sc1'], ['sh1'])
+    await act(async () => { await ctxRef.setActiveShotList(alt.id) })
+    await act(async () => { await ctxRef.archiveShotList('L1') })
+    expectWhole(measure(), 'cleared, set active, archived')
+    expect(links()).toEqual(ORIGINAL_LINKS)
+    expect(taskWrites()).toEqual([])
+    await act(async () => { await ctxRef.deleteScene('sc1') })
+    let m = measure()
+    expectWhole(m, 'deleted')
+    expect(m.groups).toEqual([NO_SCENE_GROUP])
+    expect(links()).toEqual([['t1', null, null], ['t2', 'sc2', 'sh2'], ['t3', 'sc2', null], ['t4', null, null]])
     await act(async () => { await ctxRef.addToShotList(alt.id, { sceneIds: ['sc2'], shotIds: ['sh2'] }) })
     m = measure()
     expectWhole(m, 'back')
-    expect(m.groups).toEqual(['Two', '2A', 'No Scene'])
-    expect(m.byScene).toEqual(['Two', 'No scene'])
-    expect(m.byShot).toEqual(['Two › 2A', 'No shot'])
+    expect(m.groups).toEqual(['Two', '2A', NO_SCENE_GROUP])
+    expect(m.byScene).toEqual(['Two', NO_SCENE_GROUP])
+    expect(m.byShot).toEqual(['Two › 2A', NO_SHOT_GROUP])
     expect(m.tip('t3')).toBeUndefined()
   })
 })
+

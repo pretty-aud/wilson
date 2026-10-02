@@ -90,14 +90,14 @@ describe('removeQuestion: a scene\'s shots left in no list, and the active list'
   // task on the rows reads until they are back.
   it('the active list: the other tabs stop showing the rows, the Timeline and the Budget keep their tasks — said last, and only there', () => {
     expect(removeQuestion({ kind: 'shot', rows: [{ name: 'A', homes: ['P · v1'] }], listLabel: L, active: true }).at(-1))
-      .toBe('This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
+      .toBe('This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
     expect(removeQuestion({ kind: 'scene', rows: [{ name: 'a', homes: [] }, { name: 'b', homes: [] }], shotCount: 2, homelessShots: 2, listLabel: L, active: true }).slice(3))
-      .toEqual(['Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”.', 'This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned until they are in the active list again.'])
+      .toEqual(['Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”.', 'This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned to them until they are in the active list again.'])
     expect(removeQuestion({ kind: 'shot', rows: [{ name: 'A', homes: ['P · v1'] }], listLabel: L }).join(' ')).not.toMatch(/active list|Timeline/)
   })
   it('the rule\'s other sentences: Set active, and a list that is not the active one (Archive, Withdraw)', () => {
-    expect(activeListLeaves(true)).toBe('This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
-    expect(SET_ACTIVE_KEEPS).toBe('Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.')
+    expect(activeListLeaves(true)).toBe('This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
+    expect(SET_ACTIVE_KEEPS).toBe('Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned to it until it is in the active list.')
     expect(NOT_ACTIVE_KEEPS).toBe('It is not the active list, so nothing on the Timeline or the Budget changes.')
     // No sentence says the Timeline or the Budget "will no longer show" anything.
     for (const s of [activeListLeaves(true), activeListLeaves(false), SET_ACTIVE_KEEPS, NOT_ACTIVE_KEEPS]) expect(s).not.toMatch(/no longer show/)

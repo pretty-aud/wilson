@@ -2670,11 +2670,36 @@ export function RabbitProvider({ children }) {
   const draftPersonRef = useRef(draftPersonKey);
   useEffect(() => { draftPersonRef.current = draftPersonKey; }, [draftPersonKey]);
 
+  // Review round 1 (R1-01): a draft counts — holds the undo keys, asks at
+  // every exit, is saved or discarded by the leave question — only while its
+  // list is LIVE. Its list archived or withdrawn (here, or by someone else)
+  // leaves it dormant, not lost: off screen, asking nothing, its stored copy
+  // kept; the list restored, it is the list's draft again.
+  function draftLive(d) {
+    const list = findShotList(d.listId);
+    return !!list && !list.archived_at;
+  }
   function syncDraftHeld() {
     const pid = activeProjectIdRef.current;
-    editDraftHeldRef.current = !!pid && Object.values(editDraftsRef.current).some(d => d.projectId === pid && d.dirty);
+    editDraftHeldRef.current = !!pid && Object.values(editDraftsRef.current).some(d => d.projectId === pid && d.dirty && draftLive(d));
   }
-  useEffect(() => { syncDraftHeld(); setHistoryVersion(v => v + 1); }, [activeProjectId]);
+  useEffect(() => { syncDraftHeld(); setHistoryVersion(v => v + 1); }, [activeProjectId, bundle.shotLists]);
+
+  // Review round 1 (R1-02): the drafts in memory are the signed-in person's.
+  // Another person (or none: a sign-out, the idle timeout) never meets them:
+  // they go from memory here, their stored copies staying under their own
+  // key (offered to that person only), and the copies are read again for
+  // whoever is here now.
+  const draftsOfRef = useRef(draftPersonKey);
+  useEffect(() => {
+    if (draftsOfRef.current === draftPersonKey) return;
+    draftsOfRef.current = draftPersonKey;
+    editDraftsRef.current = {};
+    setEditDrafts({});
+    setStoredEditDrafts(readStoredDrafts());
+    syncDraftHeld();
+    setHistoryVersion(v => v + 1);
+  }, [draftPersonKey]);
 
   // Put (or, with null, end) a draft — and its stored copy with it.
   function setDraft(projectId, listId, draft) {
@@ -2725,15 +2750,17 @@ export function RabbitProvider({ children }) {
       base: opts.base || [],
       items: opts.items || [],
       now: new Date().toISOString(),
+      // The shots its first change wrote to the list (New shot; R1-04).
+      made: opts.made || [],
     });
     setDraft(pid, list.id, draft);
     return draft;
   }, []);
 
-  /** A change to the draft (each one a step its own undo takes back). */
-  const changeEditDraft = useCallback((listId, items) => {
+  /** A change to the draft (each one a step its own undo takes back); opts.made: shots it wrote. */
+  const changeEditDraft = useCallback((listId, items, opts = {}) => {
     const { pid, draft } = requireDraft(listId);
-    const next = changeDraft(draft, items, new Date().toISOString());
+    const next = changeDraft(draft, items, new Date().toISOString(), opts.made || []);
     setDraft(pid, listId, next);
     return next;
   }, []);
@@ -2856,15 +2883,26 @@ export function RabbitProvider({ children }) {
     });
   }, []);
 
-  // The open project's drafts, and the copies a previous run left for it
-  // (this person's, newest first, none that a live draft supersedes).
+  // The open project's drafts — those whose list is live (R1-01: a dormant
+  // one is not on screen, nor anyone's question) — and the copies a previous
+  // run left for it (this person's, newest first, none that a draft in
+  // memory supersedes).
+  // The live lists as THIS render has them (bundleRef catches up in an
+  // effect, after the render that reads these).
+  const liveListIds = useMemo(
+    () => new Set((bundle.shotLists || []).filter(l => !l.archived_at).map(l => l.id)),
+    [bundle.shotLists],
+  );
   const openProjectDrafts = useMemo(
-    () => Object.values(editDrafts).filter(d => d.projectId === activeProjectId),
-    [editDrafts, activeProjectId],
+    () => Object.values(editDrafts).filter(d => d.projectId === activeProjectId && liveListIds.has(d.listId)),
+    [editDrafts, activeProjectId, liveListIds],
   );
   const editDraftOf = useCallback(
-    (listId) => (activeProjectId && listId ? editDrafts[draftKey(activeProjectId, listId)] || null : null),
-    [editDrafts, activeProjectId],
+    (listId) => {
+      const d = activeProjectId && listId ? editDrafts[draftKey(activeProjectId, listId)] || null : null;
+      return d && liveListIds.has(d.listId) ? d : null;
+    },
+    [editDrafts, activeProjectId, liveListIds],
   );
   const recoverableEditDrafts = useMemo(() => Object.values(storedEditDrafts)
     .filter(c => c.personKey === draftPersonKey && c.projectId === activeProjectId && !editDrafts[draftKey(c.projectId, c.listId)])
@@ -2886,7 +2924,7 @@ export function RabbitProvider({ children }) {
   const leaveAskRef = useRef(null);
   function openDraftsNow() {
     const pid = activeProjectIdRef.current;
-    return pid ? Object.values(editDraftsRef.current).filter(d => d.projectId === pid && d.dirty) : [];
+    return pid ? Object.values(editDraftsRef.current).filter(d => d.projectId === pid && d.dirty && draftLive(d)) : [];
   }
   function unsavedEditWords() {
     const drafts = openDraftsNow();
@@ -2896,8 +2934,27 @@ export function RabbitProvider({ children }) {
     const each = drafts.map(d => `${name(d)} (of ${of(d)})`);
     return `${drafts.length} edits are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
   }
+  /** How many unsaved edits the leave and close questions are about (their words say "it" or "them"). */
+  const unsavedEditCount = useCallback(() => openDraftsNow().length, []);
+  // Review round 1 (R1-01): every draft is tried, one after another (each
+  // its own undo step), and a refusal does not stop the rest; what was not
+  // saved stays unsaved and is said — one edit's refusal in the backend's
+  // own words, as before; several, each named with its reason.
   const saveOpenDrafts = useCallback(async () => {
-    for (const d of openDraftsNow()) await saveEditDraft(d.listId, { title: d.title });
+    const drafts = openDraftsNow();
+    const refused = [];
+    for (const d of drafts) {
+      try {
+        await saveEditDraft(d.listId, { title: d.title });
+      } catch (err) {
+        refused.push({ d, err });
+      }
+    }
+    if (!refused.length) return;
+    if (drafts.length === 1) throw refused[0].err;
+    // Written but not Saved: the edit is there, and its words say so.
+    throw new Error(refused.map(({ d, err }) => (err?.savedRow ? err.message
+      : `“${formatShotListLabel(d)}” was not saved: ${err?.message || err}`)).join(' '));
   }, [saveEditDraft]);
   const discardOpenDrafts = useCallback(() => {
     for (const d of openDraftsNow()) setDraft(d.projectId, d.listId, null);
@@ -2919,6 +2976,7 @@ export function RabbitProvider({ children }) {
       setLeaveAsk(ask);
     }),
     describe: () => unsavedEditWords(),
+    count: () => openDraftsNow().length,
     save: () => saveOpenDrafts(),
     discard: () => discardOpenDrafts(),
   }), [saveOpenDrafts, discardOpenDrafts]);
@@ -5239,6 +5297,7 @@ export function RabbitProvider({ children }) {
     leaveAsk,
     answerLeave,
     describeUnsavedEdits,
+    unsavedEditCount,
     saveOpenDrafts,
     discardOpenDrafts,
     // The bin system (demo 2026-09-11).
@@ -5402,7 +5461,7 @@ export function RabbitProvider({ children }) {
     openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
     startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
     recoverEditDraft, dismissStoredEditDraft,
-    leaveAsk, answerLeave, describeUnsavedEdits, saveOpenDrafts, discardOpenDrafts,
+    leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

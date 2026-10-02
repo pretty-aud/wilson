@@ -13,6 +13,7 @@ import {
   updatesSupported, getUpdateState, checkForUpdates, downloadUpdate,
   installUpdate, onUpdateStatus,
 } from '../../cloud/updates'
+import { confirmLeave } from '../../tools/rabbit_v0.1.0/state/leaveGuard'
 import './settings.css'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button } from '../../ui'
@@ -91,8 +92,10 @@ export default function VersionPanel({ first = false }) {
                 <Download aria-hidden="true" />Download update
               </Button>
             )}
+            {/* Post-overhaul S3c review round 1 (R1-09): the restart skips the
+                window's close question, so an unsaved edit asks first. */}
             {status.state === 'downloaded' && (
-              <Button surface="light" size="sm" variant="primary" onClick={() => installUpdate()}>
+              <Button surface="light" size="sm" variant="primary" onClick={async () => { if (await confirmLeave('close')) installUpdate() }}>
                 <RotateCw aria-hidden="true" />Restart and install
               </Button>
             )}

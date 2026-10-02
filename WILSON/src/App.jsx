@@ -73,6 +73,8 @@ import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 // Post-overhaul S3c, step 7 (D12): an unsaved edit asks before every exit.
 import { hasUnsavedWork, confirmLeave, unsavedForClose } from './tools/rabbit_v0.1.0/state/leaveGuard'
+// S3c review round 1 (R1-11): the close question takes the keyboard as a dialog does.
+import { pushModal, isTopModal, focusableWithin } from './ui/overlay'
 import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
@@ -686,6 +688,41 @@ export default function App() {
     return cleanup;
   }, []);
   const closeNow = () => { setShowCloseDialog(false); window.electronAPI?.forceClose(); };
+  // S3c review round 1 (R1-11): C1 is lifted for the post-overhaul sessions,
+  // and D12 says Escape = Keep editing. While the question is up it is on the
+  // kit's overlay stack (a kit Dialog under it stops answering Escape and
+  // Tab; the pet's Shift stands down), Escape is its first answer (Keep
+  // editing, or Cancel), and Tab stays inside it — bound only while it is
+  // shown, and only while it is the top layer.
+  const closeDialogRef = useRef(null);
+  const closeBusyRef = useRef(false);
+  closeBusyRef.current = closeBusy;
+  useEffect(() => {
+    if (!showCloseDialog) return undefined;
+    const id = {};
+    const unregister = pushModal(id);
+    const onKey = (e) => {
+      if (!isTopModal(id)) return;
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        if (!closeBusyRef.current) setShowCloseDialog(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusableWithin(closeDialogRef.current);
+      if (!items.length) return;
+      const i = items.indexOf(document.activeElement);
+      if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
+        e.preventDefault();
+        (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); unregister(); };
+  }, [showCloseDialog]);
+  // How many unsaved edits the question is about ("it" or "them").
+  const closeCount = closeUnsaved.reduce((n, g) => n + (typeof g.count === 'function' ? g.count() : 1), 0);
   const closeAfter = async (how) => {
     setCloseBusy(true);
     setCloseError(null);
@@ -2815,12 +2852,20 @@ export default function App() {
               where they moved.
 
               The surface stays hand-rolled rather than becoming the kit's
-              `Dialog`: that component brings a modal stack and an Escape
-              handler, and adding Escape to the quit confirmation is an
-              INTERACTION change (C1). The two controls are the kit's
-              `Button`, which is a pure swap and is what fixes the contrast
-              and the hovers below. */}
-          <div style={{
+              `Dialog` (the light shell's own box). Its controls are the
+              kit's `Button`, which is a pure swap and is what fixes the
+              contrast and the hovers below. S3c review round 1 (R1-11): C1
+              is lifted for these sessions, so it is now a dialog to a screen
+              reader (named by its heading, described by its words) and to
+              the keyboard (the effect above: the overlay stack, Escape, Tab
+              kept inside). */}
+          <div
+            ref={closeDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wilson-close-title"
+            aria-describedby="wilson-close-words"
+            style={{
             backgroundColor: PAPER,
             // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
             // `signal` "the frame" as one of its four jobs — and loses the
@@ -2841,7 +2886,7 @@ export default function App() {
                 on one four-word heading, and the only `monospace` left in
                 this file. The SIZE is unchanged; the leading is not, because
                 it was unset and inheriting Tailwind preflight's 1.5. */}
-            <h2 style={{
+            <h2 id="wilson-close-title" style={{
               color: SIGNAL,
               fontSize: `${TYPE.h2}px`,
               lineHeight: LEADING.h2,
@@ -2850,16 +2895,17 @@ export default function App() {
             }}>Close WILSON</h2>
             {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
                 uses; `ink-2` is its replacement and reads 8.49:1 here. */}
-            <p style={{
+            <p id="wilson-close-words" style={{
               color: INK_2,
               fontSize: `${TYPE.dense}px`,
               lineHeight: LEADING.dense,
               marginBottom: '24px',
             }}>
               {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
-                  this one question (D12) — what it is, of which list. */}
+                  this one question (D12) — what it is, of which list; of
+                  several, "them" (review round 1, R1-12). */}
               {closeUnsaved.length
-                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} Save it before closing, or discard it.`
+                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard them.' : 'Save it before closing, or discard it.'}`
                 : 'Make sure you have exported your work before closing.'}
             </p>
             {closeError && (
@@ -2897,11 +2943,12 @@ export default function App() {
                 inline style can no longer beat a hover rule because there is
                 no inline style left to do it. */}
             {/* With an unsaved edit, D12's three answers, Keep editing first
-                and focused: no Escape is added to this question (C1). */}
+                and focused — and Escape (R1-11). Without one, Cancel first and
+                focused, as every question's staying answer is. */}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
               <Button
                 variant="secondary"
-                autoFocus={closeUnsaved.length > 0}
+                autoFocus
                 disabled={closeBusy}
                 onClick={() => setShowCloseDialog(false)}
                 style={{ flex: 1 }}

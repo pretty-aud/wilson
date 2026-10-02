@@ -18,24 +18,36 @@ import { showDate } from '../../dates'
 
 const q = (s) => `“${s}”`
 
+/** What New shot writes at once (review round 1, R1-04: the question said nothing was). */
+export const NEW_SHOT_WRITES = 'The new shot is added to the list now, and stays there whatever becomes of the edit.'
+
 /**
  * D13's question, before a list's or an edit's first change.
- *   list   the list on screen
- *   from   the saved edit on screen, or null (the list's order)
- *   tip    the chain's latest edit, or null (the list has none)
- *   name   draftName's { title, version } — what Yes makes
- *   what   the change, in words ("Move “The door” down"), or null (none yet)
- * → { title, lines: [string, string], confirmLabel }
+ *   list      the list on screen
+ *   from      the saved edit on screen, or null (the list's order)
+ *   tip       the chain's latest edit, or null (the list has none)
+ *   name      draftName's { title, version } — what Yes makes
+ *   what      the change, in words ("Move “The door” down"), or null (none yet)
+ *   writes    what the change writes at once, or null (nothing: the usual)
+ *   replaces  the unsaved edit a previous run left for this list and the
+ *             person put off ("Recover unsaved edit?" → Not now), or null:
+ *             a new edit of the list takes its place (review round 1, R1-03)
+ * → { title, lines, confirmLabel }
  */
-export function firstChangeQuestion({ list, from = null, tip = null, name, what = null }) {
+export function firstChangeQuestion({ list, from = null, tip = null, name, what = null, writes = null, replaces = null }) {
   const making = q(formatShotListLabel(name))
   const change = what ? ` with this change: ${what}` : ''
+  const unsaved = writes
+    ? `${writes} The edit itself is not saved until you choose Save edit.`
+    : 'Nothing is saved until you choose Save edit.'
+  const after = replaces ? [replacesWords(replaces)] : []
   if (!from) {
     return {
       title: 'Make a new edit from this list?',
       lines: [
         `Start new edit makes ${making}, ${tip ? 'the next edit' : 'a new edit'} of ${q(formatShotListLabel(list))}, from the list's order${change}.`,
-        'The list itself does not change. Nothing is saved until you choose Save edit.',
+        `The list itself does not change. ${unsaved}`,
+        ...after,
       ],
       confirmLabel: 'Start new edit',
     }
@@ -46,7 +58,8 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
       title: 'Make a new version of this edit?',
       lines: [
         `Start new version makes ${making}, the next version after ${q(formatShotListLabel(tip))}, the latest, from ${fromLabel}${change}.`,
-        'Saved versions stay as they are. Nothing is saved until you choose Save edit.',
+        `Saved versions stay as they are. ${unsaved}`,
+        ...after,
       ],
       confirmLabel: 'Start new version',
     }
@@ -55,10 +68,17 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
     title: 'Make a new version of this edit?',
     lines: [
       `Start new version makes ${making} from ${fromLabel}${change}.`,
-      `${fromLabel} stays as it was saved. Nothing is saved until you choose Save edit.`,
+      `${fromLabel} stays as it was saved. ${unsaved}`,
+      ...after,
     ],
     confirmLabel: 'Start new version',
   }
+}
+
+/** The put-off copy a new edit of its list replaces, and the way back to it first. */
+export function replacesWords(copy) {
+  const n = (copy?.items || []).length
+  return `It replaces ${q(formatShotListLabel(copy))}, the unsaved edit of this list kept from before (${n} shot${n === 1 ? '' : 's'}), which is then gone. To keep that one instead, choose Cancel, then Recover unsaved edit… in the bar's More menu.`
 }
 
 /**
@@ -85,10 +105,15 @@ export function recoverWords({ copy, list, locale }) {
  * "Discard changes?" — what goes, and what comes back.
  *   draft    the draft ({ title, version })
  *   basedOn  the saved edit it began from, or null (the list's order)
+ *   made     the names of the shots New shot added to the list for it: they
+ *            were written at once, and stay (review round 1, R1-04)
  */
-export function discardWords({ draft, basedOn }) {
+export function discardWords({ draft, basedOn, made = [] }) {
   const back = basedOn ? `${q(formatShotListLabel(basedOn))} comes back as it was saved` : 'the list\'s own order comes back'
-  return `${q(formatShotListLabel(draft))} is not saved: its changes go, and ${back}. Nothing was written, so nothing else changes.`
+  const rest = !made.length ? 'Nothing was written, so nothing else changes.'
+    : made.length === 1 ? `The new shot it added to the list, ${q(made[0])}, stays there.`
+    : `The new shots it added to the list stay there: ${made.map(q).join(', ')}.`
+  return `${q(formatShotListLabel(draft))} is not saved: its changes go, and ${back}. ${rest}`
 }
 
 // ── each change, in words (the question's "with this change: …") ─────────

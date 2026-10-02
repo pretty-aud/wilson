@@ -39,6 +39,26 @@ describe('Rabbit.jsx: leaving the Scenes tab asks (the strip, a jump out, a toas
   })
 })
 
+// S3c review round 1 (R1-09): "Restart & install" quits through the updater,
+// which forces the window closed — its close question never asks. So both
+// Restart buttons ask the leave guard first, and install only on a go.
+describe('the update restart asks first: it skips the window\'s close question', () => {
+  const prompt = read('../../components/UpdatePrompt.jsx')
+  const panel = read('../../components/settings/VersionPanel.jsx')
+  const ASKS = /onClick=\{async \(\) => \{ if \(await confirmLeave\('close'\)\) installUpdate\(\) \}\}/
+  it('both Restart buttons ask confirmLeave(\'close\') and install only on a go; neither installs directly', () => {
+    for (const [name, src] of [['UpdatePrompt', prompt], ['VersionPanel', panel]]) {
+      expect(src, name).toMatch(ASKS)
+      expect(src, name).not.toMatch(/onClick=\{\(\) => installUpdate\(\)\}/)
+      expect(src, name).toMatch(/import \{ confirmLeave \} from '(\.\.\/)+tools\/rabbit_v0\.1\.0\/state\/leaveGuard'/)
+    }
+  })
+  it('CONTROL: the old direct install fails the pin', () => {
+    expect(prompt.replace("onClick={async () => { if (await confirmLeave('close')) installUpdate() }}", 'onClick={() => installUpdate()}')).not.toMatch(ASKS)
+    expect(panel.replace("onClick={async () => { if (await confirmLeave('close')) installUpdate() }}", 'onClick={() => installUpdate()}')).not.toMatch(ASKS)
+  })
+})
+
 describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'s close folds the edit into its one question', () => {
   it('navigateTo asks BEFORE the transition starts (C2), only from R.A.B.B.I.T., and a back press it keeps re-stamps the address', () => {
     expect(app).toMatch(PAGE)
@@ -49,10 +69,31 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
     expect(dialog).toMatch(/\{closeUnsaved\.length \? 'Keep editing' : 'Cancel'\}/)
     expect(dialog).toMatch(/Discard and close/)
     expect(dialog).toMatch(/\{closeUnsaved\.length \? 'Save edit and close' : 'Close'\}/)
-    expect(dialog).toMatch(/autoFocus=\{closeUnsaved\.length > 0\}/)
+    // Review round 1 (R1-11): its staying answer is first and focused, with
+    // an edit or without.
+    expect(dialog).toMatch(/<Button\s+variant="secondary"\s+autoFocus\s+disabled=\{closeBusy\}/)
     // Still the one quit question: the same heading, no second dialog for the edit.
     expect(dialog).toMatch(/>Close WILSON<\/h2>/)
     expect(app.match(/<LeaveEditDialog \/>/g)).toHaveLength(1)
+    // …and of several edits it says "them" (R1-12).
+    expect(dialog).toMatch(/closeCount > 1 \? 'Save them before closing, or discard them\.' : 'Save it before closing, or discard it\.'/)
+  })
+  // Review round 1 (R1-11): C1 is lifted for these sessions, and D12 says
+  // Escape = Keep editing. The question is a dialog to a screen reader and to
+  // the keyboard: on the overlay stack while it is up, Escape its first
+  // answer (unless busy), Tab kept inside — bound only while it is shown.
+  const CLOSE_KEYS = /useEffect\(\(\) => \{\s*if \(!showCloseDialog\) return undefined;\s*const id = \{\};\s*const unregister = pushModal\(id\);\s*const onKey = \(e\) => \{\s*if \(!isTopModal\(id\)\) return;\s*if \(e\.key === 'Escape'\) \{\s*if \(e\.defaultPrevented\) return;\s*e\.preventDefault\(\);\s*if \(!closeBusyRef\.current\) setShowCloseDialog\(false\);\s*return;\s*\}\s*if \(e\.key !== 'Tab'\) return;\s*const items = focusableWithin\(closeDialogRef\.current\);[\s\S]*?document\.addEventListener\('keydown', onKey\);\s*return \(\) => \{ document\.removeEventListener\('keydown', onKey\); unregister\(\); \};\s*\}, \[showCloseDialog\]\);/
+  it('the close question takes the keyboard as a dialog does: the overlay stack, Escape = its staying answer, Tab inside; and names itself', () => {
+    expect(app).toMatch(CLOSE_KEYS)
+    const dialog = app.slice(app.indexOf('{showCloseDialog && ('), app.indexOf('\n      )}', app.indexOf('{showCloseDialog && (')))
+    expect(dialog).toMatch(/ref=\{closeDialogRef\}\s+role="dialog"\s+aria-modal="true"\s+aria-labelledby="wilson-close-title"\s+aria-describedby="wilson-close-words"/)
+    expect(dialog).toMatch(/<h2 id="wilson-close-title"/)
+    expect(dialog).toMatch(/<p id="wilson-close-words"/)
+  })
+  it('CONTROL: no stack, an Escape that closes while busy, or a listener left bound, fails the pin', () => {
+    expect(app.replace('const unregister = pushModal(id);', 'const unregister = () => {};')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace('if (!closeBusyRef.current) setShowCloseDialog(false);', 'setShowCloseDialog(false);')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace("return () => { document.removeEventListener('keydown', onKey); unregister(); };", 'return () => { unregister(); };')).not.toMatch(CLOSE_KEYS)
   })
   // Step 8: the pin reaches the prompt itself (both halves Chromium needs) and
   // its listener, not only the guard's first line.

@@ -78,6 +78,7 @@ import {
 import {
   downloadUpdate, installUpdate, onUpdateStatus, skipVersion,
 } from '../cloud/updates'
+import { confirmLeave } from '../tools/rabbit_v0.1.0/state/leaveGuard'
 
 const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
@@ -137,7 +138,10 @@ export default function UpdatePrompt({ version, onDismiss }) {
         </Button>
       )}
       {phase === 'ready' && (
-        <Button variant="primary" onClick={() => installUpdate()}>
+        // Post-overhaul S3c review round 1 (R1-09): the restart closes the
+        // window without its close question (the updater forces it), so an
+        // unsaved edit asks first, here — D12's three answers.
+        <Button variant="primary" onClick={async () => { if (await confirmLeave('close')) installUpdate() }}>
           <RotateCw aria-hidden="true" />
           Restart &amp; install
         </Button>

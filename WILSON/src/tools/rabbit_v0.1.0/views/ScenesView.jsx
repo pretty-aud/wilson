@@ -65,10 +65,10 @@ import {
 } from './scenes/editModel'
 import {
   firstChangeQuestion, moveWords, duplicateWords, removeWords, addWords, newShotWords,
-  moveBlockWords, duplicateBlockWords, removeBlockWords, dropWords,
+  moveBlockWords, duplicateBlockWords, removeBlockWords, dropWords, NEW_SHOT_WRITES,
 } from './scenes/editCopy'
 // …and (step 6) the drag.
-import { useCutDrag } from './scenes/useCutDrag'
+import { useCutDrag, blockLine } from './scenes/useCutDrag'
 import { Grip } from './scenes/EditTable'
 // …and (step 7) the leave guard: a popup's typed text, a jump between rows.
 import { useLeaveGuard } from './scenes/useLeaveGuard'
@@ -773,6 +773,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   const newShotItem = useCallback((afterId, sceneId) => (its, shot) => (
     shot ? insertAfter(its, afterId, itemsForShots([shot], uuidv4, { sceneId })) : null
   ), [])
+  // The shot New shot wrote, kept on the draft: Discard changes says it stays (R1-04).
+  const madeShot = useCallback((shot) => (shot?.id ? [shot.id] : []), [])
   const cutRowMenu = useCallback((r) => {
     if (!canEditCut) return []
     const last = (editSession.items?.length || 0) - 1
@@ -791,12 +793,12 @@ export default function ScenesView({ pageActive = false } = {}) {
         Icon: Plus,
         disabled: !canWriteProject || !scene,
         hint: !canWriteProject ? 'members only' : !scene ? 'no scene' : undefined,
-        onClick: () => requestCut({ what: newShotWords(scene.name || 'Untitled scene'), prepare: () => makeShotIn(sceneId), apply: newShotItem(id, sceneId) }),
+        onClick: () => requestCut({ what: newShotWords(scene.name || 'Untitled scene'), writes: NEW_SHOT_WRITES, prepare: () => makeShotIn(sceneId), apply: newShotItem(id, sceneId), made: madeShot }),
       },
       { divider: true },
       { label: 'Remove from edit', Icon: ListMinus, danger: true, onClick: () => requestCut({ what: removeWords(r.name), apply: (its) => removeItem(its, id) }) },
     ]
-  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem])
+  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem, madeShot])
   const cutBandMenu = useCallback((band) => {
     if (!canEditCut) return []
     const all = editSession.items || []
@@ -823,12 +825,12 @@ export default function ScenesView({ pageActive = false } = {}) {
         Icon: Plus,
         disabled: !canWriteProject || !scene,
         hint: !canWriteProject ? 'members only' : !scene ? 'no scene' : undefined,
-        onClick: () => requestCut({ what: newShotWords(band.label), prepare: () => makeShotIn(band.sceneId), apply: newShotItem(lastId, band.sceneId) }),
+        onClick: () => requestCut({ what: newShotWords(band.label), writes: NEW_SHOT_WRITES, prepare: () => makeShotIn(band.sceneId), apply: newShotItem(lastId, band.sceneId), made: madeShot }),
       },
       { divider: true },
       { label: 'Remove scene from edit', Icon: ListMinus, danger: true, onClick: () => requestCut({ what: removeBlockWords(band.label), apply: onSpan((its, s, e) => removeBand(its, s, e)) }) },
     ]
-  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem])
+  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem, madeShot])
   // How many times each shot plays in the cut (the Add shots picker says so).
   const inCut = useMemo(() => {
     const m = new Map()
@@ -1818,7 +1820,10 @@ export default function ScenesView({ pageActive = false } = {}) {
           what Yes makes, from what, with which change, and what stays.
           Cancel first and focused (ListConfirm); Yes starts the draft. ── */}
       {editChanges.asking && (() => {
-        const qn = firstChangeQuestion(editChanges.asking)
+        // R1-03: an unsaved edit of this list kept from before, put off —
+        // the question says a new edit replaces it, and the way back to it.
+        const replaces = (ctx?.recoverableEditDrafts || []).find(c => c.listId === editChanges.asking.listId) || null
+        const qn = firstChangeQuestion({ ...editChanges.asking, replaces })
         return (
           <ListConfirm
             title={qn.title}
@@ -2078,7 +2083,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
           const isChecked = selected.has(sc.id)
           // What each unnamed control on the row is named for.
           const name = sc.name || 'Untitled'
-          const dropAt = drag?.at('scene', sc.id)
+          // A scene dropped after an OPEN scene lands after its shots: the
+          // line is under them, on the nest (review round 1, R1-07).
+          const { head: dropAt, lastRow: nestDrop } = blockLine(drag?.lineOf?.('scene', sc.id), 'scene', expanded)
           return (
             <Fragment key={sc.id}>
               {/* The kit Row: its one selected treatment (R3-38 — it was an
@@ -2245,7 +2252,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   holding the scene's shots as a table of their own (no
                   header, as before) on the recessed paper they sat on. */}
               {expanded && (
-                <Row className="rb-scene-nest-row">
+                <Row className="rb-scene-nest-row" data-drop={nestDrop === 'after' ? 'after' : undefined}>
                   <Td colSpan={12} className="rb-scene-nest-cell">
                     <div className="rb-scene-nest">
                       {/* Nested-shot bulk action bar */}
@@ -2685,7 +2692,10 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
           // S3c step 6: a scene's band takes a drag (and can be dragged) only
           // as a scene's — a band of no scene is no block.
           const bandDrag = drag && g.groupType === 'scene' && g.sceneId ? drag : null
-          const bandAt = bandDrag?.at('scene', g.sceneId)
+          // A scene dropped after this band lands after its shots: the line
+          // is its last shot's while they show (review round 1, R1-07).
+          const { head: bandAt, lastRow: bandAfterLast } = blockLine(bandDrag?.lineOf?.('scene', g.sceneId), 'scene', !collapsed && g.shots.length > 0)
+          const lastShotId = g.shots[g.shots.length - 1]?.id
           return (
             <Fragment key={g.key}>
               {/* A group's band (none for ungrouped): one row across the
@@ -2739,7 +2749,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                 const shotTakeEntries = takes?.map?.get(shot.id) || []
                 const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
                 const shotName = shot.name || 'Untitled'
-                const shotDropAt = drag?.at('shot', shot.id)
+                const shotDropAt = drag?.at('shot', shot.id) || (shot.id === lastShotId ? bandAfterLast : undefined)
                 return (
                   <Row
                     key={shot.id}
@@ -3201,6 +3211,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const [leaveAsk, setLeaveAsk] = useState(null)
   const dirtyRef = useRef(false)
   useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
+  // Review round 1 (R1-10): the scene gone under an open question (deleted
+  // elsewhere) — it can never be answered here: the exit stays, the question
+  // goes, and the leave guard's lock is let go.
+  useEffect(() => {
+    if (!scene && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
+  }, [scene, leaveAsk])
   // What opened this popup — a row's "View details" — captured in render, as
   // the kit Dialog captures it (an effect would read the popup's own focus).
   // The delete question asked from here is handed it (ConfirmDialog).
@@ -3699,6 +3715,10 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const [leaveAsk, setLeaveAsk] = useState(null)
   const dirtyRef = useRef(false)
   useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
+  // R1-10, as the scene popup's: the shot gone under an open question.
+  useEffect(() => {
+    if (!shot && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
+  }, [shot, leaveAsk])
   // What opened this popup, handed to the delete question (the scene popup's).
   const openerRef = useRef(null)
   if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement

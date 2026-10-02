@@ -25,7 +25,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus, Scissors } from 'lucide-react'
+import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus, Scissors, History } from 'lucide-react'
 import { Banner, Button, IconButton, StatusBadge } from '../../../../ui'
 import GatedAction from '../../../../permissions/GatedAction'
 import { sortShotLists } from '../../state/shotListModel'
@@ -74,6 +74,8 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   const [dialog, setDialog] = useState(null)
   const close = useCallback(() => setDialog(null), [])
   const closePicker = useCallback(() => { setPickerOpen(false); setPickerError(null) }, [])
+  // "Recover unsaved edit?" put off this visit, by list ("Not now"; below).
+  const [putOff, setPutOff] = useState(() => new Set())
 
   const lists = ctx?.shotLists || []
   const label = useCallback((row) => (ctx?.formatShotListLabel ? ctx.formatShotListLabel(row) : ''), [ctx])
@@ -168,6 +170,28 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     else if (mark?.id) showList(mark.id)
   })
 
+  // Review round 1 (R1-01): Archive and Withdraw on a list with an unsaved
+  // edit say what becomes of it — the provider keeps it, off screen and
+  // asking nothing, until the list is restored.
+  const draftKeptWords = (row) => {
+    const d = ctx?.editDraftOf?.(row.id)
+    return d ? ` Its unsaved edit, “${label(d)}”, is kept as it is, off screen: restore the list to go back to it.` : ''
+  }
+
+  // Review round 1 (R1-03): an unsaved edit a previous run left for this list
+  // ("Recover unsaved edit?"), put off with "Not now", is still one menu item
+  // away — the question again — so a new edit of the list never replaces it
+  // without a way back to it first.
+  const recoverItems = (row) => {
+    const copy = row && !row.archived_at && (ctx?.recoverableEditDrafts || []).find(c => c.listId === row.id)
+    if (!copy) return []
+    return [{
+      label: 'Recover unsaved edit…',
+      Icon: History,
+      onClick: () => setPutOff(prev => { const next = new Set(prev); next.delete(copy.listId); return next }),
+    }]
+  }
+
   // A live list's verbs by seat (D8), for the bar's More menu (the list on
   // screen: `onScreen`, whose Set active is on the bar itself) and a picker
   // row's menu. A verb that only asks to be sure has no ellipsis; one that
@@ -189,6 +213,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           ? { label: 'New edit from this list', Icon: Scissors, onClick: startEdit }
           : { label: 'New edit from this list', Icon: Scissors, disabled: true, hint: 'read-only' })
       }
+      out.push(...recoverItems(row))
     }
     if (!onScreen && !rowActive) {
       out.push(gate.activate
@@ -258,6 +283,17 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   // edge pulsing once every 1.2s, "● Unsaved" before it, one polite
   // announcement. Discard changes beside it, on a draft only; it asks.
   const draftOnScreen = editOnScreen.mode === 'draft' ? editOnScreen.draft : null
+  // Review round 1 (R1-06): Yes swaps the table and the bar's More menu for
+  // the draft's, so the control the question came from is gone and focus
+  // fell to the page. It goes to Save edit — the next thing the edit waits
+  // on — but only when nothing else has it.
+  const saveEditRef = useRef(null)
+  const draftShownKey = draftOnScreen ? `${draftOnScreen.listId}|${draftOnScreen.basedOnEditId || ''}` : null
+  useEffect(() => {
+    if (!draftShownKey) return
+    const at = document.activeElement
+    if (!at || at === document.body || !at.isConnected) saveEditRef.current?.focus()
+  }, [draftShownKey])
   const editVerbsOnBar = editOnScreen.mode !== 'none' ? (
     <>
       <GatedAction
@@ -267,6 +303,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           : `Nothing to save: “${label(editRow)}” is as it was saved. A change to the cut starts its next version.`}
       >
         <Button
+          ref={saveEditRef}
           size="sm"
           attention={!!draftOnScreen}
           attentionLabel={draftOnScreen ? `“${label(draftOnScreen)}” is not saved yet` : undefined}
@@ -296,7 +333,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     verbs: editVerbsOnBar,
   } : null
 
-  const moreItems = editRow ? editVerbs(editRow)
+  const moreItems = editRow ? [...recoverItems(list), ...editVerbs(editRow)]
     : editOnScreen.mode === 'draft' ? []
     : viewed.mode === 'list' && list ? listVerbs(list, { onScreen: true })
     : viewed.mode === 'archived' && list && restoreRoute(list)
@@ -440,7 +477,8 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   // for the next visit. Recover makes it the list's draft again and shows
   // that list (a list with a draft shows the draft); Discard drops it. A
   // copy whose list is archived or gone can only be discarded, said why.
-  const [putOff, setPutOff] = useState(() => new Set())
+  // Put off, it is still in the bar's More menu (review round 1, R1-03), and
+  // the first-change question says a new edit of its list would replace it.
   const recoverable = pageActive ? (ctx?.recoverableEditDrafts || []).find(c => !putOff.has(c.listId)) || null : null
   const recoverList = recoverable ? lists.find(l => l.id === recoverable.listId) || null : null
 
@@ -550,7 +588,12 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           onCancel={close}
           onConfirm={() => inDialog(async () => { ctx.discardEditDraft(list.id); close() })}
         >
-          {discardWords({ draft: target, basedOn: (ctx?.edits || []).find(e => e.id === target.basedOnEditId) || null })}
+          {discardWords({
+            draft: target,
+            basedOn: (ctx?.edits || []).find(e => e.id === target.basedOnEditId) || null,
+            // R1-04: the shots New shot wrote for it stay in the list.
+            made: (target.made || []).map(id => ctx?.shotById?.(id)?.name).filter(Boolean),
+          })}
         </ListConfirm>
       )}
 
@@ -612,7 +655,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
           onCancel={close}
           onConfirm={() => inDialog(async () => { await ctx.archiveShotList(target.id, true); close() })}
         >
-          {`“${label(target)}” moves to Archived in Shot lists. Nothing in it is deleted, and a project manager or a workspace admin can restore it. ${NOT_ACTIVE_KEEPS}`}
+          {`“${label(target)}” moves to Archived in Shot lists. Nothing in it is deleted, and a project manager or a workspace admin can restore it. ${NOT_ACTIVE_KEEPS}${draftKeptWords(target)}`}
         </ListConfirm>
       )}
 
@@ -625,8 +668,10 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         >
           {/* Review round 1 (R1-15): "You made" only where the maker test
               applies — the Local Server has no users, and offers Withdraw
-              on any untouched list. */}
-          {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or started an edit on it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or started an edit on it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived. ${NOT_ACTIVE_KEEPS}`}
+              on any untouched list. S3c review round 1 (R1-01): "saved an
+              edit of it" — an unsaved edit does not make a list touched,
+              and when there is one the question says what becomes of it. */}
+          {`${makerUserId === undefined ? `Nobody has saved “${label(target)}” or saved an edit of it, so it can be taken back.` : `You made “${label(target)}” and nobody has saved it or saved an edit of it, so you can take it back.`} It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived. ${NOT_ACTIVE_KEEPS}${draftKeptWords(target)}`}
         </ListConfirm>
       )}
 

@@ -47,13 +47,18 @@ export function dropWhere(dragKind, targetKind, clientY, rect) {
 
 /**
  * onDrop(drag, target, where)   drag / target: { kind, id }; where: 'before' | 'after'
- * → { start(kind, id), end, over(kind, id), leave(kind, id), drop(kind, id), at(kind, id) }
+ * → { start(kind, id), end, over(kind, id), leave(kind, id), drop(kind, id), at(kind, id), lineOf(kind, id) }
  *   each of start / over / leave / drop returns the handler for that row
  *   at(kind, id) → 'before' | 'after' | undefined — the row's drop line now
+ *   lineOf(kind, id) → { where, drag } | undefined — the same, with the KIND
+ *     being dragged: a block (or a scene) dropped after a block lands after
+ *     that block's last row, so the tables draw its line there, not under
+ *     the heading (review round 1, R1-07); a shot onto a block is the top
+ *     of it, under the heading
  */
 export function useCutDrag({ onDrop }) {
   const dragRef = useRef(null)
-  const [line, setLine] = useState(null)   // { kind, id, where }
+  const [line, setLine] = useState(null)   // { kind, id, where, drag }
 
   const start = useCallback((kind, id) => (e) => {
     dragRef.current = { kind, id }
@@ -80,7 +85,7 @@ export function useCutDrag({ onDrop }) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
     const where = dropWhere(d.kind, kind, e.clientY, e.currentTarget.getBoundingClientRect())
-    setLine(prev => (prev && prev.kind === kind && prev.id === id && prev.where === where ? prev : { kind, id, where }))
+    setLine(prev => (prev && prev.kind === kind && prev.id === id && prev.where === where && prev.drag === d.kind ? prev : { kind, id, where, drag: d.kind }))
   }, [])
 
   const leave = useCallback((kind, id) => (e) => {
@@ -101,6 +106,23 @@ export function useCutDrag({ onDrop }) {
   }, [onDrop])
 
   const at = useCallback((kind, id) => (line && line.kind === kind && line.id === id ? line.where : undefined), [line])
+  const lineOf = useCallback((kind, id) => (line && line.kind === kind && line.id === id ? { where: line.where, drag: line.drag } : undefined), [line])
 
-  return { start, end, over, leave, drop, at }
+  return { start, end, over, leave, drop, at, lineOf }
+}
+
+/**
+ * Where a block's heading and its rows draw the line (R1-07): a block of the
+ * heading's own kind dropped AFTER it lands after the block's last row, so
+ * the line is that row's when the block shows any; otherwise the heading's.
+ *   line      lineOf(kind, id) for the heading
+ *   blockKind the kind a block of this heading is dragged as ('band' in the
+ *             cut, 'scene' on the list)
+ *   rowsShown whether the block shows rows under its heading now
+ * → { head: 'before' | 'after' | undefined, lastRow: 'after' | undefined }
+ */
+export function blockLine(line, blockKind, rowsShown) {
+  if (!line) return { head: undefined, lastRow: undefined }
+  if (line.where === 'after' && line.drag === blockKind && rowsShown) return { head: undefined, lastRow: 'after' }
+  return { head: line.where, lastRow: undefined }
 }

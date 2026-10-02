@@ -75,11 +75,11 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 // Post-overhaul S3c, step 1: the undo keys' "is the settings drawer in front
 // of me?" (the Bins and Scenes keys ask it too), and which shot list a linked
 // scene or shot is in (D10's tooltip, Audrey's "clearly indicate").
-import { drawerOnScreen } from './bins/binUi'
+import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list reads
 // as not assigned in group-by-scene, never dropped, and says where it points.
-import { activeIdsOf, linksInActive } from './scenes/linkHomes'
+import { activeIdsOf, linksInActive, NO_SCENE_GROUP } from './scenes/linkHomes'
 // Track A bundle A2 (2026-09-06): Phase 7's predecessor warning on the phase
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
@@ -336,13 +336,19 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // Bins take it), and stands down under the settings drawer, which is not on
   // the kit's overlay stack (S4a trap 10), and under any kit question at the
   // confirm width, as the Budget's keys do. The page's own popups keep the
-  // keys, as they always did (C1).
+  // keys, as they always did (C1) — and only those: review round 1 (R1-05)
+  // measured R.A.B.B.I.T.'s Help (a reading-width Dialog) over the Timeline
+  // and a Ctrl+Z pressed in it undoing a task's priority underneath. A kit
+  // Dialog on screen beyond the page's own (`ownDialogsRef`, set below where
+  // they are) stands the keys down.
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
+  const ownDialogsRef = useRef(0)
   useEffect(() => {
     function onKey(e) {
       if (!pageActiveRef.current) return
       if (drawerOnScreen() || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
+      if (visibleDialogCount() > ownDialogsRef.current) return
       const t = e.target
       if (t && typeof t.closest === 'function' && t.closest('.ui-drawer')) return
       const tag = t?.tagName
@@ -375,6 +381,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
 
   // Shared task-detail popup (same component used in Tasks tab)
   const [detailTaskId, setDetailTaskId] = useState(null)
+  // The page's own kit Dialogs on screen: the undo keys act under these and
+  // no others (R1-05). The task and phase editors are this page's own
+  // hand-rolled surfaces, not kit Dialogs, and are not counted.
+  ownDialogsRef.current = (trashOpen ? 1 : 0) + (detailTaskId ? 1 : 0)
 
   // Session 29 — the three CREATE funnels refuse when the caller cannot write.
   //
@@ -5398,7 +5408,10 @@ function DetailZoomToolbar({
           shot list's (D10), and this says which — words, not a control (S5
           owns any picker here). Beside the selector it qualifies. */}
       {groupBy === 'scene' && shotListLabel && (
-        <span className="rb-tl-shotlist" title="The scenes and shots grouped here are the active shot list's. The Scenes tab changes which list is active.">
+        // A long title gives way (an ellipsis at the sheet's cap) rather than
+        // push the toolbar onto a second row at 1280 (review round 1, R1-08):
+        // the whole label is the tooltip's first line.
+        <span className="rb-tl-shotlist" title={`Shot list: ${shotListLabel}\nThe scenes and shots grouped here are the active shot list's. The Scenes tab changes which list is active.`}>
           {`Shot list: ${shotListLabel}`}
         </span>
       )}
@@ -6753,7 +6766,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
 // scene or shot outside them was bucketed under a group this never drew,
 // and VANISHED from the Timeline. Audrey's rule of 2026-10-02
 // (linkHomes.linksInActive): removing a list never removes the Timeline —
-// such a task reads as not assigned ("No Scene"; under its own scene when
+// such a task reads as not assigned (NO_SCENE_GROUP; under its own scene when
 // only its shot is outside), its stored link kept, so it is under its scene
 // again once the scene is back in the active list; its row's tooltip says
 // what it points at (`sceneById` / `shotById`, the provider's lookups over
@@ -6790,7 +6803,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
   // Bucket tasks by scene and shot (flat — ignore phases). Every task lands
   // in exactly one bucket: under its shot when the active list holds the
   // shot (and the shot's scene), else under its scene when the active list
-  // holds that, else under "No Scene" — never nowhere.
+  // holds that, else under NO_SCENE_GROUP — never nowhere.
   const tasksByScene = {}   // { sceneId: Task[] }
   const tasksByShot = {}    // { shotId: Task[] }
   const noSceneTasks = []
@@ -6886,8 +6899,8 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
   if (noSceneTasks.length > 0) {
     const noSceneCollapsed = collapsedSet?.has('__noscene__')
     rows.push({
-      key: 'grp-noscene', kind: 'phase', isSubgroup: true, label: 'No Scene',
-      phase: { id: '__noscene__', name: 'No Scene' },
+      key: 'grp-noscene', kind: 'phase', isSubgroup: true, label: NO_SCENE_GROUP,
+      phase: { id: '__noscene__', name: NO_SCENE_GROUP },
       phaseHint: '__noscene__',
       depth: 0, collapsed: noSceneCollapsed, hasChildren: true,
     })
@@ -6902,7 +6915,7 @@ function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sort
         key: 'dz-__noscene__',
         kind: 'drop-zone',
         label: '+ New task',
-        phase: { id: '__noscene__', name: 'No Scene' },
+        phase: { id: '__noscene__', name: NO_SCENE_GROUP },
         phaseHint: '__noscene__',
         depth: 1,
       })

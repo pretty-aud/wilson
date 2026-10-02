@@ -1799,7 +1799,7 @@ describe('S3b step 3: the list bar', () => {
     expect(dialog.textContent).toContain('“Pickups · v1” becomes the list the Timeline, Budget, Tasks, Assets, Bins and every other tab show.')
     // Audrey's rule of 2026-10-02: what the change of list does to the
     // Timeline and the Budget — nothing deleted, tasks read as not assigned.
-    expect(dialog.textContent).toContain('Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.')
+    expect(dialog.textContent).toContain('Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned to it until it is in the active list.')
     expect(dialog.textContent).toContain('“Shoot · v1” is not changed, and can be made active again.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(ctx.setActiveShotList).not.toHaveBeenCalled()
@@ -2028,6 +2028,36 @@ describe('S3b step 4: the picker', () => {
     await waitFor(() => expect(ctx.setActiveShotList).toHaveBeenCalledWith('list-b'))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Make this the active list?' })).toBeNull())
     expect(screen.getByRole('dialog', { name: 'Shot lists' })).toBe(dialog)
+  })
+
+  // S3c review round 1 (R1-01): Archive and Withdraw were offered on a list
+  // with an unsaved edit, and said nothing of it (Withdraw even said nobody
+  // had started an edit on it). The edit is kept, dormant, until the list is
+  // restored; the questions say so.
+  it('S3c R1-01: Archive and Withdraw on a list with an unsaved edit say it is kept, off screen, until the list is restored', () => {
+    const draft = { listId: 'list-b', title: 'Pickups cut', version: 1, items: [] }
+    const extra = { canWithdrawShotList: (id) => id === 'list-b', editDraftOf: (id) => (id === 'list-b' ? draft : null) }
+    page({ ...TWO_LISTS(), ...extra })
+    let dialog = openPicker()
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Actions for Pickups · v1' }))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Archive'))
+    expect(screen.getByRole('dialog', { name: 'Archive this list?' }).querySelector('.ui-dialog-body').textContent)
+      .toMatch(/ Its unsaved edit, “Pickups cut · v1”, is kept as it is, off screen: restore the list to go back to it\.$/)
+    cleanup()
+    page({ ...TWO_LISTS(), ...extra })
+    dialog = openPicker()
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Actions for Pickups · v1' }))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
+    const words = screen.getByRole('dialog', { name: 'Withdraw this list?' }).querySelector('.ui-dialog-body').textContent
+    expect(words).toMatch(/^Nobody has saved “Pickups · v1” or saved an edit of it, so it can be taken back\./)
+    expect(words).toMatch(/ Its unsaved edit, “Pickups cut · v1”, is kept as it is, off screen: restore the list to go back to it\.$/)
+    cleanup()
+    // CONTROL: without an unsaved edit, nothing is said of one.
+    page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
+    dialog = openPicker()
+    fireEvent.click(within(pickerRow(dialog, 'Pickups')).getByRole('button', { name: 'Actions for Pickups · v1' }))
+    fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Archive'))
+    expect(screen.getByRole('dialog', { name: 'Archive this list?' }).textContent).not.toContain('unsaved edit')
   })
 
   it('"Not in any list (N)" — only while there are such rows and a list to compare them with — selects and opens like a list: the tab shows those rows', () => {
@@ -2313,7 +2343,7 @@ describe('S3b step 6: Remove from this list', () => {
     expect(document.activeElement.textContent).toBe('Cancel')
     // Review round 1 (R1-08): Pickups holds the scene but neither of these
     // shots, and Shoot is the active list — both said.
-    expect(askWords(dialog)).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. Its 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
+    expect(askWords(dialog)).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. Its 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
     // The verb says what it does; it is not Delete.
     expect([...dialog.querySelectorAll('.ui-dialog-foot button')].map((b) => b.textContent)).toEqual(['Cancel', 'Remove from list'])
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
@@ -2332,12 +2362,12 @@ describe('S3b step 6: Remove from this list', () => {
     const { ctx } = page(TWO_LISTS())
     openMore('Cliff path')
     fireEvent.click(menuItem('Remove from this list'))
-    expect(askWords(removeDialog())).toBe('Takes “Cliff path” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
+    expect(askWords(removeDialog())).toBe('Takes “Cliff path” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Cancel' }))
     openScene('Lighthouse, dawn')
     openMore('The door')
     fireEvent.click(menuItem('Remove from this list'))
-    expect(askWords(removeDialog())).toBe('Takes shot “The door” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
+    expect(askWords(removeDialog())).toBe('Takes shot “The door” out of “Shoot · v1”. Nothing is deleted: it stays in the project. No other shot list holds it, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-a', { shotIds: ['sh1'] }))
   })
@@ -2349,7 +2379,7 @@ describe('S3b step 6: Remove from this list', () => {
     const verbs = [...bulkBarOf().querySelectorAll('.ui-btn')].map((b) => [b.textContent, b.getAttribute('data-variant')])
     expect(verbs).toEqual([['Remove from list', 'secondary'], ['Delete', 'danger']])
     fireEvent.click(within(bulkBarOf()).getByRole('button', { name: 'Remove from list' }))
-    expect(askWords(removeDialog())).toBe('Takes 2 scenes and their 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. 1 of them is in no other shot list, so Shot lists… will show it under “Not in any list”. The other one is still in “Pickups · v1”. Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned until they are in the active list again.')
+    expect(askWords(removeDialog())).toBe('Takes 2 scenes and their 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. 1 of them is in no other shot list, so Shot lists… will show it under “Not in any list”. The other one is still in “Pickups · v1”. Their 2 shots are in no other shot list, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned to them until they are in the active list again.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(bulkBarOf()).toBeNull())
     expect(ctx.removeFromShotList.mock.calls).toEqual([['list-a', { sceneIds: ['sc1', 'sc2'] }]])
@@ -2358,7 +2388,7 @@ describe('S3b step 6: Remove from this list', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select The door' }))
     fireEvent.click(screen.getByRole('button', { name: 'Select The cold lamp' }))
     fireEvent.click(within(bulkBarOf('.rb-scene-nest-bulk')).getByRole('button', { name: 'Remove from list' }))
-    expect(askWords(removeDialog())).toBe('Takes 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. No other shot list holds them, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned until they are in the active list again.')
+    expect(askWords(removeDialog())).toBe('Takes 2 shots out of “Shoot · v1”. Nothing is deleted: they stay in the project. No other shot list holds them, so Shot lists… will show them under “Not in any list”. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned to them until they are in the active list again.')
     fireEvent.click(within(removeDialog()).getByRole('button', { name: 'Remove from list' }))
     await waitFor(() => expect(bulkBarOf('.rb-scene-nest-bulk')).toBeNull())
     expect(ctx.removeFromShotList).toHaveBeenLastCalledWith('list-a', { shotIds: ['sh1', 'sh2'] })
@@ -3084,7 +3114,7 @@ describe('S3b review round 1', () => {
     page(data)
     openMore('Lighthouse, dawn')
     fireEvent.click(menuItem('Remove from this list'))
-    expect(askWords(removeDialog())).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. 1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned until it is in the active list again.')
+    expect(askWords(removeDialog())).toBe('Takes “Lighthouse, dawn” and its 2 shots out of “Shoot · v1”. Nothing is deleted: it stays in the project. It is still in “Pickups · v1”. 1 of its shots is in no other shot list, so Shot lists… will show it under “Not in any list”. This is the active list, so the other tabs stop showing it. Nothing on the Timeline or the Budget is deleted: a task on it reads there as not assigned to it until it is in the active list again.')
     cleanup()
     remember('list-b')
     page(data)
@@ -3203,7 +3233,7 @@ describe('S3b review round 1', () => {
     barMenu()
     fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
     expect(screen.getByRole('dialog', { name: 'Withdraw this list?' }).querySelector('.ui-dialog-body').textContent)
-      .toBe('Nobody has saved “Pickups · v1” or started an edit on it, so it can be taken back. It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived. It is not the active list, so nothing on the Timeline or the Budget changes.')
+      .toBe('Nobody has saved “Pickups · v1” or saved an edit of it, so it can be taken back. It is set aside, not deleted: it shows as “Recently removed” until you leave the Scenes tab, and stays in Shot lists under Archived. It is not the active list, so nothing on the Timeline or the Budget changes.')
     cleanup()
     localStorage.clear()
     remember('list-b', 'u-1')
@@ -3211,7 +3241,7 @@ describe('S3b review round 1', () => {
     barMenu()
     fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Withdraw'))
     expect(screen.getByRole('dialog', { name: 'Withdraw this list?' }).querySelector('.ui-dialog-body').textContent)
-      .toMatch(/^You made “Pickups · v1” and nobody has saved it or started an edit on it, so you can take it back\. /)
+      .toMatch(/^You made “Pickups · v1” and nobody has saved it or saved an edit of it, so you can take it back\. /)
   })
 
   it('R1-16: a reviewer\'s greyed bulk edits share a wrapper that keeps the bar\'s gap (rabbitScenesCss.test.js reads the rule)', () => {
@@ -3334,7 +3364,7 @@ describe('S3b review round 2', () => {
     expect(barMenu().map(([w]) => w)).toContain('Clear this list')
     fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
     const ask = screen.getByRole('dialog', { name: 'Clear this list?' })
-    expect(ask.querySelector('.ui-dialog-body').textContent).toBe('Takes 2 scenes and 2 shots out of “Shoot · v1”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned until they are in the active list again.')
+    expect(ask.querySelector('.ui-dialog-body').textContent).toBe('Takes 2 scenes and 2 shots out of “Shoot · v1”. Nothing is deleted: each stays in the project and in any other list that holds it. A list can be cleared only until it is first saved. This is the active list, so the other tabs stop showing them. Nothing on the Timeline or the Budget is deleted: a task on them reads there as not assigned to them until they are in the active list again.')
     fireEvent.click(within(ask).getByRole('button', { name: 'Clear list' }))
     await waitFor(() => expect(ctx.removeFromShotList).toHaveBeenCalledWith('list-a', { sceneIds: ['sc1', 'sc2'], shotIds: ['sh1', 'sh2'] }))
     cleanup()
@@ -3426,5 +3456,25 @@ describe('S3c step 7: a popup\'s typed work is asked about before it goes (S3b-0
     act(() => { confirmLeave('project').then((g) => { went = g }) })
     await act(async () => { fireEvent.click(within(ask()).getByRole('button', { name: 'Discard' })) })
     expect(went).toBe(true)
+  })
+  // S3c review round 1 (R1-10): a question torn down before it was answered
+  // never settled, and the leave guard's one-question lock then refused every
+  // later exit in silence.
+  it('S3c R1-10: the scene deleted elsewhere under an open question — the question goes, that exit stays, and the next exit is not refused', async () => {
+    const { ctx, rerender } = page()
+    const dialog = openScenePopup()
+    fireEvent.click(within(dialog.querySelector('.rb-scene-detail-main')).getByRole('button', { name: 'Mara lets herself in.' }))
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Description' }), { target: { value: 'Typed.' } })
+    let went
+    act(() => { confirmLeave('tab').then((g) => { went = g }) })
+    expect(ask()).toBeTruthy()
+    const gone = ctx.scenes.find(s => s.name === 'Lighthouse, dawn').id
+    rabbit.current = { ...ctx, scenes: ctx.scenes.filter(s => s.id !== gone), sceneById: (id) => (id === gone ? null : ctx.sceneById(id)) }
+    await act(async () => { rerender(<ScenesView pageActive />) })
+    await act(async () => { await Promise.resolve() })
+    expect(went).toBe(false)
+    expect(screen.queryByRole('dialog', { name: 'Discard your changes?' })).toBeNull()
+    // The lock is let go: the next exit is answered at once.
+    expect(await confirmLeave('tab')).toBe(true)
   })
 })

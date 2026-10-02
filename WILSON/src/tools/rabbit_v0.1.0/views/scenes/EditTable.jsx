@@ -32,6 +32,7 @@ import { Film, Eye, Clapperboard, GripVertical } from 'lucide-react'
 import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState } from '../../../../ui'
 import MenuButton from './MenuButton'
 import { framesToTimecode } from './timecode'
+import { blockLine } from './useCutDrag'
 import '../rabbitScenes.css'
 
 /** Every column: what a band row spans. */
@@ -105,7 +106,10 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
           const bandItems = bandMenuFor?.(band) || []
           // A block is named by its first item (stable while the block is).
           const bandId = rows[band.start]?.item.id
-          const bandAt = drag?.at('band', bandId)
+          // A block dropped after this one lands after its last row: the line
+          // is that row's (review round 1, R1-07).
+          const { head: bandAt, lastRow: afterLast } = blockLine(drag?.lineOf?.('band', bandId), 'band', band.rows.length > 0)
+          const lastRowId = band.rows[band.rows.length - 1]?.item.id
           return (
             <Fragment key={band.key}>
               <Row
@@ -136,7 +140,7 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
               {band.rows.map(r => {
                 const shot = r.shot
                 const items = menuFor?.(r) || []
-                const at = drag?.at('item', r.item.id)
+                const at = drag?.at('item', r.item.id) || (r.item.id === lastRowId ? afterLast : undefined)
                 return (
                   <Row
                     key={r.item.id}

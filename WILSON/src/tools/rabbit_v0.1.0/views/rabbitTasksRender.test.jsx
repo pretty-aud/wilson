@@ -243,8 +243,8 @@ describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', ()
     // show this task as not assigned until it does.
     expect(home.getAttribute('data-outside')).toBe('true')
     expect(home.querySelector('.rb-scene-home-outside').textContent).toBe(', not in the active list')
-    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1\nNot in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.')
-    expect(home.querySelector('.sr-only').textContent).toBe('In: Pickups · v1. Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.')
+    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1\nNot in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.')
+    expect(home.querySelector('.sr-only').textContent).toBe('In: Pickups · v1. Not in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.')
   })
   it('a link the active list holds says nothing of it', () => {
     popupOn({ id: 't7', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'A', shot_id: 'a1' })

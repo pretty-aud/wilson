@@ -122,6 +122,12 @@ seat). On the Local Server there are no roles, so every verb is open.
 
 ## 4. Still not right, and not this session's to change
 
+*2026-10-02: bundle S3c (walkthrough 53) has since fixed the popups'
+sidebar for a reviewer (S3b-01), the task form and "Show in Bins" that
+dropped typed words unasked (S3b-05, S3b-08), the relation pickers that
+read only the active list (S3b-09), and the Budget's and Timeline's Ctrl+Z
+from other pages (S4a-07).*
+
 - **A scene's or shot's thumbnail draws a broken-image icon on the test
   data** (P1-28): the fixtures name thumbnails that are not there.
 - **The toolbar wraps its search to a second line at 1280** (R3-25's
@@ -177,6 +183,17 @@ seat). On the Local Server there are no roles, so every verb is open.
    rules, and its question now ends: *This is the active list, so the
    Timeline, Budget and every other tab will no longer show them.* Keep it,
    or withhold Clear on the active list (as Archive is)?
+
+   **2026-10-02 — answered by Audrey:** *"lets not allow a clear without
+   giving the user a warning and asking them to confirm they want to clear
+   and let them know it will clear things. but also. i want it that if a
+   shot list is removed. dont delete the budget and timeline."* Clear stays
+   on the active list, behind its question. That question's last sentence
+   was not true and is rewritten (bundle S3c): nothing on the Timeline or
+   the Budget is deleted, and a task on those scenes and shots stays there,
+   read as not assigned until they are in the active list again (its link
+   is kept). Set active, Archive, Withdraw and Remove from this list say
+   the same. Walkthrough 53, steps 25 to 30, shows it.
 
 ---
 

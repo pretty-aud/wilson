@@ -20,6 +20,9 @@
 //               stands down while a draft is dirty; Ctrl+Z on the Scenes tab
 //               takes back the draft's last change instead)
 //   changedAt   when it last changed (what "Recover unsaved edit?" says)
+//   made        the ids of the shots New shot added to the LIST for it —
+//               written at once (D6), so Discard changes says they stay
+//               (review round 1, R1-04)
 // `dirty` is true for as long as the draft exists: it is unsaved work from
 // Yes until Save edit or Discard changes, even when an undo has taken it back
 // to where it started (D13 asks no second question until then, so the draft
@@ -53,7 +56,9 @@ const copyItems = (items) => (Array.isArray(items) ? items.map(it => ({ ...it })
  * A new draft: `base` is what was on screen, `items` the first change
  * applied to it (D13). Its undo goes back to `base`.
  */
-export function startDraft({ projectId, listId, basedOnEditId = null, title, version, base, items, now }) {
+const copyIds = (ids) => (Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [])
+
+export function startDraft({ projectId, listId, basedOnEditId = null, title, version, base, items, now, made = [] }) {
   return {
     projectId,
     listId,
@@ -66,11 +71,12 @@ export function startDraft({ projectId, listId, basedOnEditId = null, title, ver
     past: [copyItems(base)],
     future: [],
     changedAt: now,
+    made: copyIds(made),
   }
 }
 
-/** The next change: the items now become one undo step back. */
-export function changeDraft(draft, items, now) {
+/** The next change: the items now become one undo step back; `made`, shots it wrote. */
+export function changeDraft(draft, items, now, made = []) {
   const past = [...draft.past, draft.items]
   return {
     ...draft,
@@ -78,6 +84,7 @@ export function changeDraft(draft, items, now) {
     past: past.length > DRAFT_HISTORY_CAP ? past.slice(past.length - DRAFT_HISTORY_CAP) : past,
     future: [],
     changedAt: now,
+    made: [...copyIds(draft.made), ...copyIds(made)],
   }
 }
 
@@ -117,6 +124,7 @@ export function storedCopy(draft, personKey) {
     base: draft.base,
     items: draft.items,
     changedAt: draft.changedAt,
+    made: copyIds(draft.made),
   }
 }
 
@@ -137,6 +145,7 @@ export function draftFromCopy(copy) {
     past: [],
     future: [],
     changedAt: copy.changedAt,
+    made: copyIds(copy.made),
   }
 }
 

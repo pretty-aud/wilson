@@ -75,11 +75,29 @@ describe('the stored copy ("Recover unsaved edit?")', () => {
   it('holds what the draft needs — not its undo stacks — and comes back as a dirty draft with an empty undo', () => {
     const d = changeDraft(start(), C, 't2')
     const copy = storedCopy(d, 'u1')
-    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2' })
+    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2', made: [] })
     expect(copy.past).toBeUndefined()
     const back = draftFromCopy(JSON.parse(JSON.stringify(copy)))
-    expect(back).toMatchObject({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, dirty: true, past: [], future: [] })
+    expect(back).toMatchObject({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, dirty: true, past: [], future: [], made: [] })
     expect(back.items.map(i => i.id)).toEqual(['b'])
+  })
+
+  // Review round 1 (R1-04): the shots New shot wrote to the list for a draft
+  // are kept on it — through its changes, its undo, its stored copy — so
+  // Discard changes can say they stay.
+  it('keeps the shots it wrote (made) through changes, undo and redo, and in its stored copy', () => {
+    const first = startDraft({ projectId: 'p1', listId: 'L1', title: 'Cut', version: 1, base: A, items: B, now: 't0', made: ['s9'] })
+    expect(first.made).toEqual(['s9'])
+    const second = changeDraft(first, C, 't1', ['s10'])
+    expect(second.made).toEqual(['s9', 's10'])
+    expect(changeDraft(second, A, 't2').made).toEqual(['s9', 's10'])
+    expect(undoDraft(second, 't3').made).toEqual(['s9', 's10'])
+    expect(redoDraft(undoDraft(second, 't3'), 't4').made).toEqual(['s9', 's10'])
+    expect(storedCopy(second, 'u1').made).toEqual(['s9', 's10'])
+    expect(draftFromCopy({ ...storedCopy(second, 'u1') }).made).toEqual(['s9', 's10'])
+    // A copy from before this field reads as none.
+    const { made: _gone, ...older } = storedCopy(second, 'u1')
+    expect(draftFromCopy(older).made).toEqual([])
   })
 
   it('is written and removed one key at a time; the key goes when the last copy does', () => {

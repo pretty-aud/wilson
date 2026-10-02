@@ -824,6 +824,9 @@ describe('S3c step 6: the drop line and the grip cell are on the sheet', () => {
     '.rb-scene-table .ui-tr.rb-scene-group-row[data-drop="before"] > .ui-td': 'inset 0 2px 0 0 var(--color-signal)',
     '.rb-scene-table .ui-tr.rb-scene-row[data-drop="after"] > .ui-td': 'inset 0 -2px 0 0 var(--color-signal)',
     '.rb-scene-table .ui-tr.rb-scene-group-row[data-drop="after"] > .ui-td': 'inset 0 -2px 0 0 var(--color-signal)',
+    // Review round 1 (R1-07): a scene dropped after an OPEN scene — the line
+    // under its shots, on the nest.
+    '.rb-scene-table .ui-tr.rb-scene-nest-row[data-drop="after"] > .ui-td': 'inset 0 -2px 0 0 var(--color-signal)',
   }
   const ROOM = [
     '.rb-scene-table .ui-tr > .ui-td.rb-scene-num-cell[data-grip="true"]',

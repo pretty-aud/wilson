@@ -90,12 +90,15 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
   it('says that tasks stay: nothing on the Timeline or the Budget is deleted, a task outside the active list reads as not assigned, its link kept', () => {
     const text = page()
     expect(text).toContain('Clearing a list, making another one active, or taking a scene or shot out of the active list never deletes a task, a phase or anything on the Budget.')
-    expect(text).toContain('A task on a scene or shot the active list does not hold reads as not assigned on the Timeline and the Budget ("No Scene", "No scene", "No shot")')
+    expect(text).toContain('A task on a scene or shot the active list does not hold reads as not assigned to it on the Timeline and the Budget (under "No scene in the active list" or "No shot in the active list")')
     expect(text).toContain('The task keeps its link: when the scene is in the active list again, so is the task.')
-    // The groups' own names, as the two views draw them.
-    expect(read('./views/TimelineView.jsx')).toMatch(/label: 'No Scene'/)
-    expect(read('./views/BudgetView.jsx')).toMatch(/: 'No scene'/)
-    expect(read('./views/BudgetView.jsx')).toMatch(/: 'No shot'/)
+    // The groups' own names, as the two views draw them (one pair of words,
+    // in linkHomes.js, true of both kinds of task under them).
+    expect(read('./views/scenes/linkHomes.js')).toMatch(/export const NO_SCENE_GROUP = 'No scene in the active list'/)
+    expect(read('./views/scenes/linkHomes.js')).toMatch(/export const NO_SHOT_GROUP = 'No shot in the active list'/)
+    expect(read('./views/TimelineView.jsx')).toMatch(/label: NO_SCENE_GROUP,/)
+    expect(read('./views/BudgetView.jsx')).toMatch(/: NO_SCENE_GROUP\b/)
+    expect(read('./views/BudgetView.jsx')).toMatch(/: NO_SHOT_GROUP\b/)
   })
 
   it('draws on both surfaces (the Help page is light, the tool\'s dialog dark)', () => {
@@ -146,6 +149,14 @@ describe('the help page\'s edits (S3c)', () => {
     expect(text).toContain('A change WILSON makes by itself (a tab turned off, the project closed) does not ask, and the unsaved edit is kept.')
     expect(text).toContain('While an edit is unsaved they undo and redo its own changes instead, on every backend.')
     expect(text).toContain('with reduced motion the pulse stops and the word stays')
+  })
+  // S3c review round 1: what the round changed, said where a person looks.
+  it('says what review round 1 changed: Recover from the More menu, the update restart and Escape, an edit kept with its archived list', () => {
+    const text = page()
+    expect(text).toContain('Not now keeps it: the bar\'s More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.')
+    expect(read('./views/scenes/ShotLists.jsx')).toMatch(/label: 'Recover unsaved edit…',/)
+    expect(text).toContain('closing WILSON, and restarting it for an update each ask first: Save edit, Discard changes or Keep editing (Escape keeps editing).')
+    expect(text).toContain('An edit whose list is archived or withdrawn is kept too, out of sight, until the list is restored.')
   })
   it('CONTROL: a label renamed on the tab fails its pin', () => {
     const [, file, drawn] = EDIT_CONTROLS.find(([n]) => n === 'Duplicate in edit')

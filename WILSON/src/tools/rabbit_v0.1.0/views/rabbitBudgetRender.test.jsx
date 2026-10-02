@@ -204,18 +204,18 @@ describe('surface 2a', () => {
       const { BySceneTab } = await import('./BudgetView')
       const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
       const cells = firstCells(container)
-      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'No scene'])
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'No scene in the active list'])
       expect(cells[0].getAttribute('title')).toBe('Harbour\nIn: Shoot · v2 (active)')
       expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nScene “Lighthouse”: in Pickups · v1, not in the active list')
       // Counted, not dropped: the task, its 2 bid days and their cost.
-      expect(figures(container)[1]).toEqual(['No scene', '1', '2.0', '0.0', '-2.0', '$1,000'])
+      expect(figures(container)[1]).toEqual(['No scene in the active list', '1', '2.0', '0.0', '-2.0', '$1,000'])
       expect(container.textContent).not.toContain('Unknown scene')
     })
     it('By shot: the same — "Harbour › SC001_SH010" by name, the other list\'s shot under "No shot"', async () => {
       const { ByShotTab } = await import('./BudgetView')
       const { container } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} sceneById={lookup} shotById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
       const cells = firstCells(container)
-      expect(cells.map(td => td.textContent)).toEqual(['Harbour › SC001_SH010', 'No shot'])
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour › SC001_SH010', 'No shot in the active list'])
       expect(cells[0].getAttribute('title')).toBe('Harbour › SC001_SH010\nIn: Shoot · v2 (active)')
       expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nShot “SC002_SH010”: in Pickups · v1, not in the active list')
       expect(figures(container)[1].slice(1, 3)).toEqual(['1', '2.0'])
@@ -233,7 +233,7 @@ describe('surface 2a', () => {
           <CustomTab project={{ id: 'p9' }} phases={[]} assets={[{ id: 'a1' }]} tasks={linked} scenes={[sceneA]} shots={[shotA]}
             sceneById={lookup} shotById={lookup} homeOf={homeOf} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
         )
-        const none = groupBy === 'shot' ? 'No shot' : 'No scene'
+        const none = groupBy === 'shot' ? 'No shot in the active list' : 'No scene in the active list'
         const cells = firstCells(container)
         expect(cells.map(td => td.textContent).sort(), groupBy).toEqual([groupBy === 'shot' ? 'Harbour › SC001_SH010' : 'Harbour', none].sort())
         expect(cells.find(td => td.textContent === none).getAttribute('title'), groupBy)
@@ -247,7 +247,7 @@ describe('surface 2a', () => {
     it('a "No scene" holding only tasks with no scene at all has nothing to say', async () => {
       const { BySceneTab } = await import('./BudgetView')
       const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={[{ id: 'k9', asset_id: 'a1', bid_days: 1 }]} budget={budget} roleRates={roleRates} />)
-      expect(firstCells(container).map(td => [td.textContent, td.getAttribute('title')])).toEqual([['No scene', null]])
+      expect(firstCells(container).map(td => [td.textContent, td.getAttribute('title')])).toEqual([['No scene in the active list', null]])
     })
   })
 
@@ -986,6 +986,26 @@ describe('surface 2b', () => {
     rerender(tab(h))
     fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
     expect(h.undo).toHaveBeenCalledTimes(1)
+  })
+  // Post-overhaul S3c review round 1 (R1-05): only a QUESTION stood the keys
+  // down; R.A.B.B.I.T.'s Help (a reading-width Dialog) over the tab let a
+  // Ctrl+Z pressed in it undo underneath. The tab's own expense popup keeps
+  // them (C1); a kit Dialog that is not the tab's own stands them down.
+  it('S3c R1-05: a kit Dialog over the tab that is not its own stands the keys down; the tab\'s own expense popup keeps them', () => {
+    const h = hook()
+    const help = <div className="ui-dialog-backdrop"><div className="ui-dialog" data-width="reading"><button type="button">Help topic</button></div></div>
+    const { rerender } = render(<>{tab(h)}{help}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Help topic' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    // CONTROL: the same tab with nothing over it — the keys act.
+    rerender(tab(h))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+    // The tab's own popup: one Dialog on screen, and it is the tab's — the keys act.
+    fireEvent.click(screen.getByRole('button', { name: 'New expense' }))
+    expect(document.querySelectorAll('.ui-dialog-backdrop')).toHaveLength(1)
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(2)
   })
   it('S4a-07: Rabbit.jsx says it — BudgetView\'s pageActive is currentPage === \'rabbit\', and the tab hands it to the Expenses tab', () => {
     expect(read('../Rabbit.jsx')).toContain("{activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}")

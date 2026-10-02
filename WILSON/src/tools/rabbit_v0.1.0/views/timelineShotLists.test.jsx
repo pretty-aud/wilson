@@ -83,7 +83,7 @@ describe('group by scene draws every task; one linked outside the active list re
     const rows = build()
     expect(taskKeys(rows)).toEqual(['t1', 't2', 't3', 't4', 't5'])
     const groups = rows.filter(r => r.kind === 'phase').map(r => r.label)
-    expect(groups).toEqual(['Harbour', 'SC001_SH010', 'No Scene'])
+    expect(groups).toEqual(['Harbour', 'SC001_SH010', 'No scene in the active list'])
     expect(under(rows, 'grp-sh-a1')).toEqual(['t1'])
     // Pickups' scene and shot (t2, t3), a shot that is gone (t4) and a shot
     // with no scene (t5): not assigned, never dropped.
@@ -116,7 +116,7 @@ describe('group by scene draws every task; one linked outside the active list re
   })
   it('the scene back in the active list: the same task is under it again (nothing was written)', () => {
     const rows = build({ scenes: [sceneA, sceneB], shots: [a1, b1, loose] })
-    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010', 'Lighthouse', 'SC002_SH010', 'No Scene'])
+    expect(rows.filter(r => r.kind === 'phase').map(r => r.label)).toEqual(['Harbour', 'SC001_SH010', 'Lighthouse', 'SC002_SH010', 'No scene in the active list'])
     expect(under(rows, 'grp-sh-b1')).toEqual(['t2'])
     expect(rows.find(r => r.key === 'tk-t2').tooltip).toBeUndefined()
   })
@@ -152,6 +152,16 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     const label = document.querySelector('.rb-tl-shotlist')
     expect(label?.textContent).toBe('Shot list: Shoot · v2')
     expect(label.tagName).toBe('SPAN') // words, not a control (S5 owns any picker)
+    // S3c review round 1 (R1-08): the whole label leads its tooltip, since a
+    // long one gives way to an ellipsis on the sheet.
+    expect(label.getAttribute('title')).toMatch(/^Shot list: Shoot · v2\nThe scenes and shots grouped here are the active shot list's\./)
+  })
+  it('S3c R1-08: a long list title stops at the sheet\'s cap with an ellipsis, rather than wrapping the toolbar at 1280', () => {
+    const css = read('./rabbitTimeline.css')
+    const rule = css.slice(css.indexOf('.rb-tl-shotlist {'), css.indexOf('}', css.indexOf('.rb-tl-shotlist {')))
+    for (const decl of ['max-width: 180px;', 'flex: 0 1 auto;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;', 'min-width: 0;']) expect(rule, decl).toContain(decl)
+    // CONTROL: the reading fails without the cap.
+    expect(rule.replace('max-width: 180px;', '')).not.toContain('max-width: 180px;')
   })
   it('grouped by scene, the gutter\'s scene and shot rows carry the tooltip that names the list (a task row keeps its own)', () => {
     rabbit.current = ctxFor({
@@ -178,7 +188,7 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     mount(true)
     fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
     const labels = [...document.querySelectorAll('.rb-tl-row-label')].map(n => n.textContent)
-    expect(labels).toContain('No Scene')
+    expect(labels).toContain('No scene in the active list')
     expect(labels).not.toContain('Lighthouse')
     const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Light B')?.parentElement
     expect(row?.getAttribute('title')).toBe('Scene “Lighthouse”: in Pickups · v1, not in the active list\nClick to edit · drag to move to another phase')
@@ -208,6 +218,26 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     render(<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} />)
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
     expect(rabbit.current.undo).not.toHaveBeenCalled()
+  })
+  // S3c review round 1 (R1-05): R.A.B.B.I.T.'s Help (a reading-width kit
+  // Dialog) over the Timeline, and a Ctrl+Z pressed in it undid a task's
+  // priority underneath. A kit Dialog that is not the page's own stands the
+  // keys down; the page's own window keeps them (C1).
+  it('S3c R1-05: a kit Dialog over the page that is not its own stands the keys down; the page\'s own window keeps them', () => {
+    rabbit.current = ctxFor()
+    mount(true, <div className="ui-dialog-backdrop"><div className="ui-dialog" data-width="reading"><button type="button">Help topic</button></div></div>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Help topic' }), { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: 'y', ctrlKey: true })
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+    expect(rabbit.current.redo).not.toHaveBeenCalled()
+    cleanup()
+    // The page's own window (the key dates' "Recently deleted") keeps them.
+    rabbit.current = ctxFor({ listTrashedMilestones: async () => [] })
+    mount(true)
+    fireEvent.click(screen.getByTitle('Recently deleted key dates'))
+    expect(document.querySelectorAll('.ui-dialog-backdrop')).toHaveLength(1)
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).toHaveBeenCalledTimes(1)
   })
   it('S4a trap 10: the keys stand down under the settings drawer, focus in it or not', () => {
     rabbit.current = ctxFor()

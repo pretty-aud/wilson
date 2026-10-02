@@ -55,8 +55,8 @@ import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
 import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list is
 // counted under "No scene" / "No shot", never dropped, and says where it points.
-import { activeIdsOf, linksInActive, notAssignedTitle } from './scenes/linkHomes'
-import { drawerOnScreen } from './bins/binUi'
+import { activeIdsOf, linksInActive, notAssignedTitle, NO_SCENE_GROUP, NO_SHOT_GROUP } from './scenes/linkHomes'
+import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // Post-overhaul S3c, step 2 (D18): the bid version's "Based on shot list" —
 // the kit Select (this file's own `Select` is the report filters').
 import { Select as KitSelect } from '../../../ui'
@@ -1414,7 +1414,7 @@ export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = nul
   return Object.entries(groups)
     .map(([sceneId, list]) => {
       const scene = sceneId === '__unscened__' ? null : byId[sceneId]
-      const name = scene ? (scene.name || 'Untitled scene') : 'No scene'
+      const name = scene ? (scene.name || 'Untitled scene') : NO_SCENE_GROUP
       return {
         ...aggregateTasks(list, roleRates),
         name,
@@ -1443,7 +1443,7 @@ export function byShotRows({ shots, scenes, sceneById = null, shotById = null, h
     .map(([shotId, list]) => {
       const shot = shotId === '__unshot__' ? null : shotOf[shotId]
       const parentScene = shot?.scene_id ? (sceneOf[shot.scene_id] || sceneById?.(shot.scene_id) || null) : null
-      const name = shot ? `${parentScene ? `${parentScene.name} › ` : ''}${shot.name || 'Untitled shot'}` : 'No shot'
+      const name = shot ? `${parentScene ? `${parentScene.name} › ` : ''}${shot.name || 'Untitled shot'}` : NO_SHOT_GROUP
       return {
         ...aggregateTasks(list, roleRates),
         name,
@@ -1601,7 +1601,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
           outside.push(...o)
           key = sceneId || '__none__'
           const sc = sceneId ? sceneById[sceneId] : null
-          label = sc ? (sc.name || 'Untitled scene') : 'No scene'
+          label = sc ? (sc.name || 'Untitled scene') : NO_SCENE_GROUP
           if (sc && homeOf) title = homeOf(sc.id).title(label)
           break
         }
@@ -1609,7 +1609,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
           const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById: findShot, homeOf })
           outside.push(...o)
           key = shotId || '__none__'
-          if (!shotId) { label = 'No shot' } else {
+          if (!shotId) { label = NO_SHOT_GROUP } else {
             const sh = shotById[shotId]; const sc = sh?.scene_id ? (sceneById[sh.scene_id] || findScene?.(sh.scene_id) || null) : null
             label = sc ? `${sc.name} › ${sh.name || 'Untitled shot'}` : (sh.name || 'Untitled shot')
             if (homeOf) title = homeOf(sh.id).title(label)
@@ -1910,11 +1910,17 @@ function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, 
   // 10) as well as under a question.
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
+  // Post-overhaul S3c review round 1 (R1-05): the expense popup is this tab's
+  // own and keeps the keys (C1); any other kit Dialog on screen (Help, a
+  // question raised over the page) stands them down, as the Timeline's.
+  const ownDialogsRef = useRef(0)
+  ownDialogsRef.current = showPopup ? 1 : 0
   useEffect(() => {
     function onKey(e) {
       if (!pageActiveRef.current) return
       if (questionOpen || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
       if (drawerOnScreen()) return
+      if (visibleDialogCount() > ownDialogsRef.current) return
       const t = e.target
       if (t && typeof t.closest === 'function' && t.closest('.ui-drawer')) return
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return

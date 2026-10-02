@@ -42,7 +42,7 @@ describe('LinkHome', () => {
   // Audrey's rule of 2026-10-02: the task popup says when the active list does
   // not hold the link — what that does to the Timeline and the Budget.
   describe('outside the active list', () => {
-    const NOTE = 'Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.'
+    const NOTE = 'Not in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.'
     it('", not in the active list" after the list, kept whole; the tooltip and a screen reader say what it does', () => {
       const homeOf = homeIndex({ shotLists: ctx.shotLists, shotListItems: [{ id: 'i2', shot_list_id: 'L2', shot_id: 'x' }], shots: ctx.allShots, edits: [], activeId: 'L1' })
       const { container } = render(<LinkHome homeOf={homeOf} id="x" name="SC001_SH010" outside />)

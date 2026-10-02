@@ -82,4 +82,28 @@ describe('confirmLeave', () => {
     expect(await confirmLeave('tab')).toBe(true)
     expect(g.ask).not.toHaveBeenCalled()
   })
+  // Review round 1 (R1-10): a question torn down before it is answered (its
+  // popup closed under it) never settled, and the one-question lock refused
+  // every later exit in silence.
+  it('a guard taken away while its question is open: that exit stays, and the next one asks again', async () => {
+    let ask = 0
+    const popup = { order: 1, applies: () => true, dirty: () => true, ask: vi.fn(() => { ask += 1; return new Promise(() => {}) }) }
+    const remove = addLeaveGuard(popup)
+    const first = confirmLeave('tab')
+    await Promise.resolve()
+    expect(ask).toBe(1)
+    remove()
+    expect(await first).toBe(false)
+    // The lock is let go: another exit is asked about, by what is left.
+    const edit = guard({ order: 2, reasons: ['tab', 'page'], answer: true })
+    expect(await confirmLeave('page')).toBe(true)
+    expect(edit.ask).toHaveBeenCalledWith('page')
+  })
+  it('a question that throws counts as "stay", and lets the lock go', async () => {
+    const g = { order: 1, applies: () => true, dirty: () => true, ask: vi.fn(async () => { throw new Error('gone') }) }
+    const remove = addLeaveGuard(g)
+    expect(await confirmLeave('tab')).toBe(false)
+    remove()
+    expect(await confirmLeave('tab')).toBe(true)
+  })
 })

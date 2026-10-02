@@ -20,9 +20,14 @@
 import { useRabbit } from '../../state/RabbitProvider'
 import AnswerDialog from './AnswerDialog'
 
-/** The question's words: what is unsaved, and what each answer does. */
-export function leaveWords(unsaved) {
-  return `${unsaved} Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.`
+/**
+ * The question's words: what is unsaved, and what each answer does — of one
+ * edit, or of several (review round 1, R1-12: "it" said of two).
+ */
+export function leaveWords(unsaved, count = 1) {
+  return count > 1
+    ? `${unsaved} Save edit keeps each as its next version; Discard changes drops them; Keep editing goes back to them.`
+    : `${unsaved} Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.`
 }
 
 export default function LeaveEditDialog() {
@@ -39,7 +44,7 @@ export default function LeaveEditDialog() {
         { label: 'Save edit', variant: 'primary', onClick: async () => { await ctx.saveOpenDrafts(); ctx.answerLeave(true) } },
       ]}
     >
-      {leaveWords(ctx.describeUnsavedEdits())}
+      {leaveWords(ctx.describeUnsavedEdits(), ctx.unsavedEditCount?.() ?? 1)}
     </AnswerDialog>
   )
 }

@@ -2320,12 +2320,14 @@ Audrey are in walkthrough 53 and the hand-off's "Waiting on Audrey".
 Timeline or the Budget"** (the S3c brief's dated section): the Timeline's
 group-by-scene and the Budget's By scene / By shot / Custom read the
 ACTIVE list's scenes and shots only (D10), and a task linked outside it
-reads as not assigned ("No Scene", "No scene", "No shot") — never dropped,
-never under a scene brought back from another list (step 1's first
-reading) — with what it points at in its tooltip and in the task popup
-(", not in the active list"). Its link is never written. Remove from this
-list and Clear on the active list, Set active, Archive and Withdraw say
-so. The executable test: `state/listRemovalKeepsTasks.test.jsx`.
+reads as not assigned ("No scene in the active list", "No shot in the
+active list" — a name true of both kinds of task under it; the
+controller's note of the same day) — never dropped, never under a scene
+brought back from another list (step 1's first reading) — with what it
+points at in its tooltip and in the task popup (", not in the active
+list"). Its link is never written. Remove from this list and Clear on the
+active list, Set active, Archive and Withdraw say so. The executable test:
+`state/listRemovalKeepsTasks.test.jsx`.
 
 - **S3c-01 · Another project's unsaved edit is not part of the window's
   close question.** An automatic switch (the project cleared) leaves a
@@ -2366,3 +2368,9 @@ so. The executable test: `state/listRemovalKeepsTasks.test.jsx`.
   otherwise S3b-03 stands. Owner: Audrey (with S3b-03).
 - **S3c-10 · P1-32b is still open** (the Timeline's weekends-off
   conversions): S5's, as the brief said.
+- **S3c-11 · One exit can ask two questions in a row.** A Scenes popup
+  with typed words, and an unsaved edit: the tab strip (or a project
+  switch) asks the popup's "Discard your changes?" first, then "Save the
+  edit before leaving?" — the nearer work first, by design
+  (`state/leaveGuard.js`, review round 1's note). Owner: Audrey (one
+  combined question instead?).

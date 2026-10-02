@@ -1,6 +1,6 @@
 // editCopy.test.js — the first-change question's sentences (S3c step 4, D13).
 import { describe, it, expect } from 'vitest'
-import { firstChangeQuestion, recoverWords, discardWords, dropWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords } from './editCopy'
+import { firstChangeQuestion, recoverWords, discardWords, dropWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords, NEW_SHOT_WRITES, replacesWords } from './editCopy'
 
 const list = { id: 'L1', title: 'Shoot', version: 2 }
 const v1 = { id: 'e1', title: "Director's cut", version: 1 }
@@ -66,6 +66,31 @@ describe('"Discard changes?" says what goes and what comes back', () => {
       .toBe('“Director\'s cut · v4” is not saved: its changes go, and “Director\'s cut · v3” comes back as it was saved. Nothing was written, so nothing else changes.')
     expect(discardWords({ draft: { title: 'Shoot', version: 1 }, basedOn: null }))
       .toBe('“Shoot · v1” is not saved: its changes go, and the list\'s own order comes back. Nothing was written, so nothing else changes.')
+  })
+  // Review round 1 (R1-04): New shot writes a real shot at once (D6), so
+  // "nothing was written" was not true of a draft that used it.
+  it('a draft that added new shots to the list says they stay — one, or several', () => {
+    expect(discardWords({ draft: { title: 'Shoot', version: 1 }, basedOn: null, made: ['SC01_SH031'] }))
+      .toBe('“Shoot · v1” is not saved: its changes go, and the list\'s own order comes back. The new shot it added to the list, “SC01_SH031”, stays there.')
+    expect(discardWords({ draft: { title: 'Shoot', version: 1 }, basedOn: null, made: ['SC01_SH031', 'SC02_SH011'] }))
+      .toBe('“Shoot · v1” is not saved: its changes go, and the list\'s own order comes back. The new shots it added to the list stay there: “SC01_SH031”, “SC02_SH011”.')
+  })
+})
+
+describe('review round 1: the question says what a change writes, and what a new edit replaces', () => {
+  it('R1-04: New shot says the shot is added to the list now, and that the edit itself is not saved', () => {
+    const qn = firstChangeQuestion({ list, from: v3, tip: v3, name: { title: "Director's cut", version: 4 }, what: 'Add a new shot to “Boats”', writes: NEW_SHOT_WRITES })
+    expect(qn.lines[1]).toBe('“Director\'s cut · v3” stays as it was saved. The new shot is added to the list now, and stays there whatever becomes of the edit. The edit itself is not saved until you choose Save edit.')
+    expect(qn.lines.join(' ')).not.toContain('Nothing is saved until you choose Save edit.')
+  })
+  it('R1-03: an unsaved edit of this list kept from before is named — what replaces it, and the way back to it first', () => {
+    const copy = { title: 'Shoot', version: 2, items: [{}, {}, {}] }
+    const qn = firstChangeQuestion({ list, name: { title: 'Shoot', version: 1 }, what: 'Move “The door” down', replaces: copy })
+    expect(qn.lines).toHaveLength(3)
+    expect(qn.lines[2]).toBe('It replaces “Shoot · v2”, the unsaved edit of this list kept from before (3 shots), which is then gone. To keep that one instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.')
+    expect(replacesWords({ title: 'A', version: 1, items: [{}] })).toContain('(1 shot)')
+    // Without one, two lines, as before.
+    expect(firstChangeQuestion({ list, name: { title: 'Shoot', version: 1 } }).lines).toHaveLength(2)
   })
 })
 

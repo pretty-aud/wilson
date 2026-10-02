@@ -9,7 +9,7 @@ import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testi
 import { EDIT_DRAFTS_KEY, storedDraftKey } from './editDrafts'
 import { confirmLeave, hasUnsavedWork, unsavedForClose, _resetLeaveGuardsForTests } from './leaveGuard'
 
-const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null, writable: true, fixtures: null }))
+const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null, writable: true, fixtures: null, authCbs: [] }))
 
 vi.mock('../adapters', () => ({
   selectAdapter: () => holder.adapter,
@@ -20,7 +20,8 @@ vi.mock('../adapters/supabaseAdapter', () => ({ resetSupabaseAdapter: () => {} }
 vi.mock('../../../cloud/auth/supabaseClient', () => ({
   supabase: {
     auth: {
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+      // Review round 1 (R1-02): the provider's auth events, played by the test.
+      onAuthStateChange: (cb) => { holder.authCbs.push(cb); return { data: { subscription: { unsubscribe() {} } } } },
       getSession: async () => ({ data: { session: holder.session } }),
     },
   },
@@ -34,7 +35,7 @@ vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => holder.fixtures 
 vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
 
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
-const { default: LeaveEditDialog } = await import('../views/scenes/LeaveEditDialog')
+const { default: LeaveEditDialog, leaveWords } = await import('../views/scenes/LeaveEditDialog')
 
 function httpError(status, message) {
   const e = new Error(message)
@@ -103,8 +104,18 @@ function makeAdapter() {
       db.shotListItems = db.shotListItems.filter(i => !gone.includes(i.id))
       return { deleted: gone }
     },
+    // Review round 1 (R1-01): a list archived (and back), and one list's
+    // edits refused on the way in.
+    archiveShotList: async (_pid, listId, archived = true) => {
+      calls.push(['archiveShotList', listId, archived])
+      if (archived && db.project.active_shot_list_id === listId) throw httpError(409, 'the active shot list cannot be archived — make another list active first')
+      db.shotLists = db.shotLists.map(l => (l.id === listId ? { ...l, archived_at: archived ? 'T' : null } : l))
+      return clone(db.shotLists.find(l => l.id === listId))
+    },
+    failListId: null,
     upsertEdit: async (row) => {
       const stored = db.edits.find(e => e.id === row.id)
+      if (!stored && a.failListId && row.shot_list_id === a.failListId) throw httpError(500, 'disk full')
       if (stored && row.snapshot !== undefined && a.failSave) { a.failSave = false; throw httpError(500, 'disk full') }
       if (!stored && db.edits.some(e => e.shot_list_id === row.shot_list_id && e.title === row.title && e.version === row.version)) {
         throw httpError(409, 'This shot list already has an edit with this title and version.')
@@ -131,10 +142,10 @@ function Probe() {
   return null
 }
 
-async function mount() {
+async function mount(lists = 2) {
   render(<RabbitProvider><Probe /></RabbitProvider>)
   await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
-  await waitFor(() => expect(ctxRef.shotLists.length).toBe(2))
+  await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
 }
 
 const item = (id, shot, scene, label = '') => ({ id, scene_id: scene, shot_id: shot, label, notes: '' })
@@ -155,6 +166,7 @@ beforeEach(() => {
   holder.session = null
   holder.writable = true
   holder.fixtures = null
+  holder.authCbs = []
   ctxRef = null
   localStorage.clear()
 })
@@ -452,5 +464,113 @@ describe('S3c step 7 — the unsaved edit asks before every exit (D12)', () => {
     act(() => { unsavedForClose()[0].discard() })
     expect(ctxRef.editDraftOf('L1')).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('S3c review round 1 — a draft whose list goes, two drafts, another person', () => {
+  const PICKUPS = { id: 'L3', project_id: 'p1', title: 'Pickups', version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, created_at: '2026-09-03' }
+  const withPickups = () => {
+    holder.adapter.db.shotLists.push({ ...PICKUPS })
+    holder.adapter.db.shotListItems.push(
+      { id: 'i5', shot_list_id: 'L3', project_id: 'p1', scene_id: 'sc1', shot_id: null, position: 0 },
+      { id: 'i6', shot_list_id: 'L3', project_id: 'p1', scene_id: null, shot_id: 'sh1', position: 0 },
+    )
+  }
+  const pickupsDraft = async () => {
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L3', title: 'Pickups', version: 1, base: [item('x', 'sh1', 'sc1', 'Boats')], items: [] }) })
+  }
+  afterEach(() => _resetLeaveGuardsForTests())
+
+  it('R1-01: its list archived, a draft goes dormant — off screen, asking nothing, the undo keys back — and comes back with the list', async () => {
+    withPickups()
+    await mount(3)
+    await pickupsDraft()
+    expect(ctxRef.hasUnsavedEdit).toBe(true)
+    expect(hasUnsavedWork('tab')).toBe(true)
+    await act(async () => { await ctxRef.archiveShotList('L3') })
+    // Dormant: nobody's question, not on screen, the provider's undo back.
+    expect(ctxRef.editDraftOf('L3')).toBeNull()
+    expect(ctxRef.hasUnsavedEdit).toBe(false)
+    for (const reason of ['tab', 'page', 'project', 'edit', 'close']) expect(hasUnsavedWork(reason), reason).toBe(false)
+    expect(unsavedForClose()).toEqual([])
+    expect(ctxRef.canUndo).toBe(true)
+    // …and not lost: its copy waits, and Ctrl+Z (the archive's undo) brings
+    // the list back with its draft as it was.
+    expect(stored()[storedDraftKey('local', 'p1', 'L3')]).toBeTruthy()
+    await act(async () => { await ctxRef.undo() })
+    expect(ctxRef.shotLists.find(l => l.id === 'L3').archived_at).toBeFalsy()
+    expect(ctxRef.editDraftOf('L3')?.items).toEqual([])
+    expect(hasUnsavedWork('tab')).toBe(true)
+  })
+
+  it('R1-01: a dormant draft beside a live one — the questions are about the live one alone: its words, its count, and Save edit saves it without trying the other', async () => {
+    withPickups()
+    await mount(3)
+    await startDraft()
+    await pickupsDraft()
+    await act(async () => { await ctxRef.archiveShotList('L3') })
+    expect(ctxRef.unsavedEditCount()).toBe(1)
+    expect(ctxRef.describeUnsavedEdits()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(unsavedForClose()[0].count()).toBe(1)
+    await act(async () => { await ctxRef.saveOpenDrafts() })
+    expect(holder.adapter.db.edits.map(e => e.shot_list_id)).toEqual(['L1'])
+    // The dormant one is still there, waiting for its list.
+    expect(stored()[storedDraftKey('local', 'p1', 'L3')]).toBeTruthy()
+    expect(hasUnsavedWork('tab')).toBe(false)
+  })
+
+  it('R1-01: with two drafts, Save edit saves every one it can — a refusal does not stop the rest — and names what was not saved', async () => {
+    withPickups()
+    await mount(3)
+    await startDraft()
+    await pickupsDraft()
+    holder.adapter.failListId = 'L3'
+    let err
+    await act(async () => { try { await ctxRef.saveOpenDrafts() } catch (e) { err = e } })
+    expect(err?.message).toBe('“Pickups · v1” was not saved: disk full')
+    expect(holder.adapter.db.edits.map(e => e.shot_list_id)).toEqual(['L1'])
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    expect(ctxRef.editDraftOf('L3')).not.toBeNull()
+    expect(ctxRef.unsavedEditCount()).toBe(1)
+  })
+
+  it('R1-01: one draft refused keeps the backend\'s own words (as before); the leave words count the drafts', async () => {
+    withPickups()
+    await mount(3)
+    await startDraft()
+    await pickupsDraft()
+    expect(ctxRef.unsavedEditCount()).toBe(2)
+    expect(ctxRef.describeUnsavedEdits()).toBe('2 edits are not saved: “Shoot · v1” (of “Shoot · v2”) and “Pickups · v1” (of “Pickups · v1”).')
+    // R1-12: of two, the leave question says "each" and "them", not "it".
+    expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount()))
+      .toBe('2 edits are not saved: “Shoot · v1” (of “Shoot · v2”) and “Pickups · v1” (of “Pickups · v1”). Save edit keeps each as its next version; Discard changes drops them; Keep editing goes back to them.')
+    expect(unsavedForClose()[0].count()).toBe(2)
+    act(() => { ctxRef.discardEditDraft('L3') })
+    expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount())).toContain('Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.')
+    holder.adapter.failListId = 'L1'
+    let err
+    await act(async () => { try { await ctxRef.saveOpenDrafts() } catch (e) { err = e } })
+    expect(err?.message).toBe('disk full')
+  })
+
+  it('R1-02: a draft in memory is the signed-in person\'s — a sign-out takes it from memory, the next person never meets it, and its copy waits for its own person', async () => {
+    await mount()
+    const signIn = async (id) => { await act(async () => { for (const cb of holder.authCbs) cb('SIGNED_IN', { user: { id } }); await new Promise(r => setTimeout(r, 5)) }) }
+    const signOut = async () => { await act(async () => { for (const cb of holder.authCbs) cb('SIGNED_OUT', null); await new Promise(r => setTimeout(r, 5)) }) }
+    await signIn('user-A')
+    await startDraft()
+    expect(Object.keys(stored())).toEqual([storedDraftKey('user-A', 'p1', 'L1')])
+    expect(ctxRef.hasUnsavedEdit).toBe(true)
+    await signOut()
+    await signIn('user-B')
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    expect(ctxRef.hasUnsavedEdit).toBe(false)
+    expect(hasUnsavedWork('tab')).toBe(false)
+    expect(ctxRef.recoverableEditDrafts).toEqual([])
+    // A's copy is still A's, and A signing back in is offered it.
+    expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeTruthy()
+    await signOut()
+    await signIn('user-A')
+    expect(ctxRef.recoverableEditDrafts.map(c => [c.personKey, c.listId])).toEqual([['user-A', 'L1']])
   })
 })

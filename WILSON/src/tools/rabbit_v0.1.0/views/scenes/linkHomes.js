@@ -132,8 +132,8 @@ export function otherListRows({ active, all }) {
 // Timeline's group-by-scene and the Budget's By scene, By shot and Custom
 // read the ACTIVE list (D10), so a task whose scene or shot is not in it
 // (the list cleared, another made active, the row taken out) is NOT dropped:
-// it reads as not assigned there ("No Scene", "No scene", "No shot"), and
-// its tooltip, like the task popup, says what it points at. Its stored link
+// it reads as not assigned there (NO_SCENE_GROUP, NO_SHOT_GROUP), and its
+// tooltip, like the task popup, says what it points at. Its stored link
 // is kept, so it is under its scene again once the scene is back in the
 // active list. This replaces step 1's "resolve through sceneById" for those
 // two views' GROUPS only (the S3c brief's dated section).
@@ -141,8 +141,19 @@ export function otherListRows({ active, all }) {
 /** The words for a row a task points at that the active list does not hold. */
 export const NOT_IN_ACTIVE = 'not in the active list'
 
+/**
+ * The not-assigned groups' names on the Timeline and the Budget. They hold
+ * two kinds of task — one with no scene (or shot) at all, and one whose
+ * scene (or shot) the active list does not hold — and their name must be
+ * true of both (the controller's note on Audrey's rule, 2026-10-02): neither
+ * has a scene IN THE ACTIVE LIST. "No Scene" alone was not true of the
+ * second, whose link is kept.
+ */
+export const NO_SCENE_GROUP = 'No scene in the active list'
+export const NO_SHOT_GROUP = 'No shot in the active list'
+
 /** What LinkHome's tooltip adds for such a row (the task popup). */
-export const NOT_IN_ACTIVE_NOTE = 'Not in the active list, so the Timeline and the Budget show its tasks as not assigned until it is in the active list again.'
+export const NOT_IN_ACTIVE_NOTE = 'Not in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.'
 
 const q = (s) => `“${s}”`
 
@@ -189,7 +200,7 @@ export function linksInActive(task, { active, sceneById = null, shotById = null,
   return { sceneId, shotId, outside }
 }
 
-/** A "No scene" / "No shot" row's tooltip: what its tasks point at, each once; undefined when nothing. */
+/** A not-assigned group's tooltip: what its tasks point at, each once; undefined when nothing. */
 export function notAssignedTitle(lines) {
   const each = [...new Set(lines)]
   return each.length ? ['Tasks here are linked outside the active list:', ...each].join('\n') : undefined

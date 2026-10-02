@@ -26,17 +26,18 @@ export const ARCHIVED_ADD_REASON = 'This shot list is archived. Restore it, or o
  * What taking rows out of the ACTIVE list does to the other tabs (Remove
  * from this list, Clear this list). Audrey's rule of 2026-10-02: removing a
  * list never removes the Timeline or the Budget — nothing there is deleted;
- * a task on those rows reads as not assigned until they are back in the
- * active list (its link is kept).
+ * a task on those rows reads as not assigned TO THEM until they are back in
+ * the active list (its link is kept). "To them": a task whose scene stays
+ * and whose shot goes is still under its scene (review round 1, R1-12).
  *   one  a single row ("it") or several ("them")
  */
 export function activeListLeaves(one) {
   const it = one ? 'it' : 'them'
-  return `This is the active list, so the other tabs stop showing ${it}. Nothing on the Timeline or the Budget is deleted: a task on ${it} reads there as not assigned until ${one ? 'it is' : 'they are'} in the active list again.`
+  return `This is the active list, so the other tabs stop showing ${it}. Nothing on the Timeline or the Budget is deleted: a task on ${it} reads there as not assigned to ${it} until ${one ? 'it is' : 'they are'} in the active list again.`
 }
 
 /** Set active: what the change of list does to the Timeline and the Budget (the same rule). */
-export const SET_ACTIVE_KEEPS = 'Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned until that scene or shot is in the active list.'
+export const SET_ACTIVE_KEEPS = 'Nothing on the Timeline or the Budget is deleted: a task on a scene or shot this list does not hold reads there as not assigned to it until it is in the active list.'
 
 /** Archive, Withdraw: only a list that is not the active one can be set aside (S3a), so the Timeline and the Budget do not change. */
 export const NOT_ACTIVE_KEEPS = 'It is not the active list, so nothing on the Timeline or the Budget changes.'

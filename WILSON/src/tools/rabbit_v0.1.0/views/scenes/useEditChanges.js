@@ -11,11 +11,15 @@
 //     the question opens (`asking`), saying what Yes makes. Yes starts the
 //     provider's draft from what was on screen with the change applied;
 //     Cancel leaves everything as it was and makes nothing.
-// A change is { what, apply, prepare? }:
+// A change is { what, apply, prepare?, writes?, made? }:
 //   what      the change in words, for the question (editCopy's verbs)
 //   apply     (items, prepared) → the next items, or null (nothing to change)
 //   prepare   async, run only once the change is going ahead — "New shot"
 //             makes its real shot here, so a Cancel makes none
+//   writes    what it writes at once, for the question (review round 1,
+//             R1-04: New shot's question said nothing was written)
+//   made      (prepared) → the ids of the shots it wrote, kept on the draft
+//             so Discard changes can say they stay
 // ============================================================
 
 import { useCallback, useState } from 'react'
@@ -35,7 +39,7 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
   const row = session?.row || null
   const readOnly = !!session?.readOnly
 
-  const request = useCallback(async ({ what = null, apply = null, prepare = null } = {}) => {
+  const request = useCallback(async ({ what = null, apply = null, prepare = null, writes = null, made = null } = {}) => {
     if (!canEdit || !list || readOnly) return false
     if (mode === 'draft') {
       try {
@@ -45,7 +49,7 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
         if (!draft) return false
         const next = apply ? apply(draft.items, prepared) : null
         if (!next) return false
-        ctx.changeEditDraft(list.id, next)
+        ctx.changeEditDraft(list.id, next, { made: made ? made(prepared) : [] })
         return true
       } catch (err) {
         onError?.(err)
@@ -65,8 +69,10 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
       name: draftName({ edits: ctx?.edits, list }),
       base,
       what,
+      writes,
       apply,
       prepare,
+      made,
     })
     return true
   }, [ctx, canEdit, list, mode, row, readOnly, onError])
@@ -84,6 +90,7 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
       version: a.name.version,
       base: a.base,
       items: next || a.base,
+      made: a.made ? a.made(prepared) : [],
     })
     setAsking(null)
   }, [ctx, asking])

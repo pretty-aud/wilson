@@ -283,8 +283,8 @@ export function RabbitHelpContent({ helpPage, theme }) {
         <ul className={`${T.listItem} space-y-1 ml-2 mb-4`}>
           <li>• <span className={T.listBold}>One row, many lists</span> — A scene or shot is one row shared by every shot list that holds it: rename a shot, or change its status, notes or thumbnail, in one list and it changes in every list. Only which scenes and shots a list holds, and their order, belong to the list.</li>
           <li>• <span className={T.listBold}>Viewing and active</span> — The Scenes tab shows the list you are viewing, which can differ from the project's active list. The Timeline, Budget, Tasks, Assets, Bins and every other tab show only the active list's scenes and shots.</li>
-          <li>• <span className={T.listBold}>Tasks stay</span> — Clearing a list, making another one active, or taking a scene or shot out of the active list never deletes a task, a phase or anything on the Budget. A task on a scene or shot the active list does not hold reads as not assigned on the Timeline and the Budget ("No Scene", "No scene", "No shot"), and its tooltip there and the task's own window say what it points at. The task keeps its link: when the scene is in the active list again, so is the task.</li>
-          <li>• <span className={T.listBold}>Who can do what</span> — Reviewers can make and change shot lists, but cannot add, rename or delete a scene or shot. Making a list active and archiving one are for project managers and workspace admins, except that whoever made a new list can withdraw it while nobody has saved it or started an edit on it. On the Local Server there are no roles, so everything is open.</li>
+          <li>• <span className={T.listBold}>Tasks stay</span> — Clearing a list, making another one active, or taking a scene or shot out of the active list never deletes a task, a phase or anything on the Budget. A task on a scene or shot the active list does not hold reads as not assigned to it on the Timeline and the Budget (under "No scene in the active list" or "No shot in the active list"), and its tooltip there and the task's own window say what it points at. The task keeps its link: when the scene is in the active list again, so is the task.</li>
+          <li>• <span className={T.listBold}>Who can do what</span> — Reviewers can make and change shot lists, but cannot add, rename or delete a scene or shot. Making a list active and archiving one are for project managers and workspace admins, except that whoever made a new list can withdraw it while nobody has saved it or saved an edit of it. On the Local Server there are no roles, so everything is open.</li>
         </ul>
         <div className="space-y-3">
           <div className={T.card}>
@@ -381,17 +381,20 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>Unsaved</span> — An unsaved edit is saved nowhere yet: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
               <li>• <span className={T.listBold}>Save edit</span> — Saves it as the next version: by default the same title, next version, which "Same title, next version" turns off for a title of your own; add a summary of what changed.</li>
               <li>• <span className={T.listBold}>Discard changes</span> — Drops the unsaved edit; what was on screen before comes back.</li>
-              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — If WILSON closes before an edit is saved, the next visit to the Scenes tab offers it back.</li>
+              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — If WILSON closes before an edit is saved, the next visit to the Scenes tab offers it back. Not now keeps it: the bar's More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.</li>
             </ul>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Leaving with an edit unsaved</h4>
             <p className={T.listItem}>
               Another tab, another tool or page, another project, another
-              list or edit on the bar, and closing WILSON each ask first:
-              Save edit, Discard changes or Keep editing. A change WILSON
-              makes by itself (a tab turned off, the project closed) does not
-              ask, and the unsaved edit is kept.
+              list or edit on the bar, closing WILSON, and restarting it for
+              an update each ask first: Save edit, Discard changes or Keep
+              editing (Escape keeps editing). A change WILSON makes by itself
+              (a tab turned off, the project closed) does not ask, and the
+              unsaved edit is kept. An edit whose list is archived or
+              withdrawn is kept too, out of sight, until the list is
+              restored.
             </p>
           </div>
           <div className={T.card}>

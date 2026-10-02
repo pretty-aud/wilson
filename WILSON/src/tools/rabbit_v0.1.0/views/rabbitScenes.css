@@ -1703,7 +1703,8 @@
   .rb-scene-table .ui-tr.rb-scene-row[data-drop="before"] > .ui-td,
   .rb-scene-table .ui-tr.rb-scene-group-row[data-drop="before"] > .ui-td { box-shadow: inset 0 2px 0 0 var(--color-signal); }
   .rb-scene-table .ui-tr.rb-scene-row[data-drop="after"] > .ui-td,
-  .rb-scene-table .ui-tr.rb-scene-group-row[data-drop="after"] > .ui-td { box-shadow: inset 0 -2px 0 0 var(--color-signal); }
+  .rb-scene-table .ui-tr.rb-scene-group-row[data-drop="after"] > .ui-td,
+  .rb-scene-table .ui-tr.rb-scene-nest-row[data-drop="after"] > .ui-td { box-shadow: inset 0 -2px 0 0 var(--color-signal); }
 
   /* ═══ The bar's edit selector (post-overhaul S3c, step 3) ═════════════════
      After the list's words: a divider, the Label-step eyebrow "EDIT", the
