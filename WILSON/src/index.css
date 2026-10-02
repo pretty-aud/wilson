@@ -762,6 +762,57 @@ select option {
     border-color: color-mix(in srgb, currentColor 30%, transparent);
     border-top-color: currentColor;
   }
+  /* ── attention (post-overhaul S3c, D15: Save edit after a change) ──────
+     Work is waiting on this button. The edge turns signal and a ring
+     swells and settles once every 1.2s — ease-in-out, the kit's one ambient
+     loop length (the skeleton's) — never on/off (`@keyframes blink` went in
+     S43 and stays gone). A ring in box-shadow, not outline: the focus ring
+     is the outline and the two never fight. After the variant rules on
+     purpose: (0,2,0) against their (0,2,0), and the tie goes to source
+     order. The dot and the word beside it say what the edge means; under
+     reduced motion (the twin in the block at the end) the ring stops and
+     the edge, the dot and the word stay. */
+  .ui-btn[data-attention="true"] {
+    border-color: var(--color-signal);
+    animation: ui-attention-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes ui-attention-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-signal) 0%, transparent); }
+    50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-signal) 45%, transparent); }
+  }
+  .ui-btn-attention {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .ui-btn-attention[data-size="md"] { font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
+  .ui-btn-attention[data-surface="light"] { color: var(--color-ink-light); }
+  .ui-btn-attention-dot {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background-color: var(--color-signal);
+  }
+  /* The live region the attention announces in: `sr-only`, spelled out
+     (`.tm-sr`'s spelling) rather than pulled in as a utility. */
+  .ui-btn-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
 
   /* ── IconButton: 28 / 36, ghost by default ─────────────────────────── */
   .ui-iconbtn {
@@ -2251,6 +2302,8 @@ select option {
   /* The press is movement, not a transition: killing the duration would still
      leave it scaled while the finger is down. It goes entirely. */
   .ui-btn:active:not(:disabled) { transform: none; }
+  /* D15: the attention ring stops; the signal edge, the dot and the word stay. */
+  .ui-btn[data-attention="true"] { animation: none; }
   .ui-drawer { animation: none; }
   .ui-toast { animation: none; }
   .ui-dialog-backdrop { animation: none; }

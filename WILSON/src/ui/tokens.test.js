@@ -494,6 +494,17 @@ function reducedMotionSelectors(source) {
   return selectors
 }
 
+/** A selector's own words, as the pet marks are read in them: comments out,
+    and a kit STATE attribute (`[data-…]`) out — post-overhaul S3c's
+    `.ui-btn[data-attention="true"]` is the kit Button (D15), not the pet's
+    `.attention-jump`. A `[class…]` attribute is still read: it can reach a
+    pet class by name. */
+function selectorWords(selector) {
+  return selector
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\[data-[\w-]+(?:[~|^$*]?=(?:"[^"]*"|'[^']*'|[^\]]*))?\]/g, '')
+}
+
 describe('reduced motion never touches the pet (C5)', () => {
   it('index.css has reduced-motion rules, and each names a class', () => {
     const sel = reducedMotionSelectors(css)
@@ -501,7 +512,7 @@ describe('reduced motion never touches the pet (C5)', () => {
     for (const s of sel) {
       expect(s, s).not.toMatch(/(^|[\s,])\*(\s|,|$)/)
       expect(s, s).toMatch(/\./)
-      for (const mark of PET_MARKS) expect(s.toLowerCase(), `${s} reaches ${mark}`).not.toContain(mark)
+      for (const mark of PET_MARKS) expect(selectorWords(s).toLowerCase(), `${s} reaches ${mark}`).not.toContain(mark)
     }
   })
 
@@ -512,6 +523,21 @@ describe('reduced motion never touches the pet (C5)', () => {
     expect(sel[0]).toMatch(/(^|[\s,])\*(\s|,|$)/)
     const worse = '@media (prefers-reduced-motion: reduce) { .otter-bob, .ui-btn { animation: none; } }'
     expect(reducedMotionSelectors(worse)[0].toLowerCase()).toContain('otter')
+  })
+
+  it('CONTROL (post-overhaul S3c): the kit Button\'s attention state is not the pet; the pet\'s attention class, or one reached through [class], still is', () => {
+    const reaches = (rule) => {
+      const [s] = reducedMotionSelectors(`@media (prefers-reduced-motion: reduce) { ${rule} }`)
+      return PET_MARKS.filter((mark) => selectorWords(s).toLowerCase().includes(mark))
+    }
+    expect(reaches('.ui-btn[data-attention="true"] { animation: none; }')).toEqual([])
+    expect(reaches('/* the attention ring stops */ .ui-btn { animation: none; }')).toEqual([])
+    expect(reaches('.attention-jump { animation: none; }')).toEqual(['attention'])
+    expect(reaches('.ui-btn[class*="attention"] { animation: none; }')).toEqual(['attention'])
+    expect(reaches('.ui-btn[data-attention="true"], .otter-bob { animation: none; }')).toEqual(['otter'])
+    // Unread, the attribute WOULD have read as the pet: the loosening is the
+    // stripping, and it strips only `[data-…]`.
+    expect('.ui-btn[data-attention="true"]').toContain('attention')
   })
 
   it('the pet keyframes are still declared in index.css', () => {

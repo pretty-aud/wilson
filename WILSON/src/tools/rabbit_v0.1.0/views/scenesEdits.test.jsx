@@ -260,10 +260,12 @@ describe('S3c step 3: seeing an edit', () => {
 // The page over a stateful stand-in for the provider's draft (the real one is
 // editDraftsProvider.test.jsx's): editDrafts.js's own pure steps, kept in
 // React state, so a change re-renders the page as the provider's does.
-const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [] }
-function DraftHarness({ edits, extra, pageActive }) {
+const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], save: [] }
+function DraftHarness({ edits: given, extra, pageActive }) {
   const [drafts, setDrafts] = useState({})
   const [shots, setShots] = useState(SHOTS)
+  const [saved, setSaved] = useState([])
+  const edits = useMemo(() => [...given, ...saved], [given, saved])
   const scenes = useMemo(() => SCENES(), [])
   const items = useMemo(() => itemsFor(LIST_1.id, backfillItems(scenes, SHOTS())), [scenes])
   const ctx = useMemo(() => {
@@ -285,6 +287,16 @@ function DraftHarness({ edits, extra, pageActive }) {
       undoEditDraft: (listId) => { log.undo += 1; setDrafts(d => { const n = undoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       redoEditDraft: (listId) => { log.redo += 1; setDrafts(d => { const n = redoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       discardEditDraft: (listId) => { log.discard += 1; setDrafts(d => { const n = { ...d }; delete n[listId]; return n }) },
+      // As the provider's: the draft becomes the next edit (here, at once).
+      saveEditDraft: async (listId, opts) => {
+        log.save.push([listId, opts])
+        if (extra.saveRefusal) throw extra.saveRefusal
+        const draft = drafts[listId]
+        const row = { ...EDIT_1, id: `edit-saved-${log.save.length}`, title: opts.title, version: opts.version, summary: opts.summary, items: draft.items, parent_edit_id: 'edit-1', created_at: '2026-10-02T12:00:00Z', snapshot: { kind: 'edit' } }
+        setDrafts(d => { const n = { ...d }; delete n[listId]; return n })
+        setSaved(s => [...s, row])
+        return row
+      },
       addShot: async (shot, opts) => {
         const row = { id: `sh-new-${log.addShot.length + 1}`, ...shot }
         log.addShot.push([shot, opts])
@@ -298,7 +310,7 @@ function DraftHarness({ edits, extra, pageActive }) {
   return <ScenesView pageActive={pageActive} />
 }
 function draftPage({ edits = [EDIT_1], pageActive = true, ...extra } = {}) {
-  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []
+  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []
   return render(<DraftHarness edits={edits} extra={extra} pageActive={pageActive} />)
 }
 const cutNames = () => cutRowNames(document)
@@ -532,5 +544,114 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     expect(d.textContent).toContain('Its list is no longer in this project, so it cannot be recovered.')
     expect(within(d).queryByRole('button', { name: 'Recover edit' })).toBeNull()
     expect(within(d).getByRole('button', { name: 'Discard edit' })).toBeTruthy()
+  })
+})
+
+// ── Step 5: Save edit, the pulse, Discard (D13, D14, D15) ──────────────────
+async function draftOnEdit(extra = {}) {
+  const page = draftPage(extra)
+  pickEdit('edit-1')
+  rowMenu('The climb', 1)
+  fireEvent.click(menuItem('Remove from edit'))
+  await yes('Start new version')
+  return page
+}
+const lists = () => document.querySelector('.rb-scene-lists')
+const saveEditDialog = () => screen.queryByRole('dialog', { name: 'Save edit' })
+
+describe('S3c step 5: Save edit, the pulse, Discard', () => {
+  it('a saved edit on screen: Save edit stands where Save stood, greyed with the reason; no pulse, no Discard', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const save = within(lists()).getByRole('button', { name: 'Save edit' })
+    expect(save.closest('[aria-disabled="true"]').getAttribute('title')).toBe('Nothing to save: “Director\'s cut · v1” is as it was saved. A change to the cut starts its next version.')
+    expect(save.dataset.attention).toBeUndefined()
+    expect(lists().querySelector('.ui-btn-attention')).toBeNull()
+    expect(within(lists()).queryByRole('button', { name: 'Discard changes' })).toBeNull()
+    expect(within(lists()).queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('a draft: Save edit pulses (the kit\'s attention: signal edge, "● Unsaved", one polite announcement) with Discard changes beside it', async () => {
+    await draftOnEdit()
+    const save = within(lists()).getByRole('button', { name: 'Save edit' })
+    expect(save.dataset.attention).toBe('true')
+    expect(save.closest('[aria-disabled="true"]')).toBeNull()
+    const note = lists().querySelector('.ui-btn-attention')
+    expect(note.textContent).toBe('Unsaved')
+    expect(note.nextElementSibling.nextElementSibling).toBe(save)
+    expect(lists().querySelector('.ui-btn-live').textContent).toBe('“Director\'s cut · v2” is not saved yet')
+    expect(within(lists()).getByRole('button', { name: 'Discard changes' })).toBeTruthy()
+    // Never the list's Save beside it.
+    expect(within(lists()).queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(within(lists()).queryByRole('button', { name: 'Save as…' })).toBeNull()
+  })
+
+  it('Save edit: the chain\'s title at its next version, a summary — written, then the new edit on screen; the next change asks again', async () => {
+    const { container } = await draftOnEdit()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
+    const d = saveEditDialog()
+    expect(d.textContent).toContain('The next edit of “Shoot · v2”: this cut, 4 shots in this order. Every shot keeps its name.')
+    const title = within(d).getByRole('textbox', { name: 'Title' })
+    expect(title.value).toBe("Director's cut")
+    expect(title.disabled).toBe(true)
+    expect(within(d).getByRole('switch', { name: 'Same title, next version' }).getAttribute('aria-checked')).toBe('true')
+    expect(d.textContent).toContain('Will be “Director\'s cut · v2”')
+    fireEvent.change(within(d).getByRole('textbox', { name: 'Summary' }), { target: { value: '  Without the climb\n' } })
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save edit' })) })
+    expect(log.save).toEqual([['list-1', { title: "Director's cut", version: 2, summary: 'Without the climb' }]])
+    expect(saveEditDialog()).toBeNull()
+    expect(editSelect().value).toBe('edit-saved-1')
+    expect(cutRowNames(container)).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(lists().querySelector('.ui-btn-attention')).toBeNull()
+    // After a Save, the next change asks again (D13).
+    rowMenu('The door', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    expect(question().textContent).toContain('Yes starts “Director\'s cut · v3” from “Director\'s cut · v2”')
+  })
+
+  it('"Same title, next version" off: a title of one\'s own at ITS next version; an empty one is refused before anything is sent', async () => {
+    await draftOnEdit()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
+    const d = saveEditDialog()
+    fireEvent.click(within(d).getByRole('switch', { name: 'Same title, next version' }))
+    const title = within(d).getByRole('textbox', { name: 'Title' })
+    expect(title.disabled).toBe(false)
+    fireEvent.change(title, { target: { value: '' } })
+    expect(d.textContent).toContain('An edit needs a title.')
+    expect(within(d).getByRole('button', { name: 'Save edit' }).disabled).toBe(true)
+    fireEvent.change(title, { target: { value: '  Festival cut ' } })
+    expect(d.textContent).toContain('Will be “Festival cut · v1”')
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save edit' })) })
+    expect(log.save[0][1]).toEqual({ title: 'Festival cut', version: 1, summary: null })
+  })
+
+  it('a refusal is shown verbatim in the dialog, which stays, and so does the draft', async () => {
+    await draftOnEdit({ saveRefusal: new Error('This shot list already has an edit with this title and version.') })
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
+    await act(async () => { fireEvent.click(within(saveEditDialog()).getByRole('button', { name: 'Save edit' })) })
+    expect(within(saveEditDialog()).getByRole('alert').textContent).toBe('This shot list already has an edit with this title and version.')
+    expect(editSelect().value).toBe('draft')
+  })
+
+  it('written but its Save refused: the dialog closes, the edit is on screen, and the bar\'s Banner says what was not done', async () => {
+    const err = new Error('The edit was saved as “Director\'s cut · v2”, but the names it holds were not: disk full')
+    err.savedRow = { ...EDIT_1, id: 'edit-1' }
+    await draftOnEdit({ saveRefusal: err })
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
+    await act(async () => { fireEvent.click(within(saveEditDialog()).getByRole('button', { name: 'Save edit' })) })
+    expect(saveEditDialog()).toBeNull()
+    expect(screen.getByRole('alert').textContent).toBe('The edit was saved as “Director\'s cut · v2”, but the names it holds were not: disk full')
+  })
+
+  it('Discard changes asks (Cancel focused) and says what comes back; Discard ends the draft and the saved edit returns', async () => {
+    const { container } = await draftOnEdit()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Discard changes' }))
+    const q = screen.getByRole('dialog', { name: 'Discard changes?' })
+    expect(q.textContent).toContain('“Director\'s cut · v2” is not saved: its changes go, and “Director\'s cut · v1” comes back as it was saved.')
+    expect(document.activeElement.textContent).toBe('Cancel')
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Discard changes' })) })
+    expect(log.discard).toBe(1)
+    expect(editSelect().value).toBe('edit-1')
+    expect(cutRowNames(container)).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
   })
 })

@@ -107,6 +107,13 @@ const FILES = {
     min: 3000,
     staged: [],
   },
+  // …step 5: Save edit (the shot-list form's classes).
+  saveEdit: {
+    file: './scenes/SaveEditDialog.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
@@ -508,6 +515,7 @@ const NEAR_MISSES = {
   home: [],
   cut: [],
   addShots: [],
+  saveEdit: ['onConfirm={'],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {

@@ -26,7 +26,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus, Scissors } from 'lucide-react'
-import { Banner, IconButton, StatusBadge } from '../../../../ui'
+import { Banner, Button, IconButton, StatusBadge } from '../../../../ui'
+import GatedAction from '../../../../permissions/GatedAction'
 import { sortShotLists } from '../../state/shotListModel'
 import { showDate } from '../../dates'
 import ShotListBar from './ShotListBar'
@@ -35,7 +36,8 @@ import ShotListForm from './ShotListForm'
 import AddFromListDialog from './AddFromListDialog'
 import ListConfirm from './ListConfirm'
 import AnswerDialog from './AnswerDialog'
-import { recoverWords } from './editCopy'
+import SaveEditDialog from './SaveEditDialog'
+import { recoverWords, discardWords } from './editCopy'
 import { listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
 import { removeQuestion } from './membershipCopy'
 import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
@@ -119,10 +121,10 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
   }, [])
   const run = useMemo(() => runWith(onError), [runWith, onError])
   const runInPicker = useMemo(() => runWith(setPickerError), [runWith])
-  /** Run a verb from a question; its refusal stays in the question (rethrown). */
+  /** Run a verb from a question; its refusal stays in the question (rethrown). Its result is returned (S3c: Save edit shows the edit it made). */
   const inDialog = useCallback(async (fn) => {
     try {
-      await fn()
+      return await fn()
     } catch (err) {
       shown.current = err?.message || String(err)
       throw err
@@ -237,6 +239,36 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
       : { label: 'Archive this edit', Icon: Archive, disabled: true, hint: 'managers only' })
     return out
   }
+  // Post-overhaul S3c, step 5 (D13–D15): the edit's verbs on the bar, where
+  // the list's Save / Save as… / Set active stand in List order — so the bar
+  // never offers two Saves at once. Save edit is there whenever an edit is on
+  // screen (it does not jump in on the first change): greyed with the reason
+  // on a saved edit, and on a draft the kit Button's attention — the signal
+  // edge pulsing once every 1.2s, "● Unsaved" before it, one polite
+  // announcement. Discard changes beside it, on a draft only; it asks.
+  const draftOnScreen = editOnScreen.mode === 'draft' ? editOnScreen.draft : null
+  const editVerbsOnBar = editOnScreen.mode !== 'none' ? (
+    <>
+      <GatedAction
+        allowed={gate.write && !!draftOnScreen}
+        reason={!gate.write ? gate.writeReason
+          : editRow?.archived_at ? 'This edit is set aside: restore it to change it.'
+          : `Nothing to save: “${label(editRow)}” is as it was saved. A change to the cut starts its next version.`}
+      >
+        <Button
+          size="sm"
+          attention={!!draftOnScreen}
+          attentionLabel={draftOnScreen ? `“${label(draftOnScreen)}” is not saved yet` : undefined}
+          onClick={() => setDialog({ kind: 'saveEdit', row: draftOnScreen })}
+        >
+          Save edit
+        </Button>
+      </GatedAction>
+      {draftOnScreen && (
+        <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'discardEdit', row: draftOnScreen })}>Discard changes</Button>
+      )}
+    </>
+  ) : null
   const editBar = (viewed.mode === 'list' || viewed.mode === 'archived') && list ? {
     onScreen: editOnScreen.mode !== 'none',
     value: editOnScreen.mode === 'draft' ? 'draft' : editRow ? editRow.id : '',
@@ -250,7 +282,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     title: editRow?.summary || undefined,
     badge: editRow?.archived_at ? <StatusBadge status="archived" label={ctx?.isWithdrawn?.(editRow) ? 'Withdrawn' : 'Archived'} /> : null,
     note: editRow && !editRow.archived_at ? `Saved ${showDate(editRow.created_at)}` : null,
-    verbs: null,
+    verbs: editVerbsOnBar,
   } : null
 
   const moreItems = editRow ? editVerbs(editRow)
@@ -473,6 +505,42 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             openEdit: (e) => { closePicker(); showEdit(e) },
           }}
         />
+      )}
+
+      {dialog?.kind === 'saveEdit' && target && list && (
+        <SaveEditDialog
+          draft={target}
+          list={list}
+          edits={ctx?.edits || []}
+          label={label}
+          onClose={close}
+          onSubmit={async ({ title, version, summary }) => {
+            const listId = list.id
+            try {
+              const saved = await inDialog(() => ctx.saveEditDraft(listId, { title, version, summary }))
+              close()
+              viewed.viewEdit?.(saved.id, listId)
+            } catch (err) {
+              // Written, but its Save refused: the edit IS there — show it,
+              // and say what was not done where the bar's refusals are said.
+              if (!err?.savedRow) throw err
+              close()
+              viewed.viewEdit?.(err.savedRow.id, listId)
+              onError(err.message)
+            }
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'discardEdit' && target && list && (
+        <ListConfirm
+          title="Discard changes?"
+          confirmLabel="Discard changes"
+          onCancel={close}
+          onConfirm={() => inDialog(async () => { ctx.discardEditDraft(list.id); close() })}
+        >
+          {discardWords({ draft: target, basedOn: (ctx?.edits || []).find(e => e.id === target.basedOnEditId) || null })}
+        </ListConfirm>
       )}
 
       {recoverable && !dialog && !pickerOpen && (

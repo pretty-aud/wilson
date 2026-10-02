@@ -1,6 +1,6 @@
 // editCopy.test.js — the first-change question's sentences (S3c step 4, D13).
 import { describe, it, expect } from 'vitest'
-import { firstChangeQuestion, recoverWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords } from './editCopy'
+import { firstChangeQuestion, recoverWords, discardWords, moveWords, duplicateWords, removeWords, addWords, newShotWords, moveBlockWords, duplicateBlockWords, removeBlockWords } from './editCopy'
 
 const list = { id: 'L1', title: 'Shoot', version: 2 }
 const v1 = { id: 'e1', title: "Director's cut", version: 1 }
@@ -45,6 +45,15 @@ describe('"Recover unsaved edit?" says what was left, and when it cannot be', ()
   it('an archived list: restore it first; a list gone: it cannot be recovered', () => {
     expect(recoverWords({ copy, list: { ...list, archived_at: 'T' }, locale: 'en-GB' })).toMatch(/Its list is archived: restore the list to recover the edit\.$/)
     expect(recoverWords({ copy: { ...copy, items: [{}], changedAt: null }, list: null })).toBe('WILSON closed before “Director\'s cut · v4” was saved. It holds 1 shot. Its list is no longer in this project, so it cannot be recovered.')
+  })
+})
+
+describe('"Discard changes?" says what goes and what comes back', () => {
+  it('a draft of an edit: that edit comes back as saved; of the list: the list\'s order', () => {
+    expect(discardWords({ draft: { title: "Director's cut", version: 4 }, basedOn: v3 }))
+      .toBe('“Director\'s cut · v4” is not saved: its changes go, and “Director\'s cut · v3” comes back as it was saved. Nothing was written, so nothing else changes.')
+    expect(discardWords({ draft: { title: 'Shoot', version: 1 }, basedOn: null }))
+      .toBe('“Shoot · v1” is not saved: its changes go, and the list\'s own order comes back. Nothing was written, so nothing else changes.')
   })
 })
 

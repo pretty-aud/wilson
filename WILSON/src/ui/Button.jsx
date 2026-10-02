@@ -38,10 +38,47 @@
 //                 copy changes too ("Save" → "Saving…"). Five auth surfaces
 //                 hand-rolled the label half of this and none of them
 //                 disabled or announced anything.
+//
+// ── attention: post-overhaul S3c kit request, with its caller (Save edit) ──
+//
+//   attention     D15: work is waiting on THIS button ("after making changes
+//                 dont auto save have the save edit button blink", Audrey).
+//                 Never a blink and never colour alone. A button given
+//                 `attention` (true, or the word to show) gets:
+//                   · `data-attention`, resolved in index.css: the signal
+//                     edge, and `ui-attention-pulse` — a ring that swells and
+//                     settles once every 1.2s, ease-in-out, the kit's one
+//                     ambient loop length (the skeleton's). A ring in
+//                     box-shadow, so the focus outline is never fought;
+//                   · its class-scoped prefers-reduced-motion twin: the pulse
+//                     stops, the edge stays;
+//                   · the dot and the WORD ("Unsaved") before the button, in
+//                     the Caption step — what the edge means, said, and what
+//                     stays when the pulse does not;
+//                   · one polite announcement (`attentionLabel`, default the
+//                     word) in a live region that exists for as long as the
+//                     caller passes `attention` at all, so turning it on is a
+//                     change a screen reader hears once, and off says nothing.
+//                     The region always mounts EMPTY and takes its words on
+//                     the next commit: a region inserted already speaking is
+//                     not reliably read, and a caller's wrapper can remount
+//                     the button (GatedAction does, when `allowed` flips).
+//                 The pulse stops while the button is disabled or loading
+//                 (the spinner is then the feedback); the word stays until
+//                 the caller turns attention off. A caller that never passes
+//                 `attention` gets exactly the button it always had.
 // =============================================================================
 
-import { forwardRef } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import { Spinner } from './Spinner'
+
+/** attention's live region: mounted empty, its words set after the commit
+    (so even a button mounted with attention on is heard, once). */
+function AttentionLive({ on, words }) {
+  const [said, setSaid] = useState('')
+  useEffect(() => { setSaid(on ? words : '') }, [on, words])
+  return <span className="ui-btn-live" role="status" aria-live="polite">{said}</span>
+}
 
 export const BUTTON_VARIANTS = Object.freeze(['primary', 'secondary', 'ghost', 'danger'])
 export const BUTTON_SIZES = Object.freeze(['sm', 'md'])
@@ -55,6 +92,8 @@ export const Button = forwardRef(function Button(
     icon,
     loading = false,
     loadingLabel = null,
+    attention = undefined,
+    attentionLabel = null,
     disabled = false,
     // binUi aliases
     primary = false,
@@ -74,7 +113,9 @@ export const Button = forwardRef(function Button(
     if (!BUTTON_VARIANTS.includes(v)) console.error(`Button: unknown variant "${v}"`)
     if (!BUTTON_SIZES.includes(s)) console.error(`Button: unknown size "${s}"`)
   }
-  return (
+  const wants = !!attention
+  const word = typeof attention === 'string' && attention ? attention : 'Unsaved'
+  const button = (
     <button
       ref={ref}
       type={type}
@@ -82,6 +123,7 @@ export const Button = forwardRef(function Button(
       data-variant={v}
       data-size={s}
       data-surface={surface}
+      data-attention={wants && !disabled && !loading ? 'true' : undefined}
       disabled={disabled || loading || undefined}
       aria-busy={loading || undefined}
       {...rest}
@@ -96,6 +138,19 @@ export const Button = forwardRef(function Button(
         : Glyph ? <Glyph aria-hidden="true" /> : null}
       {loading && loadingLabel != null ? loadingLabel : children}
     </button>
+  )
+  if (attention === undefined) return button
+  return (
+    <>
+      {wants && (
+        <span className="ui-btn-attention" data-size={s} data-surface={surface}>
+          <span className="ui-btn-attention-dot" aria-hidden="true" />
+          {word}
+        </span>
+      )}
+      <AttentionLive on={wants} words={attentionLabel || word} />
+      {button}
+    </>
   )
 })
 

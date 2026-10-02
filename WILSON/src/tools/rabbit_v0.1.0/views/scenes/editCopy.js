@@ -79,6 +79,16 @@ export function recoverWords({ copy, list, locale }) {
   return `${lead} Recover it to keep working on it, or discard it.`
 }
 
+/**
+ * "Discard changes?" — what goes, and what comes back.
+ *   draft    the draft ({ title, version })
+ *   basedOn  the saved edit it began from, or null (the list's order)
+ */
+export function discardWords({ draft, basedOn }) {
+  const back = basedOn ? `${q(formatShotListLabel(basedOn))} comes back as it was saved` : 'the list\'s own order comes back'
+  return `${q(formatShotListLabel(draft))} is not saved: its changes go, and ${back}. Nothing was written, so nothing else changes.`
+}
+
 // ── each change, in words (the question's "with this change: …") ─────────
 // The menus' own verbs (Duplicate in edit, Remove from edit, Move up…), so
 // the question repeats what was chosen rather than a second vocabulary.

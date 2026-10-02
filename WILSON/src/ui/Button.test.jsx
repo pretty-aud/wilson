@@ -235,3 +235,88 @@ describe('Button on the light ground (D1 kit request 4, D2 K7 and K8)', () => {
     expect(rm[0]).toContain('.ui-btn:active:not(:disabled) { transform: none; }')
   })
 })
+
+// Post-overhaul S3c (D15): Save edit after a change. A kit request, made
+// with its caller (ShotLists' Save edit) in the same commit.
+describe('Button: attention (post-overhaul S3c, D15)', () => {
+  const rule = (sel) => {
+    const at = css.indexOf(`${sel} {`)
+    return at < 0 ? null : css.slice(at, css.indexOf('}', at) + 1)
+  }
+  it('marks the button, and puts the dot and the word before it — never colour alone', () => {
+    const { container } = render(<Button size="sm" attention>Save edit</Button>)
+    const b = screen.getByRole('button', { name: 'Save edit' })
+    expect(b.dataset.attention).toBe('true')
+    const note = container.querySelector('.ui-btn-attention')
+    expect(note.textContent).toBe('Unsaved')
+    expect(note.querySelector('.ui-btn-attention-dot').getAttribute('aria-hidden')).toBe('true')
+    expect(note.nextElementSibling.nextElementSibling).toBe(b)
+    expect(note.dataset.size).toBe('sm')
+  })
+  it('takes the word to show, and announces once, politely, in a region that is there before it speaks', () => {
+    const { container, rerender } = render(<Button attention={false} attentionLabel="This edit is not saved yet">Save edit</Button>)
+    const live = container.querySelector('.ui-btn-live')
+    expect(live.getAttribute('role')).toBe('status')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+    expect(live.textContent).toBe('')
+    expect(container.querySelector('.ui-btn-attention')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save edit' }).dataset.attention).toBeUndefined()
+    rerender(<Button attention="Not saved" attentionLabel="This edit is not saved yet">Save edit</Button>)
+    // The same region, now speaking.
+    expect(container.querySelector('.ui-btn-live')).toBe(live)
+    expect(live.textContent).toBe('This edit is not saved yet')
+    expect(container.querySelector('.ui-btn-attention').textContent).toBe('Not saved')
+    expect(container.querySelectorAll('[aria-live]')).toHaveLength(1)
+  })
+  it('mounted with attention ON (a wrapper remounted it), the region still goes in empty and speaks after — so it is heard', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const mo = new MutationObserver(() => {})
+    mo.observe(host, { childList: true, subtree: true, characterData: true })
+    render(<Button attention attentionLabel="This edit is not saved yet">Save edit</Button>, { container: host })
+    const live = host.querySelector('.ui-btn-live')
+    expect(live.textContent).toBe('This edit is not saved yet')
+    // A record that ADDED the words to the region already in the page: they
+    // came after it, not with it.
+    const later = mo.takeRecords().filter((r) => r.target === live && [...r.addedNodes].some((n) => n.nodeType === 3))
+    expect(later.length).toBeGreaterThan(0)
+    mo.disconnect()
+    host.remove()
+  })
+  it('the pulse stops while the button is disabled or busy; the word stays until the caller turns it off', () => {
+    const { container, rerender } = render(<Button attention loading>Save edit</Button>)
+    expect(screen.getByRole('button').dataset.attention).toBeUndefined()
+    expect(container.querySelector('.ui-btn-attention').textContent).toBe('Unsaved')
+    rerender(<Button attention disabled>Save edit</Button>)
+    expect(screen.getByRole('button').dataset.attention).toBeUndefined()
+    expect(container.querySelector('.ui-btn-attention')).not.toBeNull()
+  })
+  it('a caller that never passes it gets exactly the button it always had (no note, no live region)', () => {
+    const { container } = render(<Button>Save</Button>)
+    expect(container.children).toHaveLength(1)
+    expect(container.firstChild.tagName).toBe('BUTTON')
+    expect(container.querySelector('.ui-btn-live')).toBeNull()
+  })
+  it('the CSS: the signal edge and a named 1.2s ease-in-out ring (a box-shadow, never the focus outline, never a blink), after the variants', () => {
+    const r = rule('.ui-btn[data-attention="true"]')
+    expect(r).not.toBeNull()
+    expect(r).toContain('border-color: var(--color-signal);')
+    expect(r).toContain('animation: ui-attention-pulse 1.2s ease-in-out infinite;')
+    const frames = css.slice(css.indexOf('@keyframes ui-attention-pulse'), css.indexOf('@keyframes ui-attention-pulse') + 400)
+    expect(frames).toMatch(/box-shadow:/)
+    expect(frames).not.toMatch(/outline|opacity|visibility/)
+    // (S43's comment still names the removed keyframe; a declaration has a brace.)
+    expect(css).not.toMatch(/@keyframes blink\s*\{/)
+    // Source order decides the (0,2,0) tie with the variants' border colours.
+    expect(css.indexOf('.ui-btn[data-attention="true"] {')).toBeGreaterThan(css.indexOf('.ui-btn[data-variant="danger"] {'))
+    expect(css.indexOf('.ui-btn[data-attention="true"] {')).toBeGreaterThan(css.indexOf('.ui-btn[data-variant="secondary"] {'))
+  })
+  it('reduced motion: the KIT block stops the ring (class-scoped), and keeps the edge, the dot and the word', () => {
+    const rm = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\n  \.ui-btn,[\s\S]*?\n\}/)
+    expect(rm[0]).toContain('.ui-btn[data-attention="true"] { animation: none; }')
+    expect(rm[0]).not.toMatch(/ui-btn-attention|border-color/)
+    // The dot and the word are type, in the scale.
+    expect(rule('.ui-btn-attention')).toContain('font-size: var(--text-caption);')
+    expect(rule('.ui-btn-attention-dot')).toContain('background-color: var(--color-signal);')
+  })
+})
