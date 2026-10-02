@@ -2352,8 +2352,11 @@ active list, Set active, Archive and Withdraw say so. The executable test:
 - **S3c-05 · Save edit from the leave or close question saves without a
   summary.** Under the name the first-change question gave it, at that
   title's next version. Owner: Audrey.
-- **S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
-  tab was reloaded too.** Copy. Owner: a session.
+- ~~**S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
+  tab was reloaded too.**~~ Closed in S3c's review round 2 (R2-03): it says
+  the edit "was left unsaved", true of a closed window, a reloaded tab and
+  a sign-out alike; and a copy is removed under its own person when a save
+  finishes after a sign-out (it was offered back as unsaved).
 - **S3c-07 · A list's first edit takes the list's own title** (D13's
   rule), so the bar can read "Shot list 1 · v1 — Edit Shot list 1 · v1 (not
   saved)". Owner: Audrey.
@@ -2374,3 +2377,21 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   edit before leaving?" — the nearer work first, by design
   (`state/leaveGuard.js`, review round 1's note). Owner: Audrey (one
   combined question instead?).
+- **S3c-12 · An edit written whose names alone were refused, from the
+  leave question: its notice can go unseen.** Review round 2 (R2-01) made
+  such an edit SAVED (it is written; the question about it asked about
+  nothing): the exit goes on and the refusal ("The edit was saved as …, but
+  the names it holds were not: …") is the provider's `ctx.error`, which
+  the Scenes bar's Banner shows only while the tab is open. Leaving the
+  tab or the page, it is not seen; the edit is there either way, without
+  the names "Missing shot: …" would show. The provider has no app-wide
+  notice of its own (it sits above the kit's toast stack). Owner: a
+  session (a provider notice on the toast stack).
+- **S3c-13 · A sign-out the app did not ask for (PLAUSIBLE, not
+  reproduced).** The provider drops the drafts from memory when the
+  signed-in person changes (R1-02; their copies stay, offered to the same
+  person's next visit). auth-js's own SIGNED_OUT after a refused token
+  refresh would do that while App, which does not listen for it, stays
+  signed in; on the Local Server the project stays open, so the edit
+  leaves the screen without a question (its copy kept). Read in review
+  round 2, not reproduced. Owner: the auth lane (App and SIGNED_OUT).

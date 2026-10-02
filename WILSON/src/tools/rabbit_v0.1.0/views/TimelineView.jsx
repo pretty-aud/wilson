@@ -381,10 +381,21 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
 
   // Shared task-detail popup (same component used in Tasks tab)
   const [detailTaskId, setDetailTaskId] = useState(null)
+  // Review round 2 (R2-02): the popup is on screen only while its task is.
+  // One whose task a Ctrl+Z took back draws nothing (TaskDetailPopup), and
+  // its id still counted as one of the page's own dialogs, so Help over the
+  // page read as "no more than its own" and Ctrl+Z undid under it (S3b's
+  // lesson in ScenesView: the page's own surfaces are the ones that RENDER).
+  // Such an id is let go, so a Ctrl+Y that brings the task back does not
+  // re-open the popup by itself.
+  const detailTaskShown = !!detailTaskId && tasks.some(t => t.id === detailTaskId)
+  useEffect(() => {
+    if (detailTaskId && !detailTaskShown) setDetailTaskId(null)
+  }, [detailTaskId, detailTaskShown])
   // The page's own kit Dialogs on screen: the undo keys act under these and
   // no others (R1-05). The task and phase editors are this page's own
   // hand-rolled surfaces, not kit Dialogs, and are not counted.
-  ownDialogsRef.current = (trashOpen ? 1 : 0) + (detailTaskId ? 1 : 0)
+  ownDialogsRef.current = (trashOpen ? 1 : 0) + (detailTaskShown ? 1 : 0)
 
   // Session 29 — the three CREATE funnels refuse when the caller cannot write.
   //
@@ -5410,8 +5421,14 @@ function DetailZoomToolbar({
       {groupBy === 'scene' && shotListLabel && (
         // A long title gives way (an ellipsis at the sheet's cap) rather than
         // push the toolbar onto a second row at 1280 (review round 1, R1-08):
-        // the whole label is the tooltip's first line.
-        <span className="rb-tl-shotlist" title={`Shot list: ${shotListLabel}\nThe scenes and shots grouped here are the active shot list's. The Scenes tab changes which list is active.`}>
+        // the whole label is the tooltip's first line. The cap counts the
+        // Group-by tabs beside it (review round 2, R2-04: Levels and
+        // Experiences each add one).
+        <span
+          className="rb-tl-shotlist"
+          style={{ '--rb-tl-group-tabs': groupItems.length }}
+          title={`Shot list: ${shotListLabel}\nThe scenes and shots grouped here are the active shot list's. The Scenes tab changes which list is active.`}
+        >
           {`Shot list: ${shotListLabel}`}
         </span>
       )}

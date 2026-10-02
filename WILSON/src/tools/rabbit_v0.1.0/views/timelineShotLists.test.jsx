@@ -4,7 +4,7 @@
 //   1. group by scene draws EVERY task (D10 made `ctx.scenes` / `ctx.shots`
 //      the active list's, and a task linked outside them fell out of the
 //      Timeline). Audrey's rule of 2026-10-02 narrowed step 1: such a task
-//      reads as not assigned ("No Scene", or under its own scene when only
+//      reads as not assigned ("No scene in the active list", or under its own scene when only
 //      its shot is outside), never under a scene brought back from another
 //      list, and its tooltip says what it points at; each scene and shot
 //      row's tooltip names its list;
@@ -102,7 +102,7 @@ describe('group by scene draws every task; one linked outside the active list re
     expect(rows.find(r => r.key === 'tk-t1').tooltip).toBeUndefined()
     expect(rows.find(r => r.key === 'tk-t5').tooltip).toBeUndefined()
   })
-  it('each scene and shot row carries its name and its list as a tooltip; "No Scene" and the drop zones carry none', () => {
+  it('each scene and shot row carries its name and its list as a tooltip; "No scene in the active list" and the drop zones carry none', () => {
     const rows = build()
     expect(rows.find(r => r.key === 'grp-sc-A').tooltip).toBe('Harbour\nIn: Shoot · v2 (active)')
     expect(rows.find(r => r.key === 'grp-sh-a1').tooltip).toBe('SC001_SH010\nIn: Shoot · v2 (active)')
@@ -156,12 +156,53 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     // long one gives way to an ellipsis on the sheet.
     expect(label.getAttribute('title')).toMatch(/^Shot list: Shoot · v2\nThe scenes and shots grouped here are the active shot list's\./)
   })
-  it('S3c R1-08: a long list title stops at the sheet\'s cap with an ellipsis, rather than wrapping the toolbar at 1280', () => {
+  // S3c R1-08, and review round 2 (R2-04): the cap is the room the toolbar
+  // leaves, which each Group-by tab past four (Levels, Experiences) takes
+  // 38px of. MEASURED in Chromium at 1280x700: 198px with four tabs, 160
+  // with five, 122 with six (where the fixture's own 124px label wrapped
+  // the toolbar under round 1's flat 180px); 160px more at 1440.
+  const ROOM = { 1280: { 4: 198, 5: 160, 6: 122 }, 1440: { 4: 358, 5: 320, 6: 282 } }
+  const capRule = () => {
     const css = read('./rabbitTimeline.css')
-    const rule = css.slice(css.indexOf('.rb-tl-shotlist {'), css.indexOf('}', css.indexOf('.rb-tl-shotlist {')))
-    for (const decl of ['max-width: 180px;', 'flex: 0 1 auto;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;', 'min-width: 0;']) expect(rule, decl).toContain(decl)
-    // CONTROL: the reading fails without the cap.
-    expect(rule.replace('max-width: 180px;', '')).not.toContain('max-width: 180px;')
+    return css.slice(css.indexOf('.rb-tl-shotlist {'), css.indexOf('}', css.indexOf('.rb-tl-shotlist {')))
+  }
+  // The sheet's max-width, read as the browser would for a window width and a tab count.
+  const capAt = (rule, vw, tabs) => {
+    const m = rule.match(/max-width: max\((\d+)px, calc\(100vw - (\d+)px - \(var\(--rb-tl-group-tabs, 4\) - 4\) \* (\d+)px\)\);/)
+    if (!m) return null
+    const [, floor, less, perTab] = m.map(Number)
+    return Math.max(floor, vw - less - (tabs - 4) * perTab)
+  }
+  it('S3c R1-08 / R2-04: a long list title stops at the sheet\'s cap with an ellipsis, under the room the toolbar leaves at 1280 and 1440 with four, five or six Group-by tabs', () => {
+    const rule = capRule()
+    for (const decl of ['flex: 0 1 auto;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;', 'min-width: 0;']) expect(rule, decl).toContain(decl)
+    for (const vw of [1280, 1440]) {
+      for (const tabs of [4, 5, 6]) {
+        const cap = capAt(rule, vw, tabs)
+        expect(cap, `${vw} / ${tabs} tabs`).not.toBeNull()
+        expect(cap, `${vw} / ${tabs} tabs`).toBeLessThan(ROOM[vw][tabs])
+        expect(cap, `${vw} / ${tabs} tabs`).toBeGreaterThanOrEqual(96)
+      }
+    }
+    // Round 1's four-tab reading is kept: 180px at 1280.
+    expect(capAt(rule, 1280, 4)).toBe(180)
+  })
+  it('CONTROL: round 1\'s flat 180px cap fails the six-tab room (and five), and a cap that ignores the tabs fails six', () => {
+    const flat = capRule().replace(/max-width: max\([^;]*\);/, 'max-width: max(180px, calc(100vw - 1100px - (var(--rb-tl-group-tabs, 4) - 4) * 0px));')
+    expect(capAt(flat, 1280, 6)).not.toBeLessThan(ROOM[1280][6])
+    expect(capAt(flat, 1280, 5)).not.toBeLessThan(ROOM[1280][5])
+    const noTabs = capRule().replace('* 38px', '* 0px')
+    expect(capAt(noTabs, 1280, 6)).not.toBeLessThan(ROOM[1280][6])
+  })
+  it('S3c R2-04: the label carries the number of Group-by tabs beside it — four, five with Levels, six with Experiences too', () => {
+    for (const [over, n] of [[{}, '4'], [{ levels_enabled: true }, '5'], [{ levels_enabled: true, experiences_enabled: true }, '6']]) {
+      rabbit.current = ctxFor({ project: { id: 'p1', scenes_enabled: true, ...over } })
+      mount(true)
+      fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
+      expect(document.querySelectorAll('[role="tablist"][aria-label="Group by"] [role="tab"]')).toHaveLength(Number(n))
+      expect(document.querySelector('.rb-tl-shotlist').style.getPropertyValue('--rb-tl-group-tabs'), n).toBe(n)
+      cleanup()
+    }
   })
   it('grouped by scene, the gutter\'s scene and shot rows carry the tooltip that names the list (a task row keeps its own)', () => {
     rabbit.current = ctxFor({
@@ -174,7 +215,7 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Harbour')?.parentElement
     expect(row?.getAttribute('title')).toBe('Harbour\nIn: Shoot · v2 (active)')
   })
-  it('grouped by scene, a task linked outside the active list sits under "No Scene", and its row says first what it points at (the rule of 2026-10-02)', () => {
+  it('grouped by scene, a task linked outside the active list sits under "No scene in the active list", and its row says first what it points at (the rule of 2026-10-02)', () => {
     rabbit.current = ctxFor({
       tasks: [{ id: 't3', title: 'Light B', scene_id: 'B', status: 'not_started' }],
       shotLists: [{ id: 'L1', title: 'Shoot', version: 2 }, { id: 'L2', title: 'Pickups', version: 1 }],
@@ -236,6 +277,57 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     mount(true)
     fireEvent.click(screen.getByTitle('Recently deleted key dates'))
     expect(document.querySelectorAll('.ui-dialog-backdrop')).toHaveLength(1)
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).toHaveBeenCalledTimes(1)
+  })
+  // Review round 2 (R2-02): the task popup counted by its id kept the keys
+  // live under Help once Ctrl+Z had taken its task back (the popup draws
+  // nothing then). It counts only while its task is there.
+  it('S3c R2-02: the task popup is the page\'s own only while its task is there; one whose task went no longer keeps the keys live under Help', () => {
+    const phase = { id: 'ph1', name: 'Shoot', start_date: '2026-10-01', end_date: '2026-10-10' }
+    const task = { id: 't9', title: 'Grade the doorway', phase_id: 'ph1', status: 'not_started', start_date: '2026-10-02', end_date: '2026-10-03' }
+    const help = <div className="ui-dialog-backdrop"><div className="ui-dialog" data-width="reading"><button type="button">Help topic</button></div></div>
+    const view = (extra = null) => <>{<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive />}{extra}</>
+    const openPopup = () => {
+      const row = [...document.querySelectorAll('.rb-tl-row-label')].find(n => n.textContent === 'Grade the doorway')?.parentElement
+      expect(row, 'the task\'s row').toBeTruthy()
+      fireEvent.click(row)
+    }
+    // CONTROL first: the task there, its popup open (mocked: it draws its
+    // Dialog as the stand-in backdrop) — the page's own, so the keys act.
+    rabbit.current = ctxFor({ phases: [phase], tasks: [task] })
+    const first = render(view())
+    openPopup()
+    first.rerender(view(help))
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).toHaveBeenCalledTimes(1)
+    cleanup()
+    // The task taken back while its popup was open: Help is not the page's own.
+    rabbit.current = ctxFor({ phases: [phase], tasks: [task] })
+    const { rerender } = render(view())
+    openPopup()
+    rabbit.current = ctxFor({ phases: [phase], tasks: [] })
+    rerender(view(help))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Help topic' }), { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+    // …and the stale id is let go: the task brought back does not re-open it.
+    rabbit.current = ctxFor({ phases: [phase], tasks: [task] })
+    rerender(view(help))
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+  })
+  // Review round 2 (R2-05): the window's close question (App's own, marked
+  // data-app-question) is a dialog over the page to the keys too.
+  it('S3c R2-05: under the window\'s close question the keys stand down (CONTROL: the same element without the mark does not)', () => {
+    rabbit.current = ctxFor()
+    mount(true, <div data-app-question="close"><div role="dialog" aria-modal="true"><button type="button">Keep editing</button></div></div>)
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(document.body, { key: 'y', ctrlKey: true })
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+    expect(rabbit.current.redo).not.toHaveBeenCalled()
+    cleanup()
+    rabbit.current = ctxFor()
+    mount(true, <div><div role="dialog" aria-modal="true"><button type="button">Keep editing</button></div></div>)
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
     expect(rabbit.current.undo).toHaveBeenCalledTimes(1)
   })

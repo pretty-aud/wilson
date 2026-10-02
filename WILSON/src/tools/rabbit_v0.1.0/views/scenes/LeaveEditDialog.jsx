@@ -10,8 +10,10 @@
 // primary, last, where a dialog's go-ahead sits). Save edit writes every
 // unsaved edit of the open project as its next version, under the name the
 // first-change question gave it; a refusal stays in the question, verbatim,
-// and nothing is left. The window's close asks the same three in App's own
-// question, not this one (one question, never two).
+// and nothing is left. An edit written whose names alone were refused is
+// saved: the question goes, and the provider says the refusal (review round
+// 2). The window's close asks the same three in App's own question, not
+// this one (one question, never two).
 //
 // Rendered once, by App, inside RabbitProvider: an exit can be asked from
 // any page (App's navigateTo).
@@ -34,6 +36,11 @@ export default function LeaveEditDialog() {
   const ctx = useRabbit()
   const ask = ctx?.leaveAsk
   if (!ask) return null
+  // Review round 2 (R2-01): nothing left to ask about (the provider settles
+  // the question as "go" in this same commit) — never "0 edits are not
+  // saved".
+  const count = ctx.unsavedEditCount?.() ?? 1
+  if (count < 1) return null
   return (
     <AnswerDialog
       title="Save the edit before leaving?"
@@ -44,7 +51,7 @@ export default function LeaveEditDialog() {
         { label: 'Save edit', variant: 'primary', onClick: async () => { await ctx.saveOpenDrafts(); ctx.answerLeave(true) } },
       ]}
     >
-      {leaveWords(ctx.describeUnsavedEdits(), ctx.unsavedEditCount?.() ?? 1)}
+      {leaveWords(ctx.describeUnsavedEdits(), count)}
     </AnswerDialog>
   )
 }

@@ -105,8 +105,14 @@ describe('SessionWarning', () => {
     expect(rule('.session-layer')).toMatch(/position:\s*relative/)
     const consoleModals = [...readFileSync(resolve(here, '../../admin/CompaniesSection.jsx'), 'utf8').matchAll(/zIndex: (\d+)/g)].map((m) => Number(m[1]))
     expect(consoleModals.length).toBeGreaterThan(0)
-    const quit = Number(/showCloseDialog && \(\s*<div style=\{\{\s*position: 'fixed', inset: 0, zIndex: (\d+),/.exec(app)?.[1])
+    // Post-overhaul S3c review round 2 (R2-05): the quit dialog's backdrop
+    // carries the mark the pages' undo keys count it by, after a comment
+    // saying so; its layer is read the same.
+    const QUIT = /showCloseDialog && \((?:\s*\/\/[^\n]*)*\s*<div data-app-question="close" style=\{\{\s*position: 'fixed', inset: 0, zIndex: (\d+),/
+    const quit = Number(QUIT.exec(app)?.[1])
     expect(quit).toBe(200)
+    // CONTROL: the reading finds nothing when the backdrop's layer moves out of it.
+    expect(Number(QUIT.exec(app.replace("position: 'fixed', inset: 0, zIndex: 200,", "position: 'fixed', inset: 0,"))?.[1])).toBeNaN()
     expect(layerOf('.session-layer')).toBeGreaterThan(layerOf('.ui-dialog-backdrop'))
     expect(layerOf('.session-layer')).toBeGreaterThan(Math.max(...consoleModals))
     expect(layerOf('.session-layer')).toBeGreaterThan(quit)

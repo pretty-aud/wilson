@@ -40,10 +40,25 @@ const guards = new Set()
 // A guard whose question is open now → how to settle it without an answer.
 const settle = new Map()
 let asking = false
+// Review round 2 (R2-01): who follows the unsaved work while a question about
+// it is up (App's close question, which captures the guards when it opens).
+const listeners = new Set()
+
+/** Follow changes to the unsaved work (guards added or removed, a guard's work changed); returns the unsubscribe. */
+export function subscribeLeaveGuards(fn) {
+  listeners.add(fn)
+  return () => { listeners.delete(fn) }
+}
+
+/** A guard's work changed (the provider calls it when its drafts do). */
+export function leaveGuardsChanged() {
+  for (const fn of [...listeners]) fn()
+}
 
 /** Register a guard; returns its removal. */
 export function addLeaveGuard(guard) {
   guards.add(guard)
+  leaveGuardsChanged()
   return () => {
     guards.delete(guard)
     // Review round 1 (R1-10): a guard taken away while its question is open
@@ -52,6 +67,7 @@ export function addLeaveGuard(guard) {
     // the one-question lock is let go: otherwise every later exit was refused
     // in silence.
     settle.get(guard)?.(false)
+    leaveGuardsChanged()
   }
 }
 
@@ -108,5 +124,6 @@ export function unsavedForClose() {
 export function _resetLeaveGuardsForTests() {
   guards.clear()
   settle.clear()
+  listeners.clear()
   asking = false
 }

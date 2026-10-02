@@ -299,7 +299,8 @@ function DraftHarness({ edits: given, extra, pageActive }) {
       undo: vi.fn(), redo: vi.fn(),
       editDraftOf: (listId) => drafts[listId] || null,
       startEditDraft: (opts) => { log.start.push(opts); setDrafts(d => ({ ...d, [opts.listId]: startDraft({ projectId: 'p1', ...opts, now: 't' }) })) },
-      changeEditDraft: (listId, next) => { log.change.push(next); setDrafts(d => ({ ...d, [listId]: changeDraft(d[listId], next, 't') })) },
+      // As the provider's: opts.made, the shots a change wrote (R1-04; review round 2 tests it).
+      changeEditDraft: (listId, next, opts = {}) => { log.change.push(next); log.changeOpts.push(opts); setDrafts(d => ({ ...d, [listId]: changeDraft(d[listId], next, 't', opts.made || []) })) },
       undoEditDraft: (listId) => { log.undo += 1; setDrafts(d => { const n = undoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       redoEditDraft: (listId) => { log.redo += 1; setDrafts(d => { const n = redoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       discardEditDraft: (listId) => { log.discard += 1; setDrafts(d => { const n = { ...d }; delete n[listId]; return n }) },
@@ -326,7 +327,7 @@ function DraftHarness({ edits: given, extra, pageActive }) {
   return <ScenesView pageActive={pageActive} />
 }
 function draftPage({ edits = [EDIT_1], pageActive = true, ...extra } = {}) {
-  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []; log.leave = []
+  log.start = []; log.change = []; log.changeOpts = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []; log.leave = []
   leave.answer = 'stay'
   return render(<DraftHarness edits={edits} extra={extra} pageActive={pageActive} />)
 }
@@ -499,6 +500,24 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(screen.getByRole('dialog', { name: 'Discard changes?' }).textContent).not.toContain('Nothing was written')
   })
 
+  // Review round 2 (R2-08): R1-04's later New shot — on a draft already
+  // unsaved, no question — had no test: the draft's change must carry the
+  // shot it wrote, or Discard changes says "Nothing was written".
+  it('R1-04 / R2-08: New shot on a draft already unsaved: the change carries the shot it wrote, and Discard changes names it', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    await yes('Start new version')
+    expect(log.start[0].made || []).toEqual([])
+    bandMenu('Lighthouse, dawn')
+    await act(async () => { fireEvent.click(menuItem('New shot')) })
+    expect(question()).toBeNull()
+    expect(log.changeOpts.at(-1).made).toEqual(['sh-new-1'])
+    fireEvent.click(within(document.querySelector('.rb-scene-lists')).getByRole('button', { name: 'Discard changes' }))
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot it added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
+  })
+
   it('a reviewer changes edits but not shots: New shot is greyed, "members only"; a seat without list writes gets no edit actions', () => {
     perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
     draftPage({ adapterMode: 'supabase', myProjectRole: 'reviewer', projectIsStaffed: true })
@@ -535,6 +554,20 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(document.activeElement.tagName).toBe('BUTTON')
     expect(document.activeElement.textContent).toBe('Save edit')
   })
+  // Review round 2 (R2-08): R1-06 moves focus only when nothing holds it;
+  // that check had no test. A row action's question hands focus back to the
+  // row's menu, which is still there: focus stays.
+  it('R1-06 / R2-08: after a row action\'s Yes, focus stays on that row\'s menu — still there — and is not taken to Save edit', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    const trigger = screen.getByRole('button', { name: 'Edit actions for The climb (cut 1)' })
+    trigger.focus()
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    await yes('Start new version')
+    expect(document.activeElement.textContent).not.toBe('Save edit')
+    expect(document.activeElement.getAttribute('aria-label') || document.activeElement.getAttribute('title')).toMatch(/^Edit actions for The climb \(cut \d\)$/)
+  })
 
   it('"New edit from this list" (More): asks with no change named; Yes makes a draft of the list\'s order', async () => {
     draftPage({ edits: [] })
@@ -556,7 +589,7 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     const dismissStoredEditDraft = vi.fn()
     draftPage({ recoverableEditDrafts: [copy], recoverEditDraft, dismissStoredEditDraft })
     let d = screen.getByRole('dialog', { name: 'Recover unsaved edit?' })
-    expect(d.textContent).toContain('WILSON closed before “Shoot · v1”, an edit of “Shoot · v2”, was saved. It holds 1 shot.')
+    expect(d.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, was left unsaved. It holds 1 shot.')
     expect(document.activeElement.textContent).toBe('Not now')
     fireEvent.click(within(d).getByRole('button', { name: 'Not now' }))
     expect(screen.queryByRole('dialog', { name: 'Recover unsaved edit?' })).toBeNull()
@@ -588,6 +621,29 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
     expect(log.undo).toBe(1)
   })
+  // Review round 2 (R2-05): the window's close question is App's own (no kit
+  // Dialog, its backdrop marked data-app-question): with a draft on screen a
+  // Ctrl+Z under it took back a Move down. A question, popup open or not.
+  it('R2-05: under the window\'s close question the draft\'s Ctrl+Z stands down, a popup open beneath or not (CONTROL: the same element unmarked does not)', () => {
+    const base = EDIT_1.items
+    const initialDrafts = { 'list-1': startDraft({ projectId: 'p1', listId: 'list-1', basedOnEditId: 'edit-1', title: "Director's cut", version: 2, base, items: base.slice(1), now: 't' }) }
+    const { container } = draftPage({ initialDrafts })
+    const q = document.createElement('div')
+    q.setAttribute('data-app-question', 'close')
+    document.body.appendChild(q)
+    try {
+      fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+      expect(log.undo).toBe(0)
+      fireEvent.click(screen.getAllByRole('button', { name: 'View details of The door' })[0])
+      fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+      expect(log.undo).toBe(0)
+      q.removeAttribute('data-app-question')
+      fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+      expect(log.undo).toBe(1)
+    } finally {
+      q.remove()
+    }
+  })
   // Review round 1 (R1-03): "Not now" kept the copy, but the next new edit of
   // its list replaced it without a word, and nothing led back to it.
   it('R1-03: put off, the copy is one menu item away, and a new edit of its list says it replaces it — and how to keep it instead', () => {
@@ -600,6 +656,17 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
     // …and the way back is where it says.
     fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('Recover unsaved edit…'))
+    expect(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).toBeTruthy()
+  })
+  // Review round 2 (R2-08): R1-03's item on a SAVED EDIT's More (the bar
+  // while an edit of the list is on screen) had no test.
+  it('R1-03 / R2-08: put off, the copy is in a saved edit\'s More menu too, and opens the question', () => {
+    draftPage({ recoverableEditDrafts: [copy] })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).getByRole('button', { name: 'Not now' }))
+    pickEdit('edit-1')
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    expect(menuItem('Archive this edit')).toBeTruthy()
     fireEvent.click(menuItem('Recover unsaved edit…'))
     expect(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).toBeTruthy()
   })
@@ -820,7 +887,10 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     transfer = dt()
     const bandGrip = cutBand('Lighthouse, dawn').querySelector('.rb-scene-grip')
     fire('dragstart', bandGrip, transfer)
-    expect(fire('dragover', boxed(cutRow('The climb')), transfer, AFTER).defaultPrevented).toBe(false)
+    // Review round 2 (R2-06): a row of ANOTHER block takes a block (after
+    // that block); a row of its own block takes nothing.
+    expect(fire('dragover', boxed(cutRow('The climb')), transfer, AFTER).defaultPrevented).toBe(true)
+    expect(fire('dragover', boxed(cutRow('The door')), transfer, AFTER).defaultPrevented).toBe(false)
     fire('dragend', bandGrip, transfer)
   })
 
@@ -869,12 +939,71 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     fire('dragend', cutGrip('The cold lamp'), t2)
   })
 
-  it('a block never lands on a row, and a row dropped back where it was asks nothing', () => {
+  // Review round 2 (R2-06): R1-07 drew a block's line under the target
+  // block's last row, and that row refused the drop — the line vanished
+  // under the pointer, and a drop on it did nothing. Any row of another block
+  // takes a block, after that block; its own rows take nothing.
+  it('R2-06: a block over ANY row of another block lands after that block — the line drawn under its last row, where the pointer can be', async () => {
     draftPage()
     pickEdit('edit-1')
     const bandGrip = cutBand('Lighthouse, dawn').querySelector('.rb-scene-grip')
+    // Over the door's twin (its own block): nowhere.
+    expect(dragTo(bandGrip, cutRow('The door', 1), AFTER).line).toBeNull()
+    expect(question()).toBeNull()
+    // Over the cold lamp (the last block's only row), either half: after that block.
+    const transfer = dt()
+    fire('dragstart', bandGrip, transfer)
+    fire('dragover', boxed(cutRow('The cold lamp')), transfer, BEFORE)
+    expect(cutRow('The cold lamp').getAttribute('data-drop')).toBe('after')
+    expect(cutBand('Cliff path', 1).getAttribute('data-drop')).toBeNull()
+    fire('drop', cutRow('The cold lamp'), transfer, BEFORE)
+    fire('dragend', bandGrip, transfer)
+    expect(question().textContent).toContain('with this change:')
+    await yes('Start new version')
+    expect(cutNames()).toEqual(['The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan'])
+  })
+
+  // R2-06, measured on its re-run in Chromium: a step that changes the
+  // element under the pointer fires dragenter and dragleave but no dragover
+  // (the next comes a tick later), so a block's line cleared by each row's
+  // dragleave blinked from row to row. It holds while the pointer moves
+  // within the block, and goes when it leaves it.
+  it('R2-06: a block\'s line holds while the pointer moves among that block\'s rows, and goes when it leaves the block', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const leaveTo = (from, to, transfer) => {
+      const ev = new MouseEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: to })
+      Object.defineProperty(ev, 'dataTransfer', { value: transfer })
+      act(() => { from.dispatchEvent(ev) })
+    }
+    const bandGrip = cutBand('Cliff path', 0).querySelector('.rb-scene-grip')
+    const transfer = dt()
+    fire('dragstart', bandGrip, transfer)
+    fire('dragover', boxed(cutRow('The door', 0)), transfer, BEFORE)
+    const lineRow = () => cutRow('Missing shot: The lost pan')
+    expect(lineRow().getAttribute('data-drop')).toBe('after')
+    // Row to row inside "Lighthouse, dawn", and up onto its heading: the line stays.
+    leaveTo(cutRow('The door', 0), cutRow('The door', 1).querySelector('td'), transfer)
+    expect(lineRow().getAttribute('data-drop')).toBe('after')
+    leaveTo(cutRow('The door', 1), cutBand('Lighthouse, dawn').querySelector('td'), transfer)
+    expect(lineRow().getAttribute('data-drop')).toBe('after')
+    // …and from the heading back down into its rows.
+    fire('dragover', boxed(cutBand('Lighthouse, dawn')), transfer, AFTER)
+    leaveTo(cutBand('Lighthouse, dawn'), cutRow('The door', 0).querySelector('td'), transfer)
+    expect(lineRow().getAttribute('data-drop')).toBe('after')
+    // Out of the block (onto the next block's row): it goes.
+    leaveTo(lineRow(), cutRow('The cold lamp').querySelector('td'), transfer)
+    expect(lineRow().getAttribute('data-drop')).toBeNull()
+    fire('dragend', bandGrip, transfer)
+  })
+
+  it('a block over the row before it lands where it is (asks nothing), and a row dropped back where it was asks nothing', () => {
+    draftPage()
+    pickEdit('edit-1')
+    const bandGrip = cutBand('Lighthouse, dawn').querySelector('.rb-scene-grip')
+    // After the climb's block: where it already is.
     const { line } = dragTo(bandGrip, cutRow('The climb'), AFTER)
-    expect(line).toBeNull()
+    expect(line).toBe('after')
     expect(question()).toBeNull()
     // The second door, dropped just after the first: where it already is.
     dragTo(cutGrip('The door', 1), cutRow('The door', 0), AFTER)
@@ -992,6 +1121,101 @@ describe('S3c step 6: a drag on the LIST asks to make an edit (Audrey\'s flow)',
     expect(band('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
     expect(shotRow('The cold lamp').getAttribute('data-drop')).toBe('after')
     fire('dragend', bandGrip, transfer)
+  })
+
+  // Review round 2 (R2-06), the list's two blocks: that line sat on rows that
+  // refused a scene. An open scene's shots (and the rest of its nest), and a
+  // band's shots, take a scene dropped on them: after that scene.
+  it('R2-06 on the list: a scene over an open scene\'s shots, or its nest, lands after that scene; over its own, nowhere; a shot over a nest, nowhere', async () => {
+    draftPage({ edits: [] })
+    const nest = (name) => sceneRow(name).nextElementSibling
+    const shotRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+    fireEvent.click(within(sceneRow('Cliff path')).getByRole('button', { name: 'Show shots' }))
+    fireEvent.click(within(sceneRow('Lighthouse, dawn')).getByRole('button', { name: 'Show shots' }))
+    const grip = sceneRow('Lighthouse, dawn').querySelector('.rb-scene-num-cell > .rb-scene-grip')
+    let transfer = dt()
+    fire('dragstart', grip, transfer)
+    // Its own shots: nowhere.
+    expect(fire('dragover', boxed(shotRow('The door')), transfer, BEFORE).defaultPrevented).toBe(false)
+    expect(nest('Lighthouse, dawn').getAttribute('data-drop')).toBeNull()
+    // Cliff path's shot, its top half: after Cliff path — the nest's line.
+    expect(fire('dragover', boxed(shotRow('The climb')), transfer, BEFORE).defaultPrevented).toBe(true)
+    expect(nest('Cliff path').getAttribute('data-drop')).toBe('after')
+    expect(shotRow('The climb').getAttribute('data-drop')).toBeNull()
+    // Up from the nest onto Cliff path's own row (the same block): it holds.
+    const up = new MouseEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: sceneRow('Cliff path').querySelector('td') })
+    Object.defineProperty(up, 'dataTransfer', { value: transfer })
+    act(() => { shotRow('The climb').dispatchEvent(up) })
+    expect(nest('Cliff path').getAttribute('data-drop')).toBe('after')
+    // …and from that row back down into its nest.
+    fire('dragover', boxed(sceneRow('Cliff path')), transfer, AFTER)
+    const down = new MouseEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: nest('Cliff path').querySelector('td') })
+    Object.defineProperty(down, 'dataTransfer', { value: transfer })
+    act(() => { sceneRow('Cliff path').dispatchEvent(down) })
+    expect(nest('Cliff path').getAttribute('data-drop')).toBe('after')
+    // …straight into a shot row of the nest's own table (a row inside a row).
+    fire('dragover', boxed(sceneRow('Cliff path')), transfer, AFTER)
+    const inner = new MouseEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: shotRow('The climb').querySelector('td') })
+    Object.defineProperty(inner, 'dataTransfer', { value: transfer })
+    act(() => { sceneRow('Cliff path').dispatchEvent(inner) })
+    expect(nest('Cliff path').getAttribute('data-drop')).toBe('after')
+    fire('dragover', boxed(shotRow('The climb')), transfer, BEFORE)
+    // Leaving that shot for nowhere takes the line away…
+    fire('dragleave', shotRow('The climb'), transfer)
+    expect(nest('Cliff path').getAttribute('data-drop')).toBeNull()
+    // …and the nest around the shots draws it again, the same.
+    expect(fire('dragover', boxed(nest('Cliff path')), transfer, BEFORE).defaultPrevented).toBe(true)
+    expect(nest('Cliff path').getAttribute('data-drop')).toBe('after')
+    fire('drop', shotRow('The climb'), transfer, BEFORE)
+    fire('dragend', grip, transfer)
+    expect(question().textContent).toContain('with this change:')
+    await yes('Start new edit')
+    expect(bandLabels(document)).toEqual(['Cliff path', 'Lighthouse, dawn'])
+    cleanup()
+    // CONTROL: a SHOT over a nest (not over a shot row) lands nowhere.
+    draftPage({ edits: [] })
+    fireEvent.click(within(sceneRow('Cliff path')).getByRole('button', { name: 'Show shots' }))
+    fireEvent.click(within(sceneRow('Lighthouse, dawn')).getByRole('button', { name: 'Show shots' }))
+    transfer = dt()
+    const shotGrip = shotRow('The door').querySelector('.rb-scene-grip')
+    fire('dragstart', shotGrip, transfer)
+    expect(fire('dragover', boxed(nest('Cliff path')), transfer, BEFORE).defaultPrevented).toBe(false)
+    fire('dragend', shotGrip, transfer)
+  })
+
+  it('R2-06 on the Shots table: a band over another band\'s shot lands after that band, its line under that band\'s last shot', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Shots' }))
+    const band = (label) => [...document.querySelectorAll('.rb-scene-table-shots .rb-scene-group-row')].find(r => r.querySelector('.rb-scene-group-label')?.textContent === label)
+    const shotRow = (name) => screen.getByRole('button', { name: `Select ${name}` }).closest('tr')
+    const bandGrip = band('Lighthouse, dawn').querySelector('.rb-scene-grip')
+    // Its own shot: nowhere.
+    expect(dragTo(bandGrip, shotRow('The door'), AFTER).line).toBeNull()
+    expect(question()).toBeNull()
+    // The line holds between Cliff path's band and its shot (one block), and
+    // goes when the pointer leaves it.
+    const leaveTo = (from, to, transfer) => {
+      const ev = new MouseEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: to })
+      Object.defineProperty(ev, 'dataTransfer', { value: transfer })
+      act(() => { from.dispatchEvent(ev) })
+    }
+    const held = dt()
+    fire('dragstart', bandGrip, held)
+    fire('dragover', boxed(shotRow('The climb')), held, BEFORE)
+    expect(shotRow('The climb').getAttribute('data-drop')).toBe('after')
+    leaveTo(shotRow('The climb'), band('Cliff path').querySelector('td'), held)
+    expect(shotRow('The climb').getAttribute('data-drop')).toBe('after')
+    fire('dragover', boxed(band('Cliff path')), held, AFTER)
+    leaveTo(band('Cliff path'), shotRow('The climb').querySelector('td'), held)
+    expect(shotRow('The climb').getAttribute('data-drop')).toBe('after')
+    leaveTo(shotRow('The climb'), band('Lighthouse, dawn').querySelector('td'), held)
+    expect(shotRow('The climb').getAttribute('data-drop')).toBeNull()
+    fire('dragend', bandGrip, held)
+    const { line } = dragTo(bandGrip, shotRow('The climb'), BEFORE)
+    expect(line).toBe('after')
+    expect(question().textContent).toContain('with this change:')
+    await yes('Start new edit')
+    expect(bandLabels(document)).toEqual(['Cliff path', 'Lighthouse, dawn'])
   })
 
   it('no grips when the rows are not in the list\'s order: another sort, or the shots grouped by something else', () => {

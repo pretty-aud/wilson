@@ -72,7 +72,7 @@ import ConnectionLostBanner from './cloud/ConnectionLostBanner'
 import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 // Post-overhaul S3c, step 7 (D12): an unsaved edit asks before every exit.
-import { hasUnsavedWork, confirmLeave, unsavedForClose } from './tools/rabbit_v0.1.0/state/leaveGuard'
+import { hasUnsavedWork, confirmLeave, unsavedForClose, subscribeLeaveGuards } from './tools/rabbit_v0.1.0/state/leaveGuard'
 // S3c review round 1 (R1-11): the close question takes the keyboard as a dialog does.
 import { pushModal, isTopModal, focusableWithin } from './ui/overlay'
 import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
@@ -678,9 +678,14 @@ export default function App() {
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState(null);
 
+  // S3c review round 2 (R2-05): where focus was when the question opened —
+  // taken before it renders (its first answer's autoFocus moves focus in the
+  // commit) and handed back when it closes, as the kit Dialog does.
+  const closeOpenerRef = useRef(null);
   useEffect(() => {
     if (!window.electronAPI?.onCloseRequested) return;
     const cleanup = window.electronAPI.onCloseRequested(() => {
+      closeOpenerRef.current = document.activeElement;
       setCloseUnsaved(unsavedForClose());
       setCloseError(null);
       setShowCloseDialog(true);
@@ -719,7 +724,22 @@ export default function App() {
       }
     };
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('keydown', onKey); unregister(); };
+    // R2-01: the unsaved work can go while the question is up — its list
+    // archived elsewhere, a sign-out — and the words follow it (never while
+    // its own answer runs: that one ends in a close or a refusal).
+    const unfollow = subscribeLeaveGuards(() => {
+      if (!closeBusyRef.current) setCloseUnsaved(unsavedForClose());
+    });
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      unfollow();
+      unregister();
+      // R2-05: focus back where it was (Escape, Cancel, Keep editing), if
+      // that control is still there.
+      const opener = closeOpenerRef.current;
+      closeOpenerRef.current = null;
+      if (opener && opener !== document.body && opener.isConnected) opener.focus?.();
+    };
   }, [showCloseDialog]);
   // How many unsaved edits the question is about ("it" or "them").
   const closeCount = closeUnsaved.reduce((n, g) => n + (typeof g.count === 'function' ? g.count() : 1), 0);
@@ -727,12 +747,18 @@ export default function App() {
     setCloseBusy(true);
     setCloseError(null);
     try {
-      for (const g of closeUnsaved) await (how === 'save' ? g.save() : g.discard());
+      // R2-01: work that has gone since the question opened is not answered for.
+      for (const g of closeUnsaved) {
+        if (typeof g.dirty === 'function' && !g.dirty()) continue;
+        await (how === 'save' ? g.save() : g.discard());
+      }
       setCloseBusy(false);
       closeNow();
     } catch (err) {
       setCloseBusy(false);
       setCloseError(err?.message || String(err));
+      // What is still unsaved after the refusal, named.
+      setCloseUnsaved(unsavedForClose());
     }
   };
   // In a browser (no desktop close question), an unsaved edit asks through
@@ -2838,7 +2864,11 @@ export default function App() {
 
       {/* Close confirmation dialog */}
       {showCloseDialog && (
-        <div style={{
+        // S3c review round 2 (R2-05): not a kit Dialog, so the pages' undo
+        // keys did not see it (binUi counts `.ui-dialog-backdrop`): Ctrl+Z
+        // took back an edit under "Close WILSON". The marker is what they
+        // count it by (binUi's APP_QUESTION).
+        <div data-app-question="close" style={{
           position: 'fixed', inset: 0, zIndex: 200,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           backgroundColor: BACKDROP,

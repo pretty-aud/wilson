@@ -64,7 +64,9 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
     expect(app).toMatch(PAGE)
   })
   it('the close question reads the guards that can answer from it when it opens, and offers D12\'s three there', () => {
-    expect(app).toMatch(/onCloseRequested\(\(\) => \{\s*setCloseUnsaved\(unsavedForClose\(\)\);/)
+    // Review round 2 (R2-05): where focus was is taken first, before the
+    // question renders (its first answer's autoFocus moves focus in the commit).
+    expect(app).toMatch(/onCloseRequested\(\(\) => \{\s*closeOpenerRef\.current = document\.activeElement;\s*setCloseUnsaved\(unsavedForClose\(\)\);/)
     const dialog = app.slice(app.indexOf('{showCloseDialog && ('), app.indexOf('\n      )}', app.indexOf('{showCloseDialog && (')))
     expect(dialog).toMatch(/\{closeUnsaved\.length \? 'Keep editing' : 'Cancel'\}/)
     expect(dialog).toMatch(/Discard and close/)
@@ -82,7 +84,14 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
   // Escape = Keep editing. The question is a dialog to a screen reader and to
   // the keyboard: on the overlay stack while it is up, Escape its first
   // answer (unless busy), Tab kept inside — bound only while it is shown.
-  const CLOSE_KEYS = /useEffect\(\(\) => \{\s*if \(!showCloseDialog\) return undefined;\s*const id = \{\};\s*const unregister = pushModal\(id\);\s*const onKey = \(e\) => \{\s*if \(!isTopModal\(id\)\) return;\s*if \(e\.key === 'Escape'\) \{\s*if \(e\.defaultPrevented\) return;\s*e\.preventDefault\(\);\s*if \(!closeBusyRef\.current\) setShowCloseDialog\(false\);\s*return;\s*\}\s*if \(e\.key !== 'Tab'\) return;\s*const items = focusableWithin\(closeDialogRef\.current\);[\s\S]*?document\.addEventListener\('keydown', onKey\);\s*return \(\) => \{ document\.removeEventListener\('keydown', onKey\); unregister\(\); \};\s*\}, \[showCloseDialog\]\);/
+  // Review round 2: while it is up it also follows the unsaved work (R2-01:
+  // the work can go under it — a sign-out, its list archived elsewhere —
+  // never re-read while its own answer runs), and when it goes focus returns
+  // where it was (R2-05). Comment lines between the statements are allowed.
+  const C = String.raw`(?:\s*\/\/[^\n]*)*\s*`
+  const CLOSE_KEYS = new RegExp(String.raw`useEffect\(\(\) => \{\s*if \(!showCloseDialog\) return undefined;\s*const id = \{\};\s*const unregister = pushModal\(id\);\s*const onKey = \(e\) => \{\s*if \(!isTopModal\(id\)\) return;\s*if \(e\.key === 'Escape'\) \{\s*if \(e\.defaultPrevented\) return;\s*e\.preventDefault\(\);\s*if \(!closeBusyRef\.current\) setShowCloseDialog\(false\);\s*return;\s*\}\s*if \(e\.key !== 'Tab'\) return;\s*const items = focusableWithin\(closeDialogRef\.current\);[\s\S]*?document\.addEventListener\('keydown', onKey\);`
+    + C + String.raw`const unfollow = subscribeLeaveGuards\(\(\) => \{\s*if \(!closeBusyRef\.current\) setCloseUnsaved\(unsavedForClose\(\)\);\s*\}\);\s*return \(\) => \{\s*document\.removeEventListener\('keydown', onKey\);\s*unfollow\(\);\s*unregister\(\);`
+    + C + String.raw`const opener = closeOpenerRef\.current;\s*closeOpenerRef\.current = null;\s*if \(opener && opener !== document\.body && opener\.isConnected\) opener\.focus\?\.\(\);\s*\};\s*\}, \[showCloseDialog\]\);`)
   it('the close question takes the keyboard as a dialog does: the overlay stack, Escape = its staying answer, Tab inside; and names itself', () => {
     expect(app).toMatch(CLOSE_KEYS)
     const dialog = app.slice(app.indexOf('{showCloseDialog && ('), app.indexOf('\n      )}', app.indexOf('{showCloseDialog && (')))
@@ -90,10 +99,30 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
     expect(dialog).toMatch(/<h2 id="wilson-close-title"/)
     expect(dialog).toMatch(/<p id="wilson-close-words"/)
   })
-  it('CONTROL: no stack, an Escape that closes while busy, or a listener left bound, fails the pin', () => {
+  it('CONTROL: no stack, an Escape that closes while busy, a listener left bound, no follow, a follow while busy, or no focus return, fails the pin', () => {
     expect(app.replace('const unregister = pushModal(id);', 'const unregister = () => {};')).not.toMatch(CLOSE_KEYS)
     expect(app.replace('if (!closeBusyRef.current) setShowCloseDialog(false);', 'setShowCloseDialog(false);')).not.toMatch(CLOSE_KEYS)
-    expect(app.replace("return () => { document.removeEventListener('keydown', onKey); unregister(); };", 'return () => { unregister(); };')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace("document.removeEventListener('keydown', onKey);\n      unfollow();", 'unfollow();')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace('unfollow();\n      unregister();', 'unregister();')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace('if (!closeBusyRef.current) setCloseUnsaved(unsavedForClose());', 'setCloseUnsaved(unsavedForClose());')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace('opener.isConnected) opener.focus?.();', 'opener.isConnected) {}')).not.toMatch(CLOSE_KEYS)
+    expect(app.replace(/onCloseRequested\(\(\) => \{\s*closeOpenerRef\.current = document\.activeElement;/, 'onCloseRequested(() => {')).not.toMatch(/onCloseRequested\(\(\) => \{\s*closeOpenerRef\.current = document\.activeElement;/)
+  })
+  // Review round 2 (R2-01): the answers skip work that went since the
+  // question opened, and a refusal re-reads what is still unsaved.
+  const CLOSE_AFTER = /for \(const g of closeUnsaved\) \{\s*if \(typeof g\.dirty === 'function' && !g\.dirty\(\)\) continue;\s*await \(how === 'save' \? g\.save\(\) : g\.discard\(\)\);\s*\}\s*setCloseBusy\(false\);\s*closeNow\(\);\s*\} catch \(err\) \{\s*setCloseBusy\(false\);\s*setCloseError\(err\?\.message \|\| String\(err\)\);(?:\s*\/\/[^\n]*)*\s*setCloseUnsaved\(unsavedForClose\(\)\);\s*\}/
+  it('Save edit and close / Discard and close answer only for the work still there, and a refusal names what is left', () => {
+    expect(app).toMatch(CLOSE_AFTER)
+  })
+  it('CONTROL: answering for gone work, or a refusal that keeps the old words, fails the pin', () => {
+    expect(app.replace("if (typeof g.dirty === 'function' && !g.dirty()) continue;", '')).not.toMatch(CLOSE_AFTER)
+    expect(app.replace(/(setCloseError\(err\?\.message \|\| String\(err\)\);)(?:\s*\/\/[^\n]*)*\s*setCloseUnsaved\(unsavedForClose\(\)\);/, '$1')).not.toMatch(CLOSE_AFTER)
+  })
+  // Review round 2 (R2-05): the question is no kit Dialog; its backdrop is
+  // marked so the pages' undo keys count it (binUi's APP_QUESTION).
+  it('the close question\'s backdrop carries the mark the undo keys count it by', () => {
+    expect(app).toMatch(/\{showCloseDialog && \((?:\s*\/\/[^\n]*)*\s*<div data-app-question="close" style=\{\{\s*position: 'fixed', inset: 0, zIndex: 200,/)
+    expect(app.replace('<div data-app-question="close" style={{', '<div style={{')).not.toMatch(/<div data-app-question="close"/)
   })
   // Step 8: the pin reaches the prompt itself (both halves Chromium needs) and
   // its listener, not only the guard's first line.

@@ -1,6 +1,6 @@
 // leaveGuard.test.js — one question before every exit (S3c step 7, D12).
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { addLeaveGuard, confirmLeave, hasUnsavedWork, unsavedForClose, leaveTab, _resetLeaveGuardsForTests } from './leaveGuard'
+import { addLeaveGuard, confirmLeave, hasUnsavedWork, unsavedForClose, leaveTab, subscribeLeaveGuards, leaveGuardsChanged, _resetLeaveGuardsForTests } from './leaveGuard'
 
 beforeEach(() => _resetLeaveGuardsForTests())
 
@@ -105,5 +105,41 @@ describe('confirmLeave', () => {
     expect(await confirmLeave('tab')).toBe(false)
     remove()
     expect(await confirmLeave('tab')).toBe(true)
+  })
+  // Review round 2 (R2-08): round 1's "still there?" had no test of its own —
+  // a guard an earlier answer TOOK AWAY (its popup closed by that answer)
+  // while it still says it holds work is never asked.
+  it('a guard taken away by an earlier answer is not asked, though it still says it holds work', async () => {
+    const edit = { order: 2, applies: () => true, dirty: () => true, ask: vi.fn(async () => true) }
+    const removeEdit = addLeaveGuard(edit)
+    guard({ order: 1, reasons: ['tab'], extra: { ask: vi.fn(async () => { removeEdit(); return true }) } })
+    expect(await confirmLeave('tab')).toBe(true)
+    expect(edit.ask).not.toHaveBeenCalled()
+  })
+})
+
+// Review round 2 (R2-01): the window's close question captures the guards
+// when it opens; it follows them while it is up.
+describe('subscribeLeaveGuards', () => {
+  it('is told when a guard comes or goes, and when a guard says its work changed; never after unsubscribing', () => {
+    const seen = vi.fn()
+    const off = subscribeLeaveGuards(seen)
+    const remove = addLeaveGuard({ order: 1, applies: () => true, dirty: () => true, ask: async () => true })
+    expect(seen).toHaveBeenCalledTimes(1)
+    leaveGuardsChanged()
+    expect(seen).toHaveBeenCalledTimes(2)
+    remove()
+    expect(seen).toHaveBeenCalledTimes(3)
+    off()
+    leaveGuardsChanged()
+    addLeaveGuard({ order: 1, applies: () => true, dirty: () => true, ask: async () => true })
+    expect(seen).toHaveBeenCalledTimes(3)
+  })
+  it('the reset for tests forgets the listeners too', () => {
+    const seen = vi.fn()
+    subscribeLeaveGuards(seen)
+    _resetLeaveGuardsForTests()
+    leaveGuardsChanged()
+    expect(seen).not.toHaveBeenCalled()
   })
 })

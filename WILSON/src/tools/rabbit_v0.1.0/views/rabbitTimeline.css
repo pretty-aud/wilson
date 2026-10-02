@@ -701,10 +701,16 @@
     min-width: 0;
     /* S3c review round 1 (R1-08): a long list title stops here, with an
        ellipsis, instead of wrapping the toolbar at 1280; the tooltip has it
-       whole. MEASURED: at 1280 the toolbar leaves this label 198px (its
-       other controls 746 + 280 + the gaps of 1232); 200 still wrapped it,
-       so the cap sits under that. The fixture's own label is 124px. */
-    max-width: 180px;
+       whole. Review round 2 (R2-04): the room is the window's width less the
+       toolbar's other controls, and each Group-by tab past the four (Levels,
+       Experiences) takes 38px of it. MEASURED in Chromium, the toolbar the
+       full window wide: at 1280 the label has 198px with four tabs, 160 with
+       five, 122 with six (the fixture's own label, 124px, wrapped it); at
+       1440, 160px more. The cap is that room less 18px (a scrollbar's
+       width): 180 / 142 / 104 at 1280, 340 / 302 / 264 at 1440. Never under
+       96px: below about 1110 the toolbar wraps whatever the label does.
+       `--rb-tl-group-tabs` is the count, set on the label (TimelineView). */
+    max-width: max(96px, calc(100vw - 1100px - (var(--rb-tl-group-tabs, 4) - 4) * 38px));
     flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;

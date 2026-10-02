@@ -175,7 +175,7 @@ describe('surface 2a', () => {
   // task linked to a scene or shot outside it read "Unknown scene" /
   // "Unknown shot". Audrey's rule of 2026-10-02 (it narrowed step 1, which
   // had named such a row through the lookups): the task is counted under
-  // "No scene" / "No shot" — never dropped, never brought back under a scene
+  // "No scene in the active list" / "No shot in the active list" — never dropped, never brought back under a scene
   // from another list — and that row's tooltip says what its tasks point at
   // (ctx.sceneById / shotById, the lists that hold it). A scene's or shot's
   // own row says in its tooltip which list holds it (D10's floor). The rule
@@ -200,7 +200,7 @@ describe('surface 2a', () => {
     const firstCells = (root) => bodyRows(root).map(tr => tr.querySelector('td'))
     const figures = (root) => bodyRows(root).map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent))
 
-    it('By scene: the active list\'s scene by name, its list in the tooltip; the other list\'s under "No scene", saying what it points at', async () => {
+    it('By scene: the active list\'s scene by name, its list in the tooltip; the other list\'s under "No scene in the active list", saying what it points at', async () => {
       const { BySceneTab } = await import('./BudgetView')
       const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
       const cells = firstCells(container)
@@ -211,7 +211,7 @@ describe('surface 2a', () => {
       expect(figures(container)[1]).toEqual(['No scene in the active list', '1', '2.0', '0.0', '-2.0', '$1,000'])
       expect(container.textContent).not.toContain('Unknown scene')
     })
-    it('By shot: the same — "Harbour › SC001_SH010" by name, the other list\'s shot under "No shot"', async () => {
+    it('By shot: the same — "Harbour › SC001_SH010" by name, the other list\'s shot under "No shot in the active list"', async () => {
       const { ByShotTab } = await import('./BudgetView')
       const { container } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} sceneById={lookup} shotById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
       const cells = firstCells(container)
@@ -244,7 +244,7 @@ describe('surface 2a', () => {
       }
       try { localStorage.removeItem('rabbit-budget-custom-p9') } catch { /* ignore */ }
     })
-    it('a "No scene" holding only tasks with no scene at all has nothing to say', async () => {
+    it('a "No scene in the active list" holding only tasks with no scene at all has nothing to say', async () => {
       const { BySceneTab } = await import('./BudgetView')
       const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={[{ id: 'k9', asset_id: 'a1', bid_days: 1 }]} budget={budget} roleRates={roleRates} />)
       expect(firstCells(container).map(td => [td.textContent, td.getAttribute('title')])).toEqual([['No scene in the active list', null]])
@@ -1006,6 +1006,18 @@ describe('surface 2b', () => {
     expect(document.querySelectorAll('.ui-dialog-backdrop')).toHaveLength(1)
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
     expect(h.undo).toHaveBeenCalledTimes(2)
+  })
+  // Review round 2 (R2-05): the window's close question is App's own (no kit
+  // Dialog); its mark makes it a dialog over the tab to the keys.
+  it('S3c R2-05: under the window\'s close question the keys stand down (CONTROL: the same element without the mark does not)', () => {
+    const h = hook()
+    const question = (mark) => <div {...(mark ? { 'data-app-question': 'close' } : {})}><div role="dialog" aria-modal="true"><button type="button">Keep editing</button></div></div>
+    const { rerender } = render(<>{tab(h)}{question(true)}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Keep editing' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    rerender(<>{tab(h)}{question(false)}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Keep editing' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
   })
   it('S4a-07: Rabbit.jsx says it — BudgetView\'s pageActive is currentPage === \'rabbit\', and the tab hands it to the Expenses tab', () => {
     expect(read('../Rabbit.jsx')).toContain("{activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}")

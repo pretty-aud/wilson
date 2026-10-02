@@ -110,13 +110,20 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
           // is that row's (review round 1, R1-07).
           const { head: bandAt, lastRow: afterLast } = blockLine(drag?.lineOf?.('band', bandId), 'band', band.rows.length > 0)
           const lastRowId = band.rows[band.rows.length - 1]?.item.id
+          // Its rows take a block dropped on them as after it: the line
+          // above is where it lands (review round 2, R2-06); the heading and
+          // its rows carry the block's mark (`blockRow`), so that line holds while the
+          // pointer moves among them.
+          const inBand = { block: { kind: 'band', id: bandId } }
+          const blockRef = drag?.blockRow?.(inBand.block)
           return (
             <Fragment key={band.key}>
               <Row
                 className="rb-scene-group-row"
                 data-drop={bandAt === 'before' ? 'before' : bandAt === 'after' ? 'after' : undefined}
+                ref={blockRef}
                 onDragOver={drag ? drag.over('band', bandId) : undefined}
-                onDragLeave={drag ? drag.leave('band', bandId) : undefined}
+                onDragLeave={drag ? drag.leave('band', bandId, inBand) : undefined}
                 onDrop={drag ? drag.drop('band', bandId) : undefined}
               >
                 <Td colSpan={SPAN - 1} className="rb-scene-group-cell">
@@ -147,9 +154,10 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                     className="rb-scene-row rb-scene-cut-row"
                     data-missing={r.missing ? 'true' : undefined}
                     data-drop={at === 'before' ? 'before' : at === 'after' ? 'after' : undefined}
-                    onDragOver={drag ? drag.over('item', r.item.id) : undefined}
-                    onDragLeave={drag ? drag.leave('item', r.item.id) : undefined}
-                    onDrop={drag ? drag.drop('item', r.item.id) : undefined}
+                    ref={blockRef}
+                    onDragOver={drag ? drag.over('item', r.item.id, inBand) : undefined}
+                    onDragLeave={drag ? drag.leave('item', r.item.id, inBand) : undefined}
+                    onDrop={drag ? drag.drop('item', r.item.id, inBand) : undefined}
                   >
                     <Td numeric className="rb-scene-cut-pos" data-grip={drag ? 'true' : undefined}>
                       {drag && <Grip drag={drag} kind="item" id={r.item.id} name={`${r.name} (cut ${r.index + 1})`} />}

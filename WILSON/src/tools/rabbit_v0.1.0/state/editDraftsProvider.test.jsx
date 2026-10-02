@@ -7,7 +7,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
 import { EDIT_DRAFTS_KEY, storedDraftKey } from './editDrafts'
-import { confirmLeave, hasUnsavedWork, unsavedForClose, _resetLeaveGuardsForTests } from './leaveGuard'
+import { confirmLeave, hasUnsavedWork, unsavedForClose, subscribeLeaveGuards, _resetLeaveGuardsForTests } from './leaveGuard'
 
 const holder = vi.hoisted(() => ({ adapter: null, mode: 'local_server', session: null, writable: true, fixtures: null, authCbs: [] }))
 
@@ -113,7 +113,10 @@ function makeAdapter() {
       return clone(db.shotLists.find(l => l.id === listId))
     },
     failListId: null,
+    // Review round 2 (R2-03): a write held open, for an event to land in the middle of it.
+    gate: null,
     upsertEdit: async (row) => {
+      if (a.gate) await a.gate
       const stored = db.edits.find(e => e.id === row.id)
       if (!stored && a.failListId && row.shot_list_id === a.failListId) throw httpError(500, 'disk full')
       if (stored && row.snapshot !== undefined && a.failSave) { a.failSave = false; throw httpError(500, 'disk full') }
@@ -571,6 +574,224 @@ describe('S3c review round 1 — a draft whose list goes, two drafts, another pe
     expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeTruthy()
     await signOut()
     await signIn('user-A')
+    expect(ctxRef.recoverableEditDrafts.map(c => [c.personKey, c.listId])).toEqual([['user-A', 'L1']])
+  })
+})
+
+describe('S3c review round 2 — a question about drafts that went; whose copy a save removes', () => {
+  const PICKUPS = { id: 'L3', project_id: 'p1', title: 'Pickups', version: 1, summary: null, snapshot: {}, archived_at: null, archived_by: null, created_at: '2026-09-03' }
+  const withPickups = () => {
+    holder.adapter.db.shotLists.push({ ...PICKUPS })
+    holder.adapter.db.shotListItems.push(
+      { id: 'i5', shot_list_id: 'L3', project_id: 'p1', scene_id: 'sc1', shot_id: null, position: 0 },
+      { id: 'i6', shot_list_id: 'L3', project_id: 'p1', scene_id: null, shot_id: 'sh1', position: 0 },
+    )
+  }
+  const mountWithQuestion = async (lists = 2) => {
+    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+    await waitFor(() => expect(ctxRef.shotLists.length).toBe(lists))
+  }
+  const auth = async (event, id) => {
+    holder.session = id ? { user: { id } } : null
+    await act(async () => { for (const cb of holder.authCbs) cb(event, holder.session); await new Promise(r => setTimeout(r, 5)) })
+  }
+  const ask = (reason = 'tab') => {
+    const out = { went: undefined }
+    act(() => { confirmLeave(reason).then((g) => { out.went = g }) })
+    return out
+  }
+  afterEach(() => _resetLeaveGuardsForTests())
+
+  it('R2-01: a sign-out under the open leave question settles it as "go" — no question about nothing, no Save edit that saves nothing; the copy waits for its person', async () => {
+    await mountWithQuestion()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    const out = ask('tab')
+    const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    await auth('SIGNED_OUT', null)
+    await waitFor(() => expect(out.went).toBe(true))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(ctxRef.leaveAsk).toBeNull()
+    expect(ctxRef.describeUnsavedEdits()).toBe('')
+    expect(holder.adapter.db.edits).toEqual([])
+    expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeTruthy()
+    // The lock is let go: the next exit asks (or not) afresh.
+    expect(await confirmLeave('tab')).toBe(true)
+  })
+
+  // The question settles in the commit after its drafts go; the commit
+  // between draws it with nothing to name (a passive effect runs after the
+  // paint). Its words in that commit are read off the DOM's own mutation
+  // records, which keep a text node's last words after it is gone.
+  it('R2-01: the question never draws itself with nothing to name, not even for the commit before it settles', async () => {
+    await mountWithQuestion()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    const out = ask('tab')
+    await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    const words = []
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'characterData') words.push(r.target.data)
+        for (const n of r.addedNodes) words.push(n.textContent)
+      }
+    })
+    mo.observe(document.body, { subtree: true, childList: true, characterData: true })
+    await auth('SIGNED_OUT', null)
+    await waitFor(() => expect(out.went).toBe(true))
+    await new Promise((r) => setTimeout(r, 0))
+    mo.disconnect()
+    expect(words.filter(w => /^\s*Save edit keeps/.test(w || ''))).toEqual([])
+  })
+
+  it('R2-01: its list archived elsewhere (a refresh) under the open question — settled as "go", the draft dormant and kept', async () => {
+    withPickups()
+    await mountWithQuestion(3)
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L3', title: 'Pickups', version: 1, base: [item('x', 'sh1', 'sc1', 'Boats')], items: [] }) })
+    const out = ask('page')
+    await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    holder.adapter.db.shotLists = holder.adapter.db.shotLists.map(l => (l.id === 'L3' ? { ...l, archived_at: 'T' } : l))
+    await act(async () => { await ctxRef.refreshShotLists() })
+    await waitFor(() => expect(out.went).toBe(true))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(stored()[storedDraftKey('local', 'p1', 'L3')]).toBeTruthy()
+    expect(holder.adapter.db.edits).toEqual([])
+  })
+
+  it('R2-01: CONTROL — while a live draft remains the question stays (a draft going beside it does not settle it)', async () => {
+    withPickups()
+    await mountWithQuestion(3)
+    await startDraft()
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L3', title: 'Pickups', version: 1, base: [item('x', 'sh1', 'sc1', 'Boats')], items: [] }) })
+    const out = ask('tab')
+    const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    await act(async () => { ctxRef.discardEditDraft('L3') })
+    expect(out.went).toBeUndefined()
+    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved. Save edit keeps it as its next version;')
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Keep editing' })) })
+    expect(out.went).toBe(false)
+  })
+
+  it('R2-01: the close guard read when the question opened follows the work — no words and not dirty once it has gone (never "0 edits … undefined")', async () => {
+    await mountWithQuestion()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    const [g] = unsavedForClose()
+    expect(g.describe()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(g.dirty()).toBe(true)
+    await auth('SIGNED_OUT', null)
+    expect(g.describe()).toBe('')
+    expect(g.describe()).not.toMatch(/undefined|0 edits/)
+    expect(g.dirty()).toBe(false)
+    expect(g.count()).toBe(0)
+    expect(unsavedForClose()).toEqual([])
+  })
+
+  it('R2-01: an edit written whose names alone were refused is SAVED — the leave question goes, the exit goes on, and the refusal is the provider\'s error', async () => {
+    await mountWithQuestion()
+    await startDraft()
+    holder.adapter.failSave = true
+    const out = ask('tab')
+    const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
+    await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Save edit' })) })
+    await waitFor(() => expect(out.went).toBe(true))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(holder.adapter.db.edits[0].snapshot).toBeNull()
+    expect(ctxRef.error).toBe('The edit was saved as “Shoot · v1”, but the names it holds were not: disk full')
+  })
+
+  it('R2-01: two drafts, one written without its names and one refused — the question stays about the one left, and says both', async () => {
+    withPickups()
+    await mountWithQuestion(3)
+    await startDraft()
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L3', title: 'Pickups', version: 1, base: [item('x', 'sh1', 'sc1', 'Boats')], items: [] }) })
+    holder.adapter.failSave = true
+    holder.adapter.failListId = 'L3'
+    let err
+    await act(async () => { try { await ctxRef.saveOpenDrafts() } catch (e) { err = e } })
+    expect(err?.message).toBe('The edit was saved as “Shoot · v1”, but the names it holds were not: disk full “Pickups · v1” was not saved: disk full')
+    expect(ctxRef.unsavedEditCount()).toBe(1)
+    expect(ctxRef.describeUnsavedEdits()).toBe('“Pickups · v1”, an edit of “Pickups · v1”, is not saved.')
+  })
+
+  it('R2-03: a sign-out landing in the middle of Save edit — the saved draft\'s copy is removed under ITS person, and is never offered back as unsaved', async () => {
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    expect(ctxRef.editDraftOf('L1').personKey).toBe('user-A')
+    let release
+    holder.adapter.gate = new Promise((r) => { release = r })
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1', { title: 'Shoot' }).catch(e => e) })
+    await auth('SIGNED_OUT', null)
+    let res
+    await act(async () => { release(); res = await saving })
+    holder.adapter.gate = null
+    expect(res).not.toBeInstanceOf(Error)
+    expect(holder.adapter.db.edits.map(e => [e.title, e.version])).toEqual([['Shoot', 1]])
+    expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeUndefined()
+    await auth('SIGNED_IN', 'user-A')
+    expect(ctxRef.recoverableEditDrafts).toEqual([])
+  })
+
+  it('R2-03: the late save of one person\'s draft never ends the NEXT person\'s draft of the same list', async () => {
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    let release
+    holder.adapter.gate = new Promise((r) => { release = r })
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1', { title: 'Shoot' }).catch(e => e) })
+    await auth('SIGNED_OUT', null)
+    await auth('SIGNED_IN', 'user-B')
+    await startDraft({ version: 2 })
+    expect(ctxRef.editDraftOf('L1').personKey).toBe('user-B')
+    await act(async () => { release(); await saving })
+    holder.adapter.gate = null
+    expect(ctxRef.editDraftOf('L1')?.personKey).toBe('user-B')
+    expect(stored()[storedDraftKey('user-B', 'p1', 'L1')]).toBeTruthy()
+    expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeUndefined()
+    // A's save finished (written, with its names) but its undo step is A's:
+    // B's Ctrl+Z, once B's own draft is gone, has nothing of it to take back.
+    expect(holder.adapter.db.edits.find(e => e.version === 1)?.snapshot).toMatchObject({ kind: 'edit' })
+    await act(async () => { ctxRef.discardEditDraft('L1') })
+    expect(ctxRef.canUndo).toBe(false)
+  })
+  it('R2-03: CONTROL — the same save with nobody signing in meanwhile is one undo step, as before', async () => {
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    await act(async () => { await ctxRef.saveEditDraft('L1', { title: 'Shoot' }) })
+    expect(ctxRef.canUndo).toBe(true)
+  })
+
+  it('R2-01: whoever follows the unsaved work (App\'s close question) is told when a draft starts, changes and goes', async () => {
+    await mount()
+    const seen = vi.fn()
+    const off = subscribeLeaveGuards(seen)
+    try {
+      await startDraft()
+      const started = seen.mock.calls.length
+      expect(started).toBeGreaterThan(0)
+      await act(async () => { ctxRef.changeEditDraft('L1', [MOVED[0]]) })
+      expect(seen.mock.calls.length).toBeGreaterThan(started)
+      const changed = seen.mock.calls.length
+      await act(async () => { ctxRef.discardEditDraft('L1') })
+      expect(seen.mock.calls.length).toBeGreaterThan(changed)
+    } finally {
+      off()
+    }
+  })
+
+  it('R2-03: CONTROL — a sign-out with nothing being saved keeps the copy for its person (offered back)', async () => {
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    await startDraft()
+    await auth('SIGNED_OUT', null)
+    await auth('SIGNED_IN', 'user-A')
     expect(ctxRef.recoverableEditDrafts.map(c => [c.personKey, c.listId])).toEqual([['user-A', 'L1']])
   })
 })

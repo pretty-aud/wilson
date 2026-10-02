@@ -105,7 +105,7 @@ import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
 import TakePickerDialog from './bins/TakePickerDialog'
 import BinPoster from './bins/BinPoster'
 // S4a-07 (S3b step 7): the Bins keys' own "is something in front of me?".
-import { visibleOverlayOpen, drawerOnScreen } from './bins/binUi'
+import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/binUi'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -2086,6 +2086,15 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
           // A scene dropped after an OPEN scene lands after its shots: the
           // line is under them, on the nest (review round 1, R1-07).
           const { head: dropAt, lastRow: nestDrop } = blockLine(drag?.lineOf?.('scene', sc.id), 'scene', expanded)
+          // Its nest (its shots, their bar, Add shot) takes a scene dropped
+          // on it as after the scene: the line on the nest is where it lands
+          // (review round 2, R2-06). Its shot rows' own events reach it by
+          // bubbling (a shot row takes no scene), so they need no block of
+          // their own. The nest itself takes nothing else. The scene's row
+          // and its nest carry the block's mark (`blockRow`), so that line holds while the
+          // pointer moves between them.
+          const inScene = { block: { kind: 'scene', id: sc.id } }
+          const blockRef = drag?.blockRow?.(inScene.block)
           return (
             <Fragment key={sc.id}>
               {/* The kit Row: its one selected treatment (R3-38 — it was an
@@ -2095,8 +2104,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 selected={isChecked}
                 data-ticked={isChecked ? 'true' : 'false'}
                 data-drop={dropAt === 'before' ? 'before' : dropAt === 'after' ? 'after' : undefined}
+                ref={blockRef}
                 onDragOver={drag ? drag.over('scene', sc.id) : undefined}
-                onDragLeave={drag ? drag.leave('scene', sc.id) : undefined}
+                onDragLeave={drag ? drag.leave('scene', sc.id, inScene) : undefined}
                 onDrop={drag ? drag.drop('scene', sc.id) : undefined}
               >
                 {/* Checkbox: one 28px square (R3-40) */}
@@ -2252,7 +2262,14 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   holding the scene's shots as a table of their own (no
                   header, as before) on the recessed paper they sat on. */}
               {expanded && (
-                <Row className="rb-scene-nest-row" data-drop={nestDrop === 'after' ? 'after' : undefined}>
+                <Row
+                  className="rb-scene-nest-row"
+                  data-drop={nestDrop === 'after' ? 'after' : undefined}
+                  ref={blockRef}
+                  onDragOver={drag ? drag.over('nest', sc.id, inScene) : undefined}
+                  onDragLeave={drag ? drag.leave('nest', sc.id, inScene) : undefined}
+                  onDrop={drag ? drag.drop('nest', sc.id, inScene) : undefined}
+                >
                   <Td colSpan={12} className="rb-scene-nest-cell">
                     <div className="rb-scene-nest">
                       {/* Nested-shot bulk action bar */}
@@ -2696,6 +2713,12 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
           // is its last shot's while they show (review round 1, R1-07).
           const { head: bandAt, lastRow: bandAfterLast } = blockLine(bandDrag?.lineOf?.('scene', g.sceneId), 'scene', !collapsed && g.shots.length > 0)
           const lastShotId = g.shots[g.shots.length - 1]?.id
+          // Its shots take a scene dropped on them as after the band: the
+          // line above is where it lands (review round 2, R2-06); the band
+          // and its shots carry the block's mark (`blockRow`), so that line holds while
+          // the pointer moves among them.
+          const inBand = bandDrag ? { block: { kind: 'scene', id: g.sceneId } } : undefined
+          const blockRef = inBand ? drag?.blockRow?.(inBand.block) : undefined
           return (
             <Fragment key={g.key}>
               {/* A group's band (none for ungrouped): one row across the
@@ -2707,8 +2730,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                 <Row
                   className="rb-scene-group-row"
                   data-drop={bandAt === 'before' ? 'before' : bandAt === 'after' ? 'after' : undefined}
+                  ref={blockRef}
                   onDragOver={bandDrag ? bandDrag.over('scene', g.sceneId) : undefined}
-                  onDragLeave={bandDrag ? bandDrag.leave('scene', g.sceneId) : undefined}
+                  onDragLeave={bandDrag ? bandDrag.leave('scene', g.sceneId, inBand) : undefined}
                   onDrop={bandDrag ? bandDrag.drop('scene', g.sceneId) : undefined}
                 >
                   <Td colSpan={span} className="rb-scene-group-cell">
@@ -2757,9 +2781,10 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                     selected={isChecked}
                     data-ticked={isChecked ? 'true' : 'false'}
                     data-drop={shotDropAt === 'before' ? 'before' : shotDropAt === 'after' ? 'after' : undefined}
-                    onDragOver={drag ? drag.over('shot', shot.id) : undefined}
-                    onDragLeave={drag ? drag.leave('shot', shot.id) : undefined}
-                    onDrop={drag ? drag.drop('shot', shot.id) : undefined}
+                    ref={blockRef}
+                    onDragOver={drag ? drag.over('shot', shot.id, inBand) : undefined}
+                    onDragLeave={drag ? drag.leave('shot', shot.id, inBand) : undefined}
+                    onDrop={drag ? drag.drop('shot', shot.id, inBand) : undefined}
                   >
                     {/* Checkbox: one 28px square (R3-40) */}
                     <Td className="rb-scene-check-cell">
@@ -4208,8 +4233,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // width token on its surface (`data-width="confirm"`, Dialog.jsx). A popup
 // is the kit Dialog at another width, so the keys still undo there (C1).
 const openQuestions = { count: 0 }
+// Post-overhaul S3c review round 2 (R2-05): the window's close question too
+// (App's own, no kit Dialog) — with or without a popup open, as any question.
 function questionOnScreen() {
   return openQuestions.count > 0 || answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+    || appQuestionOnScreen()
 }
 /** A kit menu ON SCREEN (a row's shot-list menu, the bar's More): a key
     pressed with one open is not an undo (S4a-07; visibleOverlayOpen's

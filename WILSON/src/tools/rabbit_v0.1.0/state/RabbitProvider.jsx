@@ -95,7 +95,7 @@ import {
   draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
   storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
 } from './editDrafts';
-import { addLeaveGuard, confirmLeave } from './leaveGuard';
+import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -2682,6 +2682,9 @@ export function RabbitProvider({ children }) {
   function syncDraftHeld() {
     const pid = activeProjectIdRef.current;
     editDraftHeldRef.current = !!pid && Object.values(editDraftsRef.current).some(d => d.projectId === pid && d.dirty && draftLive(d));
+    // Review round 2 (R2-01): a question about the unsaved work follows it
+    // (App's close question, which captured the guards when it opened).
+    leaveGuardsChanged();
   }
   useEffect(() => { syncDraftHeld(); setHistoryVersion(v => v + 1); }, [activeProjectId, bundle.shotLists]);
 
@@ -2701,17 +2704,22 @@ export function RabbitProvider({ children }) {
     setHistoryVersion(v => v + 1);
   }, [draftPersonKey]);
 
-  // Put (or, with null, end) a draft — and its stored copy with it.
-  function setDraft(projectId, listId, draft) {
+  // Put (or, with null, end) a draft — and its stored copy with it, under
+  // the draft's OWN person (review round 2, R2-03: a save that finished after
+  // a sign-out removed the copy under whoever was signed in by then, and the
+  // saved edit was offered back as unsaved).
+  function setDraft(projectId, listId, draft, person = null) {
     const key = draftKey(projectId, listId);
+    const owner = person || draftPersonRef.current;
     const next = { ...editDraftsRef.current };
-    if (draft) next[key] = draft;
-    else delete next[key];
+    if (draft) next[key] = draft.personKey ? draft : { ...draft, personKey: owner };
+    // Ending another person's draft of the same list (theirs began after a
+    // sign-out landed in the middle of this one's save) is not this call's.
+    else if ((next[key]?.personKey || owner) === owner) delete next[key];
     editDraftsRef.current = next;
     setEditDrafts(next);
-    const person = draftPersonRef.current;
-    const stored = storedDraftKey(person, projectId, listId);
-    writeStoredDraft(stored, draft ? storedCopy(draft, person) : null);
+    const stored = storedDraftKey(owner, projectId, listId);
+    writeStoredDraft(stored, draft ? storedCopy(draft, owner) : null);
     setStoredEditDrafts(prev => {
       if (!prev[stored]) return prev;
       const rest = { ...prev };
@@ -2811,6 +2819,9 @@ export function RabbitProvider({ children }) {
    */
   const saveEditDraft = useCallback(async (listId, opts = {}) => {
     const { pid, draft } = requireDraft(listId);
+    // Whose draft this is, held across the round trip: a sign-out can land
+    // in the middle of it (review round 2, R2-03).
+    const person = draft.personKey || draftPersonRef.current;
     const shots = bundleRef.current.shots || [];
     const items = draft.items.map(it => {
       const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
@@ -2824,13 +2835,16 @@ export function RabbitProvider({ children }) {
       items,
       undoable: false,
     });
-    setDraft(pid, listId, null);
+    setDraft(pid, listId, null, person);
     if (activeProjectIdRef.current !== pid) return row;
+    // Its undo step is its person's: one who signed in meanwhile does not
+    // get it (the save itself still finishes).
+    const stillTheirs = () => activeProjectIdRef.current === pid && draftPersonRef.current === person;
     let saved;
     try {
       saved = await mutationsRef.current.saveEdit(row.id, row.items, undefined, { history: false });
     } catch (err) {
-      if (activeProjectIdRef.current === pid) {
+      if (stillTheirs()) {
         pushHistory({
           undoOps: [surfaced(() => mutationsRef.current.withdrawEdit(row.id))],
           redoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: row.id }))],
@@ -2840,7 +2854,7 @@ export function RabbitProvider({ children }) {
       e.savedRow = row;
       throw e;
     }
-    if (activeProjectIdRef.current !== pid) return saved || row;
+    if (!stillTheirs()) return saved || row;
     const snapshot = saved?.snapshot ?? null;
     pushHistory({
       undoOps: [
@@ -2928,6 +2942,10 @@ export function RabbitProvider({ children }) {
   }
   function unsavedEditWords() {
     const drafts = openDraftsNow();
+    // Review round 2 (R2-01): none left (their list archived elsewhere, the
+    // person changed, the last one written) — nothing to say; the question
+    // about them settles (below) and App's close question falls back.
+    if (!drafts.length) return '';
     const name = (d) => `“${formatShotListLabel(d)}”`;
     const of = (d) => { const l = findShotList(d.listId); return l ? `“${formatShotListLabel(l)}”` : 'its list'; };
     if (drafts.length === 1) return `${name(drafts[0])}, an edit of ${of(drafts[0])}, is not saved.`;
@@ -2940,21 +2958,29 @@ export function RabbitProvider({ children }) {
   // its own undo step), and a refusal does not stop the rest; what was not
   // saved stays unsaved and is said — one edit's refusal in the backend's
   // own words, as before; several, each named with its reason.
+  // Review round 2 (R2-01): an edit WRITTEN whose names alone were refused
+  // (`savedRow`) is saved, not left: its draft is gone, so a question kept
+  // open for it asked about nothing. Its words still say what was refused —
+  // in the question when something else keeps it open, else as the
+  // provider's own error (ctx.error, the Scenes bar's Banner).
   const saveOpenDrafts = useCallback(async () => {
     const drafts = openDraftsNow();
     const refused = [];
+    const notices = [];
     for (const d of drafts) {
       try {
         await saveEditDraft(d.listId, { title: d.title });
       } catch (err) {
-        refused.push({ d, err });
+        if (err?.savedRow) notices.push(err.message);
+        else refused.push({ d, err });
       }
     }
-    if (!refused.length) return;
+    if (!refused.length) {
+      if (notices.length) setError(notices.join(' '));
+      return;
+    }
     if (drafts.length === 1) throw refused[0].err;
-    // Written but not Saved: the edit is there, and its words say so.
-    throw new Error(refused.map(({ d, err }) => (err?.savedRow ? err.message
-      : `“${formatShotListLabel(d)}” was not saved: ${err?.message || err}`)).join(' '));
+    throw new Error([...notices, ...refused.map(({ d, err }) => `“${formatShotListLabel(d)}” was not saved: ${err?.message || err}`)].join(' '));
   }, [saveEditDraft]);
   const discardOpenDrafts = useCallback(() => {
     for (const d of openDraftsNow()) setDraft(d.projectId, d.listId, null);
@@ -2966,6 +2992,15 @@ export function RabbitProvider({ children }) {
     ask?.resolve(!!go);
   }, []);
   const describeUnsavedEdits = useCallback(() => unsavedEditWords(), []);
+  // Review round 2 (R2-01): a question whose drafts have all gone while it
+  // was up — their list archived by someone else (R1-01: dormant), the
+  // person changed (R1-02), the last one written by its own Save edit — has
+  // nothing left to ask. It settles as "go": nothing is lost (a dormant
+  // draft and every stored copy stay), and its Save edit can no longer say
+  // it saved what it did not.
+  useEffect(() => {
+    if (leaveAskRef.current && !openDraftsNow().length) answerLeave(true);
+  }, [leaveAsk, editDrafts, bundle.shotLists, activeProjectId, answerLeave]);
   useEffect(() => addLeaveGuard({
     order: 2,
     applies: (reason) => reason !== 'popup',

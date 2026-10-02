@@ -52,11 +52,18 @@ describe('"Recover unsaved edit?" says what was left, and when it cannot be', ()
   const copy = { title: "Director's cut", version: 4, items: [{}, {}, {}], changedAt: '2026-10-02T14:32:00' }
   it('names the edit, its list, its size and when it last changed', () => {
     const words = recoverWords({ copy, list, locale: 'en-GB' })
-    expect(words).toBe('WILSON closed before “Director\'s cut · v4”, an edit of “Shoot · v2”, was saved. It holds 3 shots. It was last changed 02/10/2026, 14:32. Recover it to keep working on it, or discard it.')
+    expect(words).toBe('“Director\'s cut · v4”, an edit of “Shoot · v2”, was left unsaved. It holds 3 shots. It was last changed 02/10/2026, 14:32. Recover it to keep working on it, or discard it.')
   })
   it('an archived list: restore it first; a list gone: it cannot be recovered', () => {
     expect(recoverWords({ copy, list: { ...list, archived_at: 'T' }, locale: 'en-GB' })).toMatch(/Its list is archived: restore the list to recover the edit\.$/)
-    expect(recoverWords({ copy: { ...copy, items: [{}], changedAt: null }, list: null })).toBe('WILSON closed before “Director\'s cut · v4” was saved. It holds 1 shot. Its list is no longer in this project, so it cannot be recovered.')
+    expect(recoverWords({ copy: { ...copy, items: [{}], changedAt: null }, list: null })).toBe('“Director\'s cut · v4” was left unsaved. It holds 1 shot. Its list is no longer in this project, so it cannot be recovered.')
+  })
+  // Review round 2 (R2-03; S3c-06): a copy is left by a closed window, a
+  // reloaded tab or a sign-out alike, so the words never say which.
+  it('never says why the edit was left (WILSON may never have closed)', () => {
+    for (const l of [list, { ...list, archived_at: 'T' }, null]) {
+      expect(recoverWords({ copy, list: l, locale: 'en-GB' })).not.toMatch(/closed|crash|reload|signed out/i)
+    }
   })
 })
 

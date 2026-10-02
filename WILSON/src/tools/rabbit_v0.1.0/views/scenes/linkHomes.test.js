@@ -137,7 +137,7 @@ describe('linksInActive / pointsAt / notAssignedTitle (the rule of 2026-10-02)',
     expect(pointsAt('Scene', rows.B, null)).toBe('Scene “Lighthouse”: in no shot list')
     expect(ask({ shot_id: 'zz' }).outside).toEqual(['Shot: no longer in the project'])
   })
-  it('a "No scene" row\'s tooltip: each line once, under one sentence; none when nothing points outside', () => {
+  it('a "No scene in the active list" row\'s tooltip: each line once, under one sentence; none when nothing points outside', () => {
     expect(notAssignedTitle(['x', 'y', 'x'])).toBe('Tasks here are linked outside the active list:\nx\ny')
     expect(notAssignedTitle([])).toBeUndefined()
   })

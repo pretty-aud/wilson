@@ -191,7 +191,25 @@ export function Modal({ width = 'form', onClose, ...props }) {
 export function visibleOverlayOpen({ dialogsOnly = false } = {}) {
   if (dialogsOnly ? modalDepth() === 0 : !overlayOpen()) return false
   if (typeof document === 'undefined') return true
-  for (const n of document.querySelectorAll(dialogsOnly ? '.ui-dialog-backdrop' : '.ui-dialog-backdrop, .ui-menu')) {
+  for (const n of document.querySelectorAll(dialogsOnly ? DIALOG_BACKDROPS : `${DIALOG_BACKDROPS}, .ui-menu`)) {
+    if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
+  }
+  return false
+}
+
+/**
+ * The window's close question (App.jsx): hand-rolled, not a kit Dialog, but
+ * a question over every page all the same — on the kit's overlay stack, and
+ * marked so these helpers count it (post-overhaul S3c review round 2, R2-05:
+ * Ctrl+Z took back an edit under "Close WILSON").
+ */
+export const APP_QUESTION = '[data-app-question]'
+const DIALOG_BACKDROPS = `.ui-dialog-backdrop, ${APP_QUESTION}`
+
+/** Is the window's close question ON SCREEN? (A page's keys stand down under it.) */
+export function appQuestionOnScreen() {
+  if (typeof document === 'undefined') return false
+  for (const n of document.querySelectorAll(APP_QUESTION)) {
     if (typeof n.checkVisibility !== 'function' || n.checkVisibility()) return true
   }
   return false
@@ -207,7 +225,7 @@ export function visibleOverlayOpen({ dialogsOnly = false } = {}) {
 export function visibleDialogCount() {
   if (typeof document === 'undefined') return 0
   let n = 0
-  for (const b of document.querySelectorAll('.ui-dialog-backdrop')) {
+  for (const b of document.querySelectorAll(DIALOG_BACKDROPS)) {
     if (typeof b.checkVisibility !== 'function' || b.checkVisibility()) n += 1
   }
   return n

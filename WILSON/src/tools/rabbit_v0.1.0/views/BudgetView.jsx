@@ -54,7 +54,7 @@ import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
 // me?" (Bins', Scenes' and the Timeline's keys ask it too).
 import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list is
-// counted under "No scene" / "No shot", never dropped, and says where it points.
+// counted under "No scene in the active list" / "No shot in the active list", never dropped, and says where it points.
 import { activeIdsOf, linksInActive, notAssignedTitle, NO_SCENE_GROUP, NO_SHOT_GROUP } from './scenes/linkHomes'
 import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // Post-overhaul S3c, step 2 (D18): the bid version's "Based on shot list" —
@@ -117,7 +117,7 @@ export default function BudgetView({ pageActive = false } = {}) {
   const shots        = ctx?.shots        || []
   // Post-overhaul S3c: `scenes` / `shots` are the active list's (D10), and a
   // task linked to a scene or shot it does not hold read "Unknown scene"
-  // here. The reports count it under "No scene" / "No shot" instead (Audrey's
+  // here. The reports count it under "No scene in the active list" / "No shot in the active list" instead (Audrey's
   // rule of 2026-10-02), the provider's lookups over every row saying in that
   // row's tooltip what it points at; each scene's and shot's row says which
   // list holds it (the tables are too dense to print it).
@@ -1393,12 +1393,12 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
 // (D10) and nothing else. Audrey's rule of 2026-10-02
 // (scenes/linkHomes.linksInActive): removing a list never removes the
 // Budget — a task linked to a scene or shot the active list does not hold
-// is counted under "No scene" / "No shot" (never dropped, never "Unknown"),
+// is counted under "No scene in the active list" / "No shot in the active list" (never dropped, never "Unknown"),
 // its stored link kept, and that row's tooltip says what its tasks point at
 // (`sceneById` / `shotById`, the provider's lookups over EVERY row; `homeOf`
 // for the lists). A scene's or shot's own row names its list in its tooltip.
 
-/** By scene: a row per active scene with tasks, then "No scene". */
+/** By scene: a row per active scene with tasks, then "No scene in the active list". */
 export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = null, tasks, roleRates }) {
   const active = activeIdsOf(scenes, shots)
   const groups = {}
@@ -1425,7 +1425,7 @@ export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = nul
     .sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
-/** By shot: a row per active shot with tasks ("Scene › Shot"), then "No shot". */
+/** By shot: a row per active shot with tasks ("Scene › Shot"), then "No shot in the active list". */
 export function byShotRows({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, roleRates }) {
   const active = activeIdsOf(scenes, shots)
   const groups = {}
@@ -1579,7 +1579,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
     const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
     const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
     // Post-overhaul S3c: as the two reports above — the active list's scenes
-    // and shots, a task linked outside it under "No scene" / "No shot" with
+    // and shots, a task linked outside it under "No scene in the active list" / "No shot in the active list" with
     // what it points at in that row's tooltip (Audrey's rule of 2026-10-02),
     // a group's tooltip naming its list.
     const active = activeIdsOf(scenes, shots)
@@ -1625,7 +1625,7 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: f
       if (!groups[key]) groups[key] = { key, label, title, tasks: [] }
       groups[key].tasks.push(t)
     }
-    // "No scene" / "No shot": what its tasks point at outside the active list.
+    // "No scene in the active list" / "No shot in the active list": what its tasks point at outside the active list.
     if (groups.__none__ && (prefs.groupBy === 'scene' || prefs.groupBy === 'shot')) groups.__none__.title = notAssignedTitle(outside)
     return Object.values(groups)
       .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label, title: g.title }))

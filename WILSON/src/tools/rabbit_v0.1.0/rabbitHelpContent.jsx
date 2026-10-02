@@ -381,7 +381,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>Unsaved</span> — An unsaved edit is saved nowhere yet: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
               <li>• <span className={T.listBold}>Save edit</span> — Saves it as the next version: by default the same title, next version, which "Same title, next version" turns off for a title of your own; add a summary of what changed.</li>
               <li>• <span className={T.listBold}>Discard changes</span> — Drops the unsaved edit; what was on screen before comes back.</li>
-              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — If WILSON closes before an edit is saved, the next visit to the Scenes tab offers it back. Not now keeps it: the bar's More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.</li>
+              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — An edit left unsaved (WILSON closed, the page reloaded, a sign-out) is offered back on your next visit to the Scenes tab. Not now keeps it: the bar's More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.</li>
             </ul>
           </div>
           <div className={T.card}>

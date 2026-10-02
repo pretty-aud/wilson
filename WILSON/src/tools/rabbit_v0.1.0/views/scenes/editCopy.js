@@ -85,6 +85,8 @@ export function replacesWords(copy) {
  * "Recover unsaved edit?" — a copy a previous run left (the provider's
  * recoverableEditDrafts): what it would make, of which list, how big, when
  * last changed; and, when its list is archived or gone, why it cannot be.
+ * It says the edit was left unsaved, not why: a window closed, a tab
+ * reloaded and a sign-out all leave one (review round 2, R2-03; S3c-06).
  *   copy   the stored copy ({ title, version, items, changedAt })
  *   list   its list now, or null
  *   locale for the date (tests)
@@ -95,7 +97,7 @@ export function recoverWords({ copy, list, locale }) {
   const when = copy?.changedAt
     ? ` It was last changed ${showDate(copy.changedAt, { locale, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
     : ''
-  const lead = `WILSON closed before ${q(formatShotListLabel(copy))}${of} was saved. It holds ${n} shot${n === 1 ? '' : 's'}.${when}`
+  const lead = `${q(formatShotListLabel(copy))}${of} was left unsaved. It holds ${n} shot${n === 1 ? '' : 's'}.${when}`
   if (!list) return `${lead} Its list is no longer in this project, so it cannot be recovered.`
   if (list.archived_at) return `${lead} Its list is archived: restore the list to recover the edit.`
   return `${lead} Recover it to keep working on it, or discard it.`
