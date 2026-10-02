@@ -1831,7 +1831,7 @@ describe('S3b step 3: the list bar', () => {
   it('the More menu: Clear only on a list never Saved, Withdraw only where S3a says this person may, Archive for a manager — each asks first', async () => {
     remember('list-b')
     const { ctx } = page({ ...TWO_LISTS(), canWithdrawShotList: (id) => id === 'list-b' })
-    expect(barMenu()).toEqual([['Add from another list…', false], ['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
+    expect(barMenu()).toEqual([['Add from another list…', false], ['New edit from this list', false], ['Edit details…', false], ['Clear this list', false], ['Withdraw', false], ['Archive', false]])
     fireEvent.click(within(document.querySelector('.ui-menu')).getByText('Clear this list'))
     let dialog = screen.getByRole('dialog', { name: 'Clear this list?' })
     expect(dialog.textContent).toContain('Takes 2 scenes and 2 shots out of “Pickups · v1”. Nothing is deleted: each stays in the project and in any other list that holds it.')
@@ -1853,7 +1853,7 @@ describe('S3b step 3: the list bar', () => {
     // Saved: never cleared (D4). The active list: never archived, nor withdrawn.
     const two = TWO_LISTS()
     page({ ...two, shotLists: two.shotLists.map((l) => (l.id === 'list-a' ? { ...l, snapshot: savedNow(two, 'list-a') } : l)) })
-    expect(barMenu()).toEqual([['Add from another list…', false], ['Edit details…', false]])
+    expect(barMenu()).toEqual([['Add from another list…', false], ['New edit from this list', false], ['Edit details…', false]])
   })
 
   it('"Recently removed": the list this person withdrew, with Open (read-only, "Withdrawn") and Restore; the mark ends when the tab mounts, unmounts, or R.A.B.B.I.T. leaves the screen', async () => {
@@ -3134,14 +3134,14 @@ describe('S3b review round 1', () => {
   it('R1-11: with no seat to write lists, the More menu offers no Clear and no Withdraw, whatever S3a would allow', () => {
     remember('list-b', 'u-1')
     page({ ...TWO_LISTS(), canWithdrawShotList: () => true, ...seat(null) })
-    expect(barMenu()).toEqual([['Add from another list…', true], ['Edit details…', true], ['Archive', true]])
+    expect(barMenu()).toEqual([['Add from another list…', true], ['New edit from this list', true], ['Edit details…', true], ['Archive', true]])
     fireEvent.keyDown(document, { key: 'Escape' })
     cleanup()
     localStorage.clear()
     // CONTROL: a member sees both.
     remember('list-b', 'u-1')
     page({ ...TWO_LISTS(), canWithdrawShotList: () => true, ...seat('member') })
-    expect(barMenu().map(([w]) => w)).toEqual(['Add from another list…', 'Edit details…', 'Clear this list', 'Withdraw', 'Archive'])
+    expect(barMenu().map(([w]) => w)).toEqual(['Add from another list…', 'New edit from this list', 'Edit details…', 'Clear this list', 'Withdraw', 'Archive'])
   })
 
   it('R1-12: Add from another list… closes if the list on screen changes under it — it never retargets — and does not come back with the list', () => {

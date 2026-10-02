@@ -7,13 +7,15 @@
 // standing aside, the edit's verbs, the picker's edits, "Recently removed".
 // =============================================================================
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { useMemo, useState } from 'react'
 import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 import {
   activeScenesOf, activeShotsOf, activeShotListOf, scenesOfList, shotsOfList, listsContainingOf,
   unlistedScenesOf, unlistedShotsOf, nextShotListVersion, formatShotListLabel, isWithdrawn, backfillItems,
-  editsOfList, editChainTip, nextEditVersion,
+  editsOfList, editChainTip, nextEditVersion, editItemsFromList,
 } from '../state/shotListModel'
+import { startDraft, changeDraft, undoDraft, redoDraft } from '../state/editDrafts'
 
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
@@ -78,6 +80,10 @@ function listContext({ project, scenes, shots, shotLists, shotListItems, edits }
     editsOf: (id) => editsOfList(edits, id),
     editChainTip: (id) => editChainTip(edits, id),
     nextEditVersion: (id, title) => nextEditVersion(edits, id, title),
+    editItemsFromList: (id) => {
+      let n = 0
+      return editItemsFromList({ scenes, shots, items: shotListItems, listId: id, newId: () => `s${++n}` })
+    },
     unlistedScenes: unlistedScenesOf({ shotLists, shotListItems, scenes, shots }),
     unlistedShots: unlistedShotsOf({ shotLists, shotListItems, shots }),
     sceneById: (id) => (id ? scenes.find((s) => s.id === id) || null : null),
@@ -126,8 +132,9 @@ const tiles = (container) => Object.fromEntries([...container.querySelectorAll('
   t.querySelector('.ui-stat-label')?.textContent, t.querySelector('.ui-stat-value')?.textContent,
 ]))
 const cutRowNames = (container) => [...container.querySelectorAll('.rb-scene-cut-row .rb-scene-cut-name')].map(n => n.textContent)
-/** A kit Menu item by its words (the kit Menu's items are buttons in .ui-menu). */
-export const menuItem = (words) => [...document.querySelectorAll('.ui-menu .ui-menu-item')].find((b) => b.textContent === words)
+/** A kit Menu item by its words (the kit Menu's items are buttons in .ui-menu; a hint sits beside the label). */
+export const menuItem = (words) => [...document.querySelectorAll('.ui-menu .ui-menu-item')]
+  .find((b) => (b.querySelector('.ui-menu-item-label')?.textContent ?? b.textContent) === words)
 const bandLabels = (container) => [...container.querySelectorAll('.rb-scene-table-cut .rb-scene-group-label')].map(n => n.textContent)
 
 describe('S3c step 3: seeing an edit', () => {
@@ -246,5 +253,284 @@ describe('S3c step 3: seeing an edit', () => {
     expect(container.querySelector('.rb-scene-table-cut')).toBeTruthy()
     await act(async () => { fireEvent.click(within(bar).getByRole('button', { name: 'Restore' })) })
     expect(ctx.restoreWithdrawn).toHaveBeenCalled()
+  })
+})
+
+// ── Step 4: the draft, and the first-change question (D13) ────────────────
+// The page over a stateful stand-in for the provider's draft (the real one is
+// editDraftsProvider.test.jsx's): editDrafts.js's own pure steps, kept in
+// React state, so a change re-renders the page as the provider's does.
+const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [] }
+function DraftHarness({ edits, extra, pageActive }) {
+  const [drafts, setDrafts] = useState({})
+  const [shots, setShots] = useState(SHOTS)
+  const scenes = useMemo(() => SCENES(), [])
+  const items = useMemo(() => itemsFor(LIST_1.id, backfillItems(scenes, SHOTS())), [scenes])
+  const ctx = useMemo(() => {
+    const project = { id: 'p1', name: 'Salt Hours', fps: 24, active_shot_list_id: LIST_1.id }
+    return {
+      project,
+      ...listContext({ project, scenes, shots, shotLists: [LIST_1], shotListItems: items, edits }),
+      adapterMode: 'local_server',
+      assets: [], tasks: [], phases: [], teamAssignments: [], files: [], managedFiles: [],
+      binsInfo: { loadedFor: 'p1' },
+      updateScene: vi.fn(), updateShot: vi.fn(),
+      clearRecentlyWithdrawn: vi.fn(),
+      reorderShotListItems: vi.fn(async () => []),
+      runBatch: vi.fn(async (fn) => fn()),
+      undo: vi.fn(), redo: vi.fn(),
+      editDraftOf: (listId) => drafts[listId] || null,
+      startEditDraft: (opts) => { log.start.push(opts); setDrafts(d => ({ ...d, [opts.listId]: startDraft({ projectId: 'p1', ...opts, now: 't' }) })) },
+      changeEditDraft: (listId, next) => { log.change.push(next); setDrafts(d => ({ ...d, [listId]: changeDraft(d[listId], next, 't') })) },
+      undoEditDraft: (listId) => { log.undo += 1; setDrafts(d => { const n = undoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
+      redoEditDraft: (listId) => { log.redo += 1; setDrafts(d => { const n = redoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
+      discardEditDraft: (listId) => { log.discard += 1; setDrafts(d => { const n = { ...d }; delete n[listId]; return n }) },
+      addShot: async (shot, opts) => {
+        const row = { id: `sh-new-${log.addShot.length + 1}`, ...shot }
+        log.addShot.push([shot, opts])
+        setShots(s => [...s, row])
+        return row
+      },
+      ...extra,
+    }
+  }, [drafts, shots, scenes, items, edits, extra])
+  rabbit.current = ctx
+  return <ScenesView pageActive={pageActive} />
+}
+function draftPage({ edits = [EDIT_1], pageActive = true, ...extra } = {}) {
+  log.start = []; log.change = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []
+  return render(<DraftHarness edits={edits} extra={extra} pageActive={pageActive} />)
+}
+const cutNames = () => cutRowNames(document)
+const rowMenu = (name, pos) => fireEvent.click(screen.getByRole('button', { name: `Edit actions for ${name} (cut ${pos})` }))
+const bandMenu = (label) => fireEvent.click(screen.getAllByRole('button', { name: `Edit actions for the ${label} block` })[0])
+const question = () => screen.queryByRole('dialog', { name: /^Make a new (edit from this list|version of this edit)\?$/ })
+const yes = async (label) => { await act(async () => { fireEvent.click(within(question()).getByRole('button', { name: label })) }) }
+
+describe('S3c step 4: the first change asks once (D13), and the draft takes every change after it', () => {
+  it('on a saved edit, a change asks first — what Yes makes, from what, with which change — Cancel focused; Cancel changes nothing', () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    const q = question()
+    expect(screen.getByRole('dialog', { name: 'Make a new version of this edit?' })).toBe(q)
+    expect(q.textContent).toContain('Yes starts “Director\'s cut · v2” from “Director\'s cut · v1” with this change: Duplicate “The climb” in the edit.')
+    expect(q.textContent).toContain('“Director\'s cut · v1” stays as it was saved. Nothing is saved until you choose Save edit.')
+    expect(document.activeElement.textContent).toBe('Cancel')
+    fireEvent.click(within(q).getByRole('button', { name: 'Cancel' }))
+    expect(question()).toBeNull()
+    expect(log.start).toEqual([])
+    expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+  })
+
+  it('Yes starts the draft from the edit with the change applied — on screen, named in the selector — and the next change asks nothing', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    await yes('Start new version')
+    expect(log.start).toHaveLength(1)
+    expect(log.start[0]).toMatchObject({ listId: 'list-1', basedOnEditId: 'edit-1', title: "Director's cut", version: 2 })
+    expect(log.start[0].base.map(i => i.id)).toEqual(['i1', 'i2', 'i3', 'i4', 'i5'])
+    expect(cutNames()).toEqual(['The climb', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(editSelect().value).toBe('draft')
+    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v2 (not saved)")
+    // The second change: no question, straight into the draft.
+    rowMenu('Missing shot: The lost pan', 5)
+    fireEvent.click(menuItem('Remove from edit'))
+    expect(question()).toBeNull()
+    expect(log.change).toHaveLength(1)
+    expect(cutNames()).toEqual(['The climb', 'The climb', 'The door', 'The door', 'The cold lamp'])
+    expect(log.start).toHaveLength(1)
+  })
+
+  it('Ctrl+Z / Ctrl+Y on a draft are the draft\'s own: its last change taken back and put back; the provider\'s keys are not pressed', async () => {
+    const { container } = draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Remove from edit'))
+    await yes('Start new version')
+    expect(cutNames()).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+    expect(log.undo).toBe(1)
+    expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    fireEvent.keyDown(container, { key: 'y', ctrlKey: true })
+    expect(log.redo).toBe(1)
+    expect(cutNames()).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+    expect(rabbit.current.redo).not.toHaveBeenCalled()
+    // Not while typing in a field.
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Search' }), { key: 'z', ctrlKey: true })
+    expect(log.undo).toBe(1)
+  })
+
+  it('without a draft the keys stay where S3b left them: off where there are no bins (CONTROL: with bins, the provider\'s)', () => {
+    const { container } = draftPage()
+    pickEdit('edit-1')
+    fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).not.toHaveBeenCalled()
+    expect(log.undo).toBe(0)
+    cleanup()
+    const again = draftPage({ supportsBins: true })
+    fireEvent.keyDown(again.container, { key: 'z', ctrlKey: true })
+    expect(rabbit.current.undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('Move up / Move down move one shot (stopping at the cut\'s ends), and stand aside while a search hides rows', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    expect(menuItem('Move up').disabled).toBe(true)
+    fireEvent.click(menuItem('Move down'))
+    await yes('Start new version')
+    // Across a band's edge the shot joins the next scene's block, in place.
+    expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(bandLabels(document)).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Move down'))
+    expect(cutNames()).toEqual(['The door', 'The climb', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search' }), { target: { value: 'door' } })
+    rowMenu('The door', 1)
+    expect(menuItem('Move down').disabled).toBe(true)
+    expect(menuItem('Move down').textContent).toContain('clear the search')
+  })
+
+  it('a scene block moves, repeats and leaves the cut whole', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    bandMenu('Cliff path')
+    fireEvent.click(menuItem('Move scene down'))
+    await yes('Start new version')
+    // Moved past the Lighthouse block, the climb meets the cut's other
+    // Cliff path run: one band now.
+    expect(bandLabels(document)).toEqual(['Lighthouse, dawn', 'Cliff path'])
+    expect(cutNames()).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The climb', 'The cold lamp'])
+    bandMenu('Lighthouse, dawn')
+    fireEvent.click(menuItem('Duplicate scene in edit'))
+    expect(cutNames()).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The door', 'The door', 'Missing shot: The lost pan', 'The climb', 'The cold lamp'])
+    bandMenu('Lighthouse, dawn')
+    fireEvent.click(menuItem('Remove scene from edit'))
+    expect(cutNames()).toEqual(['The climb', 'The cold lamp'])
+  })
+
+  it('Add shot… offers the list\'s shots (repeats allowed, each says how often it plays) and puts the ticked ones after the row, in its block', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Add shot…'))
+    const d = screen.getByRole('dialog', { name: 'Add shots to the edit' })
+    expect(d.textContent).toContain('Into a new version of “Director\'s cut · v1”, after “The climb” (cut 1). A shot added twice plays twice.')
+    const doorRow = within(d).getByText('The door').closest('label')
+    expect(doorRow.textContent).toContain('In the cut ×2')
+    fireEvent.click(within(within(d).getByText('The cold lamp').closest('label')).getByRole('checkbox'))
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Add 1 shot' })) })
+    // A saved edit: the first change still asks.
+    await yes('Start new version')
+    expect(cutNames()).toEqual(['The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(log.start[0].items[1]).toMatchObject({ shot_id: 'sh2', scene_id: 'sc2', label: 'The cold lamp' })
+  })
+
+  it('Add shot… is about the cut it opened on: archived under it, it closes', () => {
+    const { rerender } = draftPage()
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Add shot…'))
+    expect(screen.getByRole('dialog', { name: 'Add shots to the edit' })).toBeTruthy()
+    rerender(<DraftHarness edits={[{ ...EDIT_1, archived_at: '2026-10-02T09:00:00Z' }]} extra={{}} pageActive />)
+    expect(screen.queryByRole('dialog', { name: 'Add shots to the edit' })).toBeNull()
+    // Closed, not hidden: restored, the edit does not bring it back.
+    rerender(<DraftHarness edits={[EDIT_1]} extra={{}} pageActive />)
+    expect(screen.queryByRole('dialog', { name: 'Add shots to the edit' })).toBeNull()
+  })
+
+  it('New shot makes a real shot on the LIST only once Yes is pressed (Cancel makes none), and puts it at the block\'s end', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    bandMenu('Lighthouse, dawn')
+    fireEvent.click(menuItem('New shot'))
+    fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
+    expect(log.addShot).toEqual([])
+    bandMenu('Lighthouse, dawn')
+    fireEvent.click(menuItem('New shot'))
+    expect(question().textContent).toContain('with this change: Add a new shot to “Lighthouse, dawn”.')
+    await yes('Start new version')
+    expect(log.addShot).toHaveLength(1)
+    // The scene's next number past EVERY shot of it (sh1 #10, sh2 #20).
+    expect(log.addShot[0][0]).toMatchObject({ scene_id: 'sc1', shot_number: 21, status: 'not_started', frame_count: 0 })
+    expect(log.addShot[0][1]).toEqual({ listId: 'list-1' })
+    expect(log.start[0].items.map(i => i.shot_id)).toEqual(['sh3', 'sh1', 'sh1', 'gone', 'sh-new-1', 'sh2'])
+  })
+
+  it('a reviewer changes edits but not shots: New shot is greyed, "members only"; a seat without list writes gets no edit actions', () => {
+    perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
+    draftPage({ adapterMode: 'supabase', myProjectRole: 'reviewer', projectIsStaffed: true })
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    expect(menuItem('New shot').disabled).toBe(true)
+    expect(menuItem('New shot').textContent).toContain('members only')
+    expect(menuItem('Duplicate in edit').disabled).toBe(false)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    cleanup()
+    draftPage({ adapterMode: 'supabase', myProjectRole: null, projectIsStaffed: true })
+    pickEdit('edit-1')
+    expect(screen.queryByRole('button', { name: 'Edit actions for The climb (cut 1)' })).toBeNull()
+    expect(screen.queryAllByRole('button', { name: /^Edit actions for the .* block$/ })).toEqual([])
+  })
+
+  it('an archived edit is read-only: no edit actions', () => {
+    draftPage({ edits: [{ ...EDIT_1, archived_at: '2026-10-02T09:00:00Z' }], recentlyWithdrawn: null })
+    fireEvent.click(screen.getByRole('button', { name: 'Shot lists…' }))
+    const picker = screen.getByRole('dialog', { name: 'Shot lists' })
+    fireEvent.doubleClick(within(picker).getByRole('button', { name: "Director's cut" }).closest('tr'))
+    expect(document.querySelector('.rb-scene-table-cut')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Edit actions for The climb (cut 1)' })).toBeNull()
+  })
+
+  it('"New edit from this list" (More): asks with no change named; Yes makes a draft of the list\'s order', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('New edit from this list'))
+    expect(question().textContent).toContain('Yes starts “Shoot · v1”, a new edit of “Shoot · v2”, from the list\'s order.')
+    expect(question().textContent).toContain('The list itself does not change.')
+    await yes('Start new edit')
+    expect(log.start[0]).toMatchObject({ listId: 'list-1', basedOnEditId: null, title: 'Shoot', version: 1 })
+    expect(cutNames()).toEqual(['The door', 'The cold lamp', 'The climb'])
+    expect(editSelect().selectedOptions[0].textContent).toBe('Shoot · v1 (not saved)')
+  })
+})
+
+describe('S3c step 4: "Recover unsaved edit?"', () => {
+  const copy = { personKey: 'local', projectId: 'p1', listId: 'list-1', basedOnEditId: null, title: 'Shoot', version: 1, base: [], items: [editItem('a', 'sc1', 'sh1')], changedAt: '2026-10-02T09:00:00Z' }
+  it('a copy a previous run left is offered while the page is on screen: Not now (focused) keeps it, Recover and Discard each answer it', async () => {
+    const recoverEditDraft = vi.fn()
+    const dismissStoredEditDraft = vi.fn()
+    draftPage({ recoverableEditDrafts: [copy], recoverEditDraft, dismissStoredEditDraft })
+    let d = screen.getByRole('dialog', { name: 'Recover unsaved edit?' })
+    expect(d.textContent).toContain('WILSON closed before “Shoot · v1”, an edit of “Shoot · v2”, was saved. It holds 1 shot.')
+    expect(document.activeElement.textContent).toBe('Not now')
+    fireEvent.click(within(d).getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByRole('dialog', { name: 'Recover unsaved edit?' })).toBeNull()
+    expect(recoverEditDraft).not.toHaveBeenCalled()
+    cleanup()
+    // The next visit asks again.
+    draftPage({ recoverableEditDrafts: [copy], recoverEditDraft, dismissStoredEditDraft })
+    d = screen.getByRole('dialog', { name: 'Recover unsaved edit?' })
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Recover edit' })) })
+    expect(recoverEditDraft).toHaveBeenCalledWith('list-1')
+    cleanup()
+    draftPage({ recoverableEditDrafts: [copy], recoverEditDraft, dismissStoredEditDraft })
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).getByRole('button', { name: 'Discard edit' })) })
+    expect(dismissStoredEditDraft).toHaveBeenCalledWith('list-1')
+  })
+  it('never over another page; a copy whose list is archived can only be discarded', () => {
+    draftPage({ recoverableEditDrafts: [copy], pageActive: false })
+    expect(screen.queryByRole('dialog', { name: 'Recover unsaved edit?' })).toBeNull()
+    cleanup()
+    draftPage({ recoverableEditDrafts: [{ ...copy, listId: 'gone-list' }] })
+    const d = screen.getByRole('dialog', { name: 'Recover unsaved edit?' })
+    expect(d.textContent).toContain('Its list is no longer in this project, so it cannot be recovered.')
+    expect(within(d).queryByRole('button', { name: 'Recover edit' })).toBeNull()
+    expect(within(d).getByRole('button', { name: 'Discard edit' })).toBeTruthy()
   })
 })

@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   cutRows, cutBands, cutTotals, draftName, labelled, bandAt,
   moveItemTo, moveBandTo, stepItem, stepBand, duplicateItem, removeItem, insertAfter, itemsForShots,
+  duplicateBand, removeBand,
 } from './editModel'
 
 const it_ = (id, scene, shot, label = shot) => ({ id, scene_id: scene, shot_id: shot, label, notes: '' })
@@ -122,5 +123,22 @@ describe('the draft\'s changes (D16)', () => {
     expect(insertAfter(ITEMS, 'x1', add).map(i => i.shot_id)).toEqual(['a1', 'b1', 'a2', 'b1', 'a3'])
     expect(insertAfter(ITEMS, null, add).map(i => i.shot_id)).toEqual(['a1', 'a2', 'b1', 'a3', 'b1'])
     expect(insertAfter(ITEMS, 'x1', [])).toBeNull()
+  })
+  it('shots added INTO a block join it (as a moved shot does); null is the no-scene block', () => {
+    const add = itemsForShots([SHOTS.b1, SHOTS.a1], newId, { sceneId: 'A' })
+    expect(add.map(i => i.scene_id)).toEqual(['A', 'A'])
+    expect(itemsForShots([SHOTS.b1], newId, { sceneId: null })[0].scene_id).toBeNull()
+    // Added after x1, inside the first Harbour band: the band stays one band.
+    const rows = cutRows({ items: insertAfter(ITEMS, 'x1', add), shotById, sceneById })
+    expect(cutBands(rows).map(b => [b.label, b.rows.length])).toEqual([['Harbour', 4], ['Lighthouse', 1], ['Harbour', 1]])
+  })
+  it('a scene block repeats right after itself with new ids, or leaves the cut whole', () => {
+    const dup = duplicateBand(ITEMS, 0, 1, newId)
+    expect(dup.map(i => i.shot_id)).toEqual(['a1', 'a2', 'a1', 'a2', 'b1', 'a3'])
+    expect(dup.map(i => i.scene_id)).toEqual(['A', 'A', 'A', 'A', 'B', 'A'])
+    expect(new Set(ids(dup)).size).toBe(6)
+    expect(ids(removeBand(ITEMS, 0, 1))).toEqual(['x3', 'x4'])
+    expect(removeBand(ITEMS, 2, 9)).toBeNull()
+    expect(duplicateBand(ITEMS, 3, 2, newId)).toBeNull()
   })
 })

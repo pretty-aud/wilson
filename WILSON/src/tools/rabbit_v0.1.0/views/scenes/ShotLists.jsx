@@ -25,7 +25,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus } from 'lucide-react'
+import { X, Archive, ArchiveRestore, Undo2, Eraser, CheckCircle2, Pencil, ListPlus, Scissors } from 'lucide-react'
 import { Banner, IconButton, StatusBadge } from '../../../../ui'
 import { sortShotLists } from '../../state/shotListModel'
 import { showDate } from '../../dates'
@@ -34,6 +34,8 @@ import ShotListPicker from './ShotListPicker'
 import ShotListForm from './ShotListForm'
 import AddFromListDialog from './AddFromListDialog'
 import ListConfirm from './ListConfirm'
+import AnswerDialog from './AnswerDialog'
+import { recoverWords } from './editCopy'
 import { listSaveState, restoreRouteFor, restoreEditRouteFor } from './shotListState'
 import { removeQuestion } from './membershipCopy'
 import { UNLISTED, unlistedSceneRows } from './useViewedShotList'
@@ -53,8 +55,14 @@ const byNumber = (field) => (a, b) => (a[field] ?? Infinity) - (b[field] ?? Infi
  * error / onError   the Banner's sentence, owned by ScenesView
  * remove   { ask: { kind, ids, done } | null, close } — a row's or a
  *          selection's Remove from this list, asked here (step 6)
+ * startEdit   post-overhaul S3c, step 4: "New edit from this list" — the
+ *          first-change question with no change yet (ScenesView's
+ *          useEditChanges), the keyboard's way to an edit besides the drag
+ * pageActive  R.A.B.B.I.T. is the page on screen: "Recover unsaved edit?"
+ *          asks only then (every page stays mounted; a dialog in <body>
+ *          would sit over another page)
  */
-export default function ShotLists({ ctx, viewed, gate, userId, error, onError, remove }) {
+export default function ShotLists({ ctx, viewed, gate, userId, error, onError, remove, startEdit = null, pageActive = false }) {
   // The picker, and over it (or alone) one question or form: { kind, row }.
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerError, setPickerError] = useState(null)
@@ -162,6 +170,12 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
       out.push(gate.write
         ? { label: 'Add from another list…', Icon: ListPlus, onClick: () => setDialog({ kind: 'addFrom', row }) }
         : { label: 'Add from another list…', Icon: ListPlus, disabled: true, hint: 'read-only' })
+      // S3c step 4: an edit of this list, in its order — asked first (D13).
+      if (startEdit) {
+        out.push(gate.write
+          ? { label: 'New edit from this list', Icon: Scissors, onClick: startEdit }
+          : { label: 'New edit from this list', Icon: Scissors, disabled: true, hint: 'read-only' })
+      }
     }
     if (!onScreen && !rowActive) {
       out.push(gate.activate
@@ -376,6 +390,17 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     active: list.id === activeId,
   }).join(' ') : ''
 
+  // ── "Recover unsaved edit?" (post-overhaul S3c, step 4) ──
+  // A copy a previous run left (the provider's recoverableEditDrafts: this
+  // person's, this project's, no live draft of its list), asked while the
+  // page is on screen, once per visit to the tab: "Not now" keeps the copy
+  // for the next visit. Recover makes it the list's draft again and shows
+  // that list (a list with a draft shows the draft); Discard drops it. A
+  // copy whose list is archived or gone can only be discarded, said why.
+  const [putOff, setPutOff] = useState(() => new Set())
+  const recoverable = pageActive ? (ctx?.recoverableEditDrafts || []).find(c => !putOff.has(c.listId)) || null : null
+  const recoverList = recoverable ? lists.find(l => l.id === recoverable.listId) || null : null
+
   return (
     <>
       <ShotListBar
@@ -448,6 +473,24 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
             openEdit: (e) => { closePicker(); showEdit(e) },
           }}
         />
+      )}
+
+      {recoverable && !dialog && !pickerOpen && (
+        <AnswerDialog
+          title="Recover unsaved edit?"
+          stayLabel="Not now"
+          onStay={() => setPutOff(prev => new Set(prev).add(recoverable.listId))}
+          answers={[
+            { label: 'Discard edit', variant: 'danger', onClick: () => ctx.dismissStoredEditDraft(recoverable.listId) },
+            ...(recoverList && !recoverList.archived_at ? [{
+              label: 'Recover edit',
+              variant: 'primary',
+              onClick: () => { ctx.recoverEditDraft(recoverable.listId); showList(recoverable.listId) },
+            }] : []),
+          ]}
+        >
+          {recoverWords({ copy: recoverable, list: recoverList })}
+        </AnswerDialog>
       )}
 
       {dialog?.kind === 'form' && (

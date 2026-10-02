@@ -29,8 +29,9 @@ import {
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
   Sun, FolderOpen, ImagePlus, ImageOff,
-  ArrowUp, ArrowDown, ListMinus,
+  ArrowUp, ArrowDown, ListMinus, ListPlus, Copy,
 } from 'lucide-react'
+import { v4 as uuidv4 } from 'uuid'
 // Lane B5b (surface 6a, 2026-09-27): the page's tiles, toolbar and two tables
 // on the kit and rabbitScenes.css; surface 6b the two galleries, the filter
 // panel and the saved-views menu; surface 6c the two detail popups, each the
@@ -55,6 +56,16 @@ import { sortShotLists } from '../state/shotListModel'
 import { useEditSession } from './scenes/useEditSession'
 import EditTable from './scenes/EditTable'
 import { framesToTimecode } from './scenes/timecode'
+// …and (step 4) the cut's own verbs, the first-change question (D13).
+import { useEditChanges } from './scenes/useEditChanges'
+import AddShotsDialog from './scenes/AddShotsDialog'
+import {
+  stepItem, stepBand, duplicateItem, removeItem, duplicateBand, removeBand, insertAfter, itemsForShots,
+} from './scenes/editModel'
+import {
+  firstChangeQuestion, moveWords, duplicateWords, removeWords, addWords, newShotWords,
+  moveBlockWords, duplicateBlockWords, removeBlockWords,
+} from './scenes/editCopy'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
@@ -514,9 +525,18 @@ export default function ScenesView({ pageActive = false } = {}) {
     if (takesShotId && !shotById?.(takesShotId)) setTakesShotId(null)
     if (pickerShotId && !shotById?.(pickerShotId)) setPickerShotId(null)
   }, [detailSceneId, detailShotId, takesShotId, pickerShotId, sceneById, shotById])
+  // Post-overhaul S3c, step 4 (D13): with a DRAFT on screen the keys are the
+  // draft's — its own undo, a change at a time — and the provider's stand
+  // down (RabbitProvider's editDraftHeldRef) while it is unsaved. Bound
+  // wherever the page is on screen; without a draft, only where the bins
+  // are, as before (S3b trap 14).
+  const draftListRef = useRef(null)
+  draftListRef.current = editSession.mode === 'draft' ? editSession.list?.id || null : null
   useEffect(() => {
-    if (!supportsBins || !pageActive) return
+    if (!pageActive) return
     const h = (e) => {
+      const draftList = draftListRef.current
+      if (!draftList && !supportsBins) return
       if (questionOnScreen()) return
       if (!(e.ctrlKey || e.metaKey)) return
       if (bulkPendingRef.current > 0) return
@@ -524,8 +544,18 @@ export default function ScenesView({ pageActive = false } = {}) {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (menuOnScreen() || drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest('.ui-drawer'))) return
       if (!ownSurfaceRef.current && visibleOverlayOpen({ dialogsOnly: true })) return
-      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); if (e.shiftKey) ctxRef.current?.redo?.(); else ctxRef.current?.undo?.() }
-      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); ctxRef.current?.redo?.() }
+      const isZ = e.key === 'z' || e.key === 'Z'
+      const isY = e.key === 'y' || e.key === 'Y'
+      if (!isZ && !isY) return
+      e.preventDefault()
+      const again = isY || e.shiftKey
+      if (draftList) {
+        if (again) ctxRef.current?.redoEditDraft?.(draftList)
+        else ctxRef.current?.undoEditDraft?.(draftList)
+        return
+      }
+      if (again) ctxRef.current?.redo?.()
+      else ctxRef.current?.undo?.()
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
@@ -674,6 +704,118 @@ export default function ScenesView({ pageActive = false } = {}) {
       setListError(err?.message || String(err))
     }
   }, [ctx, sceneById, nextShotNumberForScene, formatShotCode, newRowOpts, canAddRows])
+
+  // ── The cut's own verbs (post-overhaul S3c, step 4; D13, D16) ──
+  // A row's or a scene block's edit actions, while an edit or a draft is on
+  // screen. Each goes through useEditChanges: on a draft it changes the draft
+  // at once; otherwise the first-change question opens, and nothing changes
+  // until Yes. Only the ORDER is the edit's: Move, Duplicate, Remove and Add
+  // change the draft; New shot also makes a real shot ON THE LIST (D6:
+  // "entirely new shots" are real shot rows), so it needs the seat that
+  // writes scenes and shots, and a scene that exists. Reviewers write edits
+  // (project.shotlist.write) like lists. Items are found by id inside each
+  // change, so a change computed from what is on screen lands on the draft
+  // as it is when it runs.
+  const canEditCut = canListWrite && !!editSession.list && !editSession.readOnly
+  const reportCutError = useCallback((err) => setListError(err?.message || String(err)), [])
+  const editChanges = useEditChanges({ ctx, session: editSession, canEdit: canEditCut, onError: reportCutError })
+  const requestCut = editChanges.request
+  // "Add shot…": where the picked shots go — after an item (null: at the end
+  // of the cut), into a scene block (undefined: each into its own scene's).
+  const [addShotsAt, setAddShotsAt] = useState(null)   // { afterId, sceneId, where, preferSceneId }
+  // About the cut it opened on: it closes when another list or edit comes on
+  // screen, or the cut stops being changeable here (archived meanwhile).
+  useEffect(() => { setAddShotsAt(null) }, [viewed.id, editSession.mode, editSession.row?.id, canEditCut])
+  const cutSearching = !!search.trim()
+  const makeShotIn = useCallback(async (sceneId) => {
+    if (!canWriteProject || !canEditCut) throw new Error('This seat cannot add a shot to the list.')
+    const scene = sceneById?.(sceneId)
+    if (!scene) throw new Error('That scene is no longer in this project.')
+    const nextNum = nextShotNumberForScene(sceneId)
+    return ctx.addShot({
+      scene_id: sceneId,
+      name: formatShotCode(scene.scene_number ?? 0, nextNum),
+      shot_number: nextNum,
+      status: 'not_started',
+      type: 'other',
+      frame_count: 0,
+    }, { listId: editSession.list.id })
+  }, [ctx, canWriteProject, canEditCut, sceneById, nextShotNumberForScene, formatShotCode, editSession.list?.id])
+  const newShotItem = useCallback((afterId, sceneId) => (its, shot) => (
+    shot ? insertAfter(its, afterId, itemsForShots([shot], uuidv4, { sceneId })) : null
+  ), [])
+  const cutRowMenu = useCallback((r) => {
+    if (!canEditCut) return []
+    const last = (editSession.items?.length || 0) - 1
+    const id = r.item.id
+    const sceneId = r.item.scene_id || null
+    const scene = sceneId ? sceneById?.(sceneId) : null
+    const moveHint = cutSearching ? 'clear the search' : undefined
+    return [
+      { label: 'Move up', Icon: ArrowUp, disabled: cutSearching || r.index === 0, hint: moveHint, onClick: () => requestCut({ what: moveWords(r.name, -1), apply: (its) => stepItem(its, id, -1) }) },
+      { label: 'Move down', Icon: ArrowDown, disabled: cutSearching || r.index >= last, hint: moveHint, onClick: () => requestCut({ what: moveWords(r.name, 1), apply: (its) => stepItem(its, id, 1) }) },
+      { divider: true },
+      { label: 'Duplicate in edit', Icon: Copy, onClick: () => requestCut({ what: duplicateWords(r.name), apply: (its) => duplicateItem(its, id, uuidv4) }) },
+      { label: 'Add shot…', Icon: ListPlus, onClick: () => setAddShotsAt({ afterId: id, sceneId, preferSceneId: sceneId, where: `after “${r.name}” (cut ${r.index + 1})` }) },
+      {
+        label: 'New shot',
+        Icon: Plus,
+        disabled: !canWriteProject || !scene,
+        hint: !canWriteProject ? 'members only' : !scene ? 'no scene' : undefined,
+        onClick: () => requestCut({ what: newShotWords(scene.name || 'Untitled scene'), prepare: () => makeShotIn(sceneId), apply: newShotItem(id, sceneId) }),
+      },
+      { divider: true },
+      { label: 'Remove from edit', Icon: ListMinus, danger: true, onClick: () => requestCut({ what: removeWords(r.name), apply: (its) => removeItem(its, id) }) },
+    ]
+  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem])
+  const cutBandMenu = useCallback((band) => {
+    if (!canEditCut) return []
+    const all = editSession.items || []
+    const firstId = all[band.start]?.id
+    const lastId = all[band.end]?.id
+    if (!firstId || !lastId) return []
+    // The band again in the items the change runs on (by its first and last ids).
+    const span = (its) => {
+      const s = its.findIndex(i => i.id === firstId)
+      const e = its.findIndex(i => i.id === lastId)
+      return s < 0 || e < s ? null : [s, e]
+    }
+    const onSpan = (fn) => (its) => { const at = span(its); return at ? fn(its, at[0], at[1]) : null }
+    const scene = band.sceneId ? sceneById?.(band.sceneId) : null
+    const moveHint = cutSearching ? 'clear the search' : undefined
+    return [
+      { label: 'Move scene up', Icon: ArrowUp, disabled: cutSearching || band.start === 0, hint: moveHint, onClick: () => requestCut({ what: moveBlockWords(band.label, -1), apply: onSpan((its, s, e) => stepBand(its, s, e, -1)) }) },
+      { label: 'Move scene down', Icon: ArrowDown, disabled: cutSearching || band.end >= all.length - 1, hint: moveHint, onClick: () => requestCut({ what: moveBlockWords(band.label, 1), apply: onSpan((its, s, e) => stepBand(its, s, e, 1)) }) },
+      { divider: true },
+      { label: 'Duplicate scene in edit', Icon: Copy, onClick: () => requestCut({ what: duplicateBlockWords(band.label), apply: onSpan((its, s, e) => duplicateBand(its, s, e, uuidv4)) }) },
+      { label: 'Add shot…', Icon: ListPlus, onClick: () => setAddShotsAt({ afterId: lastId, sceneId: band.sceneId, preferSceneId: band.sceneId, where: `at the end of “${band.label}”` }) },
+      {
+        label: 'New shot',
+        Icon: Plus,
+        disabled: !canWriteProject || !scene,
+        hint: !canWriteProject ? 'members only' : !scene ? 'no scene' : undefined,
+        onClick: () => requestCut({ what: newShotWords(band.label), prepare: () => makeShotIn(band.sceneId), apply: newShotItem(lastId, band.sceneId) }),
+      },
+      { divider: true },
+      { label: 'Remove scene from edit', Icon: ListMinus, danger: true, onClick: () => requestCut({ what: removeBlockWords(band.label), apply: onSpan((its, s, e) => removeBand(its, s, e)) }) },
+    ]
+  }, [canEditCut, editSession.items, sceneById, cutSearching, requestCut, canWriteProject, makeShotIn, newShotItem])
+  // How many times each shot plays in the cut (the Add shots picker says so).
+  const inCut = useMemo(() => {
+    const m = new Map()
+    for (const it of editSession.items || []) if (it.shot_id) m.set(it.shot_id, (m.get(it.shot_id) || 0) + 1)
+    return m
+  }, [editSession.items])
+  const addShotsToCut = useCallback(async (shotIds) => {
+    const at = addShotsAt
+    if (!at) return
+    const picked = shotIds.map(id => shotById?.(id)).filter(Boolean)
+    await requestCut({
+      what: addWords(picked.length),
+      apply: (its) => insertAfter(its, at.afterId, itemsForShots(picked, uuidv4, at.sceneId === undefined ? {} : { sceneId: at.sceneId })),
+    })
+    setAddShotsAt(null)
+  }, [addShotsAt, shotById, requestCut])
 
   // Review round 1 (R1-01): S3a's deleteScene takes EVERY shot of the scene,
   // in every list, and its ONE undo step puts the scene, each shot, every
@@ -1114,6 +1256,9 @@ export default function ScenesView({ pageActive = false } = {}) {
         error={listError}
         onError={setListError}
         remove={{ ask: removeAsk, close: closeRemoveAsk }}
+        // S3c step 4: an edit of the list on screen, in its order (asked first).
+        startEdit={viewed.mode === 'list' && editSession.mode === 'none' ? () => requestCut({}) : null}
+        pageActive={pageActive}
       />
 
       {/* ── Toolbar: the kit's, the same sixteen controls in the same order
@@ -1376,8 +1521,15 @@ export default function ScenesView({ pageActive = false } = {}) {
             canWrite={canWriteProject}
             statusOptions={STATUS_OPTIONS}
             search={search}
+            menuFor={cutRowMenu}
+            bandMenuFor={cutBandMenu}
             onOpenShot={setDetailShotId}
-            empty={{ body: 'Every shot was taken out of this cut.' }}
+            empty={{
+              body: 'Every shot was taken out of this cut.',
+              action: canEditCut
+                ? <Button size="sm" Icon={ListPlus} onClick={() => setAddShotsAt({ afterId: null, sceneId: undefined, preferSceneId: null, where: 'at the end of the cut' })}>Add shots…</Button>
+                : null,
+            }}
           />
         ) : contentMode === 'shots' ? (
           viewMode === 'table' ? (
@@ -1601,6 +1753,40 @@ export default function ScenesView({ pageActive = false } = {}) {
           document.body,
         )
       })()}
+
+      {/* ── Post-overhaul S3c, step 4: the first change's ONE question (D13):
+          what Yes makes, from what, with which change, and what stays.
+          Cancel first and focused (ListConfirm); Yes starts the draft. ── */}
+      {editChanges.asking && (() => {
+        const qn = firstChangeQuestion(editChanges.asking)
+        return (
+          <ListConfirm
+            title={qn.title}
+            confirmLabel={qn.confirmLabel}
+            variant="primary"
+            onConfirm={editChanges.answer}
+            onCancel={editChanges.cancel}
+          >
+            {qn.lines.join(' ')}
+          </ListConfirm>
+        )
+      })()}
+
+      {/* …and "Add shot…" from a row's or a scene's edit actions. */}
+      {addShotsAt && editSession.list && canEditCut && (
+        <AddShotsDialog
+          intoWords={editSession.mode === 'draft'
+            ? `“${listLabel({ title: editSession.draft.title, version: editSession.draft.version })}”`
+            : `a new version of “${listLabel(editSession.row)}”`}
+          whereWords={addShotsAt.where}
+          scenes={scenes}
+          shots={shots}
+          preferSceneId={addShotsAt.preferSceneId}
+          inCut={inCut}
+          onAdd={addShotsToCut}
+          onClose={() => setAddShotsAt(null)}
+        />
+      )}
 
       {/* ── Delete confirmation ── */}
       {confirmDelete && (

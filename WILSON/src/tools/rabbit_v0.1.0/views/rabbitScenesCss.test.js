@@ -100,11 +100,19 @@ const FILES = {
     min: 3000,
     staged: [],
   },
+  // …step 4: "Add shot…" to an edit (Add from another list's picker classes).
+  addShots: {
+    file: './scenes/AddShotsDialog.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
-    they get the leak checks alone (section 7e). */
-const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/MenuButton.jsx']
+    they get the leak checks alone (section 7e). S3c's three-answer question
+    (step 4) is one. */
+const PLAIN = ['./scenes/ShotLists.jsx', './scenes/ListConfirm.jsx', './scenes/MenuButton.jsx', './scenes/AnswerDialog.jsx']
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. The file
     writes none: every size is the sheet's, keyed on `data-thumb` (the
@@ -499,6 +507,7 @@ const NEAR_MISSES = {
   addFrom: [],
   home: [],
   cut: [],
+  addShots: [],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {

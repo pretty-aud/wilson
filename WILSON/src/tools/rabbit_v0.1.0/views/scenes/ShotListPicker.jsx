@@ -193,7 +193,7 @@ export default function ShotListPicker({ lists, activeId, viewedId, label, isWit
         <div className="rb-scene-lists-edits" aria-label={`Edits of ${label(selectedList)}`} role="group">
           <div className="rb-scene-lists-edits-head">{`Edits of “${label(selectedList)}” (${listEdits.length})`}</div>
           {listEdits.length === 0 ? (
-            <p className="rb-scene-lists-edits-none">No edits yet. Drag a shot or a scene on the list to start one.</p>
+            <p className="rb-scene-lists-edits-none">No edits yet. Drag a shot or a scene on the list, or choose New edit from this list in the bar's More menu, to start one.</p>
           ) : (
             <div className="rb-scene-lists-table" data-view="edits">
               <Table

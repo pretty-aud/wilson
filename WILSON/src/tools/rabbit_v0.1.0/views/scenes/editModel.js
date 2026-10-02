@@ -224,6 +224,25 @@ export function removeItem(items, itemId) {
   return items.filter((_, i) => i !== at)
 }
 
+/**
+ * Duplicate a scene block in the edit (Audrey: "shots/scenes can be
+ * repeated"): a copy of the band's items, with new ids, right after it — the
+ * two runs of one scene then read as one band until something parts them.
+ */
+export function duplicateBand(items, start, end, newId) {
+  if (start < 0 || end >= (items || []).length || start > end) return null
+  const copy = items.slice(start, end + 1).map(it => ({ ...it, id: newId() }))
+  const next = [...items]
+  next.splice(end + 1, 0, ...copy)
+  return next
+}
+
+/** Remove a scene block from the edit: its items leave the cut (the scene and its shots stay). */
+export function removeBand(items, start, end) {
+  if (start < 0 || end >= (items || []).length || start > end) return null
+  return [...items.slice(0, start), ...items.slice(end + 1)]
+}
+
 /** New items after an item (null: at the end of the cut). */
 export function insertAfter(items, afterId, newItems) {
   if (!newItems || !newItems.length) return null
@@ -233,9 +252,19 @@ export function insertAfter(items, afterId, newItems) {
   return next
 }
 
-/** Items for shots added to a draft: each in its own scene's block. */
-export function itemsForShots(shots, newId) {
-  return (shots || []).map(sh => ({ id: newId(), scene_id: sh.scene_id || null, shot_id: sh.id, label: sh.name || '', notes: '' }))
+/**
+ * Items for shots added to a draft. Added INTO a scene block (after a row,
+ * or at a band's end) they join that block, as a shot moved there does
+ * (`sceneId`); otherwise each sits in its own scene's block.
+ */
+export function itemsForShots(shots, newId, { sceneId } = {}) {
+  return (shots || []).map(sh => ({
+    id: newId(),
+    scene_id: sceneId !== undefined ? (sceneId || null) : (sh.scene_id || null),
+    shot_id: sh.id,
+    label: sh.name || '',
+    notes: '',
+  }))
 }
 
 function sameOrder(a, b) {

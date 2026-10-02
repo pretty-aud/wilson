@@ -91,6 +91,10 @@ import {
   withdrawnRestoreRefusal,
   isWithdrawn,
 } from './shotListModel';
+import {
+  draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
+  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
+} from './editDrafts';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -213,6 +217,13 @@ export function RabbitProvider({ children }) {
   // Monotonic token per pushed entry so the undo toast can target the
   // exact entry it belongs to (see undoHistoryEntry below).
   const historyTokenRef = useRef(0);
+  // Post-overhaul S3c, step 4 (D13): true while the open project holds an
+  // unsaved edit (a draft — see "Edit drafts" below). Ctrl+Z and Ctrl+Y stand
+  // down then: the Scenes tab takes back the DRAFT's last change instead, and
+  // an undo of a list change beneath a draft would move rows the draft was
+  // made from. The undo toast's own Undo still runs (it names one step: a
+  // shot's delete taken back is a "Missing shot" found again, D17).
+  const editDraftHeldRef = useRef(false);
 
   function pushHistory(entry) {
     if (historyRef.current.suspended) return null;
@@ -283,6 +294,7 @@ export function RabbitProvider({ children }) {
   }
 
   const undo = useCallback(() => inHistoryQueue(async () => {
+    if (editDraftHeldRef.current) return;
     if (historyRef.current.undo.length === 0) return;
     const entry = historyRef.current.undo.pop();
     historyRef.current.suspended = true;
@@ -299,6 +311,7 @@ export function RabbitProvider({ children }) {
   }), []);
 
   const redo = useCallback(() => inHistoryQueue(async () => {
+    if (editDraftHeldRef.current) return;
     if (historyRef.current.redo.length === 0) return;
     const entry = historyRef.current.redo.pop();
     historyRef.current.suspended = true;
@@ -356,8 +369,8 @@ export function RabbitProvider({ children }) {
     setUndoToast(null);
   }, []);
 
-  const canUndo = historyVersion >= 0 && historyRef.current.undo.length > 0;
-  const canRedo = historyVersion >= 0 && historyRef.current.redo.length > 0;
+  const canUndo = historyVersion >= 0 && !editDraftHeldRef.current && historyRef.current.undo.length > 0;
+  const canRedo = historyVersion >= 0 && !editDraftHeldRef.current && historyRef.current.redo.length > 0;
 
   // ── undo toast ──────────────────────────────────────────
   // One toast at a time — a new one replaces the previous (keyed so
@@ -2425,9 +2438,10 @@ export function RabbitProvider({ children }) {
   /**
    * Title / version / summary / items / snapshot of an edit. Refused when
    * archived. A change that writes the snapshot is guarded as in
-   * updateShotList.
+   * updateShotList. A third argument `{ history: false }` is internal (S3c's
+   * saveEditDraft records the new edit and its Save as one step).
    */
-  const updateEdit = useCallback(async (id, patch = {}) => {
+  const updateEdit = useCallback(async (id, patch = {}, opts = {}) => {
     const edit = findEdit(id);
     if (!edit) throw new Error('edit not found');
     if (edit.archived_at) throw new Error('this edit is archived — restore it before changing it');
@@ -2457,6 +2471,7 @@ export function RabbitProvider({ children }) {
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('edits', res, pid);
+    if (opts.history === false) return res || nextRow;
     const guardSave = Object.prototype.hasOwnProperty.call(allowed, 'snapshot');
     pushHistory({
       undoOps: [guardSave
@@ -2473,9 +2488,9 @@ export function RabbitProvider({ children }) {
    * "Save" an edit (D5, S3c's draft → the database): the whole item array in
    * one write, plus a snapshot of the names of the shots and scenes it
    * references so a later-deleted shot still reads "Missing shot: <name>"
-   * (D17). summary rides along when given.
+   * (D17). summary rides along when given. `{ history: false }` as updateEdit's.
    */
-  const saveEdit = useCallback(async (editId, items, summary) => {
+  const saveEdit = useCallback(async (editId, items, summary, opts = {}) => {
     const normalized = normalizeEditItems(items, uuidv4);
     const patch = {
       items: normalized,
@@ -2487,7 +2502,7 @@ export function RabbitProvider({ children }) {
       }),
     };
     if (summary !== undefined) patch.summary = summary;
-    return mutationsRef.current.updateEdit(editId, patch);
+    return mutationsRef.current.updateEdit(editId, patch, opts);
   }, []);
 
   /**
@@ -2634,6 +2649,227 @@ export function RabbitProvider({ children }) {
    * being the page shown) and when the tab mounts.
    */
   const clearRecentlyWithdrawn = useCallback(() => { markRecentlyWithdrawn(null); }, []);
+
+  // ── Edit drafts (post-overhaul S3c, step 4; D13) ─────────────────────────
+  //
+  // The unsaved edit: state/editDrafts.js holds its shape and rules. One per
+  // project and list, here (the views mount one at a time; a draft in a
+  // view's state would die on a tab switch), copied to localStorage on every
+  // change so a crash offers "Recover unsaved edit?" on the next visit.
+  // Nothing here touches a backend until saveEditDraft. A project switch
+  // leaves the open project's drafts where they are (D12: an automatic switch
+  // cannot ask, so the draft survives it); they are the open project's again
+  // when it is.
+  const [editDrafts, setEditDrafts] = useState({});
+  const editDraftsRef = useRef(editDrafts);
+  // The copies a PREVIOUS run left (never answered): what "Recover unsaved
+  // edit?" offers. Read once; a live draft of the same list supersedes one.
+  const [storedEditDrafts, setStoredEditDrafts] = useState(() => readStoredDrafts());
+  const draftPersonKey = authUserId || 'local';
+  const draftPersonRef = useRef(draftPersonKey);
+  useEffect(() => { draftPersonRef.current = draftPersonKey; }, [draftPersonKey]);
+
+  function syncDraftHeld() {
+    const pid = activeProjectIdRef.current;
+    editDraftHeldRef.current = !!pid && Object.values(editDraftsRef.current).some(d => d.projectId === pid && d.dirty);
+  }
+  useEffect(() => { syncDraftHeld(); setHistoryVersion(v => v + 1); }, [activeProjectId]);
+
+  // Put (or, with null, end) a draft — and its stored copy with it.
+  function setDraft(projectId, listId, draft) {
+    const key = draftKey(projectId, listId);
+    const next = { ...editDraftsRef.current };
+    if (draft) next[key] = draft;
+    else delete next[key];
+    editDraftsRef.current = next;
+    setEditDrafts(next);
+    const person = draftPersonRef.current;
+    const stored = storedDraftKey(person, projectId, listId);
+    writeStoredDraft(stored, draft ? storedCopy(draft, person) : null);
+    setStoredEditDrafts(prev => {
+      if (!prev[stored]) return prev;
+      const rest = { ...prev };
+      delete rest[stored];
+      return rest;
+    });
+    syncDraftHeld();
+    setHistoryVersion(v => v + 1);
+  }
+
+  function requireDraft(listId) {
+    const pid = activeProjectIdRef.current;
+    const draft = pid ? editDraftsRef.current[draftKey(pid, listId)] : null;
+    if (!draft) throw new Error('there is no unsaved edit of this shot list');
+    return { pid, draft };
+  }
+
+  /**
+   * D13's Yes: a draft of this list — `base` what was on screen (the list's
+   * order, or `basedOnEditId`'s items), `items` the first change applied.
+   * `title` / `version` are what the question said Yes would make. Refused
+   * on an archived list (in the backend's words) and when the list already
+   * has a draft (one per list).
+   */
+  const startEditDraft = useCallback((opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const list = requireEditableShotList(opts.listId);
+    if (editDraftsRef.current[draftKey(pid, list.id)]) throw new Error('this shot list already has an unsaved edit');
+    const draft = startDraft({
+      projectId: pid,
+      listId: list.id,
+      basedOnEditId: opts.basedOnEditId || null,
+      title: String(opts.title || list.title || '').trim(),
+      version: opts.version ?? 1,
+      base: opts.base || [],
+      items: opts.items || [],
+      now: new Date().toISOString(),
+    });
+    setDraft(pid, list.id, draft);
+    return draft;
+  }, []);
+
+  /** A change to the draft (each one a step its own undo takes back). */
+  const changeEditDraft = useCallback((listId, items) => {
+    const { pid, draft } = requireDraft(listId);
+    const next = changeDraft(draft, items, new Date().toISOString());
+    setDraft(pid, listId, next);
+    return next;
+  }, []);
+
+  /** The draft's own undo / redo: true when something changed. */
+  const undoEditDraft = useCallback((listId) => {
+    const pid = activeProjectIdRef.current;
+    const draft = pid ? editDraftsRef.current[draftKey(pid, listId)] : null;
+    const next = draft ? undoDraft(draft, new Date().toISOString()) : null;
+    if (!next) return false;
+    setDraft(pid, listId, next);
+    return true;
+  }, []);
+  const redoEditDraft = useCallback((listId) => {
+    const pid = activeProjectIdRef.current;
+    const draft = pid ? editDraftsRef.current[draftKey(pid, listId)] : null;
+    const next = draft ? redoDraft(draft, new Date().toISOString()) : null;
+    if (!next) return false;
+    setDraft(pid, listId, next);
+    return true;
+  }, []);
+
+  /** Discard changes: the draft goes; nothing was written, so nothing is undone. */
+  const discardEditDraft = useCallback((listId) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid || !editDraftsRef.current[draftKey(pid, listId)]) return false;
+    setDraft(pid, listId, null);
+    return true;
+  }, []);
+
+  /**
+   * Save edit (D13, D14): the draft becomes the next edit of its list's ONE
+   * chain — createEditFrom continues from the chain's tip whichever edit the
+   * draft began from (D6) — and is Saved with saveEdit, whose snapshot keeps
+   * the names D17's "Missing shot: <name>" shows. Each item's label is the
+   * shot's name now. { title, version, summary }.
+   *
+   * ONE undo step, recorded here and not through runBatch: the batch is one
+   * global slot, and held open across two round trips it takes in whatever
+   * else lands meanwhile (S3b-10). Its undo takes the Save back and then
+   * withdraws the edit — the maker's own, untouched again, so it shows as
+   * "Recently removed" and can be restored; its redo restores and re-Saves.
+   *
+   * A refusal before the edit is written is thrown in the backend's words and
+   * the draft stays. Once the edit is written the draft goes (it IS the
+   * edit); if only the Save is then refused, the edit stays as written (its
+   * undo the plain withdraw) and the refusal is thrown with that said.
+   */
+  const saveEditDraft = useCallback(async (listId, opts = {}) => {
+    const { pid, draft } = requireDraft(listId);
+    const shots = bundleRef.current.shots || [];
+    const items = draft.items.map(it => {
+      const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
+      return sh ? { ...it, label: sh.name || it.label || '' } : it;
+    });
+    const row = await mutationsRef.current.createEditFrom({
+      listId,
+      title: opts.title ?? draft.title,
+      version: opts.version,
+      summary: String(opts.summary || '').trim() || null,
+      items,
+      undoable: false,
+    });
+    setDraft(pid, listId, null);
+    if (activeProjectIdRef.current !== pid) return row;
+    let saved;
+    try {
+      saved = await mutationsRef.current.saveEdit(row.id, row.items, undefined, { history: false });
+    } catch (err) {
+      if (activeProjectIdRef.current === pid) {
+        pushHistory({
+          undoOps: [surfaced(() => mutationsRef.current.withdrawEdit(row.id))],
+          redoOps: [surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: row.id }))],
+        });
+      }
+      const e = new Error(`The edit was saved as “${formatShotListLabel(row)}”, but the names it holds were not: ${err?.message || err}`);
+      e.savedRow = row;
+      throw e;
+    }
+    if (activeProjectIdRef.current !== pid) return saved || row;
+    const snapshot = saved?.snapshot ?? null;
+    pushHistory({
+      undoOps: [
+        surfaced(() => rewriteSaveIfStill('edit', row.id, snapshot, { snapshot: null })),
+        surfaced(() => mutationsRef.current.withdrawEdit(row.id)),
+      ],
+      redoOps: [
+        surfaced(() => mutationsRef.current.restoreWithdrawn({ kind: 'edit', id: row.id })),
+        surfaced(() => rewriteSaveIfStill('edit', row.id, null, { snapshot })),
+      ],
+    });
+    return saved || row;
+  }, []);
+
+  /** "Recover unsaved edit?" → Recover: a previous run's copy, a draft again. */
+  const recoverEditDraft = useCallback((listId) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const stored = storedDraftKey(draftPersonRef.current, pid, listId);
+    const copy = storedEditDrafts[stored];
+    if (!copy) throw new Error('there is no unsaved edit of this shot list to recover');
+    requireEditableShotList(listId);
+    if (editDraftsRef.current[draftKey(pid, listId)]) throw new Error('this shot list already has an unsaved edit');
+    const draft = draftFromCopy(copy);
+    setDraft(pid, listId, draft);
+    return draft;
+  }, [storedEditDrafts]);
+
+  /** …→ Discard: the copy goes. */
+  const dismissStoredEditDraft = useCallback((listId) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) return;
+    const stored = storedDraftKey(draftPersonRef.current, pid, listId);
+    writeStoredDraft(stored, null);
+    setStoredEditDrafts(prev => {
+      if (!prev[stored]) return prev;
+      const rest = { ...prev };
+      delete rest[stored];
+      return rest;
+    });
+  }, []);
+
+  // The open project's drafts, and the copies a previous run left for it
+  // (this person's, newest first, none that a live draft supersedes).
+  const openProjectDrafts = useMemo(
+    () => Object.values(editDrafts).filter(d => d.projectId === activeProjectId),
+    [editDrafts, activeProjectId],
+  );
+  const editDraftOf = useCallback(
+    (listId) => (activeProjectId && listId ? editDrafts[draftKey(activeProjectId, listId)] || null : null),
+    [editDrafts, activeProjectId],
+  );
+  const recoverableEditDrafts = useMemo(() => Object.values(storedEditDrafts)
+    .filter(c => c.personKey === draftPersonKey && c.projectId === activeProjectId && !editDrafts[draftKey(c.projectId, c.listId)])
+    .sort((a, b) => String(b.changedAt || '').localeCompare(String(a.changedAt || ''))),
+  [storedEditDrafts, draftPersonKey, activeProjectId, editDrafts]);
+  const hasUnsavedEdit = openProjectDrafts.some(d => d.dirty);
 
   // ── Scenes ─────────────────────────────────────────────
   //
@@ -4940,6 +5176,12 @@ export function RabbitProvider({ children }) {
     canWithdrawShotList,
     canWithdrawEdit,
     isWithdrawn,
+    // The unsaved edit (S3c, step 4; D13): the open project's drafts, one per
+    // list, and the copies a previous run left ("Recover unsaved edit?").
+    editDrafts:      openProjectDrafts,
+    editDraftOf,
+    hasUnsavedEdit,
+    recoverableEditDrafts,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -5045,6 +5287,8 @@ export function RabbitProvider({ children }) {
     addToShotList, removeFromShotList, reorderShotListItems, refreshShotLists,
     createEditFrom, updateEdit, saveEdit, archiveEdit,
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    recoverEditDraft, dismissStoredEditDraft,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
@@ -5096,6 +5340,9 @@ export function RabbitProvider({ children }) {
     createEditFrom, updateEdit, saveEdit, archiveEdit, shotListView,
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
     recentlyWithdrawn, canWithdrawShotList, canWithdrawEdit,
+    openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    recoverEditDraft, dismissStoredEditDraft,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
