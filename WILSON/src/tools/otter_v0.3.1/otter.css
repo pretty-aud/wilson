@@ -1261,6 +1261,16 @@
   .otter-crumb-keep { flex: 0 1 auto; min-width: 1em; }
   .otter-crumb-current { order: -1; flex: 0 0 auto; max-width: 100%; color: var(--color-ink-2); }
   .otter-crumb-note { order: -2; flex-shrink: 0; margin-left: 4px; }
+  /* Post-overhaul S2c (S2b-03): on the outline page the subject leaves
+     "[outline]" its room. The note is placed first in the line, so it
+     always kept it; a subject within 50px of the column (568px of the
+     612.61px line) wrapped to the hidden second line instead, and the
+     breadcrumb read "[outline]" alone — course and subject gone. Capped
+     at the line less the note, the subject ends in an ellipsis beside it.
+     The note is its 4px and 46.03px of Geist at the Caption step
+     (3.836em): 4em, not the 3.84em S2b's review measured, which left
+     0.05px — a note 0.09px wider lost the subject again (measured). */
+  .otter-view-page[data-width='subject'] .otter-crumb-current { max-width: calc(100% - 4px - 4em); }
   .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin: 0 4px; color: var(--color-ink-3); }
   /* Inline, so the words stay on its line (the preflight makes every svg a
      block) and the ellipsis can take it; set on the line's top and centred

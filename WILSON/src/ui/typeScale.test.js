@@ -265,6 +265,10 @@ const SUBJECT_PAGE_WIDTH = 'calc(var(--measure-body-len) + 2 * var(--spacing-gut
 /** The outline page (renderStudyView's stub branch) — not part of the lesson
  *  branch's sweep, so pinned by its own selector. */
 const OUTLINE_PAGE = ".otter-view-page[data-width='subject']";
+/** S2c (S2b-03): the outline page's subject, capped so "[outline]" keeps
+ *  its place on the one line (4px + 46.03px of Geist; 4em, measured). */
+const OUTLINE_SUBJECT = `${OUTLINE_PAGE} .otter-crumb-current`;
+const OUTLINE_SUBJECT_CAP = 'calc(100% - 4px - 4em)';
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
  *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
  *  drift either. */
@@ -350,6 +354,9 @@ function measureViolations(rules) {
         // …and the lesson's crumb never runs past the line it is on (review
         // round 1: it ellipsizes only when it alone is longer than the line).
         if (r.sel === '.otter-crumb-current' && p === 'max-width' && v === '100%') continue;
+        // S2c (S2b-03): on the outline page the subject leaves "[outline]"
+        // its room — the line less the note, narrower than the line.
+        if (r.sel === OUTLINE_SUBJECT && p === 'max-width' && v === OUTLINE_SUBJECT_CAP) continue;
         if (p.startsWith('max-') || (p.startsWith('min-') && !/^(0|0px|auto|min-content)$/.test(v)) || /\dch\b|--measure/i.test(v)) bad.push(`${at}  ${p}: ${v}`);
       } else if (p === 'box-sizing') {
         bad.push(`${at}  box-sizing: ${v}`);
@@ -1246,7 +1253,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B'" }],
       ['the outline course', OUTLINE_KEEP_EL, KEEP],
       ['the lesson', CRUMB_CURRENT_EL, CURRENT],
-      ['the outline subject', OUTLINE_CURRENT_EL, CURRENT],
+      // S2c (S2b-03): the outline page's subject leaves "[outline]" its room.
+      ['the outline subject', OUTLINE_CURRENT_EL, { ...CURRENT, 'max-width': OUTLINE_SUBJECT_CAP }],
       ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-shrink': '0', 'margin-left': '4px' }],
       ["the run's chevron", CRUMB_RUN_SEP_EL, { ...CHEVRON, display: 'inline-block', 'vertical-align': 'top',
         'margin-top': 'calc((var(--text-caption) * var(--text-caption--line-height) - var(--icon-sm)) / 2)' }],
@@ -1332,6 +1340,10 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ["[class~='otter-crumb-current'] { white-space: normal; }", /lesson: white-space/],
       ['@media (min-width: 1px) { .otter-crumb-current { flex-shrink: 1; } }', /lesson: flex-shrink/],
       ['.otter-crumbs > :not(.otter-crumb-trail) { flex-shrink: 9; }', /lesson: flex-shrink/],
+      // S2c (S2b-03): the outline subject's cap undone, and the cap leaking
+      // onto the lesson page's lesson (which has no note to leave room for).
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-current { max-width: 100%; }`, /outline subject: max-width/],
+      [`.otter-crumbs .otter-crumb-current { max-width: ${OUTLINE_SUBJECT_CAP}; }`, /the lesson: max-width/],
     ];
     for (const [rule, why] of PLANTS) {
       const got = judge(`${sheet}\n@layer components { ${rule} }\n`).join('\n');

@@ -58,9 +58,19 @@ const SHOTS = !args.includes('--no-shots');
 const PREFIX = flag('prefix', 'po-s2b');
 const VIEWS = new Set(flag('views', 'functions,search-functions,lesson,lesson-crumbs,stub').split(',').map((v) => v.trim()));
 const PLANT = args.includes('--plant');
+// S2c: one extra rule on every page (a robustness probe, e.g. the note a
+// hair wider than the font made it); never part of a shot meant for Audrey.
+const INJECT_CSS = flag('inject-css', '');
 // --sizes 1024x700,853x583 measures the smallest window (and it at about
-// 120% zoom, as A3 did) without changing the shots' default pair.
-const SIZES = flag('sizes', '1440x900,1280x700').split(',').map((s) => s.trim().split('x').map(Number));
+// 120% zoom, as A3 did) without changing the shots' default pair. S2c: a
+// size may carry a device scale, `1440x900@1.25` (a zoomed or HiDPI window:
+// text is laid out at that scale, so a width measured at 1 can round
+// differently).
+const SIZES = flag('sizes', '1440x900,1280x700').split(',').map((s) => {
+  const [wh, d] = s.trim().split('@');
+  const [w, h] = wh.split('x').map(Number);
+  return [w, h, Number(d) || 1];
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── the replay: her library, in the fixture store's row shapes ──────────────
@@ -468,8 +478,8 @@ console.log(JSON.stringify({ library: LIBRARY, courses: replay.courses.map((c) =
 if (SHOTS) mkdirSync(OUT, { recursive: true });
 
 /** A page over `data` (her library in front of the fixture courses). */
-async function openReplay(browser, w, h, data) {
-  const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
+async function openReplay(browser, w, h, data, dpr = 1) {
+  const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: dpr });
   await context.addInitScript((d) => { globalThis.__S2B_REPLAY = d; }, data);
   await context.route('**/src/dev/fixtures/store.js*', async (route) => {
     const res = await route.fetch();
@@ -481,16 +491,19 @@ async function openReplay(browser, w, h, data) {
   const errors = [];
   page.on('pageerror', (e) => { errors.push(e.message); console.log(`    pageerror: ${e.message}`); });
   await page.goto(`${BASE}/otter`, { waitUntil: 'load' });
+  if (INJECT_CSS) await page.addStyleTag({ content: INJECT_CSS });
   await sleep(8000);
   return { context, page, errors };
 }
+let dpr = 1; // the device scale of the size being run (set by the loop below)
 async function shoot(page, w, h, view, opts = {}) {
   const m = await page.evaluate(MEASURE, opts);
-  console.log(JSON.stringify({ phase, view, size: `${w}x${h}`, ...m }));
-  if (SHOTS) await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-${w}x${h}.png`) });
+  const size = `${w}x${h}${dpr === 1 ? '' : `@${dpr}`}`;
+  console.log(JSON.stringify({ phase, view, size, ...m }));
+  if (SHOTS) await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-${size}.png`) });
   // The breadcrumb alone, so a squeezed segment can be read.
   if (SHOTS && m.crumbs) {
-    await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-trail-${w}x${h}.png`), scale: 'device',
+    await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-trail-${size}.png`), scale: 'device',
       clip: { x: Math.max(0, m.crumbs.left - 8), y: Math.max(0, (await page.evaluate(() => [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent)?.getBoundingClientRect().top ?? 0)) - 6), width: m.crumbs.width + 16, height: 30 } });
   }
   return m;
@@ -498,9 +511,10 @@ async function shoot(page, w, h, view, opts = {}) {
 
 const browser = await chromium.launch();
 try {
-  for (const [w, h] of SIZES) {
-    const size = `${w}x${h}`;
-    const { context, page, errors } = await openReplay(browser, w, h, replay);
+  for (const [w, h, scale] of SIZES) {
+    dpr = scale;
+    const size = `${w}x${h}${dpr === 1 ? '' : `@${dpr}`}`;
+    const { context, page, errors } = await openReplay(browser, w, h, replay, dpr);
 
     // 1. The Functions reference: her Python course (the first coding language).
     if (VIEWS.has('functions')) {
@@ -582,7 +596,7 @@ try {
           console.log(JSON.stringify({ size, outlineSweep: 'stress titles', ...stressTally,
             byWidth: stressRows.map((r) => `${r.natural}${r.noteWhole ? '' : ' NOTE-HIDDEN'}${r.subjectShown ? '' : ' SUBJECT-HIDDEN'}${r.subjectCut ? ' cut' : ''}`).join(' | ') }));
           const pick = stressRows.reduce((best, r) => (Math.abs(r.natural - (stress.width - 25)) < Math.abs(best.natural - (stress.width - 25)) ? r : best));
-          const s = await openReplay(browser, w, h, withStressSubject(replay, pick.title));
+          const s = await openReplay(browser, w, h, withStressSubject(replay, pick.title), dpr);
           try {
             const st = await openStub(s.page, 'Python', pick.title);
             if (st.course !== true || st.row !== true || st.study !== true) console.log(`    (drive: ${JSON.stringify(st)})`);
