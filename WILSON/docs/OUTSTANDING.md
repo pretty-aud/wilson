@@ -2492,7 +2492,15 @@ S5 handed off after its step 2 (the schema, the adapters, the provider and
 the pure model); steps 3–9 (the Summary, the questions, the Timeline, the
 Local Server's money gate, P1-32b, the docs) are its continuation's.
 
-- **S5-01 · A project MEMBER can change the project's money settings
+- **S5-01 · CLOSED by S5b (2026-10-05): MEASURED, then guarded.** A
+  rolled-back probe on wilson-dev as a project member changed all nine of
+  0036's budget columns, the lock included (21/21 collected); 0090's
+  `trg_projects_budget_settings_guard` now refuses a change to any of them
+  unless the caller passes the money gate (suite 92 probes a member, a
+  workspace manager with a member seat, a reviewer, a manager, an admin, an
+  unchanged re-send and the lock FK's SET NULL). `budget_total` /
+  `budget_currency` (0000) are NOT guarded — S5b-01 below. The entry as it
+  stood: **A project MEMBER can change the project's money settings
   directly** (INFERRED from the policies, not run): `projects_update`
   (0013) admits every `can_write_project` caller to every column, and no
   trigger guards `budget_margin_pct`, `budget_contingency_pct`,
@@ -2524,3 +2532,53 @@ Local Server's money gate, P1-32b, the docs) are its continuation's.
   before the S5 client is harmless (an older client never reads or writes
   the pointer). By design for the beta (A10: the branch ships whole, after
   staging's migrations); recorded so nobody cherry-picks the client ahead.
+
+## Post-overhaul S5b (`po/s5-budget-versions`, the continuation) — left open (2026-10-05)
+
+S5b built step 0 (Audrey's ruling (a): each bid version shows exactly its
+own schedule — rows it does not hold are SET ASIDE, migration 0090) and
+closed S5-01; it handed off before steps 3–9 (the Summary, the questions,
+the Timeline, the Local Server's money gate, P1-32b, the docs) —
+`docs/sessions/handoffs/po-s5b-2026-10-05.md`.
+
+- **S5b-01 · The project's budget AMOUNT and currency are shown to, and
+  editable by, every project member on the Projects page.**
+  `projects.budget_total` / `budget_currency` (0000) sit in
+  `ProjectDetailPanel`'s Budget group with no role gate; 0090 does not guard
+  them (a trigger cannot hide a read). Under D8 ("only project admins can
+  access the budget") the group would hide from members and the columns take
+  0090's guard. Owner: Audrey (is that number money?).
+- **S5b-02 · Tasks and phases have no "Recently deleted"** — only key dates
+  do. On the cloud they go to the trash (purged at 30 days) and come back by
+  Undo or the Edit history; on the Local Server they are hard-deleted (Undo
+  re-adds them). The new questions say "Undo brings them back", never
+  "Recently deleted", for tasks and phases. Owner: Audrey (a list like the
+  key dates'?).
+- **S5b-03 · From the Dashboard, a task of a project that has a bid version
+  open (and is not the project open in R.A.B.B.I.T.) cannot be deleted**: the
+  question sends the person to the project's Timeline or Tasks, where Remove
+  from this version can keep it in the versions that hold it (review round
+  1, R1-06). Decided by S5b. Owner: Audrey.
+- **S5b-04 · Every client of one project must be S5b or later once a
+  version is opened.** An older client does not split set-aside rows out, so
+  it shows them as live, and an older client's version save folds them in
+  (review round 1, R1-07). The S5b client needs 0090 (an open is refused
+  without it, "stopped part way"); 0090 before the client is harmless. A
+  desktop build left behind is the risk. Owner: the controller (the beta
+  ships the branch whole).
+- **S5b-05 · The admin's Workspace takeout and the desktop backup keep
+  set-aside rows**, on purpose (a backup keeps every row; the takeout's CSV
+  carries `set_aside_at`). Owner: Audrey.
+- **S5b-06 · The Budget tab still writes versions the OLD way until step 3**
+  (`createBidVersion`, `deleteVersion`, the lock in `SummaryTab`, each then
+  reloading the project). None of them opens a version, so nothing is set
+  aside from there, but a version deleted from that table skips constraint
+  10's question (review round 1, R1-08). Owner: the continuation (step 3).
+- **S5b-07 · An asset whose task is set aside cannot be deleted** (review
+  round 1, R1-01): the cloud sees a task through its asset and cascades the
+  asset's delete onto it, so the delete is refused with the tasks named.
+  Decided by S5b. Owner: Audrey (or delete them with it, named?).
+- **S5b-08 · 0090's guard refuses a member's whole-row UPSERT that carries
+  an unchanged set-aside stamp** (its INSERT arm reads NEW before ON
+  CONFLICT); the UPDATE re-send passes. Harmless today: every S5b write
+  strips the stamp. Owner: a schema session, if a client ever re-sends it.
