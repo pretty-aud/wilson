@@ -265,6 +265,13 @@ const SUBJECT_PAGE_WIDTH = 'calc(var(--measure-body-len) + 2 * var(--spacing-gut
 /** The outline page (renderStudyView's stub branch) — not part of the lesson
  *  branch's sweep, so pinned by its own selector. */
 const OUTLINE_PAGE = ".otter-view-page[data-width='subject']";
+/** S2c (S2b-03): the outline page's subject, capped so "[outline]" keeps
+ *  its place on the one line (4px + 46.03px of Geist; 4em, measured). */
+const OUTLINE_SUBJECT = `${OUTLINE_PAGE} .otter-crumb-current`;
+const OUTLINE_SUBJECT_CAP = 'calc(100% - 4px - 4em)';
+/** …and "[outline]"'s own box is that 4em exactly (review round 2), so the
+ *  two always make the line whatever width a font draws the note. */
+const OUTLINE_NOTE_BOX = '4em';
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
  *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
  *  drift either. */
@@ -350,6 +357,9 @@ function measureViolations(rules) {
         // …and the lesson's crumb never runs past the line it is on (review
         // round 1: it ellipsizes only when it alone is longer than the line).
         if (r.sel === '.otter-crumb-current' && p === 'max-width' && v === '100%') continue;
+        // S2c (S2b-03): on the outline page the subject leaves "[outline]"
+        // its room — the line less the note, narrower than the line.
+        if (r.sel === OUTLINE_SUBJECT && p === 'max-width' && v === OUTLINE_SUBJECT_CAP) continue;
         if (p.startsWith('max-') || (p.startsWith('min-') && !/^(0|0px|auto|min-content)$/.test(v)) || /\dch\b|--measure/i.test(v)) bad.push(`${at}  ${p}: ${v}`);
       } else if (p === 'box-sizing') {
         bad.push(`${at}  box-sizing: ${v}`);
@@ -554,8 +564,8 @@ const VIEW_EL = { tag: 'div', classes: ['otter-view'], ancestors: SHELL_ELS };
 const LESSON_PAGE_EL = under(STUDY_EL, { tag: 'div', classes: ['otter-study-page'] });
 const OUTLINE_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'subject' } });
 const READING_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'reading' } });
-const CRUMBS_EL = under(LESSON_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this lesson sits', title: 'Course › Subject › Section › Lesson' } });
-const OUTLINE_CRUMBS_EL = under(OUTLINE_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this subject sits', title: 'Course › Subject [outline]' } });
+const CRUMBS_EL = under(LESSON_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Breadcrumb', title: 'Course › Subject › Section › Lesson' } });
+const OUTLINE_CRUMBS_EL = under(OUTLINE_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Breadcrumb', title: 'Course › Subject [outline]' } });
 const CRUMB_TRAIL_EL = under(CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-trail'] });
 const CRUMB_MIDDLE_EL = under(CRUMB_TRAIL_EL, { tag: 'span', classes: ['otter-crumb'] });
 const CRUMB_MIDDLE_BEFORE_EL = { ...CRUMB_MIDDLE_EL, pseudo: 'before' };
@@ -1240,14 +1250,18 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ['the trail', CRUMB_TRAIL_EL, TRAIL],
       ['the outline trail', OUTLINE_TRAIL_EL, TRAIL],
       ['the subject-and-section run', CRUMB_MIDDLE_EL, { ...ELLIPSIS, 'flex-grow': '1', 'flex-shrink': '0', 'flex-basis': '3em', 'max-width': 'max-content' }],
-      ["the run's ::before", CRUMB_MIDDLE_BEFORE_EL, { content: "'\\200B'" }],
+      // S2c (S2b-04): the zero-width space with an empty alternative, so the
+      // accessibility tree carries no text of its own for it.
+      ["the run's ::before", CRUMB_MIDDLE_BEFORE_EL, { content: "'\\200B' / ''" }],
       ["the run's spoken separator", CRUMB_SAID_EL, { position: 'absolute', width: '1px', height: '1px', 'overflow-x': 'hidden', 'overflow-y': 'hidden', 'clip-path': 'inset(50%)' }],
       ['the course', CRUMB_KEEP_EL, KEEP],
-      ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B'" }],
+      ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B' / ''" }],
       ['the outline course', OUTLINE_KEEP_EL, KEEP],
       ['the lesson', CRUMB_CURRENT_EL, CURRENT],
-      ['the outline subject', OUTLINE_CURRENT_EL, CURRENT],
-      ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-shrink': '0', 'margin-left': '4px' }],
+      // S2c (S2b-03): the outline page's subject leaves "[outline]" its room.
+      ['the outline subject', OUTLINE_CURRENT_EL, { ...CURRENT, 'max-width': OUTLINE_SUBJECT_CAP }],
+      // S2c review round 2: the note's box is the 4em the subject leaves it.
+      ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-grow': '0', 'flex-shrink': '0', 'flex-basis': OUTLINE_NOTE_BOX, 'min-width': '0', 'margin-left': '4px' }],
       ["the run's chevron", CRUMB_RUN_SEP_EL, { ...CHEVRON, display: 'inline-block', 'vertical-align': 'top',
         'margin-top': 'calc((var(--text-caption) * var(--text-caption--line-height) - var(--icon-sm)) / 2)' }],
       ['the final chevron', CRUMB_FINAL_SEP_EL, CHEVRON],
@@ -1274,7 +1288,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     const flat = (s) => s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\s+/g, ' ').replace(/> </g, '><').trim();
     const src = readFileSync(OTTER_JSX, 'utf8');
     const lessonNav = flat(lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '');
-    expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+    // S2c (S2b-04): both named "Breadcrumb", the name screen-reader users expect.
+    expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
         <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
@@ -1284,7 +1299,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     </nav>`));
     const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
     expect(stub).toMatch(/<div className="otter-view">\s*<div className="otter-view-page" data-width="subject">\s*<nav className="otter-crumbs"/);
-    expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+    expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
         <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
@@ -1332,6 +1347,17 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ["[class~='otter-crumb-current'] { white-space: normal; }", /lesson: white-space/],
       ['@media (min-width: 1px) { .otter-crumb-current { flex-shrink: 1; } }', /lesson: flex-shrink/],
       ['.otter-crumbs > :not(.otter-crumb-trail) { flex-shrink: 9; }', /lesson: flex-shrink/],
+      // S2c (S2b-03): the outline subject's cap undone, and the cap leaking
+      // onto the lesson page's lesson (which has no note to leave room for).
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-current { max-width: 100%; }`, /outline subject: max-width/],
+      [`.otter-crumbs .otter-crumb-current { max-width: ${OUTLINE_SUBJECT_CAP}; }`, /the lesson: max-width/],
+      // S2c review round 2: the note's box back to its text, or allowed to
+      // grow past the 4em the subject leaves it.
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-note { flex-basis: auto; }`, /"\[outline\]": flex-basis/],
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-note { min-width: auto; }`, /"\[outline\]": min-width/],
+      // S2c (S2b-04): the empty alternative dropped from either zero-width space.
+      ['.otter-crumb::before { content: \'\\200B\'; }', /run's ::before: content/],
+      ['.otter-crumb-trail .otter-crumb-keep::before { content: \'\\200B\' / \'\u200B\'; }', /course's ::before: content/],
     ];
     for (const [rule, why] of PLANTS) {
       const got = judge(`${sheet}\n@layer components { ${rule} }\n`).join('\n');
@@ -1344,6 +1370,14 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       '.otter-crumbs > :not(.otter-crumb-current, .otter-crumb-trail, .otter-crumb-note) { flex-shrink: 9; }']) {
       expect(judge(`${sheet}\n@layer components { ${rule} }\n`), rule).toEqual([]);
     }
+    // S2c (S2b-04, review round 1): the zero-width space is declared plain
+    // FIRST, for a browser without the alternative syntax (it drops the
+    // second declaration and keeps the first), then with its empty
+    // alternative. The judge reads only the winner, so the pair is pinned
+    // here, in its order (the production build keeps both — measured).
+    const zwspDecls = (css) => allRules(css).filter((r) => splitTop(r.sel).map((s) => s.trim()).join(',') === '.otter-crumb::before,.otter-crumb-keep::before').map((r) => decls(r.body));
+    expect(zwspDecls(sheet), 'the zero-width space: plain, then with an empty alternative').toEqual([[['content', "'\\200B'"], ['content', "'\\200B' / ''"]]]);
+    expect(zwspDecls(sheet.replace("content: '\\200B'; content: '\\200B' / '';", "content: '\\200B' / '';")), 'CONTROL: the fallback dropped').not.toEqual(zwspDecls(sheet));
   }, 30000);
 
   it('otter.css keeps every rule in `@layer components` and nests none, so the cascade judge above reads it whole (S2b review round 2)', () => {

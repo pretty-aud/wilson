@@ -29,8 +29,9 @@ function WellPre({ children, 'data-language': language }) {
  *  as its JSON rather than a crash. A generated or imported library can
  *  carry any of these, and nothing in the app catches "Objects are not
  *  valid as a React child": the whole window went blank (review round 2).
- *  The same text reaches both wells, plain and coloured. */
-function cardText(v) {
+ *  The same text reaches both wells, plain and coloured — and, since S2c
+ *  (S2b-05), the Functions view's search, so it finds what the card shows. */
+export function cardText(v) {
   if (v == null || typeof v === 'boolean') return '';
   if (Array.isArray(v)) return v.map(cardText).join('');
   if (typeof v === 'object') { try { return JSON.stringify(v); } catch { return String(v); } }
@@ -52,6 +53,10 @@ export function CodeWell({ code, language }) {
 }
 
 export default function FunctionCard({ fn, language }) {
+  // S2c (S2b-05): an entry that is not a function (null, a string, a number,
+  // a list — an imported library can carry one) draws no card. Its hosts
+  // pass only functions (functionEntries); this is the card's own floor.
+  if (!fn || typeof fn !== 'object' || Array.isArray(fn)) return null;
   return (
     <div className="otter-fn-card">
       <code className="otter-fn-name">{cardText(fn.name)}</code>

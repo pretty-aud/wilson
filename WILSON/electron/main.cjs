@@ -903,23 +903,65 @@ function startLocalServer(distPath) {
     });
 
     expressApp.post('/api/software/:slug/hotkeys/merge', (req, res) => {
+      // Post-overhaul S2c (S2b-02): the SAME rules, line for line, as
+      // otterRoutes.js's mergeHotkeys (the cloud and the dev fixtures);
+      // hotkeysMerge.test.js replays both and demands the same document for
+      // every case. The keying is mergeFunctionsDoc's (S2b), above: a sent
+      // category's name is its `category`, else its `name`, else "General" —
+      // a non-empty string, trimmed, invisible characters dropped — and it
+      // joins a stored heading with case and punctuation aside, letters of
+      // any script kept. The a-z0-9 key this replaces made "文字列" and "数学"
+      // one category, joined either to a category with no `category`, and
+      // threw on a name that was not a string, on every later merge.
+      //  - It joins only a category the Hotkeys page and the Search dialog
+      //    draw: a `shortcuts` list headed by its `category` (a non-empty
+      //    string). One they do not draw (a `hotkeys` list alone, no
+      //    `category`) is never joined; what was sent gets its own heading.
+      //  - A shortcut is not added again under the same heading: the same
+      //    action, case and surrounding spaces aside; an action that is not a
+      //    string reads as none. A sent category's shortcuts are its
+      //    `shortcuts`, else its `hotkeys`.
+      //  - Stored categories are kept exactly as stored: only a category a
+      //    shortcut joins is rewritten (a copy, the new ones after its own).
+      //    A new category is written `{ category, shortcuts }` when it brings
+      //    a shortcut or was sent with none.
+      //  - Entries that are not categories are carried over untouched; the
+      //    document's other keys are kept; a stored document that is not a
+      //    library is left exactly as it is.
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_hotkeys.json');
-      const existing = readJSON(filePath, { categories: [] });
-      const incoming = req.body.categories || [];
-      const normalizeCat = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      for (const inCat of incoming) {
-        const catName = inCat.category || inCat.name || 'General';
-        const inShortcuts = inCat.shortcuts || inCat.hotkeys || [];
-        const catNorm = normalizeCat(catName);
-        let existCat = existing.categories.find(c => normalizeCat(c.category) === catNorm);
-        if (!existCat) { existCat = { category: catName, shortcuts: [] }; existing.categories.push(existCat); }
-        for (const hk of inShortcuts) {
-          const actionNorm = (hk.action || '').toLowerCase().trim();
-          if (!existCat.shortcuts.some(h => (h.action || '').toLowerCase().trim() === actionNorm)) existCat.shortcuts.push(hk);
+      const stored = readJSON(filePath, { categories: [] });
+      const incoming = (req.body || {}).categories;
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
+      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
+      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
+      const heading = (c) => (isObj(c) && Array.isArray(c.shortcuts) ? clean(c.category) : '');
+      const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');
+      const doc = stored == null ? {} : stored;
+      let merged = stored;
+      if (isObj(doc) && (doc.categories === undefined || Array.isArray(doc.categories))) {
+        const out = { ...doc, categories: [...(doc.categories || [])] };
+        for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+          if (!isObj(inCat)) continue;
+          const name = catName(inCat);
+          const key = catKey(name);
+          const i = out.categories.findIndex(c => { const h = heading(c); return !!h && catKey(h) === key; });
+          const into = i < 0 ? null : out.categories[i];
+          const have = new Set((into ? into.shortcuts : []).filter(isObj).map(actionKey));
+          const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : [];
+          const add = [];
+          for (const hk of list) {
+            if (!isObj(hk) || have.has(actionKey(hk))) continue;
+            have.add(actionKey(hk));
+            add.push(hk);
+          }
+          if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }); }
+          else if (add.length) out.categories[i] = { ...into, shortcuts: [...into.shortcuts, ...add] };
         }
+        merged = out;
       }
-      writeJSON(filePath, existing);
-      res.json(existing);
+      writeJSON(filePath, merged);
+      res.json(merged);
     });
 
     // ── Functions endpoints ──

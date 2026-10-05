@@ -73,8 +73,8 @@ import { localFetch } from '../../lib/localServerFetch.js';
 //  why each setting is what it is.
 // ═══════════════════════════════════════════════════════════════════
 import { LESSON_CODE_BLOCK, LESSON_CODE_THEME, LESSON_CODE_TEXT, courseLanguage } from './otterLanguage.js';
-import FunctionCard from './FunctionCard.jsx';
-import { functionCategoryName } from './adapters/otterRoutes.js';
+import FunctionCard, { cardText } from './FunctionCard.jsx';
+import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -1423,7 +1423,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1658,7 +1658,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1886,7 +1886,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${swSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${swSlug}/hotkeys`).then(r => r.json());
@@ -2885,8 +2885,14 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // words taken from her own library found nothing — and a category with
       // no functions is neither counted nor shown (its heading "found" one
       // occurrence and drew no card).
-      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ');
-      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions) && cat.functions.length > 0);
+      // S2c (S2b-05): only a category's entries that ARE functions — an
+      // imported library can carry a null or a string in the list, and
+      // `f.name` on a null threw here, every keystroke — each field read as
+      // the card draws it (review round 1: an object read "[object Object]"
+      // here and its JSON on the card and in the Functions view's search).
+      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].map(cardText).filter(Boolean).join(' ');
+      const funcCategories = (Array.isArray(cached.functions?.categories) ? cached.functions.categories : [])
+        .map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);
       if (funcCategories.length > 0) {
         // S2b (C10): the heading the result shows, never "undefined" — a
         // nameless category read as the word, so "undefined" matched it.
@@ -4652,7 +4658,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return (
         <div className="otter-view">
           <div className="otter-view-page" data-width="subject">
-            <nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
                 <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
@@ -4722,7 +4728,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 section (one run, down to "› …"), then the course, and the
                 lesson only when it alone is longer than the line. The whole
                 path is the title. */}
-            <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
                 <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
@@ -5207,14 +5213,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }
 
     if (isCodingLang) {
-      const allFuncs = (softwareFunctions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2c (S2b-05): each category's entries that ARE functions (a null or a
+      // string in the list blanked the window through the card's `fn.name`),
+      // and the search reads a field as the card draws it — a stored value
+      // that is not a string (S2b's card shows `syntax: 42`) threw on the
+      // first letter typed.
+      const allFuncs = (Array.isArray(softwareFunctions?.categories) ? softwareFunctions.categories : [])
+        .filter(cat => cat && Array.isArray(cat.functions)).map(cat => ({ ...cat, functions: functionEntries(cat) }));
       // S2b (C9): the language the cards colour their code in; unknown is plain.
       const fnLanguage = courseLanguage(activeSoftware);
       const filtered = functionSearch
         ? allFuncs.map(cat => ({ ...cat, functions: cat.functions.filter(f =>
-            (f.name || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.description || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.syntax || '').toLowerCase().includes(functionSearch.toLowerCase())
+            cardText(f.name).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.description).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.syntax).toLowerCase().includes(functionSearch.toLowerCase())
           ) })).filter(cat => cat.functions.length > 0)
         : allFuncs;
 
