@@ -69,6 +69,23 @@ describe('useProjectRateOverrides: loadedEpoch', () => {
     await waitFor(() => expect(result.current.loadedEpoch).toBe(1))
     expect(ratesPendingFrom({ rateCard: { settled: true }, rateOverrides: result.current, epoch: 1 })).toBeNull()
   })
+  it('S5c review round 1 (R1-07): a failed read is tried again, and the rates are read once the backend answers', async () => {
+    let fail = false
+    const flaky = { listProjectRateOverrides: vi.fn(async () => { if (fail) throw new Error('network down'); return [] }) }
+    held.rabbit = { getAdapter: () => flaky, project: { id: 'p1' }, adapterMode: 'fixtures', adapterStatus: { online: true }, rateOverridesEpoch: 0 }
+    const { result, rerender } = renderHook(() => useProjectRateOverrides())
+    await waitFor(() => expect(result.current.loadedEpoch).toBe(0))
+    // An open wrote a rate (the epoch moves) and the re-read fails once.
+    fail = true
+    held.rabbit = { ...held.rabbit, rateOverridesEpoch: 1 }
+    rerender()
+    await waitFor(() => expect(result.current.error).toBe('network down'))
+    expect(ratesPendingFrom({ rateCard: { settled: true }, rateOverrides: result.current, epoch: 1 })).toBe('The project’s rates could not be read: network down')
+    fail = false // the network is back; nothing else reads again
+    await waitFor(() => expect(result.current.loadedEpoch).toBe(1), { timeout: 4000 })
+    expect(result.current.error).toBeNull()
+    expect(ratesPendingFrom({ rateCard: { settled: true }, rateOverrides: result.current, epoch: 1 })).toBeNull()
+  })
   it('a backend with no project rates has its empty list at every epoch', async () => {
     const bare = { listRateCards: adapter.listRateCards }
     held.rabbit = { getAdapter: () => bare, project: { id: 'p1' }, adapterMode: 'fixtures', adapterStatus: { online: true }, rateOverridesEpoch: 3 }

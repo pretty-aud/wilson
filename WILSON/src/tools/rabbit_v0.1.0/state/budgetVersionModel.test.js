@@ -291,3 +291,31 @@ describe('scheduleSpan', () => {
     expect(scheduleSpan({ tasks: [{ id: 'x' }] })).toBeNull()
   })
 })
+
+// Post-overhaul S5c review round 1 (R1-03): a rate-card role that no task
+// bids with made every version read "unsaved" for good, counted as a rate
+// changed in the automatic line, and was written as a project rate by every
+// open. Only the roles the rows bid with are the bid's.
+describe('rates of roles no task uses (S5c, R1-03)', () => {
+  const withColorist = { ...roleRates, colorist: 900 }
+  it('versionDiff: a role no task uses, added to the card, is not an unsaved change', () => {
+    const saved = live()
+    const now = snapshotFromLive({ tasks, phases, milestones, project, roleRates: withColorist })
+    expect(versionDiff(saved, now)).toMatchObject({ isDirty: false, ratesChanged: [] })
+    // CONTROL: a role a task bids with, re-rated, is.
+    const rerated = snapshotFromLive({ tasks, phases, milestones, project, roleRates: { ...roleRates, editor: 550 } })
+    expect(versionDiff(saved, rerated)).toMatchObject({ isDirty: true, ratesChanged: ['editor'] })
+  })
+  it('versionDelta: the automatic line does not count it as a rate changed', () => {
+    const next = snapshotFromLive({ tasks, phases, milestones, project, roleRates: withColorist })
+    expect(versionDelta(live(), next).ratesChanged).toBe(0)
+  })
+  it('planOpen: an open writes no project rate for a role its tasks do not bid with', () => {
+    const saved = snapshotFromLive({ tasks, phases, milestones, project, roleRates: withColorist })
+    const plan = planOpen(saved, { tasks, phases, milestones, project, roleRates: { editor: 500, director: 800 } })
+    expect(plan.rates).toEqual([])
+    // CONTROL: a role its tasks bid with, at another rate, is written.
+    const moved = planOpen(saved, { tasks, phases, milestones, project, roleRates: { editor: 400, director: 800 } })
+    expect(moved.rates.map(r => r.roleSlug)).toEqual(['editor'])
+  })
+})

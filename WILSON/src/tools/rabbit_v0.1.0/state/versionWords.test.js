@@ -204,7 +204,21 @@ describe('deleteQuestionWords — a version\'s delete (constraint 10)', () => {
 describe('Save as new version… and the toasts', () => {
   it('Save as new: opened and selected — or, under a lock, only recorded (F9)', () => {
     expect(saveAsNewWords()).toBe('Saves what the Timeline and Budget show now as a new bid version. It becomes the open version and the selected bid.')
-    expect(saveAsNewWords({ locked: v('v2', 'Mid ROM') })).toBe('Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked to “Mid ROM”.')
+    expect(saveAsNewWords({ locked: true, lockedVersion: v('v2', 'Mid ROM') })).toBe('Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked to “Mid ROM”.')
+    // Review round 1: a lock with no bid on record says only that — no "“the locked bid”" placeholder in quotes.
+    expect(saveAsNewWords({ locked: true })).toBe('Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked.')
+  })
+  it('review round 1: Edit says when the version becomes the selected bid too; a lock of an old version says what it closes', () => {
+    const preview = { version: v('v3', 'High ROM'), leaving: set(), returning: set() }
+    expect(openQuestionWords({ mode: 'open', preview, read: { hasTimeline: true }, selected: false }).sentences[1])
+      .toBe('It becomes the selected bid too: the variance measures against it.')
+    // CONTROL: already the selected bid — nothing more to say.
+    expect(openQuestionWords({ mode: 'open', preview, read: { hasTimeline: true }, selected: true }).sentences).toHaveLength(1)
+    const old = { version: v('v0', 'Bid v0'), open: v('v2', 'Mid ROM'), leaving: set(), returning: set() }
+    expect(openQuestionWords({ mode: 'lock', preview: old, read: { hasTimeline: false }, openUnsaved: true }).sentences[2])
+      .toBe('“Mid ROM” closes with its unsaved changes left on the Timeline, not saved into it: no version is open while the budget is active. Save them first to keep them in it.')
+    expect(openQuestionWords({ mode: 'lock', preview: old, read: { hasTimeline: false } }).sentences[2])
+      .toBe('“Mid ROM” closes: no version is open while the budget is active.')
   })
   it('each toast says what the step did', () => {
     // What moved first: the toast holds one line and cuts the rest.

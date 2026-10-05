@@ -107,6 +107,16 @@ export function useProjectRateOverrides() {
     }, 1500)
   }, [getAdapter, projectId, project])
 
+  // Post-overhaul S5c review round 1 (R1-07): one failed read left the list
+  // stale — and the Budget's versions block greyed, "reading the rates" —
+  // for as long as the page stayed mounted. A failed read is tried again,
+  // after 1.5s and then 4s, before its error stands; a read that lands, or a
+  // new epoch's read, starts the count again.
+  const RETRY_MS = [1500, 4000]
+  const retryRef = useRef({ timer: null, tries: 0 })
+  const loadRef = useRef(null)
+  useEffect(() => () => clearTimeout(retryRef.current.timer), [])
+
   // Post-overhaul S5 review round 1: an open writes several rates in a row and
   // each bumps the epoch, so loads overlap; only the newest may land.
   const loadSeqRef = useRef(0)
@@ -127,6 +137,7 @@ export function useProjectRateOverrides() {
         setOverrides(Array.isArray(list) ? list : [])
         setLoadedEpoch(forEpoch)
       }
+      retryRef.current.tries = 0
     } catch (err) {
       if (seq !== loadSeqRef.current) return
       // Money is manager-only at the RLS layer (0037), so a non-manager gets
@@ -135,16 +146,27 @@ export function useProjectRateOverrides() {
       // are different facts, and conflating them is what makes a broken
       // budget look like an unconfigured one.
       if (mountedRef.current) setError(err.message || String(err))
+      const r = retryRef.current
+      if (mountedRef.current && r.tries < RETRY_MS.length) {
+        clearTimeout(r.timer)
+        r.timer = setTimeout(() => { if (mountedRef.current) loadRef.current?.() }, RETRY_MS[r.tries])
+        r.tries += 1
+      }
     } finally {
       if (seq === loadSeqRef.current && mountedRef.current) setLoading(false)
     }
   }, [getAdapter, projectId])
+  loadRef.current = load
 
   // Post-overhaul S5: opening a bid version writes its role rates as project
   // overrides from the provider; the provider bumps rateOverridesEpoch after
   // each such write (and its undo), and this list reloads.
   const rateOverridesEpoch = rabbit?.rateOverridesEpoch ?? 0
-  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
+  useEffect(() => {
+    clearTimeout(retryRef.current.timer)
+    retryRef.current.tries = 0
+    load()
+  }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
 
   // Set a project rate. Exactly one of roleSlug / memberId — the database
   // CHECK refuses both or neither, because a row keyed by both has no single

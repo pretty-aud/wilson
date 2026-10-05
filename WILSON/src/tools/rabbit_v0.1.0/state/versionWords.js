@@ -211,10 +211,14 @@ function movesSentence(leaving, returning, work) {
  * → { title, sentences, verb, keepLabel } — keepLabel null when no row
  *   leaving has work on it (then there is no checkbox).
  */
-export function openQuestionWords({ mode = 'open', preview, work = [], read, discard = false }) {
+export function openQuestionWords({ mode = 'open', preview, work = [], read, discard = false, openUnsaved = false, selected = true }) {
   const v = preview?.version
   const name = q(v?.name)
   const sentences = []
+  // The version open now, when the step closes it without loading over it
+  // (a lock of a version saved before S5 loads nothing): said, with its
+  // unsaved changes if it has some (review round 1).
+  const closing = preview?.open && preview.open.id !== v?.id ? preview.open : null
   const moves = movesSentence(preview?.leaving, preview?.returning, work)
   const lost = rowsOf(preview?.leaving).length
     ? 'Nothing on a row that leaves is lost: it comes back, with its comments, files and logged time, when you edit a version that holds it.'
@@ -225,6 +229,11 @@ export function openQuestionWords({ mode = 'open', preview, work = [], read, dis
     sentences.push(`${name} becomes the budget in production: it is locked as it was saved, and the variance measures against it.`)
     if (!read?.hasTimeline) {
       sentences.push('It was saved before versions kept their schedule (no timeline captured), so the Timeline stays as it is.')
+      if (closing) {
+        sentences.push(openUnsaved
+          ? `${q(closing.name)} closes with its unsaved changes left on the Timeline, not saved into it: no version is open while the budget is active. Save them first to keep them in it.`
+          : `${q(closing.name)} closes: no version is open while the budget is active.`)
+      }
     } else if (preview?.open?.id === v?.id && !discard) {
       sentences.push('It is the open version, so the Timeline already shows it.')
     } else {
@@ -235,6 +244,7 @@ export function openQuestionWords({ mode = 'open', preview, work = [], read, dis
     sentences.push('During production you keep editing the Timeline as usual, and Save as new version records those changes without touching the lock.')
   } else {
     sentences.push('Its phases, tasks, key dates, roles and rates replace what the Timeline and Budget show, and it becomes the open version: Save writes your changes back into it.')
+    if (!selected) sentences.push('It becomes the selected bid too: the variance measures against it.')
     if (moves) sentences.push(moves)
     if (lost) sentences.push(lost)
     if (work.length) keepLabel = `Keep ${one ? 'it' : 'them'} on the Timeline in ${name} (${one ? 'it becomes an unsaved change' : 'they become unsaved changes'})`
@@ -269,11 +279,15 @@ export function deleteQuestionWords({ preview, isOpen = false, isSelected = fals
   return { title: `Delete ${q(preview?.version?.name)}?`, sentences, verb: 'Delete version' }
 }
 
-/** Save as new version…'s one line: what it does, open and selected — or, under a lock, only recorded (F9). */
-export function saveAsNewWords({ locked = null } = {}) {
-  return locked
-    ? `Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked to ${q(locked.name)}.`
-    : 'Saves what the Timeline and Budget show now as a new bid version. It becomes the open version and the selected bid.'
+/**
+ * Save as new version…'s one line: what it does, open and selected — or,
+ * under a lock, only recorded (F9). `lockedVersion` names the locked bid when
+ * one is on record (a lock with none says only that it stays locked: review
+ * round 1 found "“the locked bid”", a placeholder in quotes).
+ */
+export function saveAsNewWords({ locked = false, lockedVersion = null } = {}) {
+  if (!locked) return 'Saves what the Timeline and Budget show now as a new bid version. It becomes the open version and the selected bid.'
+  return `Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked${lockedVersion ? ` to ${q(lockedVersion.name)}` : ''}.`
 }
 
 // The undo toast after each step the questions take (the Budget's one way

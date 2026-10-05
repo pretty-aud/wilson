@@ -455,7 +455,8 @@ describe('surface 2a', () => {
       )
       const { container } = render(pending)
       const b = block(container)
-      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Reading the rates…')
+      // The sentence itself (review round 1, R1-07: a fixed 'Reading the rates…' said a read was under way after one had failed).
+      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Reading the project’s rates…')
       expect(button(b, 'Save').disabled).toBe(true)
       expect(button(b, 'Save').getAttribute('data-attention')).toBeNull()
       // Not even the word: the kit shows "● Unsaved" while `attention` is on,

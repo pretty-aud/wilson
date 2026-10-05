@@ -81,6 +81,12 @@ export function basedOnWords(version, shotLists) {
   return b ? `${b.text}${b.note ? ` (${b.note})` : ''}` : null
 }
 
+/** A shot list's words for the Save as new form ("Shoot · v2", "Old cut · v4 (archived)"), or null for none. */
+function listWords(ctx, id) {
+  const list = id ? ((ctx?.shotLists || []).find(l => l.id === id) || null) : null
+  return list ? `${formatShotListLabel(list)}${list.archived_at ? ' (archived)' : ''}` : null
+}
+
 /** The rows with work on them, as the keep answer takes them: { tasks, phases } ids. */
 function keepOf(work) {
   return {
@@ -90,7 +96,7 @@ function keepOf(work) {
 }
 
 // ── Save as new version… (F2: the only way a version appears; it asks for a name)
-export function SaveAsNewDialog({ locked = null, basedOn = null, onCancel, onSave }) {
+export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn = null, onCancel, onSave }) {
   const [name, setName] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -122,7 +128,7 @@ export function SaveAsNewDialog({ locked = null, basedOn = null, onCancel, onSav
         </>
       )}
     >
-      <p className="rb-bv-q-line">{saveAsNewWords({ locked })}</p>
+      <p className="rb-bv-q-line">{saveAsNewWords({ locked, lockedVersion })}</p>
       <p className="rb-bv-q-quiet">{basedOn ? `Based on the shot list ${q(basedOn)}.` : 'Based on no shot list.'}</p>
       <div className="rb-bv-q-fields">
         <Field label="Name">
@@ -211,8 +217,9 @@ export function VersionFlow({ ctx, mode = 'open', versionId, roleRates, liveShot
     return (
       <SaveAsNewDialog
         key="newName"
-        locked={null}
-        basedOn={null}
+        // S5c review round 1 (R1-05): the list it is saved on, said — it
+        // read "Based on no shot list." and saved on the active list.
+        basedOn={listWords(ctx, basedOnListId)}
         onCancel={() => setStage('unsaved')}
         onSave={async ({ name, summary }) => {
           await ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId })
@@ -264,7 +271,14 @@ export function VersionFlow({ ctx, mode = 'open', versionId, roleRates, liveShot
   if (!now) return null
   const { base, keep, p } = now
   const read = readVersion(p.version)
-  const words = openQuestionWords({ mode, preview: p, work: base.work, read, discard })
+  // Review round 1's smaller ones: an open version with unsaved changes that
+  // a lock of an OLD version closes without asking (it loads nothing), and a
+  // version edited from Manage that is not the selected bid yet — both said.
+  const words = openQuestionWords({
+    mode, preview: p, work: base.work, read, discard,
+    openUnsaved: first?.unsaved?.kind === 'open',
+    selected: selectedVersionOf(ctx?.budgetVersions)?.id === versionId,
+  })
   async function go() {
     setFrozen(now)
     setRunning(true)
@@ -473,11 +487,11 @@ export function VersionQuestions({ ctx, ask, setAsk, roleRates, currency, ratesP
   const step = ctx?.runWithUndoToast || ((run) => run())
 
   if (ask.kind === 'saveAsNew') {
-    const list = (ctx?.shotLists || []).find(l => l.id === ask.basedOnListId) || null
     return (
       <SaveAsNewDialog
-        locked={locked ? (lockedVersion || { name: 'the locked bid' }) : null}
-        basedOn={list ? `${formatShotListLabel(list)}${list.archived_at ? ' (archived)' : ''}` : null}
+        locked={locked}
+        lockedVersion={lockedVersion}
+        basedOn={listWords(ctx, ask.basedOnListId)}
         onCancel={done}
         onSave={async ({ name, summary }) => {
           const run = () => ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId: ask.basedOnListId })
@@ -498,7 +512,10 @@ export function VersionQuestions({ ctx, ask, setAsk, roleRates, currency, ratesP
         ratesPending={ratesPending}
         onClose={done}
         onEdit={(id) => setAsk({ kind: 'open', versionId: id, liveShotListId: ask.liveShotListId, basedOnListId: ask.basedOnListId })}
-        onDelete={(id) => setAsk({ kind: 'delete', versionId: id, back: 'manage' })}
+        // S5c review round 1 (R1-06): the person's list choice rides along,
+        // there and back — dropped, the picker's Edit afterwards skipped the
+        // unsaved question and lost the choice.
+        onDelete={(id) => setAsk({ kind: 'delete', versionId: id, back: 'manage', liveShotListId: ask.liveShotListId, basedOnListId: ask.basedOnListId })}
       />
     )
   }
@@ -522,7 +539,7 @@ export function VersionQuestions({ ctx, ask, setAsk, roleRates, currency, ratesP
         key={`delete-${ask.versionId}`}
         ctx={ctx}
         versionId={ask.versionId}
-        onDone={() => setAsk(ask.back === 'manage' ? { kind: 'manage' } : null)}
+        onDone={() => setAsk(ask.back === 'manage' ? { kind: 'manage', liveShotListId: ask.liveShotListId, basedOnListId: ask.basedOnListId } : null)}
       />
     )
   }

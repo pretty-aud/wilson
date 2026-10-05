@@ -34,7 +34,7 @@
 //     (F8) beside the facts they describe.
 // =============================================================================
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Save, CopyPlus, Pencil, ShieldCheck, FolderOpen } from 'lucide-react'
 import { Button, Select as KitSelect, StatusBadge } from '../../../../ui'
 import CurrencyDisplay, { formatMoney, formatTenths } from '../../components/CurrencyDisplay'
@@ -142,8 +142,13 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
   // version's list and "unsaved" does not compare it; Save as new takes the
   // default — the open version's list, else the project's active one (S3c).
   // Another open version is another default: the choice was about the old.
-  const [listChoice, setListChoice] = useState(undefined)
-  useEffect(() => { setListChoice(undefined) }, [openId])
+  // Held WITH the open version it was made for, so it is dropped in the very
+  // render the open version changes (review round 1: an effect cleared it a
+  // render late, and that render compared the old choice with the new open
+  // version — a frame of "Unsaved changes").
+  const [choice, setChoice] = useState({ openId, value: undefined })
+  const listChoice = choice.openId === openId ? choice.value : undefined
+  const setListChoice = (value) => setChoice({ openId, value })
   const listDefault = openRow
     ? (openRow.shot_list_id ?? null)
     : (liveLists.some(l => l.id === activeListId) ? activeListId : null)
@@ -193,13 +198,15 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
           <span className="ui-field-label">{state.locked ? 'Budget active' : 'Open version'}</span>
           {state.locked ? (
             <span className="rb-bv-state-line">
-              {`Production changes are kept with Save as new version; the budget stays locked to ${q(state.lockedVersion?.name || 'its bid')}.`}
+              {`Production changes are kept with Save as new version; the budget stays locked${state.lockedVersion ? ` to ${q(state.lockedVersion.name)}` : ''}.`}
             </span>
           ) : state.open ? (
             <span className="rb-bv-state-line">
               <span className="rb-bv-open-name">{state.open.name}</span>
               <span className="rb-bv-open-status" data-dirty={state.dirty ? 'true' : undefined}>
-                {state.pending ? 'Reading the rates…'
+                {/* Review round 1 (R1-07): the pending sentence itself —
+                    "Reading …" said a read was under way after one had failed. */}
+                {state.pending ? state.pending
                   : (state.dirty ? 'Unsaved changes' : `Saved ${showDate(versionSavedAt(state.open), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`)}
               </span>
             </span>
