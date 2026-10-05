@@ -434,9 +434,11 @@ export function RabbitProvider({ children }) {
   // toast for its whole step instead.
   const quietToastsRef = useRef(0);
 
-  const showUndoToast = useCallback((message, onUndo) => {
+  // `{ hold: true }`: no deadline — the way back from a step that stopped part
+  // way, which its question goes on promising (S5c review round 2, R2-09).
+  const showUndoToast = useCallback((message, onUndo, opts) => {
     if (quietToastsRef.current > 0) return;
-    setUndoToast({ key: ++undoToastKeyRef.current, message, onUndo });
+    setUndoToast({ key: ++undoToastKeyRef.current, message, onUndo, hold: !!opts?.hold });
   }, []);
 
   const dismissUndoToast = useCallback(() => setUndoToast(null), []);
@@ -1381,6 +1383,11 @@ export function RabbitProvider({ children }) {
   const addPhase = useCallback(async (phase) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // S5c review round 1 (R1-04, the second look at S5b's R1-05): a create
+    // that answers after a project switch belongs to the project it began on
+    // — merged here it showed in the other project, and its undo step (a
+    // delete by id) trashed it from there. Its row is in its own project.
+    const visit = projectVisitRef.current;
     const row = {
       id:           phase.id || uuidv4(),
       project_id:   activeProjectId,
@@ -1389,6 +1396,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertPhase(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // Upsert, not append: with live sync up, our own INSERT's broadcast
     // echo can land BEFORE the adapter call resolves — a plain append
     // would leave a permanent duplicate id (adversarial-review finding).
@@ -1401,7 +1409,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deletePhase(finalRow.id)],
       redoOps: [() => mutationsRef.current.addPhase(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId]);
 
@@ -1546,6 +1554,13 @@ export function RabbitProvider({ children }) {
   const addAsset = useCallback(async (asset) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // S5c review round 2 (R2-07): R1-04's fault in a create it missed — one
+    // answering after a project switch merged into the other project, and its
+    // undo (a delete by id) landed on that project's stack: Ctrl+Z there
+    // trashed this project's asset. Its row stays in its own project; its
+    // folder comes with that project's next load (ensureEntityFolderFor
+    // writes into the OPEN project, so it is not called here).
+    const visit = projectVisitRef.current;
     const row = {
       id:           asset.id || uuidv4(),
       project_id:   activeProjectId,
@@ -1556,6 +1571,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertAsset(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // Upsert, not append — see addPhase (broadcast echo race).
     setBundle(prev => ({
       ...prev,
@@ -1571,7 +1587,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteAsset(finalRow.id)],
       redoOps: [() => mutationsRef.current.addAsset(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
 
@@ -3109,6 +3125,11 @@ export function RabbitProvider({ children }) {
   const addScene = useCallback(async (scene, opts = {}) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // R2-07, as addAsset: answering after a project switch, the scene stays in
+    // its own project. It is not placed in a list then (the lists read now are
+    // the other project's): there it shows under "Not in any list", whose
+    // Add to list… places it.
+    const visit = projectVisitRef.current;
     // Refuse an archived or unknown target list BEFORE the scene is written,
     // or the scene would land outside the list the caller is showing. A list
     // this client has not loaded yet is read first (another window made it).
@@ -3124,6 +3145,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertScene(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // De-duplicated by id: an undo can re-add a row that a parallel undo
     // (ScenesView's un-awaited bulk delete) already brought back (round 2).
     setBundle(prev => ({ ...prev, scenes: [...prev.scenes.filter(x => x.id !== finalRow.id), finalRow] }));
@@ -3156,7 +3178,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteScene(finalRow.id)],
       redoOps: [() => mutationsRef.current.addScene(finalRow, { listId })],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
 
@@ -3240,6 +3262,8 @@ export function RabbitProvider({ children }) {
   const addShot = useCallback(async (shot, opts = {}) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // R2-07, as addScene.
+    const visit = projectVisitRef.current;
     if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId') && opts.listId) {
       if (!findShotList(opts.listId)) await refreshShotListsNow().catch(() => null);
       requireEditableShotList(opts.listId);
@@ -3252,6 +3276,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertShot(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // De-duplicated by id: an undo can re-add a row that a parallel undo
     // (ScenesView's un-awaited bulk delete) already brought back (round 2).
     setBundle(prev => ({ ...prev, shots: [...prev.shots.filter(x => x.id !== finalRow.id), finalRow] }));
@@ -3280,7 +3305,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteShot(finalRow.id)],
       redoOps: [() => mutationsRef.current.addShot(finalRow, { listId })],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
 
@@ -3338,6 +3363,7 @@ export function RabbitProvider({ children }) {
   const addLevel = useCallback(async (level) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    const visit = projectVisitRef.current; // R2-07, as addAsset
     const row = {
       id:           level.id || uuidv4(),
       project_id:   activeProjectId,
@@ -3346,6 +3372,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertLevel(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     setBundle(prev => ({ ...prev, levels: [...prev.levels, finalRow] }));
     // Session 26: the entity's own folder. Audrey — five scenes means
     // FIVE folders under SCENES/, not one shared one. Deliberately NOT
@@ -3356,7 +3383,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteLevel(finalRow.id)],
       redoOps: [() => mutationsRef.current.addLevel(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
 
@@ -3405,6 +3432,7 @@ export function RabbitProvider({ children }) {
   const addExperience = useCallback(async (experience) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    const visit = projectVisitRef.current; // R2-07, as addAsset
     const row = {
       id:           experience.id || uuidv4(),
       project_id:   activeProjectId,
@@ -3413,6 +3441,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertExperience(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     setBundle(prev => ({ ...prev, experiences: [...prev.experiences, finalRow] }));
     // Session 26: the entity's own folder. Audrey — five scenes means
     // FIVE folders under SCENES/, not one shared one. Deliberately NOT
@@ -3423,7 +3452,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteExperience(finalRow.id)],
       redoOps: [() => mutationsRef.current.addExperience(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, ensureEntityFolderFor]);
 
@@ -3472,6 +3501,10 @@ export function RabbitProvider({ children }) {
   const addMilestone = useCallback(async (milestone) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
+    // S5c review round 1 (R1-04): see addPhase. Here the stakes are higher —
+    // this step's undo DESTROYS (a hard delete), so landed on the other
+    // project's stack it would erase a key date of this project for good.
+    const visit = projectVisitRef.current;
     const row = {
       id:           milestone.id || uuidv4(),
       project_id:   activeProjectId,
@@ -3479,6 +3512,7 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertMilestone(row);
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // Dedupe rather than append blind: a refetch can land between an undo and
     // the redo that replays this, and two rows with one id break every
     // keyed render downstream.
@@ -3523,7 +3557,7 @@ export function RabbitProvider({ children }) {
           : adapterRef.current.deleteMilestone(finalRow.id, activeProjectId)),
       )],
       redoOps: [() => mutationsRef.current.addMilestone(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId, optimistic]);
 
@@ -3726,6 +3760,8 @@ export function RabbitProvider({ children }) {
     // setError AND rethrow: the provider banner reports it, and callers that
     // do have their own catch (TimelineView.jsx:3791) still get to show it
     // in their dialog. Swallowing here would silence those.
+    // S5c review round 1 (R1-04): see addPhase.
+    const visit = projectVisitRef.current;
     let created;
     try {
       created = await adapterRef.current.upsertTask(row);
@@ -3734,6 +3770,7 @@ export function RabbitProvider({ children }) {
       throw err;
     }
     const finalRow = created || row;
+    if (projectVisitRef.current !== visit) return finalRow;
     // Upsert, not append — see addPhase (broadcast echo race).
     setBundle(prev => ({
       ...prev,
@@ -3744,7 +3781,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteTask(finalRow.id)],
       redoOps: [() => mutationsRef.current.addTask(finalRow)],
-    });
+    }, visit);
     return finalRow;
   }, [activeProjectId]);
 
@@ -3841,52 +3878,85 @@ export function RabbitProvider({ children }) {
       d => idSet.has(d.predecessor_id) || idSet.has(d.successor_id),
     );
     if (removedTasks.length === 0) return;
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        tasks: prev.tasks.filter(t => !idSet.has(t.id)),
-        dependencies: prev.dependencies.filter(
-          d => !idSet.has(d.predecessor_id) && !idSet.has(d.successor_id),
-        ),
-      }),
-      async () => {
-        // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
-        // rows already soft-deleted server-side, then rethrow for rollback.
-        const done = [];
-        try {
-          for (const t of removedTasks) {
-            await adapterRef.current.deleteTask(t.id, activeProjectId);
-            done.push(t.id);
+    const dropping = (gone) => (prev) => ({
+      ...prev,
+      tasks: prev.tasks.filter(t => !gone.has(t.id)),
+      dependencies: prev.dependencies.filter(
+        d => !gone.has(d.predecessor_id) && !gone.has(d.successor_id),
+      ),
+    });
+    // The step for `rows` deleted: all of them — or, stopped part way where
+    // the backend cannot restore, the ones that went.
+    const stepFor = (rows) => {
+      const gone = new Set(rows.map(t => t.id));
+      const deps = removedDeps.filter(d => gone.has(d.predecessor_id) || gone.has(d.successor_id));
+      return {
+        undoOps: canSoftDelete
+          ? [async () => {
+              for (const t of rows) await adapterRef.current.restoreTask(t.id);
+              setBundle(prev => ({
+                ...prev,
+                tasks:        [...prev.tasks, ...rows],
+                dependencies: [...prev.dependencies, ...deps],
+              }));
+            }]
+          : [
+              ...rows.slice().reverse().map(t => () => mutationsRef.current.addTask(t)),
+              ...deps.map(d => async () => {
+                await optimistic(
+                  prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
+                  () => adapterRef.current.upsertDependency(d),
+                );
+              }),
+            ],
+        redoOps: [() => mutationsRef.current.deleteTasks(rows.map(t => t.id))],
+      };
+    };
+    let result;
+    try {
+      result = await optimistic(
+        dropping(idSet),
+        async () => {
+          // Bulk delete is all-or-nothing where the backend can restore: on a
+          // mid-loop failure, restore the rows already soft-deleted
+          // server-side, then rethrow for rollback.
+          const done = [];
+          try {
+            for (const t of removedTasks) {
+              await adapterRef.current.deleteTask(t.id, activeProjectId);
+              done.push(t.id);
+            }
+          } catch (err) {
+            if (canSoftDelete) {
+              await Promise.allSettled(done.map(id => adapterRef.current.restoreTask(id)));
+            } else if (err && typeof err === 'object') {
+              err.deletedIds = done;
+            }
+            throw err;
           }
-        } catch (err) {
-          if (canSoftDelete) {
-            await Promise.allSettled(done.map(id => adapterRef.current.restoreTask(id)));
-          }
-          throw err;
+        },
+      );
+    } catch (err) {
+      // S5c review round 2 (R2-01): where the backend cannot restore (the
+      // Local Server: its DELETE removes the row), the tasks deleted before
+      // the failure are GONE. The rollback showed them live again and no step
+      // was recorded, so nothing could put them back, though a composite's
+      // words said "Undo takes back what changed". They leave the screen
+      // and their step is recorded (its undo writes them back, as this
+      // backend's undo always does); `deletedIds` says which went.
+      const went = removedTasks.filter(t => (err?.deletedIds || []).includes(t.id));
+      if (went.length && projectVisitRef.current === visit) {
+        const apply = dropping(new Set(went.map(t => t.id)));
+        setBundle(apply);
+        bundleRef.current = apply(bundleRef.current);
+        const token = pushHistory(stepFor(went), visit);
+        if (token != null) {
+          showUndoToast(`Stopped after deleting ${went.length} of ${removedTasks.length} tasks`, () => undoHistoryEntry(token), { hold: true });
         }
-      },
-    );
-    const token = pushHistory({
-      undoOps: canSoftDelete
-        ? [async () => {
-            for (const t of removedTasks) await adapterRef.current.restoreTask(t.id);
-            setBundle(prev => ({
-              ...prev,
-              tasks:        [...prev.tasks, ...removedTasks],
-              dependencies: [...prev.dependencies, ...removedDeps],
-            }));
-          }]
-        : [
-            ...removedTasks.slice().reverse().map(t => () => mutationsRef.current.addTask(t)),
-            ...removedDeps.map(d => async () => {
-              await optimistic(
-                prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
-                () => adapterRef.current.upsertDependency(d),
-              );
-            }),
-          ],
-      redoOps: [() => mutationsRef.current.deleteTasks(removedTasks.map(t => t.id))],
-    }, visit);
+      }
+      throw err;
+    }
+    const token = pushHistory(stepFor(removedTasks), visit);
     if (token != null) {
       showUndoToast(
         removedTasks.length === 1
@@ -5282,6 +5352,11 @@ export function RabbitProvider({ children }) {
       throw err;
     }
     const finalRow = saved ? { ...wire, ...saved } : wire;
+    // S5c review round 1 (R1-04): the composite's guard runs before each
+    // write, not after its answer — a switch while this one was in flight
+    // left the row merged into the other project's memory. Its row is in its
+    // own project; this visit is over.
+    if (projectVisitRef.current !== visit || activeProjectIdRef.current !== pid) return finalRow;
     const merge = (b) => {
       const rest = (b[k.key] || []).filter(r => r.id !== finalRow.id);
       const next = [...rest, finalRow];
@@ -5440,23 +5515,33 @@ export function RabbitProvider({ children }) {
    */
   const deleteBudgetVersion = useCallback(async (id) => {
     const still = compositeGuard();
-    const v = requireBudgetVersion(id);
+    requireBudgetVersion(id);
     if (lockedBudgetVersionId() === id) throw new Error('the locked bid cannot be deleted — Reset to bidding first');
-    const only = onlyHeldSetAside(id);
-    if (!countRows(only)) return mutationsRef.current.deleteBudgetVersionRow(id);
-    return inHistoryQueue(() => runBatch(async () => {
+    // S5c review round 1 (R1-02): BOTH paths wait their turn in the undo
+    // queue. The quick one did not: run while an undo replayed (history
+    // `suspended`), it recorded no step, and a version's delete is a hard
+    // delete — gone for good, though its question had promised Undo.
+    return inHistoryQueue(async () => {
       still();
-      const m = mutationsRef.current;
-      const ids = idsOf(only);
-      // Brought back first, so the ordinary delete takes each one the way it
-      // always does (its edges, its undo); the trash would clear the stamp
-      // anyway (0090), and the undo of this step sets them aside again.
-      await m.setAsideRows(false, ids);
-      still();
-      await deleteRowsQuietly(ids, still);
-      still();
-      await m.deleteBudgetVersionRow(v.id);
-    }));
+      refuseWhileReplaying();
+      const v = requireBudgetVersion(id);
+      if (lockedBudgetVersionId() === id) throw new Error('the locked bid cannot be deleted — Reset to bidding first');
+      const only = onlyHeldSetAside(id);
+      if (!countRows(only)) return mutationsRef.current.deleteBudgetVersionRow(id);
+      return runBatch(async () => {
+        still();
+        const m = mutationsRef.current;
+        const ids = idsOf(only);
+        // Brought back first, so the ordinary delete takes each one the way it
+        // always does (its edges, its undo); the trash would clear the stamp
+        // anyway (0090), and the undo of this step sets them aside again.
+        await m.setAsideRows(false, ids);
+        still();
+        await deleteBroughtBack(ids, still);
+        still();
+        await m.deleteBudgetVersionRow(v.id);
+      });
+    });
   }, [runBatch]);
 
   /** The version row itself, without the rows only it held (deleteBudgetVersion's last step; its redo). */
@@ -5478,7 +5563,13 @@ export function RabbitProvider({ children }) {
     if (wasOpen) setProjectsIndex(idx => (idx[pid] ? { ...idx, [pid]: { ...idx[pid], open_budget_version_id: null } } : idx));
     pushHistory({
       undoOps: [async () => {
-        await restoreBudgetVersionRow(v);
+        // S5c review round 2 (R2-06): the toast's Undo is targeted, not
+        // last-first — another version may have been selected since. The row
+        // comes back selected only if none is now; as it was, two were
+        // flagged and the variance went back, unsaid, to the bid the person
+        // had replaced.
+        const selectedNow = (bundleRef.current.budgetVersions || []).some(r => r.is_active && r.id !== id);
+        await restoreBudgetVersionRow(v.is_active && selectedNow ? { ...v, is_active: false } : v);
         if (wasOpen) await mutationsRef.current.setOpenBudgetVersion(id);
       }],
       redoOps: [() => mutationsRef.current.deleteBudgetVersionRow(id)],
@@ -5524,6 +5615,7 @@ export function RabbitProvider({ children }) {
    * In the undo queue, so it never captures rows an undo is half way through.
    */
   const saveBudgetVersion = useCallback((id, opts = {}) => inHistoryQueue(async () => {
+    refuseWhileReplaying();
     const v = requireBudgetVersion(id);
     if (budgetIsLocked() || lockedBudgetVersionId() === id) {
       throw new Error('the locked bid cannot be changed in place — Save as new version keeps these changes');
@@ -5570,7 +5662,7 @@ export function RabbitProvider({ children }) {
         const ids = idsOf(stranded);
         await mutationsRef.current.setAsideRows(false, ids);
         still();
-        await deleteRowsQuietly(ids, still);
+        await deleteBroughtBack(ids, still);
         return r;
       });
     } finally {
@@ -5614,6 +5706,7 @@ export function RabbitProvider({ children }) {
     const a = versionAdapterFor('upsertBudgetVersion');
     return inHistoryQueue(() => runBatch(async () => {
       still();
+      refuseWhileReplaying();
       const shotList = shotListById(opts.basedOnListId);
       const previous = sortVersionsNewest(bundleRef.current.budgetVersions)[0] || null;
       const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
@@ -5638,10 +5731,20 @@ export function RabbitProvider({ children }) {
         redoOps: [() => restoreBudgetVersionRow(finalRow)],
       });
       if (budgetIsLocked()) return finalRow;
-      still();
-      await mutationsRef.current.setOpenBudgetVersion(finalRow.id);
-      still();
-      await mutationsRef.current.selectBudgetVersion(finalRow.id);
+      try {
+        still();
+        await mutationsRef.current.setOpenBudgetVersion(finalRow.id);
+        still();
+        await mutationsRef.current.selectBudgetVersion(finalRow.id);
+      } catch (err) {
+        if (/another project was opened/.test(err?.message || '')) throw err;
+        // S5c review round 2 (R2-05): the version WAS made, and recorded — said,
+        // so a second press does not make a second one (`versionMade`: the
+        // form then offers only Close); Undo takes it back.
+        const said = new Error(`“${name}” was saved as a new version, then the step stopped part way: ${err?.message || err}. Undo takes back what changed.`);
+        said.versionMade = finalRow;
+        throw said;
+      }
       return finalRow;
     }));
   }, [runBatch, restoreBudgetVersionRow]);
@@ -5714,6 +5817,8 @@ export function RabbitProvider({ children }) {
     }
     return inHistoryQueue(() => runBatch(async () => {
       still();
+      refuseWhileReplaying();
+      const landed = landedSince();
       try {
         const plan = await loadVersionIntoLive(v, opts, still);
         still();
@@ -5728,10 +5833,45 @@ export function RabbitProvider({ children }) {
         if (/another project was opened/.test(err?.message || '')) {
           throw new Error(`Opening “${v.name}” stopped part way because another project was opened while it ran. What it had changed in its project stays as it was left; open that project again to see it.`);
         }
-        throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. No version is open now; Undo (Ctrl+Z) takes back what changed.`);
+        // S5c review round 2 (R2-08): stopped at its first write (closing the
+        // version open now), nothing changed and nothing was recorded — the
+        // version open before is still open, and no Undo is offered.
+        if (!landed()) throw new Error(`Could not open “${v.name}”: ${err?.message || err}. Nothing changed.`);
+        // S5c review round 1 (R1-01): "Undo", not "Undo (Ctrl+Z)" — on the
+        // Budget the way back is the toast runWithUndoToast offers for a step
+        // that stopped part way (the Timeline's Ctrl+Z reaches it too). The
+        // version open before was closed first, and this one opens last.
+        throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. No version is open now; Undo takes back what changed.`);
       }
     }));
   }, [runBatch]);
+
+  /**
+   * Inside a composite's batch: a function telling whether any step has been
+   * recorded into that batch since this call — the words of a step that
+   * stopped say "Undo takes back what changed" only when something did
+   * (S5c review round 2, R2-08). Counted in the batch, not by the history's
+   * token count, so a push from elsewhere is never taken for this step's.
+   */
+  function landedSince() {
+    const batch = historyRef.current.batch;
+    const mark = batch ? batch.entries.length : 0;
+    return () => !!batch && batch.entries.length > mark;
+  }
+
+  /**
+   * S5c review round 2 (R2-03): the undo queue waits for a step at most
+   * HISTORY_STEP_WAIT_MS, then lets the next one run — beside an undo or redo
+   * still replaying (a stalled request; a large Local Server project, where
+   * every write rewrites project.json). Run then, a version step records
+   * nothing (`suspended` drops its steps): a version's delete was gone for
+   * good though its question had promised Undo, and an open or a lock wove
+   * its writes into the replay's. Every queued version step refuses instead,
+   * first thing, and says why.
+   */
+  function refuseWhileReplaying() {
+    if (historyRef.current.suspended) throw new Error('an Undo is still running — try again once it has finished');
+  }
 
   /**
    * The writes that make the live schedule a version AS SAVED — Edit this
@@ -5823,19 +5963,32 @@ export function RabbitProvider({ children }) {
     if (budgetIsLocked()) throw new Error('the budget is already active');
     return inHistoryQueue(() => runBatch(async () => {
       still();
+      refuseWhileReplaying();
       const m = mutationsRef.current;
-      if (readVersion(v).hasTimeline) {
-        await loadVersionIntoLive(v, opts, still);
+      const landed = landedSince();
+      try {
+        if (readVersion(v).hasTimeline) {
+          await loadVersionIntoLive(v, opts, still);
+          still();
+        } else if (bundleRef.current.project?.open_budget_version_id) {
+          await m.setOpenBudgetVersion(null);
+          still();
+        }
+        await m.selectBudgetVersion(id);
         still();
-      } else if (bundleRef.current.project?.open_budget_version_id) {
-        await m.setOpenBudgetVersion(null);
+        await m.stampBudgetVersionLock(id, true);
         still();
+        await m.setProjectBudgetFields({ budget_active: true, budget_active_version_id: id, budget_finalized: true });
+      } catch (err) {
+        // S5c review round 1 (R1-01): worded as what it is, as an open's is.
+        // The lock is the last write, so a stop before it leaves none.
+        if (/another project was opened/.test(err?.message || '')) {
+          throw new Error(`Setting “${v.name}” active stopped part way because another project was opened while it ran. What it had changed in its project stays as it was left; open that project again to see it.`);
+        }
+        // Round 2 (R2-08): nothing recorded, nothing changed — no Undo to name.
+        if (!landed()) throw new Error(`Could not set “${v.name}” active: ${err?.message || err}. Nothing changed.`);
+        throw new Error(`Setting “${v.name}” active stopped part way: ${err?.message || err}. The budget is not locked; Undo takes back what changed.`);
       }
-      await m.selectBudgetVersion(id);
-      still();
-      await m.stampBudgetVersionLock(id, true);
-      still();
-      await m.setProjectBudgetFields({ budget_active: true, budget_active_version_id: id, budget_finalized: true });
     }));
   }, [runBatch]);
 
@@ -5922,16 +6075,58 @@ export function RabbitProvider({ children }) {
   }
   const rowName = (kind, row) => (kind === 'phases' ? row?.name : row?.title) || 'Untitled';
 
-  /** The ordinary deletes of a composite (Discard, a version's delete), without a toast each: the composite shows one. */
+  /**
+   * The ordinary deletes of a composite (Discard, a version's delete), without
+   * a toast each: the composite shows one. Stopped part way, the error carries
+   * `notDeleted` — the rows it did not delete. deleteTasks is all-or-nothing
+   * where the backend can restore (it restores what it had trashed); where it
+   * cannot (the Local Server), the tasks that went are recorded and named in
+   * `deletedIds` (S5c review round 2, R2-01). Phases and key dates go one by
+   * one, each recorded as it lands.
+   */
   async function deleteRowsQuietly(ids, still) {
     const m = mutationsRef.current;
+    const left = { tasks: [...(ids.tasks || [])], phases: [...(ids.phases || [])], milestones: [...(ids.milestones || [])] };
     quietToastsRef.current += 1;
     try {
-      if (ids.tasks?.length) { await m.deleteTasks(ids.tasks); still(); }
-      for (const id of ids.phases || []) { await m.deletePhase(id); still(); }
-      for (const id of ids.milestones || []) { await m.deleteMilestone(id); still(); }
+      if (left.tasks.length) {
+        try {
+          await m.deleteTasks(left.tasks);
+        } catch (err) {
+          const went = new Set(err?.deletedIds || []);
+          left.tasks = left.tasks.filter(id => !went.has(id));
+          throw err;
+        }
+        left.tasks = [];
+        still();
+      }
+      while (left.phases.length) { await m.deletePhase(left.phases[0]); left.phases.shift(); still(); }
+      while (left.milestones.length) { await m.deleteMilestone(left.milestones[0]); left.milestones.shift(); still(); }
+    } catch (err) {
+      if (err && typeof err === 'object') err.notDeleted = left;
+      throw err;
     } finally {
       quietToastsRef.current -= 1;
+    }
+  }
+
+  /**
+   * Set-aside rows brought back only to be deleted (a version's delete; a
+   * Save's rows no version holds any more). S5c review round 1 (R1-01):
+   * stopped part way, the ones not deleted were left LIVE under the open
+   * version, and its next Save folded another bid's rows into it — the very
+   * fault ruling (a) removed. They go aside again before the error is said.
+   * (After a project switch nothing more is written: that is not this
+   * project any more.)
+   */
+  async function deleteBroughtBack(ids, still) {
+    try {
+      await deleteRowsQuietly(ids, still);
+    } catch (err) {
+      if (err?.notDeleted && !/another project was opened/.test(err?.message || '')) {
+        try { await mutationsRef.current.setAsideRows(true, err.notDeleted); } catch { /* the first error is the one to say */ }
+      }
+      throw err;
     }
   }
 
@@ -6080,10 +6275,65 @@ export function RabbitProvider({ children }) {
     return { version: v, only, work: workOfRows(only), count: countRows(only) };
   }
 
+  // S5c review round 1 (R1-02): the PERSON's select, rename and note wait
+  // their turn in the undo queue, as the composites do — run while an undo
+  // replayed (history `suspended`) they recorded no step. The raw verbs stay
+  // in mutationsRef for the composites (already inside the queue: queued
+  // there, they would wait on themselves) and for history's replays.
+  // Round 2 (R2-03): and refuse while a replay still runs beside the queue.
+  const selectBudgetVersionQueued = useCallback((id) => inHistoryQueue(() => { refuseWhileReplaying(); return selectBudgetVersion(id); }), [selectBudgetVersion]);
+  const renameBudgetVersionQueued = useCallback((id, name) => inHistoryQueue(() => { refuseWhileReplaying(); return renameBudgetVersion(id, name); }), [renameBudgetVersion]);
+  const updateBudgetVersionSummaryQueued = useCallback((id, summary) => inHistoryQueue(() => { refuseWhileReplaying(); return updateBudgetVersionSummary(id, summary); }), [updateBudgetVersionSummary]);
+
   // Stable for the context (each reads refs only, never a render's state).
   const removalPlanForCb = useCallback((ids) => removalPlanFor(ids), []);
   const previewOpenCb = useCallback((id, opts) => previewOpenBudgetVersion(id, opts), []);
   const previewDeleteCb = useCallback((id) => previewDeleteBudgetVersion(id), []);
+
+  /**
+   * Post-overhaul S5c: a version step taken where no Ctrl+Z reaches it — the
+   * Budget's Summary binds no undo keys (the Expenses tab's are its own
+   * history, and the Timeline is not mounted beside it) — says what it did in
+   * the undo toast, whose Undo takes back exactly that step. `run` is the
+   * step (a mutator call); `words` a sentence, or a function of the step's
+   * answer that returns one. Nothing is shown when the step recorded nothing
+   * (it was refused, or changed nothing), nor when another project was opened
+   * while it ran (that toast would undo a step of the other project's).
+   *
+   * `run` must queue its step in the undo queue before its first await, as
+   * every version mutator does: the step waits its turn there, and an undo,
+   * a redo or another step (a select still answering) may run first, so the
+   * top of the stack at the asking is no measure of what THIS step recorded
+   * (found during S5c's review round 2: a delete that failed before writing
+   * anything offered to undo the select that ran before it). A marker queued
+   * just before the step reads the history's token count as the step begins;
+   * an entry above it is the step's own.
+   */
+  const runWithUndoToast = useCallback(async (run, words) => {
+    const stack = historyRef.current;
+    let from = Infinity;
+    inHistoryQueue(async () => { from = historyTokenRef.current; });
+    const offer = (said, opts) => {
+      const top = historyRef.current.undo[historyRef.current.undo.length - 1];
+      if (said && historyRef.current === stack && top && top.token > from) {
+        showUndoToast(said, () => undoHistoryEntry(top.token), opts);
+      }
+    };
+    let out;
+    try {
+      out = await run();
+    } catch (err) {
+      // S5c review round 1 (R1-01): a step that stops part way has still
+      // recorded what landed (runBatch's finally pushes it), and on the Budget
+      // nothing else reaches it — the toast is its way back, held while its
+      // question says so (round 2, R2-09: it outlived its 8 s before). The
+      // refusal itself is the caller's to say.
+      offer('Stopped part way: Undo takes back what changed', { hold: true });
+      throw err;
+    }
+    offer(typeof words === 'function' ? words(out) : words);
+    return out;
+  }, [showUndoToast, undoHistoryEntry]);
 
   /** The bid versions, read again (another window opened or closed one: they are not broadcast, S5-02). */
   const refreshBudgetVersions = useCallback(async () => {
@@ -6103,6 +6353,7 @@ export function RabbitProvider({ children }) {
     const still = compositeGuard();
     return inHistoryQueue(() => runBatch(async () => {
       still();
+      refuseWhileReplaying();
       const m = mutationsRef.current;
       const lockedId = bundleRef.current.project?.budget_active_version_id || null;
       await m.setProjectBudgetFields({ budget_active: false, budget_active_version_id: null, budget_finalized: false });
@@ -6526,8 +6777,12 @@ export function RabbitProvider({ children }) {
     listTrashedMilestones, restoreMilestone,
     // Bid versions (post-overhaul S5): open / selected / locked, the two save
     // verbs, and the epoch useProjectRateOverrides reloads on after an open
-    // writes the version's rates.
-    selectBudgetVersion, renameBudgetVersion, updateBudgetVersionSummary, deleteBudgetVersion,
+    // writes the version's rates. Select, rename and note in the undo queue
+    // (S5c, R1-02).
+    selectBudgetVersion: selectBudgetVersionQueued,
+    renameBudgetVersion: renameBudgetVersionQueued,
+    updateBudgetVersionSummary: updateBudgetVersionSummaryQueued,
+    deleteBudgetVersion,
     saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
     rateOverridesEpoch,
     // S5b (0090): the rows the open version does not hold (set aside: out of
@@ -6538,6 +6793,8 @@ export function RabbitProvider({ children }) {
     removalPlanFor:      removalPlanForCb,
     previewOpenBudgetVersion:   previewOpenCb,
     previewDeleteBudgetVersion: previewDeleteCb,
+    // S5c: a version step's undo toast, where no Ctrl+Z reaches (the Budget).
+    runWithUndoToast,
 
     // folders (Session 26). Exposed so S27's Files view can rebuild the
     // tree for a project that predates 0041 without inventing its own
@@ -6593,11 +6850,11 @@ export function RabbitProvider({ children }) {
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
     listTrashedMilestones, restoreMilestone,
-    selectBudgetVersion, renameBudgetVersion, updateBudgetVersionSummary, deleteBudgetVersion,
+    selectBudgetVersionQueued, renameBudgetVersionQueued, updateBudgetVersionSummaryQueued, deleteBudgetVersion,
     saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
     rateOverridesEpoch,
     deleteTaskVerb, deleteTasksVerb, deletePhaseVerb, deleteMilestoneVerb,
-    removalPlanForCb, previewOpenCb, previewDeleteCb,
+    removalPlanForCb, previewOpenCb, previewDeleteCb, runWithUndoToast,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,

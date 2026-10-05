@@ -2582,3 +2582,48 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   an unchanged set-aside stamp** (its INSERT arm reads NEW before ON
   CONFLICT); the UPDATE re-send passes. Harmless today: every S5b write
   strips the stamp. Owner: a schema session, if a client ever re-sends it.
+
+**S5c (2026-10-05, the Budget half — `docs/sessions/handoffs/po-s5c-2026-10-05.md`).**
+
+- **S5b-06 — CLOSED by S5c** (`20542394`): the Summary's versions table,
+  its inline activate panel and every adapter write left `BudgetView.jsx`;
+  every version write is the provider's mutators (one undo step each, no
+  reload), and a source pin in `rabbitBudgetRender.test.jsx` holds it.
+- **P1-32a, the Budget's half — CLOSED by S5c** (`04b0a4ce`): Crew/team's and
+  Talent's period headers read the project's start through `dates.js` and
+  step on the calendar (`views/budget/periodLabel.js`). The rest of P1-32a
+  (ProjectAssetsView, NotesView, holidays.js, the Timeline's TODAY) is not
+  S5's and stays open there.
+- **S5c-01 · The Budget page has no Ctrl+Z for version steps.** Its only
+  undo keys are the Expenses tab's, which undo the expenses' own history;
+  the version steps raise the undo toast instead (`ctx.runWithUndoToast`).
+  A Ctrl+Z on the Summary needs the waterfall's margin / contingency /
+  agency edits (`ctx.updateProject`, no undo step today) to record their
+  own steps first, or it would take back the last version step instead of
+  the margin just typed. Owner: Audrey (walkthrough 55, question 4).
+- **S5c-02 · The test data's bids were saved with the plain role rates**
+  (no burden or overhead), the app's rate card adds them, so on the test
+  data the locked Bid v2 reads "Now $115,215" against "Bid $96,013" after
+  Reset to bidding. The app is right; the fixtures' snapshot rates differ.
+  Owner: Audrey (rebuild them?), then a fixtures session.
+- **S5c-03 · The Timeline's version control, the help pages and walkthrough
+  55's second half** are S5d's (steps 6 and 9).
+- **S5c-04 · `deleteAssets` has R2-01's fault on the Local Server.** Its
+  bulk delete is all-or-nothing only where the backend can restore
+  (`restoreAsset`); the Local Server has none (its DELETE removes the row),
+  so a bulk asset delete stopped part way has hard-deleted some assets
+  while the rollback shows them, and no step is recorded. The fix is
+  `deleteTasks`'s (S5c review round 2): record the ones that went
+  (`err.deletedIds`), take them off the screen, push their step. Owner: a
+  provider session (assets are outside S5's lane).
+- **S5c-05 · An undo or redo replaying across a project switch pushes its
+  entry onto the NEXT project's stack.** `undo`, `redo` and
+  `undoHistoryEntry` (`RabbitProvider.jsx`) push back to
+  `historyRef.current` after their awaits; a switch mid-replay
+  (`clearHistory`) has replaced it, so the first project's entry lands on
+  the second's redo (or, for a failed toast Undo, its undo) stack, and
+  Ctrl+Y there replays the first project's ops by id. Narrow (a switch
+  during a replay), found by S5c while working R2-07, not by a probe. Fix:
+  capture the stack at the start and push back only while
+  `historyRef.current` is still it — as `runBatch` has done since S5's
+  R1-03. Owner: a provider session.

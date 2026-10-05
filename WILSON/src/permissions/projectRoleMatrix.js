@@ -115,6 +115,26 @@ export function canSeeProjectMoney(ctx) {
 }
 
 /**
+ * Post-overhaul S5c, step 7 — whether THIS SCREEN shows money: the Budget
+ * tab (Rabbit.jsx) and the Control Panel's budget variables
+ * (ProjectSummaryView.jsx), one predicate for the two.
+ *
+ * Audrey, F4 (2026-10-05): "open it. im just using this for testing. its only
+ * me on this pc". The desktop's signed-out Local Server has no roles at all —
+ * no session, no seats — so canSeeProjectMoney, which fails closed with no
+ * roles, hid the Budget from the only person who uses that machine. There
+ * every gate is open (the Files tab's `noRoles` already reads it so: Add as
+ * Legal shows there since S4b). Everywhere else — the cloud, the dev fixtures
+ * — the role gate is exactly canSeeProjectMoney. The DATABASE's gates are
+ * untouched: the Local Server has none, the cloud keeps 0037's.
+ * `adapterMode` is the provider's backend kind (`ctx.adapterMode`).
+ */
+export function canSeeMoneyHere({ adapterMode, appRole, projectRole } = {}) {
+  if (adapterMode === 'local_server') return true
+  return canSeeProjectMoney({ appRole, projectRole })
+}
+
+/**
  * Session 28 — TASK TEMPLATES. Like canSeeProjectMoney, deliberately NOT a
  * PROJECT_ACTIONS entry: a template is workspace-level with an optional
  * project pin, so canOnProject's (appRole, projectRole, isStaffed) shape does

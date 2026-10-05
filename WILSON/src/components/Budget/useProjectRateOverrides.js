@@ -36,6 +36,34 @@ export function useProjectRateOverrides() {
   const [overrides, setOverrides] = useState([])
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
+  // Post-overhaul S5c: the provider's rateOverridesEpoch the list on hand was
+  // read at (null until the first read lands). The Budget's versions block
+  // compares a bid against the live rates: until this equals the epoch, the
+  // list may still be the one from before an open wrote the version's rates
+  // (or the empty first render's), and "unsaved changes" would be read off
+  // rates nobody changed.
+  const [loadedEpoch, setLoadedEpoch] = useState(null)
+  const epochRef = useRef(rabbit?.rateOverridesEpoch ?? 0)
+  epochRef.current = rabbit?.rateOverridesEpoch ?? 0
+
+  // Post-overhaul S5c review round 2 (R2-02): the list on hand, the epoch it
+  // was read at and its error are ONE project's. The epoch is the provider's,
+  // not the project's, so after a switch (the Budget stays mounted) the
+  // previous project's list read as this one's at the same epoch: a failed
+  // read of this project then opened the versions block with the other
+  // project's rates — "Saved" / "Unsaved changes", the variance, and a Save
+  // that wrote them into this project's bid. Reset in the very render the
+  // project changes (React renders again at once, before anything is shown),
+  // and a read that answers for a project no longer open never lands.
+  const projectIdRef = useRef(projectId)
+  projectIdRef.current = projectId
+  const [stateFor, setStateFor] = useState(projectId)
+  if (stateFor !== projectId) {
+    setStateFor(projectId)
+    setOverrides([])
+    setLoadedEpoch(null)
+    setError(null)
+  }
 
   const mountedRef = useRef(true)
   // Set true in the effect, not only by useRef: StrictMode (dev) runs the
@@ -98,38 +126,69 @@ export function useProjectRateOverrides() {
     }, 1500)
   }, [getAdapter, projectId, project])
 
+  // Post-overhaul S5c review round 1 (R1-07): one failed read left the list
+  // stale — and the Budget's versions block greyed, "reading the rates" —
+  // for as long as the page stayed mounted. A failed read is tried again,
+  // after 1.5s and then 4s, before its error stands; a read that lands, or a
+  // new epoch's read, starts the count again.
+  const RETRY_MS = [1500, 4000]
+  const retryRef = useRef({ timer: null, tries: 0 })
+  const loadRef = useRef(null)
+  useEffect(() => () => clearTimeout(retryRef.current.timer), [])
+
   // Post-overhaul S5 review round 1: an open writes several rates in a row and
   // each bumps the epoch, so loads overlap; only the newest may land.
   const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
     if (!getAdapter || !projectId) return
     const adapter = getAdapter()
-    if (!adapter?.listProjectRateOverrides) return
+    // A backend with no project rates has none to read: its empty list is
+    // the true one, at every epoch (S5c).
+    if (!adapter?.listProjectRateOverrides) { setLoadedEpoch(epochRef.current); return }
     const seq = ++loadSeqRef.current
+    const forEpoch = epochRef.current
+    const forProject = projectId
+    // Another read began since, or another project is open now (R2-02).
+    const superseded = () => seq !== loadSeqRef.current || forProject !== projectIdRef.current
     setLoading(true)
     setError(null)
     try {
       const list = await adapter.listProjectRateOverrides(projectId)
-      if (seq !== loadSeqRef.current) return
-      if (mountedRef.current) setOverrides(Array.isArray(list) ? list : [])
+      if (superseded()) return
+      if (mountedRef.current) {
+        setOverrides(Array.isArray(list) ? list : [])
+        setLoadedEpoch(forEpoch)
+      }
+      retryRef.current.tries = 0
     } catch (err) {
-      if (seq !== loadSeqRef.current) return
+      if (superseded()) return
       // Money is manager-only at the RLS layer (0037), so a non-manager gets
       // an empty set rather than an error. An error here is a real fault and
       // must stay visible — an unreported failure and an empty override list
       // are different facts, and conflating them is what makes a broken
       // budget look like an unconfigured one.
       if (mountedRef.current) setError(err.message || String(err))
+      const r = retryRef.current
+      if (mountedRef.current && r.tries < RETRY_MS.length) {
+        clearTimeout(r.timer)
+        r.timer = setTimeout(() => { if (mountedRef.current) loadRef.current?.() }, RETRY_MS[r.tries])
+        r.tries += 1
+      }
     } finally {
       if (seq === loadSeqRef.current && mountedRef.current) setLoading(false)
     }
   }, [getAdapter, projectId])
+  loadRef.current = load
 
   // Post-overhaul S5: opening a bid version writes its role rates as project
   // overrides from the provider; the provider bumps rateOverridesEpoch after
   // each such write (and its undo), and this list reloads.
   const rateOverridesEpoch = rabbit?.rateOverridesEpoch ?? 0
-  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
+  useEffect(() => {
+    clearTimeout(retryRef.current.timer)
+    retryRef.current.tries = 0
+    load()
+  }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
 
   // Set a project rate. Exactly one of roleSlug / memberId — the database
   // CHECK refuses both or neither, because a row keyed by both has no single
@@ -190,5 +249,5 @@ export function useProjectRateOverrides() {
     }
   }, [getAdapter, projectId, overrides, writeRatesMirrorSoon])
 
-  return { overrides, loading, error, reload: load, setOverride, clearOverride }
+  return { overrides, loading, error, loadedEpoch, reload: load, setOverride, clearOverride }
 }

@@ -32,12 +32,18 @@ const clientModule = await import('./budget/ClientViewTab')
 const { default: InvoiceAttachment } = await import('../../../components/Budget/InvoiceAttachment')
 const { default: CrewTeamTab } = await import('./budget/CrewTeamTab')
 const { default: TalentTab } = await import('./budget/TalentTab')
+// Post-overhaul S5c: the Summary's bid versions — a bid built by the app's
+// own snapshot builder, the dropdown's dates, the list words, the source pin.
+const { snapshotFromLive } = await import('../state/budgetVersionModel')
+const { showDate } = await import('../dates')
+const { basedOnWords } = await import('./budget/VersionQuestions')
+const { jsCode } = await import('../rabbitCssGuards.js')
 
 afterEach(() => { cleanup() })
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
-const BUDGET_FILES = ['./BudgetView.jsx', './budget/CrewTeamTab.jsx', './budget/TalentTab.jsx', './budget/ClientViewTab.jsx']
+const BUDGET_FILES = ['./BudgetView.jsx', './budget/CrewTeamTab.jsx', './budget/TalentTab.jsx', './budget/ClientViewTab.jsx', './budget/BidVersions.jsx']
 
 /* ── surface 1: the money primitives (R3-01, R3-02, R3-14, R3-34) ────────── */
 describe('one money formatter', () => {
@@ -263,30 +269,63 @@ describe('surface 2a', () => {
   })
 
   describe('the Summary', () => {
-    const versions = [
-      { id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T12:00:00Z', snapshot: { grandTotal: 5600, totalBidDays: 9 } },
+    // Post-overhaul S5c rewrote this block with the page (F11). The versions
+    // table, its inline activate panel and its adapter writes went; the bid
+    // versions are budget/BidVersions.jsx's block, read here through
+    // SummaryTab, and their questions budget/VersionQuestions.jsx's
+    // (bidVersions.test.jsx drives those over the real provider and dataset).
+    // The fake ctx carries what BudgetView hands the tab: the project, its
+    // versions and lists, and the provider's mutators as spies.
+    const base = { id: 'p1', budget_margin_pct: 10, budget_contingency_pct: 5, budget_agency_enabled: true, budget_agency_pct: 20 }
+    const LOCKED = { budget_active: true, budget_active_version_id: 'v1', budget_finalized: true }
+    const BIDDING = { budget_active: false, budget_active_version_id: null, budget_finalized: false }
+    // v1 is saved from these very rows (its totals are the page's own
+    // arithmetic); v0 was saved before S5 (no timeline, no agency fee kept).
+    const versionsFor = (project, rows = tasks) => [
+      { id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T12:00:00Z', locked_at: '2026-09-02T09:00:00Z', shot_list_id: null,
+        snapshot: snapshotFromLive({ tasks: rows, project, roleRates, savedAt: '2026-09-20T14:02:00Z' }) },
       { id: 'v0', name: 'Bid v0', is_active: false, created_at: '2026-08-01T12:00:00Z', snapshot: { grandTotal: 4000, totalBidDays: 8 } },
     ]
-    const summary = (over = {}) => (
+    const makeCtx = (project, over = {}) => ({
+      project,
+      budgetVersions: versionsFor(project),
+      shotLists: [],
+      updateProject: vi.fn(),
+      setActiveProject: vi.fn(),
+      selectBudgetVersion: vi.fn(async () => {}),
+      saveBudgetVersion: vi.fn(async () => {}),
+      createBudgetVersion: vi.fn(async () => {}),
+      resetToBidding: vi.fn(async () => {}),
+      runWithUndoToast: vi.fn(async (run) => run()),
+      ...over,
+    })
+    // BudgetView hands the tab ctx.tasks; the block reads the live rows from
+    // ctx too (its "unsaved" is them against the open version), so the two
+    // are the same rows here as there.
+    const tab = (fake, rows = tasks) => {
+      const ctx = Object.assign(fake, { tasks: rows, phases: [], milestones: [] })
+      return (
       <SummaryTab
-        ctx={{ updateProject: vi.fn(), setActiveProject: vi.fn(), getAdapter: () => ({ upsertBudgetVersion: vi.fn(), deleteBudgetVersion: vi.fn() }) }}
-        project={{
-          id: 'p1', budget_margin_pct: 10, budget_contingency_pct: 5, budget_agency_enabled: true, budget_agency_pct: 20,
-          budget_active: true, budget_active_version_id: 'v1', budget_finalized: true, ...over,
-        }}
+        ctx={ctx}
+        project={ctx.project}
         variance={{ bid: 9, logged: 6, variance: -3 }}
         budget={budget}
-        tasks={tasks}
+        tasks={rows}
         roleRates={roleRates}
         missingRolesCount={0}
         rateCardName="General"
-        budgetVersions={versions}
         budgetHook={{ lines: [], lineComputations: {} }}
         rateCard={{ entries: [] }}
         teamMembers={[]}
         expensesHook={{ expenses: [{ estimated_cost: 300, actual_cost: 450 }] }}
       />
-    )
+      )
+    }
+    const summary = (over = {}, ctxOver = {}) => tab(makeCtx({ ...base, ...LOCKED, ...over }, ctxOver))
+    const block = (root) => root.querySelector('section.rb-bv-block')
+    const button = (root, name) => within(root).queryByRole('button', { name })
+    // t3 bid at four days, not three: one more anim day, +$500 at base.
+    const changed = tasks.map(t => (t.id === 't3' ? { ...t, bid_days: 4 } : t))
 
     it('the three day tiles are the kit Stat, the hint a visible line, the news the value\'s tone (R3-10)', () => {
       const { container } = render(summary())
@@ -300,122 +339,272 @@ describe('surface 2a', () => {
       expect(variance.getAttribute('data-tone')).toBe('success')
     })
 
-    it('the waterfall: one row treatment, the plus is the figure\'s sign, the grand total under one signal rule (R3-08, R3-09)', () => {
+    it('F11: banner, tiles, bid versions, Cost breakdown, the Topsheet — in that order', () => {
+      const { container } = render(summary())
+      const page = container.querySelector('.rb-budget-page')
+      const order = [...page.children].map(el => (el.classList.contains('ui-banner') ? 'banner'
+        : el.classList.contains('rb-budget-stats') ? 'tiles'
+          : el.querySelector('section.rb-bv-block') ? 'versions'
+            : el.querySelector('.rb-budget-wf') ? 'cost'
+              : el.querySelector('table.rb-budget-top') ? 'topsheet' : 'other'))
+      expect(order).toEqual(['banner', 'tiles', 'versions', 'cost', 'topsheet'])
+    })
+
+    it('the waterfall: one row treatment, the plus is the figure\'s sign, the OVERALL total under one signal rule, the total before agency under it (R3-08, R3-09; F7)', () => {
       const { container } = render(summary())
       const rows = [...container.querySelectorAll('.rb-budget-wf-row')]
       expect(rows.map((r) => r.querySelector('.rb-budget-wf-label').textContent)).toEqual(['Base cost', 'Margin', 'Contingency', 'Agency fee'])
       expect(rows.map((r) => r.querySelector('.rb-budget-wf-amount').textContent)).toEqual(['$4,500', '+$450', '+$225', '+$900'])
       const total = container.querySelector('.rb-budget-wf-total')
-      expect(total.querySelector('.rb-budget-wf-total-label').textContent).toBe('Grand total')
-      expect(total.querySelector('.rb-money-figure').textContent).toBe('$6,075')
+      // S5c (F7, her words: "the total with the agency % is ... the overall
+      // total"): the label was "Grand total". The figure is unchanged.
+      expect(total.querySelector('.rb-budget-wf-total-label').textContent).toBe('Overall total')
+      expect(total.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent).toBe('$6,075')
+      expect(total.querySelector('.rb-budget-wf-total-before').textContent).toBe('Before agency $5,175')
       // The agency toggle is the kit Switch, named, and locked while the budget is active.
       const toggle = container.querySelector('button[role="switch"]')
       expect(toggle.getAttribute('aria-label')).toBe('Agency fee')
       expect(toggle.getAttribute('aria-checked')).toBe('true')
       expect(toggle.disabled).toBe(true)
+      // CONTROL: with the fee off the two totals are one, and one is shown.
+      cleanup()
+      const off = render(summary({ budget_agency_enabled: false }))
+      expect(off.container.querySelector('.rb-budget-wf-total-amount').textContent).toBe('$5,175')
+      expect(off.container.querySelector('.rb-budget-wf-total-before')).toBeNull()
     })
 
-    it('the versions table: the ACTIVE version is the kit\'s selected row, LOCKED a badge in it, no row fill (R3-28, R3-38)', () => {
+    it('F7: the page\'s overall total and a bid saved from the same rows are ONE arithmetic — the selected bid\'s fact equals the waterfall\'s, and the variance is nothing', () => {
+      const { container } = render(summary(BIDDING))
+      const page = container.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent
+      const facts = [...container.querySelectorAll('.rb-bv-fact')]
+      const fact = (term) => facts.find(f => f.querySelector('dt').textContent === term)
+      expect(fact('Overall total').querySelector('.rb-money-figure').textContent).toBe(page)
+      expect(fact('Overall total').querySelector('.rb-bv-fact-note').textContent).toBe('with 20% agency')
+      expect(fact('Before agency').textContent).toBe('Before agency$5,175')
+      expect(container.querySelector('.rb-bv-vs-value').textContent).toBe('$0')
+      expect(container.querySelector('.rb-bv-vs-value').getAttribute('data-tone')).toBeNull()
+      // CONTROL: one more bid day on the live rows — the waterfall moves, the
+      // saved bid does not, and the variance says by how much, in the danger tone.
+      cleanup()
+      const ctx = makeCtx({ ...base, ...BIDDING })
+      const moved = render(tab(ctx, changed))
+      expect(moved.container.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent).toBe('$6,750')
+      expect(moved.container.querySelector('.rb-bv-vs-value').textContent).toBe('+$675')
+      expect(moved.container.querySelector('.rb-bv-vs-value').getAttribute('data-tone')).toBe('danger')
+      expect(moved.container.querySelector('.rb-bv-vs-detail').textContent).toBe('Bid $6,075 · Now $6,750')
+    })
+
+    it('under a lock: the save row says the budget is active, Save as new version… is the one save verb and the orange one; the selected bid is the locked one, Edit this version greyed with the reason shown', () => {
       const { container } = render(summary())
-      const table = container.querySelector('table.ui-table.rb-budget-versions')
-      expect(table).not.toBeNull()
-      // Post-overhaul S3c (D18): "Shot list" joins after Name — every other
-      // column is unchanged and in its order.
-      expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Active', 'Name', 'Shot list', 'Date', 'Total', 'Days', 'Actions'])
-      const rows = [...table.querySelectorAll('tbody tr')]
-      expect(rows.map((r) => r.getAttribute('data-selected'))).toEqual(['true', null])
-      const active = within(rows[0])
-      expect(active.getByText('Bid v1')).toBeTruthy()
-      const badge = rows[0].querySelector('.ui-status')
-      expect(badge?.textContent).toBe('Locked')
-      expect(badge.getAttribute('data-tone')).toBe('success')
-      expect(rows[1].querySelector('.ui-status')).toBeNull()
-      for (const r of rows) {
-        expect(r.getAttribute('style')).toBeNull()
-        for (const td of r.querySelectorAll('td')) expect(td.getAttribute('style')).toBeNull()
-      }
-      // Every existing control stays: set-active on the other row, delete on both.
-      expect(within(rows[1]).getByRole('button', { name: 'Reset to bidding to change versions' })).toBeTruthy()
-      expect(within(rows[0]).getByRole('button', { name: 'Cannot delete locked version' }).disabled).toBe(true)
-      expect(within(rows[1]).getByRole('button', { name: 'Delete version' })).toBeTruthy()
-      // Money and days are numeric cells.
-      expect([...rows[0].querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)).toEqual(['$5,600', '9.0'])
+      const b = block(container)
+      expect(b.querySelector('.rb-bv-state .ui-field-label').textContent).toBe('Budget active')
+      expect(b.querySelector('.rb-bv-state-line').textContent).toBe('Production changes are kept with Save as new version; the budget stays locked to “Bid v1”.')
+      expect(button(b, 'Save')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('primary')
+      const pick = within(b).getByRole('combobox', { name: 'Selected bid' })
+      expect(pick.disabled).toBe(true)
+      expect(pick.value).toBe('v1')
+      // F13: newest first, "Name · date · Locked"; never money (F10).
+      expect([...pick.options].map(o => o.textContent)).toEqual(['Choose a bid version', `Bid v1 · ${showDate('2026-09-01T12:00:00Z')} · Locked`, `Bid v0 · ${showDate('2026-08-01T12:00:00Z')}`])
+      expect(b.querySelector('.rb-bv-pick-head .ui-status').textContent).toBe('Locked')
+      const edit = button(b, 'Edit this version')
+      expect(edit.disabled).toBe(true)
+      expect(b.querySelector('.rb-bv-why').textContent).toBe('While the budget is active no version is opened: Reset to bidding first.')
+      expect(edit.getAttribute('aria-describedby')).toBe('rb-bv-why')
+      expect(button(b, 'Set budget active')).toBeNull()
+    })
+
+    it('a version open: Save is the page\'s one orange ONLY while it has unsaved changes — the kit attention state and "● Unsaved"; Save as new version… beside it is the secondary (step 5)', async () => {
+      const ctx = makeCtx({ ...base, ...BIDDING, open_budget_version_id: 'v1' })
+      const { container, rerender } = render(tab(ctx))
+      let b = block(container)
+      expect(b.querySelector('.rb-bv-open-name').textContent).toBe('Bid v1')
+      expect(b.querySelector('.rb-bv-open-status').textContent).toMatch(/^Saved /)
+      let save = button(b, 'Save')
+      expect(save.getAttribute('data-variant')).toBe('secondary')
+      expect(save.disabled).toBe(true)
+      expect(save.getAttribute('data-attention')).toBeNull()
+      expect(b.querySelector('.ui-btn-attention')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('secondary')
+      expect(b.querySelectorAll('[data-variant="primary"]')).toHaveLength(0)
+      // A change on the live rows: unsaved.
+      rerender(tab(ctx, changed))
+      b = block(container)
+      save = button(b, 'Save')
+      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Unsaved changes')
+      expect(save.getAttribute('data-variant')).toBe('primary')
+      expect(save.disabled).toBe(false)
+      expect(save.getAttribute('data-attention')).toBe('true')
+      expect(b.querySelector('.ui-btn-attention').textContent).toBe('Unsaved')
+      expect(b.querySelectorAll('[data-variant="primary"]')).toHaveLength(1)
+      await act(async () => { fireEvent.click(save) })
+      // Into the OPEN version, the list kept (untouched: undefined).
+      expect(ctx.saveBudgetVersion).toHaveBeenCalledWith('v1', { roleRates, basedOnListId: undefined })
+      // The open version is the selected one here: there is nothing to open.
+      expect(button(b, 'Edit this version').disabled).toBe(true)
+      expect(b.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it is open already — the Timeline and Budget show it now.')
+    })
+
+    it('while the rates are being read nothing is called unsaved and nothing that writes a bid can run, saying why', () => {
+      const project = { ...base, ...BIDDING, open_budget_version_id: 'v1' }
+      const ctx = makeCtx(project)
+      const pending = (
+        <SummaryTab ctx={ctx} project={project} variance={{ bid: 9, logged: 6, variance: -3 }} budget={budget} tasks={changed}
+          roleRates={roleRates} ratesPending="Reading the project’s rates…" missingRolesCount={0} rateCardName="General"
+          budgetHook={{ lines: [], lineComputations: {} }} rateCard={{ entries: [] }} teamMembers={[]} expensesHook={{ expenses: [] }} />
+      )
+      const { container } = render(pending)
+      const b = block(container)
+      // The sentence itself (review round 1, R1-07: a fixed 'Reading the rates…' said a read was under way after one had failed).
+      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Reading the project’s rates…')
+      expect(button(b, 'Save').disabled).toBe(true)
+      expect(button(b, 'Save').getAttribute('data-attention')).toBeNull()
+      // Not even the word: the kit shows "● Unsaved" while `attention` is on,
+      // disabled or not.
+      expect(b.querySelector('.ui-btn-attention')).toBeNull()
+      expect(button(b, 'Save as new version…').disabled).toBe(true)
+      expect(button(b, 'Set budget active').disabled).toBe(true)
+      // CONTROL: the same rows with the rates read are unsaved (above).
+    })
+
+    it('no version open: Save as new version… is the one save verb and the orange one; an old version is greyed for editing with its reason, and reads "Not recorded" for a total it never kept', async () => {
+      const ctx = makeCtx({ ...base, ...BIDDING })
+      const { container } = render(tab(ctx))
+      const b = block(container)
+      expect(b.querySelector('.rb-bv-state-line').textContent).toBe('No version is open.')
+      expect(button(b, 'Save')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('primary')
+      expect(button(b, 'Edit this version').disabled).toBe(false)
+      expect(button(b, 'Set budget active').disabled).toBe(false)
+      // Selecting v0 (an old version) writes at once (F13) — the provider's verb.
+      await act(async () => { fireEvent.change(within(b).getByRole('combobox', { name: 'Selected bid' }), { target: { value: 'v0' } }) })
+      expect(ctx.selectBudgetVersion).toHaveBeenCalledWith('v0')
+      cleanup()
+      const old = makeCtx({ ...base, ...BIDDING }, {})
+      old.budgetVersions = old.budgetVersions.map(v => ({ ...v, is_active: v.id === 'v0' }))
+      const r = render(tab(old))
+      const ob = block(r.container)
+      expect(button(ob, 'Edit this version').disabled).toBe(true)
+      expect(ob.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it was saved before versions kept their schedule (no timeline captured), so it cannot be opened.')
+      const fact = (term) => [...ob.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === term)
+      expect(fact('Overall total').querySelector('dd').textContent).toBe('Not recorded')
+      expect(fact('Before agency').textContent).toBe('Before agency$4,000')
+      expect(fact('Timeline').querySelector('dd').textContent).toBe('—')
+      expect(fact('Timeline').querySelector('dd').getAttribute('title')).toBe('No timeline captured')
+      // An old version is compared before agency (like with like), and says so.
+      expect(ob.querySelector('.rb-bv-vs .ui-field-label').textContent).toBe('Variance vs the selected bid, before agency')
+    })
+
+    it('a budget active with no bid on record (S5 review round 1) still shows the banner — and its way out', () => {
+      const { container } = render(tab(makeCtx({ ...base, budget_active: true, budget_active_version_id: null })))
+      const banner = container.querySelector('.ui-banner')
+      expect(banner.querySelector('.rb-budget-active-meta').textContent).toBe('No bid version is on record as the locked one.')
+      expect(within(banner).getByRole('button', { name: 'Reset to bidding' })).toBeTruthy()
+    })
+
+    it('Reset to bidding is the provider\'s, through the undo toast, and its refusal is said in the banner', async () => {
+      const ctx = makeCtx({ ...base, ...LOCKED })
+      const { container } = render(tab(ctx))
+      await act(async () => { fireEvent.click(within(container.querySelector('.ui-banner')).getByRole('button', { name: 'Reset to bidding' })) })
+      expect(ctx.runWithUndoToast).toHaveBeenCalledWith(expect.any(Function), 'Back to bidding: “Bid v1” unlocked')
+      expect(ctx.resetToBidding).toHaveBeenCalledTimes(1)
+      expect(ctx.setActiveProject).not.toHaveBeenCalled()
+      cleanup()
+      const refusing = makeCtx({ ...base, ...LOCKED }, { resetToBidding: vi.fn(async () => { throw new Error('no adapter') }) })
+      const r = render(tab(refusing))
+      await act(async () => { fireEvent.click(within(r.container.querySelector('.ui-banner')).getByRole('button', { name: 'Reset to bidding' })) })
+      expect(r.container.querySelector('.rb-budget-active-error').textContent).toBe('no adapter')
     })
 
     // Post-overhaul S3c, step 2 (D18): "Based on shot list" beside the bid
-    // version's name — the project's live lists, the active one by default —
-    // written to `shot_list_id` and frozen into the snapshot; shown in the
-    // versions table and the active banner, the frozen label once the list
-    // is archived or gone.
-    describe('Based on shot list (S3c step 2, D18)', () => {
+    // version — the project's live lists, the active one by default. S5c moved
+    // it into the save row: Save as new version… writes it (createBudgetVersion's
+    // basedOnListId) and the open version's Save keeps or changes it.
+    describe('Based on shot list (S3c step 2, D18; the save row since S5c)', () => {
       const LISTS = [
         { id: 'L1', title: 'Shoot', version: 2, archived_at: null },
         { id: 'L2', title: 'Pickups', version: 1, archived_at: null },
         { id: 'L3', title: 'Old cut', version: 4, archived_at: '2026-09-20T00:00:00Z' },
       ]
-      const bidding = (adapter, extra = {}) => (
-        <SummaryTab
-          ctx={{ updateProject: vi.fn(), setActiveProject: vi.fn(), getAdapter: () => adapter, shotLists: LISTS, ...extra.ctx }}
-          project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', ...extra.project }}
-          variance={{ bid: 9, logged: 6, variance: -3 }}
-          budget={budget} tasks={tasks} roleRates={roleRates} missingRolesCount={0} rateCardName="General"
-          budgetVersions={extra.versions || []} budgetHook={{ lines: [], lineComputations: {} }} rateCard={{ entries: [] }}
-          teamMembers={[]} expensesHook={{ expenses: [] }}
-        />
-      )
+      const bidding = (extra = {}) => {
+        const project = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', ...extra.project }
+        const ctx = makeCtx(project, { shotLists: LISTS, budgetVersions: extra.versions || [], ...extra.ctx })
+        return { ctx, el: tab(ctx) }
+      }
       const select = () => screen.getByRole('combobox', { name: 'Based on shot list' })
-      const name = () => screen.getByRole('textbox', { name: 'Save current as bid version' })
+      const saveAsNew = async (name) => {
+        fireEvent.click(screen.getByRole('button', { name: 'Save as new version…' }))
+        const dialog = screen.getByRole('dialog', { name: 'Save as new version' })
+        fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), { target: { value: name } })
+        await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save as new version' })) })
+        return dialog
+      }
 
       it('offers the live lists (an archived one is not offered), the active one chosen and marked; the kit Select', () => {
-        render(bidding({ upsertBudgetVersion: vi.fn() }))
+        render(bidding().el)
         // In the lists' one order (S3a's sortShotLists: by title), as every picker shows them.
         expect([...select().options].map(o => o.textContent)).toEqual(['No shot list', 'Pickups · v1', 'Shoot · v2 (active)'])
         expect(select().value).toBe('L1')
         expect(select().className).toContain('ui-input')
       })
-      it('Save writes the chosen list to shot_list_id and freezes its label into the snapshot', async () => {
-        const upsertBudgetVersion = vi.fn(async (v) => v)
-        render(bidding({ upsertBudgetVersion }))
-        fireEvent.change(name(), { target: { value: 'Bid v2' } })
+      it('Save as new version… writes the chosen list (the dialog names it) — the default when nobody touches it, none for "No shot list"', async () => {
+        const one = bidding()
+        render(one.el)
+        const dialog = await saveAsNew('Bid v2')
+        expect(one.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v2', summary: '', roleRates, basedOnListId: 'L1' })
+        expect(dialog.textContent).toContain('Based on the shot list “Shoot · v2”.')
+        cleanup()
+        const two = bidding()
+        render(two.el)
         fireEvent.change(select(), { target: { value: 'L2' } })
-        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
-        const row = upsertBudgetVersion.mock.calls[0][0]
-        expect(row.shot_list_id).toBe('L2')
-        expect(row.snapshot.shot_list).toEqual({ id: 'L2', title: 'Pickups', version: 1 })
-        // The next version starts from the default again, as its name does.
-        expect(select().value).toBe('L1')
-      })
-      it('the default is written when nobody touches it; "No shot list" writes none', async () => {
-        const upsertBudgetVersion = vi.fn(async (v) => v)
-        render(bidding({ upsertBudgetVersion }))
-        fireEvent.change(name(), { target: { value: 'Bid v2' } })
-        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
-        expect(upsertBudgetVersion.mock.calls[0][0].shot_list_id).toBe('L1')
-        fireEvent.change(name(), { target: { value: 'Bid v3' } })
+        await saveAsNew('Bid v3')
+        expect(two.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v3', summary: '', roleRates, basedOnListId: 'L2' })
+        cleanup()
+        const none = bidding()
+        render(none.el)
         fireEvent.change(select(), { target: { value: '' } })
-        await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
-        expect(upsertBudgetVersion.mock.calls[1][0].shot_list_id).toBeNull()
-        expect(upsertBudgetVersion.mock.calls[1][0].snapshot.shot_list).toBeNull()
+        await saveAsNew('Bid v4')
+        expect(none.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v4', summary: '', roleRates, basedOnListId: null })
       })
       it('a project with no active list defaults to none', () => {
-        render(bidding({ upsertBudgetVersion: vi.fn() }, { project: { active_shot_list_id: null } }))
+        render(bidding({ project: { active_shot_list_id: null } }).el)
         expect(select().value).toBe('')
       })
-      it('the versions table names each version\'s list: live by its own label, archived by the frozen one, gone by the frozen one, none as a dash', () => {
-        const versions = [
-          { id: 'a', name: 'Live', created_at: '2026-09-04T00:00:00Z', shot_list_id: 'L2', snapshot: { shot_list: { id: 'L2', title: 'Pickups (old name)', version: 1 } } },
-          { id: 'b', name: 'Archived', created_at: '2026-09-03T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } },
-          { id: 'c', name: 'Gone', created_at: '2026-09-02T00:00:00Z', shot_list_id: null, snapshot: { shot_list: { id: 'L9', title: 'Lost', version: 2 } } },
-          { id: 'd', name: 'None', created_at: '2026-09-01T00:00:00Z', snapshot: {} },
-        ]
-        const { container } = render(bidding({ upsertBudgetVersion: vi.fn() }, { versions }))
-        const cells = [...container.querySelectorAll('table.rb-budget-versions tbody tr')].map(r => r.querySelectorAll('td')[2])
-        expect(cells.map(td => td.textContent)).toEqual(['Pickups · v1', 'Old cut · v4 (archived)', 'Lost · v2 (not in this project now)', '—'])
-        expect(cells[3].getAttribute('data-empty')).toBe('true')
+      it('a version OPEN: the Select shows its list; untouched, Save keeps it and nothing is unsaved; another list makes it unsaved, and Save writes it', async () => {
+        const project = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', open_budget_version_id: 'vL' }
+        const vL = { id: 'vL', name: 'On pickups', is_active: true, created_at: '2026-09-04T00:00:00Z', shot_list_id: 'L2',
+          snapshot: snapshotFromLive({ tasks, project, roleRates, shotList: LISTS[1] }) }
+        const { ctx, el } = bidding({ project, versions: [vL] })
+        render(el)
+        expect(select().value).toBe('L2')
+        expect(screen.getByRole('button', { name: 'Save' }).disabled).toBe(true)
+        fireEvent.change(select(), { target: { value: 'L1' } })
+        const save = screen.getByRole('button', { name: 'Save' })
+        expect(save.getAttribute('data-attention')).toBe('true')
+        await act(async () => { fireEvent.click(save) })
+        expect(ctx.saveBudgetVersion).toHaveBeenCalledWith('vL', { roleRates, basedOnListId: 'L1' })
+      })
+      it('the selected bid names the list it was bid on: live by its own label, archived by the frozen one, gone by the frozen one, none as "None"', () => {
+        const words = [
+          { id: 'a', shot_list_id: 'L2', snapshot: { shot_list: { id: 'L2', title: 'Pickups (old name)', version: 1 } } },
+          { id: 'b', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } },
+          { id: 'c', shot_list_id: null, snapshot: { shot_list: { id: 'L9', title: 'Lost', version: 2 } } },
+          { id: 'd', snapshot: {} },
+        ].map(v => basedOnWords(v, LISTS))
+        expect(words).toEqual(['Pickups · v1', 'Old cut · v4 (archived)', 'Lost · v2 (not in this project now)', null])
+        const versions = [{ id: 'b', name: 'Archived', is_active: true, created_at: '2026-09-03T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } }]
+        const { container } = render(bidding({ versions }).el)
+        const fact = [...container.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === 'Shot list')
+        expect(fact.querySelector('dd').textContent).toBe('Old cut · v4 (archived)')
+        cleanup()
+        const r = render(bidding({ versions: [{ ...versions[0], shot_list_id: null, snapshot: {} }] }).el)
+        const none = [...r.container.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === 'Shot list').querySelector('dd')
+        expect(none.textContent).toBe('None')
+        expect(none.getAttribute('data-empty')).toBe('true')
       })
       it('the active budget\'s banner names the list it was bid on', () => {
         const versions = [{ id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } }]
-        const { container } = render(bidding({ upsertBudgetVersion: vi.fn() }, { versions, project: { budget_active: true, budget_active_version_id: 'v1' } }))
+        const { container } = render(bidding({ versions, project: { budget_active: true, budget_active_version_id: 'v1' } }).el)
         expect(container.querySelector('.rb-budget-active-meta').textContent).toContain('Shot list: Old cut · v4 (archived)')
       })
     })
@@ -434,11 +623,49 @@ describe('surface 2a', () => {
     it('no element in the mounted Summary carries an inline colour, ground or edge', () => {
       const { container } = render(summary())
       expect(inlineColours(container)).toEqual([])
-      // …bidding too: the unlocked Summary shows the version form and the activate button.
+      // …bidding too: the unlocked Summary shows Set budget active, and a
+      // version open with unsaved changes its Save in the attention state.
       cleanup()
-      const again = render(summary({ budget_active: false, budget_active_version_id: null, budget_finalized: false }))
+      const again = render(tab(makeCtx({ ...base, ...BIDDING, open_budget_version_id: 'v0' }), changed))
       expect(again.getByRole('button', { name: 'Set budget active' })).toBeTruthy()
       expect(inlineColours(again.container)).toEqual([])
+    })
+
+    // S5 review round 1, R1-08 / S5c step 3: every version write goes through
+    // the provider. The old Summary wrote through the adapter, set the lock
+    // with updateProject and then reloaded the project — which wiped Undo
+    // (F12.4). Read from the files' code (comments left out).
+    describe('every version write is the provider\'s (S5c step 3, R1-08)', () => {
+      const FILES = ['./BudgetView.jsx', './budget/BidVersions.jsx', './budget/VersionQuestions.jsx']
+      const FAULTS = {
+        adapter: /\badapter\s*\??\.\s*(upsertBudgetVersion|deleteBudgetVersion|patchBudgetVersion|selectBudgetVersion)\b/,
+        lock: /\bbudget_(active|active_version_id|finalized)\s*:/,
+        reload: /\b(setActiveProject|reloadActiveProject)\s*\??\.?\s*\(/,
+      }
+      const codeOf = (f) => jsCode(read(f))
+      it('no file of the Summary calls the adapter for a version, writes the lock fields, or reloads the project', () => {
+        for (const f of FILES) {
+          for (const [name, re] of Object.entries(FAULTS)) expect(codeOf(f), `${f}: ${name}`).not.toMatch(re)
+        }
+        // …and the block does reach the provider's verbs.
+        const all = FILES.map(codeOf).join('\n')
+        for (const verb of ['createBudgetVersion', 'saveBudgetVersion', 'openBudgetVersion', 'selectBudgetVersion', 'renameBudgetVersion',
+          'updateBudgetVersionSummary', 'deleteBudgetVersion', 'activateBudget', 'resetToBidding']) {
+          expect(all, verb).toMatch(new RegExp(`ctx\\??\\.${verb}\\(`))
+        }
+      })
+      it('BudgetView hands the Summary whether the rates are read (ratesPendingFrom over its two rate hooks)', () => {
+        const src = codeOf('./BudgetView.jsx')
+        expect(src).toMatch(/const ratesPending = ratesPendingFrom\(\{ rateCard, rateOverrides, epoch: ctx\?\.rateOverridesEpoch \?\? 0 \}\)/)
+        expect(src).toMatch(/<SummaryTab[^>]*\bratesPending=\{ratesPending\}/)
+      })
+      it('CONTROL: the old path\'s three lines, planted, are each caught', () => {
+        const src = codeOf('./BudgetView.jsx')
+        expect(`${src}\nawait adapter.upsertBudgetVersion({ id })`).toMatch(FAULTS.adapter)
+        expect(`${src}\nawait adapter?.deleteBudgetVersion(id, pid)`).toMatch(FAULTS.adapter)
+        expect(`${src}\nctx?.updateProject?.(project.id, { budget_active: true })`).toMatch(FAULTS.lock)
+        expect(`${src}\nctx?.setActiveProject?.(project.id)`).toMatch(FAULTS.reload)
+      })
     })
   })
 

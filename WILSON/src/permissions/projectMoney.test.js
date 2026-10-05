@@ -14,7 +14,10 @@
 // permission in the app would let him through.
 
 import { describe, it, expect } from 'vitest'
-import { canSeeProjectMoney, canOnProject } from './projectRoleMatrix'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { canSeeProjectMoney, canOnProject, canSeeMoneyHere } from './projectRoleMatrix'
 
 describe('canSeeProjectMoney — who may see budgets, rates and actuals', () => {
   it('lets a workspace admin see money', () => {
@@ -69,5 +72,53 @@ describe('canSeeProjectMoney — who may see budgets, rates and actuals', () => 
     expect(canOnProject(derek, 'project.roster.manage')).toBe(true)
     // ...and still cannot see a number.
     expect(canSeeProjectMoney(derek)).toBe(false)
+  })
+})
+
+// Post-overhaul S5c, step 7 — Audrey's F4 (2026-10-05): "open it. im just
+// using this for testing. its only me on this pc". The desktop's signed-out
+// Local Server has no roles; there the money gate is open. Everywhere else
+// it is canSeeProjectMoney, unchanged — the cloud's reviewer and member, and
+// Derek, still see no money.
+describe('canSeeMoneyHere — the screen\'s money gate (S5c step 7, F4)', () => {
+  it('the Local Server: open, with no roles at all — the signed-out desktop', () => {
+    expect(canSeeMoneyHere({ adapterMode: 'local_server' })).toBe(true)
+    expect(canSeeMoneyHere({ adapterMode: 'local_server', appRole: null, projectRole: null })).toBe(true)
+  })
+  it('the cloud: exactly canSeeProjectMoney — a reviewer, a member and Derek still see none; a manager and an admin do', () => {
+    const cloud = (appRole, projectRole) => canSeeMoneyHere({ adapterMode: 'supabase', appRole, projectRole })
+    expect(cloud('user', 'reviewer')).toBe(false)
+    expect(cloud('user', 'member')).toBe(false)
+    expect(cloud('manager', 'member')).toBe(false)
+    expect(cloud(null, null)).toBe(false)
+    expect(cloud('user', 'manager')).toBe(true)
+    expect(cloud('admin', null)).toBe(true)
+    for (const appRole of ['admin', 'manager', 'user', null]) {
+      for (const projectRole of ['manager', 'member', 'reviewer', null]) {
+        expect(cloud(appRole, projectRole), `${appRole}/${projectRole}`).toBe(canSeeProjectMoney({ appRole, projectRole }))
+        // The dev fixtures and Drive keep their roles too.
+        expect(canSeeMoneyHere({ adapterMode: 'google_drive', appRole, projectRole })).toBe(canSeeProjectMoney({ appRole, projectRole }))
+      }
+    }
+  })
+  it('no backend named fails closed, as canSeeProjectMoney does', () => {
+    expect(canSeeMoneyHere({})).toBe(false)
+    expect(canSeeMoneyHere()).toBe(false)
+  })
+
+  // The Budget tab and the Control Panel's budget variables read it, by the
+  // provider's backend kind — and the tab hides on its answer.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
+  const READ_HERE = /const canSeeMoney = canSeeMoneyHere\(\{\s*adapterMode: ctx\?\.adapterMode,\s*appRole: perms\?\.role,\s*projectRole: ctx\?\.myProjectRole,\s*\}\)/
+  it('Rabbit.jsx hides the Budget tab on it, and ProjectSummaryView.jsx shows the budget variables on it', () => {
+    const shell = read('../tools/rabbit_v0.1.0/Rabbit.jsx')
+    expect(shell).toMatch(READ_HERE)
+    expect(shell).toMatch(/if \(!canSeeMoney\) hidden\.add\('budget'\)/)
+    expect(read('../tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx')).toMatch(READ_HERE)
+  })
+  it('CONTROL: the old gate (no backend) does not read as it', () => {
+    const old = 'const canSeeMoney = canSeeProjectMoney({\n    appRole: perms?.role,\n    projectRole: ctx?.myProjectRole,\n  })'
+    expect(old).not.toMatch(READ_HERE)
   })
 })

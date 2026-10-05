@@ -16,12 +16,21 @@
 // the thin bar along the bottom edge makes the deadline visible.
 // A new toast (key change) replaces the previous and restarts the
 // countdown.
+//
+// A HELD toast (`hold`) has no deadline and no bar: it stays until its
+// Undo, its dismiss, or the next toast. It is the way back from a step that
+// stopped part way, whose question goes on saying "Undo takes back what
+// changed" — the sentence must not outlive its Undo (post-overhaul S5c,
+// review round 2, R2-09).
 
 import { useEffect, useRef, useState } from 'react'
 import { Undo2, X } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 
 const AUTO_DISMISS_MS = 8000
+// Tests shorten the wait through this global (the provider's history queue
+// does the same, __WILSON_TEST_HISTORY_STEP_WAIT_MS).
+const dismissAfterMs = () => globalThis.__WILSON_TEST_UNDO_TOAST_MS ?? AUTO_DISMISS_MS
 
 export default function UndoToast() {
   const ctx = useRabbit()
@@ -33,21 +42,22 @@ export default function UndoToast() {
   // Banked countdown: the timer effect below subtracts elapsed time on
   // every pause (hover) so resuming picks up where it left off — in
   // lockstep with the CSS animation's paused play state.
-  const remainingRef = useRef(AUTO_DISMISS_MS)
+  const remainingRef = useRef(dismissAfterMs())
   const startedAtRef = useRef(0)
   const timerRef = useRef(null)
 
   // New toast → full countdown, fresh interaction state.
   useEffect(() => {
-    remainingRef.current = AUTO_DISMISS_MS
+    remainingRef.current = dismissAfterMs()
     setHovered(false)
     setBusy(false)
   }, [toast?.key])
 
   // Auto-dismiss timer. Paused while hovered (or mid-undo): cleanup
-  // banks the remaining time, the next run resumes from it.
+  // banks the remaining time, the next run resumes from it. None for a
+  // held toast.
   useEffect(() => {
-    if (!toast || hovered || busy) return undefined
+    if (!toast || toast.hold || hovered || busy) return undefined
     startedAtRef.current = Date.now()
     timerRef.current = setTimeout(() => dismiss?.(), remainingRef.current)
     return () => {
@@ -137,21 +147,23 @@ export default function UndoToast() {
         <X className="w-3 h-3" />
       </button>
 
-      {/* Countdown bar along the bottom edge */}
-      <div
-        className="absolute bottom-0 left-0 right-0"
-        style={{ height: 2, backgroundColor: '#44403c' }}
-      >
+      {/* Countdown bar along the bottom edge (none for a held toast) */}
+      {!toast.hold && (
         <div
-          className="h-full"
-          style={{
-            backgroundColor: '#fb923c',
-            transformOrigin: 'left',
-            animation: `rabbit-undo-countdown ${AUTO_DISMISS_MS}ms linear forwards`,
-            animationPlayState: paused ? 'paused' : 'running',
-          }}
-        />
-      </div>
+          className="absolute bottom-0 left-0 right-0"
+          style={{ height: 2, backgroundColor: '#44403c' }}
+        >
+          <div
+            className="h-full"
+            style={{
+              backgroundColor: '#fb923c',
+              transformOrigin: 'left',
+              animation: `rabbit-undo-countdown ${dismissAfterMs()}ms linear forwards`,
+              animationPlayState: paused ? 'paused' : 'running',
+            }}
+          />
+        </div>
+      )}
       <style>{'@keyframes rabbit-undo-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }'}</style>
     </div>
   )

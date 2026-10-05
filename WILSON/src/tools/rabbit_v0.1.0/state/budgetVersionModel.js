@@ -274,9 +274,24 @@ function rowsDelta(before, after, fields) {
   return { added, removed, changed }
 }
 
-function ratesChanged(a = {}, b = {}) {
+/**
+ * The roles some rows bid with: each task's role, 'unassigned' for none (as
+ * bidTotals reads a rate). Post-overhaul S5c review round 1 (R1-03): a
+ * snapshot keeps the whole rate map, but only these roles' rates change what
+ * a bid costs — a role the rate card gained that no task uses made every
+ * version read "unsaved" for good, and an open pin it as a project rate.
+ */
+function rolesOf(...taskLists) {
+  const out = new Set()
+  for (const list of taskLists) for (const t of list || []) if (t) out.add(t.assigned_role_slug || 'unassigned')
+  return out
+}
+
+/** The roles whose rate differs between two maps — of `roles` when given, else of either map. */
+function ratesChanged(a = {}, b = {}, roles = null) {
   const out = []
-  for (const k of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+  const keys = roles ? [...roles] : [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])]
+  for (const k of keys) {
     if (num(a?.[k], null) !== num(b?.[k], null)) out.push(k)
   }
   return out.sort()
@@ -304,7 +319,7 @@ export function versionDelta(prev, next, prevName = null) {
     bidDays: round2(num(n.totalBidDays) - num(p.totalBidDays)),
     tasksAdded: tasks.added,
     tasksRemoved: tasks.removed,
-    ratesChanged: ratesChanged(prev?.roleRates, next?.roleRates).length,
+    ratesChanged: ratesChanged(prev?.roleRates, next?.roleRates, rolesOf(prev?.tasks, next?.tasks)).length,
     margin: fromTo(p.marginPct, n.marginPct),
     contingency: fromTo(p.contingencyPct, n.contingencyPct),
     total,
@@ -324,7 +339,7 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
   const tasks = rowsDelta(s.tasks, live?.tasks, TASK_SCHEDULE)
   const phases = rowsDelta(s.phases, live?.phases, PHASE_SCHEDULE)
   const milestones = rowsDelta(s.milestones, live?.milestones, MILESTONE_SCHEDULE)
-  const rates = ratesChanged(s.roleRates, live?.roleRates)
+  const rates = ratesChanged(s.roleRates, live?.roleRates, rolesOf(s.tasks, live?.tasks))
   const settings = {
     margin: fromTo(s.marginPct, live?.marginPct),
     contingency: fromTo(s.contingencyPct, live?.contingencyPct),
@@ -475,7 +490,11 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], s
   }
   plan.settings = Object.keys(patch).length ? { patch, before } : null
 
+  // Only the roles the version's tasks bid with (S5c, R1-03): a role nobody
+  // uses is not the bid's to set.
+  const bidRoles = rolesOf(s.tasks)
   for (const [slug, rate] of Object.entries(s.roleRates || {})) {
+    if (!bidRoles.has(slug)) continue
     const r = num(rate, null)
     if (r == null) continue
     const live = num(roleRates?.[slug], null)
