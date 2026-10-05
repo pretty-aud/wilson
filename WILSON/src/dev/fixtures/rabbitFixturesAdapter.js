@@ -71,6 +71,10 @@ const missing = (message) => refusal(404, 'not_found', message)
 const LIST_ARCHIVE_ONLY = 'shot lists are archived and restored only by a project manager or a workspace admin, through archive_shot_list()'
 const EDIT_ARCHIVE_ONLY = 'edits are archived and restored only by a project manager or a workspace admin, through archive_edit()'
 const ACTIVE_LIST_ONLY = 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()'
+// 0089 (post-overhaul S5): the guard's and the RPC's sentences, word for word.
+const OPEN_VERSION_ONLY = 'the open bid version is changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
+const SELECTED_BID_ONLY = 'the selected bid is chosen only by someone who can see this project\'s budget (a project manager or a workspace admin)'
+const VERSION_NOT_HERE = 'bid version not found in this project'
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -384,7 +388,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         assetVersions: store.assetVersions.filter(v => assetIds.has(v.asset_id)),
         comments: live(store.comments),
         ingestionRuns: inProject(store.ingestionRuns),
-        budgetVersions: inProject(store.budgetVersions),
+        // 0037's money gate, as the cloud answers it: someone it refuses reads
+        // zero bid versions (suite 91 proves it of the cloud; S5).
+        budgetVersions: passesMoneyGate(projectId) ? inProject(store.budgetVersions) : [],
         expenses: inProject(store.expenses),
         scenes: inProject(store.scenes).sort((a, b) => a.sort_order - b.sort_order),
         shots: inProject(store.shots).sort((a, b) => a.sort_order - b.sort_order),
@@ -426,6 +432,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         const prev = stored.active_shot_list_id || null
         const clearsDangling = next === null && prev !== null && !store.shotLists.some(l => l.id === prev)
         if (next !== prev && !clearsDangling) throw forbidden(ACTIVE_LIST_ONLY)
+      }
+      // 0089 (S5): the OPEN bid version. A change is refused for anyone not
+      // past the money gate (trg_projects_open_budget_version_guard); a
+      // non-null pointer must name one of THIS project's versions (the
+      // same-project FK). Unchanged passes; so does clearing a pointer whose
+      // version is gone (the FK's own SET NULL).
+      if (stored && fields && fields.open_budget_version_id !== undefined) {
+        const next = fields.open_budget_version_id || null
+        const prev = stored.open_budget_version_id || null
+        const clearsDangling = next === null && prev !== null && !store.budgetVersions.some(v => v.id === prev)
+        if (next !== prev && !clearsDangling) {
+          if (!passesMoneyGate(id)) throw forbidden(OPEN_VERSION_ONLY)
+          if (next !== null && !store.budgetVersions.some(v => v.id === next && v.project_id === id)) throw invalid(VERSION_NOT_HERE)
+        }
       }
       return clone(patch(store.projects, id, stampBy(fields)))
     },
@@ -674,7 +694,38 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       if (version?.is_active) for (const v of store.budgetVersions) if (v.project_id === version.project_id) v.is_active = false
       return clone(upsert(store.budgetVersions, { workspace_id: workspaceId, created_by: by, ...version, updated_by: by }))
     },
-    async deleteBudgetVersion(id) { remove(store.budgetVersions, id) },
+    // Post-overhaul S5: the cloud's UPDATE of only the named columns, under
+    // the money gate (an UPDATE it refuses returns no row: the 42501 here).
+    async patchBudgetVersion(projectId, id, fields) {
+      const row = store.budgetVersions.find(v => v.id === id && v.project_id === projectId)
+      if (!row || !passesMoneyGate(projectId)) throw forbidden('you cannot change this bid version')
+      const { id: _i, project_id: _p, workspace_id: _w, created_at: _c, created_by: _cb, ...rest } = fields || {}
+      return clone(patch(store.budgetVersions, id, { ...rest, updated_by: by, updated_at: now() }))
+    },
+    // 0089 §4, select_budget_version: one write, every other version cleared;
+    // null clears them all (F13).
+    async selectBudgetVersion(projectId, versionId) {
+      if (!passesMoneyGate(projectId)) throw forbidden(SELECTED_BID_ONLY)
+      const target = versionId || null
+      if (target && !store.budgetVersions.some(v => v.id === target && v.project_id === projectId)) throw missing(VERSION_NOT_HERE)
+      for (const v of store.budgetVersions) {
+        if (v.project_id !== projectId) continue
+        const want = v.id === target
+        if (!!v.is_active !== want) { v.is_active = want; v.updated_at = now(); v.updated_by = by }
+      }
+      return target
+    },
+    // The FKs' ON DELETE SET NULL: the project's locked (0037) and open
+    // (0089) pointers to the deleted version are cleared with it.
+    async deleteBudgetVersion(id) {
+      const row = store.budgetVersions.find(v => v.id === id)
+      remove(store.budgetVersions, id)
+      const project = row ? projectOf(row.project_id) : null
+      if (project) {
+        if (project.budget_active_version_id === id) project.budget_active_version_id = null
+        if (project.open_budget_version_id === id) project.open_budget_version_id = null
+      }
+    },
     async listExpenses(projectId) { return clone(store.expenses.filter(e => e.project_id === projectId)) },
     async upsertExpense(expense) { return clone(upsert(store.expenses, { workspace_id: workspaceId, created_by: by, asset_ids: [], phase_ids: [], task_ids: [], file_ids: [], ...expense, updated_by: by })) },
     async updateExpense(id, _projectId, fields) { return clone(patch(store.expenses, id, { ...fields, updated_by: by })) },

@@ -455,6 +455,49 @@ describe('the Local Server keeps a bid version\'s shot list (S3c step 2, D18)', 
     expect(res.body.shot_list_id).toBe('l1')
   })
   it('main.cjs registers budget versions on that route', () => {
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'budget-versions',\s*'budgetVersions'\s*\)/)
+    // Post-overhaul S5 widened the registration with the project pointers its
+    // DELETE clears (below); the route and its bundle key are unchanged.
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'budget-versions',\s*'budgetVersions'\s*[,)]/)
+  })
+})
+
+// Post-overhaul S5 (0089): deleting a bid version on the desktop clears the
+// project's pointers to it in the same write — the cloud's two FKs ON DELETE
+// SET NULL: the LOCKED version (0037) and the OPEN one (0089).
+describe('the Local Server clears a deleted bid version\'s project pointers (S5)', () => {
+  const POINTERS = { projectPointers: ['budget_active_version_id', 'open_budget_version_id'] }
+  function seeded() {
+    return {
+      project: { id: 'p1', title: 'P', budget_active_version_id: 'bv1', open_budget_version_id: 'bv1' },
+      budgetVersions: [{ id: 'bv1', name: 'v1' }, { id: 'bv2', name: 'v2' }],
+    }
+  }
+  it('deleting the version both pointers name clears both, and the project stays', () => {
+    const bundle = seeded()
+    const h = harness(bundle)
+    h.register('budget-versions', 'budgetVersions', null, POINTERS)
+    const res = call(h.routes, 'DELETE', '/api/rabbit/projects/:projectId/budget-versions/:id', { projectId: 'p1', id: 'bv1' })
+    expect(res.code).toBe(200)
+    const disk = h.writes.at(-1)
+    expect(disk.project).toEqual({ id: 'p1', title: 'P', budget_active_version_id: null, open_budget_version_id: null })
+    expect(disk.budgetVersions.map(v => v.id)).toEqual(['bv2'])
+  })
+  it('FAILING CONTROL: deleting ANOTHER version leaves both pointers as they were', () => {
+    const bundle = seeded()
+    const h = harness(bundle)
+    h.register('budget-versions', 'budgetVersions', null, POINTERS)
+    call(h.routes, 'DELETE', '/api/rabbit/projects/:projectId/budget-versions/:id', { projectId: 'p1', id: 'bv2' })
+    expect(h.writes.at(-1).project).toMatchObject({ budget_active_version_id: 'bv1', open_budget_version_id: 'bv1' })
+  })
+  it('an entity registered without pointers never touches the project (tasks, as before)', () => {
+    const bundle = { project: { id: 'p1', open_budget_version_id: 't-a' }, tasks: [{ id: 't-a' }], dependencies: [] }
+    const h = harness(bundle)
+    h.register('tasks', 'tasks', null, { sweepDependencies: true })
+    call(h.routes, 'DELETE', '/api/rabbit/projects/:projectId/tasks/:id', { projectId: 'p1', id: 't-a' })
+    expect(h.writes.at(-1).project.open_budget_version_id).toBe('t-a')
+  })
+  it('main.cjs registers budget versions WITH both pointers', () => {
+    expect(MAIN_CJS.replace(/\r\n/g, '\n')).toMatch(
+      /rabbitSubentityRoutes\('budget-versions', 'budgetVersions', null, \{ projectPointers: \['budget_active_version_id', 'open_budget_version_id'\] \}\)/)
   })
 })

@@ -49,6 +49,9 @@ export const PROJECT = {
   // file, so importing SHOT_LISTS here would be circular. dataset.test.js
   // proves the id names the seeded, non-archived list 1.
   active_shot_list_id: fid('shotList', 1),
+  // 0089 (post-overhaul S5): no bid version is OPEN — the budget is locked
+  // (budget_active above), and a locked version is never opened (F9).
+  open_budget_version_id: null,
   scene_separator: '_',
   scene_digits: 2,
   shot_digits: 3,

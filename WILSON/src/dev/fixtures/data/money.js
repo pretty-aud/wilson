@@ -11,7 +11,9 @@
 
 import { fid, day, stamp } from '../ids'
 import { WORKSPACE_ID, MEMBER_ID, MEMBERS } from './workspace'
-import { PROJECT_ID, ASSET_ID, PHASE_ID, TASK_ID } from './project'
+import { PROJECT_ID, ASSET_ID, PHASE_ID, TASK_ID, PROJECT, PHASES, TASKS, MILESTONES } from './project'
+import { snapshotFromLive } from '../../../tools/rabbit_v0.1.0/state/budgetVersionModel'
+import { buildRoleRates } from '../../../components/Budget/budgetMath'
 
 export const RATE_CARDS = [
   { id: fid('rateCard', 1), workspace_id: WORKSPACE_ID, name: 'General Rate Card',  type: 'general',  is_default: true,  source_file_id: null, created_at: stamp(-100, 10), deleted_at: null },
@@ -180,9 +182,30 @@ export const BUDGET_ACTUALS = [
   { id: fid('budgetActual', 4), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, line_id: fid('budgetLine', 2),  column_index: 0, value: 9750, invoice_number: null, expense_id: null, source: 'timesheet', notes: '15 of 30 days logged.', attachment_name: null, attachment_path: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(39, 9, 1), updated_at: stamp(39, 9, 1) },
 ]
 
+// Post-overhaul S5 (F12.1): the two bids in the shape every version carries
+// from S5 on — built from this dataset's own rows by the same function the
+// app saves with, so the table's totals are real (they read $0 when the
+// snapshots were `{ total, lines }`, which nothing reads). Bid v1 is the fund
+// application: the first thirty-one tasks at a lower contingency. Bid v2 is
+// pre-production: every task, the project's settings — the SELECTED bid and
+// the one the budget is LOCKED to (project.js), its lock stamped in the real
+// columns (F12.2), where v1 used to carry a lock it never had.
+const FIXTURE_ROLE_RATES = buildRoleRates(RATE_CARD_ENTRIES.filter(e => e.rate_card_id === GENERAL_CARD_ID), [])
+const BID_V1 = snapshotFromLive({
+  tasks: TASKS.slice(0, 31), phases: PHASES, milestones: MILESTONES,
+  project: { ...PROJECT, budget_contingency_pct: 8 }, roleRates: FIXTURE_ROLE_RATES,
+  savedAt: stamp(9, 17), savedBy: M.mara,
+})
+const BID_V2 = snapshotFromLive({
+  tasks: TASKS, phases: PHASES, milestones: MILESTONES,
+  project: PROJECT, roleRates: FIXTURE_ROLE_RATES,
+  savedAt: stamp(30, 17), savedBy: M.mara,
+  previous: BID_V1, previousName: 'Bid v1 (fund application)',
+})
+
 export const BUDGET_VERSIONS = [
-  { id: fid('budgetVersion', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Bid v1 (fund application)', type: 'bid', is_active: false, snapshot: { total: 171500, lines: 31 }, locked_at: stamp(9, 17), locked_by: M.mara, created_by: M.mara, updated_by: M.mara, created_at: stamp(9, 17), updated_at: stamp(9, 17) },
-  { id: fid('budgetVersion', 2), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Bid v2 (pre-production)', type: 'bid', is_active: true,  snapshot: { total: 186000, lines: 35 }, locked_at: null, locked_by: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(30, 17), updated_at: stamp(38, 17) },
+  { id: fid('budgetVersion', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Bid v1 (fund application)', type: 'bid', is_active: false, snapshot: BID_V1, summary: 'What we sent the fund.', locked_at: null, locked_by: null, created_by: M.mara, updated_by: M.mara, created_at: stamp(9, 17), updated_at: stamp(9, 17) },
+  { id: fid('budgetVersion', 2), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Bid v2 (pre-production)', type: 'bid', is_active: true,  snapshot: BID_V2, summary: 'Boards and builds priced; post re-quoted.', locked_at: stamp(38, 17), locked_by: M.mara, created_by: M.mara, updated_by: M.mara, created_at: stamp(30, 17), updated_at: stamp(38, 17) },
 ]
 
 export const EXPENSES = [

@@ -367,6 +367,78 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect(back.snapshot.shot_list).toEqual({ id: LIST_1, title: 'Shot list 1', version: 1 })
   })
 
+  // ── Post-overhaul S5 (0089): bid versions as living documents ─────────────
+  const BV1 = fid('budgetVersion', 1)
+  const BV2 = fid('budgetVersion', 2)
+  const OPEN_ONLY = 'the open bid version is changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
+  const refusal = async (p) => { try { await p } catch (e) { return { status: e.status, code: e.code, message: e.message } } return null }
+
+  it('S5 (F12.1, F12.2): the seeded bids carry real totals and the lock is stamped on the LOCKED one only', async () => {
+    const b = await fresh().loadProject(PROJECT_ID)
+    const v1 = b.budgetVersions.find(v => v.id === BV1)
+    const v2 = b.budgetVersions.find(v => v.id === BV2)
+    expect(v2.snapshot.totals.overall).toBeGreaterThan(0)
+    expect(v2.snapshot.totals.overall).toBeGreaterThan(v2.snapshot.totals.beforeAgency) // the agency fee is on in the dataset
+    expect(v1.snapshot.totals.overall).toBeGreaterThan(0)
+    expect(Array.isArray(v2.snapshot.phases) && v2.snapshot.phases.length).toBeTruthy()
+    expect(b.project.budget_active_version_id).toBe(BV2)
+    expect(v2.locked_at).toBeTruthy()
+    expect(v1.locked_at).toBeNull()
+    expect(b.project.open_budget_version_id).toBeNull()
+  })
+
+  it('S5: the open pointer moves to one of the project\'s versions, and back to none', async () => {
+    const fx = fresh()
+    await fx.updateProject(PROJECT_ID, { open_budget_version_id: BV1 })
+    expect((await fx.loadProject(PROJECT_ID)).project.open_budget_version_id).toBe(BV1)
+    await fx.updateProject(PROJECT_ID, { open_budget_version_id: null })
+    expect((await fx.loadProject(PROJECT_ID)).project.open_budget_version_id).toBeNull()
+  })
+
+  it('S5: a pointer to a version that is not this project\'s is refused (the same-project FK)', async () => {
+    expect(await refusal(fresh().updateProject(PROJECT_ID, { open_budget_version_id: 'not-a-version' })))
+      .toEqual(no(400, 'invalid', 'bid version not found in this project'))
+  })
+
+  it('S5: someone the money gate refuses cannot move the open pointer, read a version, or choose the selected bid', async () => {
+    const fx = buildDevFixtures({ variant: 'member' }).rabbitAdapter()
+    expect(await refusal(fx.updateProject(PROJECT_ID, { open_budget_version_id: BV1 }))).toEqual(no(403, 'forbidden', OPEN_ONLY))
+    expect((await fx.loadProject(PROJECT_ID)).budgetVersions).toEqual([])
+    expect((await refusal(fx.selectBudgetVersion(PROJECT_ID, BV1))).status).toBe(403)
+    expect((await refusal(fx.patchBudgetVersion(PROJECT_ID, BV1, { summary: 'x' }))).status).toBe(403)
+    // CONTROL: the same member still saves another project field.
+    await fx.updateProject(PROJECT_ID, { description: 'member wrote this' })
+    expect((await fx.loadProject(PROJECT_ID)).project.description).toBe('member wrote this')
+  })
+
+  it('S5: selectBudgetVersion leaves exactly one selected; null clears; an unknown id is 404', async () => {
+    const fx = fresh()
+    expect(await fx.selectBudgetVersion(PROJECT_ID, BV1)).toBe(BV1)
+    let vs = (await fx.loadProject(PROJECT_ID)).budgetVersions
+    expect(vs.filter(v => v.is_active).map(v => v.id)).toEqual([BV1])
+    expect(await fx.selectBudgetVersion(PROJECT_ID, null)).toBeNull()
+    vs = (await fx.loadProject(PROJECT_ID)).budgetVersions
+    expect(vs.some(v => v.is_active)).toBe(false)
+    expect((await refusal(fx.selectBudgetVersion(PROJECT_ID, 'nope'))).status).toBe(404)
+  })
+
+  it('S5: patchBudgetVersion writes only the named columns — a newer note written elsewhere survives', async () => {
+    const fx = fresh()
+    await fx.patchBudgetVersion(PROJECT_ID, BV1, { summary: 'newer note' })
+    await fx.patchBudgetVersion(PROJECT_ID, BV1, { name: 'Renamed' })
+    const v1 = (await fx.loadProject(PROJECT_ID)).budgetVersions.find(v => v.id === BV1)
+    expect(v1).toMatchObject({ name: 'Renamed', summary: 'newer note' })
+  })
+
+  it('S5: deleting a version clears the project\'s locked and open pointers to it (the FKs\' SET NULL)', async () => {
+    const fx = fresh()
+    await fx.updateProject(PROJECT_ID, { open_budget_version_id: BV2 })
+    await fx.deleteBudgetVersion(BV2)
+    const p = (await fx.loadProject(PROJECT_ID)).project
+    expect(p.budget_active_version_id).toBeNull()
+    expect(p.open_budget_version_id).toBeNull()
+  })
+
   it('loadProject returns the seeded lists and items in the contract order, and no edits', async () => {
     const fx = fresh()
     const b = await fx.loadProject(PROJECT_ID)

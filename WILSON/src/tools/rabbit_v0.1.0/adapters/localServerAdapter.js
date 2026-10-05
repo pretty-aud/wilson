@@ -504,6 +504,22 @@ export function localServerAdapter() {
     }),
     deleteBudgetVersion: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/budget-versions/${id}`, { method: 'DELETE' }),
+    // Post-overhaul S5: only the columns a change names (Save into the open
+    // version, a rename, the note, the lock's stamp) — never the whole cached
+    // row, which would put back a newer note or list another window wrote.
+    patchBudgetVersion: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/budget-versions/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    // The SELECTED bid in one write (main.cjs's twin of 0089's
+    // select_budget_version); null clears it. Answers the selected id.
+    selectBudgetVersion: async (projectId, versionId) =>
+      (await jfetch(`${BASE}/projects/${projectId}/budget-versions/select`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ version_id: versionId ?? null }),
+      }))?.selected ?? null,
 
     // ── Budget lines ───────────────────────────────────────────
     listBudgetLines: async (projectId) =>
