@@ -34,6 +34,7 @@
 // =============================================================================
 import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { parseIsoDate, toIsoDate } from '../dates.js'
 
 const rabbit = vi.hoisted(() => ({ current: {} }))
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
@@ -107,31 +108,37 @@ const ZOOM_PX = { day: 56, week: 22, month: 8, quarter: 4 }
 const ZOOMS = ['day', 'week', 'month', 'quarter']
 
 /** The gantt's geometry, from the rule alone: a column a day, or — weekends
-    hidden at Day zoom — a column a weekday. `x(day)` and `day(x)` are day
-    positions (half a column into Thursday is Thursday + 0.5). */
-function geometry(zoom, weekendsHidden) {
+    hidden at Day zoom — a column a weekday, for a chart whose first day is
+    `start`. `x(day)` and `day(x)` are day positions (half a column into
+    Thursday is Thursday + 0.5). */
+function geometry(zoom, weekendsHidden, start = SPAN_START) {
   const px = ZOOM_PX[zoom]
   const masked = weekendsHidden && zoom === 'day'
+  const off = Math.round((start - SPAN_START) / 864e5) // days from 4 Feb 2026
+  const hiddenDay = (i) => weekend(i + off)
   return {
     zoom, masked,
     x(day) {
       if (!masked) return day * px
       const whole = Math.floor(day)
       let x = 0
-      for (let i = 0; i < whole; i++) if (!weekend(i)) x += px
-      return weekend(whole) ? x : x + (day - whole) * px
+      for (let i = 0; i < whole; i++) if (!hiddenDay(i)) x += px
+      return hiddenDay(whole) ? x : x + (day - whole) * px
     },
     day(x) {
       if (!masked) return x / px
       let left = 0
       for (let i = 0; ; i++) {
-        if (weekend(i)) continue
+        if (hiddenDay(i)) continue
         if (x < left + px) return i + Math.max(0, x - left) / px
         left += px
       }
     },
     /** The first day a date's column shows: the date itself, or the next shown day. */
-    shown(i) { if (masked) while (weekend(i)) i++; return i },
+    shown(i) { if (masked) while (hiddenDay(i)) i++; return i },
+    /** A date's day index on this chart, and a day index's date as words. */
+    index: (y, m, d) => Math.round((new Date(y, m, d) - start) / 864e5),
+    say: (i) => say(i + off),
   }
 }
 
@@ -152,15 +159,28 @@ async function zoomTo(z) {
 /** A user's scroll: put x at the gantt's left edge. */
 async function scrollTo(x) { gantt().scrollLeft = x; await settle() }
 /** The minimap window's first and last day, read off the minimap's own Today
-    line and month lines (its scale is September's: 1 Sep → 1 Oct). */
-function minimapWindow() {
+    line and month lines (its scale is September's: 1 Sep → 1 Oct), as day
+    indices on a chart where today is `today`. */
+function minimapWindow(today = TODAY) {
   const tx = parseFloat(document.querySelector('.rb-tl-ov-today').style.left)
   const lines = [...document.querySelectorAll('.rb-tl-ov-grid')].map((e) => parseFloat(e.style.left)).sort((a, b) => a - b)
   const px = (lines.find((x) => x > tx) - lines.filter((x) => x <= tx).pop()) / 30
   const frame = document.querySelector('.rb-tl-ov-frame')
   const fl = parseFloat(frame.style.left)
   const fw = parseFloat(frame.style.width)
-  return { start: TODAY + Math.round((fl - tx) / px), end: TODAY + Math.round((fl + fw - tx) / px), px, tx }
+  return { start: today + Math.round((fl - tx) / px), end: today + Math.round((fl + fw - tx) / px), px, tx }
+}
+/** How many days the minimap window spans, from the gantt's scroll and the
+    rule alone (S5p review round 1, R1-05: the click's expected landing came
+    from the box the code drew). The day at the left edge and the day at the
+    right edge, each rounded to a date as the window rounds them; without a
+    mask the right edge is left + max(1, W / dayPx), the window's arithmetic
+    since B3. Callers park the gantt where neither edge is half a column in,
+    so the rounding has no tie to break. */
+const windowDays = (scroll, g) => {
+  const start = g.day(scroll)
+  const end = g.masked ? Math.max(start + 1, g.day(scroll + W)) : start + Math.max(1, W / ZOOM_PX[g.zoom])
+  return Math.max(1, Math.round(end) - Math.round(start))
 }
 
 // ── The assertions, each also run by its block's CONTROL ────────────────────
@@ -168,7 +188,7 @@ function minimapWindow() {
     day is hidden now, the next shown one. */
 function expectKept(before, scrollAfter, g, what) {
   const after = Math.floor(g.day(scrollAfter))
-  expect(say(after), `${what}: ${say(before)} at the left before`).toBe(say(g.shown(before)))
+  expect(g.say(after), `${what}: ${g.say(before)} at the left before`).toBe(g.say(g.shown(before)))
 }
 /** The minimap window brackets what the gantt shows: it starts on the gantt's
     left day or the next (rounding), and ends on its right day or as far as the
@@ -177,10 +197,10 @@ function expectBracketed(scroll, win, g, what) {
   const left = Math.floor(g.day(scroll))
   const right = Math.floor(g.day(scroll + W - 1))
   const firstAfter = g.shown(right + 1)
-  expect(win.start, `${what}: the window starts ${say(win.start)}, the gantt ${say(left)}`).toBeGreaterThanOrEqual(left)
-  expect(win.start, `${what}: the window starts ${say(win.start)}, the gantt ${say(left)}`).toBeLessThanOrEqual(left + 1)
-  expect(win.end, `${what}: the window ends ${say(win.end)}, the gantt ${say(right)}`).toBeGreaterThanOrEqual(right)
-  expect(win.end, `${what}: the window ends ${say(win.end)}, the gantt ${say(right)}`).toBeLessThanOrEqual(firstAfter)
+  expect(win.start, `${what}: the window starts ${g.say(win.start)}, the gantt ${g.say(left)}`).toBeGreaterThanOrEqual(left)
+  expect(win.start, `${what}: the window starts ${g.say(win.start)}, the gantt ${g.say(left)}`).toBeLessThanOrEqual(left + 1)
+  expect(win.end, `${what}: the window ends ${g.say(win.end)}, the gantt ${g.say(right)}`).toBeGreaterThanOrEqual(right)
+  expect(win.end, `${what}: the window ends ${g.say(win.end)}, the gantt ${g.say(right)}`).toBeLessThanOrEqual(firstAfter)
 }
 /** Today's column at the gantt's centre, and its line on screen. */
 function expectTodayCentred(scroll, todayLineX, g, what) {
@@ -300,6 +320,34 @@ describe('"Show weekends" keeps the date under the eye (hideWeekends re-anchors)
   }, 30000)
 })
 
+// S5p review round 1 (R1-01): the re-anchoring's first job — a schedule
+// rebuild that moves the overview span — with the mask rebuilt from the new
+// start. The span runs from 180 days before the project's first date to 540
+// after its last, so moving the whole phase moves the chart's first day and
+// keeps its length (the case where a mask built from the old start would
+// still be in use). The shifts are ones under which that old mask provably
+// puts another date at the left (the CONTROL below): a weekday count over
+// the chart's first days and its last before Fri 11 Dec that differs.
+const moveDays = (iso, n) => { const d = parseIsoDate(iso); d.setDate(d.getDate() + n); return toIsoDate(d) }
+describe('a span move keeps the date: the whole phase moved by a schedule rebuild, weekends shown and hidden', () => {
+  it.each([[-3], [-2], [4], [5]])('the phase moved %i days: Fri 11 Dec stays at the gantt\'s left edge, and the minimap window brackets the gantt', async (shift) => {
+    for (const shownSetting of [true, false]) {
+      const r = await mount(shownSetting)
+      await zoomTo('day')
+      const g0 = geometry('day', !shownSetting)
+      await scrollTo(Math.round(g0.x(g0.index(2026, 11, 11) + 0.5)))
+      rabbit.current = { ...ctx, phases: [{ ...phase, start_date: moveDays(phase.start_date, shift), end_date: moveDays(phase.end_date, shift) }] }
+      r.rerender(view(shownSetting))
+      await settle()
+      const g1 = geometry('day', !shownSetting, new Date(2026, 1, 4 + shift))
+      const what = `moved ${shift} days, weekends ${shownSetting ? 'shown' : 'hidden'}`
+      expect(g1.say(Math.floor(g1.day(gantt().scrollLeft))), what).toBe('Fri 11 Dec 2026')
+      expectBracketed(gantt().scrollLeft, minimapWindow(g1.index(2026, 8, 24)), g1, what)
+      cleanup()
+    }
+  }, 30000)
+})
+
 describe.each([['shown', true], ['hidden', false]])('Today, at every zoom, weekends %s', (mode, shownSetting) => {
   it('puts today\'s column at the gantt\'s centre with its line on screen, from a scroll far from it', async () => {
     await mount(shownSetting)
@@ -322,13 +370,17 @@ describe.each([['shown', true], ['hidden', false]])('a click on empty minimap (s
     for (const z of ZOOMS) {
       await zoomTo(z)
       const g = geometry(z, !shownSetting)
+      // Today + 0.3 of a column at the left: no window edge is half a column in.
+      await scrollTo(Math.round(g.x(TODAY + 0.3)))
+      const span = windowDays(gantt().scrollLeft, g)
       const before = minimapWindow()
+      expect(before.end - before.start, `${z}: the box the minimap draws`).toBe(span)
       const target = dayIndex(2027, 0, 20) // Wed 20 Jan 2027
       const clientX = Math.round(before.tx + (target - TODAY) * before.px)
-      const clicked = TODAY + Math.round((clientX - before.tx) / before.px) // the click's own reading
+      const clicked = TODAY + Math.round((clientX - before.tx) / before.px) // the click's own reading of the minimap
       fireEvent.click(document.querySelector('[data-minimap-body]'), { clientX, clientY: 5 })
       await settle()
-      const want = clicked - Math.floor((before.end - before.start) / 2)
+      const want = clicked - Math.floor(span / 2)
       expectKept(want, gantt().scrollLeft, g, `${z}, a click on ${say(clicked)}`)
       expectBracketed(gantt().scrollLeft, minimapWindow(), g, `${z}, after the click`)
     }
@@ -366,6 +418,23 @@ describe('CONTROL: each assertion fails on what the code before this fix produce
     const want = dayIndex(2027, 0, 11)
     for (const g of [geometry('day', false), hidden]) {
       expect(() => expectKept(want, want * 22, g, 'a minimap click')).toThrow()
+    }
+  })
+  it('the span move (R1-01): a mask left on the old start — the same days counted from where the chart used to begin — puts another date at the left for each shift tested', () => {
+    for (const shift of [-3, -2, 4, 5]) {
+      const old = geometry('day', true)
+      const moved = geometry('day', true, new Date(2026, 1, 4 + shift))
+      const anchor = old.index(2026, 11, 11) + 0.5 - shift // Fri 11 Dec + half a column, counted from the new start
+      expect(moved.say(Math.floor(moved.day(moved.x(anchor)))), `${shift}: the new mask`).toBe('Fri 11 Dec 2026')
+      expect(() => expect(moved.say(Math.floor(moved.day(old.x(anchor))))).toBe('Fri 11 Dec 2026'), `${shift}: the old mask`).toThrow()
+    }
+    // …and why the shifts are chosen: under +1 or +3 the old mask counts as
+    // many weekdays as the new one (the days it drops at the chart's start
+    // and gains before 11 Dec are all weekdays), so it would land right.
+    for (const shift of [1, 3]) {
+      const old = geometry('day', true)
+      const moved = geometry('day', true, new Date(2026, 1, 4 + shift))
+      expect(moved.say(Math.floor(moved.day(old.x(old.index(2026, 11, 11) + 0.5 - shift))))).toBe('Fri 11 Dec 2026')
     }
   })
 })

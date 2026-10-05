@@ -337,9 +337,10 @@ export function weekendMask(start, totalDays, dayPx) {
  * Where an x on the gantt falls, as a day position: the day whose column
  * holds x (dayIndexAtX) plus how far into that column x is — half a column
  * into a Thursday is that Thursday + 0.5, at any zoom, mask or not. Without a
- * mask it is x / dayPx. With one, an x left of the chart is its first shown
- * day, and an x at or past the chart's end is the day after its last shown
- * day. For every x on the chart, Math.floor(dayAtX(x)) is dayIndexAtX(x).
+ * mask it is x / dayPx, unclamped (as xAtDay's unmasked branch). With one,
+ * an x left of the chart is its first shown day, and an x at or past the
+ * chart's end is the day after its last shown day. For every x on the chart,
+ * Math.floor(dayAtX(x)) is dayIndexAtX(x).
  *
  * @param {number} x       px from the chart's left edge
  * @param {number} dayPx   a shown column's width
@@ -356,9 +357,17 @@ export function dayAtX(x, dayPx, mask = null) {
  * dayAtX's inverse: the x a day position sits at. Without a mask,
  * day × dayPx. With one, a shown day's column start plus the fraction into
  * it — and a HIDDEN day, which has no column, maps to the start of the next
- * shown day. So dayAtX(xAtDay(d)) is d for a shown day and the next shown day
- * for a hidden one, and xAtDay(dayAtX(x)) is x for every x on the chart.
- * Kept to the chart, [0, totalPx].
+ * shown day; a hidden day after the chart's last shown day (a chart that
+ * ends on a weekend) maps to the chart's end. So dayAtX(xAtDay(d)) is d for a
+ * shown day, the next shown day for a hidden one, and the day after the last
+ * shown day for a trailing one; and xAtDay(dayAtX(x)) is x for every x on
+ * the chart.
+ *
+ * With a mask the result is kept to the chart, [0, totalPx]. Without one it
+ * is NOT clamped — day × dayPx, negative before the chart — as the unmasked
+ * gantt always computed it, so the re-anchoring's `newScrollLeft >= 0` guard
+ * still skips (as it always did) an anchor that a span move left before the
+ * chart's first day; with weekends hidden that anchor scrolls to the start.
  *
  * @param {number} day     a day position from the chart's first day
  * @param {number} dayPx   a shown column's width

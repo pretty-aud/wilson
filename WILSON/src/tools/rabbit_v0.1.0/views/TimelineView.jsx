@@ -586,10 +586,15 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // 16 May, measured). S5p records it as a DAY, so putting it back needs
   // neither the old scale nor the old mask.
   const anchorDayRef = useRef(0)
-  // The scale and mask this render draws the gantt with, for the scroll
-  // listener below, which outlives renders.
-  const geometryRef = useRef(null)
-  geometryRef.current = { dayPx: DAY_PX, mask: maskDays }
+  // The scale and mask the gantt on screen is drawn with, for the scroll
+  // listener below, which outlives renders. Written when a render COMMITS
+  // (S5p review round 1, R1-03): a render that never commits — one a
+  // transition or Suspense would interrupt, none here today — must not leave
+  // the listener reading days in a scale or mask the DOM does not have. A
+  // layout effect runs before the browser can send any scroll event, and
+  // before the listener's own first read.
+  const geometryRef = useRef({ dayPx: DAY_PX, mask: maskDays })
+  useLayoutEffect(() => { geometryRef.current = { dayPx: DAY_PX, mask: maskDays } })
 
   // S1 review round 2: attached when the gantt EXISTS. With `[]` it ran
   // once, and a Timeline opened while the project was still loading (the
@@ -724,9 +729,11 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // click and its window's drag (scrollDetailToDate). Post-overhaul S5p:
   // through the mask, and a callback on the scale and the mask — it was a
   // plain function that scrollDetailToDate's useCallback([overviewSpan.start])
-  // captured once, so it kept the scale of the render that made it (Week's
-  // 22px): at Day zoom a minimap click landed 207 days early, weekends shown
-  // or not (measured in the app).
+  // captured afresh only when the overview span moved (a schedule rebuild),
+  // so it kept the scale of the last render that moved it: Week's 22px from
+  // the moment the Timeline opened, until an edit. Measured in the app at Day
+  // zoom, a minimap click landed 207 days early with weekends shown, 154 with
+  // them hidden.
   const scrollDetailToDay = useCallback((dayOffset) => {
     const el = detailRef.current
     if (!el) return
@@ -2230,11 +2237,14 @@ export function DetailPane({
   // Helper: convert a day-offset to its visible X coordinate honoring
   // the weekend mask. Used everywhere a bar would otherwise just
   // multiply by dayPx. S5p: the one pair's xAtDay — a shown day's column
-  // start, a hidden day's next shown day, as before for every whole day. A
-  // fraction of a day is now that fraction of a column with weekends hidden,
-  // as it always was with them shown: a zero-length bar's half day (its
+  // start, a hidden day's next shown day, as before for every whole day on
+  // the chart (0 … totalDays). Two differences, both with weekends hidden
+  // only, and both what weekends shown already drew: a fraction of a day is
+  // that fraction of a column — a zero-length bar's half day (its
   // Math.max(0.5, …)) is half a column, where the pane's own mask rounded it
-  // up to a whole one.
+  // up to a whole one; and a day past the chart's end is the chart's end, not
+  // the last day's start — so the "+ New task" ghost within seven days of the
+  // end is one column wider, still capped at the chart's width.
   function dayToX(dayOffset) {
     return xAtDay(dayOffset, dayPx, dayMask?.mask)
   }

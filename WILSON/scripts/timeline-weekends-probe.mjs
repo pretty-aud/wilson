@@ -28,7 +28,9 @@
  *                today the date at the centre
  *   toggle       "Show weekends" on, then off, at Day zoom: the left date kept
  *   jump         a click on empty minimap at Day zoom, weekends hidden and
- *                shown: the gantt's left date is the one the click asks for
+ *                shown: the gantt's left date is the one the click asks for —
+ *                the clicked day less half the days the gantt shows, read off
+ *                its header (never off the box the code drew)
  *   weekend      a Saturday at Week's left edge → Day (hidden) → Week: Monday,
  *                then Monday (a hidden day maps to the next shown one, and the
  *                anchor follows what is shown)
@@ -132,6 +134,15 @@ await page.evaluate(([ty, tm, td]) => {
     d.setDate(d.getDate() + Math.floor((x - best.x) / dayPx));
     return d;
   }
+  /** Where chart x falls, in days from today, with the fraction into its
+      column — off the header, as the date printed over that column. */
+  function posAtX(x, dayPx) {
+    let best = null;
+    for (const t of datedTicks()) { if (t.x <= x) best = t; else break; }
+    if (!best) return null;
+    const whole = Math.floor((x - best.x) / dayPx);
+    return Math.round((best.date - TODAY) / DAY_MS) + whole + (x - best.x - whole * dayPx) / dayPx;
+  }
   function gantt(dayPx) {
     const sc = scroller();
     const s = sc.scrollLeft;
@@ -145,6 +156,8 @@ await page.evaluate(([ty, tm, td]) => {
       left: ymd(dateAtX(s, dayPx)),
       centre: ymd(dateAtX(s + w / 2, dayPx)),
       right: ymd(dateAtX(s + w - 1, dayPx)),
+      leftPos: posAtX(s, dayPx),
+      rightPos: posAtX(s + w, dayPx),
       todayLine: tx == null ? 'not drawn' : (tx >= s && tx < s + w ? 'on screen' : (tx < s ? 'off screen, left' : 'off screen, right')),
     };
   }
@@ -341,8 +354,13 @@ for (const shown of [false, true]) {
   const target = [2027, 0, 20]; // Wed 20 Jan 2027
   const pt = await page.evaluate(([y, m, d]) => window.__s5p.minimapPoint(y, m, d), target);
   if (!pt) { check(`jump at Day zoom, weekends ${shown ? 'shown' : 'hidden'}`, false, { error: 'no empty minimap under the date' }); continue; }
+  // The days the window spans, from the gantt's own header (review round 1,
+  // R1-05: not from the box the code drew): the dates at the gantt's two
+  // edges, each rounded to a date as the window rounds them.
+  const g0 = await gantt();
+  const endPos = hidden() ? Math.max(g0.leftPos + 1, g0.rightPos) : g0.leftPos + Math.max(1, g0.viewW / DAY_PX[zoom]);
+  const visibleDays = Math.max(1, Math.round(endPos) - Math.round(g0.leftPos));
   const mmBefore = await minimap();
-  const visibleDays = dayDiff(mmBefore.start, mmBefore.end);
   await page.mouse.click(pt.cx, pt.cy);
   await page.mouse.move(W - 70, 12);
   await sleep(250);
@@ -350,7 +368,7 @@ for (const shown of [false, true]) {
   const wantLeft = (() => { const d = asDate(pt.clicked); d.setDate(d.getDate() - Math.floor(visibleDays / 2)); return [d.getFullYear(), d.getMonth(), d.getDate()]; })();
   const k = expectKept(wantLeft, g.left, !shown);
   console.log(`\n5  jump (Day zoom, weekends ${shown ? 'shown' : 'hidden'}): a click on the minimap at ${fmt(pt.clicked)}`);
-  console.log(`   the window spans ${visibleDays} days, so the gantt should start ${fmt(k.want)}`);
+  console.log(`   the gantt shows ${visibleDays} days (the minimap's box: ${dayDiff(mmBefore.start, mmBefore.end)}), so it should start ${fmt(k.want)}`);
   console.log(`   gantt shows          ${fmt(g.left)} – ${fmt(g.right)}   centre ${fmt(g.centre)}   (${dayDiff(k.want, g.left)} days off)`);
   check(`jump at Day zoom, weekends ${shown ? 'shown' : 'hidden'}`, k.ok, { clicked: fmt(pt.clicked), want: fmt(k.want), left: fmt(g.left), centre: fmt(g.centre) });
 }
