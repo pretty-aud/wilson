@@ -4656,7 +4656,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       return (
         <div className="otter-view">
           <div className="otter-view-page" data-width="subject">
-            <nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
                 <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
@@ -4726,7 +4726,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 section (one run, down to "› …"), then the course, and the
                 lesson only when it alone is longer than the line. The whole
                 path is the title. */}
-            <nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
               <span className="otter-crumb-trail">
                 <span className="otter-crumb-keep">{activeSoftware?.name}</span>
                 <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>

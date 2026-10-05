@@ -1255,9 +1255,12 @@
      ellipsis can take a chevron too ("› …", never a bare "›"). The
      zero-width space in front is what allows that: CSS clips, rather than
      ellipses, the FIRST character or atomic inline on a line. The course
-     has one too, so it gives way as "P…", never a clipped "P" (round 2). */
+     has one too, so it gives way as "P…", never a clipped "P" (round 2).
+     Post-overhaul S2c (S2b-04): its alternative text is empty (`/ ''`), so
+     the accessibility tree no longer carries it as a text of its own; the
+     line lays out exactly as before. */
   .otter-crumb::before,
-  .otter-crumb-keep::before { content: '\200B'; }
+  .otter-crumb-keep::before { content: '\200B' / ''; }
   .otter-crumb-keep { flex: 0 1 auto; min-width: 1em; }
   .otter-crumb-current { order: -1; flex: 0 0 auto; max-width: 100%; color: var(--color-ink-2); }
   .otter-crumb-note { order: -2; flex-shrink: 0; margin-left: 4px; }

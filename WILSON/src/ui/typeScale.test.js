@@ -561,8 +561,8 @@ const VIEW_EL = { tag: 'div', classes: ['otter-view'], ancestors: SHELL_ELS };
 const LESSON_PAGE_EL = under(STUDY_EL, { tag: 'div', classes: ['otter-study-page'] });
 const OUTLINE_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'subject' } });
 const READING_PAGE_EL = under(VIEW_EL, { tag: 'div', classes: ['otter-view-page'], attrs: { 'data-width': 'reading' } });
-const CRUMBS_EL = under(LESSON_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this lesson sits', title: 'Course › Subject › Section › Lesson' } });
-const OUTLINE_CRUMBS_EL = under(OUTLINE_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Where this subject sits', title: 'Course › Subject [outline]' } });
+const CRUMBS_EL = under(LESSON_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Breadcrumb', title: 'Course › Subject › Section › Lesson' } });
+const OUTLINE_CRUMBS_EL = under(OUTLINE_PAGE_EL, { tag: 'nav', classes: ['otter-crumbs'], attrs: { 'aria-label': 'Breadcrumb', title: 'Course › Subject [outline]' } });
 const CRUMB_TRAIL_EL = under(CRUMBS_EL, { tag: 'span', classes: ['otter-crumb-trail'] });
 const CRUMB_MIDDLE_EL = under(CRUMB_TRAIL_EL, { tag: 'span', classes: ['otter-crumb'] });
 const CRUMB_MIDDLE_BEFORE_EL = { ...CRUMB_MIDDLE_EL, pseudo: 'before' };
@@ -1247,10 +1247,12 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ['the trail', CRUMB_TRAIL_EL, TRAIL],
       ['the outline trail', OUTLINE_TRAIL_EL, TRAIL],
       ['the subject-and-section run', CRUMB_MIDDLE_EL, { ...ELLIPSIS, 'flex-grow': '1', 'flex-shrink': '0', 'flex-basis': '3em', 'max-width': 'max-content' }],
-      ["the run's ::before", CRUMB_MIDDLE_BEFORE_EL, { content: "'\\200B'" }],
+      // S2c (S2b-04): the zero-width space with an empty alternative, so the
+      // accessibility tree carries no text of its own for it.
+      ["the run's ::before", CRUMB_MIDDLE_BEFORE_EL, { content: "'\\200B' / ''" }],
       ["the run's spoken separator", CRUMB_SAID_EL, { position: 'absolute', width: '1px', height: '1px', 'overflow-x': 'hidden', 'overflow-y': 'hidden', 'clip-path': 'inset(50%)' }],
       ['the course', CRUMB_KEEP_EL, KEEP],
-      ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B'" }],
+      ["the course's ::before", CRUMB_KEEP_BEFORE_EL, { content: "'\\200B' / ''" }],
       ['the outline course', OUTLINE_KEEP_EL, KEEP],
       ['the lesson', CRUMB_CURRENT_EL, CURRENT],
       // S2c (S2b-03): the outline page's subject leaves "[outline]" its room.
@@ -1282,7 +1284,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     const flat = (s) => s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\s+/g, ' ').replace(/> </g, '><').trim();
     const src = readFileSync(OTTER_JSX, 'utf8');
     const lessonNav = flat(lessonBranch(src).match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '');
-    expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this lesson sits" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+    // S2c (S2b-04): both named "Breadcrumb", the name screen-reader users expect.
+    expect(lessonNav).toBe(flat(`<nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
         <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
@@ -1292,7 +1295,7 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
     </nav>`));
     const stub = src.slice(src.indexOf('if (activeSubject.is_stub) {', src.indexOf('function renderStudyView()')), src.indexOf('const selectedLesson = getSelectedLesson();'));
     expect(stub).toMatch(/<div className="otter-view">\s*<div className="otter-view-page" data-width="subject">\s*<nav className="otter-crumbs"/);
-    expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Where this subject sits" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+    expect(flat(stub.match(/<nav className="otter-crumbs"[\s\S]*?<\/nav>/)?.[0] || '')).toBe(flat(`<nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
       <span className="otter-crumb-trail">
         <span className="otter-crumb-keep">{activeSoftware?.name}</span>
         <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
@@ -1344,6 +1347,9 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       // onto the lesson page's lesson (which has no note to leave room for).
       [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-current { max-width: 100%; }`, /outline subject: max-width/],
       [`.otter-crumbs .otter-crumb-current { max-width: ${OUTLINE_SUBJECT_CAP}; }`, /the lesson: max-width/],
+      // S2c (S2b-04): the empty alternative dropped from either zero-width space.
+      ['.otter-crumb::before { content: \'\\200B\'; }', /run's ::before: content/],
+      ['.otter-crumb-trail .otter-crumb-keep::before { content: \'\\200B\' / \'\u200B\'; }', /course's ::before: content/],
     ];
     for (const [rule, why] of PLANTS) {
       const got = judge(`${sheet}\n@layer components { ${rule} }\n`).join('\n');
