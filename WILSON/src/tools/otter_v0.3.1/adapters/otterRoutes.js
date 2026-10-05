@@ -263,25 +263,6 @@ export function parseOtterRoute(pathname, method = 'GET') {
  */
 const normKey = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
-export function mergeHotkeys(existing, incoming) {
-  const out = { categories: (existing?.categories || []).map(c => ({
-    ...c, shortcuts: [...(c.shortcuts || [])],
-  })) }
-  for (const inCat of incoming || []) {
-    const catName = inCat.category || inCat.name || 'General'
-    const inShortcuts = inCat.shortcuts || inCat.hotkeys || []
-    let cat = out.categories.find(c => normKey(c.category) === normKey(catName))
-    if (!cat) { cat = { category: catName, shortcuts: [] }; out.categories.push(cat) }
-    for (const hk of inShortcuts) {
-      const action = (hk.action || '').toLowerCase().trim()
-      if (!cat.shortcuts.some(h => (h.action || '').toLowerCase().trim() === action)) {
-        cat.shortcuts.push(hk)
-      }
-    }
-  }
-  return out
-}
-
 /**
  * A function category's name, whichever key holds it — the one reading the
  * merge below, the Functions reference and the Search dialog share.
@@ -335,6 +316,10 @@ export const functionCategoryName = (cat) => cleanName(cat?.category) || cleanNa
  */
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
 const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || name.toLowerCase()
+/** THE keying of a library category — its heading (functionCategoryName),
+ *  case and punctuation aside — for both merges below, the functions' (S2b)
+ *  and the hotkeys' (S2c, S2b-02): one helper, two callers. */
+const categoryKeyOf = (cat) => categoryKey(functionCategoryName(cat))
 const functionKey = (fn) => cleanName(fn?.name)
 const isCategory = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions))
 const isNamed = (c) => !!(cleanName(c.category) || cleanName(c.name))
@@ -348,7 +333,7 @@ export function mergeFunctions(existing, incoming) {
   for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
     if (!isObj(inCat)) continue
     const name = functionCategoryName(inCat)
-    const i = out.categories.findIndex(c => isCategory(c) && categoryKey(functionCategoryName(c)) === categoryKey(name))
+    const i = out.categories.findIndex(c => isCategory(c) && categoryKeyOf(c) === categoryKeyOf(inCat))
     const into = i < 0 ? null : out.categories[i]
     const have = new Set((into ? into.functions || [] : []).map(functionKey).filter(Boolean))
     const add = []
@@ -362,6 +347,60 @@ export function mergeFunctions(existing, incoming) {
     const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length)
     if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }) }
     else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] }
+  }
+  return out
+}
+
+/**
+ * The hotkeys merge — post-overhaul S2c (S2b-02): the keying S2b gave the
+ * function library's merge, through the same helper (categoryKeyOf), and the
+ * SAME rules, line for line, as the Local Server's
+ * `/api/software/:slug/hotkeys/merge` route in electron/main.cjs;
+ * hotkeysMerge.test.js replays both on its cases and on 600 seeded random
+ * documents and demands the same document every time.
+ *  - A category's name is `category`, else `name`, else "General" — on the
+ *    stored side too, which read `category` alone — and categories match on
+ *    it with case and punctuation aside, letters of any script kept. normKey
+ *    (a-z and 0-9 only) keyed "文字列" and "数学" both to '' and merged them,
+ *    and a name that was not a string threw on every later merge.
+ *  - A shortcut is not added again under the same heading: the same action,
+ *    case and surrounding spaces aside, as before; an action that is not a
+ *    string reads as none (it threw).
+ *  - A category's list is `shortcuts`, else `hotkeys` (the generator writes
+ *    both). Stored categories are kept exactly as stored: only a category a
+ *    shortcut is added to is rewritten (a copy, the new ones after its own,
+ *    in the list it already has). A new category is written
+ *    `{ category, shortcuts }` when it brings a shortcut, or when it was sent
+ *    with none (a fork's empty category moves on approval, as before).
+ *  - Entries that are not categories (null, a string, a list key that holds
+ *    something other than a list) are carried over untouched and never
+ *    matched; the document's other keys are kept; a stored document that is
+ *    not a library (an array, `categories` not a list) is left as it is.
+ */
+const shortcutsKey = (c) => (Array.isArray(c.shortcuts) ? 'shortcuts' : Array.isArray(c.hotkeys) ? 'hotkeys' : (c.shortcuts == null && c.hotkeys == null ? 'shortcuts' : null))
+const isHotkeyCategory = (c) => isObj(c) && shortcutsKey(c) !== null
+const actionKey = (hk) => (typeof hk.action === 'string' ? hk.action.toLowerCase().trim() : '')
+
+export function mergeHotkeys(existing, incoming) {
+  const doc = existing == null ? {} : existing
+  if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return existing
+  const out = { ...doc, categories: [...(doc.categories || [])] }
+  for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+    if (!isObj(inCat)) continue
+    const name = functionCategoryName(inCat)
+    const i = out.categories.findIndex(c => isHotkeyCategory(c) && categoryKeyOf(c) === categoryKeyOf(inCat))
+    const into = i < 0 ? null : out.categories[i]
+    const key = into ? shortcutsKey(into) : 'shortcuts'
+    const have = new Set((into ? into[key] || [] : []).filter(isObj).map(actionKey))
+    const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : []
+    const add = []
+    for (const hk of list) {
+      if (!isObj(hk) || have.has(actionKey(hk))) continue
+      have.add(actionKey(hk))
+      add.push(hk)
+    }
+    if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }) }
+    else if (add.length) out.categories[i] = { ...into, [key]: [...(into[key] || []), ...add] }
   }
   return out
 }
