@@ -123,3 +123,49 @@ The controller's readings (correct me if wrong):
 - **3a — walkthrough 51 Q8: Clear stays available on the active list, behind its confirm**, which says what it clears. (As built by S3b's round 2.)
 - **3b — a new rule: removing a shot list never removes the Timeline or the Budget.** Checked on the branch: it never did in the data — Clear only takes scenes and shots out of a list; no task, phase, key date or budget line is deleted by Clear, Archive, Withdraw, Set active, or by deleting a scene or shot (a deleted scene or shot clears the link on its tasks; phases have no scene or shot link). The fault is on screen: the Timeline's group-by-scene draws only the active list's scenes, so a task assigned to a scene or shot outside it vanishes from that view, and the Budget's By scene / By shot call it "Unknown scene". **Rule for S3c (step 1):** no task ever drops out of the Timeline or the Budget because of what the active list holds; such a task reads as not assigned to a scene (the "No Scene" group, the "No scene" / "No shot" rows); the stored link is KEPT, so the task is under its scene again if the scene returns to the active list, and its tooltip and the task popup say what it points at; the Clear / Set active / Archive / Withdraw questions say this instead of "will no longer show them". Sent to the running S3c session the same day.
 - **4, 5** — S5 stays unbriefed until F arrives; the smaller items stay open.
+
+## 2026-10-05 — F and G, pasted in chat (after the controller explained F2, F3, F4, F9, F11, F12, F13 and G in plain words)
+
+Her answers, verbatim:
+
+```
+f1 yes
+
+f2 viewing a version is read-only. to edit a version press "Edit this version": WILSON asks once to confirm, then loads that version into the live Timeline and Budget and it becomes the open version. while a version is open, Save writes the changes back INTO that version (for example v2 "mid ROM" stays v2 as i keep working on it), and the page shows when the open version has unsaved changes. a new version is only made on purpose with "Save as new version", which asks for a name. if i open a different version while the open one has unsaved changes, ask me to save them, discard them, or cancel. the locked (active) budget version can't be edited in place, only saved as a new version.
+
+f3 yes
+
+f4 open it. im just using this for testing. its only me on this pc
+
+f5 S5 adopts the shot-list picker, it exists now
+
+f6 yes
+
+f7 yes but to confirm i need to see the total with agency total. i need to see both. both but the total with the agency % is important to be defined as the overall total. 
+
+f8 both; column.
+
+f9 disabled. while the budget is active the Timeline dropdown is greyed out with the reason shown, and the locked bid can't be opened for editing. i still edit the live Timeline during production as normal. but during production i can still save the current schedule as a new version on purpose (Save as new version, with a name like "revision after week 2") so i have a record of production changes. those production versions stay out of the lock: the active budget stays the frozen bid i locked, and the variance keeps measuring against it.
+
+f10 yes
+
+f11 yes
+
+f12 yes
+
+f13 yes
+
+g all good
+```
+
+What led to F2 (her words in the chat, 2026-10-04): *"i need to be able to edit a version when its selected but have someway of asking me to confirm if i want to edit it before i do."* and *"we cant have f2 always create new versions. i need to be able to save different versions. for example one version can be called v2 and specifically be a mid ROM version. im going to keep editing that version and want it saved to that version. not create a new one. it should be more intentional when creating a new one"*. The F2, F9 lines above were drafted by the controller from those words and pasted back by her unchanged.
+
+The controller's readings (correct me if wrong):
+
+- **F2 → a bid version is a living document**, with three per-project states: OPEN (its data is in the live Timeline and Budget; Save writes back into it; "unsaved changes" shown), SELECTED (the variance baseline — today's `is_active` column, to be called "selected" in words), LOCKED (the active budget: not openable, Timeline dropdown disabled, live Timeline still editable, Save as new version allowed and unlocked, variance against the locked one). Opening a version also selects it, except while a budget is active. No leave guard: nothing is lost on leaving.
+- **F4** opens the money gate on the signed-out desktop Local Server only; the database gates are untouched.
+- **F7** the overall total is the one WITH the agency fee when it is on; the before-agency total is stored and shown beside it.
+- **F9** adds "Save as new version" during production; those versions are unlocked and do not move the variance.
+- **G** stands, with the controller spawning the chips; S5 loads both design skills.
+
+Built by bundle S5 (`docs/sessions/briefs/po-s5-budget-versions.md`).
