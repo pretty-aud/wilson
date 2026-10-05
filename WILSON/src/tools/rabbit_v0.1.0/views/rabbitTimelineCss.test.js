@@ -909,6 +909,19 @@ const pinGeometryCommit = (src) => {
   expect(src).toMatch(/const geometryRef = useRef\(\{ dayPx: DAY_PX, mask: maskDays \}\)\s+useLayoutEffect\(\(\) => \{ geometryRef\.current = \{ dayPx: DAY_PX, mask: maskDays \} \}\)/)
   expect(src.match(/geometryRef\.current = /g)).toHaveLength(1)
 }
+/** changeZoom reads the anchor as a day through the pair, sets it as the state, then the zoom (round 2, R2-03: one function for the test and its control). */
+const pinChangeZoom = (src) => expect(changeZoomBody(src)).toMatch(/anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\)\s+setDetailStartDay\(anchorDayRef\.current\)\s+\}\s+setZoomId\(id\)\s+\}, \[DAY_PX, maskDays\]\)$/)
+/** The six conversions, each through the pair, and no scale arithmetic but the chart's width. */
+const pinConversions = (src) => {
+  expect(scrollArithmetic(src)).toEqual(['* DAY_PX'])
+  expect(src).toMatch(/const chartW = totalDays \* DAY_PX/)
+  expect(src).toMatch(/el\.scrollLeft = Math\.max\(0, xAtDay\(todayDays, DAY_PX, maskDays\) - 200\)/)
+  expect(src).toMatch(/const newScrollLeft = xAtDay\(anchorDayRef\.current \+ startDeltaDays, currPx, maskDays\)/)
+  expect(changeZoomBody(src)).toMatch(/anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\)/)
+  expect(src).toMatch(/const \{ start: visibleStartDays, end: visibleEndDays \} =\s+visibleDayRange\(detailStartDay, detailViewportW - LABEL_W, DAY_PX, maskDays\)/)
+  expect(src).toMatch(/el\.scrollLeft = Math\.max\(0, xAtDay\(dayOffset, DAY_PX, maskDays\)\)/)
+  expect(src).toMatch(/const targetPx = xAtDay\(todayDays, DAY_PX, maskDays\) - viewportContentW \/ 2/)
+}
 describe('S1 item 5: the minimap window animates after a zoom-tab change (ruling B7)', () => {
   const MOVE = 'left var(--duration-response) var(--ease-response), width var(--duration-response) var(--ease-response)'
   it('the sheet moves both layers under data-animate="true" only, and its one reduced-motion block stops them', () => {
@@ -930,7 +943,7 @@ describe('S1 item 5: the minimap window animates after a zoom-tab change (ruling
     // anchor as a DAY through the pair, with the scale and mask the click
     // happened in, and that day is the state; it carried px through
     // px / DAY_PX × the new px, which ignored the mask (P1-32b).
-    expect(changeZoomBody(code.timeline)).toMatch(/anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\)\s+setDetailStartDay\(anchorDayRef\.current\)\s+\}\s+setZoomId\(id\)\s+\}, \[DAY_PX, maskDays\]\)$/)
+    pinChangeZoom(code.timeline)
     // Both layers carry the flag, as a literal the attribute guards can read.
     expect(code.timeline.match(/data-animate=\{frameAnimate \? 'true' : 'false'\}/g)).toHaveLength(2)
   })
@@ -977,13 +990,13 @@ describe('S1 item 5: the minimap window animates after a zoom-tab change (ruling
     expect(reanchorBody(passive)).not.toMatch(/useLayoutEffect\(/)
   })
   it('CONTROL (S5p): changeZoom without its state, or reading px / DAY_PX; the listener ignoring the mask; a scripted scroll that records nothing — each is caught', () => {
-    const PIN = /anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\)\s+setDetailStartDay\(anchorDayRef\.current\)\s+\}\s+setZoomId\(id\)\s+\}, \[DAY_PX, maskDays\]\)$/
     const stateless = code.timeline.replace(/(anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\))\n\s+setDetailStartDay\(anchorDayRef\.current\)(\n\s+\}\n\s+setZoomId\(id\))/, '$1$2')
     expect(stateless).not.toBe(code.timeline)
-    expect(changeZoomBody(stateless)).not.toMatch(PIN)
+    expect(() => pinChangeZoom(stateless)).toThrow()
     const divided = code.timeline.replace('const changeZoom = useCallback((id) => {', 'const changeZoom = useCallback((id) => {\n    void (detailRef.current?.scrollLeft / DAY_PX)')
     expect(divided).not.toBe(code.timeline)
     expect(scrollArithmetic(divided)).toEqual(['* DAY_PX', '/ DAY_PX'])
+    expect(() => pinConversions(divided)).toThrow()
     const unmasked = code.timeline.replace('anchorDayRef.current = dayAtX(el.scrollLeft, g.dayPx, g.mask)', 'anchorDayRef.current = el.scrollLeft / g.dayPx')
     expect(unmasked).not.toBe(code.timeline)
     expect(() => pinOnScroll(unmasked)).toThrow()
@@ -1010,23 +1023,16 @@ describe('S5p: one weekend mask and one x ↔ day pair for the pane and the six 
     expect(maskBuilders(code.timeline)).toEqual(['weekendMask('])
   })
   it('no conversion multiplies or divides by the scale: the one * DAY_PX left is the unmasked chart\'s width', () => {
-    expect(scrollArithmetic(code.timeline)).toEqual(['* DAY_PX'])
-    expect(code.timeline).toMatch(/const chartW = totalDays \* DAY_PX/)
     // The six: the first-mount centring, the re-anchoring, changeZoom, the
     // visible window, scrollDetailToDay and Today, each through the pair.
-    expect(code.timeline).toMatch(/el\.scrollLeft = Math\.max\(0, xAtDay\(todayDays, DAY_PX, maskDays\) - 200\)/)
-    expect(code.timeline).toMatch(/const newScrollLeft = xAtDay\(anchorDayRef\.current \+ startDeltaDays, currPx, maskDays\)/)
-    expect(changeZoomBody(code.timeline)).toMatch(/anchorDayRef\.current = dayAtX\(el\.scrollLeft, DAY_PX, maskDays\)/)
-    expect(code.timeline).toMatch(/const \{ start: visibleStartDays, end: visibleEndDays \} =\s+visibleDayRange\(detailStartDay, detailViewportW - LABEL_W, DAY_PX, maskDays\)/)
-    expect(code.timeline).toMatch(/el\.scrollLeft = Math\.max\(0, xAtDay\(dayOffset, DAY_PX, maskDays\)\)/)
-    expect(code.timeline).toMatch(/const targetPx = xAtDay\(todayDays, DAY_PX, maskDays\) - viewportContentW \/ 2/)
+    pinConversions(code.timeline)
   })
   it('the re-anchoring watches the switch: hideWeekends is in its dependencies and a change of it re-anchors', () => {
     pinReanchorDeps(code.timeline)
     expect(reanchorBody(code.timeline)).toMatch(/const weekendsChanged = prevHideWeekendsRef\.current !== hideWeekends\s+if \(startMoved \|\| zoomChanged \|\| weekendsChanged\) \{/)
     expect(reanchorBody(code.timeline)).toMatch(/prevHideWeekendsRef\.current = hideWeekends$/)
   })
-  it('scrollDetailToDay is a callback on the scale and the mask, and scrollDetailToDate follows it (it kept Week\'s 22px until the span next moved)', () => {
+  it('scrollDetailToDay is a callback on the scale and the mask, and scrollDetailToDate follows it (it kept Week\'s 22px until the schedule was next rebuilt)', () => {
     pinCallbackDeps(code.timeline)
     expect(code.timeline).toMatch(/const scrollDetailToDate = useCallback\(\(date\) => \{[\s\S]{0,200}?scrollDetailToDay\(days\)\s+\}, \[/)
     expect(code.timeline).not.toMatch(/function scrollDetailToDay\(/)
@@ -1035,10 +1041,19 @@ describe('S5p: one weekend mask and one x ↔ day pair for the pane and the six 
     const ownMask = code.timeline.replace('const hideWeekends = !!dayMask', 'const ownMask = useMemo(() => { const mask = new Array(totalDays + 1); return { mask, totalPx: 0 } }, [totalDays])\n  const hideWeekends = !!dayMask')
     expect(ownMask).not.toBe(code.timeline)
     expect(maskBuilders(detailPaneBody(ownMask))).toEqual(['new Array(totalDays + 1)'])
-    // Each plant run through the pin's own assertion (R1-04).
-    const deaf = code.timeline.replace('}, [overviewSpan.start, DAY_PX, hideWeekends, maskDays])', '}, [overviewSpan.start, DAY_PX, maskDays])')
+    // Each plant run through the pin's own assertion (R1-04). The deps planted
+    // back are the list before S5p, which fails the switch in the app's own
+    // render (timelineWeekends.test.jsx: "Mon 14 Sep" for "Fri 11 Dec").
+    // Round 2 (R2-03): dropping only hideWeekends, keeping maskDays, is NOT a
+    // defect (maskDays flips with it); the pin rejects it all the same — it
+    // checks the list as a lint rule would, not the behaviour.
+    const deaf = code.timeline.replace('}, [overviewSpan.start, DAY_PX, hideWeekends, maskDays])', '}, [overviewSpan.start, DAY_PX])')
     expect(deaf).not.toBe(code.timeline)
     expect(() => pinReanchorDeps(deaf)).toThrow()
+    // One of the six planted back as it was: Today's target in px a day.
+    const oldToday = code.timeline.replace('const targetPx = xAtDay(todayDays, DAY_PX, maskDays) - viewportContentW / 2', 'const targetPx = todayDays * DAY_PX - viewportContentW / 2')
+    expect(oldToday).not.toBe(code.timeline)
+    expect(() => pinConversions(oldToday)).toThrow()
     const stale = code.timeline.replace('}, [overviewSpan.start, scrollDetailToDay])', '}, [overviewSpan.start])')
     expect(stale).not.toBe(code.timeline)
     expect(() => pinCallbackDeps(stale)).toThrow()
@@ -1054,6 +1069,7 @@ describe('S5p: one weekend mask and one x ↔ day pair for the pane and the six 
     const oldWindow = code.timeline.replace(/const \{ start: visibleStartDays, end: visibleEndDays \} =\s+visibleDayRange\(detailStartDay, detailViewportW - LABEL_W, DAY_PX, maskDays\)/, 'const visibleStartDays = Math.max(0, detailStartDay)\n  const visibleEndDays = visibleStartDays + Math.max(1, (detailViewportW - LABEL_W) / DAY_PX)')
     expect(oldWindow).not.toBe(code.timeline)
     expect(scrollArithmetic(oldWindow)).toEqual(['* DAY_PX', '/ DAY_PX'])
+    expect(() => pinConversions(oldWindow)).toThrow()
   })
 })
 

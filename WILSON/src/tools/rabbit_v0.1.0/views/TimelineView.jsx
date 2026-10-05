@@ -729,11 +729,11 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // click and its window's drag (scrollDetailToDate). Post-overhaul S5p:
   // through the mask, and a callback on the scale and the mask — it was a
   // plain function that scrollDetailToDate's useCallback([overviewSpan.start])
-  // captured afresh only when the overview span moved (a schedule rebuild),
-  // so it kept the scale of the last render that moved it: Week's 22px from
-  // the moment the Timeline opened, until an edit. Measured in the app at Day
-  // zoom, a minimap click landed 207 days early with weekends shown, 154 with
-  // them hidden.
+  // captured afresh only when the schedule was rebuilt (computeOverviewSpan
+  // makes a new start Date each time, moved or not), so it kept the scale of
+  // the last render that rebuilt it: Week's 22px from the moment the Timeline
+  // opened, until an edit. Measured in the app at Day zoom, a minimap click
+  // landed 207 days early with weekends shown, 154 with them hidden.
   const scrollDetailToDay = useCallback((dayOffset) => {
     const el = detailRef.current
     if (!el) return
@@ -2243,8 +2243,10 @@ export function DetailPane({
   // that fraction of a column — a zero-length bar's half day (its
   // Math.max(0.5, …)) is half a column, where the pane's own mask rounded it
   // up to a whole one; and a day past the chart's end is the chart's end, not
-  // the last day's start — so the "+ New task" ghost within seven days of the
-  // end is one column wider, still capped at the chart's width.
+  // the last day's start — so, when the chart's last day is a shown one, the
+  // "+ New task" ghost within seven days of the end is one column wider,
+  // still capped at the chart's width (a chart that ends on a weekend, as the
+  // fixtures' does, draws it as before).
   function dayToX(dayOffset) {
     return xAtDay(dayOffset, dayPx, dayMask?.mask)
   }

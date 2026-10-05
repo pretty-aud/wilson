@@ -15,11 +15,26 @@
  * switches transitions off and cannot see any of this; here they are ON.
  *
  * For each change: the outline's box is read, the tab is clicked inside the
- * page, and the box is sampled every animation frame for 700ms. It passes
- * when the outline was marked to animate, every frame's left edge and width
- * lie between the old box's and the final box's (0.75px of rounding), and
- * the last two frames agree (it came to rest). Cases, with "Show weekends"
- * on and off:
+ * page, and the outline is sampled every animation frame for 700ms — its
+ * drawn box (getBoundingClientRect) and its committed box (its inline
+ * left / width, the transition's target). It passes when (review round 2,
+ * R2-01: the first version passed an outline that jumped, one re-created on
+ * the change, and a committed box off the minimap):
+ *
+ *   - the outline is the SAME element throughout (a re-created one has
+ *     nothing to animate from);
+ *   - its committed box is the final box from the first frame on (no wrong
+ *     box is ever committed — S1's original bug was the new scale with the
+ *     old scroll for one render);
+ *   - every drawn frame's left edge, right edge and width lie between the old
+ *     box's and the final box's (0.75px of rounding);
+ *   - where the two ends differ, some frame lies clearly between them (it
+ *     SLID: a jump has no frame in between);
+ *   - the outline was marked to animate (data-animate) and came to rest (the
+ *     last two frames agree);
+ *   - and a frame with no outline at all fails rather than stalls.
+ *
+ * Cases, with "Show weekends" on and off:
  *
  *   - the 12 ordered zoom changes, chained from where the Timeline opens;
  *   - Sat 10 Oct at Week's left edge → Day (with weekends hidden its first
@@ -32,7 +47,7 @@
  * scripts' clock). Needs the worktree's own dev server with
  * VITE_DEV_AUTOLOGIN=tester and VITE_DEV_FIXTURES=1. Nothing is saved: zoom
  * tabs and scrolls only; "Show weekends" is set in this page's localStorage.
- * Exits 1 if any change draws a wrong box or does not animate.
+ * Exits 1 if any change fails any of the checks above.
  */
 import { chromium } from '@playwright/test';
 
@@ -118,35 +133,56 @@ const setScroll = (page, x) => page.evaluate((v) => {
 
 /** One zoom change, frame by frame: the verdict and a line to print. */
 async function slide(page, label, to) {
-  const box = () => page.evaluate(() => { const r = document.querySelector('.rb-tl-ov-frame-edge').getBoundingClientRect(); return { l: r.left, w: r.width }; });
-  const before = await box();
-  const frames = await page.evaluate(async (title) => {
-    const out = [];
+  const sample = await page.evaluate(async (title) => {
+    const node = document.querySelector('.rb-tl-ov-frame-edge');
+    if (!node) return { error: 'no outline before the click' };
+    const r0 = node.getBoundingClientRect();
+    const before = { l: r0.left, r: r0.right, w: r0.width };
+    const frames = [];
     document.querySelector(`[title="${title}"]`).click();
     const t0 = performance.now();
     await new Promise((resolve) => {
       const tick = () => {
         const e = document.querySelector('.rb-tl-ov-frame-edge');
-        const r = e.getBoundingClientRect();
-        out.push({ t: Math.round(performance.now() - t0), l: r.left, w: r.width, anim: e.getAttribute('data-animate') });
+        if (!e) frames.push({ t: Math.round(performance.now() - t0), missing: true });
+        else {
+          const r = e.getBoundingClientRect();
+          frames.push({
+            t: Math.round(performance.now() - t0), l: r.left, r: r.right, w: r.width,
+            sl: parseFloat(e.style.left), sw: parseFloat(e.style.width),
+            same: e === node, anim: e.getAttribute('data-animate'),
+          });
+        }
         if (performance.now() - t0 < 700) requestAnimationFrame(tick); else resolve();
       };
       requestAnimationFrame(tick);
     });
-    return out;
+    return { before, frames };
   }, `Switch the detail gantt to ${NAME[to]} zoom`);
   await page.mouse.move(W - 70, 12);
+  const fail = (why) => { failed++; console.log(`  ✗ ${label.padEnd(34)} ${why}`); return false; };
+  if (sample.error) return fail(sample.error);
+  const { before, frames } = sample;
+  if (frames.some((f) => f.missing)) return fail(`NO OUTLINE in ${frames.filter((f) => f.missing).length} frame(s)`);
   const end = frames[frames.length - 1];
   const prev = frames[frames.length - 2] || end;
   const between = (v, a, b) => v >= Math.min(a, b) - TOL && v <= Math.max(a, b) + TOL;
-  const wrong = frames.filter((f) => !between(f.l, before.l, end.l) || !between(f.w, before.w, end.w));
-  const animated = frames.some((f) => f.anim === 'true');
-  const rested = Math.abs(end.l - prev.l) < 0.01 && Math.abs(end.w - prev.w) < 0.01;
-  const ok = wrong.length === 0 && animated && rested;
-  if (!ok) failed++;
+  const strictly = (v, a, b) => v > Math.min(a, b) + TOL && v < Math.max(a, b) - TOL;
+  const problems = [];
+  if (!frames.every((f) => f.same)) problems.push('RE-CREATED (a new outline has nothing to slide from)');
+  const committed = frames.filter((f) => Math.abs(f.sl - end.sl) > 0.01 || Math.abs(f.sw - end.sw) > 0.01);
+  if (committed.length) problems.push(`WRONG BOX COMMITTED: ${committed.slice(0, 3).map((f) => `${f.t}ms ${f.sl.toFixed(1)}+${f.sw.toFixed(1)}`).join(', ')} (final ${end.sl.toFixed(1)}+${end.sw.toFixed(1)})`);
+  const outside = frames.filter((f) => !between(f.l, before.l, end.l) || !between(f.r, before.r, end.r) || !between(f.w, before.w, end.w));
+  if (outside.length) problems.push(`WRONG BOX DRAWN: ${outside.slice(0, 3).map((f) => `${f.t}ms ${f.l.toFixed(1)}..${f.r.toFixed(1)}`).join(', ')}`);
+  const differs = Math.abs(end.l - before.l) > 2 * TOL || Math.abs(end.w - before.w) > 2 * TOL;
+  const slid = frames.some((f) => (Math.abs(end.l - before.l) > 2 * TOL && strictly(f.l, before.l, end.l)) || (Math.abs(end.w - before.w) > 2 * TOL && strictly(f.w, before.w, end.w)));
+  if (differs && !slid) problems.push('JUMPED (no frame between the two boxes)');
+  if (!frames.some((f) => f.anim === 'true')) problems.push('NOT MARKED TO ANIMATE');
+  if (Math.abs(end.l - prev.l) > 0.01 || Math.abs(end.w - prev.w) > 0.01) problems.push('NOT AT REST');
   const moving = frames.filter((f, k) => k > 0 && (Math.abs(f.l - frames[k - 1].l) > 0.01 || Math.abs(f.w - frames[k - 1].w) > 0.01)).length;
-  console.log(`  ${ok ? '✓' : '✗'} ${label.padEnd(34)} ${before.l.toFixed(1)}+${before.w.toFixed(1)} → ${end.l.toFixed(1)}+${end.w.toFixed(1)}   ${frames.length} frames, ${moving} moving${animated ? '' : ', NOT ANIMATED'}${rested ? '' : ', NOT AT REST'}${wrong.length ? `   WRONG BOX: ${wrong.slice(0, 4).map((f) => `${f.t}ms ${f.l.toFixed(1)}+${f.w.toFixed(1)}`).join(', ')}` : ''}`);
-  return ok;
+  if (problems.length) return fail(`${before.l.toFixed(1)}+${before.w.toFixed(1)} → ${end.l.toFixed(1)}+${end.w.toFixed(1)}   ${problems.join('; ')}`);
+  console.log(`  ✓ ${label.padEnd(34)} ${before.l.toFixed(1)}+${before.w.toFixed(1)} → ${end.l.toFixed(1)}+${end.w.toFixed(1)}   ${frames.length} frames, ${moving} moving`);
+  return true;
 }
 
 for (const shown of [true, false]) {
@@ -179,5 +215,5 @@ for (const shown of [true, false]) {
 }
 
 await browser.close();
-console.log(failed ? `\n✗ ${failed} zoom change(s) drew a wrong box, did not animate or did not come to rest` : '\n✓ every zoom-tab change slides from the old box to the new, no wrong box, both settings');
+console.log(failed ? `\n✗ ${failed} zoom change(s) failed: see the lines marked ✗` : '\n✓ every zoom-tab change slides, on one outline, from the old box to the new; no wrong box committed or drawn; both settings');
 process.exit(failed ? 1 : 0);

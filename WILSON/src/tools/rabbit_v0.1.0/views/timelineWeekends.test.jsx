@@ -170,6 +170,23 @@ function minimapWindow(today = TODAY) {
   const fw = parseFloat(frame.style.width)
   return { start: today + Math.round((fl - tx) / px), end: today + Math.round((fl + fw - tx) / px), px, tx }
 }
+/** The header the pane draws, against the rule: every day of `from` … `to`
+    (day indices on g's chart) has its tick at the rule's x, and a hidden one
+    has none (S5p review round 2, R2-02: after a span move a stale mask kept
+    the left date and drew Saturday 12 Dec, hiding Monday 14). */
+function expectHeaderDrawn(g, from, to, what) {
+  const ticks = [...gantt().querySelectorAll('.rb-tl-axis-tick')].map((t) => ({ x: parseFloat(t.style.left), label: t.querySelector('.rb-tl-axis-label')?.textContent }))
+  // Only this stretch's ticks: the chart runs into 2028, and "Dec 13" is a
+  // Sunday in 2026 but a drawn Monday in 2027.
+  const stretch = ticks.filter((k) => k.x >= g.x(from) - 1 && k.x <= g.x(to) + 1)
+  for (let i = from; i <= to; i++) {
+    const words = g.say(i)
+    const [, d, mon] = words.split(' ')
+    const drawn = stretch.filter((k) => k.label === `${mon} ${d}`)
+    if (g.masked && g.shown(i) !== i) expect(drawn, `${what}: ${words} is hidden`).toEqual([])
+    else expect(drawn.map((k) => k.x), `${what}: ${words} at the rule's x`).toEqual([g.x(i)])
+  }
+}
 /** How many days the minimap window spans, from the gantt's scroll and the
     rule alone (S5p review round 1, R1-05: the click's expected landing came
     from the box the code drew). The day at the left edge and the day at the
@@ -325,12 +342,15 @@ describe('"Show weekends" keeps the date under the eye (hideWeekends re-anchors)
 // start. The span runs from 180 days before the project's first date to 540
 // after its last, so moving the whole phase moves the chart's first day and
 // keeps its length (the case where a mask built from the old start would
-// still be in use). The shifts are ones under which that old mask provably
-// puts another date at the left (the CONTROL below): a weekday count over
-// the chart's first days and its last before Fri 11 Dec that differs.
+// still be in use). The chart then opens on a Sunday (−3), a Monday (−2), a
+// Thursday (+1), a Saturday (+3), a Sunday (+4) and a Monday (+5). Under a
+// mask left on the old start, the left date moves at −3, −2, +4 and +5 (the
+// weekday count over the chart's first days and its days before 11 Dec
+// differs) but not at +1 or +3 — there the header and the window catch it
+// (review round 2, R2-02: it drew Saturday 12 Dec and hid Monday 14).
 const moveDays = (iso, n) => { const d = parseIsoDate(iso); d.setDate(d.getDate() + n); return toIsoDate(d) }
 describe('a span move keeps the date: the whole phase moved by a schedule rebuild, weekends shown and hidden', () => {
-  it.each([[-3], [-2], [4], [5]])('the phase moved %i days: Fri 11 Dec stays at the gantt\'s left edge, and the minimap window brackets the gantt', async (shift) => {
+  it.each([[-3], [-2], [1], [3], [4], [5]])('the phase moved %i days: Fri 11 Dec stays at the gantt\'s left edge, the header is the rule\'s, and the minimap window brackets the gantt', async (shift) => {
     for (const shownSetting of [true, false]) {
       const r = await mount(shownSetting)
       await zoomTo('day')
@@ -342,6 +362,7 @@ describe('a span move keeps the date: the whole phase moved by a schedule rebuil
       const g1 = geometry('day', !shownSetting, new Date(2026, 1, 4 + shift))
       const what = `moved ${shift} days, weekends ${shownSetting ? 'shown' : 'hidden'}`
       expect(g1.say(Math.floor(g1.day(gantt().scrollLeft))), what).toBe('Fri 11 Dec 2026')
+      expectHeaderDrawn(g1, g1.index(2026, 11, 7), g1.index(2026, 11, 22), what)
       expectBracketed(gantt().scrollLeft, minimapWindow(g1.index(2026, 8, 24)), g1, what)
       cleanup()
     }
@@ -428,9 +449,12 @@ describe('CONTROL: each assertion fails on what the code before this fix produce
       expect(moved.say(Math.floor(moved.day(moved.x(anchor)))), `${shift}: the new mask`).toBe('Fri 11 Dec 2026')
       expect(() => expect(moved.say(Math.floor(moved.day(old.x(anchor))))).toBe('Fri 11 Dec 2026'), `${shift}: the old mask`).toThrow()
     }
-    // …and why the shifts are chosen: under +1 or +3 the old mask counts as
-    // many weekdays as the new one (the days it drops at the chart's start
-    // and gains before 11 Dec are all weekdays), so it would land right.
+    // …but the left date alone cannot show it at +1 or +3: there the old mask
+    // counts as many weekdays as the new one (the days it drops at the
+    // chart's start and gains before 11 Dec are all weekdays), so the left
+    // date lands right. The rendered test reads the header the pane draws
+    // and the window as well, which do show it (review round 2, R2-02: at
+    // +1 the old mask draws Saturday 12 Dec and hides Monday 14).
     for (const shift of [1, 3]) {
       const old = geometry('day', true)
       const moved = geometry('day', true, new Date(2026, 1, 4 + shift))
