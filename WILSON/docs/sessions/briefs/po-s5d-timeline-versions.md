@@ -7,6 +7,15 @@ Read first: `docs/sessions/handoffs/po-s5c-2026-10-05.md` — ALL of "For the Ti
 
 Branch: the existing `po/s5-budget-versions` (S5c's hand-off §7 has the first commands; merge the integration branch first — S5p's Timeline work is there); port **5280**; hand-off `docs/sessions/handoffs/po-s5d-<date>.md`. Two adversarial review rounds, ONE reviewer subagent each (`model: "opus"`): the first covers your work AND attacks S5c's last corrections (`ccbbf6c4`) and how S5p's mask meets the version view; the second attacks the first's corrections. No waiting for Audrey; no chips; last command `git checkout --detach`. The branch is at **267 files / 6,475 tests** before S5p's merge; state what you measure. Locate by identifier, never by line number. Nobody else is running: you have the tree to yourself.
 
+## Added 2026-10-05, after S5p landed (`81f2162a`; the branch is now at 268 files / 6,514 tests)
+
+S5p's hand-off (`docs/sessions/handoffs/po-s5p-2026-10-05.md`, "For the Timeline's version-control session") binds step 2 below:
+
+- **Viewing a version is a span move, never a remount.** Feed the viewed snapshot's phases, tasks and key dates through the SAME props and memos (`schedule` → `overviewSpan`); never give `TimelineView` or the gantt's scroller a `key` that changes with the version — a remount starts a new anchor at 0 and the first-mount centring throws the gantt back to today.
+- **To move the gantt to a date call `scrollDetailToDate(date)`**; every write of `scrollLeft` records `anchorDayRef` (the `scriptedScrolls` pin in `rabbitTimelineCss.test.js` counts four writes — a fifth must record too, and the count changes with it); no `* DAY_PX` / `/ DAY_PX` beyond the chart width (`pinConversions`); conversions through `timelineMinimap.js`'s `dayAtX` / `xAtDay` / `visibleDayRange` with `maskDays`.
+- **Measure before and after**, at 1440x900 and 1280x700: `node scripts/timeline-weekends-probe.mjs 5280` and `node scripts/timeline-window-slide.mjs 5280` (each exits 1 on a moved date or a wrong box), beside the rows probe and the state shots; `timelineWeekends.test.jsx`'s span-move tests are the guard.
+- The questions are NOT counted in `ownDialogsRef` (S5c's rule: the undo keys stand down under them); S5p's line about counting a popup applies only to a popup that should keep the keys, and you add none.
+
 ## Her words that rule this step
 
 - F2: *"viewing a version is read-only. to edit a version press "Edit this version" … loads that version into the live Timeline and Budget and it becomes the open version. while a version is open, Save writes the changes back INTO that version … and the page shows when the open version has unsaved changes. a new version is only made on purpose with "Save as new version" …"*
