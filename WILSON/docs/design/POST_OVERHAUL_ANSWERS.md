@@ -169,3 +169,22 @@ The controller's readings (correct me if wrong):
 - **G** stands, with the controller spawning the chips; S5 loads both design skills.
 
 Built by bundle S5 (`docs/sessions/briefs/po-s5-budget-versions.md`).
+
+## 2026-10-05 — the open-version ruling (after S5's first two steps), in chat
+
+Asked by the controller, from S5's review round 1 (R1-05): *When you open "Mid ROM v2", what should happen to tasks that are on the Timeline right now but are not part of v2 — for example the extra tasks you added for "High ROM v3"? (a) They leave the Timeline while v2 is open, and come back when you open v3 again. Each version shows exactly its own schedule. (b) They stay on the Timeline. v2 would say "unsaved changes" straight away, and pressing Save would add those tasks to v2.* The controller's pick was (a), and it told her that what S5 had built so far did (b) from a sentence of the controller's own draft, not from her F2.
+
+Her answer, verbatim:
+
+```
+to answer you a
+```
+
+The controller's readings:
+
+- **A version shows exactly its own schedule.** Opening a version makes the live Timeline and Budget equal to it; rows that are not part of it are SET ASIDE (hidden everywhere, nothing on them lost, never in Recently deleted, never purged) and return, the same rows, when a version that holds them is opened.
+- The S5 brief's sentence "Tasks added after the version was saved stay as they are (her F2)" is withdrawn: it was the controller's draft wording; her F2 says "loads that version into the live Timeline and Budget".
+- Promised to her in the same message: nothing attached to a set-aside task is dropped (comments, files, logged time), and WILSON asks before setting aside a task that has logged time.
+- Told to her and not objected to: locking now freezes the version as saved; while a budget is active Save as new version only records a copy; versions saved before S5 cannot be opened for editing; and the next session closes S5-01 (a project member changing the budget's settings directly in the database) under her D8 ruling.
+
+Built by the S5 continuation (`docs/sessions/briefs/po-s5b-budget-versions-screens.md`).
