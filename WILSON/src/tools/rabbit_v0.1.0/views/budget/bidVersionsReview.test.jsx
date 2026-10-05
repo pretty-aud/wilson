@@ -526,6 +526,63 @@ async function deleteFromManage(name) {
   return d
 }
 
+// Post-overhaul S5d review round 1 (R1-01, HIGH): R2-01's and R1-01's proofs
+// resolved every delete in a microtask, so React never rendered between the
+// optimistic drop and the failure, and the provider's bundleRef (an effect
+// writes it) never held the dropped bundle. Over a real network each delete
+// is a macrotask: it did, the rollback left it there, and the compensation
+// (set aside again what was not deleted) read it and found nothing — another
+// bid's rows stayed live under the open version, for its next Save to fold
+// in. Paced here as a network paces it, on both backends' shapes.
+describe('S5d R1-01: a version delete stopped part way over a real network sets aside again what it did not delete', () => {
+  const tick = (ms) => new Promise(r => setTimeout(r, ms))
+  const paced = async (fn) => {
+    // Outside act, so React renders between the deletes as a browser does.
+    const prev = globalThis.IS_REACT_ACT_ENVIRONMENT
+    globalThis.IS_REACT_ACT_ENVIRONMENT = false
+    try { const out = await fn(); await tick(150); return out } finally { globalThis.IS_REACT_ACT_ENVIRONMENT = prev }
+  }
+  for (const [shape, stage] of [
+    ['the Local Server (its DELETE removes the row; no restore)', () => {
+      delete holder.adapter.restoreTask
+      delete holder.adapter.restorePhase
+      let n = 0
+      holder.adapter.deleteTask = async (id) => {
+        await tick(5)
+        n += 1
+        if (n === 3) throw new Error('[localServer] HTTP 500')
+        const i = fx.store.tasks.findIndex(t => t.id === id)
+        if (i >= 0) fx.store.tasks.splice(i, 1)
+      }
+    }],
+    ['the cloud (a soft delete, all or nothing: the two restored)', () => {
+      const del = holder.adapter.deleteTask.bind(holder.adapter)
+      const res = holder.adapter.restoreTask.bind(holder.adapter)
+      let n = 0
+      holder.adapter.deleteTask = async (...a) => { await tick(5); n += 1; if (n === 3) throw new Error('[supabase] network'); return del(...a) }
+      holder.adapter.restoreTask = async (...a) => { await tick(5); return res(...a) }
+    }],
+  ]) {
+    it(`${shape}: none of Bid v2's own tasks is left live under the open Bid v1`, async () => {
+      await mount()
+      await reset()
+      await select(BV1)
+      await openQuietly(BV1)
+      await run(() => ctx.dismissUndoToast())
+      const onlyV2 = ctx.setAsideTasks.map(t => t.id)
+      expect(onlyV2).toHaveLength(11)
+      stage()
+      const err = await paced(() => ctx.deleteBudgetVersion(BV2).then(() => null, e => e))
+      await run(async () => {})
+      expect(err).toBeInstanceOf(Error) // the delete stopped, and said so
+      expect({
+        live: ctx.tasks.filter(t => onlyV2.includes(t.id)).length,
+        open: ctx.project.open_budget_version_id,
+      }).toEqual({ live: 0, open: BV1 })
+    }, 30000)
+  }
+})
+
 describe('R2-01: on the Local Server a step stopped part way keeps what it deleted within reach of its Undo', () => {
   it('a version delete stopped at its 3rd task: the 2 that went leave the screen, the rest go aside again, and the toast\'s Undo brings all 11 back', async () => {
     await mount()

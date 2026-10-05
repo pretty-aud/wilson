@@ -163,6 +163,19 @@ describe('S5d: every grouping draws every task, and a link to a row no longer in
       'Assignee “Bo”: not on this project\'s team', 'Assignee: no longer in the project', undefined, undefined,
     ])
   })
+  // S5d review round 1 (R1-09): while the roster loads it holds no one, and
+  // every assigned task said its person was no longer in the project.
+  it('group by team while the roster is still read (it holds no one): every task drawn under Unassigned, and none says its person has gone', () => {
+    const rows = buildRowsByGrouping({
+      groupBy: 'team', phases: [], assets: [], schedule: sched,
+      tasks: [{ id: 'tA', title: 'On the team', assignee_id: 'mA' }, { id: 'tD', title: 'Nobody', assignee_id: null }],
+      teamAssignments: [{ member_id: 'mA' }],
+      teamMembers: [],
+    })
+    expect(keys(rows)).toEqual(['tA', 'tD'])
+    expect(under(rows, 'grp-tm-unassigned')).toEqual(['tA', 'tD'])
+    expect(rows.filter(r => r.kind === 'task').map(r => r.tooltip)).toEqual([undefined, undefined])
+  })
   it('group by asset, level and experience: a link to one the project no longer has reads under No …, saying so; no link says nothing', () => {
     const tasks = [
       { id: 't1', title: 'Gone', asset_id: 'aZ', level_id: 'lZ', experience_id: 'xZ' },

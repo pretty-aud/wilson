@@ -136,6 +136,8 @@ afterEach(() => {
 const bar = () => document.querySelector('.rb-tl-ver-bar')
 const combo = () => within(bar()).getByRole('combobox', { name: 'Bid version' })
 const words = () => bar().querySelector('.rb-tl-ver-state').textContent
+/** The bar's refusal, on its own line right under the bar (R1-05). */
+const errorLine = () => document.querySelector('[data-version-error]')
 const verbs = () => [...bar().querySelectorAll('.rb-tl-ver-verbs button')].map(b => b.textContent.trim())
 const verb = (name) => within(bar().querySelector('.rb-tl-ver-verbs')).getByRole('button', { name })
 const press = (el) => act(async () => { fireEvent.click(el) })
@@ -331,6 +333,24 @@ describe('viewing a version (F2: read-only — nothing written, nothing set asid
     await press(verb('Current'))
     expect(document.querySelector('.rb-tl-ed-title')).toBeNull()
   })
+  // S5d review round 1 (R1-04): the undo toast on screen when a look starts
+  // is a live step's. It goes with the look, as the keys and the toolbar's
+  // Undo stand down: its Undo took back a live row under the version shown.
+  it('a live step\'s undo toast goes when a version is chosen — its Undo cannot take back a live row under the view — and Ctrl+Z at Current still can', async () => {
+    await mount()
+    await reset()
+    await run(() => ctx.dismissUndoToast())
+    await run(() => ctx.deleteTask(TASK_ID(5)))
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    await choose(BV1)
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    await press(verb('Current'))
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    expect(ctx.tasks.some(t => t.id === TASK_ID(5))).toBe(false)
+    // CONTROL: the step is still on the stack — the key at Current takes it back.
+    expect(fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })).toBe(false)
+    await waitFor(() => expect(ctx.tasks.some(t => t.id === TASK_ID(5))).toBe(true))
+  })
   it('the arrows a viewed version draws are its rows\' links as they are now — exactly what Edit this version would show', async () => {
     await mount()
     await reset()
@@ -436,10 +456,102 @@ describe('Save from the Timeline: the Summary\'s mutator, its words and its toas
     let undoing
     await act(async () => { undoing = ctx.undo() })
     await press(verb('Save'))
-    await waitFor(() => expect(bar().querySelector('.rb-tl-ver-error')?.textContent).toBe('an Undo is still running — try again once it has finished'), { timeout: 2000 })
+    await waitFor(() => expect(errorLine()?.textContent).toBe('an Undo is still running — try again once it has finished'), { timeout: 2000 })
+    // R1-05: said on its own line right under the bar — the kit's danger
+    // Banner, which wraps, its Dismiss in reach — not squeezed into the bar,
+    // where it was clipped mid-word and its Dismiss with it.
+    expect(bar().querySelector('[data-version-error]')).toBeNull()
+    expect(bar().nextElementSibling).toBe(errorLine())
+    expect([errorLine().className, errorLine().dataset.tone, errorLine().getAttribute('role')]).toEqual(['ui-banner', 'danger', 'alert'])
+    await press(within(errorLine()).getByRole('button', { name: 'Dismiss' }))
+    expect(errorLine()).toBeNull()
     await act(async () => { release(); await undoing })
     holder.adapter.selectBudgetVersion = origSel
     expect(ctx.budgetVersions.find(v => v.id === BV1).snapshot.tasks.find(t => t.id === TASK_ID(3)).bid_days).not.toBe(9)
+  })
+  // S5d review round 1 (R1-02): the Timeline stands still while the Save
+  // runs. A drag made then joined the Save's undo step, so its Undo — or the
+  // "Stopped part way" toast's — took the drag back with it; an Undo pressed
+  // then waited its turn and took back the Save, not the edit before it.
+  it('while the Save runs the Timeline takes no change — greyed with the reason, Undo and the keys stand down, a task opens no popup — and once it lands, each works again', async () => {
+    const SAVING = 'Saving the open bid version: the Timeline takes changes again in a moment.'
+    await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const t1 = titleOf(TASK_ID(1))
+    const days = Number(ctx.tasks.find(t => t.id === TASK_ID(3)).bid_days) + 1
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: days }))
+    const orig = holder.adapter.patchBudgetVersion.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.patchBudgetVersion = async (...a) => { await gate; return orig(...a) }
+    expect(verb('Save').disabled).toBe(false)
+    await press(verb('Save'))
+    const gated = [...document.querySelectorAll('.ui-toolbar [aria-disabled="true"]')]
+    expect(gated.length).toBe(3) // + Phase (by phase), Key date, + Task
+    for (const g of gated) expect(g.getAttribute('title')).toBe(SAVING)
+    expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/· Saving the open bid version: the Timeline takes changes again in a moment\.$/)
+    expect(document.querySelector('.rb-tl-dz').getAttribute('title')).toBe(SAVING)
+    expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(true)
+    expect(fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })).toBe(true) // not cancelled: left alone
+    await press(rowOf(t1))
+    expect(screen.queryByTestId('task-popup')).toBeNull()
+    // Landed: Saved, and the Timeline takes changes again — nothing undone.
+    await act(async () => { release() })
+    await waitFor(() => expect(words()).toMatch(/· Saved /))
+    holder.adapter.patchBudgetVersion = orig
+    expect(ctx.tasks.find(t => t.id === TASK_ID(3)).bid_days).toBe(days)
+    expect(ctx.budgetVersions.find(v => v.id === BV1).snapshot.tasks.find(t => t.id === TASK_ID(3)).bid_days).toBe(days)
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
+    expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/click to edit/)
+    expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(false)
+    await press(rowOf(t1))
+    expect(screen.getByTestId('task-popup').textContent).toBe(TASK_ID(1))
+  })
+  it('a Save that fails lets the Timeline go too: the error is said, and the Timeline takes changes again', async () => {
+    await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
+    const orig = holder.adapter.patchBudgetVersion.bind(holder.adapter)
+    holder.adapter.patchBudgetVersion = async () => { throw new Error('[supabase] network') }
+    await press(verb('Save'))
+    await waitFor(() => expect(errorLine()).not.toBeNull())
+    holder.adapter.patchBudgetVersion = orig
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
+    expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/click to edit/)
+  })
+})
+
+// S5d review round 1 (R1-05): the words are pieces, so that where room runs
+// out only the version's name gives way (rabbitTimeline.css: the lead and the
+// tail are `flex: none`, the name takes the ellipsis). As one clipped line
+// the state went first — "Open: Bid v1 (fund …" at 1280. The sheet's half is
+// rabbitTimelineCss.test.js's.
+describe('the bar\'s words in pieces (R1-05): only the name gives way', () => {
+  // Each piece by its own class (lucide gives the eye two of its own).
+  const pieces = () => [...bar().querySelector('.rb-tl-ver-state').children]
+    .map(n => n.getAttribute('class').split(' ').filter(c => c.startsWith('rb-tl-ver-')).join(' '))
+  it('locked and none open: one sentence; open: "Open: ", the name, " · " and the state; viewing: the eye, the lead, the name, " · date", Read-only — and the words read as before', async () => {
+    await mount()
+    expect([pieces(), words()]).toEqual([['rb-tl-ver-line'], LOCKED_WHY])
+    await reset()
+    expect([pieces(), words()]).toEqual([['rb-tl-ver-line'], 'No version is open.'])
+    await openQuietly(BV2)
+    await run(() => ctx.dismissUndoToast())
+    expect(pieces()).toEqual(['rb-tl-ver-lead', 'rb-tl-ver-name', 'rb-tl-ver-tail'])
+    const state = bar().querySelector('.rb-tl-ver-state')
+    expect(state.querySelector('.rb-tl-ver-lead').textContent).toBe('Open: ')
+    expect(state.querySelector('.rb-tl-ver-name').textContent).toBe(V2)
+    expect(state.querySelector('.rb-tl-ver-tail').textContent).toMatch(/^ · Saved /)
+    expect(state.querySelector('.rb-tl-ver-tail .rb-tl-ver-status')).not.toBeNull()
+    await choose(BV1)
+    const v1 = ctx.budgetVersions.find(v => v.id === BV1)
+    expect(pieces()).toEqual(['rb-tl-ver-icon', 'rb-tl-ver-lead', 'rb-tl-ver-name', 'rb-tl-ver-tail', 'rb-tl-ver-quiet'])
+    expect(words()).toBe(`Viewing bid version: ${V1} · ${versionDate(v1)}Read-only`)
+    expect(bar().querySelector('.rb-tl-ver-tail').textContent).toBe(` · ${versionDate(v1)}`)
   })
 })
 

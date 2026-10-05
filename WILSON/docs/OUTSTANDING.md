@@ -2606,8 +2606,8 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   data the locked Bid v2 reads "Now $115,215" against "Bid $96,013" after
   Reset to bidding. The app is right; the fixtures' snapshot rates differ.
   Owner: Audrey (rebuild them?), then a fixtures session.
-- **S5c-03 · The Timeline's version control, the help pages and walkthrough
-  55's second half** are S5d's (steps 6 and 9).
+- ~~**S5c-03 · The Timeline's version control, the help pages and walkthrough
+  55's second half** are S5d's (steps 6 and 9).~~ — CLOSED by S5d (below).
 - **S5c-04 · `deleteAssets` has R2-01's fault on the Local Server.** Its
   bulk delete is all-or-nothing only where the backend can restore
   (`restoreAsset`); the Local Server has none (its DELETE removes the row),
@@ -2627,3 +2627,73 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   capture the stack at the start and push back only while
   `historyRef.current` is still it — as `runBatch` has done since S5's
   R1-03. Owner: a provider session.
+
+**S5d (2026-10-05, the Timeline half and the bundle's close — `docs/sessions/handoffs/po-s5d-2026-10-05.md`).**
+
+- **S5c-03 — CLOSED by S5d** (`2f33d361`, `d5197073`, `126907f0`, and the
+  review rounds' commits in the hand-off): the Timeline's bid version bar
+  (the toolbar's second row, past the money gate only), viewing a version
+  read-only as a span move, the lock greying the bar with its reason; the
+  "Budget" and "Timeline" help pages; walkthrough 55's second half.
+- **S5d-01 · `removeOrDelete`, `undo`, `redo` and `undoHistoryEntry` do not
+  refuse while a replay still runs.** INFERRED from the code (S5d review
+  round 1, R1-06; not run). S5c's round 2 (R2-03) made the version steps
+  refuse once the queue's wait has passed with an undo still replaying;
+  these four were left out. Past the wait, `removeOrDelete` (the Timeline's
+  Delete while a version is open: Remove from this version) records nothing
+  (its pushes drop while `suspended`), so the set-aside has no Undo and no
+  toast; it still measures its toast from the top of the stack at the asking
+  (`before`), so a redo queued ahead of it can be offered as its Undo; and a
+  second Ctrl+Z past the wait runs its `finally { suspended = false }` while
+  the first replay goes on, so the rest of that replay records entries of
+  its own. What would settle it: S5c's R2-03 probe (a held
+  `selectBudgetVersion`, `__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50`) with a
+  Remove from this version, or a second Ctrl+Z, behind it. Fix:
+  `refuseWhileReplaying` in the four, and `runWithUndoToast`'s marker in
+  `removeOrDelete`. Owner: a provider session.
+- **S5d-02 · The gantt's link writes, `addTaskLink` and
+  `addTeamAssignment` push their undo step with no visit check.** INFERRED
+  (review round 1, R1-07). `linkTasks`, `linkPhases` and `unlinkTasks` (the
+  dependency drags), `addTaskLink` and `addTeamAssignment` (which also
+  merges after its await) lack S5c R2-07's `visit` guard: a project switched
+  mid-request gets the step on the NEW project's stack, and its Ctrl+Z
+  deletes the first project's edge by id. Fix: the guard `addAsset` and the
+  rest have. Owner: a provider session.
+- **S5d-03 · Grouped by scene, a viewed bid version is grouped by the LIVE
+  active shot list.** INFERRED (review round 1, R1-08). `ctx.scenes`,
+  `ctx.shots` and the toolbar's "Shot list:" label stay the live list's,
+  while the version was based on its own (`shot_list_id`,
+  `snapshot.shot_list`): a version based on another list shows its
+  scene-linked tasks as not assigned, "linked outside the active list",
+  under the live list's label. What would settle it: view a version whose
+  `shot_list_id` is the archived Pickups list, grouped by scene. Fix: while
+  viewing, group by that list's scenes and shots (`ctx.scenesOf` /
+  `ctx.shotsOf`) and label it from the snapshot, or say in the bar which list
+  the scenes come from. Owner: Audrey (which list should a viewed version's
+  scenes come from?), then a Timeline session.
+- **S5d-04 · The rate card can read as settled with the last workspace's
+  rates for a moment after a backend switch.** INFERRED (review round 1).
+  S5c's R2-02 resets the project's rates in render per project;
+  `useRateCard` has no such reset per workspace, so once the new project's
+  overrides land the old card can read `settled`, and a Save in that moment
+  writes the old card's rates into the open version. Owner: a rates session.
+- **S5d-05 · A task write still in flight when Save is pressed joins the
+  Save's undo step.** INFERRED (S5d, from the code while fixing R1-02). Since
+  R1-02 nothing on the Timeline can change while the version bar's Save
+  runs, but a write already sent (a drag released a moment before) is not
+  waited for: `updateTask` is outside the history queue, and `pushHistory`
+  adds any entry made while a batch is open to that batch, so the Save's
+  Undo, or its "Stopped part way" toast, takes the drag back too. It needs a
+  write landing after Save is pressed: a slow connection. The Summary's Save
+  has the same window. Fix: the Save waits for the writes in flight (the
+  provider keeps no count of them today). Owner: a provider session.
+
+**Still open from S5, the bundle as a whole** (each above, by its own
+entry): S5-02 (bid versions are not broadcast — another window sees a
+version saved, opened or deleted elsewhere only on its next load); S5c-01
+(the Budget page has no Ctrl+Z for version steps — the toast is the way
+back); S5c-02 (the test data's bids carry the plain rates); S5b-01 (the
+project's budget amount and currency are shown to every member on the
+Projects page); S5b-04 (once a version is opened, every client of that
+project must be S5b or later). S5-03, S5-04, S5b-02, S5b-03, S5b-05, S5b-07,
+S5b-08, S5c-04, S5c-05 and S5d-01 – 05 stand as written.

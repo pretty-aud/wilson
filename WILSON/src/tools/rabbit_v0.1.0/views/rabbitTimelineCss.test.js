@@ -1186,4 +1186,27 @@ describe('S5d: the bid version bar takes the kit\'s own idioms', () => {
     expect(bodyOf('.rb-tl-ver-bar')).toMatch(/border-bottom: 1px solid var\(--color-rule\)/)
     expect(bodyOf('.rb-tl-ver-nope')).toBeNull()
   })
+  // Review round 1 (R1-05): where room runs out only the version's NAME gives
+  // way. As one clipped line the state went first ("Open: Bid v1 (fund …" at
+  // 1280); the bar's refusal was clipped mid-word with its Dismiss. The DOM's
+  // half (the pieces, the Banner under the bar) is timelineVersions.test.jsx's.
+  const declsOf = (selector) => rulesOf(sheet).filter(({ sel }) => selectorsOf(sel).includes(selector)).map(({ body }) => body).join('\n')
+  it('R1-05: the words are a flex row; the lead and the tail never shrink and keep their spaces; the name takes the ellipsis', () => {
+    expect(declsOf('.rb-tl-ver-state')).toMatch(/display:\s*inline-flex/)
+    expect(declsOf('.rb-tl-ver-state')).not.toMatch(/text-overflow/)
+    for (const s of ['.rb-tl-ver-lead', '.rb-tl-ver-tail']) {
+      expect(declsOf(s), s).toMatch(/flex:\s*none/)
+      expect(declsOf(s), s).toMatch(/white-space:\s*pre;/)
+    }
+    for (const s of ['.rb-tl-ver-icon', '.rb-tl-ver-quiet']) expect(declsOf(s), s).toMatch(/flex:\s*none/)
+    expect(declsOf('.rb-tl-ver-name')).toMatch(/flex:\s*0 1 auto;[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
+    expect(declsOf('.rb-tl-ver-line')).toMatch(/min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
+  })
+  it('R1-05: the refusal is the kit Banner\'s line, which wraps — no rb-tl-ver-error rule, and no nowrap in the Banner', () => {
+    expect(declsOf('.rb-tl-ver-error')).toBe('')
+    expect(indexCss).toMatch(/\.ui-banner-text \{ flex: 1; min-width: 0; \}/)
+    const banner = [...indexCss.matchAll(/\.ui-banner[^{]*\{[^}]*\}/g)].map((m) => m[0])
+    expect(banner.length).toBeGreaterThan(3)
+    expect(banner.filter((r) => /nowrap|text-overflow/.test(r))).toEqual([])
+  })
 })

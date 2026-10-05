@@ -229,6 +229,10 @@ export function saveRabbitSettings(s) {
 // "viewing a version is read-only") and says why in these words: the
 // toolbar's create buttons (GatedAction), every bar, row and drop zone.
 const VIEWING_READ_ONLY = 'Viewing a bid version is read-only: Current goes back to the live schedule.'
+// While the version bar's Save runs the Timeline takes no change (S5d review
+// round 1, R1-02): a drag made then joined the Save's undo step, or was taken
+// back by its "Stopped part way" toast.
+const SAVING_VERSION = 'Saving the open bid version: the Timeline takes changes again in a moment.'
 const NO_RATES = {}
 
 export default function TimelineView({ settings, patchSettings, holidays, pageActive = false, canSeeMoney = false }) {
@@ -281,6 +285,8 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // viewed (F9: the control is greyed); a version gone, opened (Edit this
   // version), locked or out of reach ends the look in the render it happens.
   const [viewedId, setViewedId] = useState(null)
+  // The version bar's Save, while it runs (R1-02): no change then.
+  const [versionSaving, setVersionSaving] = useState(false)
   const openVersionId = project?.open_budget_version_id || null
   const budgetLocked = project?.budget_active === true
   const viewedVersion = canSeeMoney && viewedId && !budgetLocked && viewedId !== openVersionId
@@ -298,8 +304,8 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   const tasks = view ? view.tasks : liveTasks
   const dependencies = view ? view.dependencies : liveDependencies
   const milestones = view ? view.milestones : liveMilestones
-  const canWrite = projectCanWrite && !viewing
-  const writeReason = viewing ? VIEWING_READ_ONLY : projectWriteReason
+  const canWrite = projectCanWrite && !viewing && !versionSaving
+  const writeReason = viewing ? VIEWING_READ_ONLY : (versionSaving ? SAVING_VERSION : projectWriteReason)
 
   // ── Dependency-write failures (Phase 2 of the 2026-08-10 build pass) ──────
   // Audrey, 2026-08-10: "i was able to grab the line from the dependency task
@@ -406,16 +412,18 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // the version bar is no dialog, so ownDialogsRef cannot see it): the undo
   // stack is the live schedule's, which is not on screen, and an Undo there
   // would change rows the person is not looking at. The key is left alone,
-  // not cancelled, as off the page.
+  // not cancelled, as off the page. And while the version bar's Save runs
+  // (review round 1, R1-02): an Undo then would take back the Save, not the
+  // edit before it.
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
-  const viewingRef = useRef(viewing)
-  viewingRef.current = viewing
+  const standDownRef = useRef(false)
+  standDownRef.current = viewing || versionSaving
   const ownDialogsRef = useRef(0)
   useEffect(() => {
     function onKey(e) {
       if (!pageActiveRef.current) return
-      if (viewingRef.current) return
+      if (standDownRef.current) return
       if (drawerOnScreen() || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
       if (visibleDialogCount() > ownDialogsRef.current) return
       const t = e.target
@@ -458,8 +466,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // Such an id is let go, so a Ctrl+Y that brings the task back does not
   // re-open the popup by itself. Post-overhaul S5d: the popup reads the LIVE
   // task, so it is never shown over a viewed bid version (whose rows carry
-  // the same ids) — choosing a version closes it, by this same rule.
-  const detailTaskShown = !!detailTaskId && !viewing && liveTasks.some(t => t.id === detailTaskId)
+  // the same ids) — choosing a version closes it, by this same rule. Nor while
+  // the version bar's Save runs (R1-02): its fields write as they change, and
+  // a change then joined the Save's undo step. A click then opens nothing.
+  const detailTaskShown = !!detailTaskId && !viewing && !versionSaving && liveTasks.some(t => t.id === detailTaskId)
   useEffect(() => {
     if (detailTaskId && !detailTaskShown) setDetailTaskId(null)
   }, [detailTaskId, detailTaskShown])
@@ -746,7 +756,14 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     const startDeltaDays = (prevStart && currStart) ? daysBetween(currStart, prevStart) : 0
     const newScrollLeft = xAtDay(anchorDayRef.current + startDeltaDays, currPx, maskDays)
 
-    if (Number.isFinite(newScrollLeft) && newScrollLeft >= 0) {
+    // Post-overhaul S5d review round 1 (R1-03): an anchor the span move left
+    // BEFORE the new chart's first day (a viewed bid version whose schedule
+    // starts after the date at the left) scrolls to that first day — the
+    // browser clamps a negative scroll to 0 — and the anchor is read back. A
+    // `>= 0` guard skipped it with weekends shown (xAtDay is unclamped there),
+    // keeping the old pixels, which on the new chart are another date: the
+    // gantt jumped by the span's move, and Current did not come back.
+    if (Number.isFinite(newScrollLeft)) {
       // Only re-anchor when something actually moved — avoids fighting
       // the user's own scroll events.
       const startMoved = prevStart && currStart && +prevStart !== +currStart
@@ -948,11 +965,18 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // undo keys stand down under each).
   const [ask, setAsk] = useState(null)
   // What the gantt shows: a version (read-only) or the live schedule. A popup
-  // or an editor on screen is of a live row, so it goes with the look.
+  // or an editor on screen is of a live row, so it goes with the look — and
+  // so does the undo toast (review round 1, R1-04): its Undo is the live
+  // schedule's, as the keys' and the toolbar's are, and it took back a live
+  // step under the version on screen.
+  const dismissUndoToast = ctx?.dismissUndoToast
   const chooseView = useCallback((id) => {
     setViewedId(id || null)
-    if (id) setEditor(null)
-  }, [])
+    if (id) {
+      setEditor(null)
+      dismissUndoToast?.()
+    }
+  }, [dismissUndoToast])
 
   // ── early return: no project ─────────────────────────────
   // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
@@ -1086,9 +1110,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         sortOrder={settings.sortOrder}
         onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
         // S5d: Undo and Redo stand down while a version is viewed (the keys
-        // too, above): the stack is the live schedule's.
-        canUndo={!!ctx?.canUndo && !viewing}
-        canRedo={!!ctx?.canRedo && !viewing}
+        // too, above): the stack is the live schedule's. And while the bar's
+        // Save runs (R1-02).
+        canUndo={!!ctx?.canUndo && !viewing && !versionSaving}
+        canRedo={!!ctx?.canRedo && !viewing && !versionSaving}
         onUndo={() => ctx?.undo?.()}
         onRedo={() => ctx?.redo?.()}
         onNewPhase={() => openNewPhase()}
@@ -1111,6 +1136,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
             viewedId={viewing ? viewedId : null}
             onView={chooseView}
             onAsk={setAsk}
+            onSaving={setVersionSaving}
           />
         ) : null}
       />
@@ -6795,8 +6821,12 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
   // row is drawn for, and vanished from this grouping (older than S5; a
   // viewed bid version, whose people may have left the team since, made it
   // likelier). It reads under Unassigned instead — never dropped, the S3c
-  // rule — and its row says who it points at.
+  // rule — and its row says who it points at. "No longer in the project" is
+  // said only once the roster has someone in it (review round 1, R1-09):
+  // while it loads it holds no one, and every assigned task said its person
+  // had gone.
   const drawn = new Set(teamAssignments.map(a => a.member_id).filter(id => memberById[id]))
+  const rosterRead = teamMembers.length > 0
   const tasksByMember = {}   // { memberId: Task[] }
   const unassignedTasks = []
   const offTeam = new Map()  // { taskId: what its assignee is, said }
@@ -6807,10 +6837,9 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
       tasksByMember[mid].push(t)
     } else {
       unassignedTasks.push(t)
-      if (t.assignee_id) {
-        const who = memberById[t.assignee_id]?.name
-        offTeam.set(t.id, who ? `Assignee “${who}”: not on this project's team` : 'Assignee: no longer in the project')
-      }
+      const who = t.assignee_id ? memberById[t.assignee_id]?.name : null
+      if (who) offTeam.set(t.id, `Assignee “${who}”: not on this project's team`)
+      else if (t.assignee_id && rosterRead) offTeam.set(t.id, 'Assignee: no longer in the project')
     }
   }
 

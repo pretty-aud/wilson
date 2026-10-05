@@ -437,6 +437,32 @@ describe('viewing a bid version is a span move, never a remount (S5d): weekends 
     expect(g1.say(Math.floor(g1.day(gantt().scrollLeft))), 'back at Day').toBe('Fri 11 Dec 2026')
     expect(document.querySelector('.rb-tl-ver-bar').dataset.mode).toBe('viewing')
   }, 30000)
+  // S5d review round 1 (R1-03): a version whose chart starts AFTER the date at
+  // the left. Its schedule moved 300 days, so its chart opens on Tue 1 Dec
+  // 2026 while the gantt sat on Mon 12 Oct: the anchor falls before the new
+  // chart. The gantt goes to the chart's first day in both settings, and
+  // Current comes back to that date (the anchor is read back). A `>= 0` guard
+  // skipped the write with weekends shown: the old pixels stayed — 300 days
+  // later on the version's chart — and Current came back 300 days late.
+  it.each([['week', 'shown', true], ['day', 'shown', true], ['day', 'hidden', false]])('a version starting after the left date (moved 300 days), at %s zoom with weekends %s: the gantt opens on its first day, Tue 1 Dec 2026, and Current comes back to it', async (zoom, _words, shownSetting) => {
+    rabbit.current = priced(300)
+    render(viewing(shownSetting))
+    await settle()
+    await zoomTo(zoom)
+    const g0 = geometry(zoom, !shownSetting)
+    await scrollTo(Math.round(g0.x(g0.index(2026, 9, 12) + 0.5)))
+    expect(g0.say(Math.floor(g0.day(gantt().scrollLeft))), 'parked').toBe('Mon 12 Oct 2026')
+    const scroller = gantt()
+    await pick('bv-moved')
+    expect(document.querySelector('.rb-tl-ver-bar').dataset.mode).toBe('viewing')
+    expect(gantt(), 'the same scroller').toBe(scroller)
+    const g1 = geometry(zoom, !shownSetting, new Date(2026, 1, 4 + 300))
+    expect(gantt().scrollLeft, 'at the chart\'s first day').toBe(0)
+    expect(g1.say(Math.floor(g1.day(gantt().scrollLeft)))).toBe('Tue 1 Dec 2026')
+    await pick('__current__')
+    expect(gantt(), 'back: the same scroller').toBe(scroller)
+    expect(g0.say(Math.floor(g0.day(gantt().scrollLeft))), 'back at Current').toBe('Tue 1 Dec 2026')
+  }, 30000)
 })
 
 describe.each([['shown', true], ['hidden', false]])('Today, at every zoom, weekends %s', (mode, shownSetting) => {

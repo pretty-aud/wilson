@@ -749,36 +749,37 @@
   .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: 320px; }
   /* The state in words, the Summary's save row's inks (rabbitBudget.css,
      `rb-bv-open-*`): the second ink, the open version's name in the ink at
-     600, "Unsaved changes" in the ink. It gives way first, to an ellipsis. */
+     600, "Unsaved changes" in the ink. It gives way first, and within it only
+     the NAME (review round 1, R1-05): "Open:", the state after the name and a
+     viewed version's date are whole pieces (`flex: none`, their spaces kept),
+     so the ellipsis lands in the name — as one clipped line the state went
+     first ("Open: Bid v1 (fund …" at 1280). A one-sentence state (locked,
+     none open) is one piece, clipped at its end. */
   .rb-tl-ver-state {
+    display: inline-flex;
+    align-items: baseline;
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
   }
-  .rb-tl-ver-name { font-weight: 600; color: var(--color-ink); }
+  .rb-tl-ver-lead,
+  .rb-tl-ver-tail { flex: none; white-space: pre; }
+  .rb-tl-ver-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--color-ink); }
+  .rb-tl-ver-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .rb-tl-ver-status[data-dirty="true"] { color: var(--color-ink); }
-  /* Inline in the words (Tailwind's preflight makes every svg a block, which
-     put the eye on a line of its own above them). */
-  .rb-tl-ver-icon { display: inline-block; width: var(--icon-sm); height: var(--icon-sm); margin-right: 6px; vertical-align: -2px; color: var(--color-ink-2); }
-  .rb-tl-ver-quiet { margin-left: 8px; font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* In the words, centred on them (Tailwind's preflight makes every svg a
+     block, which put the eye on a line of its own above them). */
+  .rb-tl-ver-icon { display: inline-block; flex: none; align-self: center; width: var(--icon-sm); height: var(--icon-sm); margin-right: 6px; color: var(--color-ink-2); }
+  .rb-tl-ver-quiet { flex: none; margin-left: 8px; font-size: var(--text-caption); color: var(--color-ink-3); }
   /* A greyed verb's reason, in words beside it (F9; the Summary's rb-bv-why). */
   .rb-tl-ver-why { white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-3); }
-  /* A refusal (an Undo still running; a step stopped part way), said. */
-  .rb-tl-ver-error {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    font-size: var(--text-caption);
-    color: var(--color-danger);
-  }
+  /* A refusal or a step stopped part way is not here: it is the kit's danger
+     Banner on its own line under the bar, wrapping, its Dismiss in reach
+     (R1-05: squeezed into the bar it was clipped mid-word, Dismiss with it). */
   .rb-tl-ver-verbs { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 
   /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════

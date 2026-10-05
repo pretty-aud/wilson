@@ -1125,6 +1125,15 @@ export function RabbitProvider({ children }) {
       return result;
     } catch (err) {
       setBundle(snapshot);
+      // Post-overhaul S5d review round 1 (R1-01): the ref rolls back WITH the
+      // state. bundleRef catches up in an effect, after a render; over a real
+      // network a render has run between the optimistic drop and this failure,
+      // so the ref still held the dropped bundle, and a compensation reading it
+      // at once (deleteTasks' R2-01 catch, then deleteBroughtBack's set-aside)
+      // found none of the rows it had to set aside again: another bid's rows
+      // stayed live under the open version. (A microtask-paced test never
+      // rendered between the two, and passed.)
+      bundleRef.current = snapshot;
       // The snapshot predates any realtime events merged during the
       // in-flight write — with live sync up, a failed local write must
       // not erase collaborators' changes; refetch to reconverge.

@@ -365,9 +365,10 @@ export function dayAtX(x, dayPx, mask = null) {
  *
  * With a mask the result is kept to the chart, [0, totalPx]. Without one it
  * is NOT clamped — day × dayPx, negative before the chart — as the unmasked
- * gantt always computed it, so the re-anchoring's `newScrollLeft >= 0` guard
- * still skips (as it always did) an anchor that a span move left before the
- * chart's first day; with weekends hidden that anchor scrolls to the start.
+ * gantt always computed it. The re-anchoring writes it either way (post-
+ * overhaul S5d review round 1, R1-03: its `>= 0` guard skipped an anchor a
+ * span move left before the chart's first day with weekends shown); the
+ * browser clamps a negative scroll to 0, so both settings scroll to the start.
  *
  * @param {number} day     a day position from the chart's first day
  * @param {number} dayPx   a shown column's width

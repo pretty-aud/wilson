@@ -44,7 +44,8 @@
 // =============================================================================
 
 import { useId, useLayoutEffect, useMemo, useState } from 'react'
-import { Save, CopyPlus, Pencil, ArrowLeft, Eye, X } from 'lucide-react'
+import { Save, CopyPlus, Pencil, ArrowLeft, Eye, X, AlertTriangle } from 'lucide-react'
+import { Banner } from '../../../ui/Banner'
 import { Button } from '../../../ui/Button'
 import { IconButton } from '../../../ui/IconButton'
 import { Select as KitSelect } from '../../../ui/Select'
@@ -112,9 +113,11 @@ export function versionMenu(state) {
  * The bar. `viewedId` is the version the gantt shows read-only (TimelineView's
  * state: it feeds the gantt's memos), null at Current. `onView(id | null)`
  * changes it; `onAsk(ask)` opens one of VersionQuestions' questions (its
- * shapes: views/budget/VersionQuestions.jsx).
+ * shapes: views/budget/VersionQuestions.jsx). `onSaving(true | false)` says
+ * when the Save starts and ends: the Timeline takes no change in between
+ * (review round 1, R1-02).
  */
-export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewedId = null, onView, onAsk }) {
+export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewedId = null, onView, onAsk, onSaving }) {
   const state = useBidVersionState(ctx, roleRates, { ratesPending })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -138,10 +141,14 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
   // kept (no list control here), and the undo toast only when it stops part
   // way (S5c round 2, R2-05) — the words beside it say "Saved" when it ends
   // well. A refusal (an Undo still running, R2-03) is said, not swallowed.
+  // The Timeline stands still while it runs (R1-02): a drag made then joined
+  // the step, so its Undo — or the "Stopped part way" toast's — took the drag
+  // back with it.
   async function save() {
     if (!state.open || busy) return
     setBusy(true)
     setError(null)
+    onSaving?.(true)
     const step = ctx?.runWithUndoToast || ((run) => run())
     try {
       await step(() => ctx.saveBudgetVersion(state.open.id, { roleRates }), null)
@@ -149,96 +156,111 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
       setError(err?.message || String(err))
     } finally {
       setBusy(false)
+      onSaving?.(false)
     }
   }
   const ask = (kind, extra = {}) => { setError(null); onAsk?.({ kind, basedOnListId: basedOn, ...extra }) }
 
+  // The words in pieces (review round 1, R1-05): where room runs out only the
+  // version's NAME gives way, to an ellipsis — "Open:", the state after it
+  // ("Unsaved changes", "Saved …", why nothing can be saved yet) and the
+  // viewed version's date stay whole. As one clipped line the state went
+  // first: at 1280 the bar read "Open: Bid v1 (fund …". The one-sentence
+  // states clip at their end.
   let words
   if (mode === 'locked') {
-    words = <span className="rb-tl-ver-state" id={wordsId}>{LOCKED_WHY}</span>
+    words = <span className="rb-tl-ver-state" id={wordsId}><span className="rb-tl-ver-line">{LOCKED_WHY}</span></span>
   } else if (mode === 'viewing') {
     words = (
       <span className="rb-tl-ver-state" id={wordsId}>
         <Eye className="rb-tl-ver-icon" aria-hidden="true" />
-        {'Viewing bid version: '}
+        <span className="rb-tl-ver-lead">{'Viewing bid version: '}</span>
         <span className="rb-tl-ver-name">{viewed.name}</span>
-        {` · ${versionDate(viewed)}`}
+        <span className="rb-tl-ver-tail">{` · ${versionDate(viewed)}`}</span>
         <span className="rb-tl-ver-quiet">Read-only</span>
       </span>
     )
   } else if (state.open) {
     words = (
       <span className="rb-tl-ver-state" id={wordsId}>
-        {'Open: '}
+        <span className="rb-tl-ver-lead">{'Open: '}</span>
         <span className="rb-tl-ver-name">{state.open.name}</span>
-        {' · '}
-        <span className="rb-tl-ver-status" data-dirty={state.dirty ? 'true' : undefined}>
-          {state.pending ? state.pending : (state.dirty ? 'Unsaved changes' : savedWords(state.open))}
+        <span className="rb-tl-ver-tail">
+          {' · '}
+          <span className="rb-tl-ver-status" data-dirty={state.dirty ? 'true' : undefined}>
+            {state.pending ? state.pending : (state.dirty ? 'Unsaved changes' : savedWords(state.open))}
+          </span>
         </span>
       </span>
     )
   } else {
-    words = <span className="rb-tl-ver-state" id={wordsId}>No version is open.</span>
+    words = <span className="rb-tl-ver-state" id={wordsId}><span className="rb-tl-ver-line">No version is open.</span></span>
   }
   const editWhy = mode === 'viewing' ? state.pending : null
 
+  // A refusal or a stop part way is said on a line of its own under the bar,
+  // the kit's in-flow danger Banner, wrapping (R1-05): squeezed into the bar
+  // it showed "an Undo is still runni" at 1280 and its Dismiss was clipped
+  // out of reach.
   return (
-    <div className="rb-tl-ver-bar" data-mode={mode} aria-label="Bid versions" role="group">
-      <span className="ui-field-label">Bid version</span>
-      <KitSelect
-        className="rb-tl-ver-select"
-        size="sm"
-        value={value}
-        options={options}
-        onChange={choose}
-        disabled={state.locked || busy}
-        aria-label="Bid version"
-        aria-describedby={wordsId}
-      />
-      {words}
-      {error && (
-        <span className="rb-tl-ver-error" role="alert" title={error}>
-          {error}
-          <IconButton size="sm" icon={X} title="Dismiss" aria-label="Dismiss" onClick={() => setError(null)} />
-        </span>
-      )}
-      <span className="rb-tl-ver-verbs">
-        {mode === 'viewing' ? (
-          <>
-            {editWhy && <span className="rb-tl-ver-why">{`Edit this version: ${editWhy}`}</span>}
-            <Button size="sm" Icon={Pencil} disabled={!!editWhy}
-              title={editWhy ? undefined : `Load ${q(viewed.name)} into the Timeline and Budget, and keep editing it`}
-              onClick={() => ask('open', { versionId: viewed.id })}>
-              Edit this version
-            </Button>
-            <Button size="sm" variant="ghost" Icon={ArrowLeft} title="Back to the live schedule" onClick={() => onView?.(null)}>
-              Current
-            </Button>
-          </>
-        ) : (
-          <>
-            {state.open && !state.locked && (
-              <Button
-                size="sm"
-                Icon={Save}
-                attention={state.dirty}
-                attentionLabel={`${q(state.open.name)} has unsaved changes`}
-                disabled={!state.dirty || busy || !!state.pending}
-                loading={busy}
-                onClick={save}
-                title={state.pending || (state.dirty ? `Save the changes into ${q(state.open.name)}` : `${q(state.open.name)} has no unsaved changes`)}
-              >
-                Save
+    <>
+      <div className="rb-tl-ver-bar" data-mode={mode} aria-label="Bid versions" role="group">
+        <span className="ui-field-label">Bid version</span>
+        <KitSelect
+          className="rb-tl-ver-select"
+          size="sm"
+          value={value}
+          options={options}
+          onChange={choose}
+          disabled={state.locked || busy}
+          aria-label="Bid version"
+          aria-describedby={wordsId}
+        />
+        {words}
+        <span className="rb-tl-ver-verbs">
+          {mode === 'viewing' ? (
+            <>
+              {editWhy && <span className="rb-tl-ver-why">{`Edit this version: ${editWhy}`}</span>}
+              <Button size="sm" Icon={Pencil} disabled={!!editWhy}
+                title={editWhy ? undefined : `Load ${q(viewed.name)} into the Timeline and Budget, and keep editing it`}
+                onClick={() => ask('open', { versionId: viewed.id })}>
+                Edit this version
               </Button>
-            )}
-            <Button size="sm" Icon={CopyPlus} disabled={busy || !!state.pending} title={state.pending || undefined}
-              onClick={() => ask('saveAsNew')}>
-              Save as new version…
-            </Button>
-          </>
-        )}
-      </span>
-    </div>
+              <Button size="sm" variant="ghost" Icon={ArrowLeft} title="Back to the live schedule" onClick={() => onView?.(null)}>
+                Current
+              </Button>
+            </>
+          ) : (
+            <>
+              {state.open && !state.locked && (
+                <Button
+                  size="sm"
+                  Icon={Save}
+                  attention={state.dirty}
+                  attentionLabel={`${q(state.open.name)} has unsaved changes`}
+                  disabled={!state.dirty || busy || !!state.pending}
+                  loading={busy}
+                  onClick={save}
+                  title={state.pending || (state.dirty ? `Save the changes into ${q(state.open.name)}` : `${q(state.open.name)} has no unsaved changes`)}
+                >
+                  Save
+                </Button>
+              )}
+              <Button size="sm" Icon={CopyPlus} disabled={busy || !!state.pending} title={state.pending || undefined}
+                onClick={() => ask('saveAsNew')}>
+                Save as new version…
+              </Button>
+            </>
+          )}
+        </span>
+      </div>
+      {error && (
+        <Banner tone="danger" Icon={AlertTriangle} data-version-error=""
+          action={<IconButton size="sm" icon={X} title="Dismiss" aria-label="Dismiss" onClick={() => setError(null)} />}>
+          {error}
+        </Banner>
+      )}
+    </>
   )
 }
 
