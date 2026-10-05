@@ -1423,7 +1423,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1658,7 +1658,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1886,7 +1886,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${swSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${swSlug}/hotkeys`).then(r => r.json());
@@ -2887,8 +2887,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // occurrence and drew no card).
       // S2c (S2b-05): only a category's entries that ARE functions — an
       // imported library can carry a null or a string in the list, and
-      // `f.name` on a null threw here, every keystroke.
-      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ');
+      // `f.name` on a null threw here, every keystroke — each field read as
+      // the card draws it (review round 1: an object read "[object Object]"
+      // here and its JSON on the card and in the Functions view's search).
+      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].map(cardText).filter(Boolean).join(' ');
       const funcCategories = (Array.isArray(cached.functions?.categories) ? cached.functions.categories : [])
         .map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);
       if (funcCategories.length > 0) {

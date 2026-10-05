@@ -1947,7 +1947,7 @@ What S2b's review rounds found and did not fix, because the file is another
 session's or the decision is Audrey's. Her questions are in walkthrough 50
 §3, not here.
 
-- **S2b-01 · The pet reads a nameless function category as no group.**
+- ~~**S2b-01 · The pet reads a nameless function category as no group.**~~
   `petKnowledge.js` (`flattenDoc`) labels a function category
   `cat.category || cat.name || ''`, so her Python library's 46 functions
   reach the pet with an empty group where O.T.T.E.R.'s views now say
@@ -1955,15 +1955,45 @@ session's or the decision is Audrey's. Her questions are in walkthrough 50
   INFERRED from the code by S2b's review round 1 (A-L6). Owner: the next
   session that edits `petKnowledge.js`: read it through
   `functionCategoryName` (`adapters/otterRoutes.js`).
-- **S2b-02 · The hotkeys merge has the same keying weaknesses the functions
-  merge had fixed in S2b.** `mergeHotkeys` (otterRoutes.js) and its Local
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced on her
+  real library, then fixed — `flattenDoc` reads `functionCategoryName`;
+  her Python's 46 rows reach the pet as "General" (before: ""), and the
+  pet's reference line reads "[Python → functions → General]"
+  (`node scripts/otter-library-replay.mjs pet`).
+- ~~**S2b-02 · The hotkeys merge has the same keying weaknesses the functions
+  merge had fixed in S2b.**~~ `mergeHotkeys` (otterRoutes.js) and its Local
   Server twin key a category on `normKey`, so names with no Latin letters
   ("文字列", "数学") all key to '' and merge into one, and a category value
   that is not a string throws on every later merge. Its keying on
   `category || name` was already right. INFERRED from S2b's review of the
   functions merge (A-L2, A-L3). Owner: whoever next edits the hotkeys merge.
-- **S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
-  subject title nearly fills the column.** The subject (`.otter-crumb-current`,
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced on both
+  backends over her real hotkeys (the two names made one category; a name
+  of 5 threw), then fixed — both copies key through S2b's helper
+  (`categoryKey` in otterRoutes.js, shared with `mergeFunctions`; the
+  route's three keying lines are `mergeFunctionsDoc`'s): a sent name is
+  `category`, else `name`, else "General", and it joins only a category
+  the Hotkeys page draws (a `shortcuts` list headed by its `category`) —
+  review round 1: joining by `name`, as "General" or through a `hotkeys`
+  list put shortcuts under a blank heading or off the page. One algorithm
+  on both backends (`adapters/hotkeysMerge.test.js`: 22 cases on both,
+  parity, 600 seeded documents, everything added drawn by the page's own
+  filter). Her own categories sent again change nothing, before and after.
+  Admitted: with S2b's key a `+` or `#` is part of a name, so "Edit + Mode"
+  and "Edit Mode" (one heading before) are two, as in the function
+  library. Found and NOT fixed (outside the brief, which allowed main.cjs's
+  hotkeys route only): the NODES merge (`mergeNodes` and the
+  `/api/software/:slug/nodes/merge` route) keys a system and a category on
+  the same a-z0-9 key — measured, "文字列" and "数学" become one category
+  and the systems "C++" and "C#" one system. Owner: whoever next edits the
+  nodes merge. Also found (review round 1): approving a change request into
+  a standard whose hotkeys or functions document is not a library (an
+  array, `categories` not a list) reports the document merged while
+  nothing moved — both merges leave such a document as it is (S2b, S2c),
+  where the pre-S2b/S2c code threw and the approval listed it as failed.
+  Owner: the approval flow's next session (signal "not merged").
+- ~~**S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
+  subject title nearly fills the column.**~~ The subject (`.otter-crumb-current`,
   capped at the line) and the note do not share the line: a subject within
   about 50px of the column pushes "[outline]" out of sight. MEASURED by S2b's
   review round 2 (B-L1) on stress titles; her real subjects (296px at most)
@@ -1971,17 +2001,58 @@ session's or the decision is Audrey's. Her questions are in walkthrough 50
   or more at every window measured. A fix (measured by the reviewer):
   `.otter-crumb-current:has(+ .otter-crumb-note) { max-width: calc(100% -
   4px - 3.84em) }`. Owner: the next session on O.T.T.E.R.'s reading pages.
-- **S2b-04 · The breadcrumb's accessible names are not the convention.**
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05**, and corrected:
+  measured at 1440 and 1280, "[outline]" is never clipped — it is placed
+  first and keeps the line; the SUBJECT, and the course with it, wraps out
+  of sight from 568px (of 612.61px), and the line reads "[outline]" alone.
+  Fixed with the reviewer's cap, scoped by the outline page
+  (`.otter-view-page[data-width='subject'] .otter-crumb-current`, which
+  typeScale's cascade judge models; it reads `:has()` as reaching every
+  crumb) and at `4em`, not `3.84em`: the note is 46.03px (3.836em), so
+  3.84em left 0.05px, and a note 0.09px wider lost the subject again
+  (measured); at 4em, none. Her 49 subjects and 42 stress titles at seven
+  sizes and scales: subject and note on the line every time, nothing
+  taller than a line; her own pages' shots byte-identical before and after.
+  The price, admitted (review round 1): a subject in the 2px between the
+  two caps (560.6–562.6px on the 612.61px line) ends in "…" where it fitted.
+- ~~**S2b-04 · The breadcrumb's accessible names are not the convention.**~~
   "Where this lesson sits" / "Where this subject sits" (A3's) where
   "Breadcrumb" is what screen-reader users expect, and the run's zero-width
   space shows as its own text node in the accessibility tree. From S2b's
   review round 2 (B-L4). Owner: the next accessibility pass.
-- **S2b-05 · A function entry that is not an object breaks the Search
-  dialog's function search** (`fnSearchText` reads `f.name`), and the
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** both breadcrumbs are
+  named "Breadcrumb", and both zero-width spaces (the course's too) carry
+  an empty alternative text (`content: '\200B'; content: '\200B' / ''` —
+  the plain one first for a browser without the syntax, review round 1;
+  the production build keeps both). Measured in Chromium's accessibility
+  tree: before, 2 and 1 zero-width StaticText nodes; after, 0. Nothing
+  visible changed.
+- ~~**S2b-05 · A function entry that is not an object breaks the Search
+  dialog's function search**~~ (`fnSearchText` reads `f.name`), and the
   Functions view's card. Pre-existing (the old search read `f.name` the same
   way); the merge no longer writes such entries since S2b, but an imported
   library can carry one. INFERRED. Owner: the next session in the Search
   dialog.
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced (a null
+  threw in the Search dialog and blanked the window from the Functions
+  view; one level up, a null category or a list that is not a list threw
+  in the pet's `flattenDoc` and blinded the pet to the WHOLE library — a
+  Blender question answered "could not be reached"), then fixed: one
+  reader, `functionEntries` (otterRoutes.js), skips what is not a function
+  in the Search dialog and the Functions view; the card draws nothing for
+  one; `flattenDoc` skips it at every level of all three documents; and
+  (review round 1) the three generation paths' "existing functions" lists
+  read through it too. Also on those lines: the Functions view's own
+  search no longer throws on a field that is not a string, and it and the
+  Search dialog read each field as the card draws it (`cardText`). Her
+  library: unchanged (46 functions, 92 coloured wells, 0 errors, with or
+  without the plants).
+  Found and NOT fixed (the brief named the function readers only): the
+  same class in the HOTKEY readers — a null shortcut in a category's list
+  throws in the Search dialog's hotkey search and in the Hotkeys view's
+  search ("Cannot read properties of null (reading 'action')", measured on
+  Otter.jsx's own lines). Owner: the next session in the Search dialog or
+  the Hotkeys view (the pet's `flattenDoc` already skips one since S2c).
 
 ## Post-overhaul S4a (`po/s4a-files-ui`) — left open (2026-09-30)
 

@@ -201,7 +201,8 @@ function hostReport(src) {
   // Round 2: the count and the cards read ONE text per function (the count
   // left out parameters and examples, so 838 of 1,975 words from her own
   // library found nothing), and an empty category is not counted.
-  const sharedText = /const fnSearchText = \(f\) => \[f\.name, f\.description, f\.syntax, f\.returns, f\.parameters, f\.example\]\.filter\(Boolean\)\.join\(' '\);/
+  // S2c review round 1: …each field read as the card draws it (cardText).
+  const sharedText = /const fnSearchText = \(f\) => \[f\.name, f\.description, f\.syntax, f\.returns, f\.parameters, f\.example\]\.map\(cardText\)\.filter\(Boolean\)\.join\(' '\);/
   if (!sharedText.test(search) || (search.match(/fnSearchText\(f\)/g) || []).length < 2) bad.push('the search count and its cards read different text')
   // S2c (S2b-05): …and only a category's entries that are functions are
   // read, so a null or a string in the list neither throws nor counts.
@@ -232,7 +233,9 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/shows no cards/)
     expect(hostReport(OTTER.replace('const fnLanguage = courseLanguage(activeSoftware);', 'const fnLanguage = courseLanguage(null);')).join('\n'))
       .toMatch(/open course's language/)
-    expect(hostReport(OTTER.replace('f.returns, f.parameters, f.example].filter(Boolean)', 'f.returns].filter(Boolean)')).join('\n'))
+    expect(hostReport(OTTER.replace('f.returns, f.parameters, f.example].map(cardText)', 'f.returns].map(cardText)')).join('\n'))
+      .toMatch(/different text/)
+    expect(hostReport(OTTER.replace('f.parameters, f.example].map(cardText).filter(Boolean)', 'f.parameters, f.example].filter(Boolean)')).join('\n'))
       .toMatch(/different text/)
     // S2c: the empty-category control plants on the line S2c wrote (the
     // line S2b's control planted on is gone), and three more for S2b-05.
@@ -263,7 +266,9 @@ function lift(src, from, to) {
   return src.slice(a, b)
 }
 // eslint-disable-next-line no-new-func
-const searchFunctions = (src = RAW) => new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', lift(src, '// Functions search', '// Nodes search'))
+const searchBlock = (src = RAW) => new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', 'cardText', lift(src, '// Functions search', '// Nodes search'))
+/** The Search dialog's function search, run: (cached, q, sw, results, …readers). */
+const searchFunctions = (src = RAW) => { const run = searchBlock(src); return (cached, q, sw, results) => run(cached, q, sw, results, functionCategoryName, functionEntries, cardText) }
 // eslint-disable-next-line no-new-func
 const functionsView = (src = RAW) => new Function('softwareFunctions', 'functionSearch', 'courseLanguage', 'activeSoftware', 'functionEntries', 'cardText',
   `${lift(src, 'const allFuncs = ', 'return (\n        <div className="otter-view" ref={functionScrollRef}>')}\nreturn { allFuncs, filtered };`)
@@ -311,6 +316,30 @@ describe('the function readers skip what is not a function — the shipped code,
       expect(results).toEqual([])
       expect(runView({ categories }, 'a').allFuncs).toEqual([])
     }
+  })
+
+  it('the Search dialog and the Functions view find a value that is not a string as the card draws it (review round 1)', () => {
+    // The card shows an object as its JSON; the dialog read it as
+    // "[object Object]" — "clamp(x" found it in the view only, "object" in
+    // the dialog only.
+    const doc = { categories: [{ category: 'Math', functions: [{ name: 'clamp', syntax: { python: 'clamp(x, lo, hi)' }, returns: 0 }] }] }
+    const dialog = (q) => { const results = []; searchFunctions()({ functions: doc }, q, { name: 'Python', slug: 'python' }, results); return results.flatMap((r) => r.matchedCategories.flatMap((c) => c.functions.map((f) => f.name))) }
+    const view = (q) => runView(doc, q).filtered.flatMap((c) => c.functions.map((f) => f.name))
+    expect(cardText(doc.categories[0].functions[0].syntax)).toBe('{"python":"clamp(x, lo, hi)"}')
+    expect([dialog('clamp(x'), view('clamp(x')]).toEqual([['clamp'], ['clamp']])
+    expect([dialog('object'), view('object')]).toEqual([[], []])
+  })
+
+  it('the generation paths read the library\'s existing names through the same reader — no throw, functions only (review round 1)', () => {
+    // Three prompts list "EXISTING FUNCTIONS (DO NOT DUPLICATE)"; on a null
+    // entry each threw inside its try and the generator lost the list.
+    const lines = [...RAW.matchAll(/const allNames = [^\n]+;/g)].map((m) => m[0])
+    expect(lines, 'three generation paths').toHaveLength(3)
+    // eslint-disable-next-line no-new-func
+    for (const line of lines) expect(new Function('fnData', 'functionEntries', `${line}\nreturn allNames;`)(MALFORMED, functionEntries)).toEqual(['print()', 'abs'])
+    // CONTROL: the line before S2c throws on the same library.
+    // eslint-disable-next-line no-new-func
+    expect(() => new Function('fnData', 'const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);\nreturn allNames;')(MALFORMED)).toThrow()
   })
 
   it('her library\'s shape reads exactly as before: every function, under "General"', () => {

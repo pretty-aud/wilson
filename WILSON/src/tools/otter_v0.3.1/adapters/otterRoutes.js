@@ -315,11 +315,10 @@ export const functionCategoryName = (cat) => cleanName(cat?.category) || cleanNa
  *    `categories` not a list) is left exactly as it is.
  */
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+/** THE keying of a library heading — case and punctuation aside, letters of
+ *  any script, digits, '#' and '+' kept — for both merges below, the
+ *  functions' (S2b) and the hotkeys' (S2c, S2b-02): one helper, two callers. */
 const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || name.toLowerCase()
-/** THE keying of a library category — its heading (functionCategoryName),
- *  case and punctuation aside — for both merges below, the functions' (S2b)
- *  and the hotkeys' (S2c, S2b-02): one helper, two callers. */
-const categoryKeyOf = (cat) => categoryKey(functionCategoryName(cat))
 /** A category's entries that ARE functions — the objects in its `functions`
  *  list; anything else (null, a string, a number, a list) is skipped, and a
  *  category that is not one, or whose list is not a list, has none.
@@ -343,7 +342,7 @@ export function mergeFunctions(existing, incoming) {
   for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
     if (!isObj(inCat)) continue
     const name = functionCategoryName(inCat)
-    const i = out.categories.findIndex(c => isCategory(c) && categoryKeyOf(c) === categoryKeyOf(inCat))
+    const i = out.categories.findIndex(c => isCategory(c) && categoryKey(functionCategoryName(c)) === categoryKey(name))
     const into = i < 0 ? null : out.categories[i]
     const have = new Set((into ? into.functions || [] : []).map(functionKey).filter(Boolean))
     const add = []
@@ -362,33 +361,42 @@ export function mergeFunctions(existing, incoming) {
 }
 
 /**
- * The hotkeys merge — post-overhaul S2c (S2b-02): the keying S2b gave the
- * function library's merge, through the same helper (categoryKeyOf), and the
- * SAME rules, line for line, as the Local Server's
- * `/api/software/:slug/hotkeys/merge` route in electron/main.cjs;
+ * The hotkeys merge — post-overhaul S2c (S2b-02): the function library's
+ * keying (categoryKey, S2b) and the SAME rules, line for line, as the Local
+ * Server's `/api/software/:slug/hotkeys/merge` route in electron/main.cjs;
  * hotkeysMerge.test.js replays both on its cases and on 600 seeded random
  * documents and demands the same document every time.
- *  - A category's name is `category`, else `name`, else "General" — on the
- *    stored side too, which read `category` alone — and categories match on
- *    it with case and punctuation aside, letters of any script kept. normKey
+ *  - An incoming category's name is `category`, else `name`, else "General"
+ *    (functionCategoryName), and it joins a stored category with the same
+ *    heading, case and punctuation aside, letters of any script kept. normKey
  *    (a-z and 0-9 only) keyed "文字列" and "数学" both to '' and merged them,
- *    and a name that was not a string threw on every later merge.
+ *    joined either to a stored category with no `category`, and threw on a
+ *    name that was not a string, on every later merge.
+ *  - It joins only a category the Hotkeys page and the Search dialog DRAW: a
+ *    `shortcuts` list, headed by its `category` (a non-empty string). One
+ *    they do not draw — a `hotkeys` list alone, no `category` to head it —
+ *    is never joined, and what was sent under its name gets a heading of its
+ *    own, as before. (Review round 1: joining one by its `name`, as
+ *    "General" or through its `hotkeys` list put the new shortcuts under a
+ *    blank heading, or nowhere the page shows. The function library joins
+ *    by its `name` and as "General" because its views head it so, S2b.)
  *  - A shortcut is not added again under the same heading: the same action,
  *    case and surrounding spaces aside, as before; an action that is not a
- *    string reads as none (it threw).
- *  - A category's list is `shortcuts`, else `hotkeys` (the generator writes
- *    both). Stored categories are kept exactly as stored: only a category a
- *    shortcut is added to is rewritten (a copy, the new ones after its own,
- *    in the list it already has). A new category is written
- *    `{ category, shortcuts }` when it brings a shortcut, or when it was sent
- *    with none (a fork's empty category moves on approval, as before).
- *  - Entries that are not categories (null, a string, a list key that holds
- *    something other than a list) are carried over untouched and never
- *    matched; the document's other keys are kept; a stored document that is
- *    not a library (an array, `categories` not a list) is left as it is.
+ *    string reads as none (it threw). A sent category's shortcuts are its
+ *    `shortcuts`, else its `hotkeys` (the generator writes both).
+ *  - Stored categories are kept exactly as stored: only a category a
+ *    shortcut joins is rewritten (a copy, the new ones after its own). A new
+ *    category is written `{ category, shortcuts }` when it brings a
+ *    shortcut, or when it was sent with none (a fork's empty category moves
+ *    on approval, as before).
+ *  - Entries that are not categories are carried over untouched; the
+ *    document's other keys are kept; a stored document that is not a library
+ *    (an array, `categories` not a list) is left as it is.
+ *  - The key keeps '+' and '#' (so "C", "C++" and "C#" are three headings):
+ *    "Edit + Mode" and "Edit Mode", one heading before, are now two, as in
+ *    the function library since S2b.
  */
-const shortcutsKey = (c) => (Array.isArray(c.shortcuts) ? 'shortcuts' : Array.isArray(c.hotkeys) ? 'hotkeys' : (c.shortcuts == null && c.hotkeys == null ? 'shortcuts' : null))
-const isHotkeyCategory = (c) => isObj(c) && shortcutsKey(c) !== null
+const hotkeyHeading = (c) => (isObj(c) && Array.isArray(c.shortcuts) ? cleanName(c.category) : '')
 const actionKey = (hk) => (typeof hk.action === 'string' ? hk.action.toLowerCase().trim() : '')
 
 export function mergeHotkeys(existing, incoming) {
@@ -398,10 +406,10 @@ export function mergeHotkeys(existing, incoming) {
   for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
     if (!isObj(inCat)) continue
     const name = functionCategoryName(inCat)
-    const i = out.categories.findIndex(c => isHotkeyCategory(c) && categoryKeyOf(c) === categoryKeyOf(inCat))
+    const key = categoryKey(name)
+    const i = out.categories.findIndex(c => { const h = hotkeyHeading(c); return !!h && categoryKey(h) === key })
     const into = i < 0 ? null : out.categories[i]
-    const key = into ? shortcutsKey(into) : 'shortcuts'
-    const have = new Set((into ? into[key] || [] : []).filter(isObj).map(actionKey))
+    const have = new Set((into ? into.shortcuts : []).filter(isObj).map(actionKey))
     const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : []
     const add = []
     for (const hk of list) {
@@ -410,7 +418,7 @@ export function mergeHotkeys(existing, incoming) {
       add.push(hk)
     }
     if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }) }
-    else if (add.length) out.categories[i] = { ...into, [key]: [...(into[key] || []), ...add] }
+    else if (add.length) out.categories[i] = { ...into, shortcuts: [...into.shortcuts, ...add] }
   }
   return out
 }

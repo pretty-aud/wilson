@@ -164,8 +164,16 @@ if (RUN.has('readers')) {
   const OTTER = readFileSync(new URL('../src/tools/otter_v0.3.1/Otter.jsx', import.meta.url), 'utf8')
   const a = OTTER.indexOf('// Functions search'), b = OTTER.indexOf('// Nodes search', a)
   if (a < 0 || b < 0) throw new Error('Otter.jsx no longer marks the function search')
+  // FunctionCard.jsx's cardText, which the search reads each field through
+  // since S2c — a COPY, because Node cannot import a .jsx module.
+  const cardText = (v) => {
+    if (v == null || typeof v === 'boolean') return ''
+    if (Array.isArray(v)) return v.map(cardText).join('')
+    if (typeof v === 'object') { try { return JSON.stringify(v) } catch { return String(v) } }
+    return String(v)
+  }
   // eslint-disable-next-line no-new-func
-  const search = new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', OTTER.slice(a, b))
+  const search = new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', 'cardText', OTTER.slice(a, b))
   const PLANTS = { null: null, 'a string': 'print', 'a number': 5, 'a list': ['len'] }
   // …and one level up: a category that is not one, a list that is not one.
   const CATEGORY_PLANTS = { 'a null category': null, 'a category whose list is a number': { category: 'Bad', functions: 5 } }
@@ -184,7 +192,7 @@ if (RUN.has('readers')) {
       try { const rows = flattenDoc(copy, 'functions'); pet = { rows: rows.length, groups: [...new Set(rows.map((r) => r.group))] } } catch (e) { pet = { threw: e.message } }
       try {
         const results = []
-        search({ functions: copy }, 'print', { name: 'Python', slug }, results, functionCategoryName, functionEntries)
+        search({ functions: copy }, 'print', { name: 'Python', slug }, results, functionCategoryName, functionEntries, cardText)
         dialog = results.length ? { matches: results[0].matches, cards: results[0].matchedCategories.reduce((n, c) => n + c.functions.length, 0) } : { results: 0 }
       } catch (e) { dialog = { threw: e.message } }
       report[label] = { pet, searchDialog: dialog }

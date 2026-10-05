@@ -1362,6 +1362,14 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       '.otter-crumbs > :not(.otter-crumb-current, .otter-crumb-trail, .otter-crumb-note) { flex-shrink: 9; }']) {
       expect(judge(`${sheet}\n@layer components { ${rule} }\n`), rule).toEqual([]);
     }
+    // S2c (S2b-04, review round 1): the zero-width space is declared plain
+    // FIRST, for a browser without the alternative syntax (it drops the
+    // second declaration and keeps the first), then with its empty
+    // alternative. The judge reads only the winner, so the pair is pinned
+    // here, in its order (the production build keeps both — measured).
+    const zwspDecls = (css) => allRules(css).filter((r) => splitTop(r.sel).map((s) => s.trim()).join(',') === '.otter-crumb::before,.otter-crumb-keep::before').map((r) => decls(r.body));
+    expect(zwspDecls(sheet), 'the zero-width space: plain, then with an empty alternative').toEqual([[['content', "'\\200B'"], ['content', "'\\200B' / ''"]]]);
+    expect(zwspDecls(sheet.replace("content: '\\200B'; content: '\\200B' / '';", "content: '\\200B' / '';")), 'CONTROL: the fallback dropped').not.toEqual(zwspDecls(sheet));
   }, 30000);
 
   it('otter.css keeps every rule in `@layer components` and nests none, so the cascade judge above reads it whole (S2b review round 2)', () => {

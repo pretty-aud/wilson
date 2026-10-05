@@ -180,3 +180,77 @@ examples too (before, a search for "expression" found nothing in your
 Python library even where the cards said it), and a course called "Unity
 C#", "Maya Python", "CSS3" or "Python for Houdini" is coloured as its
 language.
+
+---
+
+## 5. S2c (5 October 2026): the five "for later" items, done
+
+Audrey — this is the O.T.T.E.R. tidy-up you asked for on 5 October ("kick
+off 3"). The five things §4 left for later are fixed. **Your library files
+are not touched** (C10): every change is in how WILSON reads or merges
+them. Only one shows on screen, and only for a very long subject title.
+
+Everything was checked against your own library again: the six courses
+and 49 subjects in your O.T.T.E.R. folder, read without changing
+anything. It was built, checked twice by independent reviewers and merged
+onto the post-overhaul branch, like S2b.
+
+### What changed
+
+1. **The pet now files your Python functions under "General"**, the
+   heading the Functions page gives them. Before, the pet saw your 46
+   functions under no heading at all. Checked on your library: all 46
+   reach the pet as "General". Asked "how do I use print in python", the
+   reference it is handed now reads "Python → functions → General".
+2. **The keyboard-shortcut library merges its categories the way the
+   function library does**, on the desktop and in the cloud alike.
+   Category names in other scripts stay apart: "文字列" and "数学" used to
+   become one. "C", "C++" and "C#" stay three. A damaged category name no
+   longer stops every later merge with an error. Checked on your five
+   shortcut files: generating your own categories again changes nothing.
+3. **A damaged entry in a function library no longer breaks anything.**
+   An imported library can hold an empty or garbled entry where a function
+   belongs. One such entry was enough to:
+   - blank the whole window from the Functions page;
+   - break Search's function results;
+   - one level up, blind the pet to your whole library. Asked about
+     Blender, it said it could not reach your courses because of one bad
+     line in Python's file.
+
+   Such entries are now skipped, not shown. While I was there, the
+   Functions page's own search box also stopped crashing on a function
+   whose fields are numbers. On your library nothing changes: the same 46
+   functions and the same 92 coloured code blocks, with or without a bad
+   entry planted for the test.
+4. **On the outline page, the breadcrumb keeps the subject beside
+   "[outline]".** When a subject's title nearly filled the line (within
+   about 50px), the title and the course both vanished and the line read
+   "[outline]" alone. Now the title shortens with "…" and "[outline]"
+   stays beside it. The line still never wraps (C5). Your own subjects are
+   far shorter (296px at most, on a 612px line), so on your pages nothing
+   moves: every before/after screenshot of your lesson and outline pages
+   is identical.
+5. **Screen readers now hear "Breadcrumb".** The breadcrumb used to be
+   named "Where this lesson sits". It is now "Breadcrumb", the name
+   screen-reader users expect. Its two invisible spacer characters are no
+   longer handed to the screen reader as items of their own. Nothing
+   changes on screen.
+
+### Three things to look at
+
+1. **The outline page with a very long subject title.**
+   `po-s2c-before-stub-stress-trail-1440x900.png` →
+   `po-s2c-after-stub-stress-trail-1440x900.png` (and `…-1280x700`).
+   Before: "[outline]" alone. After: "Understanding GameObjects, … for
+   Complete Begi… [outline]". The long title is a test title made in
+   memory for the screenshot; it is not in your library. This is the only
+   thing on screen that changed.
+2. **Ask Tomithy about a Python function**, for example "how do I use
+   print in python". The pet now has the function filed under "General",
+   the heading the Functions page shows. If it says where it found the
+   answer, it names "General".
+3. **The breadcrumb with Narrator** (Ctrl+Win+Enter turns it on and off).
+   Open a lesson and move to the breadcrumb at the top. It is announced as
+   "Breadcrumb", with no empty stops between the course and the subject.
+
+No questions for you this time.

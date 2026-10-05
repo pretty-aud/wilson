@@ -146,17 +146,38 @@ const CASES = {
     return JSON.stringify(out.categories) === JSON.stringify([{ category: 5, shortcuts: [sk('a')] }, { category: 'Edit', shortcuts: [sk('Undo'), sk('Redo')] },
       { category: 'View', shortcuts: [sk('Zoom')] }]) ? null : JSON.stringify(out)
   },
-  'a stored `name`-keyed category is the same category as an incoming `category`, kept in its own list': (merge) => {
-    const out = merge({ categories: [{ name: 'Transform', hotkeys: [sk('Grab')] }] }, [{ category: 'transform', shortcuts: [sk('grab'), sk('Rotate')] }])
-    return JSON.stringify(out.categories) === JSON.stringify([{ name: 'Transform', hotkeys: [sk('Grab'), sk('Rotate')] }]) ? null : JSON.stringify(out)
+  // Review round 1 (S2c): the merge joins only what the Hotkeys page and the
+  // Search dialog DRAW — a `shortcuts` list headed by its `category` — so
+  // nothing it adds lands under a blank heading or off the page.
+  'a stored category with no `shortcuts` list (the page does not draw it) is never joined, and is kept as stored': (merge) => {
+    const out = merge({ categories: [{ category: 'Mesh', hotkeys: [sk('Extrude')] }] }, [{ category: 'Mesh', shortcuts: [sk('extrude'), sk('Inset')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([{ category: 'Mesh', hotkeys: [sk('Extrude')] }, { category: 'Mesh', shortcuts: [sk('extrude'), sk('Inset')] }]) ? null : JSON.stringify(out)
+  },
+  'a stored category with no `category` (the page heads it blank) is never joined — not by its `name`, not as General': (merge) => {
+    const stored = { categories: [{ name: 'Transform', hotkeys: [sk('Grab')] }, { shortcuts: [sk('Old')] }, { name: 'Edit', shortcuts: [sk('Undo')] }] }
+    const out = merge(stored, [{ category: 'transform', shortcuts: [sk('Rotate')] }, { category: 'General', shortcuts: [sk('New')] }, { category: 'Edit', shortcuts: [sk('Redo')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([...stored.categories, { category: 'transform', shortcuts: [sk('Rotate')] },
+      { category: 'General', shortcuts: [sk('New')] }, { category: 'Edit', shortcuts: [sk('Redo')] }]) ? null : JSON.stringify(out)
+  },
+  'a stored category headed by no string, a blank or an invisible one is never joined (the page heads it "5" or blank)': (merge) => {
+    const stored = { categories: [{ category: 5, shortcuts: [sk('a')] }, { category: '  ', shortcuts: [sk('b')] }, { category: '​', shortcuts: [sk('c')] }] }
+    const out = merge(stored, [{ category: 'General', shortcuts: [sk('d')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([...stored.categories, { category: 'General', shortcuts: [sk('d')] }]) ? null : JSON.stringify(out)
   },
   'a `name`-keyed stored category is never taken for a name with no Latin letters': (merge) => {
     const out = merge({ categories: [{ name: 'Transform', hotkeys: [sk('Grab')] }] }, [{ category: '文字列', shortcuts: [sk('Find')] }])
     return JSON.stringify(out.categories) === JSON.stringify([{ name: 'Transform', hotkeys: [sk('Grab')] }, { category: '文字列', shortcuts: [sk('Find')] }]) ? null : JSON.stringify(out)
   },
-  'the stored nameless category reads as General and takes an incoming General, kept as stored': (merge) => {
-    const out = merge({ categories: [{ shortcuts: [sk('a')] }] }, [{ category: 'General', shortcuts: [sk('b')] }])
-    return JSON.stringify(out.categories) === JSON.stringify([{ shortcuts: [sk('a'), sk('b')] }]) ? null : JSON.stringify(out)
+  'a stored heading padded or with an invisible character is the heading the page shows, and is joined': (merge) => {
+    const out = merge({ categories: [{ category: '  Edit  ', shortcuts: [sk('Undo')] }, { category: '​View', shortcuts: [sk('Zoom')] }] },
+      [{ category: 'edit', shortcuts: [sk('Redo')] }, { category: 'View', shortcuts: [sk('Pan')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([{ category: '  Edit  ', shortcuts: [sk('Undo'), sk('Redo')] }, { category: '​View', shortcuts: [sk('Zoom'), sk('Pan')] }]) ? null : JSON.stringify(out)
+  },
+  'a category carrying both lists: a sent one brings its `shortcuts`; a stored one is joined through its `shortcuts`, its `hotkeys` untouched': (merge) => {
+    const out = merge({ categories: [{ category: 'Edit', shortcuts: [sk('Undo')], hotkeys: [sk('Copy')] }] },
+      [{ category: 'Edit', shortcuts: [sk('Redo')], hotkeys: [sk('Paste')] }, { category: 'View', shortcuts: [], hotkeys: [sk('Zoom')] }])
+    return JSON.stringify(out.categories) === JSON.stringify([{ category: 'Edit', shortcuts: [sk('Undo'), sk('Redo')], hotkeys: [sk('Copy')] },
+      { category: 'View', shortcuts: [] }]) ? null : JSON.stringify(out)
   },
   'an incoming category with no name, or a blank or invisible one, is written as General': (merge) => {
     const out = merge({ categories: [] }, [{ shortcuts: [sk('a')] }, { category: '   ', shortcuts: [sk('b')] }, { category: '​', name: '', shortcuts: [sk('c')] }])
@@ -175,10 +196,6 @@ const CASES = {
     const out = merge({ categories: [{ category: 'Edit', shortcuts: [{ action: 5, windows: 'X' }] }] },
       [{ category: 'Edit', shortcuts: [{ action: { a: 1 } }, sk('Cut')] }])
     return JSON.stringify(out.categories) === JSON.stringify([{ category: 'Edit', shortcuts: [{ action: 5, windows: 'X' }, sk('Cut')] }]) ? null : JSON.stringify(out)
-  },
-  'a stored `hotkeys` list takes the new shortcuts, deduplicated against it': (merge) => {
-    const out = merge({ categories: [{ category: 'Mesh', hotkeys: [sk('Extrude')] }] }, [{ category: 'Mesh', shortcuts: [sk('extrude'), sk('Inset')] }])
-    return JSON.stringify(out.categories) === JSON.stringify([{ category: 'Mesh', hotkeys: [sk('Extrude'), sk('Inset')] }]) ? null : JSON.stringify(out)
   },
   'a stored category the merge adds nothing to is left exactly as stored, and the document keeps its other keys': (merge) => {
     const stored = { version: 2, categories: [{ category: 'Edit', note: 'kept', shortcuts: [sk('Undo')] }, { category: 'View', hotkeys: [] }] }
@@ -227,13 +244,13 @@ const DEFECT_CASES = {
     '"C", "C++" and "C#" are three headings',
     'an incoming name that is not a string never throws: it reads `name`, else General',
     'a stored name that is not a string does not break every later merge',
-    'a stored `name`-keyed category is the same category as an incoming `category`, kept in its own list',
+    'a stored category with no `shortcuts` list (the page does not draw it) is never joined, and is kept as stored',
+    'a stored category with no `category` (the page heads it blank) is never joined — not by its `name`, not as General',
+    'a stored category headed by no string, a blank or an invisible one is never joined (the page heads it "5" or blank)',
     'a `name`-keyed stored category is never taken for a name with no Latin letters',
-    'the stored nameless category reads as General and takes an incoming General, kept as stored',
     'an incoming category with no name, or a blank or invisible one, is written as General',
     'a padded new name is written trimmed',
     'an action that is not a string never throws (it reads as none)',
-    'a stored `hotkeys` list takes the new shortcuts, deduplicated against it',
     'a stored category the merge adds nothing to is left exactly as stored, and the document keeps its other keys',
     'entries that are not categories are carried over untouched and never matched',
     'a category whose every shortcut is not an object makes no empty heading',
@@ -241,19 +258,20 @@ const DEFECT_CASES = {
     'a stored document with no category list gets one, and keeps its other keys',
     'a category carrying both keys is its `category`; words run together are another heading; `hotkeys` is read when `shortcuts` is not a list',
   ],
+  // The Local Server never reshaped a stored category it did not join, so it
+  // passed the no-`category` case and "left exactly as stored" by accident.
   local: [
     'names with no Latin letters keep their own heading (the defect itself)',
     'a stored name with no Latin letters is not joined by another',
     '"C", "C++" and "C#" are three headings',
     'an incoming name that is not a string never throws: it reads `name`, else General',
     'a stored name that is not a string does not break every later merge',
-    'a stored `name`-keyed category is the same category as an incoming `category`, kept in its own list',
+    'a stored category with no `shortcuts` list (the page does not draw it) is never joined, and is kept as stored',
+    'a stored category headed by no string, a blank or an invisible one is never joined (the page heads it "5" or blank)',
     'a `name`-keyed stored category is never taken for a name with no Latin letters',
-    'the stored nameless category reads as General and takes an incoming General, kept as stored',
     'an incoming category with no name, or a blank or invisible one, is written as General',
     'a padded new name is written trimmed',
     'an action that is not a string never throws (it reads as none)',
-    'a stored `hotkeys` list takes the new shortcuts, deduplicated against it',
     'entries that are not categories are carried over untouched and never matched',
     'a category whose every shortcut is not an object makes no empty heading',
     'a stored document that is not a library is left exactly as it is',
@@ -276,14 +294,48 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
   for (const [backend, merge] of Object.entries(BACKENDS)) {
     describe(backend, () => {
       for (const [title, check] of Object.entries(CASES)) it(title, () => expect(check(merge)).toBeNull())
-      it('does not mutate the stored document it is given', () => {
-        const stored = { categories: [{ name: 'Transform', hotkeys: [sk('Grab')] }, { category: '文字列', shortcuts: [sk('a')] }] }
-        const before = JSON.stringify(stored)
-        merge(stored, [{ category: 'transform', shortcuts: [sk('Rotate')] }, { category: '数学', shortcuts: [sk('b')] }])
-        expect(JSON.stringify(stored)).toBe(before)
-      })
     })
   }
+
+  it('the cloud copy does not mutate the stored document it is given (the route reads a fresh copy from disk by construction)', () => {
+    // Review round 1: run on the replayed route this could not fail —
+    // routeAsMerge hands the route a parse of the disk, never the caller's object.
+    const stored = { categories: [{ category: 'Edit', shortcuts: [sk('Undo')] }, { category: '文字列', shortcuts: [sk('a')] }] }
+    const before = JSON.stringify(stored)
+    const out = mergeHotkeys(stored, [{ category: 'edit', shortcuts: [sk('Redo')] }, { category: '数学', shortcuts: [sk('b')] }])
+    expect(JSON.stringify(stored)).toBe(before)
+    expect(out.categories[0].shortcuts, 'the joined category is a copy').not.toBe(stored.categories[0].shortcuts)
+  })
+
+  it('everything the merge adds is drawn by the Hotkeys page, under the heading it was sent with (review round 1)', () => {
+    // The page's own filter, lifted from Otter.jsx: what renderHotkeys and
+    // the Search dialog draw is a category with a `shortcuts` list, headed
+    // by its `category`. A shortcut filed anywhere else is written to the
+    // file and never shown — what joining by `name`, as "General" or into a
+    // `hotkeys` list did.
+    const OTTER = readFileSync(new URL('../Otter.jsx', import.meta.url), 'utf-8').replace(/\r\n/g, '\n')
+    const line = OTTER.match(/const hotkeys = \(softwareHotkeys\.categories \|\| \[\]\)\.filter\((cat => cat && Array\.isArray\(cat\.shortcuts\))\);/)
+    expect(line, 'the Hotkeys page no longer filters as this test reads it').not.toBeNull()
+    // eslint-disable-next-line no-new-func
+    const drawn = new Function(`return ${line[1]}`)()
+    const key = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim()
+    const stored = { categories: [{ name: 'Transform', hotkeys: [sk('Grab')] }, { shortcuts: [sk('Old')] }, { category: 'Mesh', hotkeys: [sk('Extrude')] },
+      { category: 5, shortcuts: [sk('Five')] }, { category: '  ', shortcuts: [] }, { name: 'Edit', shortcuts: [sk('Undo')] }, { category: 'View', shortcuts: [sk('Zoom')] }] }
+    const sent = [{ category: 'transform', shortcuts: [sk('Rotate')] }, { category: 'General', shortcuts: [sk('New')] }, { category: 'Mesh', shortcuts: [sk('Inset')] },
+      { name: 'Edit', hotkeys: [sk('Redo')] }, { category: 'view', shortcuts: [sk('Pan')] }, { category: '文字列', shortcuts: [sk('Find')] }, { shortcuts: [sk('Loose')] }]
+    for (const [backend, merge] of Object.entries(BACKENDS)) {
+      const out = merge(stored, sent)
+      const lost = []
+      for (const inCat of sent) {
+        for (const hk of (inCat.shortcuts || inCat.hotkeys)) {
+          const home = out.categories.filter(drawn).find((c) => c.shortcuts.some((s) => s === hk || JSON.stringify(s) === JSON.stringify(hk)))
+          const want = key(functionCategoryName(inCat))
+          if (!home || typeof home.category !== 'string' || key(home.category) !== want) lost.push(`${hk.action} → ${home ? JSON.stringify(home.category) : 'not drawn'}, want "${want}"`)
+        }
+      }
+      expect(lost, backend).toEqual([])
+    }
+  })
 
   it('the two backends write the same document for every case (cloud and local behave alike)', () => {
     for (const [title, check] of Object.entries(CASES)) {
@@ -316,10 +368,14 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
       if (rnd() < 0.7) c.category = pick(NAMES)
       if (rnd() < 0.3) c.name = pick(NAMES)
       const r = rnd()
-      if (r < 0.55) c.shortcuts = listOf()
-      else if (r < 0.75) c.hotkeys = listOf()
-      else if (r < 0.82) { c.shortcuts = pick(['ab', 5, { x: 1 }, null]); if (rnd() < 0.5) c.hotkeys = listOf() }
-      else if (r < 0.86) c.hotkeys = pick(['ab', 5, null])
+      if (r < 0.45) c.shortcuts = listOf()
+      else if (r < 0.6) c.hotkeys = listOf()
+      // Review round 1: BOTH lists — a list each, and an empty `shortcuts`
+      // beside a full `hotkeys` (a copy that preferred the other list passed
+      // every case and every seed before).
+      else if (r < 0.72) { c.shortcuts = rnd() < 0.3 ? [] : listOf(); c.hotkeys = listOf() }
+      else if (r < 0.8) { c.shortcuts = pick(['ab', 5, { x: 1 }, null]); if (rnd() < 0.5) c.hotkeys = listOf() }
+      else if (r < 0.85) c.hotkeys = pick(['ab', 5, null])
       if (rnd() < 0.1) c.note = 'kept'
       return c
     }
@@ -344,24 +400,33 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
     expect(apart, JSON.stringify(apart, null, 1)).toEqual([])
   })
 
-  it('ONE keying: the hotkeys merge matches a heading exactly when the function library\'s merge does', () => {
-    // The cloud copies share the helper (categoryKeyOf); this holds them to
-    // it by behaviour, over every pair of a set of names that tell keyings
-    // apart, so a hotkeys-only key could not creep back in.
-    const NAMES = ['Edit', ' edit!', 'Edit mode', 'Editmode', 'C', 'C++', 'C#', '文字列', '数学', 'Строки', 'строки', 'General', '', '​', 5]
+  it('ONE keying: the hotkeys merge joins a heading the page shows exactly when the function library\'s merge does', () => {
+    // The cloud copies share the helper (categoryKey); this holds them to it
+    // by behaviour, over every pair of a set of names that tell keyings
+    // apart, so a hotkeys-only key could not creep back in. Stored headings
+    // are the ones a page shows (non-blank strings); what is SENT may be
+    // anything.
+    const SHOWN = ['Edit', ' edit!', 'Edit mode', 'Editmode', 'C', 'C++', 'C#', '文字列', '数学', 'Строки', 'строки', 'General']
+    const SENT = [...SHOWN, '', '   ', '​', 5, null]
     const bad = []
-    for (const stored of NAMES) for (const sent of NAMES) {
+    for (const stored of SHOWN) for (const sent of SENT) {
       const hk = mergeHotkeys({ categories: [{ category: stored, shortcuts: [sk('a')] }] }, [{ category: sent, shortcuts: [sk('b')] }]).categories.length === 1
       const fn = mergeFunctions({ categories: [{ category: stored, functions: [{ name: 'a' }] }] }, [{ category: sent, functions: [{ name: 'b' }] }]).categories.length === 1
       if (hk !== fn) bad.push(`${JSON.stringify(stored)} ← ${JSON.stringify(sent)}: hotkeys ${hk ? 'joins' : 'apart'}, functions ${fn ? 'joins' : 'apart'}`)
     }
     expect(bad).toEqual([])
+    // …and the ONE place they differ, on purpose: a stored category with no
+    // heading. The Functions view heads it "General" (S2b), so the function
+    // library joins it as General; the Hotkeys page heads it blank, so the
+    // hotkeys merge leaves it be (review round 1).
+    expect(mergeFunctions({ categories: [{ functions: [{ name: 'a' }] }] }, [{ category: 'General', functions: [{ name: 'b' }] }]).categories).toHaveLength(1)
+    expect(mergeHotkeys({ categories: [{ shortcuts: [sk('a')] }] }, [{ category: 'General', shortcuts: [sk('b')] }]).categories).toHaveLength(2)
     // Both cloud merges key through the one helper, and nothing else keys a library category.
     const body = (name) => ROUTES_JS.slice(ROUTES_JS.indexOf(`export function ${name}(`), ROUTES_JS.indexOf('\n}\n', ROUTES_JS.indexOf(`export function ${name}(`)))
-    for (const name of ['mergeHotkeys', 'mergeFunctions']) {
-      expect(body(name), name).toMatch(/categoryKeyOf\(c\) === categoryKeyOf\(inCat\)/)
-      expect(body(name), name).not.toMatch(/normKey\(/)
-    }
+    expect(body('mergeFunctions')).toMatch(/categoryKey\(functionCategoryName\(c\)\) === categoryKey\(name\)/)
+    expect(body('mergeHotkeys')).toMatch(/const key = categoryKey\(name\)/)
+    expect(body('mergeHotkeys')).toMatch(/categoryKey\(h\) === key/)
+    for (const name of ['mergeHotkeys', 'mergeFunctions']) expect(body(name), name).not.toMatch(/normKey\(/)
   })
 
   it('ONE algorithm on the desktop: the route keys exactly as mergeFunctionsDoc does (S2b)', () => {
@@ -375,7 +440,10 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
       expect(helper, 'the functions helper keys with this line').toContain(line)
       expect(route, 'the hotkeys route keys with the same line').toContain(line)
     }
-    expect(route).toMatch(/findIndex\(c => isCat\(c\) && catKey\(catName\(c\)\) === catKey\(name\)\)/)
+    // …applied as the cloud applies it: a sent name, against the heading of a
+    // category the page draws (review round 1).
+    expect(route).toMatch(/const heading = \(c\) => \(isObj\(c\) && Array\.isArray\(c\.shortcuts\) \? clean\(c\.category\) : ''\);/)
+    expect(route).toMatch(/findIndex\(c => \{ const h = heading\(c\); return !!h && catKey\(h\) === key; \}\)/)
   })
 
   it('CONTROL: the route reader lifts the shipped route, not a stale copy', () => {
