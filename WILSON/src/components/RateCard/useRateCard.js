@@ -260,6 +260,13 @@ export function useRateCard() {
   const [deptDefaults, setDeptDefaults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Post-overhaul S5c: whether the rates on hand are the card's. `loading` is
+  // false on the first render, before any read has started, and again for a
+  // render between the cards' read and the entries' — so "not loading" does
+  // not say "read". The Budget's versions block compares a bid against these
+  // rates and must not call a version unsaved (or save it) off an empty list.
+  const [cardsRead, setCardsRead] = useState(false)
+  const [entriesFor, setEntriesFor] = useState(null)
 
   // StrictMode-safe: the body must reset to true — setup → cleanup → setup
   // reuses the same ref, and a cleanup-only effect strands it at false.
@@ -286,6 +293,7 @@ export function useRateCard() {
       // Pick the default (general) card, or the first one.
       const next = cards.find(c => c.is_default) || cards.find(c => c.type === 'general') || cards[0] || null
       setActiveRateCardId(next ? next.id : null)
+      setCardsRead(true)
     } catch (err) {
       if (mountedRef.current) setError(err.message || String(err))
     } finally {
@@ -326,6 +334,7 @@ export function useRateCard() {
         })
         setEntries(migrated)
         setDeptDefaults(Array.isArray(defaults) ? defaults : [])
+        setEntriesFor(activeRateCardId)
       })
       .catch(err => {
         if (mountedRef.current && !stale) setError(err.message || String(err))
@@ -471,6 +480,9 @@ export function useRateCard() {
     rawEntries: entries,             // entries without computed total
     deptDefaults,
     loading,
+    // S5c: the cards are read and the active card's entries with them (a
+    // workspace with no card has none to read).
+    settled: cardsRead && (activeRateCardId == null || entriesFor === activeRateCardId),
     error,
     reload: loadRateCards,
     addEntry,

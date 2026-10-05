@@ -36,6 +36,15 @@ export function useProjectRateOverrides() {
   const [overrides, setOverrides] = useState([])
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
+  // Post-overhaul S5c: the provider's rateOverridesEpoch the list on hand was
+  // read at (null until the first read lands). The Budget's versions block
+  // compares a bid against the live rates: until this equals the epoch, the
+  // list may still be the one from before an open wrote the version's rates
+  // (or the empty first render's), and "unsaved changes" would be read off
+  // rates nobody changed.
+  const [loadedEpoch, setLoadedEpoch] = useState(null)
+  const epochRef = useRef(rabbit?.rateOverridesEpoch ?? 0)
+  epochRef.current = rabbit?.rateOverridesEpoch ?? 0
 
   const mountedRef = useRef(true)
   // Set true in the effect, not only by useRef: StrictMode (dev) runs the
@@ -104,14 +113,20 @@ export function useProjectRateOverrides() {
   const load = useCallback(async () => {
     if (!getAdapter || !projectId) return
     const adapter = getAdapter()
-    if (!adapter?.listProjectRateOverrides) return
+    // A backend with no project rates has none to read: its empty list is
+    // the true one, at every epoch (S5c).
+    if (!adapter?.listProjectRateOverrides) { setLoadedEpoch(epochRef.current); return }
     const seq = ++loadSeqRef.current
+    const forEpoch = epochRef.current
     setLoading(true)
     setError(null)
     try {
       const list = await adapter.listProjectRateOverrides(projectId)
       if (seq !== loadSeqRef.current) return
-      if (mountedRef.current) setOverrides(Array.isArray(list) ? list : [])
+      if (mountedRef.current) {
+        setOverrides(Array.isArray(list) ? list : [])
+        setLoadedEpoch(forEpoch)
+      }
     } catch (err) {
       if (seq !== loadSeqRef.current) return
       // Money is manager-only at the RLS layer (0037), so a non-manager gets
@@ -190,5 +205,5 @@ export function useProjectRateOverrides() {
     }
   }, [getAdapter, projectId, overrides, writeRatesMirrorSoon])
 
-  return { overrides, loading, error, reload: load, setOverride, clearOverride }
+  return { overrides, loading, error, loadedEpoch, reload: load, setOverride, clearOverride }
 }

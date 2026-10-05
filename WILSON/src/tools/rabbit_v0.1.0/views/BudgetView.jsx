@@ -10,11 +10,15 @@
 //   - By Asset — asset-grouped bid/logged/variance/cost
 //   - Custom   — user picks group-by + filter + rate card override
 //
-// Summary tab includes:
+// Summary tab includes (post-overhaul S5c, F11's order):
+//   - the "Budget active — in production" banner while a bid is locked
+//   - Bid days / Logged days / Variance
+//   - Bid versions (budget/BidVersions.jsx): the OPEN version's Save and
+//     Save as new version…, the SELECTED bid and the variance against it,
+//     Edit this version, Set budget active, Manage versions…
 //   - Editable margin % and contingency % (stored on project)
-//   - Budget versioning: create bid snapshots, select active, finalize
-//   - Grand total: base + margin + contingency
-//   - Variance against active bid version
+//   - The overall total: base + margin + contingency + the agency fee, the
+//     total before agency beside it (F7)
 //
 // Costs come from `useRateCard()` — entries are flattened into a
 // `{ role_slug → day_rate }` map. Tasks whose assigned_role_slug
@@ -22,11 +26,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { v4 as uuidv4 } from 'uuid'
 import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
-  Lock, LockOpen, CheckCircle, Plus, Pencil, X, Undo2, Redo2,
+  Plus, Pencil, X, Undo2, Redo2,
   Upload, FileText, Paperclip, FolderOpen, Search, Filter, ArrowUpDown, ArrowRight,
   BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
   Users, Star, Eye, CheckSquare, Square, MinusSquare,
@@ -45,7 +48,7 @@ import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
 import MarginContPopover from './budget/MarginContPopover'
 import {
-  Table, Th, Td, Row, Stat, StatusDot, StatusBadge, EmptyState, Loading,
+  Table, Th, Td, Row, Stat, StatusDot, EmptyState, Loading,
   SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs, Spinner,
 } from '../../../ui'
 import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
@@ -57,10 +60,14 @@ import { useHomeIndex } from './scenes/LinkHome'
 // counted under "No scene in the active list" / "No shot in the active list", never dropped, and says where it points.
 import { activeIdsOf, linksInActive, notAssignedTitle, NO_SCENE_GROUP, NO_SHOT_GROUP } from './scenes/linkHomes'
 import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
-// Post-overhaul S3c, step 2 (D18): the bid version's "Based on shot list" —
-// the kit Select (this file's own `Select` is the report filters').
-import { Select as KitSelect } from '../../../ui'
-import { sortShotLists, formatShotListLabel } from '../state/shotListModel'
+// Post-overhaul S5c: bid versions as living documents on the Summary — the
+// block (S3c's "Based on shot list" moved into its save row), its questions,
+// and the model's arithmetic for the page's totals.
+import { BidVersionsBlock, ratesPendingFrom } from './budget/BidVersions'
+import VersionQuestions, { basedOnWords } from './budget/VersionQuestions'
+import { bidTotals, projectBudgetSettings, readVersion } from '../state/budgetVersionModel'
+import { resetToastWords } from '../state/versionWords'
+import { showDate } from '../dates'
 import './rabbitBudget.css'
 
 const TABS = [
@@ -127,7 +134,6 @@ export default function BudgetView({ pageActive = false } = {}) {
   const levels       = ctx?.levels       || []
   const experiences  = ctx?.experiences  || []
   const loading = ctx?.loadingProject
-  const budgetVersions = ctx?.budgetVersions || []
 
   const projectTeam = ctx?.projectTeam || []
   const syncProjectTeam = ctx?.syncProjectTeam
@@ -196,6 +202,11 @@ export default function BudgetView({ pageActive = false } = {}) {
   // rendering a confident $0 that reads as a broken budget.
   const hasNoRates = (rateCard.entries || []).length === 0
                   && (rateOverrides.overrides || []).length === 0
+
+  // Post-overhaul S5c: are the rates on hand the project's? Until they are,
+  // the versions block calls nothing unsaved and greys the verbs that write a
+  // bid, saying why (budget/BidVersions.jsx's ratesPendingFrom).
+  const ratesPending = ratesPendingFrom({ rateCard, rateOverrides, epoch: ctx?.rateOverridesEpoch ?? 0 })
 
   const variance = useMemo(
     () => ctx?.selectVarianceForProject?.() || { bid: 0, logged: 0, variance: 0 },
@@ -268,9 +279,9 @@ export default function BudgetView({ pageActive = false } = {}) {
             budget={budget}
             tasks={tasks}
             roleRates={roleRates}
+            ratesPending={ratesPending}
             missingRolesCount={missingRolesCount}
             rateCardName={rateCard.rateCards.find(c => c.id === rateCard.activeRateCardId)?.name}
-            budgetVersions={budgetVersions}
             budgetHook={budgetHook}
             rateCard={rateCard}
             teamMembers={assignedTeam}
@@ -393,177 +404,68 @@ function aggregateTasks(taskList, roleRates) {
 }
 
 // ─── Summary tab ────────────────────────────────────────────
-function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingRolesCount, rateCardName, budgetVersions, budgetHook, rateCard, teamMembers, expensesHook }) {
+// Post-overhaul S5c (F11): top to bottom — the "Budget active — in
+// production" banner while a bid is locked, the three day tiles, the bid
+// versions block (budget/BidVersions.jsx), Cost breakdown, the Topsheet.
+//
+// Every version write goes through the provider's mutators — one undo step
+// each, never a reload (F12.4: the old path here wrote through the adapter
+// and then reloaded the project, which wiped Undo). This file calls no
+// adapter for a version, writes no lock field itself and never reloads the
+// project after a version write; rabbitBudgetRender.test.jsx pins all three.
+// The page's figures are the model's arithmetic (bidTotals), the one a
+// version's saved totals are made by, so the waterfall's overall total and a
+// version's cannot drift apart (F7).
+function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPending = null, missingRolesCount, rateCardName, budgetHook, rateCard, teamMembers, expensesHook }) {
   const knownRoles = Object.keys(roleRates).length
 
-  // ── Margin / Contingency (stored on project) ──
-  const marginPct = Number(project.budget_margin_pct ?? 0) || 0
-  const contingencyPct = Number(project.budget_contingency_pct ?? 0) || 0
-  const agencyEnabled = project?.budget_agency_enabled === true
-  const agencyPct     = Number(project?.budget_agency_pct ?? 20)
-  const baseCost = budget.total
-  const marginAmt = Math.round(baseCost * (marginPct / 100) * 100) / 100
-  const contingencyAmt = Math.round(baseCost * (contingencyPct / 100) * 100) / 100
-  const grandTotal = Math.round((baseCost + marginAmt + contingencyAmt) * 100) / 100
+  // ── Margin / contingency / agency (stored on the project) ──
+  const { marginPct, contingencyPct, agencyEnabled, agencyPct } = projectBudgetSettings(project)
+  const live = useMemo(
+    () => bidTotals({ tasks, roleRates, marginPct, contingencyPct, agencyEnabled, agencyPct }),
+    [tasks, roleRates, marginPct, contingencyPct, agencyEnabled, agencyPct],
+  )
   const currency = budget.currency
 
   function updateProjectField(field, value) {
     ctx?.updateProject?.(project.id, { [field]: value })
   }
 
-  // ── Budget versioning ──
-  const adapter = ctx?.getAdapter?.()
-  const [versionName, setVersionName] = useState('')
-  const [versionBusy, setVersionBusy] = useState(false)
-  const activeVersion = budgetVersions.find(v => v.is_active)
-
-  // ── Based on shot list (post-overhaul S3c, step 2; D18) ──
-  // Audrey: "a drop down that allows the user to select an existing shot
-  // list when making a budget to clarify what creative the budget is based
-  // on." Beside the bid version's name: the project's LIVE lists, the active
-  // one by default (the list every other tab reads, D10), or none. Written to
-  // `budget_versions.shot_list_id` (0084's column) and frozen into the
-  // version's snapshot as `shot_list = { id, title, version }`, so the label
-  // survives the list being archived. S5 reworks this page next and inherits
-  // it as it is.
-  const shotLists = ctx?.shotLists
-  const liveLists = useMemo(() => sortShotLists((shotLists || []).filter(l => !l.archived_at)), [shotLists])
-  const activeListId = project?.active_shot_list_id || null
-  const [basedOnChoice, setBasedOnChoice] = useState(undefined) // undefined: the default
-  const basedOnId = basedOnChoice === undefined
-    ? (liveLists.some(l => l.id === activeListId) ? activeListId : null)
-    : basedOnChoice
-  const basedOnList = basedOnId ? (liveLists.find(l => l.id === basedOnId) || null) : null
-
-  async function createBidVersion() {
-    if (!versionName.trim() || !adapter?.upsertBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      const snapshot = {
-        tasks: tasks.map(t => ({
-          id: t.id, asset_id: t.asset_id,
-          assigned_role_slug: t.assigned_role_slug,
-          assigned_position: t.assigned_position,
-          bid_days: t.bid_days, logged_days: t.logged_days,
-          status: t.status,
-        })),
-        roleRates: { ...roleRates },
-        baseCost, marginPct, contingencyPct, grandTotal,
-        totalBidDays: variance.bid,
-        shot_list: basedOnList ? { id: basedOnList.id, title: basedOnList.title, version: basedOnList.version } : null,
-      }
-      await adapter.upsertBudgetVersion({
-        id: uuidv4(),
-        project_id: project.id,
-        name: versionName.trim(),
-        type: 'bid',
-        is_active: budgetVersions.length === 0,
-        created_at: new Date().toISOString(),
-        shot_list_id: basedOnList ? basedOnList.id : null,
-        snapshot,
-      })
-      setVersionName('')
-      setBasedOnChoice(undefined)
-      // Refresh bundle
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to create budget version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  async function setActiveVersion(versionId) {
-    if (!adapter?.upsertBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      for (const v of budgetVersions) {
-        if (v.is_active !== (v.id === versionId)) {
-          await adapter.upsertBudgetVersion({
-            ...v,
-            is_active: v.id === versionId,
-          })
-        }
-      }
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to set active version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  async function deleteVersion(versionId) {
-    if (!adapter?.deleteBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      await adapter.deleteBudgetVersion(versionId, project.id)
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to delete budget version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  // ── Bid → Active workflow ──
-  const [showActivateConfirm, setShowActivateConfirm] = useState(false)
+  // ── The lock (F9): "Budget active — in production" ──
+  // budget_active with no version on record still counts as locked (S5
+  // review round 1): the banner, and its way out, show either way.
   const isActive = project.budget_active === true
-  const lockedVersionId = project.budget_active_version_id || null
-  const lockedVersion = lockedVersionId ? budgetVersions.find(v => v.id === lockedVersionId) : null
-  const lockedBasedOn = lockedVersion ? basedOnLabel(lockedVersion, shotLists) : null
-
-  async function activateBudget() {
-    if (!activeVersion) return
-    // Enrich the snapshot with additional locked data
-    const enrichedSnapshot = {
-      ...(activeVersion.snapshot || {}),
-      taskCount: tasks.length,
-      taskDurations: tasks.map(t => ({ id: t.id, name: t.name || t.title, bid_days: t.bid_days, status: t.status })),
-      lineItemTotals: {
-        baseCost, marginPct, marginAmt, contingencyPct, contingencyAmt, grandTotal,
-        agencyEnabled, agencyPct,
-        agencyAmt: agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0,
-      },
-      lockedAt: new Date().toISOString(),
+  const lockedVersion = isActive
+    ? ((ctx?.budgetVersions || []).find(v => v.id === project.budget_active_version_id) || null)
+    : null
+  const lockedRead = lockedVersion ? readVersion(lockedVersion) : null
+  const lockedBasedOn = lockedVersion ? basedOnWords(lockedVersion, ctx?.shotLists) : null
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState(null)
+  // One click and no question, so its undo toast is the way back: locking
+  // again would load the bid AS SAVED over production's edits.
+  async function resetToBidding() {
+    const step = ctx?.runWithUndoToast || ((run) => run())
+    setResetting(true)
+    setResetError(null)
+    try {
+      await step(() => ctx.resetToBidding(), resetToastWords(lockedVersion))
+    } catch (err) {
+      setResetError(err?.message || String(err))
+    } finally {
+      setResetting(false)
     }
-    // Save the enriched snapshot back onto the version
-    if (adapter?.upsertBudgetVersion) {
-      await adapter.upsertBudgetVersion({ ...activeVersion, snapshot: enrichedSnapshot })
-    }
-    // Mark project as active with the locked version
-    ctx?.updateProject?.(project.id, {
-      budget_active: true,
-      budget_active_version_id: activeVersion.id,
-      budget_finalized: true,
-    })
-    setShowActivateConfirm(false)
-    ctx?.setActiveProject?.(project.id)
   }
 
-  async function resetToTidding() {
-    ctx?.updateProject?.(project.id, {
-      budget_active: false,
-      budget_active_version_id: null,
-      budget_finalized: false,
-    })
-    ctx?.setActiveProject?.(project.id)
-  }
-
-  // ── Active version variance ──
-  const versionVariance = useMemo(() => {
-    if (!activeVersion?.snapshot) return null
-    const bidTotal = activeVersion.snapshot.grandTotal ?? activeVersion.snapshot.baseCost ?? 0
-    const diff = grandTotal - bidTotal
-    return { bidTotal, currentTotal: grandTotal, diff, pctChange: bidTotal > 0 ? (diff / bidTotal) * 100 : 0 }
-  }, [activeVersion, grandTotal])
+  // ── The versions' questions (budget/VersionQuestions.jsx): one at a time ──
+  const [ask, setAsk] = useState(null)
 
   return (
     <div className="rb-budget-page">
       {/* ── Active budget banner: the kit Banner in the success tone. The
           words are the one ink and the tone is the tint and the icon, so
           nothing here is green text (R3-13). ── */}
-      {isActive && lockedVersion && (
+      {isActive && (
         <Banner
           tone="success"
           Icon={ShieldCheck}
@@ -571,8 +473,9 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             <Button
               size="sm"
               Icon={RotateCcw}
-              onClick={resetToTidding}
-              title="Reset to bidding — re-enables bid version editing"
+              loading={resetting}
+              onClick={resetToBidding}
+              title="Reset to bidding: the lock is lifted, and bid versions can be edited again"
             >
               Reset to bidding
             </Button>
@@ -580,16 +483,21 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         >
           <span className="rb-budget-active-title">Budget active — in production</span>
           <span className="rb-budget-active-meta">
-            Locked bid: <span className="rb-budget-active-name">{lockedVersion.name}</span>
-            {/* Post-overhaul S3c (D18): the creative it was bid on. */}
-            {lockedBasedOn && (
-              <>{' '}· Shot list: <span className="rb-budget-active-name">{lockedBasedOn.text}</span>{lockedBasedOn.note ? ` (${lockedBasedOn.note})` : ''}</>
-            )}
-            {' '}· {lockedVersion.snapshot?.lockedAt
-              ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
-              : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
-            {' '}· <CurrencyDisplay value={lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0} currency={currency} />
+            {lockedVersion ? (
+              <>
+                Locked bid: <span className="rb-budget-active-name">{lockedVersion.name}</span>
+                {/* Post-overhaul S3c (D18): the creative it was bid on. */}
+                {lockedBasedOn && (
+                  <>{' '}· Shot list: <span className="rb-budget-active-name">{lockedBasedOn}</span></>
+                )}
+                {' '}· locked {showDate(lockedVersion.locked_at || lockedVersion.created_at)}
+                {lockedRead?.overallKnown && (
+                  <>{' '}· <CurrencyDisplay value={lockedRead.overall} currency={currency} /> overall</>
+                )}
+              </>
+            ) : 'No bid version is on record as the locked one.'}
           </span>
+          {resetError && <span className="rb-budget-active-error" role="alert">{resetError}</span>}
         </Banner>
       )}
 
@@ -621,6 +529,20 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         />
       </div>
 
+      {/* ── Bid versions (S5c, step 3): the open version's save row, then
+          the selected bid — between the tiles and the money, F11. ── */}
+      <Card title="Bid versions">
+        <BidVersionsBlock
+          ctx={ctx}
+          roleRates={roleRates}
+          currency={currency}
+          liveTotals={live}
+          ratesPending={ratesPending}
+          onAsk={setAsk}
+        />
+      </Card>
+      <VersionQuestions ctx={ctx} ask={ask} setAsk={setAsk} roleRates={roleRates} currency={currency} ratesPending={ratesPending} />
+
       {/* ── Cost Breakdown — clean waterfall with inline controls ── */}
       {/* UX: Proximity (controls next to values), Fitts's (wide touch targets), */}
       {/* Miller's (single scannable list), Jakob's (receipt/invoice familiarity) */}
@@ -634,7 +556,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <div className="rb-budget-wf-row">
             <span className="rb-budget-wf-label">Base cost</span>
             <span className="rb-budget-wf-amount">
-              <CurrencyDisplay value={baseCost} currency={currency} />
+              <CurrencyDisplay value={live.baseCost} currency={currency} />
             </span>
           </div>
 
@@ -642,7 +564,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <WaterfallRow
             label="Margin"
             pct={marginPct}
-            amount={marginAmt}
+            amount={live.marginAmt}
             currency={currency}
             onPctChange={v => updateProjectField('budget_margin_pct', v)}
             disabled={isActive}
@@ -652,7 +574,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <WaterfallRow
             label="Contingency"
             pct={contingencyPct}
-            amount={contingencyAmt}
+            amount={live.contingencyAmt}
             currency={currency}
             onPctChange={v => updateProjectField('budget_contingency_pct', v)}
             disabled={isActive}
@@ -682,20 +604,26 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             )}
             <span className="rb-budget-wf-amount" data-off={agencyEnabled ? undefined : 'true'}>
               {agencyEnabled
-                ? formatMoney(Math.round(baseCost * (agencyPct / 100)), currency, { sign: 'always' })
+                ? formatMoney(live.agencyAmt, currency, { sign: 'always' })
                 : 'Off'}
             </span>
           </div>
 
-          {/* Grand total: the page's one display number (R3-08), under the
-              one signal rule. */}
+          {/* The overall total: the page's one display number (R3-08), under
+              the one signal rule. Audrey's F7: "the total with the agency %
+              is ... the overall total" — so it is named that, here and on
+              every bid version, and the total before the agency fee is
+              shown under it, labelled, whenever the fee is on. */}
           <div className="rb-budget-wf-total">
-            <span className="rb-budget-wf-total-label">Grand total</span>
+            <span className="rb-budget-wf-total-label">Overall total</span>
             <span className="rb-budget-wf-total-amount">
-              <CurrencyDisplay
-                value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
-                currency={currency} />
+              <CurrencyDisplay value={live.overall} currency={currency} />
             </span>
+            {agencyEnabled && (
+              <span className="rb-budget-wf-total-before">
+                {'Before agency '}<CurrencyDisplay value={live.beforeAgency} currency={currency} />
+              </span>
+            )}
           </div>
         </div>
 
@@ -742,206 +670,6 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             not in the rate card — those rows compute at $0.
             ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
           </Banner>
-        )}
-      </Card>
-
-      {/* ── Budget versioning ── */}
-      <Card title="Budget versions">
-        {/* Create new bid */}
-        <div className="rb-budget-new-version">
-          <Field label="Save current as bid version">
-            <input
-              type="text"
-              value={versionName}
-              onChange={e => setVersionName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
-              placeholder="e.g. Bid v1 — initial estimate"
-              disabled={isActive || versionBusy}
-              className="ui-input"
-              aria-label="Save current as bid version"
-            />
-          </Field>
-          {/* Post-overhaul S3c, step 2 (D18): beside the name, the shot list
-              the bid is based on — the active one by default. */}
-          <Field label="Based on shot list" className="rb-budget-basedon">
-            <KitSelect
-              value={basedOnId || ''}
-              onChange={(v) => setBasedOnChoice(v || null)}
-              placeholder="No shot list"
-              options={liveLists.map(l => ({ value: l.id, label: `${formatShotListLabel(l)}${l.id === activeListId ? ' (active)' : ''}` }))}
-              disabled={isActive || versionBusy}
-              aria-label="Based on shot list"
-            />
-          </Field>
-          <Button
-            variant="primary"
-            Icon={Save}
-            loading={versionBusy}
-            onClick={createBidVersion}
-            disabled={!versionName.trim() || isActive || versionBusy}
-          >
-            Save
-          </Button>
-        </div>
-
-        {/* Saved versions list: the kit Table (R3-20, R3-28 — one cell
-            padding head and body). Selection is said one way (R3-38): the
-            ACTIVE version is the kit's selected row; LOCKED is a badge in its
-            row, never a green row. */}
-        {budgetVersions.length === 0 ? (
-          <Empty compact title="No budget versions saved yet" body="Create one to track bid snapshots." />
-        ) : (
-          <Table
-            className="rb-budget-versions"
-            head={(
-              <Row>
-                <Th width="var(--rb-budget-col-mark)">Active</Th>
-                <Th>Name</Th>
-                <Th width="var(--rb-budget-col-list)">Shot list</Th>
-                <Th width="var(--rb-budget-col-date)">Date</Th>
-                <Th width="var(--rb-budget-col-money)" numeric>Total</Th>
-                <Th width="var(--rb-budget-col-days)" numeric>Days</Th>
-                <Th width="var(--rb-budget-col-acts)" align="right">Actions</Th>
-              </Row>
-            )}
-          >
-            {budgetVersions
-              .slice()
-              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-              .map(v => (
-                <Row key={v.id} selected={v.is_active}>
-                  <Td className="rb-budget-icon-cell">
-                    {isActive && v.id === lockedVersionId ? (
-                      <ShieldCheck className="rb-budget-mark" data-tone="success" aria-hidden="true" />
-                    ) : v.is_active ? (
-                      <CheckCircle className="rb-budget-mark" data-tone="signal" aria-hidden="true" />
-                    ) : (
-                      <IconButton
-                        Icon={CheckCircle}
-                        size="sm"
-                        onClick={() => setActiveVersion(v.id)}
-                        disabled={versionBusy || isActive}
-                        title={isActive ? 'Reset to bidding to change versions' : 'Set as active'}
-                      />
-                    )}
-                  </Td>
-                  <Td>
-                    <span className="rb-budget-version-name">
-                      <span className="rb-budget-version-text">{v.name}</span>
-                      {isActive && v.id === lockedVersionId && (
-                        <StatusBadge tone="success" label="Locked" />
-                      )}
-                    </span>
-                  </Td>
-                  {/* Post-overhaul S3c (D18): the shot list it was bid on —
-                      the list's own label while it is live, the frozen one
-                      once it is archived or gone. */}
-                  {(() => {
-                    const based = basedOnLabel(v, shotLists)
-                    return (
-                      <Td className="rb-budget-quiet rb-budget-version-list" data-empty={based ? undefined : 'true'}
-                        title={based ? `${based.text}${based.note ? ` (${based.note})` : ''}` : undefined}>
-                        {based ? `${based.text}${based.note ? ` (${based.note})` : ''}` : '—'}
-                      </Td>
-                    )
-                  })()}
-                  <Td className="rb-budget-date" data-empty={v.created_at ? undefined : 'true'}>
-                    {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
-                  </Td>
-                  <Td numeric className="rb-budget-quiet">
-                    <CurrencyDisplay
-                      value={v.snapshot?.grandTotal ?? v.snapshot?.baseCost ?? 0}
-                      currency={currency}
-                    />
-                  </Td>
-                  <Td numeric className="rb-budget-quiet">
-                    {formatTenths(v.snapshot?.totalBidDays ?? 0)}
-                  </Td>
-                  <Td align="right" className="rb-budget-icon-cell">
-                    <IconButton
-                      Icon={Trash2}
-                      size="sm"
-                      danger
-                      onClick={() => deleteVersion(v.id)}
-                      disabled={versionBusy || (isActive && v.id === lockedVersionId)}
-                      title={isActive && v.id === lockedVersionId ? 'Cannot delete locked version' : 'Delete version'}
-                    />
-                  </Td>
-                </Row>
-              ))}
-          </Table>
-        )}
-
-        {/* Variance against active version: the tone is the figure's alone
-            (R19), never the box's edge. */}
-        {versionVariance && (
-          <div className="rb-budget-vs">
-            <span className="rb-budget-eyebrow">
-              Variance vs active bid ({activeVersion?.name})
-            </span>
-            <div className="rb-budget-vs-figures">
-              <span
-                className="rb-budget-vs-value"
-                data-tone={Math.abs(versionVariance.diff) < 0.01 ? undefined : versionVariance.diff > 0 ? 'danger' : 'success'}
-              >
-                <CurrencyDisplay value={versionVariance.diff} currency={currency} signed />
-              </span>
-              <span className="rb-budget-vs-pct">
-                ({formatTenths(versionVariance.pctChange, { signed: true })}%)
-              </span>
-              <span className="rb-budget-vs-detail">
-                Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
-                {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Set Active button + confirmation dialog */}
-        {!isActive && budgetVersions.length > 0 && activeVersion && !showActivateConfirm && (
-          <div className="rb-budget-actions">
-            <Button Icon={ShieldCheck} onClick={() => setShowActivateConfirm(true)}>
-              Set budget active
-            </Button>
-          </div>
-        )}
-
-        {/* Confirmation: an inline panel, as it has always been (C1). The
-            caution is its one edge and its icon; every word is an ink. */}
-        {showActivateConfirm && (
-          <div className="rb-budget-confirm">
-            <div className="rb-budget-confirm-body">
-              <AlertCircle className="rb-budget-confirm-icon" aria-hidden="true" />
-              <div>
-                <span className="rb-budget-confirm-title">
-                  Confirm: set budget to active
-                </span>
-                <p className="rb-budget-confirm-text">
-                  This will lock <span className="rb-budget-confirm-name">"{activeVersion?.name}"</span> as
-                  the approved bid for this project. A snapshot of all task counts, durations, and budget totals
-                  will be frozen as the reference point for production.
-                </p>
-                <p className="rb-budget-confirm-note">
-                  While active, you will not be able to create new bid versions or switch between versions.
-                  You can reset this later if needed.
-                </p>
-              </div>
-            </div>
-            <div className="rb-budget-confirm-foot">
-              <Button onClick={() => setShowActivateConfirm(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                Icon={Lock}
-                loading={versionBusy}
-                onClick={activateBudget}
-                disabled={versionBusy}
-              >
-                Confirm — set active
-              </Button>
-            </div>
-          </div>
         )}
       </Card>
 
@@ -3256,23 +2984,6 @@ function Field({ label, children, className = '' }) {
       {children}
     </div>
   )
-}
-
-/**
- * Post-overhaul S3c, step 2 (D18): the shot list a bid version is based on,
- * in words — { text, note } or null. While the list is live, its own label
- * (renamed since? the new name: it is the same list); archived, or gone from
- * this client, the label frozen into the version's snapshot, noted so.
- */
-export function basedOnLabel(version, shotLists) {
-  const frozen = version?.snapshot?.shot_list || null
-  const id = version?.shot_list_id || frozen?.id || null
-  if (!id) return null
-  const list = (shotLists || []).find(l => l.id === id) || null
-  if (list && !list.archived_at) return { text: formatShotListLabel(list), note: null }
-  if (frozen?.title) return { text: formatShotListLabel(frozen), note: list ? 'archived' : 'not in this project now' }
-  if (list) return { text: formatShotListLabel(list), note: 'archived' }
-  return null
 }
 
 // The native select in the kit's well at the Dense step. The status colours

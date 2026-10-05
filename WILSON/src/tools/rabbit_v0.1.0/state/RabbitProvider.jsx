@@ -6085,6 +6085,28 @@ export function RabbitProvider({ children }) {
   const previewOpenCb = useCallback((id, opts) => previewOpenBudgetVersion(id, opts), []);
   const previewDeleteCb = useCallback((id) => previewDeleteBudgetVersion(id), []);
 
+  /**
+   * Post-overhaul S5c: a version step taken where no Ctrl+Z reaches it — the
+   * Budget's Summary binds no undo keys (the Expenses tab's are its own
+   * history, and the Timeline is not mounted beside it) — says what it did in
+   * the undo toast, whose Undo takes back exactly that step. `run` is the
+   * step (a mutator call); `words` a sentence, or a function of the step's
+   * answer that returns one. Nothing is shown when the step recorded nothing
+   * (it was refused, or changed nothing), nor when another project was opened
+   * while it ran (that toast would undo a step of the other project's).
+   */
+  const runWithUndoToast = useCallback(async (run, words) => {
+    const stack = historyRef.current;
+    const before = stack.undo[stack.undo.length - 1];
+    const out = await run();
+    const top = historyRef.current.undo[historyRef.current.undo.length - 1];
+    if (historyRef.current === stack && top && top !== before) {
+      const said = typeof words === 'function' ? words(out) : words;
+      if (said) showUndoToast(said, () => undoHistoryEntry(top.token));
+    }
+    return out;
+  }, [showUndoToast, undoHistoryEntry]);
+
   /** The bid versions, read again (another window opened or closed one: they are not broadcast, S5-02). */
   const refreshBudgetVersions = useCallback(async () => {
     const pid = activeProjectIdRef.current;
@@ -6538,6 +6560,8 @@ export function RabbitProvider({ children }) {
     removalPlanFor:      removalPlanForCb,
     previewOpenBudgetVersion:   previewOpenCb,
     previewDeleteBudgetVersion: previewDeleteCb,
+    // S5c: a version step's undo toast, where no Ctrl+Z reaches (the Budget).
+    runWithUndoToast,
 
     // folders (Session 26). Exposed so S27's Files view can rebuild the
     // tree for a project that predates 0041 without inventing its own
@@ -6597,7 +6621,7 @@ export function RabbitProvider({ children }) {
     saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
     rateOverridesEpoch,
     deleteTaskVerb, deleteTasksVerb, deletePhaseVerb, deleteMilestoneVerb,
-    removalPlanForCb, previewOpenCb, previewDeleteCb,
+    removalPlanForCb, previewOpenCb, previewDeleteCb, runWithUndoToast,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,

@@ -33,7 +33,7 @@ const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n
 const SHEET = resolve(here, 'rabbitBudget.css')
 const sheet = read('rabbitBudget.css')
 /** Lane B5's class prefixes (the second word after `rb-`), as the guards' `prefix`. */
-const LANE = 'money|budget|crew|talent|client|pop|inv'
+const LANE = 'money|budget|crew|talent|client|pop|inv|bv'
 const LANE_RE = new RegExp(`^rb-(${LANE})-`)
 /** B5's files on this sheet, relative to this directory, the prefix each
     writes, and the least it can weigh (a thin component is short; a read
@@ -63,6 +63,11 @@ const FILES = {
   // B5 surface 4's tail: the popovers' invoice field, outside the tool's
   // folder (components/Budget/) but hosted only by Crew and Talent.
   inv: { file: '../../../components/Budget/InvoiceAttachment.jsx', prefix: 'rb-inv-', min: 3000 },
+  // Post-overhaul S5c (step 3, S5b's trap 11): the Summary's bid versions —
+  // the block, and its questions with the Manage versions… picker. One
+  // prefix for the two, as the popover's two files share `rb-pop-`.
+  bv: { file: './budget/BidVersions.jsx', prefix: 'rb-bv-', min: 3000 },
+  bvQuestions: { file: './budget/VersionQuestions.jsx', prefix: 'rb-bv-', min: 3000 },
 }
 /** The inline styles each file may write: a caller-given geometry or a
     measured quantity carried as a custom property, never a state. */
@@ -360,13 +365,20 @@ const READS = [
     file (below) is a clean scan of these. */
 const NEAR_MISSES = {
   money: ["style: 'currency'"],
-  budget: ['width="confirm"', 'setConfirmBulkDelete(', 'setConfirmResetMc(', 'className="rb-budget-confirm"', 'data-width="confirm"'],
+  // (Post-overhaul S5c: 'className="rb-budget-confirm"' left with the
+  // Summary's inline activate panel; Set budget active asks in the kit
+  // Dialog now, budget/VersionQuestions.jsx.)
+  budget: ['width="confirm"', 'setConfirmBulkDelete(', 'setConfirmResetMc(', 'data-width="confirm"'],
   client: ["rule.style?.getPropertyValue('font-family')", 'doc.styleSheets', '<style>'],
   pop: ["style={{ '--rb-pop-w': width"],
   marginCont: [],
   crew: ['width="confirm"', 'setConfirmResetMc(', "style={{ '--rb-crew-cols': periods }}"],
   talent: ['width="confirm"', 'setConfirmResetMc(', "style={{ '--rb-talent-cols': periods }}"],
   inv: [],
+  bv: [],
+  // ListConfirm's own prop (the words' field is `verb`: scriptedLeaks reads
+  // any `.confirm` as window.confirm's, S5b's trap 11).
+  bvQuestions: ['confirmLabel={words.verb}'],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
