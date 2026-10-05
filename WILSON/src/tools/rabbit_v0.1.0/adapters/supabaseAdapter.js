@@ -630,6 +630,11 @@ const BUDGET_VERSION_COLUMNS = new Set([
   // and not strays the allowlist warns about.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'shot_list_id', 'summary',
+  // Post-overhaul S5: an UNDONE delete re-inserts the version with its own
+  // created_at, so it keeps its place newest-first and stays the "version
+  // before" F8's automatic line is computed against. A NEW version sends none
+  // (RabbitProvider.createBudgetVersion): the server's default stamps it.
+  'created_at',
 ]);
 
 const EXPENSE_COLUMNS = new Set([

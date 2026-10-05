@@ -119,7 +119,11 @@ export function useProjectRateOverrides() {
     }
   }, [getAdapter, projectId])
 
-  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online])
+  // Post-overhaul S5: opening a bid version writes its role rates as project
+  // overrides from the provider; the provider bumps rateOverridesEpoch after
+  // each such write (and its undo), and this list reloads.
+  const rateOverridesEpoch = rabbit?.rateOverridesEpoch ?? 0
+  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
 
   // Set a project rate. Exactly one of roleSlug / memberId — the database
   // CHECK refuses both or neither, because a row keyed by both has no single

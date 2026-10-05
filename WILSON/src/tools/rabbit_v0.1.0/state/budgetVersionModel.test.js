@@ -183,6 +183,20 @@ describe('planOpen — loading a version into the live rows', () => {
     const plan = planOpen({ ...saved, phases: [...saved.phases].reverse() }, { tasks, phases: [], milestones, project, roleRates })
     expect(plan.phases.create.map(p => p.id)).toEqual(['ph1', 'ph2'])
   })
+  it('a link to a scene, shot or asset that has gone is left out — the patch keeps the live link, the recreated row has none', () => {
+    const snap = { ...saved, tasks: saved.tasks.map((t, i) => (i ? t : { ...t, scene_id: 'sc-gone', shot_id: 'sh-ok' })) }
+    const live0 = tasks.map((t, i) => (i ? t : { ...t, scene_id: 'sc-live', shot_id: 'sh-live' }))
+    const known = { scenes: new Set(['sc-live']), shots: new Set(['sh-ok', 'sh-live']), assets: new Set() }
+    const plan = planOpen(snap, { tasks: live0, phases, milestones, project, roleRates, known })
+    expect(plan.tasks.update[0].patch).toEqual({ shot_id: 'sh-ok' })
+    expect(plan.droppedLinks).toBe(1)
+    const lost = planOpen(snap, { tasks: tasks.slice(1), phases, milestones, project, roleRates, known })
+    expect(lost.tasks.create[0]).not.toHaveProperty('scene_id')
+    expect(lost.tasks.create[0].shot_id).toBe('sh-ok')
+    // CONTROL: without `known`, every link is written as the version holds it.
+    expect(planOpen(snap, { tasks: live0, phases, milestones, project, roleRates }).tasks.update[0].patch).toEqual({ scene_id: 'sc-gone', shot_id: 'sh-ok' })
+  })
+
   it('restores margin, contingency and the agency fee, and the role rates that differ', () => {
     const plan = planOpen(saved, { tasks, phases, milestones, project: { ...project, budget_margin_pct: 20, budget_agency_enabled: false }, roleRates: { ...roleRates, editor: 600 } })
     expect(plan.settings.patch).toEqual({ budget_margin_pct: 10, budget_agency_enabled: true })

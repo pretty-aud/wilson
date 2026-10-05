@@ -347,10 +347,26 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
  *   rates: [{ roleSlug, rate, before }] — the roles whose live rate differs
  * Phases come first (a recreated sub-phase's parent, a recreated task's
  * phase), parents before children.
+ *
+ * `known` ({ scenes, shots, assets }: Sets of the ids that exist now) keeps a
+ * link to a row that has gone out of the writes: a patch leaves that link as
+ * it is, a recreated row is written without it. The cloud's same-project FKs
+ * would refuse it, and opening must not stop half way for a deleted shot. A
+ * phase link is known when the live project or the version holds the phase
+ * (the version's phases are all present once the plan has run).
  */
-export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], project = null, roleRates = {} } = {}) {
+export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], project = null, roleRates = {}, known = null } = {}) {
   const s = snapshot || {}
-  const plan = { phases: { update: [], create: [] }, tasks: { update: [], create: [] }, milestones: { update: [], create: [] }, settings: null, rates: [] }
+  const plan = { phases: { update: [], create: [] }, tasks: { update: [], create: [] }, milestones: { update: [], create: [] }, settings: null, rates: [], droppedLinks: 0 }
+  const phaseIds = new Set([...(phases || []), ...(s.phases || [])].filter(Boolean).map(p => String(p.id)))
+  const linkKnown = {
+    phase_id: phaseIds,
+    parent_phase_id: phaseIds,
+    scene_id: known?.scenes || null,
+    shot_id: known?.shots || null,
+    asset_id: known?.assets || null,
+  }
+  const isGone = (f, v) => v != null && linkKnown[f] instanceof Set && !linkKnown[f].has(String(v))
 
   const planRows = (snapRows, liveRows, scheduleFields, allFields, into) => {
     const live = byId(liveRows)
@@ -359,16 +375,24 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], p
       const cur = live.get(String(row.id))
       if (!cur) {
         const rec = {}
-        for (const f of allFields) if (row[f] !== undefined && row[f] !== null) rec[f] = row[f]
+        for (const f of allFields) {
+          if (row[f] === undefined || row[f] === null) continue
+          if (isGone(f, row[f])) { plan.droppedLinks += 1; continue }
+          rec[f] = row[f]
+        }
         into.create.push(rec)
         continue
       }
       const fields = changedFields(cur, row, scheduleFields)
-      if (!fields.length) continue
       const patch = {}
       const before = {}
-      for (const f of fields) { patch[f] = norm(f, row[f]); before[f] = cur[f] ?? null }
-      into.update.push({ id: cur.id, patch, before })
+      for (const f of fields) {
+        const v = norm(f, row[f])
+        if (isGone(f, v)) { plan.droppedLinks += 1; continue }
+        patch[f] = v
+        before[f] = cur[f] ?? null
+      }
+      if (Object.keys(patch).length) into.update.push({ id: cur.id, patch, before })
     }
   }
 
