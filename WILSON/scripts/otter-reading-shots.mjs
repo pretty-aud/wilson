@@ -6,10 +6,22 @@
  * 1280x700, with the measurements the hand-off quotes.
  *
  *   node scripts/otter-reading-shots.mjs <before|after> [port] [--library <dir>] [--out <dir>] [--no-shots] [--sizes WxH,…]
+ *                                        [--prefix <name>] [--views <view,…>] [--plant]
  *
- * Writes `<out>/po-s2b-<phase>-<view>-<W>x<H>.png` (default out:
- * docs/sessions/handoffs/img) and prints one JSON line of measurements per
- * view and size.
+ * Writes `<out>/<prefix>-<phase>-<view>-<W>x<H>.png` (default out:
+ * docs/sessions/handoffs/img, default prefix po-s2b) and prints one JSON line
+ * of measurements per view and size.
+ *
+ * Views (default: the first five, S2b's): functions, search-functions, lesson,
+ * lesson-crumbs, stub; and, post-overhaul S2c: stub-stress (the outline page
+ * of a subject whose title nearly fills the column — a stress title added in
+ * memory to her Python course, sized in the page to sit 25px inside the line;
+ * with it, `outlineSweep`: every one of her subjects and a run of stress
+ * titles through the live outline breadcrumb, "[outline]" whole or not) and
+ * a11y (what the accessibility tree holds under each breadcrumb, read through
+ * the DevTools protocol). --plant (S2c, S2b-05) adds entries that are not
+ * objects — null, a string, a number, a list — to her Python function library
+ * IN MEMORY, for the Functions view and the Search dialog.
  *
  * THE REPLAY (post-overhaul plan §4 item 10). Anything that renders her
  * O.T.T.E.R. content is replayed against her real library, not a fixture.
@@ -35,7 +47,7 @@ const args = process.argv.slice(2);
 const flag = (name, dflt) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : dflt; };
 const phase = args[0];
 if (!['before', 'after'].includes(phase)) {
-  console.error('usage: node scripts/otter-reading-shots.mjs <before|after> [port] [--library <dir>] [--out <dir>] [--no-shots]');
+  console.error('usage: node scripts/otter-reading-shots.mjs <before|after> [port] [--library <dir>] [--out <dir>] [--no-shots] [--sizes WxH,…] [--prefix <name>] [--views <view,…>] [--plant]');
   process.exit(1);
 }
 const PORT = args[1] && /^\d+$/.test(args[1]) ? args[1] : '5275';
@@ -43,6 +55,9 @@ const BASE = `http://localhost:${PORT}`;
 const OUT = flag('out', 'docs/sessions/handoffs/img');
 const LIBRARY = flag('library', join(process.env.APPDATA || '', 'wilson', 'otter-data', 'software'));
 const SHOTS = !args.includes('--no-shots');
+const PREFIX = flag('prefix', 'po-s2b');
+const VIEWS = new Set(flag('views', 'functions,search-functions,lesson,lesson-crumbs,stub').split(',').map((v) => v.trim()));
+const PLANT = args.includes('--plant');
 // --sizes 1024x700,853x583 measures the smallest window (and it at about
 // 120% zoom, as A3 did) without changing the shots' default pair.
 const SIZES = flag('sizes', '1440x900,1280x700').split(',').map((s) => s.trim().split('x').map(Number));
@@ -103,6 +118,33 @@ function buildReplay(root) {
   }
   return { courses, subjects };
 }
+
+/** S2c (S2b-05): her Python library with one entry of each kind that is not
+ *  an object, IN MEMORY — the replay's copy, never her file. */
+const PLANTS = [null, 'print', 5, ['len']];
+function plantNonObjects(replay) {
+  const py = replay.courses.find((c) => c.course_type === 'coding_language');
+  const cat = py && (py.functions.categories || []).find((c) => c && Array.isArray(c.functions) && c.functions.length);
+  if (!cat) throw new Error('no coding-language course with functions to plant in');
+  cat.functions.splice(1, 0, ...PLANTS);
+  return { course: py.name, planted: PLANTS.length };
+}
+
+/** S2c (S2b-03): a stress subject — a stub in her Python course, in memory,
+ *  whose title is `title` (sized in the page to nearly fill the column). */
+function withStressSubject(replay, title) {
+  const py = replay.courses.find((c) => c.slug === 'python') || replay.courses[0];
+  return {
+    courses: replay.courses,
+    subjects: [...replay.subjects, { id: `${py.id}-s2c-stress`, course_id: py.id, slug: 's2c-stress', title, description: 'S2c stress title (in memory only).',
+      skill_level: 'beginner', is_stub: true, subject_order: 999, estimated_hours: null, sections: [], section_outlines: [{ title: 'One', lessons: [] }],
+      sources: [], prerequisites: [], deleted_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }],
+  };
+}
+/** Titles of every length from 70 to 118 characters: around the outline
+ *  page's column at the Caption step (about 99 characters of Geist). */
+const STRESS_BASE = 'Understanding GameObjects, Components and the Transform Hierarchy in Unity 6 for Complete Beginners and Returning Artists';
+const STRESS_TITLES = [...new Set(Array.from({ length: 49 }, (_, i) => STRESS_BASE.slice(0, 70 + i).trimEnd()))];
 
 const REBIND = `
 ;const __s2bCreateStore = createStore;
@@ -345,86 +387,215 @@ const CRUMB_SWEEP = (paths) => {
   return { width: live.getBoundingClientRect().width, ...tally, lessonCutTitles: tally.lessonCutTitles.slice(0, 5) };
 };
 
+/** S2c (S2b-03): subject titles through the LIVE outline breadcrumb — a fresh
+ *  nav per title, Otter.jsx's markup, inside the outline page itself (so a
+ *  rule scoped to the page reaches it). For each: is "[outline]" whole on the
+ *  line, is the subject on the line, is the subject cut, is the nav taller
+ *  than its line. `natural` is the title's own width at the Caption step. */
+const OUTLINE_SWEEP = ({ pairs }) => {
+  const live = [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent !== null && e.querySelector('.otter-crumb-note'));
+  if (!live) return 'no live outline breadcrumb';
+  const chevron = live.querySelector('.otter-crumb-sep').outerHTML;
+  const host = document.createElement('div');
+  host.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;width:${live.getBoundingClientRect().width}px`;
+  live.parentElement.appendChild(host);
+  const esc = (t) => String(t ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const rows = [];
+  for (const [course, title] of pairs) {
+    host.innerHTML = `<nav class="otter-crumbs"><span class="otter-crumb-trail"><span class="otter-crumb-keep">${esc(course)}</span>${chevron}</span>`
+      + `<span class="otter-crumb-current">${esc(title)}</span><span class="otter-crumb-note">[outline]</span></nav>`;
+    const nav = host.firstChild;
+    const n = nav.getBoundingClientRect();
+    const cur = nav.querySelector('.otter-crumb-current');
+    const c = cur.getBoundingClientRect();
+    const note = nav.querySelector('.otter-crumb-note').getBoundingClientRect();
+    const onLine = (b) => b.width > 0 && b.top < n.bottom - 1 && b.bottom > n.top + 1;
+    rows.push({ title, natural: +cur.scrollWidth.toFixed(1),
+      noteWhole: onLine(note) && note.left >= n.left - 0.5 && note.right <= n.right + 0.5,
+      subjectShown: onLine(c), subjectCut: cur.scrollWidth > cur.clientWidth + 0.5, taller: n.height > parseFloat(getComputedStyle(nav).lineHeight) + 0.5 });
+  }
+  const noteRect = host.querySelector('.otter-crumb-note').getBoundingClientRect();
+  const width = live.getBoundingClientRect().width;
+  host.remove();
+  const hidden = rows.filter((r) => !r.noteWhole);
+  return { width, noteWidth: +noteRect.width.toFixed(2), fontSize: getComputedStyle(live).fontSize, titles: rows.length,
+    noteHidden: hidden.length, subjectHidden: rows.filter((r) => !r.subjectShown).length, subjectCut: rows.filter((r) => r.subjectCut).length,
+    taller: rows.filter((r) => r.taller).length,
+    noteHiddenFrom: hidden.length ? Math.min(...hidden.map((r) => r.natural)) : null, noteHiddenTo: hidden.length ? Math.max(...hidden.map((r) => r.natural)) : null,
+    widest: Math.max(...rows.map((r) => r.natural)), rows };
+};
+
+/** S2c (S2b-04): what the accessibility tree holds under the visible
+ *  breadcrumb — its role and name, and every node under it that is NOT
+ *  ignored (what a screen reader is given), names JSON-escaped so a
+ *  zero-width space reads as ​. Through the DevTools protocol. */
+async function crumbsA11y(context, page) {
+  const cdp = await context.newCDPSession(page);
+  try {
+    await cdp.send('DOM.enable');
+    await cdp.send('Accessibility.enable');
+    const { result } = await cdp.send('Runtime.evaluate', { expression: "[...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent !== null) || null" });
+    if (!result.objectId) return 'no visible breadcrumb';
+    const { node } = await cdp.send('DOM.describeNode', { objectId: result.objectId });
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const nav = nodes.find((n) => n.backendDOMNodeId === node.backendNodeId);
+    if (!nav) return 'the breadcrumb is not in the accessibility tree';
+    const out = [];
+    let ignoredZwsp = 0;
+    const walk = (n, depth) => {
+      for (const id of n.childIds || []) {
+        const ch = byId.get(id);
+        if (!ch) continue;
+        const name = ch.name?.value ?? '';
+        if (ch.ignored) { if (/​/.test(name)) ignoredZwsp++; walk(ch, depth); continue; }
+        out.push(`${'  '.repeat(depth)}${ch.role?.value} ${JSON.stringify(name).replace(/​/g, '\\u200b')}`);
+        walk(ch, depth + 1);
+      }
+    };
+    walk(nav, 1);
+    const zwspNodes = out.filter((l) => /\\u200b/.test(l)).length;
+    return { role: nav.role?.value, name: nav.name?.value, zwspTextNodes: zwspNodes, ignoredZwsp, tree: out };
+  } finally {
+    await cdp.detach();
+  }
+}
+
 // ── run ─────────────────────────────────────────────────────────────────────
 const replay = buildReplay(LIBRARY);
-console.log(JSON.stringify({ library: LIBRARY, courses: replay.courses.map((c) => `${c.name} (${c.course_type})`), subjects: replay.subjects.length }));
+const planted = PLANT ? plantNonObjects(replay) : null;
+console.log(JSON.stringify({ library: LIBRARY, courses: replay.courses.map((c) => `${c.name} (${c.course_type})`), subjects: replay.subjects.length, views: [...VIEWS], ...(planted ? { planted } : {}) }));
 if (SHOTS) mkdirSync(OUT, { recursive: true });
+
+/** A page over `data` (her library in front of the fixture courses). */
+async function openReplay(browser, w, h, data) {
+  const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
+  await context.addInitScript((d) => { globalThis.__S2B_REPLAY = d; }, data);
+  await context.route('**/src/dev/fixtures/store.js*', async (route) => {
+    const res = await route.fetch();
+    const body = await res.text();
+    if (!/export function createStore\(/.test(body)) throw new Error('store.js no longer exports createStore() — the replay cannot attach');
+    await route.fulfill({ response: res, body: body + REBIND });
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => { errors.push(e.message); console.log(`    pageerror: ${e.message}`); });
+  await page.goto(`${BASE}/otter`, { waitUntil: 'load' });
+  await sleep(8000);
+  return { context, page, errors };
+}
+async function shoot(page, w, h, view, opts = {}) {
+  const m = await page.evaluate(MEASURE, opts);
+  console.log(JSON.stringify({ phase, view, size: `${w}x${h}`, ...m }));
+  if (SHOTS) await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-${w}x${h}.png`) });
+  // The breadcrumb alone, so a squeezed segment can be read.
+  if (SHOTS && m.crumbs) {
+    await page.screenshot({ path: join(OUT, `${PREFIX}-${phase}-${view}-trail-${w}x${h}.png`), scale: 'device',
+      clip: { x: Math.max(0, m.crumbs.left - 8), y: Math.max(0, (await page.evaluate(() => [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent)?.getBoundingClientRect().top ?? 0)) - 6), width: m.crumbs.width + 16, height: 30 } });
+  }
+  return m;
+}
 
 const browser = await chromium.launch();
 try {
   for (const [w, h] of SIZES) {
-    const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
-    await context.addInitScript((data) => { globalThis.__S2B_REPLAY = data; }, replay);
-    await context.route('**/src/dev/fixtures/store.js*', async (route) => {
-      const res = await route.fetch();
-      const body = await res.text();
-      if (!/export function createStore\(/.test(body)) throw new Error('store.js no longer exports createStore() — the replay cannot attach');
-      await route.fulfill({ response: res, body: body + REBIND });
-    });
-    const page = await context.newPage();
-    page.on('pageerror', (e) => console.log(`    pageerror: ${e.message}`));
-    await page.goto(`${BASE}/otter`, { waitUntil: 'load' });
-    await sleep(8000);
-    const shoot = async (view, opts = {}) => {
-      const m = await page.evaluate(MEASURE, opts);
-      console.log(JSON.stringify({ phase, view, size: `${w}x${h}`, ...m }));
-      if (SHOTS) await page.screenshot({ path: join(OUT, `po-s2b-${phase}-${view}-${w}x${h}.png`) });
-      // The breadcrumb alone, so a squeezed segment can be read.
-      if (SHOTS && m.crumbs) {
-        await page.screenshot({ path: join(OUT, `po-s2b-${phase}-${view}-trail-${w}x${h}.png`), scale: 'device',
-          clip: { x: Math.max(0, m.crumbs.left - 8), y: Math.max(0, (await page.evaluate(() => [...document.querySelectorAll('.otter-crumbs')].find((e) => e.offsetParent)?.getBoundingClientRect().top ?? 0)) - 6), width: m.crumbs.width + 16, height: 30 } });
-      }
-    };
+    const size = `${w}x${h}`;
+    const { context, page, errors } = await openReplay(browser, w, h, replay);
 
     // 1. The Functions reference: her Python course (the first coding language).
-    const fnTab = await tab(page, 'Functions');
-    await sleep(1500);
-    if (!fnTab) console.log('    (drive: no Functions tab)');
-    await shoot('functions');
+    if (VIEWS.has('functions')) {
+      const fnTab = await tab(page, 'Functions');
+      await sleep(1500);
+      if (!fnTab) console.log('    (drive: no Functions tab)');
+      await shoot(page, w, h, 'functions');
+    }
 
     // 2. The Search dialog's function results. "Search" is a button on the
     //    strip, not one of its tabs; the dialog focuses its field.
-    if (!(await clickText(page, 'Search', 'button'))) console.log('    (drive: no Search button)');
-    await sleep(1200);
-    await page.keyboard.type('print', { delay: 30 });
-    await sleep(1800);
-    const picked = await page.evaluate(() => {
-      const row = [...document.querySelectorAll('.otter-search-result')].find((b) => b.offsetParent !== null && /Functions reference/.test(b.textContent || ''));
-      if (!row) return false;
-      row.click();
-      return true;
-    });
-    await sleep(1200);
-    if (!picked) console.log('    (drive: no function result for "print")');
-    await shoot('search-functions', { inDialog: true });
-    await page.keyboard.press('Escape');
-    await sleep(1200);
+    if (VIEWS.has('search-functions')) {
+      if (!(await clickText(page, 'Search', 'button'))) console.log('    (drive: no Search button)');
+      await sleep(1200);
+      await page.keyboard.type('print', { delay: 30 });
+      await sleep(1800);
+      const picked = await page.evaluate(() => {
+        const row = [...document.querySelectorAll('.otter-search-result')].find((b) => b.offsetParent !== null && /Functions reference/.test(b.textContent || ''));
+        if (!row) return false;
+        row.click();
+        return true;
+      });
+      await sleep(1200);
+      if (!picked) console.log('    (drive: no function result for "print")');
+      await shoot(page, w, h, 'search-functions', { inDialog: true });
+      await page.keyboard.press('Escape');
+      await sleep(1200);
+    }
 
     // 3. The lesson page: a real Python lesson with code.
-    const lesson = await openSubject(page, 'Python', 'Python Syntax and Basic Operations', 'Creating Variables and Understanding Numbers');
-    if (!lesson.course || !lesson.subject || !lesson.lesson) console.log(`    (drive: ${JSON.stringify(lesson)})`);
-    await shoot('lesson');
+    if (VIEWS.has('lesson')) {
+      const lesson = await openSubject(page, 'Python', 'Python Syntax and Basic Operations', 'Creating Variables and Understanding Numbers');
+      if (!lesson.course || !lesson.subject || !lesson.lesson) console.log(`    (drive: ${JSON.stringify(lesson)})`);
+      await shoot(page, w, h, 'lesson');
+    }
 
     // 4. The longest breadcrumb in her library (Unity 6, a 53-character lesson).
-    const crumbs = await openSubject(page, 'Unity 6', 'GameObjects and Components Fundamentals', 'Understanding GameObjects and the Transform Component');
-    if (!crumbs.course || !crumbs.subject || !crumbs.lesson) console.log(`    (drive: ${JSON.stringify(crumbs)})`);
-    await shoot('lesson-crumbs');
-    if (phase === 'after') {
-      const byId = new Map(replay.courses.map((c) => [c.id, c.name]));
-      const paths = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => [byId.get(s.course_id), s.title, sec.title, l.title])));
-      console.log(JSON.stringify({ size: `${w}x${h}`, crumbSweep: await page.evaluate(CRUMB_SWEEP, paths) }));
+    if (VIEWS.has('lesson-crumbs') || VIEWS.has('a11y')) {
+      const crumbs = await openSubject(page, 'Unity 6', 'GameObjects and Components Fundamentals', 'Understanding GameObjects and the Transform Component');
+      if (!crumbs.course || !crumbs.subject || !crumbs.lesson) console.log(`    (drive: ${JSON.stringify(crumbs)})`);
+      if (VIEWS.has('lesson-crumbs')) {
+        await shoot(page, w, h, 'lesson-crumbs');
+        if (phase === 'after' || PREFIX !== 'po-s2b') {
+          const byId = new Map(replay.courses.map((c) => [c.id, c.name]));
+          const paths = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => [byId.get(s.course_id), s.title, sec.title, l.title])));
+          console.log(JSON.stringify({ size, crumbSweep: await page.evaluate(CRUMB_SWEEP, paths) }));
+        }
+      }
+      if (VIEWS.has('a11y')) console.log(JSON.stringify({ size, a11y: 'the lesson page', ...(await crumbsA11y(context, page)) }));
     }
 
     // 5. The subject page before content: a real Python stub.
-    const stub = await openStub(page, 'Python', 'Loops and Iteration');
-    if (stub.course !== true || stub.row !== true || stub.study !== true) console.log(`    (drive: ${JSON.stringify(stub)})`);
-    await shoot('stub');
-    if (phase === 'after') console.log(JSON.stringify({ size: `${w}x${h}`, outlinePageStepMoved: await page.evaluate(STEP_NEUTRAL) }));
-    if (phase === 'after' && w === SIZES[0][0]) {
-      const titles = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => l.title)));
-      console.log(JSON.stringify({ lessons: titles.length, longestLessonCrumbs: await page.evaluate(LONGEST_LESSON_CRUMBS, titles) }));
+    if (VIEWS.has('stub') || VIEWS.has('stub-stress') || VIEWS.has('a11y')) {
+      const stub = await openStub(page, 'Python', 'Loops and Iteration');
+      if (stub.course !== true || stub.row !== true || stub.study !== true) console.log(`    (drive: ${JSON.stringify(stub)})`);
+      if (VIEWS.has('stub')) {
+        await shoot(page, w, h, 'stub');
+        if (phase === 'after') console.log(JSON.stringify({ size, outlinePageStepMoved: await page.evaluate(STEP_NEUTRAL) }));
+        if (phase === 'after' && w === SIZES[0][0] && PREFIX === 'po-s2b') {
+          const titles = replay.subjects.flatMap((s) => (s.sections || []).flatMap((sec) => (sec.lessons || []).map((l) => l.title)));
+          console.log(JSON.stringify({ lessons: titles.length, longestLessonCrumbs: await page.evaluate(LONGEST_LESSON_CRUMBS, titles) }));
+        }
+      }
+      if (VIEWS.has('a11y')) console.log(JSON.stringify({ size, a11y: 'the outline page', ...(await crumbsA11y(context, page)) }));
+
+      // 6. S2c (S2b-03): "[outline]" beside a subject that nearly fills the
+      //    column — every one of her 49 subjects, then a run of stress titles
+      //    through the live outline breadcrumb, then the page itself for the
+      //    stress title that sits 25px inside the line.
+      if (VIEWS.has('stub-stress')) {
+        const byId = new Map(replay.courses.map((c) => [c.id, c.name]));
+        const real = await page.evaluate(OUTLINE_SWEEP, { pairs: replay.subjects.map((s) => [byId.get(s.course_id), s.title]) });
+        const stress = await page.evaluate(OUTLINE_SWEEP, { pairs: STRESS_TITLES.map((t) => ['Python', t]) });
+        if (typeof real === 'string' || typeof stress === 'string') console.log(`    (drive: ${real} / ${stress})`);
+        else {
+          const { rows: realRows, ...realTally } = real;
+          const { rows: stressRows, ...stressTally } = stress;
+          console.log(JSON.stringify({ size, outlineSweep: 'her subjects', ...realTally, hidden: realRows.filter((r) => !r.noteWhole).map((r) => r.title).slice(0, 5) }));
+          console.log(JSON.stringify({ size, outlineSweep: 'stress titles', ...stressTally,
+            byWidth: stressRows.map((r) => `${r.natural}${r.noteWhole ? '' : ' NOTE-HIDDEN'}${r.subjectShown ? '' : ' SUBJECT-HIDDEN'}${r.subjectCut ? ' cut' : ''}`).join(' | ') }));
+          const pick = stressRows.reduce((best, r) => (Math.abs(r.natural - (stress.width - 25)) < Math.abs(best.natural - (stress.width - 25)) ? r : best));
+          const s = await openReplay(browser, w, h, withStressSubject(replay, pick.title));
+          try {
+            const st = await openStub(s.page, 'Python', pick.title);
+            if (st.course !== true || st.row !== true || st.study !== true) console.log(`    (drive: ${JSON.stringify(st)})`);
+            console.log(JSON.stringify({ size, stressTitle: pick.title, natural: pick.natural, line: stress.width }));
+            await shoot(s.page, w, h, 'stub-stress');
+          } finally {
+            await s.context.close();
+          }
+        }
+      }
     }
 
+    if (errors.length) console.log(JSON.stringify({ size, pageErrors: errors.length }));
     await context.close();
   }
 } finally {
