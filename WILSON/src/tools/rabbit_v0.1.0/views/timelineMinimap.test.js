@@ -13,6 +13,9 @@ import {
   STRIDES, LABEL_GAP, LABEL_PAD, estimateWidth,
   buildAxisTicks, axisLabelWidth, isMonthStartShown, AXIS_GAP, AXIS_GLYPH_PX, dayIndexAtX,
 } from './timelineMinimap.js'
+// Post-overhaul S5p: the module's own weekendMask, beside this file's rebuild
+// of it (`weekendMask` below), which the arithmetic is checked against.
+import * as TM from './timelineMinimap.js'
 
 describe('minimapLayout: every phase gets a row, at any count', () => {
   it('five phases keep the old picture: 22px rows in the 124px body', () => {
@@ -276,6 +279,125 @@ describe('dayIndexAtX: a click lands on the day cell under the pointer (S1, ruli
     const x = mask[mon10].offsetPx + P / 4
     expect(Math.floor(x / P)).toBe(mon10 - 4) // Thu 6 Aug: four days early
     expect(dayIndexAtX(x, P, mask)).toBe(mon10)
+  })
+})
+
+// =============================================================================
+// Post-overhaul S5p (P1-32b): the gantt's one weekend mask and its one x ↔ day
+// pair, which DetailPane draws with and TimelineView's six scroll conversions
+// read with. Checked against this file's own rebuild of the mask
+// (`weekendMask` above), never against the module. The conversions RENDERED
+// — the first-mount centring, the re-anchoring, changeZoom, the visible
+// window, scrollDetailToDay and Today, at every zoom with weekends shown and
+// hidden — are timelineWeekends.test.jsx.
+// =============================================================================
+/** The rebuilt mask as the pane's array, and its chart width. */
+const rebuilt = (start, totalDays, dayPx) => {
+  const m = weekendMask(start, totalDays, dayPx)
+  return { mask: Array.from({ length: totalDays + 1 }, (_, i) => ({ offsetPx: m.xOf(i), hidden: m.hidden(i) })), end: m.end }
+}
+/** Where a day comes back after day → x → day: itself when shown; a hidden
+    day, the next shown day — or, past the chart's last shown day, the day
+    after it (the chart's end). */
+const comesBackAs = (mask, i) => {
+  if (!mask || !mask[i].hidden) return i
+  let j = i
+  while (j < mask.length && mask[j].hidden) j++
+  if (j < mask.length) return j
+  let k = mask.length - 1
+  while (k >= 0 && mask[k].hidden) k--
+  return k + 1
+}
+/** The pair's contract on one chart, every day: each day (and each fraction
+    into a shown one) comes back as `comesBackAs` says; every x on the chart
+    comes back as itself. Throws at the first that does not — the CONTROL runs
+    it on the conversions this replaced. */
+function assertPair(dayAt, xAt, { mask = null, days = 400, end, dayPx }) {
+  for (let i = 0; i <= days; i++) {
+    expect(dayAt(xAt(i)), `day ${i}`).toBe(comesBackAs(mask, i))
+    if (mask && mask[i].hidden) continue
+    for (const f of [0.25, 0.5, 0.75]) expect(dayAt(xAt(i + f)), `day ${i} + ${f}`).toBeCloseTo(i + f, 9)
+  }
+  for (let x = 0; x < (end ?? days * dayPx); x += 5) expect(xAt(dayAt(x)), `x ${x}`).toBeCloseTo(x, 9)
+}
+/** A chart opening on each day of the week (1 Aug 2026 is a Saturday). */
+const OPENINGS = Array.from({ length: 7 }, (_, k) => new Date(2026, 7, 1 + k))
+
+describe('S5p: weekendMask, dayAtX and xAtDay — one mask, one pair (P1-32b)', () => {
+  const P = ZOOMS.day.dayPx
+  it('weekendMask is the pane\'s mask, as rebuilt here: each day\'s x and hidden flag, and the chart\'s width, from every weekday', () => {
+    for (const start of OPENINGS) {
+      const ref = rebuilt(start, 120, P)
+      const m = TM.weekendMask(start, 120, P)
+      expect(m.mask).toEqual(ref.mask)
+      expect(m.totalPx).toBe(ref.end)
+    }
+  })
+  it('the pair is its own inverse on every day, mask on and off: a shown day (and any fraction into it) comes back, a hidden day comes back as the next shown one, and every x on the chart comes back', () => {
+    for (const zoomId of ['day', 'week', 'month', 'quarter']) {
+      const q = ZOOMS[zoomId].dayPx
+      assertPair((x) => TM.dayAtX(x, q), (d) => TM.xAtDay(d, q), { dayPx: q })
+    }
+    for (const start of OPENINGS) {
+      for (const days of [120, 121, 125, 126]) { // ending on every weekday, Saturday and Sunday among them
+        const { mask, end } = rebuilt(start, days, P)
+        assertPair((x) => TM.dayAtX(x, P, mask), (d) => TM.xAtDay(d, P, mask), { mask, days, end, dayPx: P })
+      }
+    }
+  })
+  it('a hidden day maps to the next shown day: Sat 8 and Sun 9 Aug 2026 sit at Mon 10 Aug\'s x and read back as Monday', () => {
+    const { mask } = rebuilt(new Date(2026, 7, 3), 30, P) // Mon 3 Aug
+    expect(mask[5].hidden && mask[6].hidden && !mask[7].hidden).toBe(true)
+    expect(TM.xAtDay(5, P, mask)).toBe(mask[7].offsetPx)
+    expect(TM.xAtDay(6.5, P, mask)).toBe(mask[7].offsetPx)
+    expect(TM.dayAtX(TM.xAtDay(5.5, P, mask), P, mask)).toBe(7)
+  })
+  it('Math.floor(dayAtX(x)) is dayIndexAtX(x) at every pixel of the chart; left of it, its first shown day; at or past its end, the day after its last shown day', () => {
+    for (const start of OPENINGS) {
+      const { mask, end } = rebuilt(start, 60, P)
+      for (let x = 0; x < end; x++) expect(Math.floor(TM.dayAtX(x, P, mask)), `x ${x}`).toBe(dayIndexAtX(x, P, mask))
+      const first = mask.findIndex((m) => !m.hidden)
+      expect(TM.dayAtX(-20, P, mask)).toBe(first)
+      expect(TM.xAtDay(-3, P, mask)).toBe(0)
+      let last = mask.length - 1
+      while (mask[last].hidden) last--
+      expect(TM.dayAtX(end, P, mask)).toBe(last + 1)
+      expect(TM.dayAtX(end + 300, P, mask)).toBe(last + 1)
+      expect(TM.xAtDay(10000, P, mask)).toBe(end)
+    }
+  })
+  it('visibleDayRange: without a mask, the old arithmetic exactly; with one, the calendar days the shown columns cover, so a weekend inside the view is inside the window', () => {
+    for (const [s, w, q] of [[4904 / 22, 1190, 22], [12483 / 56, 1190, 56], [0, 1030, 8], [-3, 100, 4], [17, 0, 56]]) {
+      expect(TM.visibleDayRange(s, w, q)).toEqual({ start: Math.max(0, s), end: Math.max(0, s) + Math.max(1, w / q) })
+    }
+    // The fixtures' chart (Wed 4 Feb 2026 + 857 days), Fri 11 Dec half a column
+    // in, 1190px of gantt: 21.25 columns on, three-quarters into the 21st
+    // shown day after Friday — Mon 11 Jan 2027, 31 calendar days on.
+    const { mask } = rebuilt(new Date(2026, 1, 4), 857, P)
+    const fri = 310
+    const r = TM.visibleDayRange(fri + 0.5, 1190, P, mask)
+    expect(r.start).toBe(fri + 0.5)
+    expect(r.end).toBeCloseTo(fri + 31 + 0.75, 9) // Mon 11 Jan 2027: the gantt's last column
+    expect(r.end - r.start).toBeGreaterThan(1190 / P) // more days than columns: the weekends are in the window
+    expect(TM.visibleDayRange(5, -500, P, mask)).toEqual({ start: 5, end: 6 }) // at least one day, as before
+  })
+  it('CONTROL: the conversions this replaced fail the same contract — x / dayPx and day × dayPx with the mask on, and the pane\'s rounding xAtDay', () => {
+    const { mask, end } = rebuilt(new Date(2026, 1, 4), 120, P)
+    const opts = { mask, days: 120, end, dayPx: P }
+    expect(() => assertPair((x) => x / P, (d) => TM.xAtDay(d, P, mask), opts)).toThrow()
+    expect(() => assertPair((x) => TM.dayAtX(x, P, mask), (d) => d * P, opts)).toThrow()
+    const rounded = (d) => mask[Math.max(0, Math.min(mask.length - 1, Math.round(d)))].offsetPx // DetailPane's dayToX before S5p
+    expect(() => assertPair((x) => TM.dayAtX(x, P, mask), rounded, opts)).toThrow()
+    // The measured +88 days: Fri 11 Dec 2026 half a column in, read as x / 56.
+    const big = rebuilt(new Date(2026, 1, 4), 857, P).mask
+    const x = TM.xAtDay(310.5, P, big)
+    expect(x).toBe(12460)
+    expect(Math.floor(x / P)).toBe(222) // Mon 14 Sep 2026: the switch's −88 days
+    expect(Math.floor(TM.dayAtX(x, P, big))).toBe(310)
+    // …and the old window, start + 1190 / 56, ended on Fri 1 Jan: nine days
+    // short of the gantt's last column (the four weekends in view).
+    expect(Math.floor(310.5 + 1190 / P)).toBe(310 + 21)
+    expect(310.5 + 1190 / P).toBeLessThan(310 + 31)
   })
 })
 

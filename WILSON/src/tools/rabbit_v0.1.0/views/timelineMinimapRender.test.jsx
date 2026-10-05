@@ -41,7 +41,7 @@ const { OverviewPane, DetailPane } = await import('./TimelineView.jsx')
 // The zone to restore after a test switches it, read before any switch
 // (deleting TZ does not restore it; review round 1 measured it).
 const ORIGINAL_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
-const { minimapLayout, estimateWidth, LABEL_GAP } = await import('./timelineMinimap.js')
+const { minimapLayout, estimateWidth, LABEL_GAP, weekendMask } = await import('./timelineMinimap.js')
 
 afterEach(cleanup)
 
@@ -271,13 +271,16 @@ describe('the gantt\'s header and grid, rendered — post-overhaul S1 (rulings B
   // to it, the grid's month start, the weekend 1st's line over its tint.
   const noop = () => {}
   const ZOOM = { day: { id: 'day', label: 'Day', dayPx: 56, axisFormat: 'day' }, week: { id: 'week', label: 'Week', dayPx: 22, axisFormat: 'week' } }
+  // Post-overhaul S5p (P1-32b): DetailPane draws with the weekend mask
+  // TimelineView hands it (timelineMinimap.js's weekendMask, the one the
+  // scroll conversions read too); weekends hidden is a mask, shown is none.
   const mountDetail = ({ start, totalDays, zoomId, hideWeekends = false }) => {
     const zoom = ZOOM[zoomId]
     return render(
       <DetailPane
         scrollRef={createRef()} rows={[]} span={{ start, end: addDays(start, totalDays), days: totalDays }}
         totalDays={totalDays} chartW={totalDays * zoom.dayPx} dayPx={zoom.dayPx} rowPx={34} zoom={zoom} zoomId={zoomId}
-        hideWeekends={hideWeekends} criticalSet={new Set()} todayDays={-1} dependencies={[]} phases={[]}
+        dayMask={hideWeekends ? weekendMask(start, totalDays, zoom.dayPx) : null} criticalSet={new Set()} todayDays={-1} dependencies={[]} phases={[]}
         onCreateTaskFromDates={noop} onUpdateTask={noop} onUpdatePhase={noop} onMovePhaseAndChildren={noop}
         onToggleCollapse={noop} onLinkTasks={noop} onLinkPhases={noop} onUnlinkDependency={noop} onMoveTaskToPhase={noop}
         onEditTask={noop} onEditPhase={noop} onEditAsset={noop} onUpdateAsset={noop} onNewTaskInPhase={noop}

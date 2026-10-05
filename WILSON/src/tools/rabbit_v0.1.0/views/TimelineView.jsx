@@ -105,7 +105,10 @@ import {
 import './rabbitTimeline.css'
 // UI overhaul B3 (Q22, the minimap as a priority): the minimap's rows, axis,
 // span readout and snap marks, computed and tested outside this file.
-import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown, dayIndexAtX } from './timelineMinimap.js'
+// Post-overhaul S5p (P1-32b): the gantt's one weekend mask and its one
+// x ↔ day pair (weekendMask, dayAtX, xAtDay, visibleDayRange), which the pane
+// draws with and every conversion of the gantt's scroll reads with.
+import { minimapLayout, minimapTicks, spanLabel, snapLeft, offWindow, estimateWidth, buildAxisTicks, isMonthStartShown, dayIndexAtX, weekendMask, dayAtX, xAtDay, visibleDayRange } from './timelineMinimap.js'
 // Post-overhaul S1 (rulings B3–B5): every stored date is read as the LOCAL
 // day it names and written as local y-m-d, through the one shared helper.
 import { parseIsoDate, toIsoDate } from '../dates.js'
@@ -546,30 +549,61 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // something to draw on.
   const overviewSpan = useMemo(() => computeOverviewSpan(schedule), [schedule])
 
+  // ── the gantt's weekend mask (post-overhaul S5p, P1-32b) ─────────────
+  // With "Show weekends" off at Day zoom, Saturday and Sunday take no
+  // column. The mask said so in DetailPane alone, and everything here turned
+  // the gantt's scroll into days as `scrollLeft / DAY_PX` — so with weekends
+  // hidden Week → Day moved the gantt from 14 Sep to 11 Dec 2026 (+88 days),
+  // the minimap's window sat on 15 Sep – 6 Oct while the gantt showed
+  // December, Today put 10 Dec at the left with today off screen, and the
+  // switch kept the scroll's pixels instead of its date (measured in the app,
+  // OUTSTANDING P1-32b). It lives here now: DetailPane draws with it, and the
+  // six conversions below read with it through timelineMinimap.js's one pair,
+  // dayAtX and its inverse xAtDay.
+  const dayMask = useMemo(
+    () => (hideWeekends ? weekendMask(overviewSpan.start, overviewSpan.days, DAY_PX) : null),
+    [hideWeekends, overviewSpan.start, overviewSpan.days, DAY_PX]
+  )
+  const maskDays = dayMask ? dayMask.mask : null
+
   // ── detail-pane scroll wiring ────────────────────────────
-  // We track the detail container's scrollLeft + measured width
-  // so the overview frame can mirror what's visible.
+  // We track where the detail container is scrolled + its measured
+  // width so the overview frame can mirror what's visible.
   const detailRef = useRef(null)
-  const [detailScrollLeft, setDetailScrollLeft] = useState(0)
+  // The day at the gantt's left edge, from overviewSpan.start, as a day
+  // POSITION: half a column into a Thursday is that Thursday + 0.5. Post-
+  // overhaul S5p (P1-32b): it was the scroll in px, which means a day only in
+  // the scale and the mask it was made in.
+  const [detailStartDay, setDetailStartDay] = useState(0)
   const [detailViewportW, setDetailViewportW]   = useState(800)
-  // The gantt's scroll as of the last scroll event, in the scale it was made
-  // in. Post-overhaul S1 (review round 1): the re-anchoring below must read
-  // the scroll from BEFORE a zoom or span change, and the DOM's cannot give
-  // it — by the time a layout effect runs, a narrower chart (zooming out) has
-  // already clamped `scrollLeft` to its new maximum, so the anchor day was
-  // wrong and the gantt jumped (Week → Quarter moved the left edge from
-  // 15 Sep 2026 to 16 May, measured).
-  const lastScrollRef = useRef(0)
+  // The same day as of the last scroll event: the ANCHOR that a change of
+  // scale, mask or span puts back. Post-overhaul S1 (review round 1): the
+  // re-anchoring below must know where the gantt was from BEFORE a zoom or
+  // span change, and the DOM's scroll cannot give it — by the time a layout
+  // effect runs, a narrower chart (zooming out) has already clamped
+  // `scrollLeft` to its new maximum, so the anchor day was wrong and the
+  // gantt jumped (Week → Quarter moved the left edge from 15 Sep 2026 to
+  // 16 May, measured). S5p records it as a DAY, so putting it back needs
+  // neither the old scale nor the old mask.
+  const anchorDayRef = useRef(0)
+  // The scale and mask this render draws the gantt with, for the scroll
+  // listener below, which outlives renders.
+  const geometryRef = useRef(null)
+  geometryRef.current = { dayPx: DAY_PX, mask: maskDays }
 
   // S1 review round 2: attached when the gantt EXISTS. With `[]` it ran
   // once, and a Timeline opened while the project was still loading (the
   // no-project return below renders no gantt) never listened — the scroll
-  // state, and now the re-anchoring's lastScrollRef, went stale for good.
+  // state, and the re-anchoring's anchor, went stale for good.
   const hasProject = !!project
   useEffect(() => {
     const el = detailRef.current
     if (!el) return
-    function onScroll() { lastScrollRef.current = el.scrollLeft; setDetailScrollLeft(el.scrollLeft) }
+    function onScroll() {
+      const g = geometryRef.current
+      anchorDayRef.current = dayAtX(el.scrollLeft, g.dayPx, g.mask)
+      setDetailStartDay(anchorDayRef.current)
+    }
     function onResize() { setDetailViewportW(el.clientWidth) }
     onResize()
     onScroll()
@@ -584,15 +618,17 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
 
   // First mount: scroll detail to today so the user lands on
   // something useful instead of the very start of the buffer.
+  // S5p: today's x through the mask, like every conversion here.
   const didCenterOnTodayRef = useRef(false)
   useEffect(() => {
     if (didCenterOnTodayRef.current) return
-    if (!detailRef.current) return
+    const el = detailRef.current
+    if (!el) return
     const todayDays = daysBetween(overviewSpan.start, TODAY)
-    detailRef.current.scrollLeft = Math.max(0, todayDays * DAY_PX - 200)
-    lastScrollRef.current = detailRef.current.scrollLeft // S1 review round 2: a scripted scroll is a scroll
+    el.scrollLeft = Math.max(0, xAtDay(todayDays, DAY_PX, maskDays) - 200)
+    anchorDayRef.current = dayAtX(el.scrollLeft, DAY_PX, maskDays) // S1 review round 2: a scripted scroll is a scroll
     didCenterOnTodayRef.current = true
-  }, [overviewSpan.start, DAY_PX])
+  }, [overviewSpan.start, DAY_PX, maskDays])
 
   // ── viewport stabilization ──────────────────────────────
   // When the user drags a task or phase, the schedule rebuilds and
@@ -604,6 +640,12 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // stays in the same place on screen. Same compensation when
   // DAY_PX changes (zoom level switch) — keep the centered date
   // anchored under the cursor instead of jumping to scrollLeft 0.
+  // Post-overhaul S5p (P1-32b): and when the weekends are hidden or shown
+  // (`hideWeekends`, which it did not watch: the switch kept the scroll's
+  // pixels and the date under them changed, 11 Dec → 14 Sep). The anchor is
+  // a DAY and the new x comes from the new mask, so all three put back the
+  // date that was at the left edge — or, if that day is hidden now, the
+  // next shown one.
   //
   // Post-overhaul S1 (ruling B7): a LAYOUT effect, and it sets the
   // scroll state itself. As a passive effect it ran after the paint, so a
@@ -614,6 +656,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // window's animation runs from the old box to the right one.
   const prevSpanStartRef = useRef(overviewSpan.start)
   const prevDayPxRef     = useRef(DAY_PX)
+  const prevHideWeekendsRef = useRef(hideWeekends)
   useLayoutEffect(() => {
     const el = detailRef.current
     if (!el) return
@@ -622,77 +665,88 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     const currStart = overviewSpan.start
     const currPx    = DAY_PX
 
-    // Day at the left edge of the visible window before this update: from
-    // the scroll recorded BEFORE it (lastScrollRef), never the DOM's, which a
-    // narrower chart has already clamped by now (S1 review round 1).
-    const visibleDayBefore = lastScrollRef.current / Math.max(1, prevPx)
-
-    // Where that same calendar day lands AFTER the update.
+    // Where the same calendar day lands AFTER the update: the anchor (the
+    // day at the left edge as of the last scroll — never the DOM's scroll,
+    // which a narrower chart has already clamped by now, S1 review round 1),
+    // moved by however far the span's start moved, through the new mask.
     const startDeltaDays = (prevStart && currStart) ? daysBetween(currStart, prevStart) : 0
-    // After update, dayBefore (in old coords) maps to (visibleDayBefore + startDeltaDays) in new coords.
-    const newScrollLeft = (visibleDayBefore + startDeltaDays) * currPx
+    const newScrollLeft = xAtDay(anchorDayRef.current + startDeltaDays, currPx, maskDays)
 
     if (Number.isFinite(newScrollLeft) && newScrollLeft >= 0) {
       // Only re-anchor when something actually moved — avoids fighting
       // the user's own scroll events.
       const startMoved = prevStart && currStart && +prevStart !== +currStart
       const zoomChanged = prevPx !== currPx
-      if (startMoved || zoomChanged) {
+      const weekendsChanged = prevHideWeekendsRef.current !== hideWeekends
+      if (startMoved || zoomChanged || weekendsChanged) {
         el.scrollLeft = newScrollLeft
         // Read back: the browser clamps to the new scroll width. It is the
         // baseline for the next change too.
-        lastScrollRef.current = el.scrollLeft
-        setDetailScrollLeft(el.scrollLeft)
+        anchorDayRef.current = dayAtX(el.scrollLeft, currPx, maskDays)
+        setDetailStartDay(anchorDayRef.current)
       }
     }
 
     prevSpanStartRef.current = currStart
     prevDayPxRef.current     = currPx
-  }, [overviewSpan.start, DAY_PX])
+    prevHideWeekendsRef.current = hideWeekends
+  }, [overviewSpan.start, DAY_PX, hideWeekends, maskDays])
 
   // A zoom tab's change (the four tabs, or the keyboard on them — the only
-  // writer of zoomId). Post-overhaul S1 (ruling B7): it carries the scroll
-  // that keeps the view's left date, IN THE SAME RENDER as the new scale. A
-  // render with the new scale and the old scroll puts the minimap's window
-  // in a wrong box — measured, Day → Quarter put it past the minimap's right
-  // edge, which unmounts it, and a remounted window has nothing to animate
-  // from (it jumped). The click is the last moment the DOM's scroll is in
-  // the old scale, so it is recorded here too, and the layout effect above
-  // re-anchors from exactly this value and reads back the browser's clamp.
+  // writer of zoomId). Post-overhaul S1 (ruling B7): it fixes the view's left
+  // date IN THE SAME RENDER as the new scale. A render with the new scale and
+  // the old position puts the minimap's window in a wrong box — measured, Day
+  // → Quarter put it past the minimap's right edge, which unmounts it, and a
+  // remounted window has nothing to animate from (it jumped). The click is
+  // the last moment the DOM's scroll is in the old scale (and mask), so the
+  // anchor is read here too, as a day, and the layout effect above puts it
+  // back in the new scale and reads back the browser's clamp. Post-overhaul
+  // S5p: a day is the same day in any scale, so the state needs no
+  // converting (it carried px as px / DAY_PX × the new px, which with
+  // weekends hidden was not the same day).
   const changeZoom = useCallback((id) => {
     const next = ZOOM_LEVELS.find((z) => z.id === id)
     const el = detailRef.current
     if (next && el && next.dayPx !== DAY_PX) {
-      lastScrollRef.current = el.scrollLeft
-      setDetailScrollLeft((el.scrollLeft / Math.max(1, DAY_PX)) * next.dayPx)
+      anchorDayRef.current = dayAtX(el.scrollLeft, DAY_PX, maskDays)
+      setDetailStartDay(anchorDayRef.current)
     }
     setZoomId(id)
-  }, [DAY_PX])
+  }, [DAY_PX, maskDays])
 
-  // Visible window in days from overviewSpan.start.
-  const visibleStartDays = Math.max(0, detailScrollLeft / DAY_PX)
-  const visibleSpanDays  = Math.max(1, (detailViewportW - LABEL_W) / DAY_PX)
-  const visibleEndDays   = visibleStartDays + visibleSpanDays
+  // Visible window in days from overviewSpan.start: the minimap's window.
+  // S5p: across the gantt's width through the mask, so with weekends hidden
+  // it spans the calendar the gantt shows (it counted shown columns as days).
+  const { start: visibleStartDays, end: visibleEndDays } =
+    visibleDayRange(detailStartDay, detailViewportW - LABEL_W, DAY_PX, maskDays)
 
-  function scrollDetailToDay(dayOffset) {
-    if (!detailRef.current) return
-    const px = Math.max(0, dayOffset * DAY_PX)
-    detailRef.current.scrollLeft = px
-    lastScrollRef.current = detailRef.current.scrollLeft
-  }
+  // The gantt scrolled so `dayOffset` is at its left edge: the minimap's
+  // click and its window's drag (scrollDetailToDate). Post-overhaul S5p:
+  // through the mask, and a callback on the scale and the mask — it was a
+  // plain function that scrollDetailToDate's useCallback([overviewSpan.start])
+  // captured once, so it kept the scale of the render that made it (Week's
+  // 22px): at Day zoom a minimap click landed 207 days early, weekends shown
+  // or not (measured in the app).
+  const scrollDetailToDay = useCallback((dayOffset) => {
+    const el = detailRef.current
+    if (!el) return
+    el.scrollLeft = Math.max(0, xAtDay(dayOffset, DAY_PX, maskDays))
+    anchorDayRef.current = dayAtX(el.scrollLeft, DAY_PX, maskDays)
+  }, [DAY_PX, maskDays])
 
   // Center the detail viewport on today (or any date offset). Used
   // by the Crosshair button next to the detail-zoom toolbar so the
   // user can snap back to "now" with one click no matter how far
-  // they've panned.
+  // they've panned. S5p: today's x through the mask (with weekends hidden
+  // it put 10 Dec at the left and today off screen).
   function centerDetailOnToday() {
     const el = detailRef.current
     if (!el) return
     const todayDays = daysBetween(overviewSpan.start, TODAY)
     const viewportContentW = Math.max(100, (el.clientWidth || detailViewportW) - LABEL_W)
-    const targetPx = todayDays * DAY_PX - viewportContentW / 2
+    const targetPx = xAtDay(todayDays, DAY_PX, maskDays) - viewportContentW / 2
     el.scrollLeft = Math.max(0, targetPx)
-    lastScrollRef.current = el.scrollLeft
+    anchorDayRef.current = dayAtX(el.scrollLeft, DAY_PX, maskDays)
   }
 
   // ── overview measurement ────────────────────────────────
@@ -752,7 +806,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     if (!date) return
     const days = daysBetween(overviewSpan.start, date)
     scrollDetailToDay(days)
-  }, [overviewSpan.start])
+  }, [overviewSpan.start, scrollDetailToDay])
 
   // Pan the minimap by a number of days (positive = move forward
   // in time). Initializes the center-date state from the current
@@ -946,7 +1000,7 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         rowPx={ROW_PX}
         zoom={zoom}
         zoomId={zoomId}
-        hideWeekends={hideWeekends}
+        dayMask={dayMask}
         criticalSet={criticalSet}
         todayDays={todayDays}
         dependencies={dependencies}
@@ -2145,7 +2199,7 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
 // OverviewPane is; TimelineView is its one caller.
 export function DetailPane({
   scrollRef, rows, span, totalDays, chartW, dayPx, rowPx, zoom, zoomId,
-  hideWeekends,
+  dayMask = null,
   criticalSet, todayDays,
   dependencies, phases,
   onCreateTaskFromDates,
@@ -2164,31 +2218,25 @@ export function DetailPane({
   milestones = [],
   onEditMilestone,
 }) {
-  // When weekends are hidden in day view we mask out Sat/Sun day
-  // columns by collapsing their day-pixel width to 0. We build a
-  // little prefix-sum so X positions still come out right and bars
-  // get cleanly squashed where weekends used to be.
-  const dayMask = useMemo(() => {
-    if (!hideWeekends) return null
-    const mask = new Array(totalDays + 1)
-    let cumulative = 0
-    for (let i = 0; i <= totalDays; i++) {
-      const d = addDays(span.start, i)
-      const dow = d.getDay()
-      const isWeekend = dow === 0 || dow === 6
-      mask[i] = { offsetPx: cumulative, hidden: isWeekend }
-      if (!isWeekend) cumulative += dayPx
-    }
-    return { mask, totalPx: cumulative }
-  }, [hideWeekends, totalDays, span.start, dayPx])
+  // When weekends are hidden in day view Sat/Sun day columns are masked
+  // out: their day-pixel width collapses to 0 (a prefix sum, so X positions
+  // still come out right and bars get cleanly squashed where weekends used
+  // to be). Post-overhaul S5p (P1-32b): the mask is TimelineView's
+  // (timelineMinimap.js's weekendMask), which converts the gantt's scroll to
+  // days with the same one; the pane built its own and was the only part of
+  // the Timeline that knew which columns were hidden. No mask: weekends shown.
+  const hideWeekends = !!dayMask
 
   // Helper: convert a day-offset to its visible X coordinate honoring
   // the weekend mask. Used everywhere a bar would otherwise just
-  // multiply by dayPx.
+  // multiply by dayPx. S5p: the one pair's xAtDay — a shown day's column
+  // start, a hidden day's next shown day, as before for every whole day. A
+  // fraction of a day is now that fraction of a column with weekends hidden,
+  // as it always was with them shown: a zero-length bar's half day (its
+  // Math.max(0.5, …)) is half a column, where the pane's own mask rounded it
+  // up to a whole one.
   function dayToX(dayOffset) {
-    if (!dayMask) return dayOffset * dayPx
-    const idx = Math.max(0, Math.min(dayMask.mask.length - 1, Math.round(dayOffset)))
-    return dayMask.mask[idx]?.offsetPx ?? dayOffset * dayPx
+    return xAtDay(dayOffset, dayPx, dayMask?.mask)
   }
   const effectiveChartW = dayMask ? dayMask.totalPx : chartW
 

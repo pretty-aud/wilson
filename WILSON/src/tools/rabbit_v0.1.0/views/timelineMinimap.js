@@ -287,6 +287,114 @@ export function dayIndexAtX(x, dayPx, mask = null) {
   return found
 }
 
+// =============================================================================
+// The gantt's x ↔ day — post-overhaul S5p, 2026-10-05 (P1-32b).
+//
+// With "Show weekends" off at Day zoom a Saturday or Sunday column is not
+// drawn: it takes no width, and the shown day after it starts where it would
+// have. Only DetailPane knew. TimelineView turned the gantt's scroll into days
+// as `scrollLeft / DAY_PX` in six places — the zoom's re-anchoring,
+// changeZoom, the visible window (which places the minimap's window),
+// scrollDetailToDay (the minimap's click and drag), Today and the first-mount
+// centring — so with weekends hidden each of them counted a shown column as a
+// calendar day. Measured in the running app on the fixtures, 1440x900 (S1's
+// review round 2, again by S5p): Week → Day moved the gantt from Mon 14 Sep
+// to Fri 11 Dec 2026 (+88 days); at Day zoom the minimap's window read
+// 15 Sep – 6 Oct while the gantt showed 11 Dec – 12 Jan; Today put 10 Dec at
+// the left with today off screen; the switch kept the scroll's pixels, not
+// its date (11 Dec → 14 Sep).
+//
+// One mask (weekendMask), one pair (dayAtX and its inverse xAtDay). The pane
+// draws with them and the six conversions read with them; TimelineView
+// records where the gantt is as a DAY, which needs neither the old scale nor
+// the old mask to put it back.
+// =============================================================================
+
+/**
+ * A Day-zoom chart's weekend mask: for each day 0 … totalDays from `start`,
+ * the x its column starts at and whether it is hidden. A hidden day takes no
+ * width, so it starts where the next shown day starts; past the last shown
+ * day, at the chart's end. Lifted from DetailPane, unchanged.
+ *
+ * @param {Date} start       the chart's first day (local midnight)
+ * @param {number} totalDays the chart's last day index
+ * @param {number} dayPx     a shown column's width
+ * @returns {{ mask: Array<{ offsetPx: number, hidden: boolean }>, totalPx: number }}
+ */
+export function weekendMask(start, totalDays, dayPx) {
+  const mask = new Array(totalDays + 1)
+  let x = 0
+  for (let i = 0; i <= totalDays; i++) {
+    const dow = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i).getDay()
+    const hidden = dow === 0 || dow === 6
+    mask[i] = { offsetPx: x, hidden }
+    if (!hidden) x += dayPx
+  }
+  return { mask, totalPx: x }
+}
+
+/**
+ * Where an x on the gantt falls, as a day position: the day whose column
+ * holds x (dayIndexAtX) plus how far into that column x is — half a column
+ * into a Thursday is that Thursday + 0.5, at any zoom, mask or not. Without a
+ * mask it is x / dayPx. With one, an x left of the chart is its first shown
+ * day, and an x at or past the chart's end is the day after its last shown
+ * day. For every x on the chart, Math.floor(dayAtX(x)) is dayIndexAtX(x).
+ *
+ * @param {number} x       px from the chart's left edge
+ * @param {number} dayPx   a shown column's width
+ * @param {Array<{ offsetPx: number, hidden: boolean }>|null} [mask] the weekend mask, day by day
+ * @returns {number} a day position from the chart's first day
+ */
+export function dayAtX(x, dayPx, mask = null) {
+  if (!mask || mask.length === 0) return x / dayPx
+  const i = dayIndexAtX(x, dayPx, mask)
+  return i + Math.min(1, Math.max(0, (x - mask[i].offsetPx) / dayPx))
+}
+
+/**
+ * dayAtX's inverse: the x a day position sits at. Without a mask,
+ * day × dayPx. With one, a shown day's column start plus the fraction into
+ * it — and a HIDDEN day, which has no column, maps to the start of the next
+ * shown day. So dayAtX(xAtDay(d)) is d for a shown day and the next shown day
+ * for a hidden one, and xAtDay(dayAtX(x)) is x for every x on the chart.
+ * Kept to the chart, [0, totalPx].
+ *
+ * @param {number} day     a day position from the chart's first day
+ * @param {number} dayPx   a shown column's width
+ * @param {Array<{ offsetPx: number, hidden: boolean }>|null} [mask] the weekend mask, day by day
+ * @returns {number} px from the chart's left edge
+ */
+export function xAtDay(day, dayPx, mask = null) {
+  if (!mask || mask.length === 0) return day * dayPx
+  if (Number.isNaN(day)) return NaN
+  if (day <= 0) return 0
+  const i = Math.min(mask.length - 1, Math.floor(day))
+  if (mask[i].hidden) return mask[i].offsetPx
+  return mask[i].offsetPx + Math.min(1, day - i) * dayPx
+}
+
+/**
+ * The days a gantt viewport `viewW` px wide shows, from the day at its left
+ * edge: { start, end } as day positions — what places the minimap's window.
+ * Without a mask it is viewW / dayPx days, at least one, in the arithmetic it
+ * always had (so the window rounds exactly as before). With one, the end is
+ * the day at the viewport's right edge through the pair: a weekend hidden
+ * inside the view is inside the window too, which then spans the calendar the
+ * gantt shows.
+ *
+ * @param {number} startDay the day position at the viewport's left edge
+ * @param {number} viewW    the viewport's chart width in px
+ * @param {number} dayPx    a shown column's width
+ * @param {Array<{ offsetPx: number, hidden: boolean }>|null} [mask] the weekend mask, day by day
+ * @returns {{ start: number, end: number }}
+ */
+export function visibleDayRange(startDay, viewW, dayPx, mask = null) {
+  const start = Math.max(0, startDay)
+  if (!mask || mask.length === 0) return { start, end: start + Math.max(1, viewW / dayPx) }
+  return { start, end: Math.max(start + 1, dayAtX(xAtDay(start, dayPx, mask) + viewW, dayPx, mask)) }
+}
+
 const dayLabel = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`
 const monthLabel = (d) => `${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 const quarterLabel = (d) => `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`
