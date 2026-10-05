@@ -98,16 +98,22 @@ export function useProjectRateOverrides() {
     }, 1500)
   }, [getAdapter, projectId, project])
 
+  // Post-overhaul S5 review round 1: an open writes several rates in a row and
+  // each bumps the epoch, so loads overlap; only the newest may land.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
     if (!getAdapter || !projectId) return
     const adapter = getAdapter()
     if (!adapter?.listProjectRateOverrides) return
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setError(null)
     try {
       const list = await adapter.listProjectRateOverrides(projectId)
+      if (seq !== loadSeqRef.current) return
       if (mountedRef.current) setOverrides(Array.isArray(list) ? list : [])
     } catch (err) {
+      if (seq !== loadSeqRef.current) return
       // Money is manager-only at the RLS layer (0037), so a non-manager gets
       // an empty set rather than an error. An error here is a real fault and
       // must stay visible — an unreported failure and an empty override list
@@ -115,11 +121,15 @@ export function useProjectRateOverrides() {
       // budget look like an unconfigured one.
       if (mountedRef.current) setError(err.message || String(err))
     } finally {
-      if (mountedRef.current) setLoading(false)
+      if (seq === loadSeqRef.current && mountedRef.current) setLoading(false)
     }
   }, [getAdapter, projectId])
 
-  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online])
+  // Post-overhaul S5: opening a bid version writes its role rates as project
+  // overrides from the provider; the provider bumps rateOverridesEpoch after
+  // each such write (and its undo), and this list reloads.
+  const rateOverridesEpoch = rabbit?.rateOverridesEpoch ?? 0
+  useEffect(() => { load() }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
 
   // Set a project rate. Exactly one of roleSlug / memberId — the database
   // CHECK refuses both or neither, because a row keyed by both has no single

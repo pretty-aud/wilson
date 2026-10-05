@@ -702,8 +702,16 @@ describe('the four lists 0084 widens', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('budget_versions still drops created_at (server-managed, not listed)', () => {
-    const out = toColumns('budget_versions', { id: 'bv1', summary: 's', created_at: '2026-09-30T00:00:00Z' })
+  // Post-overhaul S5 loosened this: an UNDONE delete re-inserts the version
+  // with its own created_at, so it keeps its place in the newest-first list
+  // and stays the "version before" F8's automatic line names. A new version
+  // sends none (the provider leaves it to the server's default).
+  it('budget_versions keeps created_at (S5: an undone delete keeps its place) and still drops updated_at', () => {
+    expect(toColumns('budget_versions', { id: 'bv1', summary: 's', created_at: '2026-09-30T00:00:00Z' }))
+      .toEqual({ id: 'bv1', summary: 's', created_at: '2026-09-30T00:00:00Z' })
+    expect(warn).not.toHaveBeenCalled()
+    // CONTROL: the other server-managed stamp is still dropped, said aloud.
+    const out = toColumns('budget_versions', { id: 'bv1', summary: 's', updated_at: '2026-09-30T00:00:00Z' })
     expect(out).toEqual({ id: 'bv1', summary: 's' })
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn.mock.calls[0][0]).toContain('public.budget_versions')

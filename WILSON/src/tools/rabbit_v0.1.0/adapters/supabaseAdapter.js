@@ -448,6 +448,17 @@ const PROJECT_COLUMNS = new Set([
   // set_active_shot_list(), reached through setActiveShotList below (D8).
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'active_shot_list_id',
+  // 0089 (post-overhaul S5, F2) — the project's OPEN bid version: the one
+  // whose data the live Timeline and Budget hold and Save writes back into.
+  // Written by updateProject; trg_projects_open_budget_version_guard refuses
+  // a CHANGE from anyone not past the money gate (a member passes
+  // projects_update but not can_access_project_money), and an unchanged
+  // pointer re-sent with a whole row always passes. createProject drops it:
+  // a new project has no versions (the same-project FK would refuse one).
+  // 🚨 The S5 client needs 0089 on its database (see the S5 hand-off, "For
+  // the beta"): a write naming this column on a database without it is
+  // refused PGRST204.
+  'open_budget_version_id',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
@@ -619,6 +630,11 @@ const BUDGET_VERSION_COLUMNS = new Set([
   // and not strays the allowlist warns about.
   // 🚨 Stripped again on a database without 0084 — see stripUnmigrated.
   'shot_list_id', 'summary',
+  // Post-overhaul S5: an UNDONE delete re-inserts the version with its own
+  // created_at, so it keeps its place newest-first and stays the "version
+  // before" F8's automatic line is computed against. A NEW version sends none
+  // (RabbitProvider.createBudgetVersion): the server's default stamps it.
+  'created_at',
 ]);
 
 const EXPENSE_COLUMNS = new Set([
@@ -1566,6 +1582,11 @@ export function supabaseAdapter() {
       if (droppedAttachments && hasRealAttachments(payload)) {
         throw new Error(ATTACHMENTS_MSG);
       }
+      // 0089 (S5): a new project has no bid versions, so none is open; a
+      // payload copied from another project's row would name ITS version,
+      // which the same-project FK refuses (and a database without 0089 has
+      // no such column at all).
+      delete row.open_budget_version_id;
       // 0084: the one project write that never runs toColumns, so the
       // older-database strip is applied here by hand (see stripUnmigrated).
       const data = unwrap(await client.from('projects')
@@ -2863,6 +2884,34 @@ export function supabaseAdapter() {
     async deleteBudgetVersion(id) {
       const client = await requireClient();
       unwrap(await client.from('budget_versions').delete().eq('id', id));
+    },
+    // Post-overhaul S5: change ONLY the columns named, as an UPDATE (S3b's
+    // patchShotList shape). upsertBudgetVersion is whole-row, so a stale row
+    // re-sent erased a newer summary or shot_list_id (S3a's trap with lists).
+    // An UPDATE the money gate does not let through matches nothing and
+    // returns no row — not an error — so no row back is the refusal.
+    async patchBudgetVersion(projectId, id, patch) {
+      const client = await requireClient();
+      const cols = toColumns('budget_versions', blankDatesToNull(sanitize(patch, ['id', 'project_id', 'workspace_id', 'created_at', 'updated_at', 'created_by', 'updated_by'])));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrap(await client.from('budget_versions').update(cols)
+        .eq('id', id ?? null).eq('project_id', projectId ?? null).select());
+      if (!Array.isArray(rows) || rows.length === 0) {
+        const err = new Error('[supabase] you cannot change this bid version');
+        err.code = '42501';
+        throw err;
+      }
+      return rows[0];
+    },
+    // The SELECTED bid (budget_versions.is_active — the variance baseline) in
+    // ONE statement: 0089's select_budget_version, SECURITY INVOKER, so the
+    // money gate's own policies apply. null clears it. Answers the id.
+    async selectBudgetVersion(projectId, versionId) {
+      const client = await requireClient();
+      const selected = unwrap(await client.rpc('select_budget_version', {
+        p_project: projectId ?? null, p_version: versionId ?? null,
+      }));
+      return selected ?? null;
     },
 
     async listExpenses(projectId) {

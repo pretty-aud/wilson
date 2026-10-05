@@ -2223,6 +2223,9 @@ function startLocalServer(distPath) {
         // project's row would otherwise point at ANOTHER project's list, which
         // the cloud's same-project FK (projects_active_shot_list_fk) refuses.
         active_shot_list_id: null,
+        // Post-overhaul S5 (0089): nor any bid version, so none is OPEN — the
+        // same reasoning, for projects_open_budget_version_fk.
+        open_budget_version_id: null,
         created_at:      now,
         updated_at:      now,
       };
@@ -2261,6 +2264,20 @@ function startLocalServer(distPath) {
             error: 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()',
             code: 'forbidden',
           });
+        }
+      }
+      // Post-overhaul S5 — the desktop's copy of 0089's same-project FK
+      // (projects_open_budget_version_fk): the OPEN bid version must be one of
+      // THIS project's versions. The desktop has no roles, so 0089's money
+      // guard has no twin here (A9's one line: every gate is open on the Local
+      // Server). Only a CHANGE to a non-null id is checked: an echoed pointer
+      // and a cleared one pass. Refused before anything is written.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'open_budget_version_id')) {
+        const nextOpen = req.body.open_budget_version_id || null;
+        const curOpen = bundle.project.open_budget_version_id || null;
+        if (nextOpen !== null && String(nextOpen) !== String(curOpen)
+            && !(bundle.budgetVersions || []).some(v => String(v.id) === String(nextOpen))) {
+          return res.status(404).json({ error: 'bid version not found in this project', code: 'not_found' });
         }
       }
       // Session 35 (TPN-NET-015): folder_root is the one field this spread
@@ -2420,6 +2437,13 @@ function startLocalServer(distPath) {
       // passes the real cascadeSceneOrShotDelete into its lifted copy of this
       // function (so it stays a plain name here, not an opts callback).
       const shotListLinks = (opts && opts.shotListLinks) || null;
+      // Post-overhaul S5: `projectPointers: [field, …]` names project fields
+      // that point at a row of this entity. A hard DELETE clears each one that
+      // names the removed row, in the same write — what the cloud's FKs do ON
+      // DELETE SET NULL (budget versions: projects_budget_active_version_id_fkey,
+      // 0037, and projects_open_budget_version_fk, 0089). Inline, not a helper:
+      // two tests lift this function by brace matching with its helpers named.
+      const projectPointers = (opts && opts.projectPointers) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -2484,6 +2508,13 @@ function startLocalServer(distPath) {
         // for a shot, { items, tasks, shots } for a scene (shots = how many
         // of its shots went with it).
         const unlinked = shotListLinks ? cascadeSceneOrShotDelete(bundle, shotListLinks, req.params.id) : null;
+        if (projectPointers && bundle.project) {
+          for (const field of projectPointers) {
+            if (bundle.project[field] != null && String(bundle.project[field]) === String(req.params.id)) {
+              bundle.project = { ...bundle.project, [field]: null };
+            }
+          }
+        }
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });
@@ -2696,7 +2727,31 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('comments',       'comments');
     rabbitSubentityRoutes('ingestion-runs', 'ingestionRuns');
     rabbitSubentityRoutes('team-assignments', 'teamAssignments');
-    rabbitSubentityRoutes('budget-versions', 'budgetVersions');
+    // Post-overhaul S5: deleting a bid version clears the project's pointers
+    // to it — the LOCKED one (0037's FK) and the OPEN one (0089's).
+    rabbitSubentityRoutes('budget-versions', 'budgetVersions', null, { projectPointers: ['budget_active_version_id', 'open_budget_version_id'] });
+    // Post-overhaul S5 — the desktop's select_budget_version (0089 §4): the
+    // SELECTED bid (budget_versions.is_active, the variance baseline — not the
+    // lock, not the open version) in ONE bundle write, every other version
+    // cleared; a null version_id clears them all (F13: nothing is promoted).
+    // The cloud does it in one UPDATE; before this the client upserted every
+    // version in a loop, which could stop half way with two selected.
+    expressApp.post('/api/rabbit/projects/:projectId/budget-versions/select', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      if (!bundle.budgetVersions) bundle.budgetVersions = [];
+      const target = (req.body && req.body.version_id) || null;
+      if (target !== null && !bundle.budgetVersions.some(v => String(v.id) === String(target))) {
+        return res.status(404).json({ error: 'bid version not found in this project', code: 'not_found' });
+      }
+      const now = new Date().toISOString();
+      bundle.budgetVersions = bundle.budgetVersions.map((v) => {
+        const want = target !== null && String(v.id) === String(target);
+        return (v.is_active === true) === want ? v : { ...v, is_active: want, updated_at: now };
+      });
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ selected: target });
+    });
     rabbitSubentityRoutes('expenses',        'expenses');
     rabbitSubentityRoutes('budget-lines',    'budgetLines');
     rabbitSubentityRoutes('budget-actuals',  'budgetActuals');

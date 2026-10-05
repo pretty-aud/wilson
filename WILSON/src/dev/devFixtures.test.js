@@ -150,7 +150,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // planner, the O.T.T.E.R. route parser and the note encoder — and, since
     // post-overhaul S4a, the file-tag vocabulary (fileTags.js), so the fake
     // cloud refuses what 0085's CHECK refuses.
-    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags']
+    // Post-overhaul S5 (F12.1): the bid versions' snapshot builder and the
+    // rate resolver, so the seeded bids carry the totals the app would save.
+    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags',
+      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -168,6 +171,13 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // the first cut's `[^;\n]*` stopped at the first one).
     const importsSomething = (s) => /\bimport\b|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\b|\brequire\s*\(/.test(codeOf(s))
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js')))).toBe(false)
+    // The S5 loosening, proven the same way: budgetMath imports nothing, and
+    // budgetVersionModel imports dates.js and only dates.js, which imports
+    // nothing — so neither can carry the fixtures anywhere either.
+    expect(importsSomething(read(join(SRC, 'components/Budget/budgetMath.js')))).toBe(false)
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/dates.js')))).toBe(false)
+    const modelImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/budgetVersionModel.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
+    expect(modelImports).toEqual(["from '../dates'"])
     for (const planted of ["import x from './y'", "export { a } from './b'", "const m = await import('./c')", "const z = require('z')",
       "export {\n  showDate as _showDate,\n} from './dates'", "export * from './e'", "export * as f from './f'"]) {
       expect(importsSomething(planted), planted).toBe(true)

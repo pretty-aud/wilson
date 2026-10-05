@@ -2483,3 +2483,44 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   signed in; on the Local Server the project stays open, so the edit
   leaves the screen without a question (its copy kept). Read in review
   round 2, not reproduced. Owner: the auth lane (App and SIGNED_OUT).
+
+## Post-overhaul S5 (`po/s5-budget-versions`) — left open (2026-10-05)
+
+What S5 (bid versions as living documents: open / selected / locked, the
+two save verbs, migration 0089) found and did not fix, or built around.
+S5 handed off after its step 2 (the schema, the adapters, the provider and
+the pure model); steps 3–9 (the Summary, the questions, the Timeline, the
+Local Server's money gate, P1-32b, the docs) are its continuation's.
+
+- **S5-01 · A project MEMBER can change the project's money settings
+  directly** (INFERRED from the policies, not run): `projects_update`
+  (0013) admits every `can_write_project` caller to every column, and no
+  trigger guards `budget_margin_pct`, `budget_contingency_pct`,
+  `budget_agency_*`, `budget_actual_column_*`, `budget_active`,
+  `budget_active_version_id` or `budget_finalized` (0036 added them
+  unguarded). The Budget tab is hidden from a member, and 0037 keeps the
+  money TABLES from them, but a PATCH of `projects` from devtools lands. 0089
+  guards only its own new column (`open_budget_version_id`), as the brief
+  asked; the existing money gates were "untouched" by ruling. Owner: a
+  schema session (a guard on those columns, the 0084 §7b shape) — Audrey
+  to say whether a member may ever touch them.
+- **S5-02 · Bid versions are not broadcast** (0016 never added
+  `budget_versions`): another window does not see a version saved, opened
+  or deleted elsewhere until it reloads the project; the project row's
+  pointers (`open_budget_version_id`, the lock) DO arrive live. Older than
+  S5. Owner: a realtime session.
+- **S5-03 · Opening a version whose task (or phase, or key date) was
+  trashed brings it back under a NEW id on the cloud**: a trashed row sits
+  behind its SELECT policy and the upsert by its old id is refused, so the
+  provider re-makes it (the brief's "else a new id written back to the
+  snapshot on the next Save") and points its tasks at a re-made phase. The
+  trashed original stays in "Recently deleted"; its comments and files stay
+  on it. The Local Server (hard delete) and the dev fixtures take the saved
+  id. Owner: Audrey (should opening restore from the trash instead?).
+- **S5-04 · The S5 client needs 0089 on its database.** A version opened,
+  or a bid selected, names `projects.open_budget_version_id` or calls
+  `select_budget_version`; on a database without 0089 those writes are
+  refused (PGRST204 / PGRST202). Reading is unaffected. 0089 on a database
+  before the S5 client is harmless (an older client never reads or writes
+  the pointer). By design for the beta (A10: the branch ships whole, after
+  staging's migrations); recorded so nobody cherry-picks the client ahead.
