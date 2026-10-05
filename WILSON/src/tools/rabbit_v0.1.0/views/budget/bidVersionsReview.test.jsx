@@ -62,7 +62,7 @@ vi.mock('../../../../permissions/usePermissions', () => ({ usePermissions: () =>
 vi.mock('../../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [], rateCards: [] }) }))
 
 const { buildDevFixtures } = await import('../../../../dev/fixtures/install')
-const { PROJECT_ID } = await import('../../../../dev/fixtures/data/project')
+const { PROJECT_ID, TASK_ID } = await import('../../../../dev/fixtures/data/project')
 const { fid } = await import('../../../../dev/fixtures/ids')
 const { BUDGET_VERSIONS } = await import('../../../../dev/fixtures/data/money')
 holder.projectId = PROJECT_ID
@@ -104,10 +104,11 @@ function Harness() {
   )
 }
 
-async function mount(rates = RATES) {
+async function mount(rates = RATES, before = null) {
   holder.rates = rates
   fx = buildDevFixtures()
   holder.adapter = fx.rabbitAdapter()
+  before?.(holder.adapter)
   render(<RabbitProvider><Harness /></RabbitProvider>)
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
   await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
@@ -583,6 +584,89 @@ describe('S5d R1-01: a version delete stopped part way over a real network sets 
   }
 })
 
+// S5d review round 2 (R2-02, MEASURED by the reviewer): optimistic's rollback
+// put back the whole bundle as it stood when the failed write BEGAN, erasing
+// every write and step that landed meanwhile — from the screen and, since
+// R1-01, from bundleRef. Without live sync nothing brought them back, and the
+// next Save wrote that stale schedule into the open version. The write takes
+// back its own change only now (state/revertOwnChange.js, whose test holds
+// the rule row by row).
+describe('S5d R2-02: a failed write takes back its own change, not what landed while it was in flight', () => {
+  const tick = (ms) => new Promise(r => setTimeout(r, ms))
+  const paced = async (fn, settle = 50) => {
+    const prev = globalThis.IS_REACT_ACT_ENVIRONMENT
+    globalThis.IS_REACT_ACT_ENVIRONMENT = false
+    try { const out = await fn(); await tick(settle); return out } finally { globalThis.IS_REACT_ACT_ENVIRONMENT = prev }
+  }
+  const noLiveSync = (a) => { a.subscribeProjectChanges = () => () => {} }
+  const writeKey = (a) => (typeof a.patchTask === 'function' ? 'patchTask' : 'upsertTask')
+  const idOf = (key, args) => (key === 'patchTask' ? args[0] : args[0].id)
+  it('two drags, the first refused after the second landed: the second stays on screen, and the next Save writes it', async () => {
+    await mount(RATES, noLiveSync)
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const T3 = TASK_ID(3), T4 = TASK_ID(4)
+    const d3 = Number(ctx.tasks.find(t => t.id === T3).bid_days)
+    const d4 = Number(ctx.tasks.find(t => t.id === T4).bid_days)
+    const a = holder.adapter
+    const key = writeKey(a)
+    const orig = a[key].bind(a)
+    a[key] = async (...args) => {
+      if (idOf(key, args) === T3) { await tick(60); throw new Error('[supabase] network') }
+      await tick(5)
+      return orig(...args)
+    }
+    await paced(async () => {
+      const first = ctx.updateTask(T3, { bid_days: d3 + 5 }).catch(e => e)
+      await tick(20) // a render between: the first drag is on screen when the second starts
+      await Promise.all([first, ctx.updateTask(T4, { bid_days: d4 + 7 })])
+    })
+    a[key] = orig
+    await run(async () => {})
+    expect(Number(ctx.tasks.find(t => t.id === T4).bid_days)).toBe(d4 + 7)
+    expect(Number(ctx.tasks.find(t => t.id === T3).bid_days)).toBe(d3)
+    await run(() => ctx.saveBudgetVersion(BV1, { roleRates: RATES }))
+    expect(Number(fx.store.budgetVersions.find(v => v.id === BV1).snapshot.tasks.find(t => t.id === T4).bid_days)).toBe(d4 + 7)
+  }, 30000)
+  it('a drag refused part way through Edit this version (no live sync): the rows the open set aside stay aside, and the version open on disk is the one on screen', async () => {
+    await mount(RATES, noLiveSync)
+    await reset()
+    await run(() => ctx.dismissUndoToast())
+    const onlyV2 = ctx.budgetVersions.find(v => v.id === BV2).snapshot.tasks.map(t => t.id)
+      .filter(id => !ctx.budgetVersions.find(v => v.id === BV1).snapshot.tasks.some(t => t.id === id))
+    expect(onlyV2).toHaveLength(11)
+    const a = holder.adapter
+    const slowed = []
+    for (const k of Object.keys(a)) {
+      if (typeof a[k] !== 'function' || !/^(upsert|update|patch|delete|set|restore|select|list)/.test(k)) continue
+      const o = a[k].bind(a)
+      slowed.push([k, a[k]])
+      a[k] = async (...args) => { await tick(3); return o(...args) }
+    }
+    const T = TASK_ID(5)
+    const key = writeKey(a)
+    const inner = a[key]
+    a[key] = async (...args) => {
+      if (idOf(key, args) === T && args[1]?.priority === 'urgent') { await tick(60); throw new Error('[localServer] HTTP 500') }
+      return inner(...args)
+    }
+    await paced(async () => {
+      const drag = ctx.updateTask(T, { priority: 'urgent' }).then(() => null, e => e)
+      await tick(20)
+      await ctx.openBudgetVersion(BV1, { roleRates: RATES })
+      await drag
+    }, 300)
+    for (const [k, f] of slowed) a[k] = f
+    await run(async () => {})
+    const project = fx.store.projects.find(x => x.id === PROJECT_ID)
+    expect({
+      open: ctx.project.open_budget_version_id || null,
+      liveOnlyV2: ctx.tasks.filter(t => onlyV2.includes(t.id)).length,
+    }).toEqual({ open: project.open_budget_version_id || null, liveOnlyV2: 0 })
+  }, 60000)
+})
+
 describe('R2-01: on the Local Server a step stopped part way keeps what it deleted within reach of its Undo', () => {
   it('a version delete stopped at its 3rd task: the 2 that went leave the screen, the rest go aside again, and the toast\'s Undo brings all 11 back', async () => {
     await mount()
@@ -826,6 +910,19 @@ describe('R2-05: every step that records offers its toast', () => {
     const line = '          await ctx.saveBudgetVersion(p.unsaved.version.id, { roleRates })'
     expect(/\b(step|runWithUndoToast)\(/.test(line)).toBe(false)
     expect(/ctx\.(saveBudgetVersion|createBudgetVersion)\(/.test(line)).toBe(true)
+  })
+  // S5d review round 2 (R2-01): the Timeline stands still while ANY of these
+  // runs (ctx.versionStep), so the context hands out each one tracked — the
+  // Save's behaviour is timelineVersions.test.jsx's; this holds the other five
+  // to the same wrapper. (The provider's own composites call the raw verbs.)
+  it('S5d R2-01: the context hands out every step that writes the schedule or locks it TRACKED (source pin)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const src = readFileSync(join(here, '../../state/RabbitProvider.jsx'), 'utf8').replace(/\r\n/g, '\n')
+    for (const verb of ['deleteBudgetVersion', 'saveBudgetVersion', 'createBudgetVersion', 'openBudgetVersion', 'activateBudget', 'resetToBidding']) {
+      expect(src, verb).toMatch(new RegExp(`\\n {4}${verb}: ${verb}Step,\\n`))
+      expect(src, verb).toMatch(new RegExp(`const ${verb}Step = useMemo\\(\\(\\) => trackVersionStep\\(${verb}\\)`))
+    }
+    expect(src).toMatch(/\n {4}versionStep,\n/)
   })
 })
 

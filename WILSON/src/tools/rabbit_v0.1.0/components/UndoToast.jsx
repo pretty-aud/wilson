@@ -22,6 +22,11 @@
 // stopped part way, whose question goes on saying "Undo takes back what
 // changed" — the sentence must not outlive its Undo (post-overhaul S5c,
 // review round 2, R2-09).
+//
+// A HELD UNDO (`undoHeld`, a reason in words) waits: the button is greyed
+// with the reason and the countdown stops, until the view that held it lets
+// go — the Timeline holds it while a bid version is viewed, since the toast's
+// Undo is the live schedule's (post-overhaul S5d, review round 2, R2-04).
 
 import { useEffect, useRef, useState } from 'react'
 import { Undo2, X } from 'lucide-react'
@@ -36,6 +41,7 @@ export default function UndoToast() {
   const ctx = useRabbit()
   const toast = ctx?.undoToast
   const dismiss = ctx?.dismissUndoToast
+  const held = ctx?.undoHeld || null
 
   const [hovered, setHovered] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -57,7 +63,7 @@ export default function UndoToast() {
   // banks the remaining time, the next run resumes from it. None for a
   // held toast.
   useEffect(() => {
-    if (!toast || toast.hold || hovered || busy) return undefined
+    if (!toast || toast.hold || hovered || busy || held) return undefined
     startedAtRef.current = Date.now()
     timerRef.current = setTimeout(() => dismiss?.(), remainingRef.current)
     return () => {
@@ -67,12 +73,12 @@ export default function UndoToast() {
         remainingRef.current - (Date.now() - startedAtRef.current),
       )
     }
-  }, [toast, toast?.key, hovered, busy, dismiss])
+  }, [toast, toast?.key, hovered, busy, held, dismiss])
 
   if (!toast) return null
 
   async function handleUndo() {
-    if (busy) return
+    if (busy || held) return
     setBusy(true)
     try {
       await toast.onUndo?.()
@@ -84,7 +90,7 @@ export default function UndoToast() {
     }
   }
 
-  const paused = hovered || busy
+  const paused = hovered || busy || !!held
 
   // The kit toast stack's PINNED row (ToastProvider `pinned`, App.jsx): the
   // anchor (24px above the page's bottom bar) and the layer (index.css
@@ -122,14 +128,16 @@ export default function UndoToast() {
       <button
         type="button"
         onClick={handleUndo}
-        disabled={busy}
+        disabled={busy || !!held}
+        title={held || undefined}
         className="flex items-center gap-1.5 px-4 rounded-control text-dense font-semibold transition-colors"
         style={{
           minHeight: 32,
           color: '#fff7ed',
           backgroundColor: busy ? '#9a3412' : '#ea580c',
           border: '1px solid #c2410c',
-          cursor: busy ? 'wait' : 'pointer',
+          cursor: busy ? 'wait' : (held ? 'not-allowed' : 'pointer'),
+          opacity: held ? 0.5 : 1,
         }}
       >
         <Undo2 className="w-3.5 h-3.5" />

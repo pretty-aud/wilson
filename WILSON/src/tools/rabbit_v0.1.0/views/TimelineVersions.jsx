@@ -113,13 +113,16 @@ export function versionMenu(state) {
  * The bar. `viewedId` is the version the gantt shows read-only (TimelineView's
  * state: it feeds the gantt's memos), null at Current. `onView(id | null)`
  * changes it; `onAsk(ask)` opens one of VersionQuestions' questions (its
- * shapes: views/budget/VersionQuestions.jsx). `onSaving(true | false)` says
- * when the Save starts and ends: the Timeline takes no change in between
- * (review round 1, R1-02).
+ * shapes: views/budget/VersionQuestions.jsx). While a bid version step runs
+ * (the provider's `versionStep`: this Save, or a step begun on the Summary or
+ * in a question) the bar's verbs wait, and the Timeline takes no change
+ * (review round 1, R1-02; round 2, R2-01: the bar's own `busy` went when the
+ * tab was left and came back mid-Save, and a second Save could start).
  */
-export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewedId = null, onView, onAsk, onSaving }) {
+export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewedId = null, onView, onAsk }) {
   const state = useBidVersionState(ctx, roleRates, { ratesPending })
   const [busy, setBusy] = useState(false)
+  const stepRunning = busy || ctx?.versionStep != null
   const [error, setError] = useState(null)
   const wordsId = useId()
   const viewed = viewedId ? (state.versions.find(v => v.id === viewedId) || null) : null
@@ -141,14 +144,13 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
   // kept (no list control here), and the undo toast only when it stops part
   // way (S5c round 2, R2-05) — the words beside it say "Saved" when it ends
   // well. A refusal (an Undo still running, R2-03) is said, not swallowed.
-  // The Timeline stands still while it runs (R1-02): a drag made then joined
-  // the step, so its Undo — or the "Stopped part way" toast's — took the drag
-  // back with it.
+  // The Timeline stands still while it runs (R1-02; the provider tracks the
+  // step, R2-01): a drag made then joined the step, so its Undo — or the
+  // "Stopped part way" toast's — took the drag back with it.
   async function save() {
-    if (!state.open || busy) return
+    if (!state.open || stepRunning) return
     setBusy(true)
     setError(null)
-    onSaving?.(true)
     const step = ctx?.runWithUndoToast || ((run) => run())
     try {
       await step(() => ctx.saveBudgetVersion(state.open.id, { roleRates }), null)
@@ -156,7 +158,6 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
       setError(err?.message || String(err))
     } finally {
       setBusy(false)
-      onSaving?.(false)
     }
   }
   const ask = (kind, extra = {}) => { setError(null); onAsk?.({ kind, basedOnListId: basedOn, ...extra }) }
@@ -166,7 +167,9 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
   // ("Unsaved changes", "Saved …", why nothing can be saved yet) and the
   // viewed version's date stay whole. As one clipped line the state went
   // first: at 1280 the bar read "Open: Bid v1 (fund …". The one-sentence
-  // states clip at their end.
+  // states clip at their end. Round 2 (R2-06): a LONG state — the rates not
+  // read yet, or not readable — is `data-long` and gives way too, with the
+  // name, so neither collapses to nothing.
   let words
   if (mode === 'locked') {
     words = <span className="rb-tl-ver-state" id={wordsId}><span className="rb-tl-ver-line">{LOCKED_WHY}</span></span>
@@ -185,7 +188,7 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
       <span className="rb-tl-ver-state" id={wordsId}>
         <span className="rb-tl-ver-lead">{'Open: '}</span>
         <span className="rb-tl-ver-name">{state.open.name}</span>
-        <span className="rb-tl-ver-tail">
+        <span className="rb-tl-ver-tail" data-long={state.pending ? 'true' : undefined}>
           {' · '}
           <span className="rb-tl-ver-status" data-dirty={state.dirty ? 'true' : undefined}>
             {state.pending ? state.pending : (state.dirty ? 'Unsaved changes' : savedWords(state.open))}
@@ -198,6 +201,9 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
   }
   const editWhy = mode === 'viewing' ? state.pending : null
 
+  // A greyed verb's reason is a piece of its own before the verbs, beside the
+  // verb it explains, and it gives way to an ellipsis (R2-06): inside the verbs,
+  // which never shrink, a long reason pushed Current past the window's edge.
   // A refusal or a stop part way is said on a line of its own under the bar,
   // the kit's in-flow danger Banner, wrapping (R1-05): squeezed into the bar
   // it showed "an Undo is still runni" at 1280 and its Dismiss was clipped
@@ -212,16 +218,16 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
           value={value}
           options={options}
           onChange={choose}
-          disabled={state.locked || busy}
+          disabled={state.locked || stepRunning}
           aria-label="Bid version"
           aria-describedby={wordsId}
         />
         {words}
+        {editWhy && <span className="rb-tl-ver-why">{`Edit this version: ${editWhy}`}</span>}
         <span className="rb-tl-ver-verbs">
           {mode === 'viewing' ? (
             <>
-              {editWhy && <span className="rb-tl-ver-why">{`Edit this version: ${editWhy}`}</span>}
-              <Button size="sm" Icon={Pencil} disabled={!!editWhy}
+              <Button size="sm" Icon={Pencil} disabled={!!editWhy || stepRunning}
                 title={editWhy ? undefined : `Load ${q(viewed.name)} into the Timeline and Budget, and keep editing it`}
                 onClick={() => ask('open', { versionId: viewed.id })}>
                 Edit this version
@@ -238,7 +244,7 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
                   Icon={Save}
                   attention={state.dirty}
                   attentionLabel={`${q(state.open.name)} has unsaved changes`}
-                  disabled={!state.dirty || busy || !!state.pending}
+                  disabled={!state.dirty || stepRunning || !!state.pending}
                   loading={busy}
                   onClick={save}
                   title={state.pending || (state.dirty ? `Save the changes into ${q(state.open.name)}` : `${q(state.open.name)} has no unsaved changes`)}
@@ -246,7 +252,7 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
                   Save
                 </Button>
               )}
-              <Button size="sm" Icon={CopyPlus} disabled={busy || !!state.pending} title={state.pending || undefined}
+              <Button size="sm" Icon={CopyPlus} disabled={stepRunning || !!state.pending} title={state.pending || undefined}
                 onClick={() => ask('saveAsNew')}>
                 Save as new version…
               </Button>

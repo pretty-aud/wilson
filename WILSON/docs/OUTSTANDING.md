@@ -2651,14 +2651,17 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   Remove from this version, or a second Ctrl+Z, behind it. Fix:
   `refuseWhileReplaying` in the four, and `runWithUndoToast`'s marker in
   `removeOrDelete`. Owner: a provider session.
-- **S5d-02 · The gantt's link writes, `addTaskLink` and
-  `addTeamAssignment` push their undo step with no visit check.** INFERRED
-  (review round 1, R1-07). `linkTasks`, `linkPhases` and `unlinkTasks` (the
-  dependency drags), `addTaskLink` and `addTeamAssignment` (which also
-  merges after its await) lack S5c R2-07's `visit` guard: a project switched
-  mid-request gets the step on the NEW project's stack, and its Ctrl+Z
-  deletes the first project's edge by id. Fix: the guard `addAsset` and the
-  rest have. Owner: a provider session.
+- **S5d-02 · The gantt's link writes, `addTaskLink` and `removeTaskLink`
+  push their undo step with no visit check, and `addTeamAssignment` merges
+  into whatever project is open.** INFERRED (review round 1, R1-07; worded
+  by round 2, R2-09). `linkTasks`, `linkPhases` and `unlinkTasks` (the
+  dependency drags), `addTaskLink` and `removeTaskLink` lack S5c R2-07's
+  `visit` guard: a project switched mid-request gets the step on the NEW
+  project's stack, and its Ctrl+Z deletes the first project's edge by id.
+  `addTeamAssignment` pushes no undo step; it merges its row after its await
+  with no visit check, so a switch mid-request puts the first project's
+  assignment into the second's state. Fix: the guard `addAsset` and the rest
+  have. Owner: a provider session.
 - **S5d-03 · Grouped by scene, a viewed bid version is grouped by the LIVE
   active shot list.** INFERRED (review round 1, R1-08). `ctx.scenes`,
   `ctx.shots` and the toolbar's "Shot list:" label stay the live list's,
@@ -2677,16 +2680,42 @@ the Timeline, the Local Server's money gate, P1-32b, the docs) —
   `useRateCard` has no such reset per workspace, so once the new project's
   overrides land the old card can read `settled`, and a Save in that moment
   writes the old card's rates into the open version. Owner: a rates session.
-- **S5d-05 · A task write still in flight when Save is pressed joins the
-  Save's undo step.** INFERRED (S5d, from the code while fixing R1-02). Since
-  R1-02 nothing on the Timeline can change while the version bar's Save
-  runs, but a write already sent (a drag released a moment before) is not
-  waited for: `updateTask` is outside the history queue, and `pushHistory`
-  adds any entry made while a batch is open to that batch, so the Save's
-  Undo, or its "Stopped part way" toast, takes the drag back too. It needs a
-  write landing after Save is pressed: a slow connection. The Summary's Save
-  has the same window. Fix: the Save waits for the writes in flight (the
-  provider keeps no count of them today). Owner: a provider session.
+- **S5d-05 · A task write still in flight when a version step starts can be
+  named as that step's Undo, or join it.** MEASURED by S5d's review round 2
+  (R2-03). Since R1-02 / R2-01 nothing on the Timeline can change while a
+  version step runs, but a write already sent (a drag released a moment
+  before Save) is not waited for, and `updateTask` is outside the history
+  queue. A plain Save (no stranded rows) opens no batch, so the drag lands as
+  its own undo entry; if the Save then FAILS having changed nothing,
+  `runWithUndoToast`'s `offer()` sees an entry above its marker and raises
+  "Stopped part way: Undo takes back what changed", whose Undo takes back
+  only the drag — S5c R2-08's rule (nothing changed, no Undo named) broken.
+  On a step that holds a batch (a Save that strands rows, the composites),
+  `pushHistory` adds the drag to the batch, and the step's Undo takes it back
+  too. It needs a write landing after the press: a slow connection. Fix:
+  `offer()` names only an entry the step itself made (run the plain Save in
+  `runBatch` and target that entry by identity, not `token > from`), and a
+  step waits for the writes in flight (the provider keeps no count of them
+  today). Owner: a provider session.
+- **S5d-06 · Back at Current after looking at a version whose chart starts
+  after the date you were on, the gantt is at that version's first day, not
+  where it was.** MEASURED (`timelineWeekends.test.jsx`, "moved 300 days":
+  parked on Mon 12 Oct 2026, a version whose chart opens Tue 1 Dec 2026,
+  Current comes back on 1 Dec). Since round 1's R1-03 the look keeps a date
+  on the version's chart (it came back 300 days late before); the date before
+  the look is not remembered. Rare: the version must start more than the
+  chart's six-month lead-in after the left date. Fix: remember the left date
+  when a look begins and put it back at Current if the person did not scroll
+  during the look. Owner: Audrey (walkthrough 55, question 22), then a
+  Timeline session.
+- **S5d-07 · Grouped by team, an emptied roster explains nothing.** MEASURED
+  by construction (review round 2, R2-08). Round 1's R1-09 says "Assignee: no
+  longer in the project" only once the roster has someone in it, because
+  while it loads it holds no one; a roster READ and empty (a Local Server
+  team emptied) is the same to it, so its assigned tasks sit under
+  Unassigned without the sentence. `useRosterMembers`' `loading` starts false
+  before the first fetch, so telling the two apart needs a "first read
+  finished" flag there. Owner: a roster session.
 
 **Still open from S5, the bundle as a whole** (each above, by its own
 entry): S5-02 (bid versions are not broadcast — another window sees a
@@ -2696,4 +2725,4 @@ back); S5c-02 (the test data's bids carry the plain rates); S5b-01 (the
 project's budget amount and currency are shown to every member on the
 Projects page); S5b-04 (once a version is opened, every client of that
 project must be S5b or later). S5-03, S5-04, S5b-02, S5b-03, S5b-05, S5b-07,
-S5b-08, S5c-04, S5c-05 and S5d-01 – 05 stand as written.
+S5b-08, S5c-04, S5c-05 and S5d-01 – 07 stand as written.

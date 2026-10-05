@@ -1202,6 +1202,34 @@ describe('S5d: the bid version bar takes the kit\'s own idioms', () => {
     expect(declsOf('.rb-tl-ver-name')).toMatch(/flex:\s*0 1 auto;[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
     expect(declsOf('.rb-tl-ver-line')).toMatch(/min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
   })
+  // Review round 2 (R2-06, MEASURED in Chromium): at 1024 a long greyed-verb
+  // reason inside the never-shrinking verbs pushed Current past the window's
+  // edge; a long state collapsed the name to nothing; the dropdown's 140px
+  // floor never held (the kit's `.ui-input { min-width: 0 }`, same layer,
+  // later, beat a one-class rule) and it fell to 38px.
+  // The dropdown's cap, read as the browser would for a window width.
+  const capAt = (decls, vw) => {
+    const m = decls.match(/max-width:\s*clamp\((\d+)px, calc\(100vw - (\d+)px\), (\d+)px\)/)
+    return m ? Math.min(Number(m[3]), Math.max(Number(m[1]), vw - Number(m[2]))) : null
+  }
+  it('R2-06: the dropdown gives way first — its cap narrows with the window, to a floor that beats the kit input\'s min-width; then the words and the reason; the label and the verbs never', () => {
+    expect(indexCss).toMatch(/\.ui-input \{[^}]*min-width: 0;/)
+    expect(declsOf('.rb-tl-ver-select')).toBe('')
+    const select = declsOf('.rb-tl-ver-bar .rb-tl-ver-select')
+    expect(select).toMatch(/flex:\s*0 1 auto;[^}]*min-width:\s*140px;/)
+    // 320 at 1280 and up (the brief's sizes keep what S5d measured), 140 at 1024.
+    expect([capAt(select, 1440), capAt(select, 1280), capAt(select, 1024)]).toEqual([320, 320, 140])
+    // No fractional factor: below a sum of 1 the browser shrinks by only that
+    // fraction. The reason gives way twice as fast as the words.
+    expect(declsOf('.rb-tl-ver-state')).toMatch(/flex:\s*0 1 auto/)
+    expect(declsOf('.rb-tl-ver-why')).toMatch(/flex:\s*0 2 auto/)
+    expect(declsOf('.rb-tl-ver-state')).toMatch(/margin-right:\s*auto/)
+    expect(declsOf('.rb-tl-ver-why')).toMatch(/min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
+    expect(declsOf('.rb-tl-ver-tail[data-long="true"]')).toMatch(/flex:\s*0 1 auto;[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis/)
+    expect(indexCss).toMatch(/\.ui-field-label \{[^}]*flex-shrink: 0;/)
+    expect(declsOf('.rb-tl-ver-verbs')).toMatch(/flex-shrink:\s*0/)
+    expect(declsOf('.rb-tl-ver-verbs')).not.toMatch(/margin-left:\s*auto/)
+  })
   it('R1-05: the refusal is the kit Banner\'s line, which wraps — no rb-tl-ver-error rule, and no nowrap in the Banner', () => {
     expect(declsOf('.rb-tl-ver-error')).toBe('')
     expect(indexCss).toMatch(/\.ui-banner-text \{ flex: 1; min-width: 0; \}/)

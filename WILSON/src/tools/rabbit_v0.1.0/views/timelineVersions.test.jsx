@@ -97,6 +97,7 @@ const OVERRIDES = { overrides: [], loading: false, error: null }
 const SETTINGS = loadRabbitSettings()
 const HOLIDAYS = new Map()
 const VIEWING = 'Viewing a bid version is read-only: Current goes back to the live schedule.'
+const STEP_RUNNING = 'A bid version step is still running: the Timeline takes changes again when it ends.'
 
 let ctx = null
 let fx = null
@@ -333,23 +334,46 @@ describe('viewing a version (F2: read-only — nothing written, nothing set asid
     await press(verb('Current'))
     expect(document.querySelector('.rb-tl-ed-title')).toBeNull()
   })
-  // S5d review round 1 (R1-04): the undo toast on screen when a look starts
-  // is a live step's. It goes with the look, as the keys and the toolbar's
-  // Undo stand down: its Undo took back a live row under the version shown.
-  it('a live step\'s undo toast goes when a version is chosen — its Undo cannot take back a live row under the view — and Ctrl+Z at Current still can', async () => {
+  // S5d review round 1 (R1-04), round 2 (R2-04): the undo toast's Undo is the
+  // live schedule's. While a version is viewed it WAITS — greyed with the
+  // reason, its countdown stopped — and at Current it takes the step back.
+  // Round 1 dismissed the toast when the look began: a toast raised by a step
+  // still in flight then came up live under the view, and a held "Stopped
+  // part way" toast was lost.
+  it('a live step\'s undo toast waits while a version is viewed — its Undo greyed with the reason, a click takes nothing back — and at Current its Undo takes the step back', async () => {
     await mount()
     await reset()
     await run(() => ctx.dismissUndoToast())
     await run(() => ctx.deleteTask(TASK_ID(5)))
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(false)
     await choose(BV1)
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
-    await press(verb('Current'))
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    const held = screen.getByRole('button', { name: 'Undo' })
+    expect([held.disabled, held.getAttribute('title')]).toEqual([true, VIEWING])
+    await press(held)
     expect(ctx.tasks.some(t => t.id === TASK_ID(5))).toBe(false)
-    // CONTROL: the step is still on the stack — the key at Current takes it back.
-    expect(fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })).toBe(false)
+    await press(verb('Current'))
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(false)
+    await press(screen.getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(ctx.tasks.some(t => t.id === TASK_ID(5))).toBe(true))
+  })
+  it('a delete still in flight when a version is chosen: its toast comes up while viewing with its Undo held', async () => {
+    await mount()
+    await reset()
+    await run(() => ctx.dismissUndoToast())
+    const orig = holder.adapter.deleteTask.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.deleteTask = async (...a) => { await gate; return orig(...a) }
+    let deleting
+    await act(async () => { deleting = ctx.deleteTask(TASK_ID(5)) })
+    await choose(BV1)
+    await act(async () => { release(); await deleting })
+    holder.adapter.deleteTask = orig
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy())
+    expect(bar().dataset.mode).toBe('viewing')
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(true)
+    await press(verb('Current'))
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(false)
   })
   it('the arrows a viewed version draws are its rows\' links as they are now — exactly what Edit this version would show', async () => {
     await mount()
@@ -474,7 +498,6 @@ describe('Save from the Timeline: the Summary\'s mutator, its words and its toas
   // "Stopped part way" toast's — took the drag back with it; an Undo pressed
   // then waited its turn and took back the Save, not the edit before it.
   it('while the Save runs the Timeline takes no change — greyed with the reason, Undo and the keys stand down, a task opens no popup — and once it lands, each works again', async () => {
-    const SAVING = 'Saving the open bid version: the Timeline takes changes again in a moment.'
     await mount()
     await reset()
     await openQuietly(BV1)
@@ -490,9 +513,9 @@ describe('Save from the Timeline: the Summary\'s mutator, its words and its toas
     await press(verb('Save'))
     const gated = [...document.querySelectorAll('.ui-toolbar [aria-disabled="true"]')]
     expect(gated.length).toBe(3) // + Phase (by phase), Key date, + Task
-    for (const g of gated) expect(g.getAttribute('title')).toBe(SAVING)
-    expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/· Saving the open bid version: the Timeline takes changes again in a moment\.$/)
-    expect(document.querySelector('.rb-tl-dz').getAttribute('title')).toBe(SAVING)
+    for (const g of gated) expect(g.getAttribute('title')).toBe(STEP_RUNNING)
+    expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/· A bid version step is still running: the Timeline takes changes again when it ends\.$/)
+    expect(document.querySelector('.rb-tl-dz').getAttribute('title')).toBe(STEP_RUNNING)
     expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(true)
     expect(fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })).toBe(true) // not cancelled: left alone
     await press(rowOf(t1))
@@ -523,6 +546,72 @@ describe('Save from the Timeline: the Summary\'s mutator, its words and its toas
     expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
     expect(barOf(TASK_ID(3)).getAttribute('title')).toMatch(/click to edit/)
   })
+  // S5d review round 2 (R2-01): the step is the PROVIDER's (ctx.versionStep),
+  // so the Timeline stands still however it was mounted. R1-02's own flag was
+  // the view's: leaving the Timeline tab mid-Save and coming back showed it
+  // editable while the Save still ran (MEASURED: a drag then landed, and the
+  // failed Save's toast took it back), and the bar's Save could start again.
+  const holdSave = () => {
+    const orig = holder.adapter.patchBudgetVersion.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.patchBudgetVersion = async (...a) => { await gate; return orig(...a) }
+    return async () => { await act(async () => { release() }); holder.adapter.patchBudgetVersion = orig }
+  }
+  it('the Timeline left and opened again while the Save runs is still still — and so is a bar mounted then: its Save cannot start again', async () => {
+    const r = await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
+    const release = holdSave()
+    await press(verb('Save'))
+    r.rerender(app({ showTimeline: false }))
+    r.rerender(app({ showTimeline: true }))
+    expect(ctx.versionStep).toBe('running')
+    expect([...document.querySelectorAll('.ui-toolbar [aria-disabled="true"]')].map(g => g.getAttribute('title'))).toEqual([STEP_RUNNING, STEP_RUNNING, STEP_RUNNING])
+    expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(true)
+    expect([verb('Save').disabled, verb('Save as new version…').disabled, combo().disabled]).toEqual([true, true, true])
+    await release()
+    await waitFor(() => expect(words()).toMatch(/· Saved /))
+    expect([ctx.versionStep, document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length]).toEqual([null, 0])
+  })
+  it('a step begun elsewhere (the Summary\'s Save) stands the Timeline still too, until it ends', async () => {
+    await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
+    const release = holdSave()
+    let saving
+    await act(async () => { saving = ctx.saveBudgetVersion(BV1, { roleRates: RATES }) })
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(3)
+    expect(verb('Save').disabled).toBe(true)
+    await release()
+    await act(async () => { await saving })
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
+  })
+  // Round 2 (R2-05): a step that never answers does not hold the Timeline for
+  // ever — once the history queue's wait has passed (it lets other steps run
+  // beside a stalled one too) the Timeline takes changes again; the bar's
+  // verbs still wait for the step.
+  it('a stalled step lets the Timeline go after the queue\'s wait; the bar\'s Save still waits for it', async () => {
+    await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
+    globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
+    const release = holdSave()
+    await press(verb('Save'))
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(3)
+    await waitFor(() => expect(ctx.versionStep).toBe('stalled'), { timeout: 2000 })
+    expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
+    expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(false)
+    expect(verb('Save').disabled).toBe(true)
+    await release()
+    await waitFor(() => expect(ctx.versionStep).toBe(null))
+  })
 })
 
 // S5d review round 1 (R1-05): the words are pieces, so that where room runs
@@ -552,6 +641,30 @@ describe('the bar\'s words in pieces (R1-05): only the name gives way', () => {
     expect(pieces()).toEqual(['rb-tl-ver-icon', 'rb-tl-ver-lead', 'rb-tl-ver-name', 'rb-tl-ver-tail', 'rb-tl-ver-quiet'])
     expect(words()).toBe(`Viewing bid version: ${V1} · ${versionDate(v1)}Read-only`)
     expect(bar().querySelector('.rb-tl-ver-tail').textContent).toBe(` · ${versionDate(v1)}`)
+  })
+  // Round 2 (R2-06): a long state gives way with the name (`data-long`), and a
+  // greyed verb's reason is a piece of its own before the verbs, which never
+  // shrink — inside them a long reason pushed Current past the window's edge.
+  it('the rates not read yet: the state is a long piece; viewing, the reason sits before the verbs, not in them', async () => {
+    await mount({ card: { ...CARD, settled: false } })
+    await reset()
+    await openQuietly(BV2)
+    await run(() => ctx.dismissUndoToast())
+    expect(bar().querySelector('.rb-tl-ver-tail').dataset.long).toBe('true')
+    await choose(BV1)
+    const why = bar().querySelector('.rb-tl-ver-why')
+    expect(why.textContent).toBe('Edit this version: Reading the rate card…')
+    expect(why.nextElementSibling).toBe(bar().querySelector('.rb-tl-ver-verbs'))
+    expect(bar().querySelector('.rb-tl-ver-verbs .rb-tl-ver-why')).toBeNull()
+    expect(verb('Edit this version').disabled).toBe(true)
+  })
+  it('CONTROL: an ordinary state ("Unsaved changes", "Saved …") is not a long piece — it stays whole', async () => {
+    await mount()
+    await reset()
+    await openQuietly(BV1)
+    await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
+    expect(words()).toBe(`Open: ${V1} · Unsaved changes`)
+    expect(bar().querySelector('.rb-tl-ver-tail').dataset.long).toBeUndefined()
   })
 })
 

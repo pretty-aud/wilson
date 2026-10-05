@@ -109,6 +109,7 @@ import {
   splitSetAside, joinSetAside, holdersOf, workOn, removalOf, rowsInNoVersion, countRows,
 } from './setAside';
 import { removalToastWords, rowsWords } from './versionWords';
+import { revertOwnChange } from './revertOwnChange';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -442,6 +443,15 @@ export function RabbitProvider({ children }) {
   }, []);
 
   const dismissUndoToast = useCallback(() => setUndoToast(null), []);
+
+  // Post-overhaul S5d review round 2 (R2-04): the toast's Undo WAITS while a
+  // view says so — the Timeline holds it while a bid version is viewed (its
+  // Undo is the live schedule's, which is not on screen). Held, not
+  // dismissed: a toast raised by a step still in flight when the look began,
+  // or a held "Stopped part way" toast, keeps its Undo for Current.
+  // `undoHeld` is the reason in words, or null.
+  const [undoHeld, setUndoHeld] = useState(null);
+  const holdUndo = useCallback((reason) => setUndoHeld(reason || null), []);
 
   // ── intake state (minimal — pipeline lives in intake/) ──
   const [activeIngestion, setActiveIngestion] = useState(null);
@@ -1124,7 +1134,14 @@ export function RabbitProvider({ children }) {
       const result = await adapterCall();
       return result;
     } catch (err) {
-      setBundle(snapshot);
+      // Post-overhaul S5d review round 2 (R2-02): the write takes back ITS OWN
+      // change (state/revertOwnChange.js), read off its mutator run on the
+      // snapshot — not the whole snapshot, which erased every write and version
+      // step that landed while it was in flight (a second drag that succeeded;
+      // the rows an open set aside), and the next Save wrote that stale
+      // schedule into the open version.
+      const applied = mutator(snapshot);
+      setBundle(prev => revertOwnChange(prev, snapshot, applied));
       // Post-overhaul S5d review round 1 (R1-01): the ref rolls back WITH the
       // state. bundleRef catches up in an effect, after a render; over a real
       // network a render has run between the optimistic drop and this failure,
@@ -1133,7 +1150,7 @@ export function RabbitProvider({ children }) {
       // found none of the rows it had to set aside again: another bid's rows
       // stayed live under the open version. (A microtask-paced test never
       // rendered between the two, and passed.)
-      bundleRef.current = snapshot;
+      bundleRef.current = revertOwnChange(bundleRef.current, snapshot, applied);
       // The snapshot predates any realtime events merged during the
       // in-flight write — with live sync up, a failed local write must
       // not erase collaborators' changes; refetch to reconverge.
@@ -6373,6 +6390,45 @@ export function RabbitProvider({ children }) {
     }));
   }, [runBatch]);
 
+  // Post-overhaul S5d review round 2 (R2-01, R2-05): a bid version step
+  // running — Save, Save as new, Edit this version, a version's delete, the
+  // lock and Reset to bidding, from the Summary, the Timeline's bar or a
+  // question — as STATE, from the person's press until the step ends, so the
+  // Timeline stands still while one runs however it was (re)mounted: its own
+  // flag (R1-02) went when the tab was left and came back mid-Save, and a
+  // drag then joined the Save's step. 'stalled' once the history queue's wait
+  // has passed (it lets other steps run beside a stalled one too): a step
+  // that never answers must not hold the Timeline for ever. One flag for the
+  // window: steps queue one behind another, and a project switch mid-step
+  // (rare) only keeps the next project's Timeline still until it ends.
+  const versionStepsRef = useRef(0);
+  const versionStepTimerRef = useRef(null);
+  const [versionStep, setVersionStep] = useState(null); // null | 'running' | 'stalled'
+  useEffect(() => () => clearTimeout(versionStepTimerRef.current), []);
+  const trackVersionStep = useCallback((step) => async (...args) => {
+    if (versionStepsRef.current++ === 0) {
+      setVersionStep('running');
+      versionStepTimerRef.current = setTimeout(
+        () => setVersionStep(s => (s === 'running' ? 'stalled' : s)),
+        globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS ?? HISTORY_STEP_WAIT_MS,
+      );
+    }
+    try {
+      return await step(...args);
+    } finally {
+      if (--versionStepsRef.current === 0) {
+        clearTimeout(versionStepTimerRef.current);
+        setVersionStep(null);
+      }
+    }
+  }, []);
+  const deleteBudgetVersionStep = useMemo(() => trackVersionStep(deleteBudgetVersion), [trackVersionStep, deleteBudgetVersion]);
+  const saveBudgetVersionStep = useMemo(() => trackVersionStep(saveBudgetVersion), [trackVersionStep, saveBudgetVersion]);
+  const createBudgetVersionStep = useMemo(() => trackVersionStep(createBudgetVersion), [trackVersionStep, createBudgetVersion]);
+  const openBudgetVersionStep = useMemo(() => trackVersionStep(openBudgetVersion), [trackVersionStep, openBudgetVersion]);
+  const activateBudgetStep = useMemo(() => trackVersionStep(activateBudget), [trackVersionStep, activateBudget]);
+  const resetToBiddingStep = useMemo(() => trackVersionStep(resetToBidding), [trackVersionStep, resetToBidding]);
+
   /** locked_at / locked_by on the version itself (F12.2), with its undo. */
   const stampBudgetVersionLock = useCallback(async (id, on) => {
     const visit = projectVisitRef.current;
@@ -6719,9 +6775,10 @@ export function RabbitProvider({ children }) {
     // revert-to-state (Session 7)
     revertHistoryEntry,
 
-    // undo toast
+    // undo toast — its Undo held while a view says so (S5d R2-04)
     undoToast,
     dismissUndoToast,
+    undoHeld, holdUndo,
 
     // actions
     createProject,
@@ -6791,8 +6848,15 @@ export function RabbitProvider({ children }) {
     selectBudgetVersion: selectBudgetVersionQueued,
     renameBudgetVersion: renameBudgetVersionQueued,
     updateBudgetVersionSummary: updateBudgetVersionSummaryQueued,
-    deleteBudgetVersion,
-    saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
+    // The steps that write the schedule or lock it, each tracked while it
+    // runs (versionStep, S5d R2-01): the Timeline stands still meanwhile.
+    deleteBudgetVersion: deleteBudgetVersionStep,
+    saveBudgetVersion: saveBudgetVersionStep,
+    createBudgetVersion: createBudgetVersionStep,
+    openBudgetVersion: openBudgetVersionStep,
+    activateBudget: activateBudgetStep,
+    resetToBidding: resetToBiddingStep,
+    versionStep,
     rateOverridesEpoch,
     // S5b (0090): the rows the open version does not hold (set aside: out of
     // every reader, kept whole), and the answers the questions are built from.
@@ -6830,7 +6894,7 @@ export function RabbitProvider({ children }) {
     removeProjectMember, myProjectRole, projectIsStaffed,
     realtimeStatus, presentUsers, reloadActiveProject, revertHistoryEntry,
     workspaceRealtimeStatus, workspacePresentUsers, subscribeWorkspaceEvents,
-    undoToast, dismissUndoToast,
+    undoToast, dismissUndoToast, undoHeld, holdUndo,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
@@ -6863,9 +6927,9 @@ export function RabbitProvider({ children }) {
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
     listTrashedMilestones, restoreMilestone,
-    selectBudgetVersionQueued, renameBudgetVersionQueued, updateBudgetVersionSummaryQueued, deleteBudgetVersion,
-    saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
-    rateOverridesEpoch,
+    selectBudgetVersionQueued, renameBudgetVersionQueued, updateBudgetVersionSummaryQueued, deleteBudgetVersionStep,
+    saveBudgetVersionStep, createBudgetVersionStep, openBudgetVersionStep, activateBudgetStep, resetToBiddingStep,
+    versionStep, rateOverridesEpoch,
     deleteTaskVerb, deleteTasksVerb, deletePhaseVerb, deleteMilestoneVerb,
     removalPlanForCb, previewOpenCb, previewDeleteCb, runWithUndoToast,
     ensureProjectFoldersFor, ensureEntityFolderFor,

@@ -745,8 +745,19 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }
-  /* The dropdown sizes to the version it shows, within these two widths. */
-  .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: 320px; }
+  /* Where room runs out (review round 2, R2-06): the dropdown gives way
+     first — a native select is as wide as its widest option, so it sat at its
+     320px cap in every state, and the cap narrows with the window: 320px from
+     1280 up, 140px (its floor) by 1100. Then the words and a greyed verb's
+     reason give way, to ellipses; the label (the kit's, `flex-shrink: 0`) and
+     the verbs never, so Current stays on screen. (A fractional flex-shrink
+     cannot rank them: when the factors sum below 1 the browser hands out only
+     that fraction of the overflow, MEASURED: the words never shrank and the
+     bar ran 307px past 1024.) The words take the free room's auto margin, so
+     a reason sits beside the verbs it explains. Two classes: the kit's
+     `.ui-input { min-width: 0 }` is in the same layer, later, and won against
+     one (MEASURED: the dropdown fell to 38px). */
+  .rb-tl-ver-bar .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: clamp(140px, calc(100vw - 960px), 320px); }
   /* The state in words, the Summary's save row's inks (rabbitBudget.css,
      `rb-bv-open-*`): the second ink, the open version's name in the ink at
      600, "Unsaved changes" in the ink. It gives way first, and within it only
@@ -760,6 +771,7 @@
     align-items: baseline;
     flex: 0 1 auto;
     min-width: 0;
+    margin-right: auto;
     overflow: hidden;
     white-space: nowrap;
     font-size: var(--text-dense);
@@ -768,6 +780,9 @@
   }
   .rb-tl-ver-lead,
   .rb-tl-ver-tail { flex: none; white-space: pre; }
+  /* A long state (the rates not read yet, or not readable) gives way with
+     the name, each by its width, so neither collapses to nothing (R2-06). */
+  .rb-tl-ver-tail[data-long="true"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .rb-tl-ver-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--color-ink); }
   .rb-tl-ver-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .rb-tl-ver-status[data-dirty="true"] { color: var(--color-ink); }
@@ -775,12 +790,15 @@
      block, which put the eye on a line of its own above them). */
   .rb-tl-ver-icon { display: inline-block; flex: none; align-self: center; width: var(--icon-sm); height: var(--icon-sm); margin-right: 6px; color: var(--color-ink-2); }
   .rb-tl-ver-quiet { flex: none; margin-left: 8px; font-size: var(--text-caption); color: var(--color-ink-3); }
-  /* A greyed verb's reason, in words beside it (F9; the Summary's rb-bv-why). */
-  .rb-tl-ver-why { white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* A greyed verb's reason, in words beside it (F9; the Summary's rb-bv-why):
+     a piece of its own before the verbs, giving way to an ellipsis twice as
+     fast as the words (R2-06): they say what the gantt shows, it why a greyed
+     verb waits. */
+  .rb-tl-ver-why { flex: 0 2 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-3); }
   /* A refusal or a step stopped part way is not here: it is the kit's danger
      Banner on its own line under the bar, wrapping, its Dismiss in reach
      (R1-05: squeezed into the bar it was clipped mid-word, Dismiss with it). */
-  .rb-tl-ver-verbs { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+  .rb-tl-ver-verbs { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
   /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════
      The kit's Drawer (a backdrop, the right side), Tabs, Toolbar, Switch,

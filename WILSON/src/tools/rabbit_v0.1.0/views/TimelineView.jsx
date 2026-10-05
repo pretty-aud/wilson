@@ -229,10 +229,12 @@ export function saveRabbitSettings(s) {
 // "viewing a version is read-only") and says why in these words: the
 // toolbar's create buttons (GatedAction), every bar, row and drop zone.
 const VIEWING_READ_ONLY = 'Viewing a bid version is read-only: Current goes back to the live schedule.'
-// While the version bar's Save runs the Timeline takes no change (S5d review
-// round 1, R1-02): a drag made then joined the Save's undo step, or was taken
-// back by its "Stopped part way" toast.
-const SAVING_VERSION = 'Saving the open bid version: the Timeline takes changes again in a moment.'
+// While a bid version step runs the Timeline takes no change (S5d review
+// round 1, R1-02): a drag made then joined the step's undo entry, or was taken
+// back by its "Stopped part way" toast. Round 2 (R2-01, R2-05): the step is
+// the provider's `versionStep` — any step, started anywhere, however this view
+// was mounted — and it stops holding the Timeline once it has stalled.
+const VERSION_STEP_RUNNING = 'A bid version step is still running: the Timeline takes changes again when it ends.'
 const NO_RATES = {}
 
 export default function TimelineView({ settings, patchSettings, holidays, pageActive = false, canSeeMoney = false }) {
@@ -285,8 +287,6 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // viewed (F9: the control is greyed); a version gone, opened (Edit this
   // version), locked or out of reach ends the look in the render it happens.
   const [viewedId, setViewedId] = useState(null)
-  // The version bar's Save, while it runs (R1-02): no change then.
-  const [versionSaving, setVersionSaving] = useState(false)
   const openVersionId = project?.open_budget_version_id || null
   const budgetLocked = project?.budget_active === true
   const viewedVersion = canSeeMoney && viewedId && !budgetLocked && viewedId !== openVersionId
@@ -304,8 +304,9 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   const tasks = view ? view.tasks : liveTasks
   const dependencies = view ? view.dependencies : liveDependencies
   const milestones = view ? view.milestones : liveMilestones
-  const canWrite = projectCanWrite && !viewing && !versionSaving
-  const writeReason = viewing ? VIEWING_READ_ONLY : (versionSaving ? SAVING_VERSION : projectWriteReason)
+  const versionStepRunning = ctx?.versionStep === 'running'
+  const canWrite = projectCanWrite && !viewing && !versionStepRunning
+  const writeReason = viewing ? VIEWING_READ_ONLY : (versionStepRunning ? VERSION_STEP_RUNNING : projectWriteReason)
 
   // ── Dependency-write failures (Phase 2 of the 2026-08-10 build pass) ──────
   // Audrey, 2026-08-10: "i was able to grab the line from the dependency task
@@ -412,13 +413,13 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // the version bar is no dialog, so ownDialogsRef cannot see it): the undo
   // stack is the live schedule's, which is not on screen, and an Undo there
   // would change rows the person is not looking at. The key is left alone,
-  // not cancelled, as off the page. And while the version bar's Save runs
-  // (review round 1, R1-02): an Undo then would take back the Save, not the
-  // edit before it.
+  // not cancelled, as off the page. And while a bid version step runs
+  // (review round 1, R1-02; the provider's versionStep since round 2): an Undo
+  // then would take back the step, not the edit before it.
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
   const standDownRef = useRef(false)
-  standDownRef.current = viewing || versionSaving
+  standDownRef.current = viewing || versionStepRunning
   const ownDialogsRef = useRef(0)
   useEffect(() => {
     function onKey(e) {
@@ -467,9 +468,9 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // re-open the popup by itself. Post-overhaul S5d: the popup reads the LIVE
   // task, so it is never shown over a viewed bid version (whose rows carry
   // the same ids) — choosing a version closes it, by this same rule. Nor while
-  // the version bar's Save runs (R1-02): its fields write as they change, and
-  // a change then joined the Save's undo step. A click then opens nothing.
-  const detailTaskShown = !!detailTaskId && !viewing && !versionSaving && liveTasks.some(t => t.id === detailTaskId)
+  // a bid version step runs (R1-02, R2-01): its fields write as they change,
+  // and a change then joined the step's undo entry. A click then opens nothing.
+  const detailTaskShown = !!detailTaskId && !viewing && !versionStepRunning && liveTasks.some(t => t.id === detailTaskId)
   useEffect(() => {
     if (detailTaskId && !detailTaskShown) setDetailTaskId(null)
   }, [detailTaskId, detailTaskShown])
@@ -965,18 +966,23 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // undo keys stand down under each).
   const [ask, setAsk] = useState(null)
   // What the gantt shows: a version (read-only) or the live schedule. A popup
-  // or an editor on screen is of a live row, so it goes with the look — and
-  // so does the undo toast (review round 1, R1-04): its Undo is the live
-  // schedule's, as the keys' and the toolbar's are, and it took back a live
-  // step under the version on screen.
-  const dismissUndoToast = ctx?.dismissUndoToast
+  // or an editor on screen is of a live row, so it goes with the look.
   const chooseView = useCallback((id) => {
     setViewedId(id || null)
-    if (id) {
-      setEditor(null)
-      dismissUndoToast?.()
-    }
-  }, [dismissUndoToast])
+    if (id) setEditor(null)
+  }, [])
+  // The undo toast's Undo waits while a version is viewed (review round 2,
+  // R2-04): it is the live schedule's, as the keys' and the toolbar's are, and
+  // it took back a live step under the version on screen. Held with the
+  // reason, not dismissed (round 1's R1-04 dismissed it when the look began):
+  // a toast raised by a step still in flight then, or a held "Stopped part
+  // way" toast, keeps its Undo for Current.
+  const holdUndo = ctx?.holdUndo
+  useEffect(() => {
+    if (!holdUndo) return undefined
+    holdUndo(viewing ? VIEWING_READ_ONLY : null)
+    return () => holdUndo(null)
+  }, [holdUndo, viewing])
 
   // ── early return: no project ─────────────────────────────
   // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
@@ -1110,10 +1116,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         sortOrder={settings.sortOrder}
         onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
         // S5d: Undo and Redo stand down while a version is viewed (the keys
-        // too, above): the stack is the live schedule's. And while the bar's
-        // Save runs (R1-02).
-        canUndo={!!ctx?.canUndo && !viewing && !versionSaving}
-        canRedo={!!ctx?.canRedo && !viewing && !versionSaving}
+        // too, above): the stack is the live schedule's. And while a bid
+        // version step runs (R1-02, R2-01).
+        canUndo={!!ctx?.canUndo && !viewing && !versionStepRunning}
+        canRedo={!!ctx?.canRedo && !viewing && !versionStepRunning}
         onUndo={() => ctx?.undo?.()}
         onRedo={() => ctx?.redo?.()}
         onNewPhase={() => openNewPhase()}
@@ -1136,7 +1142,6 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
             viewedId={viewing ? viewedId : null}
             onView={chooseView}
             onAsk={setAsk}
-            onSaving={setVersionSaving}
           />
         ) : null}
       />
