@@ -220,3 +220,90 @@ outlined box in the minimap.
 4. **Days passed on the first day.** On a project's first day the Tasks
    tab's "Days passed" reads 0 now (before, a misread date made it 1).
    Should the first day count as day 1?
+
+---
+
+## 6. Weekends hidden (P1-32b) — added Monday 5 October 2026
+
+*Post-overhaul S5p.* The problem section 2 warned about ("A problem you will
+meet there, older than this pass and not fixed yet") is fixed, and so is the
+note in section 5 that Day view still moves the gantt with weekends hidden.
+Nothing else on the Timeline changed.
+
+**What was wrong.** With "Show weekends" off, the gantt in Day view leaves
+out Saturday and Sunday: two columns in every seven are not drawn. Only the
+gantt itself knew that. Everything around it — switching zoom, the minimap's
+outlined box, the Today button, clicking in the minimap, and the switch
+itself — worked out the date from the gantt's scroll position as if the
+weekend columns were still there, so it landed on the wrong part of the
+year. Measured on the test project, "Salt Hours", with today set to
+Thursday 24 September 2026, at 1440x900 (the same at 1280x700):
+
+- **Week → Day** moved the gantt from Monday 14 September to Friday
+  11 December (88 days on), and Day → Week moved it back.
+- **In Day view the minimap's box** sat on 15 September – 6 October while the
+  gantt showed 11 December – 12 January.
+- **Today** put 10 December at the left of the gantt, with today off the
+  screen.
+- **Turning "Show weekends" on or off** kept the scroll position, not the
+  date: Friday 11 December became Monday 14 September.
+- And one more I found while measuring, which was not about weekends: in Day,
+  Month or Quarter view, **a click in the minimap** (or dragging its box)
+  still used Week view's scale, so in Day view it landed about seven months
+  early — even with weekends shown.
+
+**What it does now.** The Timeline remembers where the gantt is as a date,
+not as a scroll position, and every one of those moves goes through the same
+rule for which columns are drawn. All five keep your date. If the date at
+the gantt's left edge is a Saturday or Sunday when you switch into Day view
+with weekends hidden, the gantt starts on the Monday after.
+
+**Four things to try.** First turn "Show weekends" off: the gear at the top
+right → Settings → switch "Editable" on → switch "Show weekends" off.
+
+1. **Switch zoom.** In Week view, note the first date on the gantt's header.
+   Switch to Day, then back to Week. The same date stays at the left both
+   times.
+2. **Look at the minimap.** In Day view, compare the minimap's outlined box
+   with the dates on the gantt's header: the box covers the same weeks. It
+   is a little wider than with weekends shown, because the gantt now shows
+   about a month instead of three weeks.
+3. **Press Today.** Scroll the gantt far away, then press Today: today's red
+   line is in the middle of the gantt.
+4. **Flip the switch.** In Day view, scroll to any date, then turn "Show
+   weekends" on and off again (the gear → Settings). The same date stays at
+   the left each time.
+
+(And in Day view a click on an empty part of the minimap now brings that day
+to the middle of the gantt.)
+
+**Unchanged.** With weekends shown nothing on screen moved: the 31
+photographed Timeline states match the earlier ones pixel for pixel at both
+sizes, except a dependency arrow that differs by a few pixels between any
+two runs of the same code. The minimap's box still slides when you switch
+zoom (every switch checked frame by frame, weekends shown and hidden,
+including at the very end of the timeline), and the week header, the row
+lines and the "Shot list:" label are as they were. One small thing you
+might spot with weekends hidden: a task whose start and end are the same
+day is drawn half a day wide, as it always was with weekends shown (it
+used to be a whole day wide there).
+
+**Still not right, and recorded.** With weekends hidden, dragging a bar
+across a weekend still counts the hidden days as if they were columns, so it
+lands two days short (`docs/OUTSTANDING.md` P1-32a). Fixing it needs a
+decision on where a bar's end goes when it would fall on a hidden day, so it
+is left for its own small piece of work.
+
+Shots (each "before" beside its "after", at 1440x900 and 1280x700):
+- Week → Day: `po-s5p-before-1440x900-1-week-as-opened.png` and
+  `po-s5p-before-1440x900-1-2-after-week-to-day.png` →
+  `po-s5p-after-1440x900-1-2-after-week-to-day.png` (the gantt's dates and
+  the minimap's box).
+- Today in Day view: `po-s5p-before-1440x900-3-today-at-day.png` →
+  `po-s5p-after-1440x900-3-today-at-day.png`.
+- The switch: `po-s5p-before-1440x900-4-day-weekends-hidden.png` →
+  `po-s5p-before-1440x900-4-day-weekends-shown.png` (before: the date
+  changes), and the same two `po-s5p-after-…` (after: it does not).
+- The same names with `1280x700`.
+
+Nothing here waits on you.
