@@ -29,7 +29,7 @@ import { Stat } from '../../../ui/Stat'
 import { StatusBadge } from '../../../ui/StatusBadge'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canSeeProjectMoney, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
+import { canSeeMoneyHere, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
@@ -111,7 +111,11 @@ export default function ProjectSummaryView() {
   // beat late for a manager rather than being shown to a member and snatched
   // back. RLS is still the authority — this only stops showing a control that
   // would write a value the database will refuse.
-  const canSeeMoney = canSeeProjectMoney({
+  // Post-overhaul S5c, step 7: still the Budget tab's predicate — open on the
+  // desktop's Local Server (no roles there; Audrey's F4), canSeeProjectMoney
+  // everywhere else.
+  const canSeeMoney = canSeeMoneyHere({
+    adapterMode: ctx?.adapterMode,
     appRole: perms?.role,
     projectRole: ctx?.myProjectRole,
   })

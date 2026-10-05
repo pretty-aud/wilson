@@ -27,6 +27,7 @@ import {
 } from '../../../../ui'
 import BudgetPopover from './BudgetPopover'
 import MarginContPopover from './MarginContPopover'
+import { periodLabel } from './periodLabel'
 import '../rabbitBudget.css'
 
 // Session 24: the local-server BASE_URL that used to sit here is gone.
@@ -43,16 +44,8 @@ const TALENT_TYPE_OPTIONS = [
   { value: 'other',           label: 'Other' },
 ]
 
-function columnLabel(index, mode, projectStart) {
-  if (mode === 'count') return `#${index + 1}`
-  const start = projectStart ? new Date(projectStart) : new Date()
-  const daysOffset = mode === 'weekly' ? index * 7 : index * 14
-  const d = new Date(start.getTime() + daysOffset * 86400000)
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day   = d.getDate().toString().padStart(2, '0')
-  if (mode === 'weekly') return `Wk${index + 1} ${month}/${day}`
-  return `P${index + 1} ${month}/${day}`
-}
+// The period headers: periodLabel.js (post-overhaul S5c, P1-32a — the start
+// date read through dates.js, the periods stepped on the calendar).
 
 // The bid zone's columns (Name, Type, Rate, Days, Subtotal, Agent %, Margin,
 // Conting., Bid total, the actions slot), the four the grand total's label
@@ -287,7 +280,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     : null
   const mcLine = mcPopover ? allTalent.find(l => l.id === mcPopover.lineId) : null
 
-  const colHeaders = Array.from({ length: columnCount }, (_, i) => columnLabel(i, columnMode, projectStart))
+  const colHeaders = Array.from({ length: columnCount }, (_, i) => periodLabel(i, columnMode, projectStart))
   // The period count: the table's one inline style (rabbitBudget.css sizes
   // the table from it) and the span of the grand total's empty periods.
   const periods = colHeaders.length

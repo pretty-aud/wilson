@@ -38,7 +38,7 @@ import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
 import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
 import { usePermissions } from '../../permissions/usePermissions'
-import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
+import { canSeeMoneyHere } from '../../permissions/projectRoleMatrix'
 import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
 import ViewTabs, { RABBIT_VIEW_PANEL_ID } from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
@@ -86,7 +86,13 @@ export default function Rabbit({ currentPage } = {}) {
   // canSeeProjectMoney mirrors can_access_project_money(uuid) exactly, and
   // fails CLOSED: see its comment for why the tab APPEARS late for a project
   // manager rather than vanishing late for a reviewer.
-  const canSeeMoney = canSeeProjectMoney({
+  //
+  // Post-overhaul S5c, step 7 (Audrey's F4: "open it. im just using this for
+  // testing. its only me on this pc"): on the desktop's Local Server, which
+  // has no roles, the money gate is open (canSeeMoneyHere); everywhere else
+  // it is canSeeProjectMoney, unchanged.
+  const canSeeMoney = canSeeMoneyHere({
+    adapterMode: ctx?.adapterMode,
     appRole: perms?.role,
     projectRole: ctx?.myProjectRole,
   })
