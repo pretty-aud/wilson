@@ -458,4 +458,15 @@ describe('Save as new version… from the Timeline, while bidding', () => {
     expect({ open: ctx.project.open_budget_version_id, selected: made.is_active }).toEqual({ open: made.id, selected: true })
     expect(words()).toMatch(/^Open: Mid ROM · Saved /)
   })
+  it('the shot list it is based on (D18) is the open version\'s own — archived or not — else the project\'s active list', async () => {
+    const LIST2 = fid('shotList', 2) // "Pickups", archived
+    await mount({ before: (f) => { f.store.budgetVersions.find(v => v.id === BV1).shot_list_id = LIST2 } })
+    await reset()
+    await press(verb('Save as new version…'))
+    expect(screen.getByRole('dialog', { name: 'Save as new version' }).textContent).toContain('Based on the shot list “Shot list 1 · v1”.')
+    await press(within(screen.getByRole('dialog', { name: 'Save as new version' })).getByRole('button', { name: 'Cancel' }))
+    await openQuietly(BV1)
+    await press(verb('Save as new version…'))
+    expect(screen.getByRole('dialog', { name: 'Save as new version' }).textContent).toContain('Based on the shot list “Pickups · v1 (archived)”.')
+  })
 })
