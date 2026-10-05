@@ -51,6 +51,11 @@
 // judgement call in this file.
 // =============================================================================
 
+// Post-overhaul S2c (S2b-01): a function category's heading is read the way
+// O.T.T.E.R.'s own views read it, so the pet and the page agree. A module
+// with no imports of its own, like this one.
+import { functionCategoryName } from './adapters/otterRoutes.js'
+
 /** Everything the pet may inject, in characters. Comfortably inside Haiku's
  *  window next to a 42-message history, and small enough that a big library
  *  cannot quietly triple the cost of every message. */
@@ -660,7 +665,11 @@ export function flattenDoc(doc, kind) {
         rows.push({
           label: f.name || '',
           detail: [f.syntax, f.description, f.returns && `returns ${f.returns}`].filter(Boolean).join(' — '),
-          group: cat.category || cat.name || '',
+          // S2c (S2b-01): the heading the Functions view and the Search dialog
+          // show — a category with no name is "General" (her Python library
+          // is one such category of 46), and a name that is not a non-empty
+          // string is no name, never read raw ("[object Object]").
+          group: functionCategoryName(cat),
         })
       }
     }
