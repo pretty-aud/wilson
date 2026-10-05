@@ -609,6 +609,9 @@
     background-image: repeating-linear-gradient(to bottom, var(--rb-tl-ms, var(--color-warning)) 0 4px, transparent 4px 8px);
   }
   .rb-tl-ms { background-color: var(--rb-tl-ms, var(--color-warning)); border: 1px solid var(--color-paper); }
+  /* The pointer only where a click opens the key date (post-overhaul S5d: a
+     viewed bid version's open nothing; it was the `cursor-pointer` utility). */
+  .rb-tl-ms[data-opens="true"] { cursor: pointer; }
   .rb-tl-chart-empty { color: var(--color-ink-3); }
 
   /* The ghosts of a drag: "+ New task" under the pointer in a drop zone (a
@@ -719,6 +722,64 @@
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-2);
   }
+
+  /* ═══ The bid version bar (TimelineVersions.jsx) — stage 2, S5d ═══════════
+     Post-overhaul S5d: the zoom toolbar's second row, past the money gate
+     only (F10): the dropdown, the state in words, the verbs at the right.
+     MEASURED: the first row has 18px left at 1280 with six Group-by tabs and
+     the "Shot list:" label (116 grouped by phase with four), and the smallest
+     control that says "● Unsaved" and saves is about 290px, so the bar is a
+     row of its own and the first row keeps every control S3c measured. One
+     row at the kit's sm control height
+     (28px) with 4px either side, a hairline under it like the toolbar's, the
+     gantt's ground; while a version is VIEWED it takes the kit Banner's info
+     tint (the expression `.ui-banner[data-tone="info"]` paints) and its words
+     say so — the mode is never told by colour alone. Tokens only. */
+  .rb-tl-ver-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    min-width: 0;
+    padding: 4px var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }
+  /* The dropdown sizes to the version it shows, within these two widths. */
+  .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: 320px; }
+  /* The state in words, the Summary's save row's inks (rabbitBudget.css,
+     `rb-bv-open-*`): the second ink, the open version's name in the ink at
+     600, "Unsaved changes" in the ink. It gives way first, to an ellipsis. */
+  .rb-tl-ver-state {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-tl-ver-name { font-weight: 600; color: var(--color-ink); }
+  .rb-tl-ver-status[data-dirty="true"] { color: var(--color-ink); }
+  /* Inline in the words (Tailwind's preflight makes every svg a block, which
+     put the eye on a line of its own above them). */
+  .rb-tl-ver-icon { display: inline-block; width: var(--icon-sm); height: var(--icon-sm); margin-right: 6px; vertical-align: -2px; color: var(--color-ink-2); }
+  .rb-tl-ver-quiet { margin-left: 8px; font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* A greyed verb's reason, in words beside it (F9; the Summary's rb-bv-why). */
+  .rb-tl-ver-why { white-space: nowrap; font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* A refusal (an Undo still running; a step stopped part way), said. */
+  .rb-tl-ver-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    color: var(--color-danger);
+  }
+  .rb-tl-ver-verbs { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 
   /* ═══ The settings panel (SettingsPanel) — stage 2 (B3d) ════════════════
      The kit's Drawer (a backdrop, the right side), Tabs, Toolbar, Switch,

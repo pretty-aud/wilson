@@ -748,10 +748,13 @@ describe('R2-05: every step that records offers its toast', () => {
     }).toEqual({ toast: true, stillAside: true })
   })
 
-  it('every recording version step in the Budget\'s files runs through the undo toast (source pin)', () => {
+  it('every recording version step in the Budget\'s files — and the Timeline\'s (S5d) — runs through the undo toast (source pin)', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const offenders = []
-    for (const f of ['./BidVersions.jsx', './VersionQuestions.jsx', '../BudgetView.jsx']) {
+    const files = ['./BidVersions.jsx', './VersionQuestions.jsx', '../BudgetView.jsx', '../TimelineView.jsx', '../TimelineVersions.jsx']
+    // The Timeline's bar does call one (its Save): the pin reads it, not nothing.
+    expect(readFileSync(join(here, '../TimelineVersions.jsx'), 'utf8')).toMatch(/ctx\.saveBudgetVersion\(/)
+    for (const f of files) {
       const lines = readFileSync(join(here, f), 'utf8').replace(/\r\n/g, '\n').split('\n')
       lines.forEach((line, i) => {
         if (/^\s*(\/\/|\*)/.test(line)) return

@@ -28,6 +28,11 @@ vi.mock('../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrit
 vi.mock('../components/FileManager', () => ({ default: () => null }))
 vi.mock('../components/TaskDetailPopup', () => ({ default: () => null }))
 vi.mock('../../../components/TaskTemplates/TaskTemplateManager', () => ({ default: () => null }))
+// Post-overhaul S5d: the bid version bar's rate hooks (only the room test
+// below opens the money gate), stable.
+const rateHooks = vi.hoisted(() => ({ card: { entries: [], rateCards: [], settled: true, loading: false }, overrides: { overrides: [], loading: false } }))
+vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => rateHooks.card }))
+vi.mock('../../../components/Budget/useProjectRateOverrides', () => ({ useProjectRateOverrides: () => rateHooks.overrides }))
 // jsdom has no ResizeObserver; the panes measure themselves with one.
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
@@ -129,6 +134,52 @@ describe('group by scene draws every task; one linked outside the active list re
   })
 })
 
+// Post-overhaul S5d: a VIEWED bid version points at the assets, levels,
+// experiences and people of its day, some gone since. Every grouping still
+// draws every task (S3c's rule: never dropped) and says where a link is gone.
+// Group by team had dropped one already, live: a task assigned to someone
+// the roster knows but the project's team does not hold was bucketed under a
+// member no group row is drawn for.
+describe('S5d: every grouping draws every task, and a link to a row no longer in the project says so', () => {
+  const sched = { tasks: {}, phases: {} }
+  const keys = (rows) => rows.filter(r => r.kind === 'task').map(r => r.task.id).sort()
+  it('group by team: a task whose assignee is not on the team reads under Unassigned, saying who — never dropped', () => {
+    const rows = buildRowsByGrouping({
+      groupBy: 'team', phases: [], assets: [], schedule: sched,
+      tasks: [
+        { id: 'tA', title: 'On the team', assignee_id: 'mA' },
+        { id: 'tB', title: 'Left the team', assignee_id: 'mB' },
+        { id: 'tC', title: 'Nobody knows', assignee_id: 'mZ' },
+        { id: 'tD', title: 'Nobody', assignee_id: null },
+      ],
+      teamAssignments: [{ member_id: 'mA' }],
+      teamMembers: [{ id: 'mA', name: 'Ana' }, { id: 'mB', name: 'Bo' }],
+    })
+    expect(keys(rows)).toEqual(['tA', 'tB', 'tC', 'tD'])
+    expect(under(rows, 'grp-tm-mA')).toEqual(['tA'])
+    expect(under(rows, 'grp-tm-unassigned')).toEqual(['tB', 'tC', 'tD'])
+    const tip = (id) => rows.find(r => r.key === `tk-${id}`).tooltip
+    expect([tip('tB'), tip('tC'), tip('tD'), tip('tA')]).toEqual([
+      'Assignee “Bo”: not on this project\'s team', 'Assignee: no longer in the project', undefined, undefined,
+    ])
+  })
+  it('group by asset, level and experience: a link to one the project no longer has reads under No …, saying so; no link says nothing', () => {
+    const tasks = [
+      { id: 't1', title: 'Gone', asset_id: 'aZ', level_id: 'lZ', experience_id: 'xZ' },
+      { id: 't2', title: 'Here', asset_id: 'a1', level_id: 'l1', experience_id: 'x1' },
+      { id: 't3', title: 'None' },
+    ]
+    const base = { phases: [], schedule: sched, tasks, assets: [{ id: 'a1', name: 'Boat' }], levels: [{ id: 'l1', name: 'Dock' }], experiences: [{ id: 'x1', name: 'Tour' }] }
+    for (const [groupBy, none, word] of [['asset', 'grp-as-noasset', 'Asset'], ['level', 'grp-nolevel', 'Level'], ['experience', 'grp-noexp', 'Experience']]) {
+      const rows = buildRowsByGrouping({ ...base, groupBy })
+      expect(keys(rows), groupBy).toEqual(['t1', 't2', 't3'])
+      expect(under(rows, none), groupBy).toEqual(['t1', 't3'])
+      expect(rows.find(r => r.key === 'tk-t1').tooltip, groupBy).toBe(`${word}: no longer in the project`)
+      expect(rows.find(r => r.key === 'tk-t3').tooltip, groupBy).toBeUndefined()
+    }
+  })
+})
+
 describe('the Timeline view: the shot-list label, and the undo keys\' page gate (S3c step 1)', () => {
   const ctxFor = (over = {}) => ({
     project: { id: 'p1', scenes_enabled: true },
@@ -186,6 +237,27 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     }
     // Round 1's four-tab reading is kept: 180px at 1280.
     expect(capAt(rule, 1280, 4)).toBe(180)
+  })
+  // Post-overhaul S5d: the bid version control comes out of no one's room.
+  // MEASURED in Chromium on the fixtures (S5d, before and after): this row
+  // has 18px left at 1280 with six tabs and the label, 116 grouped by phase
+  // with four, 158 at 1440 with six — and the smallest version control that
+  // says "● Unsaved" and saves is about 290px. So it is the toolbar's SECOND
+  // row (DetailZoomToolbar's `versionBar`), and this row keeps every control
+  // S3c measured — re-measured after, each the same width to the pixel. The
+  // 1100px above is unchanged; this holds that it stays true.
+  it('S5d: the bid version bar is the toolbar\'s second row, never in the row the label\'s cap measures', () => {
+    rabbit.current = ctxFor({ project: { id: 'p1', scenes_enabled: true, levels_enabled: true, experiences_enabled: true, budget_active: false }, budgetVersions: [] })
+    render(<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive canSeeMoney />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
+    const toolbar = document.querySelector('.ui-toolbar')
+    const bar = document.querySelector('.rb-tl-ver-bar')
+    expect(bar).not.toBeNull()
+    expect(toolbar.contains(bar)).toBe(false)
+    expect(toolbar.nextElementSibling).toBe(bar)
+    expect(toolbar.querySelector('select, .rb-tl-shotlist + *:not(.rb-tl-tb-sep)')).toBeNull()
+    // The source says it: the bar renders after the Toolbar closes.
+    expect(read('./TimelineView.jsx')).toMatch(/<\/Toolbar>\n\s*\{versionBar\}/)
   })
   it('CONTROL: round 1\'s flat 180px cap fails the six-tab room (and five), and a cap that ignores the tabs fails six', () => {
     const flat = capRule().replace(/max-width: max\([^;]*\);/, 'max-width: max(180px, calc(100vw - 1100px - (var(--rb-tl-group-tabs, 4) - 4) * 0px));')
@@ -338,7 +410,12 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     fireEvent.keyDown(screen.getByRole('button', { name: 'Editable' }), { key: 'z', ctrlKey: true })
     expect(rabbit.current.undo).not.toHaveBeenCalled()
   })
-  it('Rabbit.jsx says it: the Timeline\'s pageActive is currentPage === \'rabbit\'', () => {
-    expect(read('../Rabbit.jsx')).toContain("<TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} pageActive={currentPage === 'rabbit'} />")
+  it('Rabbit.jsx says it: the Timeline\'s pageActive is currentPage === \'rabbit\' (and, S5d, its canSeeMoney the gate the Budget tab is hidden by)', () => {
+    const shell = read('../Rabbit.jsx')
+    expect(shell).toContain("<TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} pageActive={currentPage === 'rabbit'} canSeeMoney={canSeeMoney} />")
+    // Post-overhaul S5d (F10): the one predicate, canSeeMoneyHere, decides
+    // both the Budget tab and the Timeline's bid version bar.
+    expect(shell).toMatch(/const canSeeMoney = canSeeMoneyHere\(\{/)
+    expect(shell).toContain("if (!canSeeMoney) hidden.add('budget')")
   })
 })

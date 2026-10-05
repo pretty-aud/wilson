@@ -276,8 +276,10 @@ export default function Rabbit({ currentPage } = {}) {
             {activeView === 'experiences' && <ExperiencesView />}
             {/* pageActive (post-overhaul S3c, S4a-07): the Timeline's and the
                 Budget's Ctrl+Z / Ctrl+Y act only while R.A.B.B.I.T. is on
-                screen, as Scenes' and Bins' do. */}
-            {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} pageActive={currentPage === 'rabbit'} />}
+                screen, as Scenes' and Bins' do. canSeeMoney (post-overhaul
+                S5d, F10): the Timeline's bid version bar exists only past the
+                money gate — the one predicate the Budget tab is hidden by. */}
+            {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} pageActive={currentPage === 'rabbit'} canSeeMoney={canSeeMoney} />}
             {activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}
           </div>
         )}

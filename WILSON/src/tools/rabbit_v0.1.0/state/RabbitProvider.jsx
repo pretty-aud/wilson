@@ -6790,6 +6790,10 @@ export function RabbitProvider({ children }) {
     setAsideTasks:       bundle.setAsideTasks || [],
     setAsidePhases:      bundle.setAsidePhases || [],
     setAsideMilestones:  bundle.setAsideMilestones || [],
+    // S5d: the edges touching a set-aside row — the Timeline draws a VIEWED
+    // version's arrows between its rows as they carry them now, set aside or
+    // not (views/timelineVersionView.js). Read-only; no reader counts them.
+    setAsideDependencies: bundle.setAsideDependencies || [],
     removalPlanFor:      removalPlanForCb,
     previewOpenBudgetVersion:   previewOpenCb,
     previewDeleteBudgetVersion: previewDeleteCb,

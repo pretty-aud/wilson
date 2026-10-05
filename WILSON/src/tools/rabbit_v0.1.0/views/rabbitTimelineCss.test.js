@@ -57,10 +57,15 @@ const SHEET = resolve(here, 'rabbitTimeline.css')
 const sheet = read('rabbitTimeline.css')
 /** Lane B3's class prefixes, `rb-tl-` and `rb-hist-`, as the guards' `prefix`. */
 const LANE = 'tl|hist'
-/** B3's two files, relative to this directory, and the one prefix each writes. */
+/** B3's two files, relative to this directory, and the one prefix each writes.
+    Post-overhaul S5d: the Timeline's bid version bar is a third, in a part of
+    the Timeline's own lane (`rb-tl-ver-`), and its sheet is this one: its
+    rules are its own (`except` keeps them out of TimelineView's checks, and
+    TimelineView may write none of them). */
 const FILES = {
-  timeline: { file: 'TimelineView.jsx', prefix: 'rb-tl-' },
+  timeline: { file: 'TimelineView.jsx', prefix: 'rb-tl-', except: 'rb-tl-ver-' },
   history: { file: '../components/EditHistoryDrawer.jsx', prefix: 'rb-hist-' },
+  versions: { file: 'TimelineVersions.jsx', prefix: 'rb-tl-ver-' },
 }
 const source = Object.fromEntries(Object.entries(FILES).map(([k, { file }]) => [k, read(file)]))
 const code = Object.fromEntries(Object.entries(source).map(([k, s]) => [k, normal(jsCode(s))]))
@@ -73,6 +78,7 @@ describe('rabbitTimeline.css: one layer, its own classes, every selector scoped'
     expect(rulesOf(sheet).length).toBeGreaterThan(100)
     expect(source.timeline.length).toBeGreaterThan(100000)
     expect(source.history.length).toBeGreaterThan(5000)
+    expect(source.versions.length).toBeGreaterThan(5000)
   })
   it('the @layer statement comes first and every rule sits inside the one components block', () => {
     const { statementFirst, rest } = outsideLayer(sheet)
@@ -124,10 +130,10 @@ describe('every rb-tl- / rb-hist- class is both declared and written', () => {
   it('no className class without a rule', () => {
     expect([...written].filter((c) => !declared.has(c))).toEqual([])
   })
-  it('TimelineView writes only rb-tl- classes, EditHistoryDrawer only rb-hist-', () => {
-    for (const [key, { file, prefix }] of Object.entries(FILES)) {
+  it('TimelineView writes only rb-tl- classes, EditHistoryDrawer only rb-hist-, TimelineVersions only rb-tl-ver- (and TimelineView none of those)', () => {
+    for (const [key, { file, prefix, except }] of Object.entries(FILES)) {
       expect(writtenIn(key).size, file).toBeGreaterThan(0)
-      expect([...writtenIn(key)].filter((c) => !c.startsWith(prefix)), file).toEqual([])
+      expect([...writtenIn(key)].filter((c) => !c.startsWith(prefix) || (except && c.startsWith(except))), file).toEqual([])
     }
   })
   it('CONTROL: a class named in another attribute is not a use; a {\'…\'} className is; another lane\'s class is not B3\'s', () => {
@@ -139,8 +145,8 @@ describe('every rb-tl- / rb-hist- class is both declared and written', () => {
 
 /* ── 4. attributes ─────────────────────────────────────────────────────────── */
 /** The sheet's rules for one prefix, as CSS text: each file answers for its own. */
-const rulesFor = (prefix) => rulesOf(sheet)
-  .filter(({ sel }) => sel.includes(`.${prefix}`))
+const rulesFor = (prefix, except = null) => rulesOf(sheet)
+  .filter(({ sel }) => sel.includes(`.${prefix}`) && !(except && sel.includes(`.${except}`)))
   .map(({ sel, body }) => `${sel} {${body}}`).join('\n')
 /** The values a `[attr="v"]` takes in the tone table, for one shape or all. */
 const toneValues = (attr, shape) => [...new Set(rulesOf(sheet)
@@ -155,9 +161,9 @@ const lifecycleReturns = (src) => {
 
 describe('the sheet keys on values the JSX can produce', () => {
   it('no [data-x="v"] rule waits for a value its own element never gets, in its own file', () => {
-    for (const [key, { file, prefix }] of Object.entries(FILES)) {
-      expect(rulesFor(prefix).length, file).toBeGreaterThan(0)
-      expect(unreachableAttributeValues(rulesFor(prefix), code[key]), file).toEqual([])
+    for (const [key, { file, prefix, except }] of Object.entries(FILES)) {
+      expect(rulesFor(prefix, except).length, file).toBeGreaterThan(0)
+      expect(unreachableAttributeValues(rulesFor(prefix, except), code[key]), file).toEqual([])
     }
     expect(unreachableAttributeValues(sheet, jsx)).toEqual([])
   })
@@ -319,7 +325,7 @@ describe('no rule loses a fight it cannot see', () => {
     remaining inline style is geometry (left / top / width / height from dates
     and pixels, a shape's offsets included) or static, and a key date's own
     colour travels as `--rb-tl-ms`, which the scanner does not read as state. */
-const ALLOWED = { timeline: [], history: [] }
+const ALLOWED = { timeline: [], history: [], versions: [] }
 const COLOUR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(|var\(--color-/
 /** Every `const` whose value picks between colours by a ternary — on its
     line, or on the `?` / `:` lines that continue it. B1's scanner reads such
@@ -1162,5 +1168,22 @@ describe('S1 review round 1: the header\'s backing and wiring, and the gutter\'s
     const unmasked = code.timeline.replace('hidden: (i) => !!dayMask.mask[i]?.hidden,', '')
     expect(unmasked).not.toBe(code.timeline)
     expect(unmasked).not.toMatch(/hidden: \(i\) => !!dayMask\.mask\[i\]\?\.hidden/)
+  })
+})
+
+/* ── Post-overhaul S5d: the bid version bar (TimelineVersions.jsx) ───────── */
+describe('S5d: the bid version bar takes the kit\'s own idioms', () => {
+  const bodyOf = (selector) => rulesOf(sheet).find(({ sel }) => sel.trim() === selector)?.body || null
+  it('while a version is viewed it takes the kit Banner\'s info tint: the very expression .ui-banner paints for the info tone', () => {
+    expect(bodyOf('.rb-tl-ver-bar[data-mode="viewing"]')).toMatch(/background-color:\s*color-mix\(in srgb, var\(--color-ink-3\) 14%, transparent\)/)
+    expect(indexCss).toMatch(/\.ui-banner\[data-tone="info"\]\s*\{\s*--tone-color: var\(--color-ink-3\);/)
+    expect(indexCss).toMatch(/\.ui-banner \{[^}]*background-color: color-mix\(in srgb, var\(--tone-color, var\(--color-ink-3\)\) 14%, transparent\);/)
+  })
+  it('the eye sits in the words, not on a line of its own (Tailwind\'s preflight makes every svg a block)', () => {
+    expect(bodyOf('.rb-tl-ver-icon')).toMatch(/display:\s*inline-block/)
+  })
+  it('CONTROL: the reader finds a rule by its selector, and none for one the sheet lacks', () => {
+    expect(bodyOf('.rb-tl-ver-bar')).toMatch(/border-bottom: 1px solid var\(--color-rule\)/)
+    expect(bodyOf('.rb-tl-ver-nope')).toBeNull()
   })
 })

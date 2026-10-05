@@ -30,6 +30,34 @@ describe('Select', () => {
     fireEvent.change(s, { target: { value: '' } })
     expect(onChange).toHaveBeenLastCalledWith(null)
   })
+
+  // Post-overhaul S5d kit request (the Timeline's bid version control).
+  it('a disabled option is drawn and cannot be chosen; a { label, options } entry is a native optgroup around its options', () => {
+    render(
+      <Select
+        value="cur"
+        onChange={() => {}}
+        options={[
+          { value: 'cur', label: 'Current' },
+          { label: 'Bid versions', options: [{ value: 'v2', label: 'Mid ROM' }, { value: 'v1', label: 'Bid v1 · no timeline captured', disabled: true }] },
+          { value: 'manage', label: 'Manage versions…' },
+        ]}
+        aria-label="bid version"
+      />,
+    )
+    const s = screen.getByLabelText('bid version')
+    expect([...s.options].map((o) => [o.textContent, o.disabled])).toEqual([
+      ['Current', false], ['Mid ROM', false], ['Bid v1 · no timeline captured', true], ['Manage versions…', false],
+    ])
+    const groups = [...s.querySelectorAll('optgroup')]
+    expect(groups.map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.value)])).toEqual([['Bid versions', ['v2', 'v1']]])
+    // The flat shape is unchanged: no optgroup, nothing disabled.
+    cleanup()
+    render(<Select value="a" onChange={() => {}} options={['a', { value: 'b', label: 'B' }]} aria-label="flat" />)
+    const flat = screen.getByLabelText('flat')
+    expect(flat.querySelector('optgroup')).toBeNull()
+    expect([...flat.options].some((o) => o.disabled)).toBe(false)
+  })
 })
 
 // ── F4 (C3b request 5): the small select keeps its chevron clearance ────────

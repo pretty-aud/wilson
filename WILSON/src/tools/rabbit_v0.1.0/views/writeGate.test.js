@@ -288,6 +288,25 @@ function gateValue(attrs) {
 /** Offsets of every `<Name` render in `code` (not `<NameX`, not `</Name`). */
 const renderSites = (code, name) => [...code.matchAll(new RegExp(`<${name}(?![\\w$.])`, 'g'))].map((m) => m.index)
 
+/**
+ * Whether a component's `canWrite` comes from useProjectAccess(): 'ok', or
+ * what is wrong. Destructured as `canWrite` itself, nothing else may assign
+ * it; bound to another name (`canWrite: projectCanWrite`, post-overhaul S5d,
+ * so the Timeline can also stand down while a bid version is viewed), there
+ * must be exactly one `const canWrite = <that name> && …`.
+ */
+function gateDerivation(text) {
+  const m = text.match(/const\s*\{([^}]*)\}\s*=\s*useProjectAccess\s*\(/)
+  if (!m) return 'no destructure of useProjectAccess()'
+  const binding = m[1].match(/\bcanWrite\b\s*(?::\s*([A-Za-z_$][\w$]*))?/)
+  if (!binding) return 'useProjectAccess()\'s canWrite is not taken'
+  const assigned = [...text.matchAll(/(?:const|let|var)\s+canWrite\s*=\s*([^\n;]+)/g)].map((a) => a[1].trim())
+  const bound = binding[1] || null
+  if (!bound) return assigned.length ? `canWrite also assigned: ${assigned.join(' / ')}` : 'ok'
+  if (assigned.length !== 1) return `canWrite assigned ${assigned.length} times beside the gate's ${bound}`
+  return new RegExp(`^${bound}\\s*&&\\s*\\S`).test(assigned[0]) ? 'ok' : `canWrite = ${assigned[0]}`
+}
+
 describe('project write gate', () => {
   const sites = canOnProjectCallSites()
 
@@ -344,6 +363,22 @@ describe('project write gate', () => {
     // assertion with it.
     expect(text, 'canWrite must be destructured from the gate, not assigned a literal')
       .toMatch(/const\s*\{[^}]*\bcanWrite\b[^}]*\}\s*=\s*useProjectAccess\s*\(/)
+    // Post-overhaul S5d: the gate's answer is bound to another name
+    // (`canWrite: projectCanWrite`) so `canWrite` can ALSO stand down while a
+    // bid version is viewed (F2: viewing is read-only). Then `canWrite` must be
+    // BUILT from that name — `const canWrite = projectCanWrite && …` — or the
+    // destructure above would pass beside a `const canWrite = true` that gates
+    // nothing (the assertion's whole point, renamed around).
+    expect(gateDerivation(text), 'canWrite must be the gate\'s answer AND-ed with anything else, once').toBe('ok')
+  })
+  it('CONTROL: the derivation check fails on a literal, an OR and a second assignment, and passes the gate\'s own name or the S5d AND', () => {
+    const gate = 'const { canWrite: projectCanWrite, writeReason } = useProjectAccess()\n'
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite && !viewing`)).toBe('ok')
+    expect(gateDerivation('const { canWrite, writeReason } = useProjectAccess()')).toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = true`)).not.toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite || viewing`)).not.toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite && !viewing\nconst canWrite = true`)).not.toBe('ok')
+    expect(gateDerivation(gate)).not.toBe('ok')
   })
 
   it('the Timeline gates the funnel AND the affordances, not just the funnel', () => {

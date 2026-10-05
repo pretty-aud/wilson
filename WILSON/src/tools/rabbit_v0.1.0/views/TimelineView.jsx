@@ -78,6 +78,14 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
 // Post-overhaul S5b (constraint 9): Remove from this version, or Delete.
 import { removalQuestion } from '../state/versionWords'
+// Post-overhaul S5d: bid versions on the Timeline, past the money gate only —
+// the version bar and its rates (TimelineVersions.jsx), the questions' one
+// host (S5c's, mounted here with the Timeline's own `ask`), and what a
+// version VIEWED read-only draws (timelineVersionView.js).
+import { TimelineVersionBar, VersionRates, sameRates } from './TimelineVersions'
+import VersionQuestions from './budget/VersionQuestions'
+import { versionView } from './timelineVersionView'
+import { selectCriticalPath } from '../state/selectors'
 import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list reads
 // as not assigned in group-by-scene, never dropped, and says where it points.
@@ -217,18 +225,27 @@ export function saveRabbitSettings(s) {
 // TimelineView
 // ============================================================
 
-export default function TimelineView({ settings, patchSettings, holidays, pageActive = false }) {
+// While a bid version is VIEWED every write affordance stands down (F2:
+// "viewing a version is read-only") and says why in these words: the
+// toolbar's create buttons (GatedAction), every bar, row and drop zone.
+const VIEWING_READ_ONLY = 'Viewing a bid version is read-only: Current goes back to the live schedule.'
+const NO_RATES = {}
+
+export default function TimelineView({ settings, patchSettings, holidays, pageActive = false, canSeeMoney = false }) {
   const ctx = useRabbit()
   const project = ctx?.project
-  const phases = ctx?.phases || []
+  // The LIVE rows. While a bid version is viewed (S5d, below) the gantt draws
+  // the version's own phases, tasks, key dates and arrows instead, through the
+  // same names from there on (`phases`, `tasks`, `dependencies`, `milestones`).
+  const livePhases = ctx?.phases || []
   const assets = ctx?.assets || []
-  const tasks  = ctx?.tasks  || []
-  const dependencies = ctx?.dependencies || []
+  const liveTasks  = ctx?.tasks  || []
+  const liveDependencies = ctx?.dependencies || []
   const scenes      = ctx?.scenes || []
   const shots       = ctx?.shots || []
   const levels      = ctx?.levels || []
   const experiences = ctx?.experiences || []
-  const milestones  = ctx?.milestones || []
+  const liveMilestones  = ctx?.milestones || []
   const teamAssignments = ctx?.teamAssignments || []
 
   const tm = useRosterMembers()
@@ -244,7 +261,45 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // openNewTask, and gating only the funnel would leave all twelve visible and
   // inert — which is precisely the S23 "the button does nothing" defect. The
   // funnel and the affordances move together.
-  const { canWrite, writeReason } = useProjectAccess()
+  //
+  // Post-overhaul S5d: and while a bid version is VIEWED, canWrite is false
+  // for every pane (F2: viewing is read-only — no drag, no create, no inline
+  // edit, no delete), with the reason in the words above. The project's own
+  // gate is `projectCanWrite`; the read-only strip below says IT, not the view.
+  const { canWrite: projectCanWrite, writeReason: projectWriteReason } = useProjectAccess()
+
+  // ── Viewing a bid version (post-overhaul S5d, step 2) ─────────────────────
+  // F2's first sentence: "viewing a version is read-only". Choosing a version
+  // in the version bar that is not the OPEN one shows THAT version's schedule
+  // from its snapshot — nothing written, nothing set aside or brought back —
+  // through the same props and memos as the live rows (`schedule` →
+  // `overviewSpan`): a span move the re-anchoring keeps, never a remount
+  // (S5p's rule: a remount starts a new anchor and the first-mount centring
+  // throws the gantt back to today). Only past the money gate (F10). It is a
+  // look, not a state: leaving the tab unmounts the view and Current comes
+  // back. The open version IS what Current shows; under a lock nothing is
+  // viewed (F9: the control is greyed); a version gone, opened (Edit this
+  // version), locked or out of reach ends the look in the render it happens.
+  const [viewedId, setViewedId] = useState(null)
+  const openVersionId = project?.open_budget_version_id || null
+  const budgetLocked = project?.budget_active === true
+  const viewedVersion = canSeeMoney && viewedId && !budgetLocked && viewedId !== openVersionId
+    ? ((ctx?.budgetVersions || []).find(v => v.id === viewedId) || null)
+    : null
+  const setAsideTasks = ctx?.setAsideTasks
+  const setAsideDependencies = ctx?.setAsideDependencies
+  const view = useMemo(
+    () => (viewedVersion ? versionView(viewedVersion, { tasks: liveTasks, setAsideTasks, dependencies: liveDependencies, setAsideDependencies }) : null),
+    [viewedVersion, liveTasks, setAsideTasks, liveDependencies, setAsideDependencies]
+  )
+  if (viewedId && !view) setViewedId(null)
+  const viewing = !!view
+  const phases = view ? view.phases : livePhases
+  const tasks = view ? view.tasks : liveTasks
+  const dependencies = view ? view.dependencies : liveDependencies
+  const milestones = view ? view.milestones : liveMilestones
+  const canWrite = projectCanWrite && !viewing
+  const writeReason = viewing ? VIEWING_READ_ONLY : projectWriteReason
 
   // ── Dependency-write failures (Phase 2 of the 2026-08-10 build pass) ──────
   // Audrey, 2026-08-10: "i was able to grab the line from the dependency task
@@ -346,12 +401,21 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // and a Ctrl+Z pressed in it undoing a task's priority underneath. A kit
   // Dialog on screen beyond the page's own (`ownDialogsRef`, set below where
   // they are) stands the keys down.
+  //
+  // Post-overhaul S5d: and while a bid version is VIEWED (by the view state —
+  // the version bar is no dialog, so ownDialogsRef cannot see it): the undo
+  // stack is the live schedule's, which is not on screen, and an Undo there
+  // would change rows the person is not looking at. The key is left alone,
+  // not cancelled, as off the page.
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
+  const viewingRef = useRef(viewing)
+  viewingRef.current = viewing
   const ownDialogsRef = useRef(0)
   useEffect(() => {
     function onKey(e) {
       if (!pageActiveRef.current) return
+      if (viewingRef.current) return
       if (drawerOnScreen() || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
       if (visibleDialogCount() > ownDialogsRef.current) return
       const t = e.target
@@ -392,8 +456,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   // page read as "no more than its own" and Ctrl+Z undid under it (S3b's
   // lesson in ScenesView: the page's own surfaces are the ones that RENDER).
   // Such an id is let go, so a Ctrl+Y that brings the task back does not
-  // re-open the popup by itself.
-  const detailTaskShown = !!detailTaskId && tasks.some(t => t.id === detailTaskId)
+  // re-open the popup by itself. Post-overhaul S5d: the popup reads the LIVE
+  // task, so it is never shown over a viewed bid version (whose rows carry
+  // the same ids) — choosing a version closes it, by this same rule.
+  const detailTaskShown = !!detailTaskId && !viewing && liveTasks.some(t => t.id === detailTaskId)
   useEffect(() => {
     if (detailTaskId && !detailTaskShown) setDetailTaskId(null)
   }, [detailTaskId, detailTaskShown])
@@ -506,10 +572,13 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
   }, [milestones, project?.start_date, project?.end_date])
 
   // ── derived data ─────────────────────────────────────────
+  // Post-overhaul S5d: a viewed version's critical path is its own — its
+  // tasks' bid days over the arrows between its rows (the selector the
+  // provider runs on the live ones).
   const criticalSet = useMemo(() => {
-    const path = ctx?.selectCriticalPath?.() || []
+    const path = view ? selectCriticalPath(view.tasks, view.dependencies) : (ctx?.selectCriticalPath?.() || [])
     return new Set(path)
-  }, [ctx])
+  }, [ctx, view])
 
   const schedule = useMemo(
     () => buildSchedule({ phases, assets, tasks, dependencies }),
@@ -858,6 +927,33 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
     setMinimapCenterDate(TODAY)
   }, [])
 
+  // ── The bid version bar (post-overhaul S5d) — past the money gate only ──
+  // The rates a bid is compared with and saved with: read only here, by
+  // VersionRates (mounted below only past the gate, F10), and held with the
+  // project they are the rates OF (S5c round 2, R2-02: a provider-wide epoch
+  // is not per project; until the new project's are handed up, nothing is
+  // called unsaved and nothing can be saved with the old ones). Handed up
+  // only when they differ, so a hook that hands a fresh but equal answer
+  // each render cannot loop.
+  const [versionRates, setVersionRates] = useState(null)
+  const onVersionRates = useCallback((next) => {
+    setVersionRates(prev => (prev && prev.projectId === next.projectId && prev.ratesPending === next.ratesPending
+      && sameRates(prev.roleRates, next.roleRates) ? prev : next))
+  }, [])
+  const ratesHere = !!versionRates && versionRates.projectId === (project?.id ?? null)
+  const roleRates = ratesHere ? versionRates.roleRates : NO_RATES
+  const ratesPending = ratesHere ? versionRates.ratesPending : 'Reading the rate card…'
+  // The questions bid versions ask (VersionQuestions: S5c's one host, mounted
+  // here with the Timeline's own `ask`; none counts in ownDialogsRef, so the
+  // undo keys stand down under each).
+  const [ask, setAsk] = useState(null)
+  // What the gantt shows: a version (read-only) or the live schedule. A popup
+  // or an editor on screen is of a live row, so it goes with the look.
+  const chooseView = useCallback((id) => {
+    setViewedId(id || null)
+    if (id) setEditor(null)
+  }, [])
+
   // ── early return: no project ─────────────────────────────
   // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
   // draws it; it was a capitalised span in two inline hexes.
@@ -886,15 +982,17 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
           out, and they are half of how this screen is used. Withdrawing them
           silently would be the same "it just stopped working" complaint that
           started this investigation, so the reason is stated once, here, where
-          it covers every gesture on the pane at once. */}
-      {!canWrite && writeReason && (
+          it covers every gesture on the pane at once. Post-overhaul S5d: it
+          says the PROJECT's gate; a viewed bid version says its own read-only
+          in the version bar, under the toolbar. */}
+      {!projectCanWrite && projectWriteReason && (
         <div
           className="flex items-center gap-2 px-3 py-1.5 text-dense"
           style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
         >
           <Lock className="w-3 h-3 shrink-0" style={{ color: '#78716c' }} />
           <span className="text-label uppercase shrink-0" style={{ color: '#78716c' }}>Read only</span>
-          <span className="truncate" title={writeReason}>{writeReason}</span>
+          <span className="truncate" title={projectWriteReason}>{projectWriteReason}</span>
         </div>
       )}
 
@@ -962,8 +1060,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         onZoomMinimap={zoomMinimap}
         onUpdateTask={(taskId, patch) => ctx.updateTask(taskId, patch).catch(() => {})}
         onUpdatePhase={(phaseId, patch) => ctx.updatePhase(phaseId, patch).catch(() => {})}
-        onEditTask={openEditTask}
-        onEditPhase={openEditPhase}
+        // S5d: a viewed version's bar opens nothing — the popup and the
+        // editor read the LIVE row, which the version's row is not.
+        onEditTask={viewing ? undefined : openEditTask}
+        onEditPhase={viewing ? undefined : openEditPhase}
         canWrite={canWrite}
         writeReason={writeReason}
         milestones={allMilestones}
@@ -973,6 +1073,11 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
       {/* ── The legend, once, for both charts (B3c) ── */}
       <TimelineLegend />
 
+      {/* ── The bid version bar's rates: read only past the money gate (F10) ── */}
+      {canSeeMoney && (
+        <VersionRates epoch={ctx?.rateOverridesEpoch ?? 0} projectId={project?.id ?? null} onRates={onVersionRates} />
+      )}
+
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
       <DetailZoomToolbar
         zoomId={zoomId}
@@ -980,8 +1085,10 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         onCenterToday={centerDetailOnToday}
         sortOrder={settings.sortOrder}
         onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
-        canUndo={!!ctx?.canUndo}
-        canRedo={!!ctx?.canRedo}
+        // S5d: Undo and Redo stand down while a version is viewed (the keys
+        // too, above): the stack is the live schedule's.
+        canUndo={!!ctx?.canUndo && !viewing}
+        canRedo={!!ctx?.canRedo && !viewing}
         onUndo={() => ctx?.undo?.()}
         onRedo={() => ctx?.redo?.()}
         onNewPhase={() => openNewPhase()}
@@ -994,7 +1101,29 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         onGroupByChange={handleGroupByChange}
         project={project}
         shotListLabel={activeListLabel}
+        // Post-overhaul S5d: the bid version bar, the toolbar's second row —
+        // past the money gate only (F10); for everyone else nothing of it.
+        versionBar={canSeeMoney ? (
+          <TimelineVersionBar
+            ctx={ctx}
+            roleRates={roleRates}
+            ratesPending={ratesPending}
+            viewedId={viewing ? viewedId : null}
+            onView={chooseView}
+            onAsk={setAsk}
+          />
+        ) : null}
       />
+      {canSeeMoney && (
+        <VersionQuestions
+          ctx={ctx}
+          ask={ask}
+          setAsk={setAsk}
+          roleRates={roleRates}
+          currency={project?.budget_currency || 'USD'}
+          ratesPending={ratesPending}
+        />
+      )}
 
       {/* ── Detail pane (bottom half) ── */}
       <DetailPane
@@ -1098,17 +1227,21 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
             end_date:   endDate   ? toDateInputValue(endDate)   : '',
           })
         }}
-        onEditTask={openEditTask}
-        onEditPhase={openEditPhase}
-        onEditAsset={openEditAsset}
+        // S5d: while a version is viewed nothing opens — the popup and the
+        // editors read the LIVE row, which the version's row is not.
+        onEditTask={viewing ? undefined : openEditTask}
+        onEditPhase={viewing ? undefined : openEditPhase}
+        onEditAsset={viewing ? undefined : openEditAsset}
         onUpdateAsset={(assetId, patch) => ctx.updateAsset(assetId, patch).catch(() => {})}
         canWrite={canWrite}
         writeReason={writeReason}
         milestones={allMilestones}
-        onEditMilestone={openEditMilestone}
+        onEditMilestone={viewing ? undefined : openEditMilestone}
       />
 
-      {/* ── Editor — new task / new phase / edit phase only ── */}
+      {/* ── Editor — new task / new phase / edit phase only. It edits live
+          rows: choosing a bid version to view closes it (chooseView), and
+          nothing opens one while a version is viewed (S5d). ── */}
       {editor && (
         <TaskEditor
           editor={editor}
@@ -1137,8 +1270,9 @@ export default function TimelineView({ settings, patchSettings, holidays, pageAc
         adapterMode={ctx?.adapterMode}
       />
 
-      {/* ── Shared task detail popup (same component as Tasks tab) ── */}
-      {detailTaskId && (
+      {/* ── Shared task detail popup (same component as Tasks tab; never over
+          a viewed bid version, S5d — detailTaskShown says the same) ── */}
+      {detailTaskShown && (
         <TaskDetailPopup
           taskId={detailTaskId}
           ctx={ctx}
@@ -2149,9 +2283,10 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
       if (!moved) {
-        // Treat as click → open editor.
-        if (row.kind === 'phase') onEditPhase(row.phase)
-        else if (row.kind === 'task') onEditTask(row.task)
+        // Treat as click → open editor (none while a bid version is viewed,
+        // post-overhaul S5d: no handler is handed down then).
+        if (row.kind === 'phase') onEditPhase?.(row.phase)
+        else if (row.kind === 'task') onEditTask?.(row.task)
         return
       }
       const ds = e.currentTarget?._draftStart || origStart
@@ -2192,7 +2327,9 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
       }}
       title={canWrite
         ? `${row.label} · drag to move · drag edges to resize`
-        : `${row.label} · click to view · ${writeReason || 'read only'}`}
+        // "click to view" only where a click opens something (S5d: a viewed
+        // bid version's bars open nothing).
+        : [row.label, (isPhase ? onEditPhase : onEditTask) ? 'click to view' : null, writeReason || 'read only'].filter(Boolean).join(' · ')}
     />
   )
 }
@@ -2673,9 +2810,11 @@ export function DetailPane({
       suppressNextClickRef.current = false
       return
     }
+    // Post-overhaul S5d: a viewed bid version hands no handler down (nothing
+    // opens over it), so each is optional.
     if (row.kind === 'phase' && row.assetRef) onEditAsset?.(row.assetRef)
-    else if (row.kind === 'phase' && row.phase) onEditPhase(row.phase)
-    if (row.kind === 'task'  && row.task)  onEditTask(row.task)
+    else if (row.kind === 'phase' && row.phase) onEditPhase?.(row.phase)
+    if (row.kind === 'task'  && row.task)  onEditTask?.(row.task)
   }
 
   return (
@@ -2819,9 +2958,10 @@ export function DetailPane({
                   // Grouped by scene, a task linked outside the active list
                   // says first what it points at (Audrey's rule of
                   // 2026-10-02: it reads as not assigned, its link kept).
-                  ? [r.tooltip, canWrite
+                  ? ([r.tooltip, canWrite
                       ? 'Click to edit · drag to move to another phase'
-                      : 'Click to view'].filter(Boolean).join('\n')
+                      // S5d: "Click to view" only where a click opens the task.
+                      : (onEditTask ? 'Click to view' : null)].filter(Boolean).join('\n') || undefined)
                   // A scene or shot row (group by scene): its name and the
                   // shot list that holds it (post-overhaul S3c, D10).
                   : (r.tooltip || undefined)}
@@ -3029,7 +3169,10 @@ export function DetailPane({
                   />
                   {/* Diamond marker at top */}
                   <div
-                    className="pointer-events-auto cursor-pointer rb-tl-ms"
+                    className="pointer-events-auto rb-tl-ms"
+                    // S5d: the pointer only where a click opens the key date
+                    // (a viewed bid version's open nothing): the sheet's.
+                    data-opens={onEditMilestone ? 'true' : 'false'}
                     onClick={() => !ms.isProjectBound && onEditMilestone?.(ms)}
                     title={`${ms.title}${ms.description ? ' — ' + ms.description : ''}${ms.isProjectBound ? ' (project bound)' : ''}`}
                     style={{
@@ -4243,7 +4386,9 @@ function DetailBar({
       }}
       title={canWrite
         ? `${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`
-        : `${label} · ${lengthDays.toFixed(1)}d · click to view · ${writeReason || 'read only'}`}
+        // "click to view" only where a click opens something (S5d: a viewed
+        // bid version's bars open nothing).
+        : [label, `${lengthDays.toFixed(1)}d`, (phaseStyle ? (assetRef ? onEditAsset : onEditPhase) : onEditTask) ? 'click to view' : null, writeReason || 'read only'].filter(Boolean).join(' · ')}
     >
       {/* Edge resize cursor hints — the ew-resize cursor is a promise that the
           edge can be dragged, so it must not be shown to a read-only caller. */}
@@ -5410,6 +5555,16 @@ function DetailZoomToolbar({
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
   shotListLabel = '',
+  // Post-overhaul S5d: the bid version bar (TimelineVersions.jsx), rendered as
+  // this toolbar's SECOND row, past the money gate only (null otherwise).
+  // MEASURED in Chromium on the dev fixtures: this first row has 18px left at
+  // 1280x700 with six Group-by tabs and the "Shot list:" label (S3c's 1100px
+  // of other controls, timelineShotLists.test.jsx), 116px grouped by phase
+  // with four — and the smallest version control that says a version is
+  // unsaved and saves it is about 290px. So the version control is a row of
+  // its own and this row keeps every control S3c measured, unchanged (re-
+  // measured after: the same widths to the pixel).
+  versionBar = null,
 }) {
   // UI overhaul B3b: the kit Toolbar (44px, the 24px gutter, one 28px
   // control height), and ONE segmented idiom for the three selectors
@@ -5425,10 +5580,11 @@ function DetailZoomToolbar({
     ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
   ].map(({ id, icon: Icon, title }) => ({ id, title, label: <Icon className="w-3.5 h-3.5" aria-hidden="true" /> }))
   return (
-    /* `wrap` (B3c): the kit's second line for a window narrower than the
+    <>
+    {/* `wrap` (B3c): the kit's second line for a window narrower than the
        bar. Its two groups are 1007px, so at the 1024px the window allows
        the create buttons overprinted the sort pair by 31px (measured); at
-       1280 and up it is one line at the same 44px, unchanged. */
+       1280 and up it is one line at the same 44px, unchanged. */}
     <Toolbar
       wrap
       right={
@@ -5519,6 +5675,8 @@ function DetailZoomToolbar({
         onChange={(o) => onSortOrderChange?.(o)}
       />
     </Toolbar>
+    {versionBar}
+    </>
   )
 }
 
@@ -6631,16 +6789,28 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
     })
   }
 
-  // Bucket tasks by assignee
+  // Bucket tasks by assignee — into a group that is DRAWN: a member on the
+  // project's team. Post-overhaul S5d: a task assigned to someone the roster
+  // knows but the team does not hold was bucketed under a member no group
+  // row is drawn for, and vanished from this grouping (older than S5; a
+  // viewed bid version, whose people may have left the team since, made it
+  // likelier). It reads under Unassigned instead — never dropped, the S3c
+  // rule — and its row says who it points at.
+  const drawn = new Set(teamAssignments.map(a => a.member_id).filter(id => memberById[id]))
   const tasksByMember = {}   // { memberId: Task[] }
   const unassignedTasks = []
+  const offTeam = new Map()  // { taskId: what its assignee is, said }
   for (const t of tasks) {
-    const mid = t.assignee_id && memberById[t.assignee_id] ? t.assignee_id : null
+    const mid = t.assignee_id && drawn.has(t.assignee_id) ? t.assignee_id : null
     if (mid) {
       if (!tasksByMember[mid]) tasksByMember[mid] = []
       tasksByMember[mid].push(t)
     } else {
       unassignedTasks.push(t)
+      if (t.assignee_id) {
+        const who = memberById[t.assignee_id]?.name
+        offTeam.set(t.id, who ? `Assignee “${who}”: not on this project's team` : 'Assignee: no longer in the project')
+      }
     }
   }
 
@@ -6710,6 +6880,7 @@ function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', c
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
+          tooltip: offTeam.get(t.id),
           phaseHint: '__unassigned__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -6745,7 +6916,9 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
     })
   }
 
-  // Bucket tasks by asset id
+  // Bucket tasks by asset id. A link to an asset the project no longer has
+  // reads under No Asset, and its row says so (post-overhaul S5d: a viewed
+  // bid version points at the assets of its day).
   const tasksByAsset = {}     // { assetId: Task[] }
   const noAssetTasks = []
   for (const t of tasks) {
@@ -6757,6 +6930,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
       noAssetTasks.push(t)
     }
   }
+  const goneTip = (t) => (t.asset_id ? 'Asset: no longer in the project' : undefined)
 
   // Sort assets by start_date then name
   const sortedAssets = assets.slice().sort((a, b) => {
@@ -6829,6 +7003,7 @@ function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', 
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
+          tooltip: goneTip(t),
           phaseHint: '__noasset__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -7102,6 +7277,8 @@ function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapse
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
+          // Post-overhaul S5d: a level the project no longer has, said.
+          tooltip: t.level_id ? 'Level: no longer in the project' : undefined,
           phaseHint: '__nolevel__', depth: 1,
           start: sched?.start, end: sched?.end,
         })
@@ -7208,6 +7385,8 @@ function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc'
         rows.push({
           key: `tk-${t.id}`, kind: 'task',
           label: t.title || 'Untitled task', task: t,
+          // Post-overhaul S5d: an experience the project no longer has, said.
+          tooltip: t.experience_id ? 'Experience: no longer in the project' : undefined,
           phaseHint: '__noexp__', depth: 1,
           start: sched?.start, end: sched?.end,
         })

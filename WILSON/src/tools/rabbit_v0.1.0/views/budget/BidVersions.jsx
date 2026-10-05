@@ -69,6 +69,33 @@ export function ratesPendingFrom({ rateCard, rateOverrides, epoch = 0 }) {
   return null
 }
 
+/**
+ * Why nothing opens under a lock (F9: "greyed out with the reason shown") —
+ * the Summary's Edit this version and the Timeline's version bar (S5d) say
+ * it in these words.
+ */
+export const LOCKED_WHY = 'While the budget is active no version is opened: Reset to bidding first.'
+
+/**
+ * The shot list a bid is based on when nobody has chosen one ("Based on shot
+ * list" untouched, D18): the open version's own list, else the project's
+ * active list while it is live (S3c). The Summary's save row and the
+ * Timeline's version bar (S5d), which has no list control, read this one.
+ */
+export function basedOnDefault(ctx) {
+  const project = ctx?.project
+  const openId = project?.open_budget_version_id || null
+  const openRow = openId ? ((ctx?.budgetVersions || []).find(v => v.id === openId) || null) : null
+  if (openRow) return openRow.shot_list_id ?? null
+  const activeListId = project?.active_shot_list_id || null
+  return (ctx?.shotLists || []).some(l => l.id === activeListId && !l.archived_at) ? activeListId : null
+}
+
+/** "Saved 05/10/2026, 14:02" — when the open version was last saved into (the Summary's save row and the Timeline's bar). */
+export function savedWords(version) {
+  return `Saved ${showDate(versionSavedAt(version), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+}
+
 /** "Mid ROM · 05/10/2026 · Locked" — the dropdown's words (F13). Never money (F10). The selected bid is the dropdown's own value. */
 export function versionOptionLabel(v, { lockedId = null, openId = null } = {}) {
   const parts = [v.name, versionDate(v)]
@@ -154,9 +181,7 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
   if (choice.openId !== openId) setChoice({ openId, value: undefined })
   const listChoice = choice.openId === openId ? choice.value : undefined
   const setListChoice = (value) => setChoice({ openId, value })
-  const listDefault = openRow
-    ? (openRow.shot_list_id ?? null)
-    : (liveLists.some(l => l.id === activeListId) ? activeListId : null)
+  const listDefault = basedOnDefault(ctx)
   const basedOnId = listChoice === undefined ? listDefault : listChoice
   const state = useBidVersionState(ctx, roleRates, { liveShotListId: listChoice, ratesPending })
   const [busy, setBusy] = useState(null)
@@ -193,7 +218,7 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
   const selLocked = !!sel && sel.id === state.lockedId
   const selBased = sel ? basedOnWords(sel, shotLists) : null
   const deltaLine = selRead?.delta ? deltaWords(selRead.delta, { money: (n) => formatMoney(n, currency), days: (n) => formatTenths(n) }) : ''
-  const editWhy = state.locked ? 'While the budget is active no version is opened: Reset to bidding first.'
+  const editWhy = state.locked ? LOCKED_WHY
     : (!selRead?.hasTimeline ? 'Edit this version: it was saved before versions kept their schedule (no timeline captured), so it cannot be opened.'
       : (sel?.id === state.open?.id ? 'Edit this version: it is open already — the Timeline and Budget show it now.'
         : state.pending))
@@ -217,7 +242,7 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
                 {/* Review round 1 (R1-07): the pending sentence itself —
                     "Reading …" said a read was under way after one had failed. */}
                 {state.pending ? state.pending
-                  : (state.dirty ? 'Unsaved changes' : `Saved ${showDate(versionSavedAt(state.open), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`)}
+                  : (state.dirty ? 'Unsaved changes' : savedWords(state.open))}
               </span>
             </span>
           ) : (

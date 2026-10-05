@@ -36,11 +36,17 @@ export const SNAPSHOT_KIND = 'bid'
 // the live project has lost), but a rename is not an unsaved change to a
 // bid: the brief restores "dates, bid days, role, position, status and
 // links", not titles.
+// Post-overhaul S5d: `assignee_id` rides along too — the person the task is
+// assigned to (0013's canonical column; `assigned_user_id` is a column
+// reserved for v0.2 that nothing writes). The Timeline groups a VIEWED
+// version by team from it; like a title, a change of assignee is not an
+// unsaved change to a bid. A plain UUID with no foreign key, so a lost task
+// re-made from the snapshot keeps it safely.
 const TASK_FIELDS = [
   'id', 'title', 'phase_id', 'start_date', 'end_date', 'bid_days',
   'assigned_role_slug', 'assigned_position', 'status',
   'scene_id', 'shot_id', 'asset_id', 'level_id', 'experience_id',
-  'assigned_user_id', 'priority',
+  'assigned_user_id', 'assignee_id', 'priority',
 ]
 const TASK_SCHEDULE = [
   'phase_id', 'start_date', 'end_date', 'bid_days', 'assigned_role_slug',

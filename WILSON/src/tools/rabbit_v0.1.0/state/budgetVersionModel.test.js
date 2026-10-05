@@ -85,6 +85,20 @@ describe('snapshotFromLive — what a version carries (F1, F6, F7, F8)', () => {
     expect(s.milestones.map(m => m.id)).toEqual(['m1'])
     expect(s.span.end).toBe('2026-10-01')
   })
+  // Post-overhaul S5d: the Timeline groups a VIEWED version by team, so a
+  // version keeps each task's assignee (0013's assignee_id) — as it keeps a
+  // title: carried, never an unsaved change, and a lost task re-made with it.
+  it('S5d: carries each task\'s assignee (null when none); a change of assignee is not an unsaved change, and a re-made task keeps it', () => {
+    const withPeople = [{ ...tasks[0], assignee_id: 'u-mara' }, { ...tasks[1] }]
+    const s = snapshotFromLive({ tasks: withPeople, phases, milestones, project, roleRates })
+    expect(s.tasks.map(t => t.assignee_id)).toEqual(['u-mara', null])
+    const moved = snapshotFromLive({ tasks: [{ ...withPeople[0], assignee_id: 'u-tom' }, withPeople[1]], phases, milestones, project, roleRates })
+    expect(versionDiff(s, moved).isDirty).toBe(false)
+    // CONTROL: one schedule field over, the same diff sees it.
+    const redated = snapshotFromLive({ tasks: [{ ...withPeople[0], end_date: '2026-09-05' }, withPeople[1]], phases, milestones, project, roleRates })
+    expect(versionDiff(s, redated).isDirty).toBe(true)
+    expect(planOpen(s, { tasks: [withPeople[1]], phases, milestones, project, roleRates }).tasks.create[0].assignee_id).toBe('u-mara')
+  })
   it('stores a date as the local day it names (a Date and a string give one value)', () => {
     const s = snapshotFromLive({ tasks: [{ id: 'x', start_date: new Date(2026, 8, 3), end_date: '2026-09-04' }], phases: [], milestones: [], project, roleRates })
     expect(s.tasks[0].start_date).toBe('2026-09-03')

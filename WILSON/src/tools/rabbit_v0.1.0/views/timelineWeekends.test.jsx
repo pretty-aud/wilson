@@ -35,6 +35,7 @@
 import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { parseIsoDate, toIsoDate } from '../dates.js'
+import { snapshotFromLive } from '../state/budgetVersionModel'
 
 const rabbit = vi.hoisted(() => ({ current: {} }))
 vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
@@ -44,6 +45,11 @@ vi.mock('../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrit
 vi.mock('../components/FileManager', () => ({ default: () => null }))
 vi.mock('../components/TaskDetailPopup', () => ({ default: () => null }))
 vi.mock('../../../components/TaskTemplates/TaskTemplateManager', () => ({ default: () => null }))
+// Post-overhaul S5d: the bid version bar's rate hooks (mounted only past the
+// money gate, which only the "viewing a version" block below opens), stable.
+const rates = vi.hoisted(() => ({ card: { entries: [], rateCards: [], settled: true, loading: false }, overrides: { overrides: [], loading: false } }))
+vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => rates.card }))
+vi.mock('../../../components/Budget/useProjectRateOverrides', () => ({ useProjectRateOverrides: () => rates.overrides }))
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
 
 // TimelineView reads TODAY once, when it loads: the clock is set first.
@@ -366,6 +372,70 @@ describe('a span move keeps the date: the whole phase moved by a schedule rebuil
       expectBracketed(gantt().scrollLeft, minimapWindow(g1.index(2026, 8, 24)), g1, what)
       cleanup()
     }
+  }, 30000)
+})
+
+// Post-overhaul S5d (S5p's hand-off, "For the Timeline's version-control
+// session"): VIEWING a bid version feeds its snapshot's phases, tasks and key
+// dates through the same props and memos (`schedule` → `overviewSpan`), so it
+// is a SPAN MOVE the re-anchoring keeps — never a remount of TimelineView or
+// of the gantt's scroller, which would start a new anchor at 0 and centre the
+// gantt back on today. The version below holds the same phase moved `shift`
+// days (the shifts the span-move block above uses), so going to it and back
+// moves the chart's first day both ways.
+describe('viewing a bid version is a span move, never a remount (S5d): weekends shown and hidden', () => {
+  const versionMoved = (shift) => ({
+    id: 'bv-moved', name: 'Moved ROM', created_at: '2026-10-05T09:00:00Z',
+    snapshot: snapshotFromLive({ tasks: [], phases: [{ ...phase, start_date: moveDays(phase.start_date, shift), end_date: moveDays(phase.end_date, shift) }], milestones: [], project: { id: 'p1' }, roleRates: {} }),
+  })
+  const priced = (shift) => ({ ...ctx, project: { id: 'p1', budget_active: false, open_budget_version_id: null }, budgetVersions: [versionMoved(shift)], setAsideTasks: [], setAsideDependencies: [] })
+  const viewing = (showWeekends) => <TimelineView settings={{ ...loadRabbitSettings(), showWeekends }} patchSettings={() => {}} holidays={new Map()} pageActive canSeeMoney />
+  const pick = async (value) => {
+    fireEvent.change(document.querySelector('.rb-tl-ver-bar select'), { target: { value } })
+    await settle()
+  }
+  it.each([[-3], [4], [5]])('the version moved %i days: Fri 11 Dec stays at the left going to it and back, on the same scroller, the header the rule\'s, the window bracketing it', async (shift) => {
+    for (const shownSetting of [true, false]) {
+      rabbit.current = priced(shift)
+      render(viewing(shownSetting))
+      await settle()
+      await zoomTo('day')
+      const g0 = geometry('day', !shownSetting)
+      await scrollTo(Math.round(g0.x(g0.index(2026, 11, 11) + 0.5)))
+      const scroller = gantt()
+      await pick('bv-moved')
+      const what = `viewing, moved ${shift}, weekends ${shownSetting ? 'shown' : 'hidden'}`
+      expect(document.querySelector('.rb-tl-ver-bar').dataset.mode, what).toBe('viewing')
+      expect(gantt(), `${what}: the same scroller (no remount)`).toBe(scroller)
+      const g1 = geometry('day', !shownSetting, new Date(2026, 1, 4 + shift))
+      expect(g1.say(Math.floor(g1.day(gantt().scrollLeft))), what).toBe('Fri 11 Dec 2026')
+      expectHeaderDrawn(g1, g1.index(2026, 11, 7), g1.index(2026, 11, 22), what)
+      expectBracketed(gantt().scrollLeft, minimapWindow(g1.index(2026, 8, 24)), g1, what)
+      // …and back to Current: the live span again, the same date, the same scroller.
+      await pick('__current__')
+      expect(gantt(), `${what}, back: the same scroller`).toBe(scroller)
+      expect(g0.say(Math.floor(g0.day(gantt().scrollLeft))), `${what}, back`).toBe('Fri 11 Dec 2026')
+      expectHeaderDrawn(g0, g0.index(2026, 11, 7), g0.index(2026, 11, 22), `${what}, back`)
+      cleanup()
+    }
+  }, 30000)
+  it('with weekends hidden, a viewed version keeps its place across a zoom change (Day → Week → Day)', async () => {
+    rabbit.current = priced(4)
+    render(viewing(false))
+    await settle()
+    await zoomTo('day')
+    const g0 = geometry('day', true)
+    await scrollTo(Math.round(g0.x(g0.index(2026, 11, 11) + 0.5)))
+    await pick('bv-moved')
+    const g1 = geometry('day', true, new Date(2026, 1, 8))
+    expect(g1.say(Math.floor(g1.day(gantt().scrollLeft)))).toBe('Fri 11 Dec 2026')
+    await zoomTo('week')
+    const w1 = geometry('week', true, new Date(2026, 1, 8))
+    expect(w1.say(Math.floor(w1.day(gantt().scrollLeft))), 'at Week').toBe('Fri 11 Dec 2026')
+    expectBracketed(gantt().scrollLeft, minimapWindow(w1.index(2026, 8, 24)), w1, 'at Week')
+    await zoomTo('day')
+    expect(g1.say(Math.floor(g1.day(gantt().scrollLeft))), 'back at Day').toBe('Fri 11 Dec 2026')
+    expect(document.querySelector('.rb-tl-ver-bar').dataset.mode).toBe('viewing')
   }, 30000)
 })
 

@@ -408,7 +408,7 @@ export function ManageVersionsDialog({ ctx, currency, ratesPending = null, onClo
         footer={<Button onClick={onClose}>Close</Button>}
       >
         {versions.length === 0 ? (
-          <EmptyState title="No bid versions yet" body="Save as new version, on the Budget's Summary, keeps what the Timeline and Budget show as a bid." />
+          <EmptyState title="No bid versions yet" body="Save as new version, on the Budget's Summary or in the Timeline's bid version bar, keeps what the Timeline and Budget show as a bid." />
         ) : (
           <Table className="rb-bv-table" head={(
             <Row>
