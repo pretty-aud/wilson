@@ -95,6 +95,8 @@ const CLOUD_BUNDLE_KEYS = [
   // active list would vanish on every load and every surface would fall back
   // to "every scene and shot".
   'shotLists', 'shotListItems', 'edits',
+  // 0090 (post-overhaul S5b): the set-aside rows, split out by the loader.
+  'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {

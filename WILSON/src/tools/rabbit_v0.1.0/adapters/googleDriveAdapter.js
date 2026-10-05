@@ -38,6 +38,8 @@
 // Code.gs and Sidebar.html in public/extensions/ are owned by
 // another system and ARE NOT touched here.
 
+import { splitSetAside } from '../state/setAside';
+
 const DRIVE_API   = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLD  = 'https://www.googleapis.com/upload/drive/v3';
 const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
@@ -199,7 +201,9 @@ export function googleDriveAdapter() {
       const inner = await listChildren(projectId, "name='project.json'");
       if (inner.length === 0) throw new Error(`[gdrive] project.json missing in folder ${projectId}`);
       const bundle = await readDriveJson(inner[0].id);
-      return {
+      // Post-overhaul S5b (0090): a bundle exported with set-aside rows shows
+      // the live schedule only, as every other backend does.
+      return splitSetAside({
         project:       bundle.project,
         phases:        bundle.phases || [],
         assets:        bundle.assets || [],
@@ -228,7 +232,7 @@ export function googleDriveAdapter() {
         shotLists:     bundle.shotLists || [],
         shotListItems: bundle.shotListItems || [],
         edits:         bundle.edits || [],
-      };
+      });
     },
 
     async listFiles(projectId) {

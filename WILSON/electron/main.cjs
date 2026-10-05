@@ -1882,23 +1882,33 @@ function startLocalServer(distPath) {
         writeJSON(path.join(dbDir, 'project.json'), bundle.project);
         // team.json — project-scoped team roster
         writeJSON(path.join(dbDir, 'team.json'), bundle.projectTeam || []);
+        // Post-overhaul S5b (0090's twin): rows the open bid version does not
+        // hold are SET ASIDE — kept whole in project.json, hidden from these
+        // readable mirrors as from every screen (with the edges and links on
+        // them). Inline, as this file's other rules are.
+        const isAside = (r) => !!(r && r.set_aside_at && !r.deleted_at);
+        const asideIds = new Set([...(bundle.tasks || []), ...(bundle.phases || [])].filter(isAside).map(r => String(r.id)));
+        const liveTasks = (bundle.tasks || []).filter(t => !isAside(t));
+        const livePhases = (bundle.phases || []).filter(p => !isAside(p));
+        const liveDeps = (bundle.dependencies || []).filter(d => !asideIds.has(String(d.predecessor_id)) && !asideIds.has(String(d.successor_id)));
+        const liveLinks = (bundle.taskLinks || []).filter(l => !asideIds.has(String(l.task_id)));
         // tasks.json — tasks + dependencies + task links
         writeJSON(path.join(dbDir, 'tasks.json'), {
-          tasks:        bundle.tasks        || [],
-          dependencies: bundle.dependencies || [],
-          taskLinks:    bundle.taskLinks    || [],
+          tasks:        liveTasks,
+          dependencies: liveDeps,
+          taskLinks:    liveLinks,
         });
         // timeline.json — phases + scheduling data
         writeJSON(path.join(dbDir, 'timeline.json'), {
-          phases:       bundle.phases       || [],
-          tasks:        (bundle.tasks || []).map(t => ({
+          phases:       livePhases,
+          tasks:        liveTasks.map(t => ({
             id: t.id, name: t.name, asset_id: t.asset_id,
             assigned_role_slug: t.assigned_role_slug,
             status: t.status, bid_days: t.bid_days,
             start_date: t.start_date, end_date: t.end_date,
             sort_order: t.sort_order,
           })),
-          dependencies: bundle.dependencies || [],
+          dependencies: liveDeps,
         });
         // budget.json — budget lines, actuals, versions, expenses
         writeJSON(path.join(dbDir, 'budget.json'), {
@@ -2402,12 +2412,20 @@ function startLocalServer(distPath) {
       // 0037, and projects_open_budget_version_fk, 0089). Inline, not a helper:
       // two tests lift this function by brace matching with its helpers named.
       const projectPointers = (opts && opts.projectPointers) || null;
+      // Post-overhaul S5b: `scheduleRow` (tasks, phases, milestones) — the
+      // set_aside_at stamp (0090's twin) is written ONLY by POST …/set-aside.
+      // An upsert MERGES into the stored row, so a stale copy re-sent with
+      // `set_aside_at: null` would otherwise bring a set-aside row back
+      // unasked; the stamp is dropped from every ordinary body here.
+      const scheduleRow = !!(opts && opts.scheduleRow);
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
-        const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
+        const body = { ...req.body };
+        if (scheduleRow) delete body.set_aside_at;
+        const row = rabbitTouch({ ...body, project_id: req.params.projectId });
         const result = rabbitUpsertInto(bundle[bundleKey], row);
         if (folderEntityType) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, result);
@@ -2424,7 +2442,9 @@ function startLocalServer(distPath) {
         const arr = bundle[bundleKey];
         const idx = arr.findIndex(x => x.id === req.params.id);
         if (idx < 0) return rabbitNotFound(res, entityName);
-        arr[idx] = { ...arr[idx], ...req.body, id: req.params.id, updated_at: new Date().toISOString() };
+        const patch = { ...req.body };
+        if (scheduleRow) delete patch.set_aside_at;
+        arr[idx] = { ...arr[idx], ...patch, id: req.params.id, updated_at: new Date().toISOString() };
         if (folderEntityType) {
           // A rename moves the folder ROW here and CREATES the new directory
           // below — the old directory is deliberately left in place with
@@ -2454,7 +2474,10 @@ function startLocalServer(distPath) {
           // trashed row is a 404, not a second stamp that would move its
           // purge countdown. Same shape as the managed-file soft delete.
           if (idx < 0) return rabbitNotFound(res, entityName);
-          arr[idx] = { ...arr[idx], deleted_at: new Date().toISOString() };
+          // A trashed row is never also set aside (0090's rule): the trash
+          // wins, so "Recently deleted" restores it LIVE.
+          const { set_aside_at: _aside, ...kept } = arr[idx];
+          arr[idx] = { ...kept, deleted_at: new Date().toISOString() };
           writeRabbitBundle(req.params.projectId, bundle);
           return res.json({ ok: true, swept: 0, softDeleted: true });
         }
@@ -2502,7 +2525,7 @@ function startLocalServer(distPath) {
       }
     }
 
-    rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true });
+    rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true, scheduleRow: true });
 
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
@@ -2678,7 +2701,7 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true });
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
@@ -2710,6 +2733,38 @@ function startLocalServer(distPath) {
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ selected: target });
     });
+    // Post-overhaul S5b — the desktop's set_aside_schedule_rows (0090 §3).
+    // Audrey's ruling (a) of 2026-10-05: each bid version shows exactly its
+    // own schedule, so opening one SETS ASIDE the tasks, phases and key dates
+    // it does not hold and brings back those it holds. A set-aside row stays
+    // whole in project.json (its comments, links, edges, files and logged
+    // days on it); it is never deleted here — the tasks and phases routes
+    // hard-delete, which is exactly what this must not do. One bundle write
+    // for the three kinds; trashed rows and rows already in the asked state
+    // are untouched (an earlier stamp is kept). The Local Server has no
+    // roles, so no money check (F4: every gate is open on the desktop).
+    expressApp.post('/api/rabbit/projects/:projectId/set-aside', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const on = !!(req.body && req.body.on);
+      const at = on ? new Date().toISOString() : null;
+      const counts = { tasks: 0, phases: 0, milestones: 0 };
+      for (const kind of ['tasks', 'phases', 'milestones']) {
+        const ids = new Set(((req.body && req.body[kind]) || []).map(String));
+        if (!ids.size || !Array.isArray(bundle[kind])) continue;
+        bundle[kind] = bundle[kind].map((r) => {
+          if (!r || !ids.has(String(r.id)) || r.deleted_at) return r;
+          if (on && r.set_aside_at) return r;
+          if (!on && !r.set_aside_at) return r;
+          counts[kind] += 1;
+          if (on) return { ...r, set_aside_at: at };
+          const { set_aside_at: _was, ...back } = r;
+          return back;
+        });
+      }
+      if (counts.tasks || counts.phases || counts.milestones) writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ set_aside_at: at, ...counts });
+    });
     rabbitSubentityRoutes('expenses',        'expenses');
     rabbitSubentityRoutes('budget-lines',    'budgetLines');
     rabbitSubentityRoutes('budget-actuals',  'budgetActuals');
@@ -2725,7 +2780,7 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('experiences',     'experiences', 'experience');
     // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
     // Not a dependency endpoint, so no sweep — a milestone has no edges.
-    rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true });
+    rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true, scheduleRow: true });
 
     // ── Folder tree routes (Session 26) ───────────────────────────
     //
@@ -2863,14 +2918,16 @@ function startLocalServer(distPath) {
           project_role:  m.project_role || null,
           project_title: m.project_title || '',
         })),
+        // Post-overhaul S5b: a set-aside phase or task (0090's twin) is not
+        // part of the live schedule, so it is not counted.
         counts: {
           assets:      (bundle.assets      || []).length,
           scenes:      (bundle.scenes      || []).length,
           shots:       (bundle.shots       || []).length,
           levels:      (bundle.levels      || []).length,
           experiences: (bundle.experiences || []).length,
-          phases:      (bundle.phases      || []).length,
-          tasks:       (bundle.tasks       || []).length,
+          phases:      (bundle.phases      || []).filter(r => !(r && r.set_aside_at && !r.deleted_at)).length,
+          tasks:       (bundle.tasks       || []).filter(r => !(r && r.set_aside_at && !r.deleted_at)).length,
         },
       };
     }

@@ -37,6 +37,7 @@ import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags, legalRefusalSentence 
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
 } from './store'
+import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
 
 const PRIMARY = 'primary'
 
@@ -74,6 +75,10 @@ const ACTIVE_LIST_ONLY = 'the active shot list is changed only by a project mana
 // 0089 (post-overhaul S5): the guard's and the RPC's sentences, word for word.
 const OPEN_VERSION_ONLY = 'the open bid version is changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
 const SELECTED_BID_ONLY = 'the selected bid is chosen only by someone who can see this project\'s budget (a project manager or a workspace admin)'
+// 0090 (S5b): the set-aside stamp and the budget's settings, word for word.
+const SET_ASIDE_ONLY = 'a row is set aside or brought back only by someone who can see this project\'s budget (a project manager or a workspace admin): the bid versions decide it'
+const BUDGET_SETTINGS_ONLY = 'the budget\'s settings (margin, contingency, agency, actuals and the lock) are changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
+const BUDGET_SETTINGS = ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct', 'budget_agency_enabled', 'budget_actual_column_mode', 'budget_actual_column_count', 'budget_active', 'budget_active_version_id', 'budget_finalized']
 const VERSION_NOT_HERE = 'bid version not found in this project'
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
@@ -196,6 +201,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     || store.projectMembers.some(m => m.project_id === projectId && m.user_id === userId && m.project_role === 'manager')
   const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
   const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id))
+
+  // 0090 (S5b): the set-aside stamp is written only by setAsideRows — never
+  // by an ordinary write (the store MERGES, so a stale copy re-sent with
+  // `set_aside_at: null` would bring a row back unasked) — and trashing a row
+  // clears it: a trashed row is never also set aside (0090's guard).
+  const unstamped = (row) => {
+    if (!row || typeof row !== 'object' || !('set_aside_at' in row)) return row
+    const { set_aside_at: _dropped, ...rest } = row
+    return rest
+  }
+  const trash = (list, id) => {
+    const row = softDelete(list, id, by)
+    delete row.set_aside_at
+    return row
+  }
 
   // ── Folders (shared by the folder methods and entity creation) ─────────────
   function folderByPath(projectId, path) {
@@ -377,7 +397,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       const inProject = (list) => list.filter(r => r.project_id === projectId)
       const assetIds = new Set(inProject(store.assets).map(a => a.id))
       const taskIds = new Set(inProject(store.tasks).map(t => t.id))
-      return clone({
+      // 0090 (S5b): the set-aside rows split out exactly as the real loaders
+      // split them (setAside.js), so the fake cloud hides what they hide.
+      return clone(splitSetAside({
         project,
         phases: live(inProject(store.phases)).sort((a, b) => a.sort_order - b.sort_order),
         assets: live(inProject(store.assets)).sort((a, b) => a.sort_order - b.sort_order),
@@ -414,7 +436,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         shotLists: inProject(store.shotLists).sort(byCreated),
         shotListItems: inProject(store.shotListItems).sort(byPosition),
         edits: inProject(store.edits).sort(byCreated),
-      })
+      }))
     },
     async createProject(payload) {
       const row = upsert(store.projects, stampBy({ workspace_id: workspaceId, status: 'draft', created_by: by, ...payload, id: payload.id || newId() }))
@@ -447,6 +469,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           if (next !== null && !store.budgetVersions.some(v => v.id === next && v.project_id === id)) throw invalid(VERSION_NOT_HERE)
         }
       }
+      // 0090 (S5b, S5-01): the budget's nine settings change only past the
+      // money gate (trg_projects_budget_settings_guard). Unchanged passes (a
+      // number compared as a number); so does the lock FK's own SET NULL.
+      if (stored && fields && !passesMoneyGate(id)) {
+        const same = (k) => {
+          const a = stored[k] ?? null
+          const b = fields[k] ?? null
+          return (typeof a === 'number' || typeof b === 'number') && a !== null && b !== null ? Number(a) === Number(b) : a === b
+        }
+        for (const k of BUDGET_SETTINGS) {
+          if (fields[k] === undefined || same(k)) continue
+          const clearsDangling = k === 'budget_active_version_id' && fields[k] == null && stored[k] != null && !store.budgetVersions.some(v => v.id === stored[k])
+          if (!clearsDangling) throw forbidden(BUDGET_SETTINGS_ONLY)
+        }
+      }
       return clone(patch(store.projects, id, stampBy(fields)))
     },
     async deleteProject(id) { softDelete(store.projects, id, by) },
@@ -454,9 +491,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Phases / assets / tasks ──────────────────────────────────────────────
     async listPhases(projectId) { return clone(live(store.phases.filter(p => p.project_id === projectId))) },
-    async upsertPhase(phase) { return clone(upsert(store.phases, { workspace_id: workspaceId, ...phase })) },
-    async patchPhase(id, fields) { return clone(patch(store.phases, id, fields)) },
-    async deletePhase(id) { softDelete(store.phases, id, by) },
+    async upsertPhase(phase) { return clone(upsert(store.phases, { workspace_id: workspaceId, ...unstamped(phase) })) },
+    async patchPhase(id, fields) { return clone(patch(store.phases, id, unstamped(fields))) },
+    async deletePhase(id) { trash(store.phases, id) },
     async restorePhase(id) { return restore(store.phases, id) },
 
     async listAssets(projectId) { return clone(live(store.assets.filter(a => a.project_id === projectId))) },
@@ -466,9 +503,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async restoreAsset(id) { return restore(store.assets, id) },
 
     async listTasks(projectId) { return clone(live(store.tasks.filter(t => t.project_id === projectId))) },
-    async upsertTask(task) { return clone(upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...task }))) },
-    async patchTask(id, fields) { return clone(patch(store.tasks, id, stampBy(fields))) },
-    async deleteTask(id) { softDelete(store.tasks, id, by) },
+    async upsertTask(task) { return clone(upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...unstamped(task) }))) },
+    async patchTask(id, fields) { return clone(patch(store.tasks, id, stampBy(unstamped(fields)))) },
+    async deleteTask(id) { trash(store.tasks, id) },
     async restoreTask(id) { return restore(store.tasks, id) },
 
     // ── Dependencies and links ───────────────────────────────────────────────
@@ -586,7 +623,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Dashboard ────────────────────────────────────────────────────────────
     async listMyTasks() {
-      return clone(live(store.tasks)
+      return clone(live(store.tasks).filter(t => !isSetAside(t))
         .filter(t => t.assignee_id === by || t.reviewer_id === by)
         .map(t => {
           const p = projectOf(t.project_id)
@@ -600,7 +637,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async listPhasesByProjects(projectIds) {
       const ids = new Set(projectIds || [])
-      return clone(live(store.phases.filter(p => ids.has(p.project_id))))
+      return clone(live(store.phases.filter(p => ids.has(p.project_id))).filter(p => !isSetAside(p)))
     },
     async listProjectMembersByProjects(projectIds) {
       const ids = new Set(projectIds || [])
@@ -714,6 +751,26 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         if (!!v.is_active !== want) { v.is_active = want; v.updated_at = now(); v.updated_by = by }
       }
       return target
+    },
+    // 0090 §3, set_aside_schedule_rows: the named tasks, phases and key dates
+    // of one project set aside (on) or brought back, in one write. Trashed
+    // rows, rows of another project and rows already in the asked state are
+    // untouched (an earlier stamp is kept). Past the money gate only.
+    async setAsideRows(projectId, { on, tasks = [], phases = [], milestones = [] } = {}) {
+      if (!passesMoneyGate(projectId)) throw forbidden(SET_ASIDE_ONLY)
+      const at = on ? now() : null
+      const counts = { tasks: 0, phases: 0, milestones: 0 }
+      for (const [kind, list, ids] of [['tasks', store.tasks, tasks], ['phases', store.phases, phases], ['milestones', store.milestones, milestones]]) {
+        const want = new Set((ids || []).map(String))
+        for (const r of list) {
+          if (r.project_id !== projectId || !want.has(String(r.id)) || r.deleted_at) continue
+          if (on ? r.set_aside_at : !r.set_aside_at) continue
+          if (on) r.set_aside_at = at
+          else delete r.set_aside_at
+          counts[kind] += 1
+        }
+      }
+      return { set_aside_at: at, ...counts }
     },
     // The FKs' ON DELETE SET NULL: the project's locked (0037) and open
     // (0089) pointers to the deleted version are cleared with it.
@@ -1062,9 +1119,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async listMilestones(projectId) {
       return clone(live(store.milestones.filter(m => m.project_id === projectId)).sort(byMilestoneDate))
     },
-    async upsertMilestone(row) { return clone(upsert(store.milestones, row)) },
-    async patchMilestone(id, fields) { return clone(patch(store.milestones, id, fields)) },
-    async deleteMilestone(id, _projectId) { softDelete(store.milestones, id, by) },
+    async upsertMilestone(row) { return clone(upsert(store.milestones, unstamped(row))) },
+    async patchMilestone(id, fields) { return clone(patch(store.milestones, id, unstamped(fields))) },
+    async deleteMilestone(id, _projectId) { trash(store.milestones, id) },
     async destroyMilestone(id, _projectId) { remove(store.milestones, id) },
     async restoreMilestone(id, _projectId) { return restore(store.milestones, id) },
     async listTrashedMilestones(projectId) {

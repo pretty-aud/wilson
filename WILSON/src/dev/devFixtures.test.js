@@ -152,8 +152,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // cloud refuses what 0085's CHECK refuses.
     // Post-overhaul S5 (F12.1): the bid versions' snapshot builder and the
     // rate resolver, so the seeded bids carry the totals the app would save.
+    // Post-overhaul S5b (0090): the set-aside split, so the fake cloud hides
+    // exactly the rows the real loaders hide.
     const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags',
-      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath']
+      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath', 'tools/rabbit_v0.1.0/state/setAside']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -178,6 +180,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/dates.js')))).toBe(false)
     const modelImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/budgetVersionModel.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
     expect(modelImports).toEqual(["from '../dates'"])
+    // The S5b loosening: setAside imports budgetVersionModel and only that
+    // (proven pure just above).
+    const asideImports = (codeOf(read(join(SRC, 'tools/rabbit_v0.1.0/state/setAside.js'))).match(/from\s+'[^']+'|\bimport\s*\(|\brequire\s*\(/g) || [])
+    expect(asideImports).toEqual(["from './budgetVersionModel'"])
     for (const planted of ["import x from './y'", "export { a } from './b'", "const m = await import('./c')", "const z = require('z')",
       "export {\n  showDate as _showDate,\n} from './dates'", "export * from './e'", "export * as f from './f'"]) {
       expect(importsSomething(planted), planted).toBe(true)

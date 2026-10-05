@@ -16,6 +16,7 @@ import { streamPutJson } from '../storage/localServerProvider';
 import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
+import { splitSetAside } from '../state/setAside';
 
 // B3 (Track B): every request below goes to the desktop loopback server, which
 // refuses /api without the per-launch token. localFetch attaches the header;
@@ -133,7 +134,12 @@ export function localServerAdapter() {
       const bundle = await jfetch(`${BASE}/projects/${id}`);
       // Local server stores everything in one bundle file; align the
       // shape with what the Supabase adapter returns.
-      return {
+      //
+      // Post-overhaul S5b (0090's twin): the GET answers the RAW bundle, so
+      // the rows the open bid version does not hold arrive with their
+      // set_aside_at stamp and are split out here, exactly as the cloud's
+      // loader splits them (A9: the same project looks the same anywhere).
+      return splitSetAside({
         project:       bundle.project,
         phases:        bundle.phases || [],
         assets:        bundle.assets || [],
@@ -196,7 +202,7 @@ export function localServerAdapter() {
         shotLists:       sortByCreatedThenId(bundle.shotLists),
         shotListItems:   sortByPositionThenId(bundle.shotListItems),
         edits:           sortByCreatedThenId(bundle.edits),
-      };
+      });
     },
 
     createProject: (project) => jfetch(`${BASE}/projects`, {
@@ -520,6 +526,20 @@ export function localServerAdapter() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ version_id: versionId ?? null }),
       }))?.selected ?? null,
+    // Post-overhaul S5b: set rows aside or bring them back in ONE bundle
+    // write (main.cjs's twin of 0090's set_aside_schedule_rows). The Local
+    // Server has no roles: on the desktop every gate is open (F4).
+    setAsideRows: async (projectId, { on, tasks = [], phases = [], milestones = [] } = {}) => {
+      const res = await jfetch(`${BASE}/projects/${projectId}/set-aside`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ on: !!on, tasks, phases, milestones }),
+      });
+      return {
+        set_aside_at: res?.set_aside_at ?? null,
+        tasks: Number(res?.tasks) || 0, phases: Number(res?.phases) || 0, milestones: Number(res?.milestones) || 0,
+      };
+    },
 
     // ── Budget lines ───────────────────────────────────────────
     listBudgetLines: async (projectId) =>

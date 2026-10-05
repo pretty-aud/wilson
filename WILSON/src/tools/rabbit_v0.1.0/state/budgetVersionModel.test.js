@@ -172,12 +172,44 @@ describe('planOpen — loading a version into the live rows', () => {
     expect(plan.tasks.update).toEqual([{ id: 't1', patch: { start_date: '2026-09-02', end_date: '2026-09-04' }, before: { start_date: '2026-09-10', end_date: '2026-09-12' } }])
     expect(JSON.stringify(plan)).not.toMatch(/logged_days|Renamed/)
   })
-  it('recreates a row the project has lost, with its saved id; leaves a row added since alone (F2)', () => {
+  it('recreates a row the project has lost, with its saved id; SETS ASIDE a row the version does not hold (S5b, ruling (a))', () => {
+    // Part 1 left a row added since "alone" (a sentence of the controller's
+    // draft, withdrawn): it stayed, and Save folded it in. Ruling (a): the
+    // version shows exactly its own schedule, so it leaves — kept whole.
     const plan = planOpen(saved, { tasks: [tasks[1], { id: 'new', bid_days: 4 }], phases, milestones: [], project, roleRates })
     expect(plan.tasks.create.map(t => t.id)).toEqual(['t1'])
     expect(plan.tasks.create[0]).not.toHaveProperty('logged_days')
     expect(plan.tasks.update.find(u => u.id === 'new')).toBeUndefined()
+    expect(plan.setAside.tasks).toEqual(['new'])
     expect(plan.milestones.create.map(m => m.id)).toEqual(['m1'])
+  })
+  it('a held row that is SET ASIDE comes back — the same row, never re-made — with its schedule patched', () => {
+    const away = { ...tasks[0], start_date: '2026-09-20', end_date: '2026-09-22', set_aside_at: '2026-10-05T09:00:00Z' }
+    const plan = planOpen(saved, { tasks: [tasks[1]], phases, milestones, setAside: { tasks: [away] }, project, roleRates })
+    expect(plan.bringBack.tasks).toEqual(['t1'])
+    expect(plan.tasks.create).toEqual([])
+    expect(plan.tasks.update).toEqual([{ id: 't1', patch: { start_date: '2026-09-02', end_date: '2026-09-04' }, before: { start_date: '2026-09-20', end_date: '2026-09-22' } }])
+    // CONTROL: without the set-aside rows the same task reads as LOST and is re-made.
+    expect(planOpen(saved, { tasks: [tasks[1]], phases, milestones, project, roleRates }).tasks.create.map(t => t.id)).toEqual(['t1'])
+  })
+  it('sets aside live tasks, phases and key dates the version does not hold, and nothing it holds', () => {
+    const extraPhase = { id: 'ph9', name: 'High ROM', parent_phase_id: null }
+    const extraTask = { id: 't9', phase_id: 'ph9', bid_days: 3 }
+    const extraDate = { id: 'm9', title: 'Review', date: '2026-10-09' }
+    const plan = planOpen(saved, { tasks: [...tasks, extraTask], phases: [...phases, extraPhase], milestones: [...milestones, extraDate], project, roleRates })
+    expect(plan.setAside).toEqual({ tasks: ['t9'], phases: ['ph9'], milestones: ['m9'] })
+    expect(planIsEmpty(plan)).toBe(false)
+  })
+  it('keeps the rows the person keeps (constraint 4) — and a kept task keeps its phase and that phase\'s parents', () => {
+    const top = { id: 'ph8', name: 'Extras', parent_phase_id: null }
+    const sub = { id: 'ph9', name: 'High ROM', parent_phase_id: 'ph8' }
+    const worked = { id: 't9', phase_id: 'ph9', bid_days: 3, logged_days: 1.5 }
+    const other = { id: 't8', phase_id: 'ph9', bid_days: 1 }
+    const live1 = { tasks: [...tasks, worked, other], phases: [...phases, top, sub], milestones, project, roleRates }
+    const plan = planOpen(saved, { ...live1, keep: { tasks: ['t9'] } })
+    expect(plan.setAside).toEqual({ tasks: ['t8'], phases: [], milestones: [] })
+    // CONTROL: without the keep, all of them go.
+    expect(planOpen(saved, live1).setAside).toEqual({ tasks: ['t9', 't8'], phases: ['ph8', 'ph9'], milestones: [] })
   })
   it('recreates a parent phase before its sub-phase', () => {
     const plan = planOpen({ ...saved, phases: [...saved.phases].reverse() }, { tasks, phases: [], milestones, project, roleRates })

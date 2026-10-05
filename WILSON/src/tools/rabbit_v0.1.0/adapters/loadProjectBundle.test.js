@@ -49,6 +49,9 @@ const EXPECTED_KEYS = [
   // them and every surface reading the ACTIVE list (D10) would silently fall
   // back to "every scene and shot".
   'shotLists', 'shotListItems', 'edits',
+  // Post-overhaul S5b (0090): omitted, an open would read every set-aside
+  // row as LOST and re-make it instead of bringing it back.
+  'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
 ]
 
 /** A server bundle with one identifiable row in every collection. */
@@ -476,3 +479,36 @@ describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
   })
 })
 
+
+// Post-overhaul S5b (0090's twin): the desktop's GET answers the RAW bundle,
+// stamps and all, so the adapter splits the set-aside rows out exactly as the
+// cloud's loader does (A9). The Drive loader runs the same split (read-only
+// backend, no fetch to stub: pinned on its source).
+describe('localServerAdapter — set-aside rows (S5b)', () => {
+  it('splits the stamped rows and the edges on them out of the live arrays', async () => {
+    const b = serverBundle()
+    b.tasks = [{ id: 't1' }, { id: 't2', set_aside_at: '2026-10-05T10:00:00Z' }]
+    b.phases = [{ id: 'ph1' }]
+    b.dependencies = [{ id: 'd1', predecessor_id: 't1', successor_id: 't2' }]
+    stubFetch(b)
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks.map(t => t.id)).toEqual(['t2'])
+    expect(bundle.dependencies).toEqual([])
+    expect(bundle.setAsideDependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('CONTROL: no stamp, nothing moves', async () => {
+    const b = serverBundle()
+    b.tasks = [{ id: 't1' }, { id: 't2' }]
+    stubFetch(b)
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1', 't2'])
+    expect(bundle.setAsideTasks).toEqual([])
+  })
+  it('the Drive loader returns its bundle through the same split', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('./googleDriveAdapter.js', import.meta.url), 'utf-8')
+    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],\s*\}\);/)
+    expect(src).toMatch(/import \{ splitSetAside \} from '\.\.\/state\/setAside';/)
+  })
+})

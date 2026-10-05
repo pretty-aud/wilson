@@ -106,6 +106,16 @@ export function cloudObjectPathFor(projectId, f) {
 
 // Supabase .insert throws 23505 on pk conflict; we treat that as "already
 // migrated" and skip the row silently. Any other error bubbles up.
+// Post-overhaul S5b (0090): a desktop row set aside by an open bid version
+// arrives LIVE. Bid versions are not copied to the cloud, so nothing there
+// could ever bring a set-aside row back; carrying the stamp would hide it for
+// good (and 0090's guard would refuse it to anyone but a manager anyway).
+export function withoutSetAside(row) {
+  if (!row || typeof row !== 'object' || !('set_aside_at' in row)) return row
+  const { set_aside_at: _dropped, ...rest } = row
+  return rest
+}
+
 async function insertOrSkip(table, row) {
   const { error } = await supabase.from(table).insert(row)
   if (!error) return { status: 'inserted' }
@@ -248,7 +258,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
     // auto-populate workspace_id from their project via our 0004 triggers.
     for (const ph of bundle.phases ?? []) {
       try {
-        const r = await insertOrSkip('phases', ph)
+        const r = await insertOrSkip('phases', withoutSetAside(ph))
         r.status === 'inserted' ? bumpInserted(report.phases) : bumpSkipped(report.phases)
       } catch (err) {
         report.errors.push({ scope: 'phase', projectId, id: ph.id, message: err.message })
@@ -266,7 +276,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
     }
     for (const t of bundle.tasks ?? []) {
       try {
-        const r = await insertOrSkip('tasks', t)
+        const r = await insertOrSkip('tasks', withoutSetAside(t))
         r.status === 'inserted' ? bumpInserted(report.tasks) : bumpSkipped(report.tasks)
       } catch (err) {
         report.errors.push({ scope: 'task', projectId, id: t.id, message: err.message })

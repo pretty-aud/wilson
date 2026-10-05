@@ -343,16 +343,28 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
 
 /**
  * The writes that load a version into the live rows (F2's "Edit this
- * version"), as a plan the provider runs as ONE undo step:
+ * version"), as a plan the provider runs as ONE undo step. Audrey's ruling
+ * (a) of 2026-10-05: the version shows EXACTLY its own schedule.
  *   phases / tasks / milestones: { update: [{ id, patch, before }], create: [row] }
- *     — a row the version holds and the live project still has gets its
- *     schedule fields back; one it has lost is recreated from the snapshot
- *     (with its saved id); a row added SINCE the version was saved stays as
- *     it is (her F2). logged_days is never in a patch.
+ *     — a row the version holds that the project still has (live or set
+ *     aside) gets its schedule fields back; one it has lost is recreated from
+ *     the snapshot (with its saved id). logged_days is never in a patch.
+ *   bringBack: { tasks, phases, milestones } — ids of rows the version holds
+ *     that are SET ASIDE now: they come back, the same rows, before their
+ *     patches are written. Never recreated (S5b: a set-aside row is whole).
+ *   setAside: { tasks, phases, milestones } — ids of LIVE rows the version
+ *     does not hold: they leave the live schedule, kept whole, until a version
+ *     that holds them is opened. Less `keep` (constraint 4: the person keeps
+ *     rows with work on them; a kept task keeps its phase, and a kept phase
+ *     its parents, so it never lands under a phase that is gone).
  *   settings: the project's margin / contingency / agency, as a patch + before
  *   rates: [{ roleSlug, rate, before }] — the roles whose live rate differs
  * Phases come first (a recreated sub-phase's parent, a recreated task's
  * phase), parents before children.
+ *
+ * `setAside` ({ tasks, phases, milestones }: the project's set-aside rows) is
+ * what makes a held row come BACK instead of being re-made: without it every
+ * set-aside row the version holds would read as lost.
  *
  * `known` ({ scenes, shots, assets }: Sets of the ids that exist now) keeps a
  * link to a row that has gone out of the writes: a patch leaves that link as
@@ -361,9 +373,15 @@ export function versionDiff(snapshot, live, { shotListId, liveShotListId } = {})
  * phase link is known when the live project or the version holds the phase
  * (the version's phases are all present once the plan has run).
  */
-export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], project = null, roleRates = {}, known = null } = {}) {
+export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], setAside = null, keep = null, project = null, roleRates = {}, known = null } = {}) {
   const s = snapshot || {}
-  const plan = { phases: { update: [], create: [] }, tasks: { update: [], create: [] }, milestones: { update: [], create: [] }, settings: null, rates: [], droppedLinks: 0 }
+  const plan = {
+    phases: { update: [], create: [] }, tasks: { update: [], create: [] }, milestones: { update: [], create: [] },
+    bringBack: { tasks: [], phases: [], milestones: [] },
+    setAside: { tasks: [], phases: [], milestones: [] },
+    settings: null, rates: [], droppedLinks: 0,
+  }
+  const aside = setAside || {}
   const phaseIds = new Set([...(phases || []), ...(s.phases || [])].filter(Boolean).map(p => String(p.id)))
   const linkKnown = {
     phase_id: phaseIds,
@@ -374,11 +392,16 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], p
   }
   const isGone = (f, v) => v != null && linkKnown[f] instanceof Set && !linkKnown[f].has(String(v))
 
-  const planRows = (snapRows, liveRows, scheduleFields, allFields, into) => {
+  const planRows = (kind, snapRows, liveRows, scheduleFields, allFields, into) => {
     const live = byId(liveRows)
+    const away = byId(aside[kind])
     for (const row of snapRows || []) {
       if (!row || row.id == null) continue
-      const cur = live.get(String(row.id))
+      let cur = live.get(String(row.id))
+      if (!cur && away.has(String(row.id))) {
+        cur = away.get(String(row.id))
+        plan.bringBack[kind].push(cur.id)
+      }
       if (!cur) {
         const rec = {}
         for (const f of allFields) {
@@ -402,9 +425,35 @@ export function planOpen(snapshot, { tasks = [], phases = [], milestones = [], p
     }
   }
 
-  planRows(sortParentsFirst(s.phases), phases, PHASE_SCHEDULE, PHASE_FIELDS, plan.phases)
-  planRows(s.tasks, tasks, TASK_SCHEDULE, TASK_FIELDS, plan.tasks)
-  planRows(s.milestones, milestones, MILESTONE_SCHEDULE, MILESTONE_FIELDS, plan.milestones)
+  planRows('phases', sortParentsFirst(s.phases), phases, PHASE_SCHEDULE, PHASE_FIELDS, plan.phases)
+  planRows('tasks', s.tasks, tasks, TASK_SCHEDULE, TASK_FIELDS, plan.tasks)
+  planRows('milestones', s.milestones, milestones, MILESTONE_SCHEDULE, MILESTONE_FIELDS, plan.milestones)
+
+  // Live rows the version does not hold leave the live schedule (ruling (a)),
+  // less those kept. A kept task keeps its phase, and a kept phase its parent
+  // chain, while the version itself does not hold them.
+  const held = (rows) => new Set((rows || []).filter(Boolean).map(r => String(r.id)))
+  const heldBy = { tasks: held(s.tasks), phases: held(s.phases), milestones: held(s.milestones) }
+  const kept = { tasks: new Set([...(keep?.tasks || [])].map(String)), phases: new Set([...(keep?.phases || [])].map(String)), milestones: new Set() }
+  const livePhases = byId(phases)
+  const keepPhaseChain = (phaseId) => {
+    let id = phaseId == null ? null : String(phaseId)
+    let guard = livePhases.size + 1
+    while (id && guard-- > 0 && livePhases.has(id) && !heldBy.phases.has(id)) {
+      kept.phases.add(id)
+      const parent = livePhases.get(id).parent_phase_id
+      id = parent == null ? null : String(parent)
+    }
+  }
+  for (const t of tasks || []) if (t && kept.tasks.has(String(t.id))) keepPhaseChain(t.phase_id)
+  for (const id of [...kept.phases]) keepPhaseChain(livePhases.get(id)?.parent_phase_id)
+  for (const [kind, rows] of [['tasks', tasks], ['phases', phases], ['milestones', milestones]]) {
+    for (const r of rows || []) {
+      if (!r || r.id == null) continue
+      const id = String(r.id)
+      if (!heldBy[kind].has(id) && !kept[kind].has(id)) plan.setAside[kind].push(r.id)
+    }
+  }
 
   const cur = projectBudgetSettings(project)
   const want = {
@@ -456,10 +505,12 @@ function sortParentsFirst(phases) {
 
 /** True when a plan writes nothing. */
 export function planIsEmpty(plan) {
+  const none = (set) => !set || (!set.tasks?.length && !set.phases?.length && !set.milestones?.length)
   return !plan || (
     !plan.phases.update.length && !plan.phases.create.length
     && !plan.tasks.update.length && !plan.tasks.create.length
     && !plan.milestones.update.length && !plan.milestones.create.length
+    && none(plan.bringBack) && none(plan.setAside)
     && !plan.settings && !plan.rates.length
   )
 }

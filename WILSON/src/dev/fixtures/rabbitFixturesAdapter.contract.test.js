@@ -52,6 +52,8 @@ const BUNDLE_KEYS = [
   'bins', 'binFiles', 'binRoots', 'shotTakes',
   // Post-overhaul S3a (0084): every adapter's loadProject returns these three.
   'shotLists', 'shotListItems', 'edits',
+  // Post-overhaul S5b (0090): the rows the open bid version does not hold.
+  'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
 ]
 
 // The S3a contract's nine shot-list methods plus review round 1's two
@@ -998,5 +1000,60 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     const other = await fx.upsertShotList({ project_id: PROJECT_ID, title: 'Second unit', version: 1 })
     expect((await fx.upsertEdit({ ...base, shot_list_id: other.id, version: 1 })).parent_edit_id).toBeNull()
     expect((await fx.listEdits(PROJECT_ID)).length).toBe(4) // nothing refused was written
+  })
+})
+
+// ── Post-overhaul S5b (0090): set aside, never lost; and S5-01 ──────────────
+// The fake cloud answers as 0090 does: the stamp is the money gate's, the
+// loader splits the set-aside rows out, the trash clears the stamp, and the
+// budget's settings change only past the gate. Each with a control.
+describe('S5b — set-aside rows and the budget settings (0090 on the fixtures)', () => {
+  const TASK = (n) => fid('task', n)
+  const refusal = async (p) => { try { await p } catch (e) { return { status: e.status, code: e.code, message: e.message } } return null }
+
+  it('setAsideRows hides a task from the live schedule and the Dashboard, kept whole; bringing it back restores the SAME row', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const before = (await fx.loadProject(PROJECT_ID)).tasks.find(t => t.id === TASK(2))
+    const res = await fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(2)] })
+    expect(res).toMatchObject({ tasks: 1, phases: 0, milestones: 0 })
+    const b = await fx.loadProject(PROJECT_ID)
+    expect(b.tasks.some(t => t.id === TASK(2))).toBe(false)
+    expect(b.setAsideTasks.map(t => t.id)).toEqual([TASK(2)])
+    expect(b.tasks.length).toBe(41)
+    await fx.setAsideRows(PROJECT_ID, { on: false, tasks: [TASK(2)] })
+    const back = (await fx.loadProject(PROJECT_ID)).tasks.find(t => t.id === TASK(2))
+    expect(back).toEqual(before)
+  })
+
+  it('an ordinary upsert or patch never moves the stamp (a stale copy cannot bring a row back)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    await fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(3)] })
+    await fx.patchTask(TASK(3), { set_aside_at: null, title: 'renamed while aside' })
+    await fx.upsertTask({ id: TASK(3), project_id: PROJECT_ID, set_aside_at: null })
+    const b = await fx.loadProject(PROJECT_ID)
+    expect(b.setAsideTasks.find(t => t.id === TASK(3))).toMatchObject({ title: 'renamed while aside' })
+  })
+
+  it('trashing a set-aside task clears the stamp, so a restore brings it back LIVE', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    await fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(4)] })
+    await fx.deleteTask(TASK(4))
+    expect(await fx.restoreTask(TASK(4))).toBe(true)
+    const b = await fx.loadProject(PROJECT_ID)
+    expect(b.tasks.some(t => t.id === TASK(4))).toBe(true)
+    expect(b.setAsideTasks).toEqual([])
+  })
+
+  it('a member is refused setAsideRows and every budget setting; unchanged values and other columns pass (CONTROLS)', async () => {
+    const member = buildDevFixtures({ variant: 'member' }).rabbitAdapter()
+    expect(await refusal(member.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(2)] }))).toMatchObject({ status: 403, code: 'forbidden' })
+    expect((await refusal(member.updateProject(PROJECT_ID, { budget_margin_pct: 55 })))?.message).toMatch(/^the budget's settings \(margin, contingency, agency, actuals and the lock\)/)
+    expect((await refusal(member.updateProject(PROJECT_ID, { budget_active: false })))?.status).toBe(403)
+    const p = (await member.loadProject(PROJECT_ID)).project
+    expect(await refusal(member.updateProject(PROJECT_ID, { budget_margin_pct: p.budget_margin_pct ?? null, budget_active: p.budget_active, description: 'member wrote this' }))).toBeNull()
+    // CONTROL: the default reviewer (an admin and the project's manager) passes both.
+    const fx = buildDevFixtures().rabbitAdapter()
+    expect(await refusal(fx.updateProject(PROJECT_ID, { budget_margin_pct: 12 }))).toBeNull()
+    expect(await refusal(fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(2)] }))).toBeNull()
   })
 })

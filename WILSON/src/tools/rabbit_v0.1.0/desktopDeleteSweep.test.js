@@ -226,8 +226,12 @@ describe('the sweep is opt-in per entity, and main.cjs opts tasks and phases in'
   it('main.cjs registers tasks and phases with sweepDependencies: true', () => {
     // The replay above registers routes itself, so it would stay green if
     // main.cjs forgot the option. This is the assertion that it has not.
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'tasks',\s*'tasks',\s*null,\s*\{\s*sweepDependencies:\s*true\s*\}\s*\)/)
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'phases',\s*'phases',\s*null,\s*\{\s*sweepDependencies:\s*true\s*\}\s*\)/)
+    // Post-overhaul S5b: both also carry scheduleRow (the set-aside stamp is
+    // dropped from their ordinary writes), pinned exactly, as is the
+    // milestones registration's.
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'tasks',\s*'tasks',\s*null,\s*\{\s*sweepDependencies:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'phases',\s*'phases',\s*null,\s*\{\s*sweepDependencies:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'milestones',\s*'milestones',\s*null,\s*\{\s*softDelete:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
   })
 
   it('assets keep their own DELETE route and are never a dependency endpoint', () => {

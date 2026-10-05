@@ -51,6 +51,7 @@ import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
+import { splitSetAside, isSetAside } from '../state/setAside';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
 // Session 37: the workspace's CONFIGURED provider decides where a new body
 // goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
@@ -1324,7 +1325,15 @@ const PATCH_DROP = [
   'id', 'workspace_id', 'created_at', 'created_by',
   'updated_at', 'updated_by', 'last_updated_at', 'last_updated_by',
   'deleted_at', 'deleted_by',
+  // 0090 (S5b): written ONLY by set_aside_schedule_rows (setAsideRows). A
+  // stale copy re-sent from another window must never bring a row back.
+  'set_aside_at',
 ];
+
+// 0090 (S5b): the set-aside stamp never rides an ordinary task, phase or key
+// date upsert either — phases have no allowlist, so without this a whole
+// phase row re-sent with its old stamp would write it.
+const SET_ASIDE_WRITE_DROP = ['created_at', 'updated_at', 'set_aside_at'];
 
 // D.O.G.'s unified-store project fields (Session 12). The cloud `projects`
 // table has no such columns — an insert carrying them 42703s, which is how
@@ -1539,7 +1548,13 @@ export function supabaseAdapter() {
           listShotListItemsWith(client, projectId),
           listEditsWith(client, projectId),
         ]);
-      return {
+      // Post-overhaul S5b (0090): the rows the open bid version does not hold
+      // are SET ASIDE. No SELECT policy hides them (they must stay readable to
+      // be brought back), so they are split out HERE, into the four
+      // setAside* keys, and every reader of tasks / phases / milestones /
+      // dependencies sees the live schedule only. The same split runs in the
+      // Local Server's, the fixtures' and Drive's loaders.
+      return splitSetAside({
         project, phases, assets, tasks, dependencies, taskLinks, files,
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
         scenes, shots, levels, experiences, folders, milestones,
@@ -1550,7 +1565,7 @@ export function supabaseAdapter() {
           project_role: m.project_role,
           project_title: m.project_title || '',
         })),
-      };
+      });
     },
 
     async createProject(payload) {
@@ -1644,7 +1659,7 @@ export function supabaseAdapter() {
     },
     async upsertPhase(phase) {
       const client = await requireClient();
-      const row = sanitize(phase, ['created_at', 'updated_at']);
+      const row = sanitize(phase, SET_ASIDE_WRITE_DROP);
       return unwrap(await client.from('phases').upsert(row).select().single());
     },
     async patchPhase(id, patch) { return patchRow('phases', id, patch); },
@@ -1694,7 +1709,7 @@ export function supabaseAdapter() {
     },
     async upsertTask(task) {
       const client = await requireClient();
-      const row = toColumns('tasks', sanitize(task, ['created_at', 'updated_at']));
+      const row = toColumns('tasks', sanitize(task, SET_ASIDE_WRITE_DROP));
       return unwrap(await client.from('tasks').upsert(row).select().single());
     },
     async patchTask(id, patch) { return patchRow('tasks', id, patch); },
@@ -2472,17 +2487,23 @@ export function supabaseAdapter() {
       }
       lastError  = null;
       lastSyncAt = new Date();
-      return data ?? [];
+      // 0090 (S5b): a task the open bid version does not hold is SET ASIDE —
+      // hidden everywhere, this cross-project list included. RLS does not
+      // hide it (it must stay readable to come back), so it is left out
+      // here, on the client side of the read: a database without 0090 has no
+      // such column and answers exactly as before.
+      return (data ?? []).filter(t => !isSetAside(t));
     },
 
     // Phase labels for the Dashboard's phase grouping (assets carry
-    // phase_id; the names live here).
+    // phase_id; the names live here). `*` rather than four columns so the
+    // set-aside stamp (0090) comes back where it exists, and is left out.
     async listPhasesByProjects(projectIds) {
       if (!projectIds?.length) return [];
       const client = await requireClient();
       const { data, error } = await client
         .from('phases')
-        .select('id, name, project_id, sort_order')
+        .select('*')
         .in('project_id', projectIds);
       if (error) {
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
@@ -2491,7 +2512,7 @@ export function supabaseAdapter() {
       }
       lastError  = null;
       lastSyncAt = new Date();
-      return data ?? [];
+      return (data ?? []).filter(p => !isSetAside(p));
     },
 
     // Roster rows for a set of projects — the Dashboard derives
@@ -2914,6 +2935,23 @@ export function supabaseAdapter() {
       return selected ?? null;
     },
 
+    // 0090 (S5b): set tasks, phases and key dates aside (on) or bring them
+    // back (off) — the open bid version decides which. ONE RPC, one
+    // transaction for the three tables; money-gated in the database (the
+    // RPC's own check and trg_*_set_aside_guard). Returns the stamp it wrote
+    // (null when bringing back) and how many rows of each changed.
+    async setAsideRows(projectId, { on, tasks = [], phases = [], milestones = [] } = {}) {
+      const client = await requireClient();
+      const res = unwrap(await client.rpc('set_aside_schedule_rows', {
+        p_project: projectId ?? null, p_on: !!on,
+        p_tasks: tasks, p_phases: phases, p_milestones: milestones,
+      })) || {};
+      return {
+        set_aside_at: res.set_aside_at ?? null,
+        tasks: Number(res.tasks) || 0, phases: Number(res.phases) || 0, milestones: Number(res.milestones) || 0,
+      };
+    },
+
     async listExpenses(projectId) {
       const client = await requireClient();
       return unwrap(await client.from('expenses').select('*')
@@ -3228,7 +3266,7 @@ export function supabaseAdapter() {
     },
     async upsertMilestone(milestone) {
       const client = await requireClient();
-      const row = toColumns('milestones', blankDatesToNull(milestone));
+      const row = toColumns('milestones', blankDatesToNull(sanitize(milestone, ['set_aside_at'])));
       return unwrap(await client.from('milestones').upsert(row).select().single());
     },
     // 🚨 THE OTHER HALF OF LWW, and 0077 is why it is needed (R2).

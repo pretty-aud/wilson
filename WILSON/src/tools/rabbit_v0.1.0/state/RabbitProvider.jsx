@@ -172,6 +172,16 @@ const EMPTY_BUNDLE = {
   shotLists:      [],
   shotListItems:  [],
   edits:          [],
+  // Post-overhaul S5b (0090): the tasks, phases and key dates the open bid
+  // version does not hold, and the edges on them — split out of the live
+  // arrays by every adapter's loadProject (state/setAside.js), so no reader
+  // of ctx.tasks / phases / milestones / dependencies sees them. Kept here so
+  // an open can bring them back, the same rows, instead of re-making them.
+  // Same rule as every key above, in the same three test lists.
+  setAsideTasks:        [],
+  setAsidePhases:       [],
+  setAsideMilestones:   [],
+  setAsideDependencies: [],
 };
 
 function indexById(rows) {

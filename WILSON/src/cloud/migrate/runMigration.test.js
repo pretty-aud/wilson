@@ -374,3 +374,27 @@ describe('what a run cannot do, it says (S4b review round 2)', () => {
     expect(fake.state.inserts).toEqual({})
   })
 })
+
+// Post-overhaul S5b (0090): a desktop row set aside by an open bid version
+// arrives LIVE — bid versions are not copied, so nothing on the cloud could
+// ever bring a set-aside row back.
+describe('set-aside desktop rows arrive live on the cloud', () => {
+  it('the stamp is dropped from every phase and task insert; the rows themselves are copied whole', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.tasks[1] = { ...b.tasks[1], title: 'Aside', set_aside_at: '2026-10-05T10:00:00Z' }
+        b.phases[1] = { ...b.phases[1], set_aside_at: '2026-10-05T10:00:00Z' }
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    await runMigration({ workspaceId: 'ws1' })
+    const ins = fake.state.inserts
+    expect(ins.tasks.find(t => t.id === 't2')).toMatchObject({ id: 't2', title: 'Aside' })
+    for (const row of [...ins.tasks, ...ins.phases]) expect(row).not.toHaveProperty('set_aside_at')
+    expect(ins.tasks).toHaveLength(3)
+    expect(ins.phases).toHaveLength(2)
+  })
+})
