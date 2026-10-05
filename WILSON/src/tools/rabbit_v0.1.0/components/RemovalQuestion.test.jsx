@@ -74,6 +74,14 @@ describe('every person\'s delete goes through the Remove / Delete answer', () =>
     // CONTROL: no bare delete is left on those paths.
     expect(tasks).not.toMatch(/onClick=\{\(\) => ctx\?\.deleteTask\?\.\(task\.id\)\}/)
   })
+  it('the Dashboard words its question from the plan in the open project, and sends a project with a version open elsewhere to the project (review round 1, R1-06)', () => {
+    const dash = read('../../../components/Dashboard/DashboardTasksView.jsx')
+    expect(dash).toMatch(/const removalQ = inOpenProject \? removalQuestion\(rabbit\?\.removalPlanFor\?\.\(\{ tasks: \[confirmDeleteId\] \}\), 'task'\) : null/)
+    expect(dash).toMatch(/const versionOpenElsewhere = !!pid && !inOpenProject && !!rabbit\?\.projectsIndex\?\.\[pid\]\?\.open_budget_version_id/)
+    expect(dash).toMatch(/if \(versionOpenElsewhere\) \{[\s\S]{0,400}Open the project and delete it from the Timeline or Tasks/)
+    // CONTROL: the ordinary words stay for every other case (the W9 pin's).
+    expect(dash).toMatch(/: 'It goes to the 30-day trash, and admins can restore it\.'/)
+  })
   it('the bulk bar and the Timeline editor word their question with removalQuestion', () => {
     expect(read('../views/ProjectTasksView.jsx')).toMatch(/const removalQ = removalQuestion\(ctx\?\.removalPlanFor\?\.\(\{ tasks: \[\.\.\.selected\] \}\), 'task'\)/)
     expect(read('../views/TimelineView.jsx')).toMatch(/const removalQ = kind \? removalQuestion\(ctx\?\.removalPlanFor\?\.\(\{ \[kind\]: \[ask\.id\] \}\), noun\) : null/)

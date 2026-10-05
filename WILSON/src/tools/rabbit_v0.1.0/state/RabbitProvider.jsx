@@ -108,7 +108,7 @@ import {
 import {
   splitSetAside, joinSetAside, holdersOf, workOn, removalOf, rowsInNoVersion, countRows,
 } from './setAside';
-import { removalToastWords } from './versionWords';
+import { removalToastWords, rowsWords } from './versionWords';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -249,8 +249,14 @@ export function RabbitProvider({ children }) {
   // shot's delete taken back is a "Missing shot" found again, D17).
   const editDraftHeldRef = useRef(false);
 
-  function pushHistory(entry) {
+  // `visit` (S5b review round 1, R1-05): the project visit the step BEGAN
+  // on (projectVisitRef, read before its first await). A step that finishes
+  // after a project switch belongs to the project it began on, whose stack
+  // is gone; pushed here it would sit on the NEW project's stack and its
+  // Ctrl+Z would write into the old project. Dropped instead.
+  function pushHistory(entry, visit) {
     if (historyRef.current.suspended) return null;
+    if (visit !== undefined && visit !== projectVisitRef.current) return null;
     const token = ++historyTokenRef.current;
     entry.token = token;
     if (historyRef.current.batch) {
@@ -1400,6 +1406,7 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   const updatePhase = useCallback(async (id, patch) => {
+    const visit = projectVisitRef.current;
     const oldPhase = bundleRef.current.phases.find(p => p.id === id);
     const oldValues = {};
     if (oldPhase) {
@@ -1425,12 +1432,13 @@ export function RabbitProvider({ children }) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updatePhase(id, oldValues)],
         redoOps: [() => mutationsRef.current.updatePhase(id, patch)],
-      });
+      }, visit);
     }
     return result;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deletePhase = useCallback(async (id) => {
+    const visit = projectVisitRef.current;
     const oldPhase = bundleRef.current.phases.find(p => p.id === id);
     // Migration 0061 gave phase→phase edges a real table, so deletePhase now
     // has to do what deleteTask has always done: strip the matching edges and
@@ -1495,7 +1503,7 @@ export function RabbitProvider({ children }) {
               }),
             ],
         redoOps: [() => mutationsRef.current.deletePhase(id)],
-      });
+      }, visit);
       if (token != null) {
         showUndoToast(`Deleted phase "${oldPhase.name || 'Untitled'}"`, () => undoHistoryEntry(token));
       }
@@ -1601,7 +1609,28 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, notePendingFields, clearPendingFields, ensureEntityFolderFor]);
 
+  // S5b review round 1 (R1-01): an asset is never set aside, but its tasks
+  // can be. On the cloud a task is seen THROUGH its asset (0034's
+  // tasks_select hops to it) and tasks.asset_id cascades: deleting the asset
+  // would hide its set-aside tasks for good — no version could bring them
+  // back — and the purge would destroy them, logged days and links with them,
+  // a month later. In the open version such an asset can look empty. So the
+  // delete is refused, by name, until those tasks are dealt with in a
+  // version that holds them.
+  function refuseAssetDeleteOverSetAside(ids) {
+    const want = new Set(ids.map(String));
+    const held = (bundleRef.current.setAsideTasks || []).filter(t => t.asset_id != null && want.has(String(t.asset_id)));
+    if (!held.length) return;
+    const names = held.slice(0, 4).map(t => `“${t.title || 'Untitled'}”`);
+    const more = held.length > 4 ? ` and ${held.length - 4} more` : '';
+    const n = held.length;
+    const msg = `${n === 1 ? 'A task on this asset is' : `${n} tasks on ${ids.length === 1 ? 'this asset' : 'these assets'} are`} set aside — not part of the open bid version, kept for the versions that hold ${n === 1 ? 'it' : 'them'}: ${names.join(', ')}${more}. Deleting the asset would take ${n === 1 ? 'it' : 'them'} with it for good. Edit a bid version that holds ${n === 1 ? 'it' : 'them'} and delete ${n === 1 ? 'it' : 'them'}, or move ${n === 1 ? 'it' : 'them'} to another asset, first.`;
+    setError(msg);
+    throw new Error(msg);
+  }
+
   const deleteAsset = useCallback(async (id) => {
+    refuseAssetDeleteOverSetAside([id]);
     const oldAsset = bundleRef.current.assets.find(a => a.id === id);
     // deleteAsset cascades locally onto tasks (see mutator). Capture
     // those tasks too so undo restores them.
@@ -1644,6 +1673,7 @@ export function RabbitProvider({ children }) {
   // deleteAsset would produce.
   const deleteAssets = useCallback(async (ids = []) => {
     if (!Array.isArray(ids) || ids.length === 0) return;
+    refuseAssetDeleteOverSetAside(ids);
     const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
     const removed = ids
       .map(id => ({
@@ -3498,6 +3528,7 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId, optimistic]);
 
   const updateMilestone = useCallback(async (id, patch) => {
+    const visit = projectVisitRef.current;
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
     const oldValues = {};
     if (oldMilestone) {
@@ -3541,12 +3572,13 @@ export function RabbitProvider({ children }) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateMilestone(id, oldValues)],
         redoOps: [() => mutationsRef.current.updateMilestone(id, patch)],
-      });
+      }, visit);
     }
     return result;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteMilestone = useCallback(async (id) => {
+    const visit = projectVisitRef.current;
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
     // A2 session 2, rulings 26 and 38. Both backends now TRASH a milestone
     // rather than destroying it — cloud through 0014's soft_delete_row (0067
@@ -3582,7 +3614,7 @@ export function RabbitProvider({ children }) {
             }]
           : [() => mutationsRef.current.addMilestone(oldMilestone)],
         redoOps: [() => mutationsRef.current.deleteMilestone(id)],
-      });
+      }, visit);
       // Ruling 38's undo toast. Assets have had one since S6 (OWED_AUDREY §3)
       // and phases since A2 session 1; a milestone delete used to be final
       // with nothing but a confirm dialog in front of it (MASTER_PLAN §6 #10).
@@ -3631,7 +3663,16 @@ export function RabbitProvider({ children }) {
     const rows = typeof adapterRef.current.listMilestones === 'function'
       ? await adapterRef.current.listMilestones(activeProjectId)
       : null;
-    if (rows) setBundle(prev => ({ ...prev, milestones: rows }));
+    // S5b review round 1 (R1-02): listMilestones answers every live key date,
+    // the set-aside ones too (no backend splits a list read); they are split
+    // out again here, or restoring one key date put every other bid's key
+    // dates on the Timeline — and the next Save of the open version hid them
+    // for good.
+    if (rows) {
+      const apply = (prev) => splitSetAside({ ...prev, milestones: rows, setAsideMilestones: [] });
+      setBundle(apply);
+      bundleRef.current = apply(bundleRef.current);
+    }
     return restored;
   }, [activeProjectId]);
 
@@ -3708,6 +3749,7 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   const updateTask = useCallback(async (id, patch) => {
+    const visit = projectVisitRef.current;
     const oldTask = bundleRef.current.tasks.find(t => t.id === id);
     const oldValues = {};
     if (oldTask) {
@@ -3731,12 +3773,13 @@ export function RabbitProvider({ children }) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateTask(id, oldValues)],
         redoOps: [() => mutationsRef.current.updateTask(id, patch)],
-      });
+      }, visit);
     }
     return result;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteTask = useCallback(async (id) => {
+    const visit = projectVisitRef.current;
     const oldTask = bundleRef.current.tasks.find(t => t.id === id);
     // deleteTask also strips matching dependency rows. Capture them
     // for undo so the dependency graph restores too.
@@ -3779,7 +3822,7 @@ export function RabbitProvider({ children }) {
               }),
             ],
         redoOps: [() => mutationsRef.current.deleteTask(id)],
-      });
+      }, visit);
       if (token != null) {
         showUndoToast(`Deleted task "${oldTask.title || 'Untitled'}"`, () => undoHistoryEntry(token));
       }
@@ -3789,6 +3832,7 @@ export function RabbitProvider({ children }) {
 
   // Bulk delete — see deleteAssets. One combined entry, one toast.
   const deleteTasks = useCallback(async (ids = []) => {
+    const visit = projectVisitRef.current;
     if (!Array.isArray(ids) || ids.length === 0) return;
     const canSoftDelete = typeof adapterRef.current?.restoreTask === 'function';
     const idSet = new Set(ids);
@@ -3842,7 +3886,7 @@ export function RabbitProvider({ children }) {
             }),
           ],
       redoOps: [() => mutationsRef.current.deleteTasks(removedTasks.map(t => t.id))],
-    });
+    }, visit);
     if (token != null) {
       showUndoToast(
         removedTasks.length === 1
@@ -5222,6 +5266,7 @@ export function RabbitProvider({ children }) {
     milestone: { key: 'milestones', restore: 'restoreMilestone', upsert: 'upsertMilestone', del: 'deleteMilestone' },
   };
   async function reviveBudgetRow(kind, row) {
+    const visit = projectVisitRef.current;
     const k = REVIVE[kind];
     const a = adapterRef.current;
     const pid = activeProjectIdRef.current;
@@ -5247,7 +5292,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => mutationsRef.current[k.del](finalRow.id)],
       redoOps: [() => reviveBudgetRow(kind, row)],
-    });
+    }, visit);
     return finalRow;
   }
   // The bundle's copy, changed in place — and bundleRef at once, since the
@@ -5486,23 +5531,71 @@ export function RabbitProvider({ children }) {
     if ((bundleRef.current.project?.open_budget_version_id || null) !== id) {
       throw new Error('only the open bid version is saved into — open it first (Edit this version), or Save as new version');
     }
-    const keepList = opts.basedOnListId === undefined;
-    const listId = keepList ? (v.shot_list_id || v.snapshot?.shot_list?.id || null) : (opts.basedOnListId || null);
-    const live = shotListById(listId);
-    const shotList = live || (keepList ? (v.snapshot?.shot_list || null) : null);
-    const previous = previousVersionOf(bundleRef.current.budgetVersions, v);
-    const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
-    const patch = { snapshot };
-    if (!keepList) patch.shot_list_id = live ? live.id : null;
-    const before = { snapshot: v.snapshot ?? {} };
-    if (!keepList) before.shot_list_id = v.shot_list_id ?? null;
-    const row = await patchBudgetVersionRow(id, patch);
-    pushHistory({
-      undoOps: [surfaced(() => rewriteBudgetVersionIfStill(id, snapshot.saved_at, before))],
-      redoOps: [surfaced(() => rewriteBudgetVersionIfStill(id, v.snapshot?.saved_at ?? null, patch))],
-    });
-    return row;
-  }), [patchBudgetVersionRow]);
+    const visit = projectVisitRef.current;
+    const write = async () => {
+      const keepList = opts.basedOnListId === undefined;
+      const listId = keepList ? (v.shot_list_id || v.snapshot?.shot_list?.id || null) : (opts.basedOnListId || null);
+      const live = shotListById(listId);
+      const shotList = live || (keepList ? (v.snapshot?.shot_list || null) : null);
+      const previous = previousVersionOf(bundleRef.current.budgetVersions, v);
+      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
+      const patch = { snapshot };
+      if (!keepList) patch.shot_list_id = live ? live.id : null;
+      const before = { snapshot: v.snapshot ?? {} };
+      if (!keepList) before.shot_list_id = v.shot_list_id ?? null;
+      const row = await patchBudgetVersionRow(id, patch);
+      pushHistory({
+        undoOps: [surfaced(() => rewriteBudgetVersionIfStill(id, snapshot.saved_at, before))],
+        redoOps: [surfaced(() => rewriteBudgetVersionIfStill(id, v.snapshot?.saved_at ?? null, patch))],
+      }, visit);
+      return row;
+    };
+    // S5b review round 1 (R1-03): a Save drops from this version every row
+    // that is set aside. A set-aside row only THIS version still held (it was
+    // removed from it while another version held it, and that version has
+    // gone since — another window's delete, say) would then be held by none:
+    // out of sight for ever. Such rows, and any no version holds at all, are
+    // deleted the ordinary way in the same undo step, and the toast names
+    // them (Undo brings them back, set aside again).
+    const stranded = strandedBySave(id);
+    if (!countRows(stranded)) return write();
+    const top0 = historyRef.current.undo[historyRef.current.undo.length - 1];
+    let row;
+    quietToastsRef.current += 1;
+    try {
+      row = await runBatch(async () => {
+        const still = compositeGuard();
+        const r = await write();
+        still();
+        const ids = idsOf(stranded);
+        await mutationsRef.current.setAsideRows(false, ids);
+        still();
+        await deleteRowsQuietly(ids, still);
+        return r;
+      });
+    } finally {
+      quietToastsRef.current -= 1;
+    }
+    const top = historyRef.current.undo[historyRef.current.undo.length - 1];
+    const all = [...stranded.tasks, ...stranded.phases, ...stranded.milestones];
+    if (top && top !== top0) {
+      showUndoToast(`Saved “${v.name}”. ${all.length === 1 ? `“${all[0].title || all[0].name || 'Untitled'}”, which no bid version holds any more, was` : `${rowsWords(stranded)} no bid version holds any more were`} deleted`, () => undoHistoryEntry(top.token));
+    }
+    return { ...(row || {}), strandedDeleted: stranded };
+  }), [patchBudgetVersionRow, runBatch]);
+
+  /** Set-aside rows held by no version once `versionId` is saved (R1-03): only it holds them, or none does. */
+  function strandedBySave(versionId) {
+    const b = splitSetAside(bundleRef.current);
+    const versions = b.budgetVersions || [];
+    const out = { tasks: [], phases: [], milestones: [] };
+    for (const k of SCHEDULE_KINDS) {
+      for (const r of b[ASIDE_KEY[k]] || []) {
+        if (!holdersOf(versions, k, r.id, { except: versionId }).length) out[k].push(r);
+      }
+    }
+    return out;
+  }
 
   /**
    * Save as new version… (the only way a version appears, F2): the live rows
@@ -5555,6 +5648,7 @@ export function RabbitProvider({ children }) {
 
   /** A role's project rate (an override over the rate card) with its undo. */
   async function setProjectRoleRate({ roleSlug, rate }, overrides) {
+    const visit = projectVisitRef.current;
     const pid = activeProjectIdRef.current;
     const a = versionAdapterFor('upsertProjectRateOverride');
     const existing = (overrides || []).find(o => o.role_slug === roleSlug && !o.member_id) || null;
@@ -5573,7 +5667,7 @@ export function RabbitProvider({ children }) {
         await adapterRef.current.upsertProjectRateOverride(row);
         setRateOverridesEpoch(n => n + 1);
       })],
-    });
+    }, visit);
   }
 
   /**
@@ -5628,6 +5722,12 @@ export function RabbitProvider({ children }) {
         await mutationsRef.current.setOpenBudgetVersion(id);
         return { id, plan };
       } catch (err) {
+        // R1-05: after a project switch the steps that landed belong to the
+        // project this began on, whose undo stack is gone — Undo cannot reach
+        // them from here, so the sentence must not promise it.
+        if (/another project was opened/.test(err?.message || '')) {
+          throw new Error(`Opening “${v.name}” stopped part way because another project was opened while it ran. What it had changed in its project stays as it was left; open that project again to see it.`);
+        }
         throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. No version is open now; Undo (Ctrl+Z) takes back what changed.`);
       }
     }));
@@ -5646,14 +5746,34 @@ export function RabbitProvider({ children }) {
   async function loadVersionIntoLive(v, opts, still) {
     const m = mutationsRef.current;
     const pid = activeProjectIdRef.current;
-    let b = bundleRef.current;
+    let b = splitSetAside(bundleRef.current);
     if (b.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
     if (opts.discard) {
       // Constraint 8: what NO saved version holds would be set aside for
       // ever; Discard deletes it the ordinary way instead (Undo brings it back).
       const none = rowsInNoVersion({ tasks: b.tasks, phases: b.phases, milestones: b.milestones }, b.budgetVersions);
-      await deleteRowsQuietly(idsOf(none), still);
-      b = bundleRef.current;
+      const gone = idsOf(none);
+      await deleteRowsQuietly(gone, still);
+      // The ordinary deletes land through optimistic's QUEUED setBundle:
+      // bundleRef still holds those rows until the next render. Read now, the
+      // plan would set them aside (or the check below refuse them); they are
+      // dropped from what the plan reads, by id.
+      const cur = splitSetAside(bundleRef.current);
+      const drop = Object.fromEntries(SCHEDULE_KINDS.map(k => [k, new Set(gone[k].map(String))]));
+      b = { ...cur };
+      for (const k of SCHEDULE_KINDS) b[k] = (cur[k] || []).filter(r => !drop[k].has(String(r.id)));
+    }
+    // S5b review round 1 (R1-04): constraint 8 holds HERE, not only in the
+    // question before it — a caller that skips the question (a future
+    // shortcut) must not hide for ever a row no saved version holds. Unless
+    // the person kept it, it is refused until Save or Discard answers for it.
+    const keptIds = new Set([...(opts.keep?.tasks || []), ...(opts.keep?.phases || [])].map(String));
+    const stranded = rowsInNoVersion({ tasks: b.tasks, phases: b.phases, milestones: b.milestones }, b.budgetVersions);
+    const wouldStrand = [...stranded.tasks, ...stranded.phases, ...stranded.milestones]
+      .filter(r => !keptIds.has(String(r.id)));
+    if (wouldStrand.length) {
+      const names = wouldStrand.slice(0, 4).map(r => `“${r.title || r.name || 'Untitled'}”`).join(', ');
+      throw new Error(`${wouldStrand.length === 1 ? 'A row on the Timeline is' : `${wouldStrand.length} rows on the Timeline are`} in no saved bid version (${names}${wouldStrand.length > 4 ? ' …' : ''}): save ${wouldStrand.length === 1 ? 'it' : 'them'} into a version, or discard ${wouldStrand.length === 1 ? 'it' : 'them'}, first`);
     }
     const plan = planOpen(v.snapshot, {
       tasks: b.tasks, phases: b.phases, milestones: b.milestones,
@@ -5741,7 +5861,9 @@ export function RabbitProvider({ children }) {
   const setAsideRows = useCallback(async (on, ids = {}) => {
     const pid = activeProjectIdRef.current;
     if (!pid) throw new Error('no project');
-    const b = bundleRef.current;
+    // R1-02's second layer: a stamped row a list read put back among the
+    // live ones counts as set aside here, whatever memory's arrays say.
+    const b = splitSetAside(bundleRef.current);
     const want = {};
     // Replaying a step (undo / redo), the ids ARE the step's own — exactly
     // what it moved — and memory may not show them yet: the op before this
@@ -5760,6 +5882,16 @@ export function RabbitProvider({ children }) {
     const a = versionAdapterFor('setAsideRows');
     const res = await a.setAsideRows(pid, { on, ...want });
     if (activeProjectIdRef.current !== pid) return res;
+    // S5b review round 1 (R1-01): the backend says how many rows it moved.
+    // Fewer than asked means memory was wrong about them (another window,
+    // a row the database no longer shows): marking them moved here would
+    // show a schedule the database does not hold. Read the project again and
+    // stop, saying so — never a silent half.
+    const moved = (Number(res?.tasks) || 0) + (Number(res?.phases) || 0) + (Number(res?.milestones) || 0);
+    if (res && !replaying && moved !== countRows(want)) {
+      mutationsRef.current.reloadActiveProject?.();
+      throw new Error(`${on ? 'Setting aside' : 'Bringing back'} ${countRows(want)} row${countRows(want) === 1 ? '' : 's'} moved ${moved}: some were not as this window showed them. The project has been read again — check the Timeline before going on.`);
+    }
     const stamp = on ? (res?.set_aside_at || new Date().toISOString()) : null;
     const apply = (bundle) => {
       const j = joinSetAside(bundle);
@@ -5805,12 +5937,17 @@ export function RabbitProvider({ children }) {
 
   /** The SET-ASIDE rows only `versionId` holds (constraint 10): deleting it would strand them. */
   function onlyHeldSetAside(versionId) {
-    const b = bundleRef.current;
+    const b = splitSetAside(bundleRef.current);
     const versions = b.budgetVersions || [];
+    // S5b review round 1 (R1-03): a set-aside row the OPEN version's saved
+    // snapshot still names was removed from it since (Remove from this
+    // version) — its next Save drops it. That snapshot is no home: counting
+    // it let a version's delete leave the row to be stranded by that Save.
+    const openId = b.project?.open_budget_version_id || null;
     const out = { tasks: [], phases: [], milestones: [] };
     for (const k of SCHEDULE_KINDS) {
       for (const r of b[ASIDE_KEY[k]] || []) {
-        const holders = holdersOf(versions, k, r.id);
+        const holders = holdersOf(versions, k, r.id, { except: openId === versionId ? null : openId });
         if (holders.length === 1 && holders[0].id === versionId) out[k].push(r);
       }
     }
@@ -5896,7 +6033,7 @@ export function RabbitProvider({ children }) {
    * { roleRates, keep, discard, liveShotListId } as the open would take them.
    */
   function previewOpenBudgetVersion(id, { roleRates = {}, keep = null, discard = false, liveShotListId } = {}) {
-    const b = bundleRef.current;
+    const b = splitSetAside(bundleRef.current);
     const versions = b.budgetVersions || [];
     const v = versions.find(r => r.id === id) || null;
     if (!v) return null;
@@ -5978,6 +6115,7 @@ export function RabbitProvider({ children }) {
 
   /** locked_at / locked_by on the version itself (F12.2), with its undo. */
   const stampBudgetVersionLock = useCallback(async (id, on) => {
+    const visit = projectVisitRef.current;
     const v = requireBudgetVersion(id);
     const patch = on
       ? { locked_at: new Date().toISOString(), locked_by: versionWho() }
@@ -5987,7 +6125,7 @@ export function RabbitProvider({ children }) {
     pushHistory({
       undoOps: [() => patchBudgetVersionRow(id, before)],
       redoOps: [() => patchBudgetVersionRow(id, patch)],
-    });
+    }, visit);
   }, [patchBudgetVersionRow]);
 
   // ── Mutations ref refresh ───────────────────────────────
@@ -6086,6 +6224,7 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.setAsideRows               = setAsideRows;
   mutationsRef.current.deleteBudgetVersionRow     = deleteBudgetVersionRow;
   mutationsRef.current.refreshBudgetVersions      = refreshBudgetVersions;
+  mutationsRef.current.reloadActiveProject        = reloadActiveProject;
 
   // ── Shot-list selectors (S3a) ───────────────────────────
   // D10: `scenes` / `shots` below are the ACTIVE list's rows (every row when

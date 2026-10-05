@@ -242,6 +242,106 @@ describe('constraint 6 — under a lock', () => {
   })
 })
 
+describe('review round 1 (S5b) — the corrections, each with its control', () => {
+  it('R1-01: an asset whose task is set aside cannot be deleted (the cloud would bury the task with it); an asset with none can', async () => {
+    await bidding()
+    const asset8 = fx.store.tasks.find(t => t.id === T40).asset_id
+    await open(BV1)
+    await expect(ctx.deleteAsset(asset8)).rejects.toThrow(/set aside — not part of the open bid version.*“Insurance certificate”/)
+    expect(ctx.assets.some(a => a.id === asset8)).toBe(true)
+    await expect(ctx.deleteAssets([asset8])).rejects.toThrow(/set aside/)
+    // CONTROL: back on Bid v2 nothing on asset 8 is set aside, and it deletes.
+    await open(BV2)
+    await run(() => ctx.deleteAsset(asset8))
+    expect(ctx.assets.some(a => a.id === asset8)).toBe(false)
+  })
+  it('R1-01: a set-aside write the backend did not fully make stops, says so, and reads the project again', async () => {
+    await bidding()
+    const real = holder.adapter.setAsideRows.bind(holder.adapter)
+    holder.adapter.setAsideRows = async (pid, args) => ({ ...(await real(pid, args)), tasks: 0 })
+    await expect(ctx.openBudgetVersion(BV1, { roleRates: RATES })).rejects.toThrow(/moved 0: some were not as this window showed them/)
+  })
+  it('R1-02: restoring a deleted key date keeps another bid\'s key dates set aside', async () => {
+    // km-extra: only Bid v2 holds it. km-v1: only Bid v1 holds it (so its
+    // delete with v1 open is a real delete, to the trash, and restorable).
+    const snapRow = (id, title, date) => ({ id, title, date, color: null, description: null, phase_id: null })
+    fx.store.milestones.push({ id: 'km-extra', project_id: PROJECT_ID, title: 'High ROM review', date: '2026-11-20' })
+    fx.store.milestones.push({ id: 'km-v1', project_id: PROJECT_ID, title: 'Fund deadline', date: '2026-11-22' })
+    fx.store.budgetVersions.find(v => v.id === BV2).snapshot.milestones.push(snapRow('km-extra', 'High ROM review', '2026-11-20'))
+    fx.store.budgetVersions.find(v => v.id === BV1).snapshot.milestones.push(snapRow('km-v1', 'Fund deadline', '2026-11-22'))
+    await run(() => ctx.reloadActiveProject())
+    await bidding()
+    await open(BV1)
+    expect(ctx.setAsideMilestones.some(m => m.id === 'km-extra')).toBe(true)
+    await run(() => ctx.deleteMilestone('km-v1'))
+    expect(fx.store.milestones.find(m => m.id === 'km-v1').deleted_at).toBeTruthy()
+    await run(() => ctx.restoreMilestone('km-v1'))
+    expect(ctx.milestones.some(m => m.id === 'km-v1')).toBe(true)
+    expect(ctx.milestones.some(m => m.id === 'km-extra')).toBe(false)
+    expect(ctx.setAsideMilestones.some(m => m.id === 'km-extra')).toBe(true)
+  })
+  it('R1-03 (a): a row removed from the open version counts as only the other version\'s when THAT one is deleted', async () => {
+    await bidding()
+    let v3 = null
+    await run(async () => { v3 = await ctx.createBudgetVersion({ name: 'V3', roleRates: RATES }) })
+    await run(() => ctx.deleteTask(T40)) // Remove from this version: Bid v2 holds it too
+    expect(aside(40)).toBeTruthy()
+    expect(ctx.previewDeleteBudgetVersion(BV2).only.tasks.map(t => t.id)).toEqual([T40])
+    await run(() => ctx.deleteBudgetVersion(BV2))
+    expect(aside(40)).toBeUndefined()
+    expect(fx.store.tasks.find(t => t.id === T40).deleted_at).toBeTruthy()
+    expect(v3.id).toBeTruthy()
+  })
+  it('R1-03 (b): Save deletes, by name, a set-aside row no other version holds any more (another window deleted its holder)', async () => {
+    await bidding()
+    let v3 = null
+    await run(async () => { v3 = await ctx.createBudgetVersion({ name: 'V3', roleRates: RATES }) })
+    await run(() => ctx.deleteTask(T40))
+    expect(aside(40)).toBeTruthy()
+    await run(() => holder.adapter.deleteBudgetVersion(BV2, PROJECT_ID)) // another window
+    await run(() => ctx.reloadActiveProject())
+    let saved = null
+    await run(async () => { saved = await ctx.saveBudgetVersion(v3.id, { roleRates: RATES }) })
+    expect(saved.strandedDeleted.tasks.map(t => t.id)).toEqual([T40])
+    expect(fx.store.tasks.find(t => t.id === T40).deleted_at).toBeTruthy()
+    expect(ctx.undoToast?.message).toMatch(/^Saved “V3”\. “Insurance certificate”, which no bid version holds any more, was deleted$/)
+    // ONE undo brings it back, set aside again.
+    await run(() => ctx.undo())
+    expect(aside(40)).toBeTruthy()
+  })
+  it('R1-04: the open refuses to set aside a row no saved version holds unless Discard answered for it (or it is kept)', async () => {
+    await bidding()
+    await run(() => ctx.addTask({ id: 'loose', project_id: PROJECT_ID, title: 'Loose', bid_days: 1 }))
+    await expect(ctx.openBudgetVersion(BV1, { roleRates: RATES })).rejects.toThrow(/in no saved bid version \(“Loose”\)/)
+    expect(ctx.tasks.some(t => t.id === 'loose')).toBe(true)
+    // CONTROL: kept, it stays live and the open goes ahead.
+    await open(BV1, { keep: { tasks: ['loose'] } })
+    expect(ctx.project.open_budget_version_id).toBe(BV1)
+    expect(ctx.tasks.some(t => t.id === 'loose')).toBe(true)
+  })
+  it('R1-05: a write still in flight when the project switches lands no step on the other project\'s stack', async () => {
+    await bidding()
+    await run(() => ctx.updateTask(TASK_ID(1), { bid_days: 99 })) // Bid v1 will put it back: a patch to hold
+    let other = null
+    await run(async () => { other = await ctx.createProject({ title: 'Other project' }) })
+    let release
+    const gate = new Promise(r => { release = r })
+    const realPatch = holder.adapter.patchTask.bind(holder.adapter)
+    holder.adapter.patchTask = async (...a) => { await gate; return realPatch(...a) }
+    let opening
+    await act(async () => { opening = ctx.openBudgetVersion(BV1, { roleRates: RATES }).catch(e => e) })
+    await run(() => ctx.setActiveProject(other.id))
+    await waitFor(() => expect(ctx.project?.id).toBe(other.id))
+    let err = null
+    await act(async () => { release(); err = await opening })
+    // Flush whatever the late write did to the history before reading it.
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    expect(err?.message).toMatch(/stopped part way because another project was opened/)
+    expect(ctx.project.id).toBe(other.id)
+    expect(ctx.canUndo).toBe(false)
+  })
+})
+
 describe('constraint 10 — deleting a version takes the set-aside rows only it held', () => {
   it('a task only Bid v3 holds is named, deleted with it, and comes back with it on Undo — set aside again', async () => {
     await bidding()

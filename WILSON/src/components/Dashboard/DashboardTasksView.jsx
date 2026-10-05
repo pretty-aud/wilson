@@ -40,6 +40,10 @@ import {
 } from 'lucide-react'
 import TaskDetailPopup from '../../tools/rabbit_v0.1.0/components/TaskDetailPopup'
 import { useMyTasks } from './useMyTasks'
+// Post-overhaul S5b (constraint 9): with a bid version open, a task another
+// version holds is set aside, not trashed — the question says which.
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { removalQuestion } from '../../tools/rabbit_v0.1.0/state/versionWords'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canOnProject } from '../../permissions/projectRoleMatrix'
 import {
@@ -144,6 +148,7 @@ function RoleBadge({ role }) {
 
 export default function DashboardTasksView() {
   const mt = useMyTasks()
+  const rabbit = useRabbit()
   const { role: appRole, ready: permsReady } = usePermissions()
   const [viewMode, setViewMode] = useState('table') // table | kanban | gallery
   const [search, setSearch] = useState('')
@@ -417,16 +422,41 @@ export default function DashboardTasksView() {
           not a place for a parenthetical. Both of its facts survive and the
           test pins both. (The note dialog next door really IS word for word —
           this one is not, and an earlier comment here claimed it was.) */}
-      {confirmDeleteId && (
+      {confirmDeleteId && (() => {
+        // Post-overhaul S5b review round 1 (R1-06). In the project open in
+        // R.A.B.B.I.T., the delete is the provider's, which sets a task
+        // another bid version holds aside instead of trashing it: the question
+        // says so (removalQuestion). In a project with a bid version open
+        // that is NOT open here, this page cannot see which versions hold the
+        // task, so it sends the person to the project rather than trash a
+        // task another version still needs.
+        const t = (mt.tasks || []).find(x => x.id === confirmDeleteId)
+        const pid = t?.project_id || null
+        const inOpenProject = !!pid && rabbit?.activeProjectId === pid
+        const versionOpenElsewhere = !!pid && !inOpenProject && !!rabbit?.projectsIndex?.[pid]?.open_budget_version_id
+        const removalQ = inOpenProject ? removalQuestion(rabbit?.removalPlanFor?.({ tasks: [confirmDeleteId] }), 'task') : null
+        if (versionOpenElsewhere) {
+          return (
+            <Dialog
+              width="confirm"
+              title="Delete it from its project"
+              onClose={() => setConfirmDeleteId(null)}
+              footer={<Button autoFocus onClick={() => setConfirmDeleteId(null)}>Close</Button>}
+            >
+              Its project has a bid version open, so this task may belong to other bid versions too. Open the project and delete it from the Timeline or Tasks: WILSON then keeps it in the versions that hold it.
+            </Dialog>
+          )
+        }
+        return (
         <Dialog
           width="confirm"
-          title="Delete this task?"
+          title={removalQ ? removalQ.title : 'Delete this task?'}
           onClose={() => setConfirmDeleteId(null)}
           footer={(
             <>
               <Button autoFocus onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
               <Button
-                variant="danger"
+                variant={removalQ && !removalQ.danger ? 'primary' : 'danger'}
                 onClick={() => {
                   const id = confirmDeleteId
                   setConfirmDeleteId(null)
@@ -437,14 +467,17 @@ export default function DashboardTasksView() {
                   setDetailTaskId(null)
                 }}
               >
-                Delete task
+                {removalQ ? removalQ.confirm : 'Delete task'}
               </Button>
             </>
           )}
         >
-          It goes to the 30-day trash, and admins can restore it.
+          {removalQ
+            ? removalQ.sentences.map((line, i) => <p key={i}>{line}</p>)
+            : 'It goes to the 30-day trash, and admins can restore it.'}
         </Dialog>
-      )}
+        )
+      })()}
     </div>
   )
 }
