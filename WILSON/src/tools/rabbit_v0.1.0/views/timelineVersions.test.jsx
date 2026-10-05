@@ -601,17 +601,20 @@ describe('Save from the Timeline: the Summary\'s mutator, its words and its toas
     await openQuietly(BV1)
     await run(() => ctx.dismissUndoToast())
     await run(() => ctx.updateTask(TASK_ID(3), { bid_days: 9 }))
-    globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
+    // Long enough that the press and its renders land before the stall on a
+    // slow machine (CI at 50ms: the step had stalled before the first check).
+    globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 1500
     const release = holdSave()
     await press(verb('Save'))
+    expect(ctx.versionStep).toBe('running')
     expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(3)
-    await waitFor(() => expect(ctx.versionStep).toBe('stalled'), { timeout: 2000 })
+    await waitFor(() => expect(ctx.versionStep).toBe('stalled'), { timeout: 6000 })
     expect(document.querySelectorAll('.ui-toolbar [aria-disabled="true"]').length).toBe(0)
     expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(false)
     expect(verb('Save').disabled).toBe(true)
     await release()
     await waitFor(() => expect(ctx.versionStep).toBe(null))
-  })
+  }, 20000)
 })
 
 // S5d review round 1 (R1-05): the words are pieces, so that where room runs
