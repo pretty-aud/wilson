@@ -44,10 +44,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 🚨 PINNED, not `latest` (2026-10-05, Audrey's yes). `version: latest`
+      # makes the action ask GitHub which release is newest on every run, and
+      # that lookup is rate-limited: when it is refused this step fails with
+      # "Failed to resolve latest Supabase CLI release: rate limit exceeded"
+      # (run 36814568208's annotation) before a single test runs, and "Stop
+      # Supabase" then exits 127 behind it — at least four red runs on green
+      # code between 2026-08-17 and 2026-10-01. A pinned version needs no
+      # lookup. 2.119.0 is the stable release from 2026-09-30, the one every
+      # green run from 2026-10-01 to 2026-10-05 resolved `latest` to. To move
+      # it: change the number, push, and read this job's result first.
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.119.0
 
       # Coverage guard — runs BEFORE spinning up Postgres so we fail fast.
       # RLS_TABLES is the allowlist of every RABBIT table under RLS. Adding a
