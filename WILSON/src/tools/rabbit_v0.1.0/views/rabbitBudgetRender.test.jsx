@@ -442,7 +442,7 @@ describe('surface 2a', () => {
       expect(ctx.saveBudgetVersion).toHaveBeenCalledWith('v1', { roleRates, basedOnListId: undefined })
       // The open version is the selected one here: there is nothing to open.
       expect(button(b, 'Edit this version').disabled).toBe(true)
-      expect(b.querySelector('.rb-bv-why').textContent).toBe('This is the open version: the Timeline and Budget show it now.')
+      expect(b.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it is open already — the Timeline and Budget show it now.')
     })
 
     it('while the rates are being read nothing is called unsaved and nothing that writes a bid can run, saying why', () => {
@@ -484,7 +484,7 @@ describe('surface 2a', () => {
       const r = render(tab(old))
       const ob = block(r.container)
       expect(button(ob, 'Edit this version').disabled).toBe(true)
-      expect(ob.querySelector('.rb-bv-why').textContent).toBe('Saved before versions kept their schedule (no timeline captured), so it cannot be opened for editing.')
+      expect(ob.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it was saved before versions kept their schedule (no timeline captured), so it cannot be opened.')
       const fact = (term) => [...ob.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === term)
       expect(fact('Overall total').querySelector('dd').textContent).toBe('Not recorded')
       expect(fact('Before agency').textContent).toBe('Before agency$4,000')
@@ -505,7 +505,7 @@ describe('surface 2a', () => {
       const ctx = makeCtx({ ...base, ...LOCKED })
       const { container } = render(tab(ctx))
       await act(async () => { fireEvent.click(within(container.querySelector('.ui-banner')).getByRole('button', { name: 'Reset to bidding' })) })
-      expect(ctx.runWithUndoToast).toHaveBeenCalledWith(expect.any(Function), 'Back to bidding: “Bid v1” is no longer locked')
+      expect(ctx.runWithUndoToast).toHaveBeenCalledWith(expect.any(Function), 'Back to bidding: “Bid v1” unlocked')
       expect(ctx.resetToBidding).toHaveBeenCalledTimes(1)
       expect(ctx.setActiveProject).not.toHaveBeenCalled()
       cleanup()
@@ -551,7 +551,7 @@ describe('surface 2a', () => {
         render(one.el)
         const dialog = await saveAsNew('Bid v2')
         expect(one.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v2', summary: '', roleRates, basedOnListId: 'L1' })
-        expect(dialog.textContent).toContain('Based on shot list Shoot · v2.')
+        expect(dialog.textContent).toContain('Based on the shot list “Shoot · v2”.')
         cleanup()
         const two = bidding()
         render(two.el)

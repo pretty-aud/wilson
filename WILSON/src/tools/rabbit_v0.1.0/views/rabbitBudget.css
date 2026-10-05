@@ -353,8 +353,11 @@
     color: var(--color-ink-2);
   }
   .rb-bv-verbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  /* Why a verb is greyed, said beside it (F9: "with the reason shown"). */
+  /* Why a verb is greyed, said (F9: "with the reason shown") on its own line
+     under the verbs — beside them it read as the reason of whichever button
+     it touched (Proximity) — naming the verb when it is one verb's. */
   .rb-bv-why {
+    flex: 1 0 100%;
     min-width: 0;
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
@@ -407,7 +410,9 @@
     line-height: var(--text-dense--line-height);
     color: var(--color-ink-2);
   }
-  .rb-bv-q-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+  /* The form's fields in normal flow: the kit Field's own 16px between two
+     (`.ui-field + .ui-field`) is the rhythm; a gap here would add to it. */
+  .rb-bv-q-fields { margin-top: 16px; }
   .rb-bv-q-keep {
     display: flex;
     align-items: flex-start;
@@ -434,28 +439,30 @@
 
   /* ── Manage versions… (the picker's table, F3) ────────────────────────────
      Column widths read by the header cells, each its widest value and its
-     header at the kit's 12px padding a side, in the browser's Geist Mono:
+     header at the kit's 12px padding a side, measured in the browser (the
+     first cut, 120 for "BEFORE AGENCY" and 48 for the ⋯, clipped both at
+     1280 — S5c's screenshots):
        state   a "SELECTED" badge, 20px tall, ~76                       ->  96
        date    "12/31/2026" 78 (en-US; a longer locale ellipsizes)     -> 104
-       money   "$1,234,567" 84 at 13px; "OVERALL" 49.5                 -> 112
-       before  "$1,234,567" 84; "BEFORE AGENCY" 95.8                   -> 120
+       money   "$1,234,567" 70 at 13px; "OVERALL" 49.5                 -> 104
+       before  "BEFORE AGENCY" at the Label step, ~106                 -> 136
        days    "1234.5" 46.8; "BID DAYS" 56.7                          ->  80
-       span    "9999 d" 46.8; "TIMELINE" 60.3                          ->  88
-       acts    a 28px MenuButton                                       ->  48
-     The name and the note share the rest; each ellipsizes, whole in its
-     tooltip. */
+       span    "9999 d" 46.8; "TIMELINE" 60.3                          ->  80
+       acts    a 28px MenuButton and its focus ring                    ->  56
+     The name and the note share the rest. A name WRAPS rather than being
+     cut (names are short, and the name is what a person reads here); a note
+     keeps one line, whole in its tooltip. */
   .rb-bv-table {
     --rb-bv-col-state: 96px;
     --rb-bv-col-date: 104px;
-    --rb-bv-col-money: 112px;
-    --rb-bv-col-before: 120px;
+    --rb-bv-col-money: 104px;
+    --rb-bv-col-before: 136px;
     --rb-bv-col-days: 80px;
-    --rb-bv-col-span: 88px;
-    --rb-bv-col-acts: 48px;
+    --rb-bv-col-span: 80px;
+    --rb-bv-col-acts: 56px;
   }
-  .rb-bv-table .ui-td.rb-bv-name-cell,
   .rb-bv-table .ui-td.rb-bv-note-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rb-bv-table .ui-td.rb-bv-name-cell { font-weight: 600; }
+  .rb-bv-table .ui-td.rb-bv-name-cell { font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
   .rb-bv-table .ui-td.rb-bv-note-cell[data-empty="true"] { color: var(--color-ink-3); }
   .rb-bv-table .ui-td.rb-bv-figure {
     font-family: var(--font-mono);

@@ -207,11 +207,12 @@ describe('Save as new version… and the toasts', () => {
     expect(saveAsNewWords({ locked: v('v2', 'Mid ROM') })).toBe('Records what the Timeline and Budget show now as a new bid version, so production changes are kept. It is not opened or selected: the budget stays locked to “Mid ROM”.')
   })
   it('each toast says what the step did', () => {
-    expect(openedToastWords({ version: v('v1', 'Bid v1'), leaving: set([1, 2]), returning: set([3]) })).toBe('Editing “Bid v1”: 2 tasks left the Timeline, 1 task came back')
+    // What moved first: the toast holds one line and cuts the rest.
+    expect(openedToastWords({ version: v('v1', 'Bid v1'), leaving: set([1, 2]), returning: set([3]) })).toBe('2 tasks left the Timeline, 1 task came back: editing “Bid v1”')
     expect(openedToastWords({ version: v('v1', 'Bid v1'), leaving: set(), returning: set() })).toBe('Editing “Bid v1”')
-    expect(lockedToastWords(v('v2', 'Mid ROM'))).toBe('“Mid ROM” is the budget in production, locked as it was saved')
-    expect(resetToastWords(v('v2', 'Mid ROM'))).toBe('Back to bidding: “Mid ROM” is no longer locked')
-    expect(resetToastWords(null)).toBe('Back to bidding: the budget is no longer locked')
+    expect(lockedToastWords(v('v2', 'Mid ROM'))).toBe('Locked “Mid ROM” as the budget in production')
+    expect(resetToastWords(v('v2', 'Mid ROM'))).toBe('Back to bidding: “Mid ROM” unlocked')
+    expect(resetToastWords(null)).toBe('Back to bidding: the budget unlocked')
     expect(deletedToastWords({ version: v('v1', 'Bid v2'), only: set([1, 2, 3]) })).toBe('Deleted “Bid v2” and the 3 tasks only it held')
     expect(deletedToastWords({ version: v('v1', 'Bid v2'), only: set() })).toBe('Deleted “Bid v2”')
     expect(recordedToastWords({ name: 'Revision after week 2' })).toBe('Recorded “Revision after week 2”; the lock is unchanged')

@@ -276,22 +276,24 @@ export function saveAsNewWords({ locked = null } = {}) {
     : 'Saves what the Timeline and Budget show now as a new bid version. It becomes the open version and the selected bid.'
 }
 
-// The undo toast after each step the questions take (the Budget's one way back).
-/** "Editing “Bid v1”: 11 tasks left the Timeline, 2 came back". */
+// The undo toast after each step the questions take (the Budget's one way
+// back). The toast holds ONE line and cuts the rest, so what a step moved
+// comes first and the version's name — on the save row already — last.
+/** "11 tasks left the Timeline, 2 came back: editing “Bid v1”". */
 export function openedToastWords({ version, leaving, returning }) {
   const moved = [
     rowsOf(leaving).length ? `${rowsWords(leaving)} left the Timeline` : null,
     rowsOf(returning).length ? `${rowsWords(returning)} came back` : null,
   ].filter(Boolean)
-  return `Editing ${q(version?.name)}${moved.length ? `: ${moved.join(', ')}` : ''}`
+  return moved.length ? `${cap(moved.join(', '))}: editing ${q(version?.name)}` : `Editing ${q(version?.name)}`
 }
-/** "“Mid ROM” is the budget in production, locked as it was saved". */
+/** "Locked “Mid ROM” as the budget in production". */
 export function lockedToastWords(version) {
-  return `${q(version?.name)} is the budget in production, locked as it was saved`
+  return `Locked ${q(version?.name)} as the budget in production`
 }
-/** "Back to bidding: “Mid ROM” is no longer locked". */
+/** "Back to bidding: “Mid ROM” unlocked". */
 export function resetToastWords(version) {
-  return `Back to bidding: ${version ? `${q(version.name)} is no longer locked` : 'the budget is no longer locked'}`
+  return `Back to bidding: ${version ? `${q(version.name)} unlocked` : 'the budget unlocked'}`
 }
 /** "Deleted “Bid v2” and the 11 tasks only it held". */
 export function deletedToastWords({ version, only }) {

@@ -123,7 +123,7 @@ export function SaveAsNewDialog({ locked = null, basedOn = null, onCancel, onSav
       )}
     >
       <p className="rb-bv-q-line">{saveAsNewWords({ locked })}</p>
-      <p className="rb-bv-q-quiet">{basedOn ? `Based on shot list ${basedOn}.` : 'Based on no shot list.'}</p>
+      <p className="rb-bv-q-quiet">{basedOn ? `Based on the shot list ${q(basedOn)}.` : 'Based on no shot list.'}</p>
       <div className="rb-bv-q-fields">
         <Field label="Name">
           <Input value={name} onChange={setName} autoFocus placeholder={locked ? 'e.g. Revision after week 2' : 'e.g. Mid ROM'}

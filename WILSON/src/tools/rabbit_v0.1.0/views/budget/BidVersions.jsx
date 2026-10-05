@@ -179,8 +179,8 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
   const selBased = sel ? basedOnWords(sel, shotLists) : null
   const deltaLine = selRead?.delta ? deltaWords(selRead.delta, { money: (n) => formatMoney(n, currency), days: (n) => formatTenths(n) }) : ''
   const editWhy = state.locked ? 'While the budget is active no version is opened: Reset to bidding first.'
-    : (!selRead?.hasTimeline ? 'Saved before versions kept their schedule (no timeline captured), so it cannot be opened for editing.'
-      : (sel?.id === state.open?.id ? 'This is the open version: the Timeline and Budget show it now.'
+    : (!selRead?.hasTimeline ? 'Edit this version: it was saved before versions kept their schedule (no timeline captured), so it cannot be opened.'
+      : (sel?.id === state.open?.id ? 'Edit this version: it is open already — the Timeline and Budget show it now.'
         : state.pending))
   const lockWhy = state.pending
   const saveAsNewPrimary = !state.open || state.locked
