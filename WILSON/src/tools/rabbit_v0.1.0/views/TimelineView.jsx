@@ -76,6 +76,8 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 // of me?" (the Bins and Scenes keys ask it too), and which shot list a linked
 // scene or shot is in (D10's tooltip, Audrey's "clearly indicate").
 import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
+// Post-overhaul S5b (constraint 9): Remove from this version, or Delete.
+import { removalQuestion } from '../state/versionWords'
 import { useHomeIndex } from './scenes/LinkHome'
 // Audrey's rule of 2026-10-02: a task linked outside the active list reads
 // as not assigned in group-by-scene, never dropped, and says where it points.
@@ -4590,7 +4592,16 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     setError(null)
     const ask = DELETE_ASK[editor.mode]
     if (!ask?.id) { onClose(); return }
-    setAskDelete(ask)
+    // Post-overhaul S5b (constraint 9): with a bid version open, a task, phase
+    // or key date another version holds is set aside — Remove from this
+    // version — and stays there; the question says which, and names the work
+    // on it. Anything else is the delete question it always was.
+    const kind = { task: 'tasks', phase: 'phases', milestone: 'milestones' }[editor.mode]
+    const noun = { task: 'task', phase: 'phase', milestone: 'key date' }[editor.mode]
+    const removalQ = kind ? removalQuestion(ctx?.removalPlanFor?.({ [kind]: [ask.id] }), noun) : null
+    setAskDelete(removalQ
+      ? { id: ask.id, title: removalQ.title, sentences: removalQ.sentences, label: removalQ.confirm, danger: removalQ.danger }
+      : { ...ask, danger: true })
   }
 
   async function performDelete() {
@@ -5186,11 +5197,12 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
         footer={(
           <>
             <Button autoFocus onClick={() => setAskDelete(null)}>Cancel</Button>
-            <Button variant="danger" onClick={performDelete}>{askDelete.label}</Button>
+            <Button variant={askDelete.danger === false ? 'primary' : 'danger'} onClick={performDelete}>{askDelete.label}</Button>
           </>
         )}
       >
         {askDelete.body && <p className="text-body rb-tl-ask-body">{askDelete.body}</p>}
+        {(askDelete.sentences || []).map((line, i) => <p key={i} className="text-body rb-tl-ask-body">{line}</p>)}
       </Dialog>
     )}
     </>

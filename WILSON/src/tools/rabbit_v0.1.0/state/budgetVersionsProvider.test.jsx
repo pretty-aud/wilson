@@ -200,7 +200,7 @@ describe('Save — into the open version (F2)', () => {
 })
 
 describe('Edit this version — opening (F2)', () => {
-  it('writes its schedule and settings into the live rows as ONE undo step; tasks added since stay; logged days never move', async () => {
+  it('writes its schedule and settings into the live rows as ONE undo step; tasks it does not hold are SET ASIDE (S5b, ruling (a)); logged days never move', async () => {
     await bidding()
     // Bid v1 holds the first thirty-one tasks at a contingency of 8.
     const logged = task(9).logged_days
@@ -213,13 +213,22 @@ describe('Edit this version — opening (F2)', () => {
     expect(task(9).end_date).toBe(v1Task9.end_date)
     expect(task(9).logged_days).toBe(logged)
     expect(Number(ctx.project.budget_contingency_pct)).toBe(8)
-    expect(task(42)).toBeTruthy() // added since v1 was saved: it stays
+    // Part 1 pinned "added since v1 was saved: it stays" — the controller's
+    // draft sentence, withdrawn by Audrey's ruling (a): v1 shows EXACTLY its
+    // own schedule. Task 42 (not in v1) is set aside, kept whole.
+    expect(task(42)).toBeUndefined()
+    expect(ctx.tasks).toHaveLength(31)
+    expect(ctx.setAsideTasks.map(t => t.id)).toContain(TASK_ID(42))
     expect(loads).toBe(1)
     await run(() => ctx.undo())
     expect(ctx.project.open_budget_version_id).toBeNull()
     expect(selectedVersionOf(versions()).id).toBe(BV2)
     expect(Number(ctx.project.budget_contingency_pct)).toBe(10)
     expect(task(9).start_date).toBe('2026-11-02')
+    // ONE undo brought every set-aside task back (constraint 7).
+    expect(task(42)).toBeTruthy()
+    expect(ctx.tasks).toHaveLength(42)
+    expect(ctx.setAsideTasks).toEqual([])
   })
 
   it('R1-01: a trashed task comes back under its SAVED id — restored, not re-made — and re-opening never makes it twice', async () => {

@@ -506,3 +506,52 @@ describe('dependency kind stamping (0061)', () => {
     expect(next.phases.map(p => p.id)).toEqual(['ph2'])
   })
 })
+
+// Post-overhaul S5b (0090): another window opens a bid version and sets rows
+// aside / brings them back. Those UPDATEs arrive one row at a time, and the
+// row must leave (or rejoin) THIS window's live schedule with its edges — the
+// merge alone would keep a set-aside task on screen with its stamp on it.
+describe('set-aside rows arriving from another window (S5b)', () => {
+  const AT = '2026-10-05T10:00:00Z'
+  const base = () => ({
+    project: { id: 'p1', open_budget_version_id: 'v2' },
+    tasks: [{ id: 't1', updated_at: '2026-10-05T09:00:00Z' }, { id: 't2', title: 'Extra', updated_at: '2026-10-05T09:00:00Z' }],
+    phases: [], milestones: [],
+    dependencies: [{ id: 'd1', kind: 'task', predecessor_id: 't1', successor_id: 't2' }],
+    setAsideTasks: [], setAsidePhases: [], setAsideMilestones: [], setAsideDependencies: [],
+  })
+  const upd = (table, record, oldRecord) => ({ table, op: 'UPDATE', record, oldRecord })
+
+  it('a task set aside elsewhere leaves the live schedule, its edge with it — kept, not dropped', () => {
+    const { bundle } = applyRealtimeEvent(base(), upd('tasks', { id: 't2', title: 'Extra', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2', set_aside_at: null }))
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks.map(t => t.id)).toEqual(['t2'])
+    expect(bundle.dependencies).toEqual([])
+    expect(bundle.setAsideDependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('brought back elsewhere, it returns — the same row — with its edge', () => {
+    const aside = applyRealtimeEvent(base(), upd('tasks', { id: 't2', title: 'Extra', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2' })).bundle
+    const { bundle } = applyRealtimeEvent(aside, upd('tasks', { id: 't2', title: 'Extra', set_aside_at: null, updated_at: '2026-10-05T11:00:00Z' }, { id: 't2', set_aside_at: AT }))
+    expect(bundle.tasks.map(t => t.id).sort()).toEqual(['t1', 't2'])
+    expect(bundle.setAsideTasks).toEqual([])
+    expect(bundle.dependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('an edit to a row while it is set aside stays out of sight', () => {
+    const aside = applyRealtimeEvent(base(), upd('tasks', { id: 't2', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2' })).bundle
+    const { bundle } = applyRealtimeEvent(aside, upd('tasks', { id: 't2', title: 'Renamed', set_aside_at: AT, updated_at: '2026-10-05T12:00:00Z' }, { id: 't2', set_aside_at: AT }))
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks[0].title).toBe('Renamed')
+  })
+  it('CONTROL: an event with no stamp anywhere leaves the arrays as they were (identity kept)', () => {
+    const b = base()
+    const { bundle } = applyRealtimeEvent(b, upd('tasks', { id: 't1', title: 'T1!', updated_at: '2026-10-05T10:00:00Z' }, { id: 't1' }))
+    expect(bundle.tasks[0].title).toBe('T1!')
+    expect(bundle.dependencies).toBe(b.dependencies)
+  })
+  it('the open version moved elsewhere → re-read the versions; this window\'s own echo asks for nothing', () => {
+    const moved = applyRealtimeEvent(base(), upd('projects', { id: 'p1', open_budget_version_id: 'v3' }, { id: 'p1' }))
+    expect(moved.effects.map(e => e.type)).toContain('versions-refetch')
+    const echo = applyRealtimeEvent(base(), upd('projects', { id: 'p1', open_budget_version_id: 'v2', title: 'x' }, { id: 'p1' }))
+    expect(echo.effects.map(e => e.type)).not.toContain('versions-refetch')
+  })
+})

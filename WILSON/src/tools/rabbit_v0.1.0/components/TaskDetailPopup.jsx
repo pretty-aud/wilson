@@ -31,6 +31,7 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
+import { useRemovalAsk } from './RemovalQuestion'
 import { Dialog, Button, Field, EmptyState, StatusBadge, StatusDot, statusMeta, Switch } from '../../../ui'
 // Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
 // and the pickers' active-list default.
@@ -61,6 +62,10 @@ function fmt(s) { return (s || '').replace(/_/g, ' ') }
 export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const task = (ctx?.tasks || []).find(t => t.id === taskId)
   const guard = useDependencyStatusGuard(ctx)
+  // Post-overhaul S5b (constraint 9): with a bid version open, Delete may
+  // set the task aside instead (another version holds it); when it has work
+  // on it, that is asked first. Anything else runs at once, as it always did.
+  const removal = useRemovalAsk(ctx)
   const assets = ctx?.assets || []
   const phases = ctx?.phases || []
   const project = ctx?.project
@@ -197,6 +202,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   return (
     <>
       {guard.modal}
+      {removal.dialog}
       <Dialog
         // The header is the dialog's H2, read-only; the Title FIELD below is
         // where the title is edited, at the field's own 14px / 400. The two
@@ -223,7 +229,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   covers it. A ctx.deleteTask returning false means the caller
                   vetoed the delete (Dashboard's confirm) — keep the popup open. */}
               <Button variant="danger" Icon={Trash2}
-                onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}>
+                onClick={() => removal.ask({ tasks: [task.id] }, () => { if (ctx?.deleteTask?.(task.id) !== false) onClose() })}>
                 Delete task
               </Button>
             </GatedAction>

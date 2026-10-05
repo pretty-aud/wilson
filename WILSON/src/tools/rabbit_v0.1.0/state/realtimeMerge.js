@@ -29,6 +29,14 @@
 // =============================================================================
 
 import { byMilestoneDate } from './milestoneOrder'
+import { splitSetAside, joinSetAside, hasSetAside } from './setAside'
+
+// Post-overhaul S5b (0090): the tables whose rows can be SET ASIDE by the open
+// bid version, or hang off one that is (the edges). An event on one of them
+// is applied over EVERY row — the live and the set-aside — and the bundle is
+// split again after, so a row another window set aside leaves this one's
+// live schedule (with its edges), and one it brought back returns.
+const SET_ASIDE_TABLES = new Set(['tasks', 'phases', 'milestones', 'task_dependencies', 'phase_dependencies'])
 
 // Bundle collection per broadcast table. project_members and projects are
 // handled specially (roster slice / index + bundle.project).
@@ -212,9 +220,29 @@ function removeWithMirror(bundle, table, id) {
  *   { type: 'project-trashed', id }           — project soft/hard deleted
  *   { type: 'refetch' }                       — container restored; children
  *                                               must be refetched (debounced)
+ *   { type: 'versions-refetch' }              — another window moved the OPEN
+ *                                               bid version (S5b): bid versions
+ *                                               are not broadcast (S5-02), so
+ *                                               this window re-reads them
  */
 export function applyRealtimeEvent(bundle, evt, opts = {}) {
-  const noop = { bundle, effects: [] }
+  if (evt && SET_ASIDE_TABLES.has(evt.table)) {
+    const stamped = (r) => r != null && r.set_aside_at != null
+    if (hasSetAside(bundle) || stamped(evt.record) || stamped(evt.oldRecord)) {
+      const res = applyEventCore(joinSetAside(bundle), evt, opts)
+      if (res.bundle === null) return { bundle, effects: res.effects }
+      return { bundle: splitSetAside(res.bundle), effects: res.effects }
+    }
+  }
+  const res = applyEventCore(bundle, evt, opts)
+  return res.bundle === null ? { bundle, effects: res.effects } : res
+}
+
+// The event logic itself, unaware of set-aside rows (applyRealtimeEvent above
+// hands it every row and splits after). Answers bundle: null for "nothing
+// changed", so the caller keeps its own identities.
+function applyEventCore(bundle, evt, opts = {}) {
+  const noop = { bundle: null, effects: [] }
   if (!evt || !evt.table || !evt.op) return noop
   const { table, op } = evt
   // 0061: stamp the dependency `kind` from the source table before anything
@@ -245,6 +273,15 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
     }
     const effects = [{ type: 'project-patch', record }]
     if (bundle.project?.id === id) {
+      // S5b: another window opened (or closed) a bid version. Its rows
+      // arrive here one by one, but the versions themselves are not
+      // broadcast, so this window re-reads them — or it would measure
+      // "unsaved changes" against a version that is no longer the open one.
+      // This window's own write echoes back with the pointer it already
+      // holds, and asks for nothing.
+      if ((record?.open_budget_version_id ?? null) !== (bundle.project.open_budget_version_id ?? null)) {
+        effects.push({ type: 'versions-refetch' })
+      }
       const merged = mergeRow(bundle.project, record, pending('projects', id))
       if (merged !== bundle.project) {
         return { bundle: { ...bundle, project: merged }, effects }

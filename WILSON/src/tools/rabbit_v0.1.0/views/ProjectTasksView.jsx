@@ -40,6 +40,9 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction, { WriteReasonProvider, useWriteReason } from '../../../permissions/GatedAction'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+// Post-overhaul S5b (constraint 9): Remove from this version, or Delete.
+import { useRemovalAsk } from '../components/RemovalQuestion'
+import { removalQuestion } from '../state/versionWords'
 import NewTaskPopup from '../components/NewTaskPopup'
 // Phase 7 (Track A A2, 2026-09-06): every task-status write on this tab —
 // the inline dropdown, the bulk select, and both drop targets — warns about
@@ -1185,21 +1188,29 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases,
         {body}
       </Table>
 
-      {confirmBulkDelete && (
-        <Dialog
-          width="confirm"
-          title={`Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`}
-          onClose={() => setConfirmBulkDelete(false)}
-          footer={(
-            <>
-              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
-              <Button variant="danger" onClick={confirmedBulkDelete}>Delete</Button>
-            </>
-          )}
-        >
-          Every ticked task is deleted, including any in a collapsed group.
-        </Dialog>
-      )}
+      {confirmBulkDelete && (() => {
+        // Post-overhaul S5b (constraint 9): with a bid version open, the
+        // ticked tasks another version holds are set aside, not deleted, and
+        // the question says which; otherwise it is the question it always was.
+        const removalQ = removalQuestion(ctx?.removalPlanFor?.({ tasks: [...selected] }), 'task')
+        return (
+          <Dialog
+            width="confirm"
+            title={removalQ ? removalQ.title : `Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`}
+            onClose={() => setConfirmBulkDelete(false)}
+            footer={(
+              <>
+                <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
+                <Button variant={removalQ && !removalQ.danger ? 'primary' : 'danger'} onClick={confirmedBulkDelete}>{removalQ ? removalQ.confirm : 'Delete'}</Button>
+              </>
+            )}
+          >
+            {removalQ
+              ? removalQ.sentences.map((line, i) => <p key={i} className="rb-removal-line">{line}</p>)
+              : 'Every ticked task is deleted, including any in a collapsed group.'}
+          </Dialog>
+        )
+      })()}
 
       {/* The milestone delete confirm that W9 had put on the kit Dialog is
           GONE (Track A A2 session 2, ruling 38): 0067 made milestones the
@@ -1593,6 +1604,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 // ── Single task row ──
 function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect, drop }) {
   const guard = useDependencyStatusGuard(ctx)
+  const removal = useRemovalAsk(ctx)
   const writeReason = useWriteReason()
 
   // 🚨 Session 29 — this funnel was UNGATED, and it is not a create affordance
@@ -1611,10 +1623,12 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
     // first; any other cell commits straight through.
     guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
   }
-  // Soft delete — no confirm; the shell-level undo toast covers it.
+  // Soft delete — no confirm; the shell-level undo toast covers it. S5b:
+  // with a bid version open, a task another version holds is set aside
+  // instead, and when it has work on it that is asked first.
   function handleDelete() {
     if (!canWrite) return
-    ctx?.deleteTask?.(task.id)
+    removal.ask({ tasks: [task.id] }, () => ctx?.deleteTask?.(task.id))
   }
 
   // Borderless select — transparent until hover: `.rb-task-cell-select`.
@@ -1737,6 +1751,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       {...(drop?.handlers || {})}
     >
       {guard.modal}
+      {removal.dialog}
       {/* Checkbox */}
       <Td className="rb-task-check-cell">
         <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
@@ -1888,6 +1903,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
 }
 
 function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onDetailClick }) {
+  const removal = useRemovalAsk(ctx)
   const assignee = task.assignee_id ? memberById[task.assignee_id] : null
   const asset    = task.asset_id    ? assetById[task.asset_id]     : null
   const status   = task.status   || 'waiting_to_start'
@@ -1902,6 +1918,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
     <div className="rb-task-card ui-hover-host"
       data-draggable={canWrite ? 'true' : 'false'}
       draggable={canWrite} onDragStart={handleDragStart}>
+      {removal.dialog}
 
       {/* Title + actions */}
       <div className="rb-task-card-top">
@@ -1912,7 +1929,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onD
           <IconButton size="sm" Icon={FileText} title="View task details" onClick={onDetailClick} />
           {canWrite && (
             // Soft delete — no confirm; the shell-level undo toast covers it.
-            <IconButton size="sm" Icon={Trash2} danger title="Delete task" onClick={() => ctx?.deleteTask?.(task.id)} />
+            <IconButton size="sm" Icon={Trash2} danger title="Delete task" onClick={() => removal.ask({ tasks: [task.id] }, () => ctx?.deleteTask?.(task.id))} />
           )}
         </HoverActions>
       </div>

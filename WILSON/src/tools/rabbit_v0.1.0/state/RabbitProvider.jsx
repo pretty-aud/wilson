@@ -100,7 +100,15 @@ import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // for the snapshot, the open plan and "which version is selected".
 import {
   snapshotFromLive, planOpen, readVersion, selectedVersionOf, sortVersionsNewest, previousVersionOf,
+  versionDiff,
 } from './budgetVersionModel';
+// Post-overhaul S5b (0090): rows the open version does not hold are SET
+// ASIDE — kept whole, hidden everywhere, brought back by a version that holds
+// them (Audrey's ruling (a)). The one pure answer for that state.
+import {
+  splitSetAside, joinSetAside, holdersOf, workOn, removalOf, rowsInNoVersion, countRows,
+} from './setAside';
+import { removalToastWords } from './versionWords';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -413,8 +421,15 @@ export function RabbitProvider({ children }) {
   // every soft/undoable delete shows one instead of a confirm dialog.
   const [undoToast, setUndoToast] = useState(null);
   const undoToastKeyRef = useRef(0);
+  // Post-overhaul S5b: while a composite runs its own inner deletes (the open's
+  // Discard, a version's delete, Remove from this version beside a Delete),
+  // each inner delete's toast would name one row and offer an Undo that cannot
+  // work (a batched entry's token resolves nothing). The composite shows ONE
+  // toast for its whole step instead.
+  const quietToastsRef = useRef(0);
 
   const showUndoToast = useCallback((message, onUndo) => {
+    if (quietToastsRef.current > 0) return;
     setUndoToast({ key: ++undoToastKeyRef.current, message, onUndo });
   }, []);
 
@@ -869,11 +884,15 @@ export function RabbitProvider({ children }) {
     pendingEffectsRef.current = [];
     let roster = false;
     let refetch = false;
+    let versionsRefetch = false;
     for (const eff of effects) {
       if (eff.type === 'roster') {
         roster = true;
       } else if (eff.type === 'refetch') {
         refetch = true;
+      } else if (eff.type === 'versions-refetch') {
+        // S5b: another window opened or closed a bid version (realtimeMerge).
+        versionsRefetch = true;
       } else if (eff.type === 'project-patch' && eff.record?.id) {
         setProjectsIndex(idx => {
           // Same stale guard as the workspace path (Session 8): the same
@@ -902,6 +921,8 @@ export function RabbitProvider({ children }) {
     }
     if (roster) refreshProjectMembers();
     if (refetch) scheduleRealtimeRefetch();
+    // Through mutationsRef: refreshBudgetVersions is defined further down.
+    if (versionsRefetch && !refetch) mutationsRef.current.refreshBudgetVersions?.();
   }, [effectTick, activeProjectId, clearHistory, refreshProjectMembers, scheduleRealtimeRefetch]);
 
   useEffect(() => {
@@ -5000,6 +5021,14 @@ export function RabbitProvider({ children }) {
       throw new Error(plan.reason || 'This change cannot be reverted.');
     }
     const { table, id } = plan;
+    // Post-overhaul S5b (0090): a row the open bid version does not hold is
+    // SET ASIDE — whole, out of sight, not lost. It is missing from the live
+    // arrays, so every plan below would read it as gone: "recreate" would
+    // re-add it over the set-aside row, out of step with the database.
+    const asideKey = { tasks: 'setAsideTasks', phases: 'setAsidePhases' }[table];
+    if (asideKey && (bundleRef.current[asideKey] || []).some(r => r.id === id)) {
+      throw new Error(`That ${table === 'tasks' ? 'task' : 'phase'} is set aside: the open bid version does not hold it. Edit a bid version that holds it to change it.`);
+    }
     const findLocal = () => {
       switch (table) {
         case 'projects': return projectsIndex[id]
@@ -5354,11 +5383,39 @@ export function RabbitProvider({ children }) {
   }, [patchBudgetVersionRow]);
 
   /**
-   * Delete a version. The LOCKED one cannot go (reset to bidding first);
-   * deleting the SELECTED one leaves none selected (F13); deleting the OPEN
-   * one closes it (0089's SET NULL). Undo puts the row back as it was.
+   * Delete a version (the person's verb). The LOCKED one cannot go (reset to
+   * bidding first); deleting the SELECTED one leaves none selected (F13);
+   * deleting the OPEN one closes it (0089's SET NULL). Undo puts it back.
+   *
+   * S5b, constraint 10 (decided here, for Audrey): the rows ONLY this
+   * version held that are SET ASIDE now would be stranded — no version could
+   * ever bring them back. They go with it, deleted the ordinary way, in the
+   * same undo step (the question names them first: previewDeleteBudgetVersion).
+   * A row it held that is LIVE (it was the open one) simply stays.
    */
   const deleteBudgetVersion = useCallback(async (id) => {
+    const still = compositeGuard();
+    const v = requireBudgetVersion(id);
+    if (lockedBudgetVersionId() === id) throw new Error('the locked bid cannot be deleted — Reset to bidding first');
+    const only = onlyHeldSetAside(id);
+    if (!countRows(only)) return mutationsRef.current.deleteBudgetVersionRow(id);
+    return inHistoryQueue(() => runBatch(async () => {
+      still();
+      const m = mutationsRef.current;
+      const ids = idsOf(only);
+      // Brought back first, so the ordinary delete takes each one the way it
+      // always does (its edges, its undo); the trash would clear the stamp
+      // anyway (0090), and the undo of this step sets them aside again.
+      await m.setAsideRows(false, ids);
+      still();
+      await deleteRowsQuietly(ids, still);
+      still();
+      await m.deleteBudgetVersionRow(v.id);
+    }));
+  }, [runBatch]);
+
+  /** The version row itself, without the rows only it held (deleteBudgetVersion's last step; its redo). */
+  const deleteBudgetVersionRow = useCallback(async (id) => {
     const pid = activeProjectIdRef.current;
     if (!pid) throw new Error('no project');
     const v = requireBudgetVersion(id);
@@ -5379,7 +5436,7 @@ export function RabbitProvider({ children }) {
         await restoreBudgetVersionRow(v);
         if (wasOpen) await mutationsRef.current.setOpenBudgetVersion(id);
       }],
-      redoOps: [() => mutationsRef.current.deleteBudgetVersion(id)],
+      redoOps: [() => mutationsRef.current.deleteBudgetVersionRow(id)],
     });
   }, [optimistic, restoreBudgetVersionRow]);
 
@@ -5523,10 +5580,21 @@ export function RabbitProvider({ children }) {
    * Edit this version (F2): its snapshot written into the live rows — phases
    * (sub-phases too), each task's dates, bid days, role, position, status and
    * links, the key dates, margin / contingency / agency and the role rates —
-   * then it is OPEN and SELECTED. Tasks added since it was saved stay (her
-   * F2); a row it holds that the project lost comes back under its saved id
-   * (reviveBudgetRow); logged_days is never written. ONE undo step.
+   * then it is OPEN and SELECTED. ONE undo step.
+   *
+   * S5b, Audrey's ruling (a): the version shows EXACTLY its own schedule.
+   * Live rows it does not hold are SET ASIDE (kept whole — their comments,
+   * files, links, edges, logged days — out of sight, never in a trash); rows
+   * it holds that are set aside come BACK, the same rows; a row it holds that
+   * the project lost comes back under its saved id (reviveBudgetRow);
+   * logged_days is never written.
    * { roleRates } — the live rates the plan compares against.
+   * { keep: { tasks, phases } } — rows with work on them the person chose to
+   *   keep (constraint 4): they stay live, as the open version's unsaved
+   *   changes; a kept task keeps its phase.
+   * { discard: true } — the answer Discard (constraint 8): the live rows NO
+   *   saved version holds are deleted the ordinary way first, so none is ever
+   *   set aside for good.
    *
    * Refused while a budget is active (review round 1, R1-10): the live
    * Timeline is production's then, its margin, contingency and agency are
@@ -5541,7 +5609,6 @@ export function RabbitProvider({ children }) {
    */
   const openBudgetVersion = useCallback(async (id, opts = {}) => {
     const still = compositeGuard();
-    const pid = activeProjectIdRef.current;
     const v = requireBudgetVersion(id);
     if (budgetIsLocked()) {
       throw new Error(lockedBudgetVersionId() === id
@@ -5553,59 +5620,97 @@ export function RabbitProvider({ children }) {
     }
     return inHistoryQueue(() => runBatch(async () => {
       still();
-      const m = mutationsRef.current;
-      const b = bundleRef.current;
-      const plan = planOpen(v.snapshot, {
-        tasks: b.tasks, phases: b.phases, milestones: b.milestones, project: b.project, roleRates: opts.roleRates || {},
-        known: {
-          scenes: new Set((b.scenes || []).map(r => String(r.id))),
-          shots: new Set((b.shots || []).map(r => String(r.id))),
-          assets: new Set((b.assets || []).map(r => String(r.id))),
-        },
-      });
       try {
-        // Even when it is this one (opening the open version again puts its
-        // saved state back — the continuation's "Discard changes").
-        if (b.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
-        for (const row of plan.phases.create) { await reviveBudgetRow('phase', row); still(); }
-        for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
-        for (const row of plan.tasks.create) { await reviveBudgetRow('task', row); still(); }
-        for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
-        for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
-        for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
-        if (plan.settings) { await m.setProjectBudgetFields(plan.settings.patch); still(); }
-        if (plan.rates.length) {
-          const overrides = await adapterRef.current.listProjectRateOverrides?.(pid);
-          for (const r of plan.rates) { still(); await setProjectRoleRate(r, overrides); }
-        }
+        const plan = await loadVersionIntoLive(v, opts, still);
         still();
-        await m.selectBudgetVersion(id);
+        await mutationsRef.current.selectBudgetVersion(id);
         still();
-        await m.setOpenBudgetVersion(id);
+        await mutationsRef.current.setOpenBudgetVersion(id);
+        return { id, plan };
       } catch (err) {
         throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. No version is open now; Undo (Ctrl+Z) takes back what changed.`);
       }
-      return { id, plan };
     }));
   }, [runBatch]);
 
   /**
-   * Set budget active (the LOCK): the version SELECTED — always written
-   * (review round 1, R1-04: old data may hold two selected rows, and the
-   * newest one, which the variance reads, may not be this one) — stamped
-   * locked_at / locked_by in its real columns (F12.2), and the project's
-   * budget_active / budget_active_version_id / budget_finalized. Nothing is
-   * open while a budget is active (F9), so an open version — this one or
-   * another — is closed first; the live rows stay as they are. ONE undo step.
+   * The writes that make the live schedule a version AS SAVED — Edit this
+   * version's, and Set budget active's (S5b: the lock freezes the version as
+   * saved, so the schedule under it is that version's). Inside the caller's
+   * batch, `still` checked before every write, in this order: the version
+   * open now closed (R1-07: a refusal part way leaves none open over a mix);
+   * Discard's deletes; then the plan — brought back, revived or re-made,
+   * patched, set aside — then settings and rates. Selecting and opening are
+   * the caller's.
    */
-  const activateBudget = useCallback(async (id) => {
+  async function loadVersionIntoLive(v, opts, still) {
+    const m = mutationsRef.current;
+    const pid = activeProjectIdRef.current;
+    let b = bundleRef.current;
+    if (b.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
+    if (opts.discard) {
+      // Constraint 8: what NO saved version holds would be set aside for
+      // ever; Discard deletes it the ordinary way instead (Undo brings it back).
+      const none = rowsInNoVersion({ tasks: b.tasks, phases: b.phases, milestones: b.milestones }, b.budgetVersions);
+      await deleteRowsQuietly(idsOf(none), still);
+      b = bundleRef.current;
+    }
+    const plan = planOpen(v.snapshot, {
+      tasks: b.tasks, phases: b.phases, milestones: b.milestones,
+      setAside: { tasks: b.setAsideTasks, phases: b.setAsidePhases, milestones: b.setAsideMilestones },
+      keep: opts.keep || null,
+      project: b.project, roleRates: opts.roleRates || {},
+      known: {
+        scenes: new Set((b.scenes || []).map(r => String(r.id))),
+        shots: new Set((b.shots || []).map(r => String(r.id))),
+        assets: new Set((b.assets || []).map(r => String(r.id))),
+      },
+    });
+    // Brought back BEFORE their patches: a patch reads the live row.
+    if (countRows(plan.bringBack)) { await m.setAsideRows(false, plan.bringBack); still(); }
+    for (const row of plan.phases.create) { await reviveBudgetRow('phase', row); still(); }
+    for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
+    for (const row of plan.tasks.create) { await reviveBudgetRow('task', row); still(); }
+    for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
+    for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
+    for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
+    if (countRows(plan.setAside)) { await m.setAsideRows(true, plan.setAside); still(); }
+    if (plan.settings) { await m.setProjectBudgetFields(plan.settings.patch); still(); }
+    if (plan.rates.length) {
+      const overrides = await adapterRef.current.listProjectRateOverrides?.(pid);
+      for (const r of plan.rates) { still(); await setProjectRoleRate(r, overrides); }
+    }
+    return plan;
+  }
+
+  /**
+   * Set budget active (the LOCK): the version SELECTED — always written
+   * (review round 1, R1-04) — stamped locked_at / locked_by in its real
+   * columns (F12.2), and the project's budget_active / budget_active_version_id
+   * / budget_finalized. Nothing is open while a budget is active (F9).
+   *
+   * S5b: the lock freezes the version AS SAVED, and the schedule under it is
+   * that version's rows plus what production makes (constraint 6) — so the
+   * live schedule BECOMES the version first, as Edit this version makes it
+   * (loadVersionIntoLive: set aside, brought back, values restored), with the
+   * same { roleRates, keep, discard } answers its questions gave. A version
+   * saved before S5 holds no schedule: it locks with the Timeline as it is.
+   * ONE undo step.
+   */
+  const activateBudget = useCallback(async (id, opts = {}) => {
     const still = compositeGuard();
-    requireBudgetVersion(id);
+    const v = requireBudgetVersion(id);
     if (budgetIsLocked()) throw new Error('the budget is already active');
     return inHistoryQueue(() => runBatch(async () => {
       still();
       const m = mutationsRef.current;
-      if (bundleRef.current.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
+      if (readVersion(v).hasTimeline) {
+        await loadVersionIntoLive(v, opts, still);
+        still();
+      } else if (bundleRef.current.project?.open_budget_version_id) {
+        await m.setOpenBudgetVersion(null);
+        still();
+      }
       await m.selectBudgetVersion(id);
       still();
       await m.stampBudgetVersionLock(id, true);
@@ -5613,6 +5718,248 @@ export function RabbitProvider({ children }) {
       await m.setProjectBudgetFields({ budget_active: true, budget_active_version_id: id, budget_finalized: true });
     }));
   }, [runBatch]);
+
+  // ── Set aside (post-overhaul S5b, step 0; migration 0090) ───────────────
+  // Audrey's ruling (a) of 2026-10-05: each bid version shows EXACTLY its own
+  // schedule. The rows the open version does not hold are SET ASIDE — kept
+  // whole (comments, files, links, edges, assignments, logged days, scene and
+  // shot links), never in a trash, never purged, hidden from every reader
+  // (the loaders split them into the setAside* keys) — and come back, the
+  // same rows, when a version holding them is opened. The design:
+  // docs/sessions/handoffs/po-s5b-2026-10-05.md, "Step 0".
+  const SCHEDULE_KINDS = ['tasks', 'phases', 'milestones'];
+  const ASIDE_KEY = { tasks: 'setAsideTasks', phases: 'setAsidePhases', milestones: 'setAsideMilestones' };
+  const bySortOrder = (a, c) => (a.sort_order ?? 0) - (c.sort_order ?? 0);
+
+  /**
+   * Set rows aside (on) or bring them back (off): ONE write, ONE undo step
+   * (what it set aside comes back; what it brought back goes aside again).
+   * Only the rows memory holds in the other state move — the step's undo
+   * takes back exactly those, never a row that was already there.
+   * ids: { tasks, phases, milestones }.
+   */
+  const setAsideRows = useCallback(async (on, ids = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    const b = bundleRef.current;
+    const want = {};
+    // Replaying a step (undo / redo), the ids ARE the step's own — exactly
+    // what it moved — and memory may not show them yet: the op before this
+    // one (a restore taking a row out of the trash) lands through a queued
+    // setBundle, which bundleRef sees only after the next render. The backend
+    // touches nothing already in the asked state, and the functional
+    // setBundle below marks the rows once they are there.
+    const replaying = historyRef.current.suspended;
+    for (const k of SCHEDULE_KINDS) {
+      const asked = new Set((ids[k] || []).map(String));
+      if (replaying) { want[k] = [...(ids[k] || [])]; continue; }
+      const from = on ? (b[k] || []) : (b[ASIDE_KEY[k]] || []);
+      want[k] = from.filter(r => asked.has(String(r.id))).map(r => r.id);
+    }
+    if (!countRows(want)) return null;
+    const a = versionAdapterFor('setAsideRows');
+    const res = await a.setAsideRows(pid, { on, ...want });
+    if (activeProjectIdRef.current !== pid) return res;
+    const stamp = on ? (res?.set_aside_at || new Date().toISOString()) : null;
+    const apply = (bundle) => {
+      const j = joinSetAside(bundle);
+      const next = { ...j };
+      for (const k of SCHEDULE_KINDS) {
+        const set = new Set(want[k].map(String));
+        if (set.size) next[k] = j[k].map(r => (set.has(String(r.id)) ? { ...r, set_aside_at: stamp } : r));
+      }
+      const split = splitSetAside(next);
+      // A row that came back takes its place as a reload would put it.
+      if (!on && want.phases.length) split.phases = split.phases.slice().sort(bySortOrder);
+      if (!on && want.milestones.length) split.milestones = split.milestones.slice().sort(byMilestoneDate);
+      return split;
+    };
+    setBundle(apply);
+    bundleRef.current = apply(bundleRef.current);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.setAsideRows(!on, want)],
+      redoOps: [() => mutationsRef.current.setAsideRows(on, want)],
+    });
+    return res;
+  }, []);
+
+  function idsOf(set) {
+    const out = {};
+    for (const k of SCHEDULE_KINDS) out[k] = ((set && set[k]) || []).map(r => (r && typeof r === 'object' ? r.id : r));
+    return out;
+  }
+  const rowName = (kind, row) => (kind === 'phases' ? row?.name : row?.title) || 'Untitled';
+
+  /** The ordinary deletes of a composite (Discard, a version's delete), without a toast each: the composite shows one. */
+  async function deleteRowsQuietly(ids, still) {
+    const m = mutationsRef.current;
+    quietToastsRef.current += 1;
+    try {
+      if (ids.tasks?.length) { await m.deleteTasks(ids.tasks); still(); }
+      for (const id of ids.phases || []) { await m.deletePhase(id); still(); }
+      for (const id of ids.milestones || []) { await m.deleteMilestone(id); still(); }
+    } finally {
+      quietToastsRef.current -= 1;
+    }
+  }
+
+  /** The SET-ASIDE rows only `versionId` holds (constraint 10): deleting it would strand them. */
+  function onlyHeldSetAside(versionId) {
+    const b = bundleRef.current;
+    const versions = b.budgetVersions || [];
+    const out = { tasks: [], phases: [], milestones: [] };
+    for (const k of SCHEDULE_KINDS) {
+      for (const r of b[ASIDE_KEY[k]] || []) {
+        const holders = holdersOf(versions, k, r.id);
+        if (holders.length === 1 && holders[0].id === versionId) out[k].push(r);
+      }
+    }
+    return out;
+  }
+
+  function workOfRows(set) {
+    const b = bundleRef.current;
+    const out = [];
+    for (const k of ['tasks', 'phases']) {
+      for (const r of (set && set[k]) || []) {
+        const w = workOn(k, r, { comments: b.comments, files: b.files, managedFiles: b.managedFiles });
+        if (w) out.push({ kind: k, id: r.id, name: rowName(k, r), work: w });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Remove from this version, or Delete (constraint 9), for the person's
+   * delete of these live rows: while a version is open and no budget is
+   * active, a row ANOTHER saved version holds is set aside (it stays there);
+   * any other is deleted the ordinary way. A member reads no versions, so
+   * every delete of theirs is the ordinary one.
+   * → { remove, del: { tasks, phases, milestones } ids, rows: [{ kind, id,
+   *   name, verb, holders: [{ id, name }], work }], openVersion }
+   */
+  function removalPlanFor(ids = {}) {
+    const b = bundleRef.current;
+    const versions = b.budgetVersions || [];
+    const openVersionId = b.project?.open_budget_version_id || null;
+    const locked = budgetIsLocked();
+    const out = { remove: { tasks: [], phases: [], milestones: [] }, del: { tasks: [], phases: [], milestones: [] }, rows: [], openVersion: versions.find(v => v.id === openVersionId) || null };
+    for (const kind of SCHEDULE_KINDS) {
+      const live = new Map((b[kind] || []).map(r => [String(r.id), r]));
+      for (const r of removalOf({ kind, ids: ids[kind] || [], versions, openVersionId, locked })) {
+        const row = live.get(String(r.id));
+        if (!row) continue;
+        (r.verb === 'remove' ? out.remove : out.del)[kind].push(row.id);
+        out.rows.push({
+          kind, id: row.id, name: rowName(kind, row), verb: r.verb,
+          holders: r.holders.map(v => ({ id: v.id, name: v.name })),
+          work: workOn(kind, row, { comments: b.comments, files: b.files, managedFiles: b.managedFiles }),
+        });
+      }
+    }
+    return out;
+  }
+
+  // The person's delete (ctx.deleteTask / deleteTasks / deletePhase /
+  // deleteMilestone). All-ordinary deletes run the raw verb unchanged, its
+  // own toast and undo. Anything another version holds goes aside instead,
+  // in ONE undo step with the rest, and ONE toast says which.
+  async function removeOrDelete(ids, rawAll) {
+    const plan = removalPlanFor(ids);
+    if (!countRows(plan.remove)) return rawAll();
+    const before = historyRef.current.undo[historyRef.current.undo.length - 1];
+    quietToastsRef.current += 1;
+    try {
+      await inHistoryQueue(() => runBatch(async () => {
+        const still = compositeGuard();
+        await mutationsRef.current.setAsideRows(true, plan.remove);
+        still();
+        if (countRows(plan.del)) await deleteRowsQuietly(plan.del, still);
+      }));
+    } finally {
+      quietToastsRef.current -= 1;
+    }
+    const top = historyRef.current.undo[historyRef.current.undo.length - 1];
+    if (top && top !== before) showUndoToast(removalToastWords(plan), () => undoHistoryEntry(top.token));
+    return plan;
+  }
+  const deleteTaskVerb = useCallback((id) => removeOrDelete({ tasks: [id] }, () => mutationsRef.current.deleteTask(id)), []);
+  const deleteTasksVerb = useCallback((ids = []) => removeOrDelete({ tasks: ids }, () => mutationsRef.current.deleteTasks(ids)), []);
+  const deletePhaseVerb = useCallback((id) => removeOrDelete({ phases: [id] }, () => mutationsRef.current.deletePhase(id)), []);
+  const deleteMilestoneVerb = useCallback((id) => removeOrDelete({ milestones: [id] }, () => mutationsRef.current.deleteMilestone(id)), []);
+
+  /**
+   * What Edit this version (or Set budget active) would do — nothing
+   * written — for the questions (step 4): whether the Save / Discard / Cancel
+   * question comes first and what Discard deletes (constraint 8), what
+   * leaves and what returns, and the rows with work on them (constraint 4).
+   * { roleRates, keep, discard, liveShotListId } as the open would take them.
+   */
+  function previewOpenBudgetVersion(id, { roleRates = {}, keep = null, discard = false, liveShotListId } = {}) {
+    const b = bundleRef.current;
+    const versions = b.budgetVersions || [];
+    const v = versions.find(r => r.id === id) || null;
+    if (!v) return null;
+    const read = readVersion(v);
+    const refusal = budgetIsLocked()
+      ? 'while the budget is active no bid version is opened'
+      : (!read.hasTimeline ? 'no timeline captured' : null);
+    const openV = versions.find(r => r.id === (b.project?.open_budget_version_id || null)) || null;
+    const liveRows = { tasks: b.tasks || [], phases: b.phases || [], milestones: b.milestones || [] };
+    const liveSnap = snapshotFromLive({ ...liveRows, project: b.project, roleRates });
+    const listed = (ver) => (liveShotListId === undefined ? {} : { shotListId: ver.shot_list_id ?? null, liveShotListId });
+    const openDirty = openV ? versionDiff(openV.snapshot, liveSnap, listed(openV)).isDirty : false;
+    const matchesSome = versions.some(r => readVersion(r).hasTimeline && !versionDiff(r.snapshot, liveSnap).isDirty);
+    const inNoVersion = rowsInNoVersion(liveRows, versions);
+    const unsaved = openV
+      ? (openDirty ? { kind: 'open', version: openV, inNoVersion, work: workOfRows(inNoVersion) } : null)
+      : (!matchesSome && countRows(liveRows) > 0 ? { kind: 'none', version: null, inNoVersion, work: workOfRows(inNoVersion) } : null);
+    let leaving = { tasks: [], phases: [], milestones: [] };
+    let returning = { tasks: [], phases: [], milestones: [] };
+    let plan = null;
+    if (read.hasTimeline) {
+      const gone = discard ? Object.fromEntries(SCHEDULE_KINDS.map(k => [k, new Set(inNoVersion[k].map(r => String(r.id)))])) : null;
+      const live = Object.fromEntries(SCHEDULE_KINDS.map(k => [k, gone ? liveRows[k].filter(r => !gone[k].has(String(r.id))) : liveRows[k]]));
+      plan = planOpen(v.snapshot, {
+        ...live, setAside: { tasks: b.setAsideTasks, phases: b.setAsidePhases, milestones: b.setAsideMilestones },
+        keep, project: b.project, roleRates,
+      });
+      for (const k of SCHEDULE_KINDS) {
+        const away = new Set(plan.setAside[k].map(String));
+        const back = new Set(plan.bringBack[k].map(String));
+        leaving[k] = live[k].filter(r => away.has(String(r.id)));
+        returning[k] = (b[ASIDE_KEY[k]] || []).filter(r => back.has(String(r.id)));
+      }
+    }
+    return { version: v, refusal, open: openV, unsaved, leaving, returning, work: workOfRows(leaving), plan };
+  }
+
+  /** What deleting a version takes with it (constraint 10): the set-aside rows only it holds, rows with work first. */
+  function previewDeleteBudgetVersion(id) {
+    const b = bundleRef.current;
+    const v = (b.budgetVersions || []).find(r => r.id === id) || null;
+    if (!v) return null;
+    const only = onlyHeldSetAside(id);
+    return { version: v, only, work: workOfRows(only), count: countRows(only) };
+  }
+
+  // Stable for the context (each reads refs only, never a render's state).
+  const removalPlanForCb = useCallback((ids) => removalPlanFor(ids), []);
+  const previewOpenCb = useCallback((id, opts) => previewOpenBudgetVersion(id, opts), []);
+  const previewDeleteCb = useCallback((id) => previewDeleteBudgetVersion(id), []);
+
+  /** The bid versions, read again (another window opened or closed one: they are not broadcast, S5-02). */
+  const refreshBudgetVersions = useCallback(async () => {
+    const pid = activeProjectIdRef.current;
+    const a = adapterRef.current;
+    if (!pid || typeof a?.listBudgetVersions !== 'function') return;
+    let rows;
+    try { rows = await a.listBudgetVersions(pid); } catch { return; }
+    if (activeProjectIdRef.current !== pid) return;
+    const apply = (bundle) => ({ ...bundle, budgetVersions: rows || [] });
+    setBundle(apply);
+    bundleRef.current = apply(bundleRef.current);
+  }, []);
 
   /** Reset to bidding: the lock lifted, its stamp cleared. ONE undo step. */
   const resetToBidding = useCallback(async () => {
@@ -5734,6 +6081,11 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.resetToBidding             = resetToBidding;
   mutationsRef.current.setProjectBudgetFields     = setProjectBudgetFields;
   mutationsRef.current.stampBudgetVersionLock     = stampBudgetVersionLock;
+  // S5b (0090): set aside / bring back, a version's row on its own (the
+  // last step of its delete, and that step's redo), the versions re-read.
+  mutationsRef.current.setAsideRows               = setAsideRows;
+  mutationsRef.current.deleteBudgetVersionRow     = deleteBudgetVersionRow;
+  mutationsRef.current.refreshBudgetVersions      = refreshBudgetVersions;
 
   // ── Shot-list selectors (S3a) ───────────────────────────
   // D10: `scenes` / `shots` below are the ACTIVE list's rows (every row when
@@ -5977,9 +6329,11 @@ export function RabbitProvider({ children }) {
     updateProject,
     deleteProject,
     setActiveProject,
-    addPhase, updatePhase, deletePhase, reorderPhases,
+    // S5b, constraint 9: the person's delete verbs decide Remove from this
+    // version or Delete; history replays the RAW verbs through mutationsRef.
+    addPhase, updatePhase, deletePhase: deletePhaseVerb, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
-    addTask, updateTask, deleteTask, deleteTasks,
+    addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
@@ -6029,7 +6383,7 @@ export function RabbitProvider({ children }) {
     recoverEditDraft, dismissStoredEditDraft,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
-    addMilestone, updateMilestone, deleteMilestone,
+    addMilestone, updateMilestone, deleteMilestone: deleteMilestoneVerb,
     listTrashedMilestones, restoreMilestone,
     // Bid versions (post-overhaul S5): open / selected / locked, the two save
     // verbs, and the epoch useProjectRateOverrides reloads on after an open
@@ -6037,6 +6391,14 @@ export function RabbitProvider({ children }) {
     selectBudgetVersion, renameBudgetVersion, updateBudgetVersionSummary, deleteBudgetVersion,
     saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
     rateOverridesEpoch,
+    // S5b (0090): the rows the open version does not hold (set aside: out of
+    // every reader, kept whole), and the answers the questions are built from.
+    setAsideTasks:       bundle.setAsideTasks || [],
+    setAsidePhases:      bundle.setAsidePhases || [],
+    setAsideMilestones:  bundle.setAsideMilestones || [],
+    removalPlanFor:      removalPlanForCb,
+    previewOpenBudgetVersion:   previewOpenCb,
+    previewDeleteBudgetVersion: previewDeleteCb,
 
     // folders (Session 26). Exposed so S27's Files view can rebuild the
     // tree for a project that predates 0041 without inventing its own
@@ -6095,6 +6457,8 @@ export function RabbitProvider({ children }) {
     selectBudgetVersion, renameBudgetVersion, updateBudgetVersionSummary, deleteBudgetVersion,
     saveBudgetVersion, createBudgetVersion, openBudgetVersion, activateBudget, resetToBidding,
     rateOverridesEpoch,
+    deleteTaskVerb, deleteTasksVerb, deletePhaseVerb, deleteMilestoneVerb,
+    removalPlanForCb, previewOpenCb, previewDeleteCb,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,
