@@ -4,10 +4,17 @@
 // and the Timeline's version control (S5d) mounts the same host with its own
 // `ask`:
 //
-//   { kind: 'saveAsNew', basedOnListId }
+//   { kind: 'saveAsNew', liveShotListId, basedOnListId }
 //   { kind: 'open' | 'lock', versionId, liveShotListId, basedOnListId }
-//   { kind: 'delete', versionId, back }      back 'manage': the picker again after
-//   { kind: 'manage' }
+//   { kind: 'manage', liveShotListId, basedOnListId }
+//   { kind: 'delete', versionId, back, liveShotListId, basedOnListId }
+//                                  back 'manage': the picker again after
+//
+// Every ask carries the person's "Based on shot list" choice
+// (`liveShotListId`, undefined while untouched) and the list the bid is based
+// on (`basedOnListId`), and every ask made from another passes them on: the
+// unsaved question reads the first, Save as new version… names the second
+// (S5c review round 1, R1-05 and R1-06).
 //
 // The shapes are S3b's and S3c's. Edit this version and Set budget active are
 // AnswerDialog (the form width; the answer that changes nothing — Cancel —
@@ -96,12 +103,18 @@ function keepOf(work) {
 }
 
 // ── Save as new version… (F2: the only way a version appears; it asks for a name)
+// `onCancel({ made })`: `made` when the version was made before the step
+// stopped (S5c review round 2, R2-05) — the form then offers only Close, so a
+// second press never makes a second version; the held toast's Undo takes the
+// first back.
 export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn = null, onCancel, onSave }) {
   const [name, setName] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const ready = name.trim().length > 0
+  const [made, setMade] = useState(false)
+  const ready = name.trim().length > 0 && !made
+  const close = () => onCancel?.({ made })
   async function save() {
     if (!ready || busy) return
     setBusy(true)
@@ -110,6 +123,7 @@ export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn 
       await onSave({ name: name.trim(), summary: note.trim() })
     } catch (err) {
       setError(err?.message || String(err))
+      if (err?.versionMade) setMade(true)
       setBusy(false)
     }
   }
@@ -120,10 +134,10 @@ export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn 
       title="Save as new version"
       busy={busy}
       error={error}
-      onClose={onCancel}
+      onClose={close}
       footer={(
         <>
-          <Button disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button disabled={busy} onClick={close}>{made ? 'Close' : 'Cancel'}</Button>
           <Button variant="primary" Icon={CopyPlus} loading={busy} disabled={!ready} onClick={save}>Save as new version</Button>
         </>
       )}
@@ -133,11 +147,11 @@ export function SaveAsNewDialog({ locked = false, lockedVersion = null, basedOn 
       <div className="rb-bv-q-fields">
         <Field label="Name">
           <Input value={name} onChange={setName} autoFocus placeholder={locked ? 'e.g. Revision after week 2' : 'e.g. Mid ROM'}
-            disabled={busy} onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+            disabled={busy || made} onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
         </Field>
         <Field label="Note">
           <Input value={note} onChange={setNote} placeholder="What this version is for (optional)"
-            disabled={busy} onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+            disabled={busy || made} onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
         </Field>
       </div>
     </Dialog>,
@@ -220,9 +234,11 @@ export function VersionFlow({ ctx, mode = 'open', versionId, roleRates, liveShot
         // S5c review round 1 (R1-05): the list it is saved on, said — it
         // read "Based on no shot list." and saved on the active list.
         basedOn={listWords(ctx, basedOnListId)}
-        onCancel={() => setStage('unsaved')}
+        // Made, then stopped (R2-05): the unsaved question it answered no
+        // longer holds — the flow ends there, the toast its way back.
+        onCancel={({ made } = {}) => (made ? onDone?.() : setStage('unsaved'))}
         onSave={async ({ name, summary }) => {
-          await ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId })
+          await step(() => ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId }), null)
           setStage('go')
         }}
       />
@@ -247,7 +263,8 @@ export function VersionFlow({ ctx, mode = 'open', versionId, roleRates, liveShot
               label: words.save,
               variant: 'primary',
               onClick: async () => {
-                await ctx.saveBudgetVersion(p.unsaved.version.id, { roleRates, basedOnListId: liveShotListId })
+                // R2-05: stopped part way, the toast is its way back.
+                await step(() => ctx.saveBudgetVersion(p.unsaved.version.id, { roleRates, basedOnListId: liveShotListId }), null)
                 setStage('go')
               },
             }
@@ -494,11 +511,14 @@ export function VersionQuestions({ ctx, ask, setAsk, roleRates, currency, ratesP
         basedOn={listWords(ctx, ask.basedOnListId)}
         onCancel={done}
         onSave={async ({ name, summary }) => {
-          const run = () => ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId: ask.basedOnListId })
           // F9: under a lock it only records — nothing on screen changes, so
-          // the toast says it happened (and Undo takes it back).
-          if (locked) await step(run, recordedToastWords({ name }))
-          else await run()
+          // the toast says it happened (and Undo takes it back). Otherwise no
+          // toast when it ends well (the version opens before the person's
+          // eyes), and the held one when it stops part way (R2-05).
+          await step(
+            () => ctx.createBudgetVersion({ name, summary, roleRates, basedOnListId: ask.basedOnListId }),
+            locked ? recordedToastWords({ name }) : null,
+          )
           done()
         }}
       />

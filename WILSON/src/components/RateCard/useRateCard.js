@@ -276,6 +276,23 @@ export function useRateCard() {
     return () => { mountedRef.current = false }
   }, [])
 
+  // Post-overhaul S5c review round 2 (R2-10): one failed read — the cards, or
+  // the active card's entries — left `settled` false, and the Budget's
+  // versions block greyed ("The rate card could not be read"), until a
+  // remount or an online flip (useProjectRateOverrides had the same, R1-07).
+  // Each read is tried again, after 1.5s and then 4s, before its error
+  // stands; a read that lands, or a new card's or mode's read, starts the
+  // count again.
+  const RETRY_MS = [1500, 4000]
+  const cardsRetryRef = useRef({ timer: null, tries: 0 })
+  const entriesRetryRef = useRef({ timer: null, tries: 0, card: null, said: null })
+  const loadCardsRef = useRef(null)
+  const [entriesTry, setEntriesTry] = useState(0)
+  useEffect(() => () => {
+    clearTimeout(cardsRetryRef.current.timer)
+    clearTimeout(entriesRetryRef.current.timer)
+  }, [])
+
   // ── Load rate cards on mount + on adapter mode change ──
   const loadRateCards = useCallback(async () => {
     if (!getAdapter || !workspaceId) return
@@ -288,6 +305,7 @@ export function useRateCard() {
       // each create a card pair. See sharedLoadRateCards above.
       const { cards, softError } = await sharedLoadRateCards(adapter, workspaceId)
       if (!mountedRef.current) return
+      cardsRetryRef.current.tries = 0
       if (softError) setError(softError)
       setRateCards(cards)
       // Pick the default (general) card, or the first one.
@@ -295,13 +313,23 @@ export function useRateCard() {
       setActiveRateCardId(next ? next.id : null)
       setCardsRead(true)
     } catch (err) {
-      if (mountedRef.current) setError(err.message || String(err))
+      if (!mountedRef.current) return
+      setError(err.message || String(err))
+      const r = cardsRetryRef.current
+      if (r.tries < RETRY_MS.length) {
+        clearTimeout(r.timer)
+        r.timer = setTimeout(() => { if (mountedRef.current) loadCardsRef.current?.() }, RETRY_MS[r.tries])
+        r.tries += 1
+      }
     } finally {
       if (mountedRef.current) setLoading(false)
     }
   }, [getAdapter, workspaceId])
+  loadCardsRef.current = loadRateCards
 
   useEffect(() => {
+    clearTimeout(cardsRetryRef.current.timer)
+    cardsRetryRef.current.tries = 0
     loadRateCards()
   }, [loadRateCards, adapterMode, adapterStatus?.online])
 
@@ -314,6 +342,12 @@ export function useRateCard() {
     }
     const adapter = getAdapter()
     if (!adapter) return
+    const r = entriesRetryRef.current
+    if (r.card !== activeRateCardId) {
+      clearTimeout(r.timer)
+      r.tries = 0
+      r.card = activeRateCardId
+    }
     setLoading(true)
     // Stale-response guard: the active card can change while a fetch is in
     // flight (e.g. the Team Members page flips general → internal right
@@ -335,15 +369,26 @@ export function useRateCard() {
         setEntries(migrated)
         setDeptDefaults(Array.isArray(defaults) ? defaults : [])
         setEntriesFor(activeRateCardId)
+        r.tries = 0
+        // The error this read had said goes with it (a card's own soft error,
+        // said by the cards' read, stays).
+        if (r.said != null) { const said = r.said; r.said = null; setError(prev => (prev === said ? null : prev)) }
       })
       .catch(err => {
-        if (mountedRef.current && !stale) setError(err.message || String(err))
+        if (!mountedRef.current || stale) return
+        r.said = err.message || String(err)
+        setError(r.said)
+        if (r.tries < RETRY_MS.length) {
+          clearTimeout(r.timer)
+          r.timer = setTimeout(() => { if (mountedRef.current) setEntriesTry(n => n + 1) }, RETRY_MS[r.tries])
+          r.tries += 1
+        }
       })
       .finally(() => {
         if (mountedRef.current && !stale) setLoading(false)
       })
     return () => { stale = true }
-  }, [activeRateCardId, getAdapter])
+  }, [activeRateCardId, getAdapter, entriesTry])
 
   // ── Compute day_rate (total) for each entry for backward compat ──
   const entriesWithTotal = entries.map(e => {

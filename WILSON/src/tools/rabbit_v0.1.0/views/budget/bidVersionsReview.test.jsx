@@ -12,9 +12,27 @@
 //   R1-04 a create or a revive answering after a project switch stays home
 //   R1-05 the unsaved question's Save as new says the list it saves on
 //   R1-06 Manage → Delete… → back keeps the person's list choice
+// Review round 2 (its proofs, on f3e502bf; adapted where the correction
+// chose a different right answer, said at each):
+//   R2-01 on the Local Server a step stopped part way keeps the tasks it
+//         deleted within reach of its Undo
+//   R2-03 a version step refuses while an undo still replays past the
+//         queue's wait
+//   R2-04 a version's list choice does not come back when it opens again
+//   R2-05 every step that records offers the toast; a Save as new stopped
+//         after making the version says so and offers only Close
+//   R2-06 a version's delete undone after another was selected keeps one
+//         selected
+//   R2-07 the creates R1-04 missed stay home across a project switch
+//   R2-08 an open or a lock that changed nothing says so, and offers no Undo
+//   R2-09 the toast of a step stopped part way stays while it is promised
+//   and, found during round 2: the toast names the step's own entry
 // =============================================================================
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { render, cleanup, act, waitFor, screen, within, fireEvent } from '@testing-library/react'
 
 const holder = vi.hoisted(() => ({ adapter: null, projectId: null, rates: null }))
@@ -94,7 +112,11 @@ async function mount(rates = RATES) {
   await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID))
   await waitFor(() => expect(ctx.budgetVersions.length).toBe(2))
 }
-afterEach(() => { cleanup(); ctx = null; fx = null })
+afterEach(() => {
+  cleanup(); ctx = null; fx = null
+  delete globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS
+  delete globalThis.__WILSON_TEST_UNDO_TOAST_MS
+})
 
 const blockEl = () => document.querySelector('section.rb-bv-block')
 const inBlock = () => within(blockEl())
@@ -277,6 +299,56 @@ describe('R1-02: the person\'s select waits its turn too', () => {
   })
 })
 
+describe('the toast names the step\'s own entry, not one that ran before it (S5c, found during review round 2)', () => {
+  // A version step waits its turn in the undo queue; the top of the stack at
+  // the asking is no measure of what IT recorded.
+  const deleteV1ThroughManage = async () => {
+    await press(inBlock().getByRole('button', { name: 'Manage versions…' }))
+    const picker = dialog('Bid versions')
+    const row = within(picker).getAllByRole('row').find(r => r.textContent.includes(V1))
+    await press(within(row).getByRole('button', { name: `Actions for “${V1}”` }))
+    await press(screen.getByRole('button', { name: 'Delete…' }))
+    const d = dialog(`Delete “${V1}”?`)
+    await press(within(d).getByRole('button', { name: 'Delete version' }))
+    return d
+  }
+  it('a select in flight records its step; the delete asked meanwhile fails before recording anything: no toast offers to undo the select', async () => {
+    await mount()
+    await reset()
+    await run(() => ctx.dismissUndoToast())
+    const origSel = holder.adapter.selectBudgetVersion.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.selectBudgetVersion = async (...a) => { await gate; return origSel(...a) }
+    let selecting
+    await act(async () => { selecting = ctx.selectBudgetVersion(BV1) })
+    holder.adapter.deleteBudgetVersion = async () => { throw new Error('network down') }
+    const d = await deleteV1ThroughManage()
+    await act(async () => { release(); await selecting })
+    await waitFor(() => expect(d.textContent).toContain('network down'))
+    expect(ctx.budgetVersions.find(v => v.id === BV1).is_active).toBe(true)
+    // Nothing of the delete landed: no toast; the select stays chosen.
+    expect(screen.queryByText('Stopped part way: Undo takes back what changed')).toBeNull()
+  })
+  it('CONTROL: the same delete answering, with the select in flight before it: the toast is the delete\'s and its Undo brings the version back', async () => {
+    await mount()
+    await reset()
+    await run(() => ctx.dismissUndoToast())
+    const origSel = holder.adapter.selectBudgetVersion.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.selectBudgetVersion = async (...a) => { await gate; return origSel(...a) }
+    let selecting
+    await act(async () => { selecting = ctx.selectBudgetVersion(BV1) })
+    await deleteV1ThroughManage()
+    await act(async () => { release(); await selecting })
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(1))
+    await waitFor(() => expect(screen.getByText(`Deleted “${V1}”`)).toBeTruthy())
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(2))
+  })
+})
+
 describe('R1-01: Set budget active stopped part way', () => {
   it('says it stopped and that the budget is not locked, and the toast is its way back', async () => {
     await mount()
@@ -420,5 +492,422 @@ describe('R1-04: a write in flight across a project switch (S5b R1-05 / S5 R1-03
     const leaked = ctx.tasks.filter(x => x.id === t.id).map(x => x.project_id)
     expect({ stopped: /another project was opened/.test(outcome?.message || ''), project: ctx.project.id, leaked })
       .toEqual({ stopped: true, project: P2, leaked: [] })
+  })
+})
+
+// ── Review round 2 ──────────────────────────────────────────────────────────
+
+const status = () => blockEl().querySelector('.rb-bv-open-status').textContent
+
+// The Local Server's shape (electron/main.cjs rabbitSubentityRoutes('tasks' |
+// 'phases'): no softDelete, so no restore route; its DELETE removes the row;
+// localServerAdapter has no restoreTask / restorePhase). `failAt`: the nth
+// task DELETE answers 500.
+function asLocalServer(failAt) {
+  delete holder.adapter.restoreTask
+  delete holder.adapter.restorePhase
+  let n = 0
+  holder.adapter.deleteTask = async (id) => {
+    n += 1
+    if (n === failAt) throw new Error('[localServer] HTTP 500')
+    const i = fx.store.tasks.findIndex(t => t.id === id)
+    if (i >= 0) fx.store.tasks.splice(i, 1)
+  }
+}
+
+async function deleteFromManage(name) {
+  await press(inBlock().getByRole('button', { name: 'Manage versions…' }))
+  const picker = dialog('Bid versions')
+  const row = within(picker).getAllByRole('row').find(r => r.textContent.includes(name))
+  await press(within(row).getByRole('button', { name: `Actions for “${name}”` }))
+  await press(screen.getByRole('button', { name: 'Delete…' }))
+  const d = dialog(`Delete “${name}”?`)
+  await press(within(d).getByRole('button', { name: 'Delete version' }))
+  return d
+}
+
+describe('R2-01: on the Local Server a step stopped part way keeps what it deleted within reach of its Undo', () => {
+  it('a version delete stopped at its 3rd task: the 2 that went leave the screen, the rest go aside again, and the toast\'s Undo brings all 11 back', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const onlyV2 = ctx.setAsideTasks.map(t => t.id)
+    expect(onlyV2).toHaveLength(11)
+    asLocalServer(3)
+    const d = await deleteFromManage(V2)
+    await waitFor(() => expect(d.textContent).toContain('HTTP 500'))
+    const toastSaid = !!screen.queryByText('Stopped part way: Undo takes back what changed')
+    const shown = {
+      live: ctx.tasks.filter(t => onlyV2.includes(t.id)).length,
+      aside: ctx.setAsideTasks.filter(t => onlyV2.includes(t.id)).length,
+    }
+    await press(within(d).getByRole('button', { name: 'Cancel' }))
+    await press(within(dialog('Bid versions')).getAllByRole('button', { name: 'Close' }).find(b => b.classList.contains('ui-btn')))
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.setAsideTasks.filter(t => onlyV2.includes(t.id))).toHaveLength(11))
+    expect({
+      toastSaid,
+      shown,
+      onDisk: onlyV2.filter(id => fx.store.tasks.some(t => t.id === id)).length,
+      v2: ctx.budgetVersions.some(v => v.id === BV2),
+    }).toEqual({ toastSaid: true, shown: { live: 0, aside: 9 }, onDisk: 11, v2: true })
+  })
+
+  it('the delete\'s error says which went and which stayed: 2 deleted, the 9 others not', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    asLocalServer(3)
+    let err
+    await act(async () => { err = await ctx.deleteBudgetVersion(BV2).then(() => null, (e) => e) })
+    expect({ deleted: err?.deletedIds?.length, notDeleted: err?.notDeleted?.tasks?.length })
+      .toEqual({ deleted: 2, notDeleted: 9 })
+  })
+
+  it('Edit this version → Discard, stopped at its 2nd task: "Undo takes back what changed" — and Undo brings the discarded task back, on disk and on screen', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await run(() => ctx.addTask({ title: 'Pickup A', phase_id: ctx.phases[0].id, bid_days: 1 }))
+    await run(() => ctx.addTask({ title: 'Pickup B', phase_id: ctx.phases[0].id, bid_days: 1 }))
+    const a = ctx.tasks.find(t => t.title === 'Pickup A')
+    await select(BV2)
+    await run(() => ctx.dismissUndoToast())
+    asLocalServer(2)
+    await press(inBlock().getByRole('button', { name: 'Edit this version' }))
+    await press(within(dialog(`Save the changes to “${V1}” first?`)).getByRole('button', { name: 'Discard changes' }))
+    const d = dialog(`Edit “${V2}”?`)
+    await press(within(d).getByRole('button', { name: 'Edit this version' }))
+    await waitFor(() => expect(d.textContent).toContain('stopped part way'))
+    const said = d.textContent.match(/Opening[^]*?changed\./)?.[0]
+    const goneMeanwhile = !ctx.tasks.some(t => t.id === a.id)
+    await press(within(d).getByRole('button', { name: 'Cancel' }))
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.project.open_budget_version_id).toBe(BV1))
+    await waitFor(() => expect(ctx.tasks.some(t => t.id === a.id)).toBe(true))
+    expect({ said, goneMeanwhile, aOnDisk: fx.store.tasks.some(t => t.id === a.id) })
+      .toEqual({ said: expect.stringContaining('No version is open now; Undo takes back what changed.'), goneMeanwhile: true, aOnDisk: true })
+  })
+})
+
+describe('R2-03: a version step refuses while an undo still replays past the queue\'s wait', () => {
+  // The reviewer's proof asserted the delete recorded beside the replay; the
+  // correction refuses it instead, with a sentence (their fix direction).
+  it('the undo stalled past the wait: the delete is refused and says why, nothing deleted; once the undo ends the same delete records its step, and Undo brings the version back', async () => {
+    globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
+    await mount()
+    await reset()
+    await select(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const origSel = holder.adapter.selectBudgetVersion.bind(holder.adapter)
+    let release
+    const gate = new Promise(r => { release = r })
+    holder.adapter.selectBudgetVersion = async (...a) => { await gate; return origSel(...a) }
+    let undoing
+    await act(async () => { undoing = ctx.undo() })
+    const d = await deleteFromManage(V1)
+    await waitFor(() => expect(d.textContent).toContain('an Undo is still running — try again once it has finished'), { timeout: 2000 })
+    expect(ctx.budgetVersions).toHaveLength(2)
+    await act(async () => { release(); await undoing })
+    holder.adapter.selectBudgetVersion = origSel
+    await press(within(d).getByRole('button', { name: 'Delete version' }))
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(1))
+    await waitFor(() => expect(screen.getByText(`Deleted “${V1}”`)).toBeTruthy())
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(2))
+  })
+})
+
+describe('R2-03: every queued version step refuses while a replay still runs past the wait', () => {
+  for (const [what, call] of [
+    ['select', (c) => c.selectBudgetVersion(BV2)],
+    ['rename', (c) => c.renameBudgetVersion(BV2, 'Renamed')],
+    ['note', (c) => c.updateBudgetVersionSummary(BV2, 'A note')],
+    ['Save', (c) => c.saveBudgetVersion(BV1, { roleRates: RATES })],
+    ['Save as new version', (c) => c.createBudgetVersion({ name: 'Mid ROM', roleRates: RATES })],
+    ['Edit this version', (c) => c.openBudgetVersion(BV2, { roleRates: RATES })],
+    ['Set budget active', (c) => c.activateBudget(BV2, { roleRates: RATES })],
+    ['Reset to bidding', (c) => c.resetToBidding()],
+    ['delete', (c) => c.deleteBudgetVersion(BV2)],
+  ]) {
+    it(`${what}: refused, and says why`, async () => {
+      globalThis.__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50
+      await mount()
+      await reset()
+      await openQuietly(BV1)
+      await select(BV2)
+      // The select's undo (Bid v1 selected again) is held at its write.
+      const origSel = holder.adapter.selectBudgetVersion.bind(holder.adapter)
+      let release
+      const gate = new Promise(r => { release = r })
+      holder.adapter.selectBudgetVersion = async (...a) => { await gate; return origSel(...a) }
+      let undoing
+      await act(async () => { undoing = ctx.undo() })
+      let outcome
+      await act(async () => { outcome = await call(ctx).then(() => 'ran', (e) => e?.message) })
+      await act(async () => { release(); await undoing })
+      holder.adapter.selectBudgetVersion = origSel
+      expect(outcome).toBe('an Undo is still running — try again once it has finished')
+    })
+  }
+})
+
+describe('R2-04: a version\'s list choice does not come back when that version opens again', () => {
+  it('v1 + a list choice; open v2; open v1 again: v1 reads "Saved", the choice untouched', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await act(async () => { fireEvent.change(inBlock().getByRole('combobox', { name: 'Based on shot list' }), { target: { value: LIST1 } }) })
+    expect(status()).toBe('Unsaved changes')
+    await openQuietly(BV2)
+    await waitFor(() => expect(ctx.project.open_budget_version_id).toBe(BV2))
+    await openQuietly(BV1)
+    await waitFor(() => expect(ctx.project.open_budget_version_id).toBe(BV1))
+    expect({ status: status(), basedOn: inBlock().getByRole('combobox', { name: 'Based on shot list' }).value })
+      .toEqual({ status: expect.stringMatching(/^Saved /), basedOn: '' })
+  })
+  it('through the questions: the change Discarded, then the toast\'s Undo reopens v1 — the discarded choice stays discarded', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await act(async () => { fireEvent.change(inBlock().getByRole('combobox', { name: 'Based on shot list' }), { target: { value: LIST1 } }) })
+    await run(() => ctx.dismissUndoToast())
+    await press(inBlock().getByRole('button', { name: 'Manage versions…' }))
+    const picker = dialog('Bid versions')
+    const row = within(picker).getAllByRole('row').find(r => r.textContent.includes(V2))
+    await press(within(row).getByRole('button', { name: `Actions for “${V2}”` }))
+    await press(screen.getAllByRole('button', { name: 'Edit this version' }).find(b => b.classList.contains('ui-menu-item')))
+    await press(within(dialog(`Save the changes to “${V1}” first?`)).getByRole('button', { name: 'Discard changes' }))
+    await press(within(dialog(`Edit “${V2}”?`)).getByRole('button', { name: 'Edit this version' }))
+    await waitFor(() => expect(ctx.project.open_budget_version_id).toBe(BV2))
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.project.open_budget_version_id).toBe(BV1))
+    expect({ status: status(), basedOn: inBlock().getByRole('combobox', { name: 'Based on shot list' }).value })
+      .toEqual({ status: expect.stringMatching(/^Saved /), basedOn: '' })
+  })
+})
+
+describe('R2-05: every step that records offers its toast', () => {
+  it('Save as new version… stopped after the version was made: it says so, the toast holds its Undo, and the form offers only Close — one version, never two', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const orig = holder.adapter.updateProject.bind(holder.adapter)
+    holder.adapter.updateProject = async (id, fields) => {
+      if ('open_budget_version_id' in fields) throw new Error('network down')
+      return orig(id, fields)
+    }
+    await press(inBlock().getByRole('button', { name: 'Save as new version…' }))
+    const d = dialog('Save as new version')
+    fireEvent.change(within(d).getByRole('textbox', { name: 'Name' }), { target: { value: 'Mid ROM' } })
+    await press(within(d).getByRole('button', { name: 'Save as new version' }))
+    await waitFor(() => expect(d.textContent).toContain('network down'))
+    const seen = {
+      said: d.textContent.includes('“Mid ROM” was saved as a new version, then the step stopped part way: network down. Undo takes back what changed.'),
+      recorded: ctx.canUndo,
+      toast: !!screen.queryByRole('button', { name: 'Undo' }),
+      saveLive: !within(d).getByRole('button', { name: 'Save as new version' }).disabled,
+    }
+    holder.adapter.updateProject = orig
+    await press(within(d).getAllByRole('button', { name: 'Close' }).find(b => b.classList.contains('ui-btn')))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Save as new version' })).toBeNull())
+    expect({ ...seen, midRoms: ctx.budgetVersions.filter(v => v.name === 'Mid ROM').length })
+      .toEqual({ said: true, recorded: true, toast: true, saveLive: false, midRoms: 1 })
+  })
+
+  it('the block\'s Save stopped part way (deleting a row no version holds any more): the toast is its way back', async () => {
+    await mount()
+    await reset()
+    await select(BV2)
+    await openQuietly(BV2)
+    // A task Bid v1 holds too, removed from the open Bid v2: set aside (v1 holds it).
+    const v1Ids = new Set(BUDGET_VERSIONS.find(v => v.id === BV1).snapshot.tasks.map(t => t.id))
+    const x = ctx.tasks.find(t => v1Ids.has(t.id))
+    await run(() => ctx.deleteTask(x.id))
+    expect(ctx.setAsideTasks.some(t => t.id === x.id)).toBe(true)
+    // Another window deletes Bid v1 (versions are not broadcast): no version
+    // but the open one's saved snapshot holds the row now, so Save deletes it.
+    await act(async () => { await holder.adapter.deleteBudgetVersion(BV1, PROJECT_ID) })
+    await run(() => ctx.reloadActiveProject())
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(1))
+    await run(() => ctx.dismissUndoToast())
+    holder.adapter.deleteTask = async () => { throw new Error('network down') }
+    await press(within(blockEl()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(blockEl().textContent).toContain('network down'))
+    expect({
+      toast: !!screen.queryByText('Stopped part way: Undo takes back what changed'),
+      stillAside: ctx.setAsideTasks.some(t => t.id === x.id),
+    }).toEqual({ toast: true, stillAside: true })
+  })
+
+  it('every recording version step in the Budget\'s files runs through the undo toast (source pin)', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const offenders = []
+    for (const f of ['./BidVersions.jsx', './VersionQuestions.jsx', '../BudgetView.jsx']) {
+      const lines = readFileSync(join(here, f), 'utf8').replace(/\r\n/g, '\n').split('\n')
+      lines.forEach((line, i) => {
+        if (/^\s*(\/\/|\*)/.test(line)) return
+        if (!/ctx\.(saveBudgetVersion|createBudgetVersion|openBudgetVersion|activateBudget|deleteBudgetVersion|resetToBidding)\(/.test(line)) return
+        const span = `${lines[i - 1] || ''} ${line}`
+        if (!/\b(step|runWithUndoToast)\(/.test(span)) offenders.push(`${f}:${i + 1}: ${line.trim()}`)
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+  it('CONTROL: the pin reads a bare call as one', () => {
+    const line = '          await ctx.saveBudgetVersion(p.unsaved.version.id, { roleRates })'
+    expect(/\b(step|runWithUndoToast)\(/.test(line)).toBe(false)
+    expect(/ctx\.(saveBudgetVersion|createBudgetVersion)\(/.test(line)).toBe(true)
+  })
+})
+
+describe('R2-06: a version\'s delete undone after another was selected', () => {
+  it('delete the selected v2, select v1, then the toast\'s Undo: v2 comes back unselected — one selected bid, v1, in memory and on disk', async () => {
+    await mount()
+    await reset()
+    await select(BV2)
+    await run(() => ctx.dismissUndoToast())
+    await deleteFromManage(V2)
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(1))
+    const picker = dialog('Bid versions')
+    const row = within(picker).getAllByRole('row').find(r => r.textContent.includes(V1))
+    await press(within(row).getByRole('button', { name: `Actions for “${V1}”` }))
+    await press(screen.getByRole('button', { name: 'Select as the bid' }))
+    await waitFor(() => expect(ctx.budgetVersions.find(v => v.id === BV1).is_active).toBe(true))
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(2))
+    expect({
+      flagged: ctx.budgetVersions.filter(v => v.is_active).map(v => v.name).sort(),
+      onDisk: fx.store.budgetVersions.filter(v => v.is_active).length,
+    }).toEqual({ flagged: [V1], onDisk: 1 })
+  })
+  it('CONTROL: with nothing selected since, the Undo brings it back selected', async () => {
+    await mount()
+    await reset()
+    await select(BV2)
+    await run(() => ctx.dismissUndoToast())
+    await deleteFromManage(V2)
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(1))
+    await press(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ctx.budgetVersions).toHaveLength(2))
+    expect(ctx.budgetVersions.filter(v => v.is_active).map(v => v.name)).toEqual([V2])
+  })
+})
+
+describe('R2-07: the creates R1-04 missed stay home across a project switch', () => {
+  const P2 = 'p2-review'
+  for (const [what, method, add, rows, inBundle] of [
+    ['addAsset', 'upsertAsset', (c) => c.addAsset({ name: 'Added in P1' }), (s) => s.assets, (c) => c.assets],
+    ['addScene', 'upsertScene', (c) => c.addScene({ name: 'Added in P1' }), (s) => s.scenes, (c) => c.scenes],
+    ['addShot', 'upsertShot', (c) => c.addShot({ name: 'Added in P1' }), (s) => s.shots, (c) => c.shots],
+    ['addLevel', 'upsertLevel', (c) => c.addLevel({ name: 'Added in P1' }), (s) => s.levels, (c) => c.levels],
+    ['addExperience', 'upsertExperience', (c) => c.addExperience({ name: 'Added in P1' }), (s) => s.experiences, (c) => c.experiences],
+  ]) {
+    it(`${what}: answering after the switch, it is not shown in the next project and leaves no step there`, async () => {
+      await mount()
+      fx.store.projects.push({ ...fx.store.projects[0], id: P2, title: 'Other project', open_budget_version_id: null, budget_active: false, budget_active_version_id: null })
+      const orig = holder.adapter[method].bind(holder.adapter)
+      let release
+      const gate = new Promise(r => { release = r })
+      holder.adapter[method] = async (row) => { await gate; return orig(row) }
+      let adding
+      await act(async () => { adding = add(ctx).catch(e => e) })
+      await run(() => ctx.setActiveProject(P2))
+      await waitFor(() => expect(ctx.project.id).toBe(P2))
+      await act(async () => { release(); await adding })
+      holder.adapter[method] = orig
+      const made = (rows(fx.store) || []).find(r => r.name === 'Added in P1')
+      expect({ madeIn: made?.project_id, shownInP2: (inBundle(ctx) || []).some(r => r.id === made?.id), canUndoInP2: ctx.canUndo })
+        .toEqual({ madeIn: PROJECT_ID, shownInP2: false, canUndoInP2: false })
+    })
+  }
+})
+
+describe('R2-08: an open or a lock that changed nothing says so', () => {
+  it('Edit this version stopped at its first write (closing the open version): "Nothing changed", the version open before still open, no Undo offered', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await select(BV2)
+    await run(() => ctx.dismissUndoToast())
+    const orig = holder.adapter.updateProject.bind(holder.adapter)
+    holder.adapter.updateProject = async (id, fields) => {
+      if ('open_budget_version_id' in fields && fields.open_budget_version_id === null) throw new Error('network down')
+      return orig(id, fields)
+    }
+    await press(inBlock().getByRole('button', { name: 'Edit this version' }))
+    const d = dialog(`Edit “${V2}”?`)
+    await press(within(d).getByRole('button', { name: 'Edit this version' }))
+    await waitFor(() => expect(d.textContent).toContain('Nothing changed'))
+    expect({
+      said: d.textContent.includes(`Could not open “${V2}”: network down. Nothing changed.`),
+      open: ctx.project.open_budget_version_id,
+      undoOffered: !!screen.queryByRole('button', { name: 'Undo' }),
+    }).toEqual({ said: true, open: BV1, undoOffered: false })
+  })
+  it('Set budget active stopped at its first write: "Nothing changed", no Undo offered', async () => {
+    await mount()
+    await reset()
+    await select(BV1)
+    await openQuietly(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const orig = holder.adapter.updateProject.bind(holder.adapter)
+    holder.adapter.updateProject = async (id, fields) => {
+      if ('open_budget_version_id' in fields && fields.open_budget_version_id === null) throw new Error('network down')
+      return orig(id, fields)
+    }
+    await press(inBlock().getByRole('button', { name: 'Set budget active' }))
+    const d = dialog(`Set “${V1}” active?`)
+    await press(within(d).getByRole('button', { name: 'Set budget active' }))
+    await waitFor(() => expect(d.textContent).toContain('Nothing changed'))
+    expect({
+      said: d.textContent.includes(`Could not set “${V1}” active: network down. Nothing changed.`),
+      locked: ctx.project.budget_active,
+      undoOffered: !!screen.queryByRole('button', { name: 'Undo' }),
+    }).toEqual({ said: true, locked: false, undoOffered: false })
+  })
+})
+
+describe('R2-09: the toast of a step stopped part way stays while it is promised', () => {
+  it('Set budget active stopped part way: past the toast\'s time the question still says "Undo takes back what changed", and the toast\'s Undo is still there', async () => {
+    globalThis.__WILSON_TEST_UNDO_TOAST_MS = 150
+    await mount()
+    await reset()
+    await select(BV1)
+    await run(() => ctx.dismissUndoToast())
+    const orig = holder.adapter.updateProject.bind(holder.adapter)
+    holder.adapter.updateProject = async (id, fields) => {
+      if ('budget_active' in fields) throw new Error('network down')
+      return orig(id, fields)
+    }
+    await press(inBlock().getByRole('button', { name: 'Set budget active' }))
+    const d = dialog(`Set “${V1}” active?`)
+    await press(within(d).getByRole('button', { name: 'Set budget active' }))
+    await waitFor(() => expect(d.textContent).toContain('Undo takes back what changed'))
+    await act(async () => { await new Promise(r => setTimeout(r, 450)) })
+    expect({
+      sentenceStill: d.isConnected && d.textContent.includes('Undo takes back what changed'),
+      anyUndo: !!screen.queryByRole('button', { name: 'Undo' }),
+      stepStillOnStack: ctx.canUndo,
+    }).toEqual({ sentenceStill: true, anyUndo: true, stepStillOnStack: true })
+  })
+  it('CONTROL: an ordinary toast (a version deleted) still goes at its time', async () => {
+    globalThis.__WILSON_TEST_UNDO_TOAST_MS = 150
+    await mount()
+    await reset()
+    await select(BV2)
+    await deleteFromManage(V1)
+    await waitFor(() => expect(screen.getByText(`Deleted “${V1}”`)).toBeTruthy())
+    await act(async () => { await new Promise(r => setTimeout(r, 450)) })
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
   })
 })

@@ -47,6 +47,34 @@ describe('useRateCard: settled', () => {
     await waitFor(() => expect(result.current.settled).toBe(true))
     expect(result.current.entries).toHaveLength(1)
   })
+  // S5c review round 2 (R2-10): R1-07's fault in this hook — one failed read
+  // left `settled` false (the versions block greyed) until a remount.
+  it('R2-10: the cards\' read failing once is tried again, and the card settles', async () => {
+    let fails = 1
+    const flaky = {
+      ...adapter,
+      listRateCards: vi.fn(async () => { if (fails > 0) { fails -= 1; throw new Error('network down') } return [{ id: 'rc1', workspace_id: 'w1', is_default: true, type: 'general', name: 'General' }] }),
+    }
+    held.rabbit = { getAdapter: () => flaky, adapterMode: 'fixtures', adapterStatus: { online: true }, DEFAULT_WORKSPACE_ID: 'w0' }
+    const { result } = renderHook(() => useRateCard())
+    await waitFor(() => expect(result.current.error).toBe('network down'))
+    expect(result.current.settled).toBe(false)
+    await waitFor(() => expect(result.current.settled).toBe(true), { timeout: 4000 })
+    expect(result.current.error).toBeNull()
+  })
+  it('R2-10: the entries\' read failing once is tried again; the error it said goes with it', async () => {
+    let fails = 1
+    const flaky = {
+      ...adapter,
+      listRateCardEntries: vi.fn(async () => { if (fails > 0) { fails -= 1; throw new Error('entries down') } return [{ id: 'e1', rate_card_id: 'rc1', role_slug: 'anim', day_rate: 500 }] }),
+    }
+    held.rabbit = { getAdapter: () => flaky, adapterMode: 'fixtures', adapterStatus: { online: true }, DEFAULT_WORKSPACE_ID: 'w0' }
+    const { result } = renderHook(() => useRateCard())
+    await waitFor(() => expect(result.current.error).toBe('entries down'))
+    expect(result.current.settled).toBe(false)
+    await waitFor(() => expect(result.current.settled).toBe(true), { timeout: 4000 })
+    expect({ error: result.current.error, entries: result.current.entries.length }).toEqual({ error: null, entries: 1 })
+  })
 })
 
 describe('useProjectRateOverrides: loadedEpoch', () => {
@@ -85,6 +113,46 @@ describe('useProjectRateOverrides: loadedEpoch', () => {
     await waitFor(() => expect(result.current.loadedEpoch).toBe(1), { timeout: 4000 })
     expect(result.current.error).toBeNull()
     expect(ratesPendingFrom({ rateCard: { settled: true }, rateOverrides: result.current, epoch: 1 })).toBeNull()
+  })
+  it('S5c review round 2 (R2-02): project B\'s read fails after a switch — the block stays pending and says why; A\'s rates never read as B\'s', async () => {
+    const A = [{ id: 'oA', project_id: 'pA', role_slug: 'anim', member_id: null, day_rate: 999 }]
+    const two = { listProjectRateOverrides: vi.fn(async (pid) => { if (pid === 'pA') return A; throw new Error('network down') }) }
+    held.rabbit = { getAdapter: () => two, project: { id: 'pA' }, adapterMode: 'local_server', adapterStatus: { online: true }, rateOverridesEpoch: 2 }
+    const { result, rerender } = renderHook(() => useProjectRateOverrides())
+    await waitFor(() => expect(result.current.loadedEpoch).toBe(2))
+    // The person opens project B (the epoch is the provider's, not the project's).
+    held.rabbit = { ...held.rabbit, project: { id: 'pB' } }
+    rerender()
+    // The very render of the switch: nothing of A's on hand.
+    expect({ overrides: result.current.overrides, loadedEpoch: result.current.loadedEpoch }).toEqual({ overrides: [], loadedEpoch: null })
+    await waitFor(() => expect(result.current.error).toBe('network down'))
+    expect({
+      pending: ratesPendingFrom({ rateCard: { settled: true }, rateOverrides: result.current, epoch: 2 }),
+      overridesProject: result.current.overrides.map(o => o.project_id),
+    }).toEqual({ pending: 'The project’s rates could not be read: network down', overridesProject: [] })
+  })
+  it('R2-02: a read of A answering after the switch to B never lands', async () => {
+    const gate = deferred()
+    const two = { listProjectRateOverrides: vi.fn(async (pid) => { if (pid === 'pA') { await gate.promise; return [{ id: 'oA', project_id: 'pA', role_slug: 'anim', day_rate: 999 }] } return [] }) }
+    held.rabbit = { getAdapter: () => two, project: { id: 'pA' }, adapterMode: 'local_server', adapterStatus: { online: true }, rateOverridesEpoch: 0 }
+    const { result, rerender } = renderHook(() => useProjectRateOverrides())
+    held.rabbit = { ...held.rabbit, project: { id: 'pB' } }
+    rerender()
+    await waitFor(() => expect(result.current.loadedEpoch).toBe(0))
+    await act(async () => { gate.resolve() })
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    expect(result.current.overrides).toEqual([])
+  })
+  it('R2-02: a read of A answering once no project is open never lands (no newer read supersedes it then)', async () => {
+    const gate = deferred()
+    const one = { listProjectRateOverrides: vi.fn(async () => { await gate.promise; return [{ id: 'oA', project_id: 'pA', role_slug: 'anim', day_rate: 999 }] }) }
+    held.rabbit = { getAdapter: () => one, project: { id: 'pA' }, adapterMode: 'local_server', adapterStatus: { online: true }, rateOverridesEpoch: 0 }
+    const { result, rerender } = renderHook(() => useProjectRateOverrides())
+    held.rabbit = { ...held.rabbit, project: null }
+    rerender()
+    await act(async () => { gate.resolve() })
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    expect({ overrides: result.current.overrides, loadedEpoch: result.current.loadedEpoch }).toEqual({ overrides: [], loadedEpoch: null })
   })
   it('a backend with no project rates has its empty list at every epoch', async () => {
     const bare = { listRateCards: adapter.listRateCards }

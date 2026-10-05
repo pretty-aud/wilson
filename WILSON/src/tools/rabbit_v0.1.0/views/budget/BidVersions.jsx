@@ -142,11 +142,16 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
   // version's list and "unsaved" does not compare it; Save as new takes the
   // default — the open version's list, else the project's active one (S3c).
   // Another open version is another default: the choice was about the old.
-  // Held WITH the open version it was made for, so it is dropped in the very
+  // Held WITH the open version it was made for, and dropped in the very
   // render the open version changes (review round 1: an effect cleared it a
   // render late, and that render compared the old choice with the new open
-  // version — a frame of "Unsaved changes").
+  // version — a frame of "Unsaved changes"). Dropped, not masked (round 2,
+  // R2-04: masked, it came back with its version when that version opened
+  // again — "Unsaved changes" right after a clean open, and the orange Save
+  // would write the discarded list). Set during render: React renders again
+  // at once, before anything is shown.
   const [choice, setChoice] = useState({ openId, value: undefined })
+  if (choice.openId !== openId) setChoice({ openId, value: undefined })
   const listChoice = choice.openId === openId ? choice.value : undefined
   const setListChoice = (value) => setChoice({ openId, value })
   const listDefault = openRow
@@ -171,8 +176,13 @@ export function BidVersionsBlock({ ctx, roleRates, currency, liveTotals, ratesPe
     setError(null)
     try { await fn() } catch (err) { setError(err?.message || String(err)) } finally { setBusy(null) }
   }
+  // Round 2 (R2-05): a Save that stops part way (deleting the rows no version
+  // holds any more) has recorded what landed, and on the Budget the toast is
+  // the only way back to it — so it runs through runWithUndoToast (no toast
+  // when it ends well: the line above says "Saved").
+  const step = ctx?.runWithUndoToast || ((fn) => fn())
   const saveOpen = () => run('save', async () => {
-    await ctx.saveBudgetVersion(state.open.id, { roleRates, basedOnListId: listChoice })
+    await step(() => ctx.saveBudgetVersion(state.open.id, { roleRates, basedOnListId: listChoice }), null)
     setListChoice(undefined)
   })
   const ask = (kind, extra = {}) => onAsk({ kind, liveShotListId: listChoice, basedOnListId: basedOnId, ...extra })

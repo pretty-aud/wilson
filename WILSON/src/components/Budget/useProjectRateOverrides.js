@@ -46,6 +46,25 @@ export function useProjectRateOverrides() {
   const epochRef = useRef(rabbit?.rateOverridesEpoch ?? 0)
   epochRef.current = rabbit?.rateOverridesEpoch ?? 0
 
+  // Post-overhaul S5c review round 2 (R2-02): the list on hand, the epoch it
+  // was read at and its error are ONE project's. The epoch is the provider's,
+  // not the project's, so after a switch (the Budget stays mounted) the
+  // previous project's list read as this one's at the same epoch: a failed
+  // read of this project then opened the versions block with the other
+  // project's rates — "Saved" / "Unsaved changes", the variance, and a Save
+  // that wrote them into this project's bid. Reset in the very render the
+  // project changes (React renders again at once, before anything is shown),
+  // and a read that answers for a project no longer open never lands.
+  const projectIdRef = useRef(projectId)
+  projectIdRef.current = projectId
+  const [stateFor, setStateFor] = useState(projectId)
+  if (stateFor !== projectId) {
+    setStateFor(projectId)
+    setOverrides([])
+    setLoadedEpoch(null)
+    setError(null)
+  }
+
   const mountedRef = useRef(true)
   // Set true in the effect, not only by useRef: StrictMode (dev) runs the
   // cleanup once between two mounts, and a guard that only ever goes false
@@ -128,18 +147,21 @@ export function useProjectRateOverrides() {
     if (!adapter?.listProjectRateOverrides) { setLoadedEpoch(epochRef.current); return }
     const seq = ++loadSeqRef.current
     const forEpoch = epochRef.current
+    const forProject = projectId
+    // Another read began since, or another project is open now (R2-02).
+    const superseded = () => seq !== loadSeqRef.current || forProject !== projectIdRef.current
     setLoading(true)
     setError(null)
     try {
       const list = await adapter.listProjectRateOverrides(projectId)
-      if (seq !== loadSeqRef.current) return
+      if (superseded()) return
       if (mountedRef.current) {
         setOverrides(Array.isArray(list) ? list : [])
         setLoadedEpoch(forEpoch)
       }
       retryRef.current.tries = 0
     } catch (err) {
-      if (seq !== loadSeqRef.current) return
+      if (superseded()) return
       // Money is manager-only at the RLS layer (0037), so a non-manager gets
       // an empty set rather than an error. An error here is a real fault and
       // must stay visible — an unreported failure and an empty override list
