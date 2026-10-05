@@ -1,11 +1,11 @@
-# 55 — BID VERSIONS: open one, change it, Save back into it, keep the others (R.A.B.B.I.T. → BUDGET → SUMMARY) — the Budget half
+# 55 — BID VERSIONS: open one, change it, Save back into it, keep the others (R.A.B.B.I.T. → BUDGET → SUMMARY, and → TIMELINE)
 
-> **The Timeline's own version control arrives with the next session (S5d).**
-> This walkthrough is the Budget's half: everything below happens on the
-> Budget's **Summary**. The Timeline already *shows* the open version's
-> schedule (every step that changes it is checked there), but its dropdown,
-> its "Viewing bid version" banner and its own Save are the next session's,
-> and so is this walkthrough's second half.
+> **Both halves are in.** Steps 1–22 are the Budget's (its **Summary**, S5c);
+> steps 23–35, further down — *"The Timeline's half"* — are the Timeline's own
+> **Bid version** bar: its dropdown, looking at a version read-only, Edit this
+> version and Save from the Timeline, and the bar under a lock (S5d). The
+> help pages ("Budget" and "Timeline", in R.A.B.B.I.T.'s Help) say the same in
+> short.
 
 **What this is.** A bid version is now a living document, as you asked
 (F2). One version can be **open**: the Timeline and Budget show exactly its
@@ -158,8 +158,10 @@ at 1440×900 and 1280×700). Your own steps use your own project.
 
 ## 4. Still not right, and not this session's to change
 
-- The Timeline's own version dropdown, its banner and its Save: S5d.
-- Help pages for versions: S5d.
+- ~~The Timeline's own version dropdown, its banner and its Save: S5d.~~
+  Done — the Timeline's half, below.
+- ~~Help pages for versions: S5d.~~ Done — "Budget" and "Timeline" in
+  R.A.B.B.I.T.'s Help.
 
 ## 5. Questions, when you test
 
@@ -204,3 +206,175 @@ network dropping mid-step), a step while an Undo is still running, a
 project switch mid-step, a failed read of the rates. Not checked: the cloud
 with 0089 and 0090 applied to a real workspace (dev has them; the steps are
 the same).
+
+---
+
+# The Timeline's half (S5d) — the Bid version bar, looking at a version, and the lock
+
+**What this is.** The Timeline has its own way into bid versions now, for
+project managers and workspace admins (and on the Local Server, where there
+are no roles): a **Bid version** bar directly under the zoom toolbar. Its
+dropdown chooses what the gantt shows — **Current** (the live schedule, which
+*is* the open version when one is open) or any saved version, **read-only**.
+While a version is open, the bar says whether it is saved and gives you
+**Save** right there. Under a lock the bar is greyed and says why. Your words,
+2026-10-05: *"viewing a version is read-only. to edit a version press "Edit
+this version""*, and *"while the budget is active the Timeline dropdown is
+greyed out with the reason shown … i still edit the live Timeline during
+production as normal."*
+
+Written 2026-10-05 against `feat/post-overhaul-edit-versioning` (S5d, the
+last part of bundle S5, `po/s5-budget-versions`). The same migrations as the
+Budget's half (0089, 0090); nothing new.
+
+**Why a bar of its own, and not a control inside the toolbar.** Measured on
+the test data: at 1280×700 with six Group-by tabs and the "Shot list:" label,
+the toolbar has 18px to spare (116px grouped by phase with four tabs), and the
+smallest control that says "● Unsaved" and saves needs about 290px. The
+choice was this row, or turning four of the toolbar's labelled buttons
+(Today, Key date, Deleted, the sort pair) into bare icons. The toolbar is
+exactly as it was; the bar costs one row (37px) under it.
+
+## 6. Step by step
+
+The pictures are the test data's (`docs/sessions/handoffs/img/po-s5d-*`, at
+1440×900 and 1280×700).
+
+| # | Do | You should see |
+|---|----|----------------|
+| 23 | Open the project's **Timeline** | Under the zoom toolbar, a row: **BID VERSION**, a dropdown, a few words, and buttons at the right. A member or a reviewer sees no such row, and nothing of it is even loaded for them (your F10). |
+| 24 | If a bid is locked | The dropdown is grey, showing the locked bid (*"Bid v2 (pre-production) · 09/02/2026 · Locked"*), and beside it: *"While the budget is active no version is opened: Reset to bidding first."* The Timeline itself is untouched: drag a bar and it moves (picture 01). |
+| 25 | While locked: **Save as new version…** | The form says it *"Records what the Timeline and Budget show now … It is not opened or selected"*. Name it **Revision after week 2** and save: the toast *"Recorded “Revision after week 2”; the lock is unchanged"* (pictures 02, 03). |
+| 26 | On the Budget's Summary, **Reset to bidding**; back to the Timeline | *"No version is open."* and **Save as new version…** (picture 04). |
+| 27 | Open the dropdown | **Current** first; then *Bid versions*, newest first — the open one marked *Open*, a locked one *Locked*; then **Manage versions…**. A version saved before versions kept their schedule shows *"· no timeline captured"*, greyed: it can't be looked at. No money anywhere in it (picture 05). |
+| 28 | Choose **Bid v1**, then **Edit this version** in the bar, confirm; then **Save as new version…** *Low ROM*. The same from **Bid v2**: *Mid ROM* | Two versions made from the Timeline: Low ROM (31 tasks) and Mid ROM (42). Mid ROM is open. |
+| 29 | Choose **Low ROM** while Mid ROM is open | The bar turns grey-tinted: *"Viewing bid version: Low ROM · 10/05/2026"*, *Read-only*, with **Edit this version** and **Current**. The gantt, the minimap and the band above show Low ROM: its 31 tasks, its dates, its key dates, its own critical path. **+ Phase**, **Key date** and **+ Task** are greyed with *"Viewing a bid version is read-only: Current goes back to the live schedule."*; Undo is grey and Ctrl+Z does nothing; an undo toast on screen keeps its **Undo** greyed until you are back at Current; a bar can't be dragged; a click on a bar opens nothing (picture 06). |
+| 30 | **Current** | Back to the live schedule, Mid ROM's: *"Open: Mid ROM · Saved …"* (picture 07). Looking wrote nothing: no task left or came back, nothing new in Undo. |
+| 31 | Choose **Low ROM** again, **Edit this version** | *"Edit “Low ROM”?"* — the Budget's own question (picture 08). **Edit this version**: the toast *"11 tasks left the Timeline: editing “Low ROM”"*; the tint goes; *"Open: Low ROM · Saved …"* (picture 09). |
+| 32 | Drag a bar a day later | *"Open: Low ROM · Unsaved changes"*, and **● Unsaved** beside **Save**, whose edge turns orange and breathes (picture 10). **Save**: *"Saved …"* — still Low ROM (picture 11). For the moment it saves, the Timeline is greyed: *"A bid version step is still running: the Timeline takes changes again when it ends."* |
+| 33 | **Save as new version…** — *High ROM* | The form, the cursor in Name, Cancel first in its footer (picture 12); then High ROM is open and selected (picture 13). |
+| 34 | The gear → **Editable** → **Show weekends** off; **Day**; choose **Low ROM** | Note the date at the gantt's left edge (picture 14). **Week**, then **Day** again: the same date at the left (pictures 15, 16). Looking at a version never throws the gantt back to today. |
+| 35 | Leave the Timeline (another tab) and come back | **Current** again: looking at a version is a look, not a state that stays. |
+
+## 7. How to check it
+
+- **Looking writes nothing**: after 29–30, Manage versions… lists the same
+  versions; no task left the Timeline or came back; Undo has nothing new.
+- **Save into, not new**: after 32, the list in Manage versions… is the same;
+  Low ROM's "Saved" moved.
+- **The lock**: the dropdown can't be opened under it; the Timeline still
+  moves; Save as new version… only records.
+
+## 8. The numbers, measured
+
+On the test data in Chromium (this worktree's own server, port 5280), at
+1440×900 and 1280×700 unless a line says otherwise.
+
+- **The toolbar is exactly as it was.** Its free room, measured before S5d
+  and after, to the tenth of a pixel: 17.9px at 1280 with six Group-by tabs
+  and the "Shot list:" label, 115.7px at 1280 grouped by phase with four
+  tabs, 157.5px at 1440 with six tabs. The bar is one row of 37px under it.
+- **The bar's pieces** (Mid ROM open, unsaved): the dropdown 320px (a
+  dropdown is as wide as its longest choice; from 1280 up it may take
+  320px), the words 213px, the buttons 331px (Save 75, Save as new
+  version… 179), "● Unsaved" 62px. Locked: the sentence 413px, one button
+  (179px).
+- **Narrower windows** (1024×700): the dropdown gives way first, down to
+  140px, so the words fit whole — *"Open: Bid v1 (fund application) ·
+  Unsaved changes"* — and so does the lock's sentence. If even that is too
+  little (the rates could not be read, and the sentence saying so is long),
+  the version's name and that sentence each end in "…", and the buttons
+  never leave the window. A refusal (*"an Undo is still running — try again
+  once it has finished"*, or a step that stopped part way) is a red-tinted
+  line of its own under the bar, every word shown, its ✕ in reach.
+- **Looking at a version keeps the date** at the gantt's left edge: Fri 11
+  Dec 2026 stays at the left looking at a version whose schedule is 3 days
+  earlier, or 4 or 5 days later, and back at Current, with weekends shown
+  and hidden (automated). Pictures 14–16: Jul 20 at the left at Day, Week
+  and Day again (at 1440; at 1280 Jul 23 at Day and the week of Jul 20 at
+  Week). A version whose chart starts after the date you were on opens at
+  its own first day, weekends shown or hidden (automated: a version 300 days
+  later opens on Tue 1 Dec 2026), and Current comes back to that day
+  (question 22).
+- **The Timeline's own checks, before S5d and after both reviews**: every
+  gantt row lines up (52 of 52 at every zoom, grouped by phase and by team,
+  worst 0.5px off centre); the 31 states the Timeline's picture script
+  takes are the same above the bar's row, and the same everywhere with the
+  bar hidden but for one dependency arrow that also differs between two
+  runs of the same code; the weekends switch keeps the date in all 36 zoom
+  changes with weekends shown and with them hidden; the minimap's window
+  still slides on the zoom tabs (16 of 16, both settings).
+- **Tests**: 268 files / 6,514 tests when S5d began; 272 files / 6,591 at
+  its end (with and without the development settings file). Every change
+  has a test proven by breaking the code on purpose: 48 of 48 for the first
+  build, 19 of 19 for the first review's corrections, 20 of 20 for the
+  second's.
+
+## 9. Questions, when you test (the Timeline's half)
+
+11. **The bar is a row of its own** under the toolbar (the toolbar had no
+    room at 1280 with six Group-by tabs). The alternative: four of the
+    toolbar's labelled buttons as bare icons, and no extra row. Right?
+12. **Save on the Timeline is not a filled orange button**: its edge turns
+    orange and breathes, with "● Unsaved" beside it — the Timeline's one
+    filled orange stays **+ Task**. (On the Budget's Summary, Save is the
+    filled one.) Right?
+13. **Save as new version… is never orange on the Timeline** (on the Summary
+    it is, when it is the only way to save). Right?
+14. **While looking at a version, a click on a bar opens nothing**: the task
+    window shows the task as it is *now* — its comments, logged time, today's
+    dates — which the version does not hold. Its tooltip says the saved name
+    and length. Or would you rather a read-only window of the saved task?
+15. **Looking keeps the date at the gantt's left edge** (so two versions can
+    be compared over the same weeks); it does not jump to the version's
+    start. Right?
+16. **Choosing the open version in the dropdown is Current** (it is what
+    Current shows), rather than its last saved state. Right?
+17. **A version's arrows are its tasks' links as they are now** — a version
+    doesn't keep links; Edit this version would bring back exactly these.
+    Right?
+18. **Versions now remember who each task was assigned to**, so "Group by
+    team" works when looking at one; versions saved before today show the
+    assignee as it is now. Right?
+19. **"Group by team" no longer drops a task** whose assignee is not on the
+    project's team: it shows under Unassigned, saying who (it used to vanish
+    from that grouping — older than S5). Right?
+20. **Leaving the Timeline returns to Current** (your F2's "viewing" is a
+    look) — switching projects too. Right?
+21. **While a bid version is being saved or changed, the Timeline stands
+    still** for that moment — + Phase, Key date and + Task greyed with *"A
+    bid version step is still running: the Timeline takes changes again
+    when it ends."*, Undo grey, a click on a task opening nothing — even if
+    you leave the tab and come back, or started it on the Budget. (A change
+    made meanwhile used to join the step, so its Undo took your change back
+    too.) If the step hangs, the Timeline lets go after 20 seconds; only the
+    bar's buttons keep waiting. On the test data it lasts a blink. Right?
+22. **A version whose schedule starts after the date you were looking at
+    opens at its own first day**, and **Current** then comes back to that
+    day, not to where you were before you looked. Should Current put you
+    back where you were?
+23. **While you look at a version, the undo toast's Undo waits**: greyed,
+    saying why, its countdown stopped; back at Current it works again (it
+    would have changed the live schedule, which you were not looking at).
+    Right?
+24. **When something can't be done, the bar says so on a red line of its
+    own under it**, with ✕ to close it; and in a narrow window the dropdown
+    narrows first, then the version's *name* gives way, never "Unsaved
+    changes". Right?
+
+## What was checked, and what was not (the Timeline's half)
+
+Checked: steps 23–35 on the test data in a browser, scripted at 1440×900
+and 1280×700 (`scripts/budget-versions-shots.mjs --part timeline`); the bar
+at 1024×700 in its long states. Checked by automated tests, not by hand:
+who sees the bar (a member and a reviewer: nothing of it, not even the
+rates read), looking writes nothing (every write the backend could be asked
+for is counted: none), Ctrl+Z, Undo and the toast's Undo waiting while
+looking, a version deleted while you look at it, a Save refused while an
+Undo still runs, a Save that fails, a Save that hangs, leaving the tab
+mid-Save, a write that fails while another lands. Two adversarial reviews
+(one reviewer each): the first found nine things (six fixed, the rest
+recorded for other sessions), the second nine in the first one's fixes (six
+fixed, three recorded). Not checked: the cloud with 0089 and 0090 on a real
+workspace (dev has them; the steps are the same); the desktop app itself
+(the bar is the same component there).
