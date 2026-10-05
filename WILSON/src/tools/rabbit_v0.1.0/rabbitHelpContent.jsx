@@ -445,6 +445,27 @@ export function RabbitHelpContent({ helpPage, theme }) {
               "navigator".
             </p>
           </div>
+          {/* Post-overhaul S5d (step 9): the bid version bar, in its own words. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Bid versions</h4>
+            <p className={T.listItem}>
+              For project managers and workspace admins, a{' '}
+              <span className={T.listBold}>Bid version</span> bar sits under the
+              zoom toolbar. Its dropdown shows{' '}
+              <span className={T.listBold}>Current</span> (the live schedule:
+              the open version's, when one is open), every saved version newest
+              first, then <span className={T.listBold}>Manage versions…</span>.
+              Choose a version to view its schedule read-only: the bar says
+              Viewing bid version, nothing can be dragged or created, Undo
+              waits, and leaving the tab comes back to Current.{' '}
+              <span className={T.listBold}>Edit this version</span> loads it;
+              Current goes back. While a version is open the bar says whether
+              it is saved, and Save writes your changes into it. While the
+              budget is active the dropdown is greyed with the reason; the
+              Timeline stays editable, and Save as new version… records a copy.
+              The Budget page here says what open, selected and locked mean.
+            </p>
+          </div>
         </div>
       </section>
     </div>
@@ -569,6 +590,100 @@ export function RabbitHelpContent({ helpPage, theme }) {
           intake wizard or in the asset editor and the budget recalculates
           live.
         </p>
+      </section>
+      {/* Post-overhaul S5d (step 9): bid versions, in the controls' own words
+          (rabbitVersionsHelp.test.jsx holds them to the screens). */}
+      <section>
+        <h3 className={T.sectionTitle}>Bid versions</h3>
+        <p className={`${T.bodyText} mb-3`}>
+          A bid version is a living document: you keep working in one and save
+          into it, as you would a file. Bid versions are for project managers
+          and workspace admins; on the Local Server there are no roles. Three
+          words say where each version stands:
+        </p>
+        <div className={T.card}>
+          <table className={`${T.listItem} w-full`}>
+            <thead>
+              <tr>
+                <th className={`${T.listBold} text-left align-top pr-3 pb-1`}>State</th>
+                <th className={`${T.listBold} text-left align-top pb-1`}>What it means</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="align-top pr-3 py-1"><span className={T.listBold}>Open</span></td>
+                <td className="align-top py-1">The version the Timeline and Budget show now. Save writes your changes back into it, and the page says when it has unsaved changes.</td>
+              </tr>
+              <tr>
+                <td className="align-top pr-3 py-1"><span className={T.listBold}>Selected</span></td>
+                <td className="align-top py-1">The bid the variance measures against. Choose it in Selected bid, on the Budget's Summary.</td>
+              </tr>
+              <tr>
+                <td className="align-top pr-3 py-1"><span className={T.listBold}>Locked</span></td>
+                <td className="align-top py-1">The budget in production, after Set budget active. Nothing opens while it holds, and the variance keeps measuring against it.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="space-y-3 mt-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Two ways to save</h4>
+            <p className={T.listItem}>
+              <span className={T.listBold}>Save</span> writes the changes into
+              the open version: Mid ROM stays Mid ROM.{' '}
+              <span className={T.listBold}>Save as new version…</span> is the
+              only way a new version appears. It asks for a name, and the new
+              version becomes the open one and the selected bid.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Edit this version</h4>
+            <p className={T.listItem}>
+              Edit this version asks once, then loads the version into the
+              Timeline and Budget. Tasks, phases and key dates it does not hold
+              leave the Timeline, kept whole with their comments, files and
+              logged time, and come back when you edit a version that holds
+              them: nothing is lost. If the open version has unsaved changes it
+              asks first: Cancel, Discard changes, or Save to it.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Viewing against editing</h4>
+            <p className={T.listItem}>
+              On the Timeline, the Bid version dropdown shows any saved version
+              read-only: nothing is written, nothing leaves the Timeline or
+              comes back, and nothing can be dragged or created. Edit this
+              version loads it; Current goes back to the live schedule.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>During production</h4>
+            <p className={T.listItem}>
+              While the budget is active no version is opened: Reset to bidding
+              first. You keep editing the live Timeline as usual, and Save as
+              new version… records a copy of it (for example "Revision after
+              week 2") without opening or selecting it: the lock and the
+              variance stay on the locked bid.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Undo</h4>
+            <p className={T.listItem}>
+              The Budget has no Ctrl+Z for these steps. Each step that changes
+              the Timeline, locks, unlocks or deletes offers Undo in the toast
+              at the bottom, and that Undo takes back exactly that step. On the
+              Timeline, Ctrl+Z reaches the same steps.
+            </p>
+          </div>
+          <div className={T.notesBox}>
+            <div className={T.notesTitle}>No question when you leave</div>
+            <p className={T.listItem}>
+              Leaving the Budget or the Timeline with unsaved changes asks
+              nothing, on purpose: nothing is lost. The changes stay on the
+              Timeline, and the open version stays unsaved until you save it.
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );
