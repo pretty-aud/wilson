@@ -785,6 +785,26 @@ describe('flattenDoc — three shapes, none interchangeable', () => {
     // nodes data read as hotkeys: `categories` is absent, so no rows.
     expect(flattenDoc({ systems: [{ system: 'S', categories: [] }] }, 'hotkeys')).toEqual([])
   })
+
+  it('🚨 what is not an entry is skipped at every level, in every kind — never a throw (S2c, S2b-05)', () => {
+    // An imported library can carry a null, a string, a number or a list
+    // where an entry belongs, and the merge carries a stored one over
+    // untouched (S2b). A null CATEGORY threw here (Cannot read properties of
+    // null), a list that was not one threw (5 is not iterable).
+    const JUNK = [null, 'x', 5, ['y'], true]
+    const fns = flattenDoc({ categories: [...JUNK, { functions: 5 }, { functions: 'ab' }, { functions: { a: 1 } },
+      { category: 'Math', functions: [...JUNK, { name: 'abs', syntax: 'abs(x)' }] }] }, 'functions')
+    expect(fns).toEqual([{ label: 'abs', detail: 'abs(x)', group: 'Math' }])
+    const hks = flattenDoc({ categories: [...JUNK, { category: 'A', shortcuts: 5 }, { category: 'B', hotkeys: { a: 1 } },
+      { category: 'Transform', shortcuts: [...JUNK, { action: 'Scale', windows: 'S' }] }] }, 'hotkeys')
+    expect(hks).toEqual([{ label: 'Scale', detail: 'S', group: 'Transform' }])
+    const nodes = flattenDoc({ systems: [...JUNK, { system: 'X', categories: 5 }, { system: 'Shader Nodes', categories: [...JUNK, { category: 'C', nodes: 'ab' },
+      { category: 'Input', nodes: [...JUNK, { name: 'Fresnel', description: 'facing ratio' }] }] }] }, 'nodes')
+    expect(nodes).toEqual([{ label: 'Fresnel', detail: 'facing ratio', group: 'Shader Nodes / Input' }])
+    // A list where the document's own list belongs reads as none.
+    for (const kind of ['hotkeys', 'functions']) for (const categories of [{ a: 1 }, 'ab', 5]) expect(flattenDoc({ categories }, kind)).toEqual([])
+    for (const systems of [{ a: 1 }, 'ab', 5]) expect(flattenDoc({ systems }, 'nodes')).toEqual([])
+  })
 })
 
 describe('rankDocRows', () => {
@@ -849,6 +869,25 @@ describe('retrieveOtterKnowledge — reference documents ride along', () => {
     const r = await retrieveOtterKnowledge({ question: 'how do I use print in python', fetchImpl: makeFetch(PYTHON) })
     expect(r.block).toContain('- [Python → functions → General] print(): print(*objects)')
     expect(r.block).not.toMatch(/\[Python → functions\] /)
+  })
+
+  it('🚨 ONE malformed document never blinds the pet to the whole library (S2c, S2b-05)', async () => {
+    // Measured before S2c: a null category in PYTHON's functions made the
+    // index build throw, and a BLENDER question was answered "could not be
+    // reached" — every course lost for one entry in one file.
+    const MIXED = {
+      ...WITH_DOCS, // Blender and Python, as the Local Server lists them
+      '/api/software/python/hotkeys':{ categories: [null, { category: 'X', shortcuts: 5 }] },
+      '/api/software/python/functions': { categories: [null, 'x', { functions: [null, 'print', { name: 'print()', syntax: 'print(*objects)' }] }] },
+      '/api/software/python/nodes': { systems: [null, { system: 'S', categories: [null] }] },
+    }
+    const blender = await retrieveOtterKnowledge({ question: 'how do I scale something in blender', fetchImpl: makeFetch(MIXED) })
+    expect(blender.reachable).toBe(true)
+    expect(blender.block).toContain('then type a number')
+    expect(blender.block).not.toMatch(/could not be reached/)
+    clearPetKnowledgeCache()
+    const python = await retrieveOtterKnowledge({ question: 'how do I use print in python', fetchImpl: makeFetch(MIXED) })
+    expect(python.block).toContain('- [Python → functions → General] print(): print(*objects)')
   })
 
   it('🚨 never asks for `reference_urls` — that is the COLUMN, not the route key', async () => {

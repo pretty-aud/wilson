@@ -17,8 +17,9 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import FunctionCard, { CodeWell } from './FunctionCard.jsx'
+import FunctionCard, { CodeWell, cardText } from './FunctionCard.jsx'
 import { LESSON_CODE_THEME } from './otterLanguage.js'
+import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js'
 
 afterEach(cleanup)
 
@@ -141,6 +142,21 @@ describe('FunctionCard — a known language colours the code text only', () => {
     const c = render(<FunctionCard fn={{ name: 'f', parameters: { a: 'int' }, returns: ['x', 'y'], description: 7 }} language={null} />).container
     expect([...c.querySelectorAll('.otter-fn-text, .otter-fn-desc')].map((e) => e.textContent)).toEqual(['{"a":"int"}', 'xy', '7'])
   })
+
+  it('an entry that is not a function draws no card, plain or coloured — never a crash (S2c, S2b-05)', () => {
+    // An imported library can carry a null, a string, a number or a list in
+    // a category's `functions`; `fn.name` on a null blanked the whole window.
+    for (const fn of [null, undefined, 'print', 5, ['len'], true]) {
+      for (const language of [null, 'python']) {
+        const { container } = render(<FunctionCard fn={fn} language={language} />)
+        expect(container.innerHTML, `${JSON.stringify(fn)} in ${language}`).toBe('')
+        cleanup()
+      }
+    }
+    // …and a function beside them still draws as before.
+    expect(render(<FunctionCard fn={{ name: 'abs' }} language={null} />).container.innerHTML)
+      .toBe('<div class="otter-fn-card"><code class="otter-fn-name">abs</code></div>')
+  })
 })
 
 // ── the hosts ────────────────────────────────────────────────────────────────
@@ -187,7 +203,14 @@ function hostReport(src) {
   // library found nothing), and an empty category is not counted.
   const sharedText = /const fnSearchText = \(f\) => \[f\.name, f\.description, f\.syntax, f\.returns, f\.parameters, f\.example\]\.filter\(Boolean\)\.join\(' '\);/
   if (!sharedText.test(search) || (search.match(/fnSearchText\(f\)/g) || []).length < 2) bad.push('the search count and its cards read different text')
-  if (!/funcCategories\s*=\s*\(cached\.functions\?\.categories \|\| \[\]\)\.filter\(cat => cat && Array\.isArray\(cat\.functions\) && cat\.functions\.length > 0\)/.test(search)) bad.push('an empty category is counted')
+  // S2c (S2b-05): …and only a category's entries that are functions are
+  // read, so a null or a string in the list neither throws nor counts.
+  if (!/funcCategories = \(Array\.isArray\(cached\.functions\?\.categories\) \? cached\.functions\.categories : \[\]\)\s*\.map\(cat => \(\{ \.\.\.cat, functions: functionEntries\(cat\) \}\)\)\.filter\(cat => cat\.functions\.length > 0\);/.test(search)) bad.push('an empty category is counted, or an entry that is not a function is read')
+  // S2c (S2b-05): the Functions view lists functions only, and its own
+  // search reads each field as the card draws it.
+  const view = between(src, 'if (isCodingLang) {', '// Software hotkeys', src.indexOf('function renderHotkeys()'))
+  if (!/const allFuncs = \(Array\.isArray\(softwareFunctions\?\.categories\) \? softwareFunctions\.categories : \[\]\)\s*\.filter\(cat => cat && Array\.isArray\(cat\.functions\)\)\.map\(cat => \(\{ \.\.\.cat, functions: functionEntries\(cat\) \}\)\);/.test(view)) bad.push('the Functions view reads an entry that is not a function')
+  if ((view.match(/cardText\(f\.(name|description|syntax)\)\.toLowerCase\(\)\.includes\(functionSearch\.toLowerCase\(\)\)/g) || []).length !== 3 || /\(f\.(name|description|syntax) \|\| ''\)\.toLowerCase/.test(view)) bad.push('the Functions view\'s search reads a field raw')
   // Round 2: the generation paths keep a category the generator keyed `name`.
   if (/category: cat\.category \|\| 'General'/.test(code) || (code.match(/category: functionCategoryName\(cat\),/g) || []).length !== 3) bad.push('a generation path reads only `category`')
   return bad
@@ -211,10 +234,103 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/open course's language/)
     expect(hostReport(OTTER.replace('f.returns, f.parameters, f.example].filter(Boolean)', 'f.returns].filter(Boolean)')).join('\n'))
       .toMatch(/different text/)
-    expect(hostReport(OTTER.replace(' && cat.functions.length > 0)', ')')).join('\n')).toMatch(/empty category is counted/)
+    // S2c: the empty-category control plants on the line S2c wrote (the
+    // line S2b's control planted on is gone), and three more for S2b-05.
+    expect(hostReport(OTTER.replace('functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);', 'functions: functionEntries(cat) }));')).join('\n'))
+      .toMatch(/empty category is counted/)
+    expect(hostReport(OTTER.replace('.map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);', '.filter(cat => cat.functions.length > 0);')).join('\n'))
+      .toMatch(/not a function is read/)
+    expect(hostReport(OTTER.replace('.filter(cat => cat && Array.isArray(cat.functions)).map(cat => ({ ...cat, functions: functionEntries(cat) }));', '.filter(cat => cat && Array.isArray(cat.functions));')).join('\n'))
+      .toMatch(/Functions view reads an entry/)
+    expect(hostReport(OTTER.replace('cardText(f.syntax).toLowerCase()', "(f.syntax || '').toLowerCase()")).join('\n'))
+      .toMatch(/search reads a field raw/)
     expect(hostReport(OTTER.replace('category: functionCategoryName(cat),', "category: cat.category || 'General',")).join('\n'))
       .toMatch(/generation path/)
     expect(hostReport(OTTER.replace('courseLanguage({ name: r.softwareName, slug: r.softwareSlug })', 'courseLanguage({ slug: r.softwareSlug })')).join('\n'))
       .toMatch(/its course's language/)
+  })
+})
+
+// ── the readers, RUN from the shipped Otter.jsx (S2c, S2b-05) ────────────────
+// The Search dialog's function search and the Functions view's two lists are
+// plain JavaScript inside Otter.jsx; each is lifted out as text and run, so
+// what is tested is what ships (LF whatever the checkout).
+const RAW = OTTER.replace(/\r\n/g, '\n')
+function lift(src, from, to) {
+  const a = src.indexOf(from)
+  const b = a < 0 ? -1 : src.indexOf(to, a)
+  if (a < 0 || b < 0) throw new Error(`Otter.jsx no longer marks "${from}" … "${to}" — the replay cannot run`)
+  return src.slice(a, b)
+}
+// eslint-disable-next-line no-new-func
+const searchFunctions = (src = RAW) => new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', lift(src, '// Functions search', '// Nodes search'))
+// eslint-disable-next-line no-new-func
+const functionsView = (src = RAW) => new Function('softwareFunctions', 'functionSearch', 'courseLanguage', 'activeSoftware', 'functionEntries', 'cardText',
+  `${lift(src, 'const allFuncs = ', 'return (\n        <div className="otter-view" ref={functionScrollRef}>')}\nreturn { allFuncs, filtered };`)
+
+/** A library as an import can carry it: entries that are not functions in a
+ *  category's list, categories that are not categories, values that are not
+ *  strings. */
+const MALFORMED = { categories: [
+  null, 'x', { category: 'Junk', functions: 5 },
+  { functions: [null, 'print', 5, ['len'], { name: 'print()', syntax: 'print(x)', description: 'Outputs' }, { name: 'abs', description: 7, syntax: 42 }] },
+  { category: 'Only junk', functions: [null, 'x'] },
+] }
+const isFn = (f) => !!f && typeof f === 'object' && !Array.isArray(f)
+const runView = (doc, search, src) => functionsView(src)(doc, search, () => null, null, functionEntries, cardText)
+
+describe('the function readers skip what is not a function — the shipped code, run (S2c, S2b-05)', () => {
+  it('the Search dialog: no throw, every card a function, the count over functions only', () => {
+    const results = []
+    expect(() => searchFunctions()({ functions: MALFORMED }, 'print', { name: 'Python', slug: 'python' }, results, functionCategoryName, functionEntries)).not.toThrow()
+    expect(results).toHaveLength(1)
+    expect(results[0].matches, '"print()" and "print(x)" — not the planted string "print"').toBe(2)
+    expect(results[0].matchedCategories.map((c) => [functionCategoryName(c), c.functions.map((f) => f.name)])).toEqual([['General', ['print()']]])
+    for (const c of results[0].matchedCategories) expect(c.functions.every(isFn)).toBe(true)
+  })
+
+  it('the Functions view: its lists hold functions only, and its search reads a value that is not a string as the card draws it', () => {
+    for (const search of ['', 'print', '42', 'abs', '7', 'x']) {
+      let out
+      expect(() => { out = runView(MALFORMED, search) }, search).not.toThrow()
+      for (const c of [...out.allFuncs, ...out.filtered]) expect(c.functions.every(isFn), search).toBe(true)
+    }
+    const found = (search) => runView(MALFORMED, search).filtered.flatMap((c) => c.functions.map((f) => f.name))
+    expect(found('print')).toEqual(['print()'])
+    expect(found('42'), 'syntax: 42 is found, as the card shows it').toEqual(['abs'])
+    expect(found('7'), 'description: 7 is found').toEqual(['abs'])
+    // Unsearched, it lists every stored category that is one — a category
+    // left with no functions keeps its heading, as an empty one always has.
+    expect(runView(MALFORMED, '').allFuncs.map((c) => [functionCategoryName(c), c.functions.length])).toEqual([['General', 2], ['Only junk', 0]])
+  })
+
+  it('a `categories` that is not a list reads as none, in both', () => {
+    for (const categories of [{ a: 1 }, 'ab', 5]) {
+      const results = []
+      expect(() => searchFunctions()({ functions: { categories } }, 'a', { name: 'P', slug: 'p' }, results, functionCategoryName, functionEntries)).not.toThrow()
+      expect(results).toEqual([])
+      expect(runView({ categories }, 'a').allFuncs).toEqual([])
+    }
+  })
+
+  it('her library\'s shape reads exactly as before: every function, under "General"', () => {
+    const doc = { categories: [{ functions: [{ name: 'print()', syntax: 'print(x)' }, { name: 'len()', syntax: 'len(s)' }] }] }
+    expect(runView(doc, '').allFuncs).toEqual(doc.categories)
+    const results = []
+    searchFunctions()({ functions: doc }, 'len', { name: 'Python', slug: 'python' }, results, functionCategoryName, functionEntries)
+    expect(results[0].matchedCategories).toEqual([{ functions: [{ name: 'len()', syntax: 'len(s)' }] }])
+  })
+
+  it('CONTROL: the readers as they were before S2c throw on the same library', () => {
+    const swap = (src, from, to) => { expect(src.includes(from), from).toBe(true); return src.replace(from, to) }
+    const oldSearch = swap(RAW, 'const funcCategories = (Array.isArray(cached.functions?.categories) ? cached.functions.categories : [])\n        .map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);',
+      'const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions) && cat.functions.length > 0);')
+    expect(() => searchFunctions(oldSearch)({ functions: MALFORMED }, 'print', { name: 'Python', slug: 'python' }, [], functionCategoryName, functionEntries)).toThrow(/null/)
+    const oldLists = swap(RAW, 'const allFuncs = (Array.isArray(softwareFunctions?.categories) ? softwareFunctions.categories : [])\n        .filter(cat => cat && Array.isArray(cat.functions)).map(cat => ({ ...cat, functions: functionEntries(cat) }));',
+      'const allFuncs = (softwareFunctions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));')
+    expect(() => runView(MALFORMED, 'print', oldLists)).toThrow(/null/)
+    const oldSearchBox = swap(RAW, 'cardText(f.syntax).toLowerCase()', "(f.syntax || '').toLowerCase()")
+    expect(() => runView({ categories: [{ functions: [{ name: 'abs', syntax: 42 }] }] }, 'zz', oldSearchBox)).toThrow(/toLowerCase/)
+    expect(() => runView({ categories: [{ functions: [{ name: 'abs', syntax: 42 }] }] }, 'zz')).not.toThrow()
   })
 })

@@ -320,6 +320,16 @@ const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, '
  *  case and punctuation aside — for both merges below, the functions' (S2b)
  *  and the hotkeys' (S2c, S2b-02): one helper, two callers. */
 const categoryKeyOf = (cat) => categoryKey(functionCategoryName(cat))
+/** A category's entries that ARE functions — the objects in its `functions`
+ *  list; anything else (null, a string, a number, a list) is skipped, and a
+ *  category that is not one, or whose list is not a list, has none.
+ *  Post-overhaul S2c (S2b-05): an imported library can carry such an entry
+ *  (the merge never writes one since S2b, and carries a stored one over
+ *  untouched), and the Search dialog's function search, the Functions view
+ *  and its card read `f.name` on it — a null blanked the whole window. The
+ *  one reading those readers and the pet's index share; her file is never
+ *  rewritten. */
+export const functionEntries = (cat) => (isObj(cat) && Array.isArray(cat.functions) ? cat.functions.filter(isObj) : [])
 const functionKey = (fn) => cleanName(fn?.name)
 const isCategory = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions))
 const isNamed = (c) => !!(cleanName(c.category) || cleanName(c.name))

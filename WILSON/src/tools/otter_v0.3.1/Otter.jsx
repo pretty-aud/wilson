@@ -73,8 +73,8 @@ import { localFetch } from '../../lib/localServerFetch.js';
 //  why each setting is what it is.
 // ═══════════════════════════════════════════════════════════════════
 import { LESSON_CODE_BLOCK, LESSON_CODE_THEME, LESSON_CODE_TEXT, courseLanguage } from './otterLanguage.js';
-import FunctionCard from './FunctionCard.jsx';
-import { functionCategoryName } from './adapters/otterRoutes.js';
+import FunctionCard, { cardText } from './FunctionCard.jsx';
+import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -2885,8 +2885,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       // words taken from her own library found nothing — and a category with
       // no functions is neither counted nor shown (its heading "found" one
       // occurrence and drew no card).
+      // S2c (S2b-05): only a category's entries that ARE functions — an
+      // imported library can carry a null or a string in the list, and
+      // `f.name` on a null threw here, every keystroke.
       const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ');
-      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions) && cat.functions.length > 0);
+      const funcCategories = (Array.isArray(cached.functions?.categories) ? cached.functions.categories : [])
+        .map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);
       if (funcCategories.length > 0) {
         // S2b (C10): the heading the result shows, never "undefined" — a
         // nameless category read as the word, so "undefined" matched it.
@@ -5207,14 +5211,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }
 
     if (isCodingLang) {
-      const allFuncs = (softwareFunctions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2c (S2b-05): each category's entries that ARE functions (a null or a
+      // string in the list blanked the window through the card's `fn.name`),
+      // and the search reads a field as the card draws it — a stored value
+      // that is not a string (S2b's card shows `syntax: 42`) threw on the
+      // first letter typed.
+      const allFuncs = (Array.isArray(softwareFunctions?.categories) ? softwareFunctions.categories : [])
+        .filter(cat => cat && Array.isArray(cat.functions)).map(cat => ({ ...cat, functions: functionEntries(cat) }));
       // S2b (C9): the language the cards colour their code in; unknown is plain.
       const fnLanguage = courseLanguage(activeSoftware);
       const filtered = functionSearch
         ? allFuncs.map(cat => ({ ...cat, functions: cat.functions.filter(f =>
-            (f.name || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.description || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.syntax || '').toLowerCase().includes(functionSearch.toLowerCase())
+            cardText(f.name).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.description).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.syntax).toLowerCase().includes(functionSearch.toLowerCase())
           ) })).filter(cat => cat.functions.length > 0)
         : allFuncs;
 

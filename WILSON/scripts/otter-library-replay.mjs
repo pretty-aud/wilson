@@ -32,7 +32,11 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { clearPetKnowledgeCache, loadKnowledgeIndex, retrieveOtterKnowledge, flattenDoc } from '../src/tools/otter_v0.3.1/petKnowledge.js'
-import { mergeHotkeys, functionCategoryName } from '../src/tools/otter_v0.3.1/adapters/otterRoutes.js'
+import * as routes from '../src/tools/otter_v0.3.1/adapters/otterRoutes.js'
+
+const { mergeHotkeys, functionCategoryName } = routes
+// S2c's reader (S2b-05); absent before it, when the lifted search does not name it.
+const functionEntries = routes.functionEntries || (() => [])
 
 const args = process.argv.slice(2)
 const flag = (name, dflt) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : dflt }
@@ -161,8 +165,10 @@ if (RUN.has('readers')) {
   const a = OTTER.indexOf('// Functions search'), b = OTTER.indexOf('// Nodes search', a)
   if (a < 0 || b < 0) throw new Error('Otter.jsx no longer marks the function search')
   // eslint-disable-next-line no-new-func
-  const search = new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', OTTER.slice(a, b))
+  const search = new Function('cached', 'q', 'sw', 'results', 'functionCategoryName', 'functionEntries', OTTER.slice(a, b))
   const PLANTS = { null: null, 'a string': 'print', 'a number': 5, 'a list': ['len'] }
+  // …and one level up: a category that is not one, a list that is not one.
+  const CATEGORY_PLANTS = { 'a null category': null, 'a category whose list is a number': { category: 'Bad', functions: 5 } }
   for (const slug of slugs) {
     const doc = readJson(join(LIBRARY, slug, '_functions.json'), { categories: [] })
     const cats = (doc.categories || []).filter((c) => c && Array.isArray(c.functions) && c.functions.length)
@@ -170,14 +176,15 @@ if (RUN.has('readers')) {
     const real = cats.reduce((n, c) => n + c.functions.length, 0)
     const report = { readers: slug, functions: real, headings: cats.map(functionCategoryName) }
     // Her library as stored, then each plant alone, IN MEMORY.
-    for (const [label, value] of [['as stored', undefined], ...Object.entries(PLANTS)]) {
+    for (const [label, value] of [['as stored', undefined], ...Object.entries(PLANTS), ...Object.entries(CATEGORY_PLANTS)]) {
       const copy = JSON.parse(JSON.stringify(doc))
-      if (label !== 'as stored') copy.categories.find((c) => c && Array.isArray(c.functions) && c.functions.length).functions.splice(1, 0, value)
+      if (label in CATEGORY_PLANTS) copy.categories.splice(0, 0, value)
+      else if (label !== 'as stored') copy.categories.find((c) => c && Array.isArray(c.functions) && c.functions.length).functions.splice(1, 0, value)
       let pet, dialog
       try { const rows = flattenDoc(copy, 'functions'); pet = { rows: rows.length, groups: [...new Set(rows.map((r) => r.group))] } } catch (e) { pet = { threw: e.message } }
       try {
         const results = []
-        search({ functions: copy }, 'print', { name: 'Python', slug }, results, functionCategoryName)
+        search({ functions: copy }, 'print', { name: 'Python', slug }, results, functionCategoryName, functionEntries)
         dialog = results.length ? { matches: results[0].matches, cards: results[0].matchedCategories.reduce((n, c) => n + c.functions.length, 0) } : { results: 0 }
       } catch (e) { dialog = { threw: e.message } }
       report[label] = { pet, searchDialog: dialog }
