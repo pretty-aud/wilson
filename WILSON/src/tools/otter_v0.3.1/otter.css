@@ -1277,8 +1277,13 @@
      0.05px — a note 0.09px wider lost the subject again (measured), and a
      renderer that rounds glyph advances can add more. The price: a subject
      in the 2px between (560.6–562.6px on the 612.61px line) ends in "…"
-     where it fitted whole (review round 1). */
+     where it fitted whole (review round 1). And the note's own box is that
+     4em, exactly (review round 2): the subject and the note then always
+     make the line, however wide a font draws "[outline]" — at worst its
+     "]" is clipped, never the subject lost. ("[outline]" has no break
+     opportunity, so it needs no nowrap.) */
   .otter-view-page[data-width='subject'] .otter-crumb-current { max-width: calc(100% - 4px - 4em); }
+  .otter-view-page[data-width='subject'] .otter-crumb-note { flex: 0 0 4em; min-width: 0; }
   .otter-crumb-sep { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin: 0 4px; color: var(--color-ink-3); }
   /* Inline, so the words stay on its line (the preflight makes every svg a
      block) and the ellipsis can take it; set on the line's top and centred

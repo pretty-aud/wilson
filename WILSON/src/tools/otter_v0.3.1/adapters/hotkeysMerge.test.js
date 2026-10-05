@@ -192,6 +192,13 @@ const CASES = {
     const out = merge({ categories: [] }, [{ category: '  Tools  ', shortcuts: [sk('x')] }])
     return JSON.stringify(out.categories.map((c) => c.category)) === '["Tools"]' ? null : JSON.stringify(out)
   },
+  'a shortcut is the same one only with case and outer spaces aside — inner spaces and letters beyond A–Z kept apart, as before (review round 2)': (merge) => {
+    // Round 2 drifted the route's de-duplication key (inner spaces
+    // collapsed) and no case or seed told the copies apart.
+    const out = merge({ categories: [{ category: 'View', shortcuts: [sk('Zoom In'), sk('Ärger')] }] },
+      [{ category: 'View', shortcuts: [sk('Zoom  In'), sk('ZOOM IN'), sk(' zoom in '), sk('ÄRGER'), sk('STRASSE'), sk('straße')] }])
+    return heads(out) === '[["View",["Zoom In","Ärger","Zoom  In","STRASSE","straße"]]]' ? null : heads(out)
+  },
   'an action that is not a string never throws (it reads as none)': (merge) => {
     const out = merge({ categories: [{ category: 'Edit', shortcuts: [{ action: 5, windows: 'X' }] }] },
       [{ category: 'Edit', shortcuts: [{ action: { a: 1 } }, sk('Cut')] }])
@@ -359,7 +366,9 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
     const pick = (xs) => xs[Math.floor(rnd() * xs.length)]
     const NAMES = ['Edit', 'edit', ' Edit ', 'Edit-mode', 'Edit mode', 'Editmode', 'C', 'C++', 'C#', 'Строки', 'строки',
       'Python строки', '文字列', '数学', '', '   ', '​', 'General', 'general', 5, null, ['x'], { a: 1 }]
-    const ACTIONS = ['Undo', 'undo', ' Undo ', 'Redo', 'Cut', '', null, 7, { a: 1 }, 'Найти']
+    // Round 2: inner spaces and case beyond A–Z, so a drift in the
+    // de-duplication key shows here too.
+    const ACTIONS = ['Undo', 'undo', ' Undo ', 'Redo', 'Cut', '', null, 7, { a: 1 }, 'Найти', 'НАЙТИ', 'Zoom In', 'Zoom  In', 'ZOOM IN', 'STRASSE', 'straße', 'Ärger', 'ärger']
     const hkOf = () => (rnd() < 0.1 ? pick([null, 'raw', 3, ['h']]) : (rnd() < 0.1 ? { windows: 'X' } : { action: pick(ACTIONS), windows: `k${Math.floor(rnd() * 3)}` }))
     const listOf = () => Array.from({ length: Math.floor(rnd() * 4) }, hkOf)
     const catOf = () => {
@@ -444,6 +453,9 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
     // category the page draws (review round 1).
     expect(route).toMatch(/const heading = \(c\) => \(isObj\(c\) && Array\.isArray\(c\.shortcuts\) \? clean\(c\.category\) : ''\);/)
     expect(route).toMatch(/findIndex\(c => \{ const h = heading\(c\); return !!h && catKey\(h\) === key; \}\)/)
+    // …and a shortcut de-duplicated on the cloud's key (review round 2).
+    expect(route).toContain("const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');")
+    expect(ROUTES_JS).toContain("const actionKey = (hk) => (typeof hk.action === 'string' ? hk.action.toLowerCase().trim() : '')")
   })
 
   it('CONTROL: the route reader lifts the shipped route, not a stale copy', () => {

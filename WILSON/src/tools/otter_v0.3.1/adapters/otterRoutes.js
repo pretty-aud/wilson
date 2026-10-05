@@ -315,9 +315,14 @@ export const functionCategoryName = (cat) => cleanName(cat?.category) || cleanNa
  *    `categories` not a list) is left exactly as it is.
  */
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
-/** THE keying of a library heading — case and punctuation aside, letters of
+/** THE keying of a library heading — case and punctuation aside; letters of
  *  any script, digits, '#' and '+' kept — for both merges below, the
- *  functions' (S2b) and the hotkeys' (S2c, S2b-02): one helper, two callers. */
+ *  functions' (S2b) and the hotkeys' (S2c, S2b-02): one helper, two callers.
+ *  Known limits (S2c review round 2, recorded in OUTSTANDING S2b-02): a
+ *  combining mark counts as punctuation (Hindi "कि" and "की" are one key;
+ *  NFC and NFD "Édition" two), and spaces around '+' or '#' count
+ *  ("Ctrl+Click" and "Ctrl + Click" are two). Changing it is a change to
+ *  BOTH merges and their Local Server copies together. */
 const categoryKey = (name) => name.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || name.toLowerCase()
 /** A category's entries that ARE functions — the objects in its `functions`
  *  list; anything else (null, a string, a number, a list) is skipped, and a

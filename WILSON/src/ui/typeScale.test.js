@@ -269,6 +269,9 @@ const OUTLINE_PAGE = ".otter-view-page[data-width='subject']";
  *  its place on the one line (4px + 46.03px of Geist; 4em, measured). */
 const OUTLINE_SUBJECT = `${OUTLINE_PAGE} .otter-crumb-current`;
 const OUTLINE_SUBJECT_CAP = 'calc(100% - 4px - 4em)';
+/** …and "[outline]"'s own box is that 4em exactly (review round 2), so the
+ *  two always make the line whatever width a font draws the note. */
+const OUTLINE_NOTE_BOX = '4em';
 /** `--measure-reading` (Help, Settings, SectionTitle's description, EmptyState)
  *  keeps §3.1's number read as `ch` until P1 decides; pinned so it cannot
  *  drift either. */
@@ -1257,7 +1260,8 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       ['the lesson', CRUMB_CURRENT_EL, CURRENT],
       // S2c (S2b-03): the outline page's subject leaves "[outline]" its room.
       ['the outline subject', OUTLINE_CURRENT_EL, { ...CURRENT, 'max-width': OUTLINE_SUBJECT_CAP }],
-      ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-shrink': '0', 'margin-left': '4px' }],
+      // S2c review round 2: the note's box is the 4em the subject leaves it.
+      ['"[outline]"', CRUMB_NOTE_EL, { order: '-2', 'flex-grow': '0', 'flex-shrink': '0', 'flex-basis': OUTLINE_NOTE_BOX, 'min-width': '0', 'margin-left': '4px' }],
       ["the run's chevron", CRUMB_RUN_SEP_EL, { ...CHEVRON, display: 'inline-block', 'vertical-align': 'top',
         'margin-top': 'calc((var(--text-caption) * var(--text-caption--line-height) - var(--icon-sm)) / 2)' }],
       ['the final chevron', CRUMB_FINAL_SEP_EL, CHEVRON],
@@ -1347,6 +1351,10 @@ describe('O.T.T.E.R.s reading surface is on the scale (§3.1, plan §5 T1)', () 
       // onto the lesson page's lesson (which has no note to leave room for).
       [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-current { max-width: 100%; }`, /outline subject: max-width/],
       [`.otter-crumbs .otter-crumb-current { max-width: ${OUTLINE_SUBJECT_CAP}; }`, /the lesson: max-width/],
+      // S2c review round 2: the note's box back to its text, or allowed to
+      // grow past the 4em the subject leaves it.
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-note { flex-basis: auto; }`, /"\[outline\]": flex-basis/],
+      [`${OUTLINE_PAGE} .otter-crumbs .otter-crumb-note { min-width: auto; }`, /"\[outline\]": min-width/],
       // S2c (S2b-04): the empty alternative dropped from either zero-width space.
       ['.otter-crumb::before { content: \'\\200B\'; }', /run's ::before: content/],
       ['.otter-crumb-trail .otter-crumb-keep::before { content: \'\\200B\' / \'\u200B\'; }', /course's ::before: content/],

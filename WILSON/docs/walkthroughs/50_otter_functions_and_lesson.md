@@ -204,10 +204,15 @@ onto the post-overhaul branch, like S2b.
    reference it is handed now reads "Python → functions → General".
 2. **The keyboard-shortcut library merges its categories the way the
    function library does**, on the desktop and in the cloud alike.
-   Category names in other scripts stay apart: "文字列" and "数学" used to
-   become one. "C", "C++" and "C#" stay three. A damaged category name no
-   longer stops every later merge with an error. Checked on your five
-   shortcut files: generating your own categories again changes nothing.
+   Category names written in Japanese or Chinese characters stay apart:
+   "文字列" and "数学" used to become one. "C", "C++" and "C#" stay three.
+   A damaged category name no longer stops every later merge with an
+   error. New shortcuts only ever go under a heading the Hotkeys page
+   shows. Checked on your five shortcut files: generating your own
+   categories again changes nothing. One small change you could notice
+   only with symbols: "Ctrl + Click" and "Ctrl+Click" now count as two
+   headings (the function library has worked this way since S2b). None of
+   your headings has a "+" or "#".
 3. **A damaged entry in a function library no longer breaks anything.**
    An imported library can hold an empty or garbled entry where a function
    belongs. One such entry was enough to:

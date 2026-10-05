@@ -1979,19 +1979,32 @@ session's or the decision is Audrey's. Her questions are in walkthrough 50
   on both backends (`adapters/hotkeysMerge.test.js`: 22 cases on both,
   parity, 600 seeded documents, everything added drawn by the page's own
   filter). Her own categories sent again change nothing, before and after.
-  Admitted: with S2b's key a `+` or `#` is part of a name, so "Edit + Mode"
-  and "Edit Mode" (one heading before) are two, as in the function
-  library. Found and NOT fixed (outside the brief, which allowed main.cjs's
-  hotkeys route only): the NODES merge (`mergeNodes` and the
-  `/api/software/:slug/nodes/merge` route) keys a system and a category on
-  the same a-z0-9 key — measured, "文字列" and "数学" become one category
-  and the systems "C++" and "C#" one system. Owner: whoever next edits the
-  nodes merge. Also found (review round 1): approving a change request into
-  a standard whose hotkeys or functions document is not a library (an
-  array, `categories` not a list) reports the document merged while
-  nothing moved — both merges leave such a document as it is (S2b, S2c),
-  where the pre-S2b/S2c code threw and the approval listed it as failed.
-  Owner: the approval flow's next session (signal "not merged").
+  Admitted (review rounds 1 and 2): S2b's key, now both merges', keeps `+`
+  and `#` and counts the spaces around them, so "Edit + Mode" / "Edit
+  Mode" and "Ctrl+Click Actions" / "Ctrl + Click Actions" (one heading
+  each before) are two; and it counts a combining mark as punctuation, so
+  in a script with vowel signs two names can still meet (Hindi "कि" and
+  "की"), while NFC and NFD spellings of "Édition" stay apart. None of her
+  66 headings has a `+`, `#` or combining mark. Changing the key changes
+  both merges and both Local Server copies together (`mergeFunctionsDoc`
+  was outside this brief). And a heading the page draws that is not a
+  string (a number) is never joined: sending "5" beside a stored 5 makes a
+  second "5" (before, both copies threw). Found and NOT fixed (outside the
+  brief, which allowed main.cjs's hotkeys route only): the NODES merge
+  (`mergeNodes` and the `/api/software/:slug/nodes/merge` route) keys a
+  system and a category on the same a-z0-9 key — measured, "文字列" and
+  "数学" become one category and the systems "C++" and "C#" one system.
+  Owner: whoever next edits the nodes merge. Also found (review rounds 1
+  and 2): a stored document that is not a library is now left as it is by
+  both merges on every path — generation, import and change-request
+  approval — which then answer as if it merged while nothing moved.
+  Before, on the cloud, an array or `categories: null` was overwritten with
+  the merged library and only a `categories` string or object threw (an
+  approval then listed it failed); on the Local Server every such shape
+  threw. No writer makes these shapes (main.cjs, the column default and
+  every merge write a list). Owner: the next session on the merges or the
+  approval flow — signal "not merged" (and perhaps read `categories: null`
+  as empty, as the Hotkeys page does).
 - ~~**S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
   subject title nearly fills the column.**~~ The subject (`.otter-crumb-current`,
   capped at the line) and the note do not share the line: a subject within
@@ -2015,6 +2028,10 @@ session's or the decision is Audrey's. Her questions are in walkthrough 50
   taller than a line; her own pages' shots byte-identical before and after.
   The price, admitted (review round 1): a subject in the 2px between the
   two caps (560.6–562.6px on the 612.61px line) ends in "…" where it fitted.
+  And (review round 2) the note's own box is that 4em exactly
+  (`flex: 0 0 4em; min-width: 0`), so subject and note always make the
+  line however wide a font draws "[outline]": with the note's text 6px
+  wider, the subject is still never lost (at worst its "]" is clipped).
 - ~~**S2b-04 · The breadcrumb's accessible names are not the convention.**~~
   "Where this lesson sits" / "Where this subject sits" (A3's) where
   "Breadcrumb" is what screen-reader users expect, and the run's zero-width

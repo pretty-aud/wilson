@@ -640,8 +640,9 @@ export function rankSubjects(question, index) {
  *   functions { categories: [{ category|name, functions: [{name, description, syntax, returns}] }] }
  *   nodes     { systems:    [{ system, categories: [{ category, nodes: [{name, description}] }] }] }
  * Every field is optional in practice — the generator emits variants and the
- * on-disk data already contains all of them, which is why mergeHotkeys
- * normalises `category|name` and `shortcuts|hotkeys` at all.
+ * on-disk data already contains all of them, which is why mergeHotkeys reads
+ * a SENT category's `category|name` and `shortcuts|hotkeys` at all (it joins
+ * only a stored category the Hotkeys page draws — S2c).
  */
 export function flattenDoc(doc, kind) {
   const rows = []
