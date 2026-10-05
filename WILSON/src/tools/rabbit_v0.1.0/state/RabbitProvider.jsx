@@ -251,12 +251,20 @@ export function RabbitProvider({ children }) {
 
   const runBatch = useCallback(async (fn) => {
     if (historyRef.current.batch) return fn();
-    historyRef.current.batch = { entries: [] };
+    // Post-overhaul S5 review round 1 (R1-03): the batch and the stack it
+    // lands on are THIS run's. A project switch (setActiveProject,
+    // clearHistory, switchAdapter) replaces historyRef.current mid-run; the
+    // steps gathered before it belong to the old project and are dropped,
+    // never pushed onto the new one's stack (and a cleared slot no longer
+    // throws "reading 'entries'" here).
+    const mine = { entries: [] };
+    const stack = historyRef.current;
+    stack.batch = mine;
     try {
       return await fn();
     } finally {
-      const b = historyRef.current.batch;
-      historyRef.current.batch = null;
+      if (stack.batch === mine) stack.batch = null;
+      const b = historyRef.current === stack ? mine : { entries: [] };
       if (b.entries.length > 0) {
         // Combined undoOps run in REVERSE order so the latest sub-op
         // gets undone first; redoOps run in original order.
@@ -299,8 +307,15 @@ export function RabbitProvider({ children }) {
     return run;
   }
 
+  // Post-overhaul S5 review round 1 (R1-02): never while a composite holds
+  // the batch. The queue waits for a step at most HISTORY_STEP_WAIT_MS, so a
+  // long Save as new or Edit this version (or one stalled request) let an
+  // undo run BESIDE it: it took back the step before the composite, and its
+  // `suspended` replay dropped every step the composite still had to record.
+  // A press then does nothing; the composite's own step lands when it ends.
   const undo = useCallback(() => inHistoryQueue(async () => {
     if (editDraftHeldRef.current) return;
+    if (historyRef.current.batch) return;
     if (historyRef.current.undo.length === 0) return;
     const entry = historyRef.current.undo.pop();
     historyRef.current.suspended = true;
@@ -318,6 +333,7 @@ export function RabbitProvider({ children }) {
 
   const redo = useCallback(() => inHistoryQueue(async () => {
     if (editDraftHeldRef.current) return;
+    if (historyRef.current.batch) return;
     if (historyRef.current.redo.length === 0) return;
     const entry = historyRef.current.redo.pop();
     historyRef.current.suspended = true;
@@ -339,6 +355,8 @@ export function RabbitProvider({ children }) {
   // been undone (or aged past HISTORY_CAP), no-op.
   const undoHistoryEntry = useCallback((token) => inHistoryQueue(async () => {
     if (token == null) return;
+    if (historyRef.current.batch) return; // R1-02, as undo
+
     const idx = historyRef.current.undo.findIndex(e => e.token === token);
     if (idx === -1) return;
     const [entry] = historyRef.current.undo.splice(idx, 1);
@@ -5116,7 +5134,83 @@ export function RabbitProvider({ children }) {
     const p = bundleRef.current.project;
     return p?.budget_active ? (p.budget_active_version_id || null) : null;
   }
+  /**
+   * A budget is active ("in production") — with or without a version id on
+   * record (review round 1: a project row with budget_active and no id read
+   * as unlocked to every guard). While it is, NO version is open: the live
+   * Timeline is production's (F9: "i still edit the live Timeline during
+   * production as normal"), so opening a bid over it is refused, and Save as
+   * new version records the schedule without opening anything.
+   */
+  function budgetIsLocked() {
+    return bundleRef.current.project?.budget_active === true;
+  }
   function versionWho() { return withdrawUserRef.current || null; }
+
+  /**
+   * A composite's guard (review round 1, R1-03): the project it began on, and
+   * the visit (a switch away and back is a new one). Checked before every
+   * write it makes, so a switch part way stops it instead of writing the
+   * rest — the margin of one project into another — and the steps it made
+   * before stay one undo step on the old project's stack (runBatch drops
+   * them rather than pushing them onto the new one).
+   */
+  function compositeGuard() {
+    const pid = activeProjectIdRef.current;
+    const visit = projectVisitRef.current;
+    if (!pid) throw new Error('no project');
+    return () => {
+      if (activeProjectIdRef.current !== pid || projectVisitRef.current !== visit) {
+        throw new Error('another project was opened while this ran, so it stopped there');
+      }
+    };
+  }
+
+  // A row the version holds that the project lost, back under its SAVED id
+  // (review round 1, R1-01 and R1-06). Out of the trash first where the
+  // backend has one — the cloud keeps a trashed row behind its SELECT policy
+  // and refuses an upsert onto it (restore_soft_deleted answers false, never
+  // an error, when there is nothing to restore) — then written with the
+  // version's values; a row never trashed, or purged, is inserted under that
+  // id. Never a new id: one left the trashed original for every later open
+  // to make again. Its own undo step: trashed again by the public delete
+  // (deletePhase takes only the phase and its edges, never its tasks); its
+  // redo restores and writes again, so it survives the trash its undo made.
+  // logged_days is never in the row (planOpen's fields).
+  const REVIVE = {
+    task:      { key: 'tasks',      restore: 'restoreTask',      upsert: 'upsertTask',      del: 'deleteTask' },
+    phase:     { key: 'phases',     restore: 'restorePhase',     upsert: 'upsertPhase',     del: 'deletePhase' },
+    milestone: { key: 'milestones', restore: 'restoreMilestone', upsert: 'upsertMilestone', del: 'deleteMilestone' },
+  };
+  async function reviveBudgetRow(kind, row) {
+    const k = REVIVE[kind];
+    const a = adapterRef.current;
+    const pid = activeProjectIdRef.current;
+    if (typeof a[k.restore] === 'function') {
+      try { await a[k.restore](row.id, pid); } catch { /* not in the trash: the write below inserts it */ }
+    }
+    const wire = { project_id: pid, ...row };
+    let saved;
+    try {
+      saved = await a[k.upsert](wire);
+    } catch (err) {
+      setError(err?.message || String(err));
+      throw err;
+    }
+    const finalRow = saved ? { ...wire, ...saved } : wire;
+    const merge = (b) => {
+      const rest = (b[k.key] || []).filter(r => r.id !== finalRow.id);
+      const next = [...rest, finalRow];
+      return { ...b, [k.key]: kind === 'milestone' ? next.sort(byMilestoneDate) : next };
+    };
+    setBundle(merge);
+    bundleRef.current = merge(bundleRef.current);
+    pushHistory({
+      undoOps: [() => mutationsRef.current[k.del](finalRow.id)],
+      redoOps: [() => reviveBudgetRow(kind, row)],
+    });
+    return finalRow;
+  }
   // The bundle's copy, changed in place — and bundleRef at once, since the
   // next write in the same composite reads it (S3c trap 14).
   function mergeVersionRow(row) {
@@ -5204,8 +5298,7 @@ export function RabbitProvider({ children }) {
     if (!pid) throw new Error('no project');
     const target = versionId || null;
     if (target) requireBudgetVersion(target);
-    const locked = lockedBudgetVersionId();
-    if (locked && target !== locked) {
+    if (budgetIsLocked() && target !== lockedBudgetVersionId()) {
       throw new Error('while the budget is active the selected bid is the locked one — Reset to bidding to choose another');
     }
     const flagged = (bundleRef.current.budgetVersions || []).filter(v => v.is_active).map(v => v.id);
@@ -5313,13 +5406,18 @@ export function RabbitProvider({ children }) {
   /**
    * Save: the live rows written back INTO the open version (F2: "v2 'mid ROM'
    * stays v2"), its name and note kept. { roleRates, basedOnListId } —
-   * basedOnListId undefined keeps the version's list. The locked version is
-   * never changed in place (F9).
+   * basedOnListId undefined keeps the version's list. Only the OPEN version
+   * is saved into (review round 1), and never while a budget is active: no
+   * version is open then, and the locked one is never changed in place (F9).
+   * In the undo queue, so it never captures rows an undo is half way through.
    */
-  const saveBudgetVersion = useCallback(async (id, opts = {}) => {
+  const saveBudgetVersion = useCallback((id, opts = {}) => inHistoryQueue(async () => {
     const v = requireBudgetVersion(id);
-    if (lockedBudgetVersionId() === id) {
+    if (budgetIsLocked() || lockedBudgetVersionId() === id) {
       throw new Error('the locked bid cannot be changed in place — Save as new version keeps these changes');
+    }
+    if ((bundleRef.current.project?.open_budget_version_id || null) !== id) {
+      throw new Error('only the open bid version is saved into — open it first (Edit this version), or Save as new version');
     }
     const keepList = opts.basedOnListId === undefined;
     const listId = keepList ? (v.shot_list_id || v.snapshot?.shot_list?.id || null) : (opts.basedOnListId || null);
@@ -5337,34 +5435,38 @@ export function RabbitProvider({ children }) {
       redoOps: [surfaced(() => rewriteBudgetVersionIfStill(id, v.snapshot?.saved_at ?? null, patch))],
     });
     return row;
-  }, [patchBudgetVersionRow]);
+  }), [patchBudgetVersionRow]);
 
   /**
    * Save as new version… (the only way a version appears, F2): the live rows
-   * under a new name and note, then OPENED and SELECTED — except while a
-   * budget is active, when the selected bid stays the locked one and the new
-   * version stays unlocked (F9). ONE undo step.
+   * under a new name and note, then OPENED and SELECTED. While a budget is
+   * active it only RECORDS (F9: "so i have a record of production changes"):
+   * the new version is neither opened nor selected and stays unlocked; the
+   * selected bid stays the locked one and the variance keeps measuring
+   * against it. ONE undo step. Built inside the undo queue (review round 1),
+   * so the snapshot is never of rows an undo is half way through.
    */
   const createBudgetVersion = useCallback(async (opts = {}) => {
+    const still = compositeGuard();
     const pid = activeProjectIdRef.current;
-    if (!pid) throw new Error('no project');
     const name = String(opts.name ?? '').trim();
     if (!name) throw new Error('a bid version needs a name');
     const a = versionAdapterFor('upsertBudgetVersion');
-    const shotList = shotListById(opts.basedOnListId);
-    const previous = sortVersionsNewest(bundleRef.current.budgetVersions)[0] || null;
-    const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
-    // No created_at on the wire: the server's clock orders versions.
-    const row = {
-      id: uuidv4(), project_id: pid, name, type: 'bid', is_active: false,
-      shot_list_id: shotList ? shotList.id : null,
-      summary: String(opts.summary ?? '').trim() || null,
-      snapshot,
-    };
     return inHistoryQueue(() => runBatch(async () => {
+      still();
+      const shotList = shotListById(opts.basedOnListId);
+      const previous = sortVersionsNewest(bundleRef.current.budgetVersions)[0] || null;
+      const snapshot = liveBudgetSnapshot({ roleRates: opts.roleRates, shotList, previous });
+      // No created_at on the wire: the server's clock orders versions.
+      const row = {
+        id: uuidv4(), project_id: pid, name, type: 'bid', is_active: false,
+        shot_list_id: shotList ? shotList.id : null,
+        summary: String(opts.summary ?? '').trim() || null,
+        snapshot,
+      };
       const created = await a.upsertBudgetVersion(row);
       const finalRow = { created_at: snapshot.saved_at, ...row, ...(created || {}) };
-      if (activeProjectIdRef.current !== pid) return finalRow;
+      still();
       mergeVersionRow(finalRow);
       pushHistory({
         undoOps: [async () => {
@@ -5375,8 +5477,11 @@ export function RabbitProvider({ children }) {
         }],
         redoOps: [() => restoreBudgetVersionRow(finalRow)],
       });
+      if (budgetIsLocked()) return finalRow;
+      still();
       await mutationsRef.current.setOpenBudgetVersion(finalRow.id);
-      if (!lockedBudgetVersionId()) await mutationsRef.current.selectBudgetVersion(finalRow.id);
+      still();
+      await mutationsRef.current.selectBudgetVersion(finalRow.id);
       return finalRow;
     }));
   }, [runBatch, restoreBudgetVersionRow]);
@@ -5408,118 +5513,107 @@ export function RabbitProvider({ children }) {
    * Edit this version (F2): its snapshot written into the live rows — phases
    * (sub-phases too), each task's dates, bid days, role, position, status and
    * links, the key dates, margin / contingency / agency and the role rates —
-   * then it is OPEN and (unless a budget is active) SELECTED. Tasks added
-   * since it was saved stay (her F2); a row it holds that the project lost is
-   * recreated with its saved id; logged_days is never written. ONE undo step.
+   * then it is OPEN and SELECTED. Tasks added since it was saved stay (her
+   * F2); a row it holds that the project lost comes back under its saved id
+   * (reviveBudgetRow); logged_days is never written. ONE undo step.
    * { roleRates } — the live rates the plan compares against.
-   * A refusal part way keeps the step for what landed (Undo takes it back)
-   * and is thrown saying so.
+   *
+   * Refused while a budget is active (review round 1, R1-10): the live
+   * Timeline is production's then, its margin, contingency and agency are
+   * locked, and opening a bid over it would overwrite the schedule being
+   * worked; only the LOCKED bid's refusal was the brief's, and the rest
+   * follows from it (F9's disabled Timeline control says the same).
+   *
+   * The version open now is CLOSED first and this one opened LAST (R1-07):
+   * a refusal part way leaves no version open over a mix of two, so no Save
+   * can write that mix into either; the steps that landed stay one undo step
+   * and the refusal says so.
    */
   const openBudgetVersion = useCallback(async (id, opts = {}) => {
+    const still = compositeGuard();
     const pid = activeProjectIdRef.current;
-    if (!pid) throw new Error('no project');
     const v = requireBudgetVersion(id);
-    if (lockedBudgetVersionId() === id) {
-      throw new Error('the locked bid cannot be opened for editing — Reset to bidding first, or Save as new version');
+    if (budgetIsLocked()) {
+      throw new Error(lockedBudgetVersionId() === id
+        ? 'the locked bid cannot be opened for editing — Reset to bidding first, or Save as new version'
+        : 'while the budget is active no bid version is opened: the live Timeline is production\'s — Reset to bidding to open one');
     }
     if (!readVersion(v).hasTimeline) {
       throw new Error('this bid version was saved before versions kept their schedule (no timeline captured), so it cannot be opened');
     }
-    const b = bundleRef.current;
-    const plan = planOpen(v.snapshot, {
-      tasks: b.tasks, phases: b.phases, milestones: b.milestones, project: b.project, roleRates: opts.roleRates || {},
-      known: {
-        scenes: new Set((b.scenes || []).map(r => String(r.id))),
-        shots: new Set((b.shots || []).map(r => String(r.id))),
-        assets: new Set((b.assets || []).map(r => String(r.id))),
-      },
-    });
-    // A row the project lost comes back under its SAVED id where the backend
-    // takes it (the Local Server's hard delete; a trashed row's stamp cleared
-    // with it). The cloud keeps a trashed row behind its SELECT policy and
-    // refuses an upsert onto it, so there it comes back under a NEW id, and
-    // every later row naming the old phase id is pointed at the new one; the
-    // next Save writes the new ids into the version (the brief's step 4).
-    const phaseIdMap = new Map();
-    const remap = (row) => {
-      const out = { ...row };
-      for (const f of ['phase_id', 'parent_phase_id']) {
-        if (out[f] != null && phaseIdMap.has(String(out[f]))) out[f] = phaseIdMap.get(String(out[f]));
-      }
-      return out;
-    };
-    async function recreate(add, row, kind) {
-      try {
-        return await add({ ...row, deleted_at: null, deleted_by: null });
-      } catch {
-        setError(null); // the first refusal was expected on the cloud; the retry decides
-        const fresh = await add({ ...row, id: uuidv4() });
-        if (kind === 'phase' && fresh?.id) phaseIdMap.set(String(row.id), fresh.id);
-        return fresh;
-      }
-    }
     return inHistoryQueue(() => runBatch(async () => {
+      still();
       const m = mutationsRef.current;
+      const b = bundleRef.current;
+      const plan = planOpen(v.snapshot, {
+        tasks: b.tasks, phases: b.phases, milestones: b.milestones, project: b.project, roleRates: opts.roleRates || {},
+        known: {
+          scenes: new Set((b.scenes || []).map(r => String(r.id))),
+          shots: new Set((b.shots || []).map(r => String(r.id))),
+          assets: new Set((b.assets || []).map(r => String(r.id))),
+        },
+      });
       try {
-        for (const row of plan.phases.create) await recreate(m.addPhase, remap(row), 'phase');
-        // A phase re-made under a new id: every live row that still names the
-        // old one (its tasks, its sub-phases, its key dates) follows it.
-        if (phaseIdMap.size) {
-          const now = bundleRef.current;
-          const moved = (v) => v != null && phaseIdMap.has(String(v));
-          for (const p of now.phases || []) if (moved(p.parent_phase_id)) await m.updatePhase(p.id, { parent_phase_id: phaseIdMap.get(String(p.parent_phase_id)) });
-          for (const t of now.tasks || []) if (moved(t.phase_id)) await m.updateTask(t.id, { phase_id: phaseIdMap.get(String(t.phase_id)) });
-          for (const k of now.milestones || []) if (moved(k.phase_id)) await m.updateMilestone(k.id, { phase_id: phaseIdMap.get(String(k.phase_id)) });
-        }
-        for (const u of plan.phases.update) await m.updatePhase(u.id, remap(u.patch));
-        for (const row of plan.tasks.create) await recreate(m.addTask, remap(row), 'task');
-        for (const u of plan.tasks.update) await m.updateTask(u.id, remap(u.patch));
-        for (const row of plan.milestones.create) await recreate(m.addMilestone, remap(row), 'milestone');
-        for (const u of plan.milestones.update) await m.updateMilestone(u.id, remap(u.patch));
-        if (plan.settings) await m.setProjectBudgetFields(plan.settings.patch);
+        // Even when it is this one (opening the open version again puts its
+        // saved state back — the continuation's "Discard changes").
+        if (b.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
+        for (const row of plan.phases.create) { await reviveBudgetRow('phase', row); still(); }
+        for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
+        for (const row of plan.tasks.create) { await reviveBudgetRow('task', row); still(); }
+        for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
+        for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
+        for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
+        if (plan.settings) { await m.setProjectBudgetFields(plan.settings.patch); still(); }
         if (plan.rates.length) {
           const overrides = await adapterRef.current.listProjectRateOverrides?.(pid);
-          for (const r of plan.rates) await setProjectRoleRate(r, overrides);
+          for (const r of plan.rates) { still(); await setProjectRoleRate(r, overrides); }
         }
+        still();
+        await m.selectBudgetVersion(id);
+        still();
         await m.setOpenBudgetVersion(id);
-        if (!lockedBudgetVersionId()) await m.selectBudgetVersion(id);
       } catch (err) {
-        throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. Undo (Ctrl+Z) takes back what changed.`);
+        throw new Error(`Opening “${v.name}” stopped part way: ${err?.message || err}. No version is open now; Undo (Ctrl+Z) takes back what changed.`);
       }
       return { id, plan };
     }));
   }, [runBatch]);
 
   /**
-   * Set budget active (the LOCK): the selected bid — selected first if it is
-   * not — stamped locked_at / locked_by in its real columns (F12.2), and the
-   * project's budget_active / budget_active_version_id / budget_finalized. A
-   * locked version is never open, so an open one is closed (F9); the live rows
-   * stay as they are. ONE undo step.
+   * Set budget active (the LOCK): the version SELECTED — always written
+   * (review round 1, R1-04: old data may hold two selected rows, and the
+   * newest one, which the variance reads, may not be this one) — stamped
+   * locked_at / locked_by in its real columns (F12.2), and the project's
+   * budget_active / budget_active_version_id / budget_finalized. Nothing is
+   * open while a budget is active (F9), so an open version — this one or
+   * another — is closed first; the live rows stay as they are. ONE undo step.
    */
   const activateBudget = useCallback(async (id) => {
-    const pid = activeProjectIdRef.current;
-    if (!pid) throw new Error('no project');
-    const v = requireBudgetVersion(id);
-    if (bundleRef.current.project?.budget_active) throw new Error('the budget is already active');
+    const still = compositeGuard();
+    requireBudgetVersion(id);
+    if (budgetIsLocked()) throw new Error('the budget is already active');
     return inHistoryQueue(() => runBatch(async () => {
+      still();
       const m = mutationsRef.current;
-      if ((bundleRef.current.project?.open_budget_version_id || null) === id) await m.setOpenBudgetVersion(null);
-      if (!v.is_active) await m.selectBudgetVersion(id);
+      if (bundleRef.current.project?.open_budget_version_id) { await m.setOpenBudgetVersion(null); still(); }
+      await m.selectBudgetVersion(id);
+      still();
       await m.stampBudgetVersionLock(id, true);
+      still();
       await m.setProjectBudgetFields({ budget_active: true, budget_active_version_id: id, budget_finalized: true });
     }));
   }, [runBatch]);
 
   /** Reset to bidding: the lock lifted, its stamp cleared. ONE undo step. */
   const resetToBidding = useCallback(async () => {
-    const pid = activeProjectIdRef.current;
-    if (!pid) throw new Error('no project');
-    const lockedId = bundleRef.current.project?.budget_active_version_id || null;
+    const still = compositeGuard();
     return inHistoryQueue(() => runBatch(async () => {
+      still();
       const m = mutationsRef.current;
+      const lockedId = bundleRef.current.project?.budget_active_version_id || null;
       await m.setProjectBudgetFields({ budget_active: false, budget_active_version_id: null, budget_finalized: false });
       if (lockedId && (bundleRef.current.budgetVersions || []).some(r => r.id === lockedId)) {
+        still();
         await m.stampBudgetVersionLock(lockedId, false);
       }
     }));

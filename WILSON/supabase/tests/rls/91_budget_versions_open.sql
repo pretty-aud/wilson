@@ -7,32 +7,37 @@
 -- snapshot's money fields stay behind it.
 --
 -- What it PINS:
---  1. Structure (1-9): the column, the same-project composite FK with
---     ON DELETE SET NULL, the composite key it needs, the guard trigger and
---     its function out of reach, the RPC as SECURITY INVOKER and out of
---     anon's reach, and projects_update as the ONE policy that admits an
---     UPDATE of projects — the policy that admits the pointer write.
---  2. A project MANAGER (past the money gate) opens a version (10-11); the
---     pointer cannot name another project's version (12); the selected bid
+--  1. Structure (1-11): the column, the same-project composite FK with
+--     ON DELETE SET NULL, the composite key it needs, the guard trigger, its
+--     function out of reach and SECURITY DEFINER under a role that sees past
+--     RLS (review round 1), the RPC as SECURITY INVOKER, out of anon's reach
+--     and locking the project's versions before its UPDATE (round 1), and
+--     projects_update as the ONE policy that admits an UPDATE of projects —
+--     the policy that admits the pointer write.
+--  2. A project MANAGER (past the money gate) opens a version (12-13); the
+--     pointer cannot name another project's version (14); the selected bid
 --     moves in one statement, clearing every other — two left selected by
---     the old loop included — and NULL clears all (13-17); the manager reads
---     the snapshot's totals (18, the control for 20-21 and 29).
+--     the old loop included — and NULL clears all (15-19); the manager reads
+--     the snapshot's totals (20, the control for 22-23 and 31).
 --  3. A project MEMBER passes projects_update but not the money gate: reads
---     zero versions and no snapshot money (19-21); the pointer itself is a
---     bare id that dereferences to nothing (22); moving or clearing it is
---     refused by the guard (23-24) while another column saves (25, CONTROL)
---     and a whole-row re-send with the pointer unchanged passes (26); the RPC
---     refuses (27).
+--     zero versions and no snapshot money (21-23); the pointer itself is a
+--     bare id that dereferences to nothing (24); moving or clearing it is
+--     refused by the guard (25-26) while another column saves (27, CONTROL)
+--     and a whole-row re-send with the pointer unchanged passes (28); the RPC
+--     refuses (29).
 --  4. A workspace MANAGER holding only a member seat (0037's "derek") is
---     refused the same (28).
---  5. A project REVIEWER: zero versions (29); projects_update itself refuses
---     the write, so nothing changes (30-31).
---  6. A workspace ADMIN may move it (32). Deleting the open version clears
---     the pointer and leaves the project (33-34).
+--     refused the same (30).
+--  5. A project REVIEWER: zero versions (31); projects_update itself refuses
+--     the write, so nothing changes (32-33).
+--  6. A workspace ADMIN may move it (34). As postgres with NO claims the
+--     guard refuses a direct change (35, CONTROL), and deleting the open
+--     version still clears the pointer — the guard's SET NULL arm on its own
+--     (36, review round 1: as the admin the money arm passed first) — and
+--     leaves the project (37).
 -- =========================================================================
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(37);
 
 SELECT * FROM tests.rls_setup();
 
@@ -118,6 +123,12 @@ SELECT ok(
   'the guard function is not callable by a signed-in client');
 
 SELECT ok(
+  (SELECT p.prosecdef AND (r.rolsuper OR r.rolbypassrls)
+     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_roles r ON r.oid = p.proowner
+    WHERE n.nspname = 'public' AND p.proname = 'fn_projects_open_budget_version_guard'),
+  'the guard is SECURITY DEFINER under a role that sees past RLS (its "is the version gone?" check must not read a member''s empty view)');
+
+SELECT ok(
   (SELECT NOT p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = 'select_budget_version'),
   'select_budget_version is SECURITY INVOKER: budget_versions'' own policies apply to its UPDATE');
@@ -125,6 +136,13 @@ SELECT ok(
 SELECT ok(
   NOT has_function_privilege('anon', 'public.select_budget_version(uuid, uuid)', 'EXECUTE'),
   'anon cannot execute select_budget_version');
+
+-- Two calls at once cannot be staged in one transaction, so the lock that
+-- serialises them is read from the body (review round 1).
+SELECT ok(
+  pg_get_functiondef('public.select_budget_version(uuid, uuid)'::regprocedure)
+    ~ 'FROM public\.budget_versions WHERE project_id = p_project FOR UPDATE;\s+UPDATE public\.budget_versions',
+  'select_budget_version locks the project''s versions right before its UPDATE (two at once leave one selected)');
 
 SELECT is(
   (SELECT array_agg(policyname::text ORDER BY policyname) FROM pg_policies
@@ -321,21 +339,30 @@ SELECT lives_ok(
      WHERE id = 'aaaa1111-0000-0000-0000-000000000001'$$,
   'a workspace admin moves the open version (past the money gate)');
 
--- The FK's SET NULL: deleting the OPEN version closes it.
+-- The FK's SET NULL, proven on its OWN arm (S5 review round 1): as postgres
+-- with no claims, the money arm cannot pass — the CONTROL shows a direct
+-- change refused under exactly these settings — so the delete's SET NULL
+-- passes only because the version row is gone.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT throws_ok(
+  $$UPDATE public.projects SET open_budget_version_id = NULL
+     WHERE id = 'aaaa1111-0000-0000-0000-000000000001'$$,
+  '42501', NULL,
+  'CONTROL: with no claims the guard refuses a direct change (the money arm is closed here)');
+
 DELETE FROM public.budget_versions WHERE id = '91910000-0000-0000-0000-0000000000b2';
 
 SELECT is(
   (SELECT open_budget_version_id FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000001'),
   NULL::uuid,
-  'deleting the open version clears the pointer (the guard lets the FK''s SET NULL through)');
+  'deleting the open version clears the pointer (the guard lets the FK''s SET NULL through on its own arm)');
 
 SELECT is(
   (SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000001'),
   1,
   'and the project stands');
-
-SELECT set_config('request.jwt.claims', '{}', true);
-RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

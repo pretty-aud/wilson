@@ -236,10 +236,20 @@ describe('deltaWords — the automatic line', () => {
 })
 
 describe('versionDelta', () => {
-  it('reads an OLD previous version too (its total, its bid days)', () => {
+  it('reads an OLD previous version too (its total, its bid days), comparing before agency (review round 1)', () => {
     const d = versionDelta({ grandTotal: 2000, totalBidDays: 2, tasks: [{ id: 't1' }] }, live(), 'old')
     expect(d).toMatchObject({ against: 'old', bidDays: 1.5, tasksAdded: 1, span: null })
-    expect(d.total).toBe(860)
+    // live(): before agency 2530, overall 2860 (a 330 fee). The old version
+    // stored only its before-agency 2000, so the line is 2530 − 2000.
+    expect(d.total).toBe(530)
+  })
+  it('CONTROL: an unchanged schedule against an old version that never stored the fee reads no change, not "+ the fee"', () => {
+    const s = live()
+    const d = versionDelta({ grandTotal: s.totals.beforeAgency, totalBidDays: s.totalBidDays, tasks: s.tasks }, s, 'v1')
+    expect(d.total).toBe(0)
+    // …while a version that knows its fee compares the overall totals.
+    expect(versionDelta(s, s, 'v1').total).toBe(0)
+    expect(versionDelta({ ...s, totals: { ...s.totals, overall: s.totals.overall - 100 } }, s, 'v1').total).toBe(100)
   })
 })
 

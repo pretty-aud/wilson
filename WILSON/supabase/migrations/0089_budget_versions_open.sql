@@ -50,7 +50,15 @@
 --      setActiveVersion), which could leave two selected if it stopped half
 --      way; only the dev fixtures cleared the previous one in one write.
 --      SECURITY INVOKER: budget_versions' own policies (the money gate) apply
---      to the UPDATE; the explicit check up front only says so in words.
+--      to the UPDATE; the explicit check up front only says so in words. It
+--      locks the project's versions first, so two calls at once leave one
+--      (review round 1).
+--
+-- REVIEW ROUND 1 (2026-10-05), folded in before 0089 left dev: the RPC's
+-- row lock; a post-condition that the guard is SECURITY DEFINER; suite 91
+-- proves the guard's SET NULL arm on its own (as postgres with no claims).
+-- Dev took the amended file by re-running it (every statement here is
+-- idempotent) and its history row was rewritten to match.
 --
 -- NOT HERE, ON PURPOSE
 -- --------------------
@@ -215,6 +223,12 @@ BEGIN
        SELECT 1 FROM public.budget_versions v WHERE v.id = p_version AND v.project_id = p_project) THEN
     RAISE EXCEPTION 'bid version not found in this project' USING ERRCODE = 'P0002';
   END IF;
+  -- Two selects of one project, one after the other (S5 review round 1):
+  -- under READ COMMITTED a second UPDATE re-checks only the rows its own
+  -- first scan matched, so two calls at once could leave two versions
+  -- selected. The project's versions are locked first; the UPDATE below
+  -- then reads them as the first call left them.
+  PERFORM 1 FROM public.budget_versions WHERE project_id = p_project FOR UPDATE;
   UPDATE public.budget_versions
      SET is_active = (p_version IS NOT NULL AND id = p_version)
    WHERE project_id = p_project
@@ -259,6 +273,14 @@ BEGIN
   END IF;
   IF has_function_privilege('authenticated', 'public.fn_projects_open_budget_version_guard()', 'EXECUTE') THEN
     RAISE EXCEPTION '0089 post-condition failed: authenticated can execute the guard function';
+  END IF;
+  -- S5 review round 1: an INVOKER redefinition would run the existence check
+  -- under the caller's RLS, where a member sees no version at all — every
+  -- change would read as "the version is gone" and pass.
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                  WHERE n.nspname = 'public' AND p.proname = 'fn_projects_open_budget_version_guard'
+                    AND p.prosecdef) THEN
+    RAISE EXCEPTION '0089 post-condition failed: the open-version guard is not SECURITY DEFINER';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                   WHERE n.nspname = 'public' AND p.proname = 'select_budget_version'

@@ -293,6 +293,12 @@ export function versionDelta(prev, next, prevName = null) {
   const p = readVersion({ snapshot: prev })
   const n = readVersion({ snapshot: next })
   const tasks = rowsDelta(prev?.tasks, next?.tasks, TASK_SCHEDULE)
+  // Like with like (review round 1, R1-09; varianceAgainst's rule): an OLD
+  // version that never stored the agency fee is compared before agency,
+  // or an unchanged schedule would read "+" the whole fee.
+  const total = p.overallKnown
+    ? (p.overall == null || n.overall == null ? null : round2(n.overall - p.overall))
+    : (p.beforeAgency == null || n.beforeAgency == null ? null : round2(n.beforeAgency - p.beforeAgency))
   return {
     against: prevName || null,
     bidDays: round2(num(n.totalBidDays) - num(p.totalBidDays)),
@@ -301,7 +307,7 @@ export function versionDelta(prev, next, prevName = null) {
     ratesChanged: ratesChanged(prev?.roleRates, next?.roleRates).length,
     margin: fromTo(p.marginPct, n.marginPct),
     contingency: fromTo(p.contingencyPct, n.contingencyPct),
-    total: p.overall == null || n.overall == null ? null : round2(n.overall - p.overall),
+    total,
     span: p.spanDays == null || n.spanDays == null ? null : n.spanDays - p.spanDays,
   }
 }
