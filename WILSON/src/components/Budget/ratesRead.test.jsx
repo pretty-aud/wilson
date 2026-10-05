@@ -22,6 +22,10 @@ const adapter = {
 }
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => held.rabbit }))
 vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => ({ ready: true, workspaceId: 'w1' }) }))
+// The module graph reaches the cloud client at import; CI has no .env.local,
+// and createClient refuses a missing URL (CI run 37337162905 — this file's
+// first push). The Budget's other tests stub it the same way.
+vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 
 const { useRateCard } = await import('../RateCard/useRateCard')
 const { useProjectRateOverrides } = await import('./useProjectRateOverrides')
