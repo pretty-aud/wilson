@@ -69,6 +69,15 @@ import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
+// Post-overhaul S4c (Audrey, 2026-10-05: "levels and experiences dont allow
+// for me to add files to a them … when i open an experience or level im not
+// seeing a way to see the files"): the detail popup gains the Files section
+// the scene and shot popups have — FileManager, one component over the two
+// stores (ctx.supportsManagedFiles decides), mounted with levelId or
+// experienceId — and the create form's picked files are really uploaded
+// (addFilesToEntity), which nothing did before.
+import FileManager from '../components/FileManager'
+import { addFilesToEntity } from '../components/entityFiles'
 
 // ── Status config ──
 const STATUSES = [
@@ -857,6 +866,12 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const name = item.name || `Untitled ${entity.noun}`
   const status = item.status || 'not_started'
   const hasThumbnail = !!item.thumbnail_image
+  // S4c: the files this row owns, counted from the store FileManager reads
+  // (the managed records on the Local Server, the cloud rows otherwise), by
+  // the same link the Files section filters on.
+  const managed = ctx?.supportsManagedFiles === true
+  const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
+    .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
 
   function handleUpdate(patch) { ctx?.[entity.updateMethod]?.(item.id, patch) }
 
@@ -1018,7 +1033,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 <div className="rb-ent-prop">
                   <FieldLabel>Linked counts</FieldLabel>
                   <span className="rb-ent-prop-value">
-                    {assetCountById[itemId] || 0} assets / {taskCountById[itemId] || 0} tasks
+                    {assetCountById[itemId] || 0} assets / {taskCountById[itemId] || 0} tasks / {fileCount} file{fileCount === 1 ? '' : 's'}
                   </span>
                 </div>
                 <div className="rb-ent-prop">
@@ -1108,6 +1123,27 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   </button>
                 )}
               </div>
+
+              {/* Files (S4c): FileManager's own head says "Files (N)", as it
+                  does in the scene and shot popups (P1-24). Add files on
+                  both stores, the list, the player and download as
+                  elsewhere; a level's files go to LEVELS/<slug>, an
+                  experience's to EXPERIENCES/<slug>, on both backends. */}
+              <div className="rb-ent-detail-files">
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  levelId={entity.type === 'level' ? item.id : undefined}
+                  levelName={entity.type === 'level' ? (item.name || 'Untitled-Level') : undefined}
+                  experienceId={entity.type === 'experience' ? item.id : undefined}
+                  experienceName={entity.type === 'experience' ? (item.name || 'Untitled-Experience') : undefined}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
             </div>
           </div>
         </Dialog>,
@@ -1183,24 +1219,51 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null })
 // status the kit's dot inside its field, Cancel and Confirm & create the
 // kit's Buttons in its footer. The default name, every field and the files
 // picker are as they were. 🚨 PORTALLED into <body>, as NewAssetPopup is.
+// S4c: the picked files are UPLOADED once the row exists — into the level's
+// or the experience's own folder, through the same two paths FileManager's
+// Add files takes (entityFiles.addFilesToEntity): the cloud rows and the
+// bucket for a File from the browser's picker, the managed store and a
+// streamed copy for a path from the desktop's own picker. Before this the
+// list rode into the row as `files` and nothing read it. On the managed
+// store the browser's picker cannot give a path (Electron 32 took
+// `File.path` away), so there the button opens the desktop's picker and
+// keeps the paths; the rows are the same either way.
 function CreateEntityPopup({ entity, ctx, count, onClose }) {
   const [name, setName] = useState(`${entity.Noun} ${count + 1}`)
   const [status, setStatus] = useState('not_started')
   const [description, setDescription] = useState('')
-  const [files, setFiles] = useState([]) // [{ name, path }]
+  const [files, setFiles] = useState([]) // [{ name, file? (a File), path? (a desktop path) }]
+  const [fileNote, setFileNote] = useState('')
   const fileInputRef = useRef(null)
+  const managed = ctx?.supportsManagedFiles === true
 
   async function handleConfirm() {
+    let row = null
     try {
-      await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description, files })
+      row = await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description })
     } catch (err) { console.error(`Failed to create ${entity.noun}:`, err) }
+    if (row?.id && files.length > 0) {
+      try {
+        const { failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files })
+        if (failed.length) console.error(`${entity.Noun} created; ${failed.length} file(s) were not added:`, failed.join('; '))
+      } catch (err) { console.error(`${entity.Noun} created; its files were not added:`, err) }
+    }
     onClose()
   }
 
   function handleFileSelect(e) {
-    const newFiles = Array.from(e.target.files || []).map(f => ({ name: f.name, path: f.path || f.name }))
+    const newFiles = Array.from(e.target.files || []).map(f => ({ name: f.name, file: f }))
     setFiles(prev => [...prev, ...newFiles])
     e.target.value = ''
+  }
+  async function pickFiles() {
+    if (!managed) { fileInputRef.current?.click(); return }
+    const api = window.electronAPI?.rabbit
+    if (!api?.pickFiles) { setFileNote('On this storage files are picked through the desktop app.'); return }
+    const paths = await api.pickFiles()
+    if (!paths || paths.length === 0) return
+    setFileNote('')
+    setFiles(prev => [...prev, ...paths.map(p => ({ name: String(p).replace(/\\/g, '/').split('/').pop(), path: p }))])
   }
 
   return createPortal(
@@ -1245,10 +1308,11 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
             open it from a click anywhere in the list. */}
         <div className="ui-field">
           <span className="ui-field-label">Files</span>
-          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
-          <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={() => fileInputRef.current?.click()}>
+          {!managed && <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />}
+          <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={pickFiles} title={`Added to the ${entity.noun}'s own folder once it is created`}>
             Add files
           </Button>
+          {fileNote && <span className="rb-ent-files-note">{fileNote}</span>}
           {files.length > 0 && (
             <div className="rb-ent-files">
               {files.map((f, i) => (

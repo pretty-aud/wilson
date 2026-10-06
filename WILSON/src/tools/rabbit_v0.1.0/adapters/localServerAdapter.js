@@ -777,6 +777,19 @@ export function localServerAdapter() {
     deleteFolder: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/folders/${id}`, { method: 'DELETE' }),
 
+    // Post-overhaul S4c: the one-time move of the project's shot folders
+    // into their scenes' folders. The SERVER does the whole thing — the
+    // directories on disk, the managed-file paths, the folder rows — one
+    // shot at a time, and answers what moved and what was left with why.
+    // `project` and the progress callback are the cloud adapter's shape;
+    // here the route is one call, so neither is sent.
+    refileShotFolders: async (projectId, _project, _opts) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/refile-shots`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
+
     // The manifest is written by the SERVER, not posted from here: the server
     // has the bundle, and the bundle is the copy the file has to mirror.
     // Posting a client-built manifest would let a stale render write a

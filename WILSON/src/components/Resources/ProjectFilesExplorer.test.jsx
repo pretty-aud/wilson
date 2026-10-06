@@ -1384,6 +1384,126 @@ describe('the Table as an explorer (S4c)', () => {
     expect(rowNamed('hero_v3.mov').hasAttribute('data-selected')).toBe(true)
   })
 
+  // ── The one-time re-filing of shot folders (S4c item 2) ─────────────────
+  // A project from before S4c has its shot folders under SHOTS. The tab
+  // OFFERS the move to someone who can write the open project — a banner
+  // with the count and the names — asks first, shows the run, and says what
+  // moved and what was left with the reason. Never on the Resources page,
+  // never to a reader, never when nothing is pending.
+  describe('the offer to move shot folders into their scenes', () => {
+    const LEGACY_FOLDERS = [
+      ...FOLDERS,
+      { id: 'cs', kind: 'category', path: 'SCENES', name: 'SCENES', parent_id: 'root' },
+      { id: 'csh', kind: 'category', path: 'SHOTS', name: 'SHOTS', parent_id: 'root' },
+      { id: 'f-sc1', kind: 'entity', path: 'SCENES/Dawn', name: 'Dawn', parent_id: 'cs', scene_id: 'sc1', slug: 'Dawn' },
+      { id: 'f-sh1', kind: 'entity', path: 'SHOTS/The-Door', name: 'The-Door', parent_id: 'csh', shot_id: 'sh1', slug: 'The-Door' },
+      { id: 'f-sh2', kind: 'entity', path: 'SHOTS/The-Lamp', name: 'The-Lamp', parent_id: 'csh', shot_id: 'sh2', slug: 'The-Lamp' },
+    ]
+    function legacy({ canWrite = true, result } = {}) {
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async () => LEGACY_FOLDERS })
+      ctx.shots = [{ id: 'sh1', name: 'The door', scene_id: 'sc1' }, { id: 'sh2', name: 'The lamp', scene_id: 'sc1' }]
+      ctx.scenes = [{ id: 'sc1', name: 'Dawn' }]
+      ctx.adapterMode = 'supabase'
+      ctx.refileShotFolders = vi.fn(async (opts) => {
+        opts?.onProgress?.({ name: 'The-Door', done: 0, total: 2 })
+        return result || { moved: [{ shotId: 'sh1', name: 'The-Door', from: 'SHOTS/The-Door', to: 'SCENES/Dawn/The-Door', files: 1 }, { shotId: 'sh2', name: 'The-Lamp', from: 'SHOTS/The-Lamp', to: 'SCENES/Dawn/The-Lamp', files: 0 }], left: [], removedShotsCategory: true }
+      })
+      // A reader: a workspace user holding a REVIEWER seat on a staffed
+      // project (projectRoleMatrix: reviewers read, comment and build lists,
+      // and change nothing else).
+      perms.role = canWrite ? 'admin' : 'user'
+      ctx.projectIsStaffed = !canWrite
+      ctx.myProjectRole = canWrite ? null : 'reviewer'
+    }
+    afterEach(() => { delete ctx.shots; delete ctx.scenes; delete ctx.refileShotFolders; delete ctx.adapterMode; delete ctx.projectIsStaffed; delete ctx.myProjectRole; perms.role = 'admin' })
+    const offer = () => document.querySelector('[data-shot-refile-offer]')
+
+    it('is a banner on the tab naming how many and which, with the one action; the question lists each move; the run reports', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      expect(offer().textContent).toContain('2 shot folders still sit under SHOTS: The-Door, The-Lamp.')
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      const dialog = screen.getByRole('dialog', { name: 'Move 2 shot folders into their scenes?' })
+      const lines = [...dialog.querySelectorAll('[data-shot-refile-list] li')].map(li => li.getAttribute('title'))
+      expect(lines).toEqual(['SHOTS/The-Door → SCENES/Dawn/The-Door', 'SHOTS/The-Lamp → SCENES/Dawn/The-Lamp'])
+      expect(dialog.textContent).toContain('nothing is deleted')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Move shot folders' }))
+      expect(ctx.refileShotFolders).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-result]').textContent).toBe('Moved 2 shot folders into their scenes. The empty SHOTS folder is gone.')
+      expect(document.querySelector('[data-shot-refile-result]').getAttribute('data-tone')).toBe('success')
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('what was left is named with its reason, on a warning banner; the offer stays for what is still pending', async () => {
+      legacy({ result: { moved: [{ shotId: 'sh1', name: 'The-Door', files: 1 }], left: [{ shotId: 'sh2', name: 'The-Lamp', reason: '“board.png” is missing from rabbit-files' }], removedShotsCategory: false } })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      const result = document.querySelector('[data-shot-refile-result]')
+      expect(result.textContent).toBe('Moved 1 of 2. Left where it was: The-Lamp (“board.png” is missing from rabbit-files).')
+      expect(result.getAttribute('data-tone')).toBe('warning')
+      // The rows are what they were (the fake moved nothing), so the offer is back.
+      expect(offer()).toBeTruthy()
+      fireEvent.click(within(result).getByRole('button', { name: 'Dismiss' }))
+      expect(document.querySelector('[data-shot-refile-result]')).toBeNull()
+    })
+
+    it('a refusal from the backend is read on screen; Cancel on the question moves nothing', async () => {
+      legacy()
+      ctx.refileShotFolders = vi.fn(async () => { throw new Error('permission denied for table folders') })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(ctx.refileShotFolders).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-error]')?.textContent).toBe('permission denied for table folders'))
+    })
+
+    it('CONTROL: no offer to a reader, none on the Resources page, none when every shot folder is already in its scene, none with no shots', async () => {
+      legacy({ canWrite: false })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      await mountTable()  // the Resources host
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async () => LEGACY_FOLDERS.map(f => (f.shot_id ? { ...f, path: `SCENES/Dawn/${f.slug}`, parent_id: 'f-sc1' } : f)) })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      ctx.shots = []
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+    })
+
+    it('the offer is the OPEN project\'s: switching to a project with nothing under SHOTS drops it', async () => {
+      legacy()
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async (id) => (id === 'p1' ? LEGACY_FOLDERS : FOLDERS) })
+      const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+      await waitFor(() => expect(offer()).toBeTruthy())
+      ctx.activeProjectId = 'p2'
+      rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+      await waitFor(() => expect(offer()).toBeNull())
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      ctx.activeProjectId = 'p1'
+    })
+  })
+
   it('the crumb bar is the table head\'s height on its paper, never wraps, and the keys handler sits on the table area only', () => {
     expect(css).toMatch(/\.fx-crumbs \{[^}]*height: var\(--table-head\);[^}]*background-color: var\(--color-paper-raised\);[^}]*overflow: hidden;/s)
     expect(css).toMatch(/\.fx-crumb-list \{[^}]*white-space: nowrap;/s)

@@ -10,40 +10,57 @@
 // generated SVG — the same round trip FileManager makes against Storage.
 // =============================================================================
 
-import { planFullTree } from '../../../tools/rabbit_v0.1.0/folderPaths'
+import { planFullTree, planEntityFolder, entityFolderSlug } from '../../../tools/rabbit_v0.1.0/folderPaths'
 import { fid, stamp } from '../ids'
 import { placeholder, tintFor } from '../svg'
 import { WORKSPACE_ID, MEMBER_ID } from './workspace'
 import { PROJECT, PROJECT_ID, ASSETS, ASSET_ID, PHASE_ID, TASK_ID } from './project'
-import { SCENES, SHOTS } from './scenes'
+import { SCENES, SHOTS, GAME_LEVELS, GAME_EXPERIENCES } from './scenes'
 
 // ── Folders ──────────────────────────────────────────────────────────────────
+//
+// Post-overhaul S4c: Salt Hours is a project from BEFORE S4c, as every real
+// project is today — its shot folders sit under SHOTS/, beside SCENES/, until
+// the Files tab's one-time re-filing moves them into their scenes. So the
+// planner draws the tree without the shots (it would nest them now), and the
+// SHOTS category and the sixteen SHOTS/<shot> folders are laid in by hand in
+// the shape the planner used to make: the fixtures adapter's
+// refileShotFolders then moves them exactly as the cloud's does.
 
-const plan = planFullTree(PROJECT, { assets: ASSETS, scenes: SCENES, shots: SHOTS })
+const plan = planFullTree(PROJECT, { assets: ASSETS, scenes: SCENES })
+plan.push({ kind: 'category', entityType: 'shot', slug: 'SHOTS', label: null, path: 'SHOTS', parentPath: '' })
+for (const shot of SHOTS) {
+  const slug = entityFolderSlug('shot', shot)
+  plan.push({ kind: 'entity', entityType: 'shot', slug, label: shot.name, path: `SHOTS/${slug}`, parentPath: 'SHOTS', shot_id: shot.id })
+}
 const folderIdByPath = new Map()
 plan.forEach((f, i) => folderIdByPath.set(f.path, fid('folder', i + 1)))
 
-export const FOLDERS = plan.map((f, i) => ({
-  id: folderIdByPath.get(f.path),
-  project_id: PROJECT_ID,
-  workspace_id: WORKSPACE_ID,
-  parent_id: f.parentPath == null ? null : folderIdByPath.get(f.parentPath) ?? null,
-  kind: f.kind,
-  entity_type: f.entityType,
-  asset_id: f.asset_id ?? null,
-  scene_id: f.scene_id ?? null,
-  shot_id: f.shot_id ?? null,
-  level_id: null,
-  experience_id: null,
-  slug: f.slug,
-  label: f.label,
-  path: f.path,
-  sort_order: i,
-  created_at: stamp(-10, 10, i),
-  created_by: MEMBER_ID.mara,
-  updated_at: stamp(-10, 10, i),
-  updated_by: MEMBER_ID.mara,
-}))
+function folderRowOf(f, i, idByPath) {
+  return {
+    id: idByPath.get(f.path),
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    parent_id: f.parentPath == null ? null : idByPath.get(f.parentPath) ?? null,
+    kind: f.kind,
+    entity_type: f.entityType,
+    asset_id: f.asset_id ?? null,
+    scene_id: f.scene_id ?? null,
+    shot_id: f.shot_id ?? null,
+    level_id: f.level_id ?? null,
+    experience_id: f.experience_id ?? null,
+    slug: f.slug,
+    label: f.label,
+    path: f.path,
+    sort_order: i,
+    created_at: stamp(-10, 10, i),
+    created_by: MEMBER_ID.mara,
+    updated_at: stamp(-10, 10, i),
+    updated_by: MEMBER_ID.mara,
+  }
+}
+
+export const FOLDERS = plan.map((f, i) => folderRowOf(f, i, folderIdByPath))
 
 export function folderIdFor(path) {
   return folderIdByPath.get(path) ?? null
@@ -56,6 +73,10 @@ function assetFolderPath(n) {
 function sceneFolderPath(n) {
   const f = plan.find(p => p.scene_id === SCENES[n - 1].id)
   return f ? f.path : 'SCENES'
+}
+function shotFolderPath(n) {
+  const f = plan.find(p => p.shot_id === SHOTS[n - 1].id)
+  return f ? f.path : 'SHOTS'
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────
@@ -101,6 +122,10 @@ const FILE_ROWS = [
   [30, 'INVOICES',          'INV-0041_camera_hire.pdf',            'other',       210,     null, 'pre', null, false, 36],
   [31, 'INVOICES',          'INV-0042_set_timber.pdf',             'other',       190,     null, 'pre', null, false, 38],
   [32, '',                  'Salt_Hours_schedule_v3.xlsx',         'other',       88,      null, 'pre', 39, false, 39],
+  // S4c: two shot files, under SHOTS/<shot> as a real project's are today —
+  // what the one-time re-filing moves into SCENES/<scene>/<shot>.
+  [34, shotFolderPath(1),   'SC01_SH010_plate_v001.exr',           'source',      31000,   null, 'post', null, false, 40],
+  [35, shotFolderPath(2),   'SC01_SH020_board.png',                'reference',   640,     null, 'pre',  null, false, 34],
 ]
 
 // Post-overhaul S4a (0085): the nine tags, a believable set per file. The two
@@ -121,6 +146,7 @@ const TAGS_BY_N = {
   // one (LEGAL_FILE below); S4a's label on the weather cover is gone, as
   // 0088 strips such a tag from a real database.
   28: ['production', 'shots'], 29: ['production'], 32: ['production'],
+  34: ['shots'], 35: ['shots', 'reference'],
 }
 
 const ROW_FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, task, is_core_definer, d], i) => {
@@ -134,7 +160,7 @@ const ROW_FILES = FILE_ROWS.map(([n, folderPath, name, kind, kb, asset, phase, t
     asset_id: asset ? ASSET_ID(asset) : null,
     task_id: task ? TASK_ID(task) : null,
     scene_id: folderPath.startsWith('SCENES/') ? (plan.find(p => p.path === folderPath)?.scene_id ?? null) : null,
-    shot_id: null,
+    shot_id: folderPath.startsWith('SHOTS/') ? (plan.find(p => p.path === folderPath)?.shot_id ?? null) : null,
     level_id: null,
     experience_id: null,
     folder_id: folderIdFor(folderPath),
@@ -205,9 +231,73 @@ export const LEGAL_FILE = {
 
 export const FILES = [...ROW_FILES, LEGAL_FILE]
 
+// ── Post-overhaul S4c: the game variant's folders and files ─────────────────
+// `?fixtures=game` turns levels and experiences on (GAME_LEVELS,
+// GAME_EXPERIENCES). Their folders are the planner's — LEVELS/<slug>,
+// EXPERIENCES/<slug>, under their categories — and one level and one
+// experience carry a file, so the explorer, the two popups' Files sections
+// and the tests see files that belong to a level and to an experience
+// (Audrey, 2026-10-05: "levels and experiences dont allow for me to add
+// files"). Applied by store.applyGameVariant, never to the default store.
+const gamePlan = []
+const gameSeen = new Set()
+for (const [entityType, rows] of [['level', GAME_LEVELS], ['experience', GAME_EXPERIENCES]]) {
+  for (const entity of rows) {
+    const planned = planEntityFolder(PROJECT, entityType, entity)
+    if (!gameSeen.has(planned.category.path)) { gameSeen.add(planned.category.path); gamePlan.push(planned.category) }
+    if (!gameSeen.has(planned.folder.path)) { gameSeen.add(planned.folder.path); gamePlan.push(planned.folder) }
+  }
+}
+const gameIdByPath = new Map(folderIdByPath)
+gamePlan.forEach((f, i) => gameIdByPath.set(f.path, fid('folder', 200 + i)))
+export const GAME_FOLDERS = gamePlan.map((f, i) => folderRowOf(f, FOLDERS.length + i, gameIdByPath))
+
+function gameFile(n, entityType, entity, name, kind, kb, d) {
+  const folderPath = planEntityFolder(PROJECT, entityType, entity).folder.path
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+  const storage_path = `workspaces/${WORKSPACE_ID}/projects/${PROJECT_ID}/${folderPath}/${name}`
+  return {
+    id: fid('file', n),
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    phase_id: PHASE_ID.pre,
+    asset_id: null,
+    task_id: null,
+    scene_id: null,
+    shot_id: null,
+    level_id: entityType === 'level' ? entity.id : null,
+    experience_id: entityType === 'experience' ? entity.id : null,
+    folder_id: gameIdByPath.get(folderPath) ?? null,
+    name,
+    mime_type: MIME[ext] || 'application/octet-stream',
+    size_bytes: kb * 1024,
+    storage_provider: 'supabase',
+    storage_path,
+    thumbnail_url: THUMBABLE.has(ext) ? `${storage_path}.thumb.png` : null,
+    kind,
+    is_core_definer: false,
+    is_financial: false,
+    tags: ['reference'],
+    uploaded_at: stamp(d, 11, n),
+    source_modified_at: stamp(d - 1, 18, n),
+    created_at: stamp(d, 11, n),
+    created_by: MEMBER_ID.dev,
+    updated_at: stamp(d, 11, n),
+    updated_by: MEMBER_ID.dev,
+    last_updated_at: stamp(d, 11, n),
+    last_updated_by: MEMBER_ID.dev,
+    deleted_at: null,
+    deleted_by: null,
+  }
+}
+export const GAME_FILES = [
+  gameFile(36, 'level', GAME_LEVELS[1], 'Lamp_Room_blockout_v2.png', 'reference', 1800, 33),
+  gameFile(37, 'experience', GAME_EXPERIENCES[1], 'The_Storm_beat_sheet.pdf', 'source', 320, 41),
+]
+
 /** Object path → generated picture, what thumbnailUrls() and fileUrl() serve. */
 export const THUMBNAILS = new Map(
-  FILES.filter(f => f.thumbnail_url).map((f, i) => [
+  [...FILES, ...GAME_FILES].filter(f => f.thumbnail_url).map((f, i) => [
     f.thumbnail_url,
     placeholder({ label: f.name.replace(/\.[a-z0-9]+$/i, ''), sub: f.mime_type, tint: tintFor(i) }),
   ]),

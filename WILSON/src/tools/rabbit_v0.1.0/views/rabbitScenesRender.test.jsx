@@ -1031,7 +1031,9 @@ describe('surface 6c', () => {
     escape()
 
     dialog = openShotPopup()
-    expect(inertOf(dialog).map(wordsOf)).toEqual(['00:00:10:00', 'Lighthouse, dawn', 'SHOTS/The-Door/'])
+    // S4c: a shot's folder is inside its scene's (no folder row in this
+    // page, so the planned path: SCENES/<scene>/<shot>).
+    expect(inertOf(dialog).map(wordsOf)).toEqual(['00:00:10:00', 'Lighthouse, dawn', 'SCENES/Lighthouse-Dawn/The-Door/'])
     for (const el of inertOf(dialog)) expect(el.querySelector('input, select, textarea, button, [tabindex]'), wordsOf(el)).toBeNull()
     for (const name of ['Status', 'Type', 'Time of day', 'Framing', 'Camera movement']) {
       expect(within(dialog).getByRole('combobox', { name }).classList.contains('ui-input'), name).toBe(true)

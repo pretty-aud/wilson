@@ -1277,6 +1277,36 @@ export function RabbitProvider({ children }) {
     }
   }, [mergeFolder]);
 
+  // ── Post-overhaul S4c: the one-time re-filing of the open project's shot
+  // folders into their scenes' folders (shotRefiling.js; the adapter does the
+  // moving). Not an undoable edit — it moves real objects and directories —
+  // so it keeps no history entry. Afterwards the three lists the explorer
+  // reads are read again from the adapter, so what is on screen is what the
+  // backend now holds (the cloud adapter's rows may have moved under rows the
+  // bundle still has by their old keys).
+  const refileShotFolders = useCallback(async (opts = {}) => {
+    const adapter = adapterRef.current;
+    const projectId = activeProjectIdRef.current;
+    if (!adapter || !projectId) throw new Error('no project');
+    if (typeof adapter.refileShotFolders !== 'function') throw new Error('This backend cannot move folders.');
+    const result = await adapter.refileShotFolders(projectId, bundleRef.current?.project, opts);
+    const safe = async (fn) => { try { return typeof fn === 'function' ? await fn(projectId) : null; } catch { return null; } };
+    const [folders, files, managedFiles] = await Promise.all([
+      safe(adapter.listFolders?.bind(adapter)),
+      safe(adapter.listFiles?.bind(adapter)),
+      safe(adapter.listManagedFiles?.bind(adapter)),
+    ]);
+    if (activeProjectIdRef.current === projectId) {
+      setBundle(prev => ({
+        ...prev,
+        ...(Array.isArray(folders) ? { folders } : {}),
+        ...(Array.isArray(files) ? { files } : {}),
+        ...(Array.isArray(managedFiles) ? { managedFiles } : {}),
+      }));
+    }
+    return result;
+  }, []);
+
   // ── Backfill the tree for a project that predates 0041 (Session 27) ────
   //
   // 🚨 MEASURED 2026-08-04: public.folders had ZERO rows on dev, staging AND
@@ -6878,6 +6908,8 @@ export function RabbitProvider({ children }) {
     // path rules — folderPaths.js stays the only place paths are decided.
     ensureProjectFolders: ensureProjectFoldersFor,
     ensureEntityFolder:   ensureEntityFolderFor,
+    // S4c: the one-time move of shot folders into their scenes (Files tab).
+    refileShotFolders,
 
     // history
     undo, redo, runBatch, clearHistory, canUndo, canRedo,

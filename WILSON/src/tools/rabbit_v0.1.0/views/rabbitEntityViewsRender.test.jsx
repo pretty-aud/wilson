@@ -148,8 +148,66 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm & create' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: `New ${p.noun}` })).toBeNull())
     expect(ctx[p.add]).toHaveBeenCalledTimes(1)
-    expect(ctx[p.add]).toHaveBeenCalledWith({ name: `${p.Noun} 3`, status: 'not_started', description: '', files: [] })
+    // S4c: the picked files no longer ride into the row (nothing read them);
+    // they are uploaded to the created row (the next case).
+    expect(ctx[p.add]).toHaveBeenCalledWith({ name: `${p.Noun} 3`, status: 'not_started', description: '' })
     for (const m of p.otherWriters) expect(ctx[m]).not.toHaveBeenCalled()
+  })
+
+  // ── Post-overhaul S4c: files on levels and experiences ───────────────────
+  it('the create popup uploads the picked files to the CREATED row, into its own folder, after creating it (S4c)', async () => {
+    const uploadFile = vi.fn(async () => ({ id: 'file-new' }))
+    const { ctx } = mount(p.View, { [p.add]: vi.fn(async () => ({ id: 'new-row', name: `${p.Noun} 3` })), uploadFile })
+    fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
+    const dialog = screen.getByRole('dialog', { name: `New ${p.noun}` })
+    const picked = new File(['x'], 'ref.png', { type: 'image/png' })
+    const input = dialog.querySelector('input[type="file"]')
+    Object.defineProperty(input, 'files', { value: [picked] })
+    fireEvent.change(input)
+    expect(within(dialog).getByText('ref.png')).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm & create' }))
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1))
+    expect(ctx[p.add]).toHaveBeenCalledWith({ name: `${p.Noun} 3`, status: 'not_started', description: '' })
+    expect(uploadFile).toHaveBeenCalledWith(picked, { [p.noun === 'level' ? 'levelId' : 'experienceId']: 'new-row' })
+    // The add came first: the row has to exist for the file to belong to it.
+    expect(ctx[p.add].mock.invocationCallOrder[0]).toBeLessThan(uploadFile.mock.invocationCallOrder[0])
+  })
+
+  it('CONTROL: a create that answers no row uploads nothing; a form with no files uploads nothing', async () => {
+    const uploadFile = vi.fn(async () => ({}))
+    mount(p.View, { [p.add]: vi.fn(async () => undefined), uploadFile })
+    fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
+    const dialog = screen.getByRole('dialog', { name: `New ${p.noun}` })
+    const input = dialog.querySelector('input[type="file"]')
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'a.png', { type: 'image/png' })] })
+    fireEvent.change(input)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm & create' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: `New ${p.noun}` })).toBeNull())
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  it('the detail popup has a Files section (FileManager, "Files (N)"), and Linked counts count the files too (S4c)', () => {
+    const own = p.ids[0]
+    mount(p.View, {
+      files: [
+        { id: 'fa', name: 'a.png', [p.link]: own, uploaded_at: '2026-10-01T10:00:00Z' },
+        { id: 'fb', name: 'b.pdf', [p.link]: own, uploaded_at: '2026-10-02T10:00:00Z' },
+        { id: 'fc', name: 'other.pdf', [p.link]: p.ids[1], uploaded_at: '2026-10-03T10:00:00Z' },
+        { id: 'fd', name: 'gone.pdf', [p.link]: own, deleted_at: '2026-10-03T10:00:00Z' },
+        { id: 'fe', name: 'inv.pdf', [p.link]: own, is_financial: true },
+        { id: 'ff', name: 'theirs.pdf', [p.otherLink]: own },
+      ],
+      uploadFile: vi.fn(),
+    })
+    fireEvent.click(within(row(p.names[0])).getByRole('button', { name: 'View details' }))
+    const popup = screen.getByRole('dialog', { name: p.names[0] })
+    const counts = [...popup.querySelectorAll('.rb-ent-prop-value')].map(el => el.textContent).find(t => /files?$/.test(t))
+    expect(counts).toBe(`${p.counts[0][0]} assets / ${p.counts[0][1]} tasks / 2 files`)
+    const section = popup.querySelector('.rb-ent-detail-files')
+    expect(section).toBeTruthy()
+    expect(section.querySelector('.rb-fm-title').textContent.trim()).toBe('Files (2)')
+    expect([...section.querySelectorAll('.rb-fm-name')].map(n => n.textContent)).toEqual(['b.pdf', 'a.png'])
+    expect(within(section).getByRole('button', { name: 'Add files' })).toBeTruthy()
   })
 
   it('the saved views read and write its own storage key, and only that', () => {
@@ -639,7 +697,8 @@ describe.each(PAGES)('$page — the detail popup on the kit (B4c surface 6, step
     fireEvent.change(select, { target: { value: 'final' } })
     expect(ctx[p.update]).toHaveBeenLastCalledWith(p.ids[0], { status: 'final' })
     // The linked counts: a value, not a label — no capitals (Q2).
-    expect(dialog.querySelector('.rb-ent-prop-value').textContent).toBe(`${p.counts[0][0]} assets / ${p.counts[0][1]} tasks`)
+    // S4c: the files the row owns are counted too (none here).
+    expect(dialog.querySelector('.rb-ent-prop-value').textContent).toBe(`${p.counts[0][0]} assets / ${p.counts[0][1]} tasks / 0 files`)
     // The dates, named for their labels; no ring utility on either (R4-11).
     for (const [label, key] of [['Start date', 'start_date'], ['Due date', 'end_date']]) {
       const date = within(dialog).getByLabelText(label)
@@ -801,6 +860,9 @@ describe('Levels and Experiences are one component', () => {
     const icon = /<svg[^>]*lucide-(?:gamepad[\w-]*|sparkles)[^>]*>[\s\S]*?<\/svg>/g
     const norm = (html) => html.replace(icon, '<ENTITY-ICON>')
       .replace(/experiences|levels/g, 'NOUNS').replace(/experience|level/g, 'NOUN').replace(/Experience|Level/g, 'Noun')
+      // S4c: the Files section's tab panel takes a React-generated id (useId),
+      // which counts on across the two renders; the id is not the shape.
+      .replace(/_r_[0-9a-z]+_/g, '_r_N_')
     const levels = shots(LevelsView)
     const experiences = shots(ExperiencesView)
     expect(levels.map(norm)).toEqual(experiences.map(norm))
@@ -838,6 +900,9 @@ describe('Levels and Experiences are one component', () => {
     const icon = /<svg[^>]*lucide-(?:gamepad[\w-]*|sparkles)[^>]*>[\s\S]*?<\/svg>/g
     const norm = (html) => html.replace(icon, '<ENTITY-ICON>')
       .replace(/experiences|levels/g, 'NOUNS').replace(/experience|level/g, 'NOUN').replace(/Experience|Level/g, 'Noun')
+      // S4c: the Files section's tab panel takes a React-generated id (useId),
+      // which counts on across the two renders; the id is not the shape.
+      .replace(/_r_[0-9a-z]+_/g, '_r_N_')
     const levels = shots(LevelsView, 'levels_enabled')
     const experiences = shots(ExperiencesView, 'experiences_enabled')
     expect(levels.map(norm)).toEqual(experiences.map(norm))

@@ -139,7 +139,7 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye, Lock, ArrowUp } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye, Lock, ArrowUp, FolderInput } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
@@ -168,6 +168,7 @@ import { formatBytes } from '../../cloud/workspaceStorage'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
 import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, crumbsFor, folderPathIds, folderRows } from './fileTree'
 import { overlayOpen } from '../../ui/overlay'
+import { pendingShotRefiling, refilingSentence } from '../../tools/rabbit_v0.1.0/shotRefiling'
 import './resources.css'
 
 // S4c: a row clicked within this many ms of entering a folder is ignored. A
@@ -352,7 +353,10 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     setOverlay(new Map())
   }, [projectId])
 
-  const tree = useMemo(() => {
+  // The rows on screen: the adapter's, the open project's provider rows over
+  // them, this page's edits over those (S4c: kept apart from the tree so the
+  // re-filing offer can read the folder rows as the tree does).
+  const rowsOnScreen = useMemo(() => {
     if (!loaded || loaded.projectId !== projectId) return null
     let { folders, files, managedFiles } = loaded
     if (isOpenProject) {
@@ -362,8 +366,9 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     }
     files = applyOverlay(files, overlay)
     managedFiles = applyOverlay(managedFiles, overlay)
-    return buildFileTree({ folders, files, managedFiles })
+    return { folders, files, managedFiles }
   }, [loaded, projectId, isOpenProject, ctx?.folders, ctx?.files, ctx?.managedFiles, overlay])
+  const tree = useMemo(() => (rowsOnScreen ? buildFileTree(rowsOnScreen) : null), [rowsOnScreen])
 
   const selectedFile = (selectedFileId && tree?.byId.get(selectedFileId)) || null
 
@@ -613,6 +618,59 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // File activity follows the selection: the drawer reads one file's events.
   const [auditOpen, setAuditOpen] = useState(false)
   useEffect(() => { if (!selectedFile) setAuditOpen(false) }, [selectedFile])
+
+  // ── Post-overhaul S4c: the one-time re-filing of shot folders ────────────
+  // Audrey: "shot folders should be in the scene folders". A project from
+  // before S4c still has them under SHOTS; this OFFERS the move — never runs
+  // it unasked (these are real folders and real objects) — to someone who
+  // can write the open project, on the tab (the Resources page shows a
+  // project without opening it, and the move is the open project's). What is
+  // pending is read from the rows on screen (shotRefiling.pendingShotRefiling),
+  // so the offer disappears by itself once the rows say the folders have
+  // moved. The question names every folder and where it goes; the run shows
+  // which shot it is on; the result says what moved and what was left, with
+  // the reason each was left — a stop part way is a state the rows describe,
+  // and the offer comes back for what is still pending.
+  const refileFn = ctx?.refileShotFolders
+  const pendingRefile = useMemo(() => (
+    onTab && isOpenProject && rowsOnScreen && typeof refileFn === 'function'
+      ? pendingShotRefiling({ folders: rowsOnScreen.folders, shots: ctx?.shots || [], scenes: ctx?.scenes || [] })
+      : []
+  ), [onTab, isOpenProject, rowsOnScreen, refileFn, ctx?.shots, ctx?.scenes])
+  const [refileAsk, setRefileAsk] = useState(false)
+  const [refiling, setRefiling] = useState(null) // { name, done, total } while it runs
+  const [refileResult, setRefileResult] = useState(null) // { moved, left, removedShotsCategory }
+  const [refileError, setRefileError] = useState('')
+  useEffect(() => { setRefileAsk(false); setRefileResult(null); setRefileError('') }, [projectId])
+  const runRefile = useCallback(async () => {
+    const forProject = projectId
+    const total = pendingRefile.length
+    setRefileAsk(false)
+    setRefileResult(null)
+    setRefileError('')
+    setRefiling({ name: '', done: 0, total })
+    try {
+      const res = await refileFn({ onProgress: (p) => { if (projectNowRef.current === forProject) setRefiling({ name: p?.name || '', done: p?.done || 0, total: p?.total || total }) } })
+      if (projectNowRef.current === forProject) {
+        setRefileResult(res || { moved: [], left: [], removedShotsCategory: false })
+        setReloads(n => n + 1)
+      }
+    } catch (err) {
+      if (projectNowRef.current === forProject) setRefileError(err?.message || 'The move did not run.')
+    } finally {
+      if (projectNowRef.current === forProject) setRefiling(null)
+    }
+  }, [refileFn, projectId, pendingRefile.length])
+  const refileWords = useMemo(() => {
+    if (!refileResult) return ''
+    const moved = refileResult.moved?.length || 0
+    const left = refileResult.left || []
+    const total = moved + left.length
+    const gone = refileResult.removedShotsCategory ? ' The empty SHOTS folder is gone.' : ''
+    if (left.length === 0) return `Moved ${moved} shot folder${moved === 1 ? '' : 's'} into ${moved === 1 ? 'its scene' : 'their scenes'}.${gone}`
+    const names = left.map((l) => `${l.name} (${l.reason})`).join('; ')
+    return `Moved ${moved} of ${total}. Left where ${left.length === 1 ? 'it was' : 'they were'}: ${names}.`
+  }, [refileResult])
 
   // ── E10: the file window — the Details panel is the editor now ───────────
   //
@@ -1001,6 +1059,39 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             {missingCount} file{missingCount === 1 ? '' : 's'} can&rsquo;t be found on disk — the folder may have moved.
           </Banner>
         )}
+        {/* S4c: the offer, the run, the result (the note above pendingRefile).
+            The offer is for people who can write the project: a reader is
+            not shown a door they cannot open. */}
+        {pendingRefile.length > 0 && canWrite && !refiling && (
+          <Banner
+            tone="info"
+            Icon={FolderInput}
+            data-shot-refile-offer
+            action={(
+              <Button size="sm" variant="primary" Icon={FolderInput} onClick={() => setRefileAsk(true)} data-shot-refile-open>
+                Move shot folders into their scenes…
+              </Button>
+            )}
+          >
+            {refilingSentence(pendingRefile)} From now on a shot&rsquo;s folder lives inside its scene&rsquo;s.
+          </Banner>
+        )}
+        {refiling && (
+          <Banner tone="info" Icon={FolderInput} data-shot-refile-progress>
+            Moving {refiling.name ? `${refiling.name} ` : ''}({Math.min(refiling.done + 1, Math.max(refiling.total, 1))} of {Math.max(refiling.total, 1)})&hellip; nothing is deleted; a stop part way can be run again.
+          </Banner>
+        )}
+        {refileResult && !refiling && (
+          <Banner
+            tone={(refileResult.left || []).length ? 'warning' : 'success'}
+            Icon={FolderInput}
+            data-shot-refile-result
+            action={<IconButton size="sm" icon={X} title="Dismiss" onClick={() => setRefileResult(null)} />}
+          >
+            {refileWords}
+          </Banner>
+        )}
+        {refileError && !refiling && <Banner tone="danger" data-shot-refile-error>{refileError}</Banner>}
 
         {/* Three states that used to be one component with three strings, so a
             slow adapter and an empty project drew the same picture (F-R13). */}
@@ -1135,6 +1226,42 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           </ul>
           <p className="fx-legal-who" data-legal-who data-legal-local={noRoles || undefined}>{legalWho}</p>
           <p className="fx-legal-fixed">{LEGAL_AT_ADD_REASON} To change it later, add the file again.</p>
+        </Dialog>
+      )}
+      {/* S4c: the question before the move. Every folder and where it goes
+          (the first eight, then how many more), and the two facts a person
+          needs before saying yes: nothing is deleted, and a stop part way
+          can be run again (Cognitive Bias: the one moment that cannot be
+          taken back is named, with what it does). */}
+      {refileAsk && pendingRefile.length > 0 && (
+        <Dialog
+          title={`Move ${pendingRefile.length} shot folder${pendingRefile.length === 1 ? '' : 's'} into ${pendingRefile.length === 1 ? 'its scene' : 'their scenes'}?`}
+          width="confirm"
+          dismissOnBackdrop
+          onClose={() => setRefileAsk(false)}
+          data-shot-refile-confirm
+          footer={(
+            <>
+              <Button onClick={() => setRefileAsk(false)}>Cancel</Button>
+              <Button variant="primary" Icon={FolderInput} onClick={runRefile} data-shot-refile-go>
+                Move shot folders
+              </Button>
+            </>
+          )}
+        >
+          <ul className="fx-refile-list" data-shot-refile-list>
+            {pendingRefile.slice(0, 8).map((p) => (
+              <li key={p.folder.id} title={`${p.folder.path} → ${p.toPath}`}>
+                <span className="fx-refile-from">{p.folder.path}</span>
+                <span className="fx-refile-arrow" aria-hidden="true">→</span>
+                <span className="fx-refile-to">{p.toPath}</span>
+              </li>
+            ))}
+            {pendingRefile.length > 8 && <li className="fx-refile-more">and {pendingRefile.length - 8} more</li>}
+          </ul>
+          <p className="fx-refile-note">
+            Each folder moves with every file in it; nothing is deleted. If it stops part way, what has moved stays moved, and you can run it again for the rest.
+          </p>
         </Dialog>
       )}
       {auditOpen && selectedFile && (

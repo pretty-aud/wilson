@@ -169,6 +169,23 @@ export function createLocalServerStorageProvider({ available = hasLocalServer, f
       return res.ok
     },
 
+    // Post-overhaul S4c: a body moves to a new key — the one-time re-filing
+    // of a private project's shot folders into their scenes. OPTIONAL, like
+    // getUrl: the registry's REQUIRED five are untouched, and a caller
+    // asks `typeof provider.move === 'function'` first. The route renames
+    // on disk, never overwrites (409) and answers only once the file is at
+    // its new key.
+    async move(from, to) {
+      here()
+      const res = await f(`${LOCAL_MEDIA_BASE}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      })
+      if (!res.ok) throw new Error(`[local] media move failed: ${await errorText(res)}`)
+      return await res.json()
+    },
+
     // A URL a <video> can Range-request and an <a download> can save from.
     // No expiry, and no token in the URL: it is same-origin, so the request
     // carries the httpOnly launch cookie B3 sets before the window loads

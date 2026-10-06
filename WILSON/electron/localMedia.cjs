@@ -165,19 +165,55 @@ function mountLocalMedia(expressApp, {
   // Everything below the root question: the key's shape, the lexical
   // containment, the real-path containment. Any failure is a 404 — a route
   // that explains WHICH check refused a crafted key is a map for the next one.
+  function locateKey(root, key) {
+    const check = checkMediaKey(key);
+    if (!check.ok) return null;
+    const diskPath = resolveContainedFilePath(root, check.segments.join(path.sep));
+    if (!diskPath || lowerNoTrail(diskPath) === lowerNoTrail(path.resolve(root))) return null;
+    if (!insideByRealPath(root, diskPath)) return null;
+    return { root, key, diskPath, leaf: check.segments[check.segments.length - 1] };
+  }
   function locate(req, res) {
     const root = rootOr503(res);
     if (!root) return null;
-    const key = paramKey(req);
-    const check = checkMediaKey(key);
-    if (!check.ok) { res.status(404).json({ error: 'media not found' }); return null; }
-    const diskPath = resolveContainedFilePath(root, check.segments.join(path.sep));
-    if (!diskPath || lowerNoTrail(diskPath) === lowerNoTrail(path.resolve(root))) {
-      res.status(404).json({ error: 'media not found' }); return null;
-    }
-    if (!insideByRealPath(root, diskPath)) { res.status(404).json({ error: 'media not found' }); return null; }
-    return { root, key, diskPath, leaf: check.segments[check.segments.length - 1] };
+    const at = locateKey(root, paramKey(req));
+    if (!at) { res.status(404).json({ error: 'media not found' }); return null; }
+    return at;
   }
+
+  // ── Post-overhaul S4c: a body moves to a new key ──────────────────────
+  // POST /api/rabbit/local-media/move  { from, to }  -> { from, to, size }
+  // The one-time re-filing of a private project's shot folders into their
+  // scenes (supabaseAdapter.refileShotFolders) renames each body on this
+  // computer through here. Both keys pass exactly the checks a PUT's key
+  // does; the source must be a file and the destination must not exist (409:
+  // a move never overwrites); the directory the destination needs is made
+  // and re-checked by real path; the rename is answered only once the file
+  // is at its new key. Nothing is ever deleted. Mounted BEFORE the `/*key`
+  // routes, so `move` is a verb here and never a key.
+  expressApp.post(`${ROUTE_BASE}/move`, (req, res) => {
+    const root = rootOr503(res);
+    if (!root) return;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const from = locateKey(root, typeof body.from === 'string' ? body.from : '');
+    const to = locateKey(root, typeof body.to === 'string' ? body.to : '');
+    if (!from || !to) return res.status(404).json({ error: 'media not found' });
+    let stat;
+    try { stat = fs.statSync(from.diskPath); } catch { return res.status(404).json({ error: 'media not found' }); }
+    if (!stat.isFile()) return res.status(404).json({ error: 'media not found' });
+    if (fs.existsSync(to.diskPath)) return res.status(409).json({ error: 'a body already exists at the new key' });
+    try {
+      fs.mkdirSync(path.dirname(to.diskPath), { recursive: true });
+      if (!insideByRealPath(root, path.dirname(to.diskPath))) return res.status(404).json({ error: 'media not found' });
+      fs.renameSync(from.diskPath, to.diskPath);
+      const after = fs.statSync(to.diskPath);
+      if (!after.isFile()) return res.status(500).json({ error: 'media move failed: the file did not arrive' });
+      log(`[local-media] moved ${from.key} -> ${to.key} (${after.size} bytes)`);
+      return res.json({ from: from.key, to: to.key, size: after.size });
+    } catch (err) {
+      return res.status(500).json({ error: `media move failed: ${err.message}` });
+    }
+  });
 
   expressApp.get(ROUTE_BASE, (req, res) => {
     const root = rootOr503(res);

@@ -347,7 +347,9 @@ describe('folders and files', () => {
   })
 
   it('thirty-three files (one of them Legal, S4b), each in a real folder, with a thumbnail for every picture and video', () => {
-    expect(FILES.length).toBe(33)
+    // S4c: thirty-two, the Legal file, and two shot files under SHOTS/<shot>
+    // (the project stands for one from before S4c; the re-filing moves them).
+    expect(FILES.length).toBe(35)
     for (const f of FILES) {
       expect(ids(FOLDERS).has(f.folder_id), f.name).toBe(true)
       if (f.asset_id) expect(ids(ASSETS).has(f.asset_id)).toBe(true)

@@ -249,6 +249,35 @@
   }
   .fx-crumb-btn:hover { color: var(--color-ink); }
   .fx-crumb-here { padding: 0 2px; color: var(--color-ink); font-weight: 600; }
+  /* ── S4c: the re-filing question's list ─────────────────────────────────
+     One line per shot folder, the old path and the new in the mono (they
+     are paths), the arrow between them in the quiet ink; the note under the
+     list is prose, in the sans. */
+  .fx-refile-list {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
+  .fx-refile-list li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .fx-refile-from,
+  .fx-refile-to { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-refile-to { color: var(--color-ink); }
+  .fx-refile-arrow { flex-shrink: 0; color: var(--color-ink-3); }
+  .fx-refile-more { font-family: var(--font-sans); color: var(--color-ink-3); }
+  .fx-refile-note {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+
   /* While a query is typed: the glyph, the count sentence, and Clear. */
   .fx-crumb-glyph { flex: 0 0 var(--icon-sm); width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   .fx-crumb-note {

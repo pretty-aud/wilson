@@ -75,14 +75,34 @@ function formatDate(iso) {
 // One copy now lives in ../entityNaming.js alongside the naming it belongs to.
 // The remaining duplicate is electron/main.cjs, which cannot import from here.
 
+// Post-overhaul S4c (Audrey, 2026-10-05: "levels and experiences dont allow
+// for me to add files to a them. remember these are folders too"): the
+// level and experience popups mount this with `levelId` / `experienceId`.
+// uploadFile (the cloud) already filed those scopes into levels/<id> and
+// experiences/<id>; the Local Server's managed-files POST files them into
+// LEVELS/<slug>/ and EXPERIENCES/<slug>/ through the entity's folder row now.
+// 🚨 ONE empty list, shared. `files = []` as a default and `ctx?.files || []`
+// below each made a NEW array on every render; `assetFiles` is memoised on
+// that array, `thumbKeys` on `assetFiles`, and the signing effect on
+// `thumbKeys` sets state — so a host that mounted this with no files at all
+// re-rendered without end (post-overhaul S4c found it the moment the level
+// and experience popups gained a Files section; the asset, scene and shot
+// popups always passed a list the provider held). A stable empty array
+// makes "no files" a value that does not change between renders.
+const NO_FILES = Object.freeze([])
+
 export default function FileManager({
-  files = [],
+  files = NO_FILES,
   assetId,
   assetName,
   shotId,
   shotName,
   sceneId,
   sceneName,
+  levelId,
+  levelName,
+  experienceId,
+  experienceName,
   projectId,
   project,
   mode = 'full',
@@ -196,9 +216,16 @@ export default function FileManager({
   // had always filtered on. They existed only in the local JSON store before,
   // so in cloud this matched nothing and showed an empty list rather than an
   // error — which is why nobody found it.
-  const parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'
-  const parentName = sceneName || shotName || assetName
-  const sourceFiles = managed ? files : (ctx?.files || [])
+  // The category and the slug are the LEGACY shape of a managed file's
+  // folder (ASSETS/<slug>), kept for an asset and for a record from before
+  // the folder tree. S4c: a scene's, a shot's, a level's or an experience's
+  // managed file goes where its FOLDER ROW says (the managed-files POST
+  // answers `folder_path` from it, and every record carries its own), so a
+  // shot's file lands in SCENES/<scene>/<shot>/ — the disk path is built
+  // from the record, never recomputed here from a category.
+  const parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : levelId ? 'LEVELS' : experienceId ? 'EXPERIENCES' : 'ASSETS'
+  const parentName = sceneName || shotName || levelName || experienceName || assetName
+  const sourceFiles = managed ? (files || NO_FILES) : (ctx?.files || NO_FILES)
   const assetFiles = useMemo(() =>
     sourceFiles.filter(f => {
       if (f.deleted_at) return false
@@ -209,10 +236,28 @@ export default function FileManager({
       if (f.is_financial || isLegalFile(f)) return false
       if (sceneId) return f.scene_id === sceneId
       if (shotId) return f.shot_id === shotId
+      if (levelId) return f.level_id === levelId
+      if (experienceId) return f.experience_id === experienceId
       return f.asset_id === assetId
     }).sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
-    [sourceFiles, assetId, shotId, sceneId]
+    [sourceFiles, assetId, shotId, sceneId, levelId, experienceId]
   )
+  // S4c: the entity's own folder, from its row in the tree when it has one
+  // (a shot's is inside its scene's, or still under SHOTS until the
+  // re-filing), else the legacy category + slug. Relative to the project
+  // folder, no trailing slash.
+  const entityFolderRel = useMemo(() => {
+    const fk = sceneId ? ['scene_id', sceneId] : shotId ? ['shot_id', shotId] : levelId ? ['level_id', levelId] : experienceId ? ['experience_id', experienceId] : null
+    const row = fk ? (ctx?.folders || []).find(f => f && f[fk[0]] === fk[1]) : null
+    if (row && typeof row.path === 'string' && row.path) return row.path
+    const fallback = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : levelId ? 'Untitled-Level' : experienceId ? 'Untitled-Experience' : 'Untitled-Asset'))
+    return `${parentType}/${fallback}`
+  }, [ctx?.folders, sceneId, shotId, levelId, experienceId, parentType, parentName])
+  /** A managed record's folder, relative to the project folder, no trailing slash. */
+  const recordFolderRel = useCallback((f) => {
+    const own = typeof f?.folder_path === 'string' ? f.folder_path.replace(/\/+$/, '') : ''
+    return own || entityFolderRel
+  }, [entityFolderRel])
 
   // The two stores name things differently: managed records carry a versioned
   // stored_name, cloud rows carry the original name. One accessor rather than
@@ -244,11 +289,13 @@ export default function FileManager({
   const isVideoRow = (f) => isVideoExtension(extensionOf(f))
 
   const uploadScope = useMemo(() => ({
-    sceneId: sceneId || null,
-    shotId:  shotId  || null,
-    assetId: assetId || null,
-    taskId:  taskId  || null,
-  }), [sceneId, shotId, assetId, taskId])
+    sceneId:      sceneId      || null,
+    shotId:       shotId       || null,
+    levelId:      levelId      || null,
+    experienceId: experienceId || null,
+    assetId:      assetId      || null,
+    taskId:       taskId       || null,
+  }), [sceneId, shotId, levelId, experienceId, assetId, taskId])
 
   // Session 39: signed display URLs for the cloud thumbnails on screen.
   //
@@ -563,10 +610,16 @@ export default function FileManager({
         const fileName = taskTitle || baseName
 
         // Create manifest record first to get the stored_name with version
+        // — and, since S4c, the record's folder_path, which the server
+        // answers from the entity's folder row: the ONE place the directory
+        // is decided for a scene's, a shot's, a level's or an experience's
+        // file, so the copy below lands where the tree says.
         const record = await ctx.addManagedFile({
           asset_id:      assetId || null,
           shot_id:       shotId || null,
           scene_id:      sceneId || null,
+          level_id:      levelId || null,
+          experience_id: experienceId || null,
           task_id:       taskId || null,
           file_name:     fileName,
           original_name: originalName,
@@ -576,12 +629,12 @@ export default function FileManager({
           notes:         '',
         })
 
-        // Resolve destination directory
-        const parentSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
+        // Resolve destination directory: the record's own folder.
+        const folderRel = recordFolderRel(record)
         const folderRoot = project?.folder_root
         let destDir
         if (folderRoot) {
-          destDir = folderRoot.replace(/\\/g, '/') + '/' + parentType + '/' + parentSlug
+          destDir = folderRoot.replace(/\\/g, '/') + '/' + folderRel
         } else {
           // Fallback: the root this machine resolves under. effectiveRootDir
           // (S34) folds in the workspace root when one is pushed — reading
@@ -590,7 +643,7 @@ export default function FileManager({
           const cfg = await api.readFilesConfig()
           const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir
           if (rootBase) {
-            destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + parentType + '/' + parentSlug
+            destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + folderRel
           }
         }
 
@@ -648,7 +701,7 @@ export default function FileManager({
       setCopying(false)
       setCopyProgress(null)
     }
-  }, [ctx, assetId, shotId, parentName, parentType, project, projectId, taskTitle, taskId, onFileAdded])
+  }, [ctx, assetId, shotId, sceneId, levelId, experienceId, recordFolderRel, project, projectId, taskTitle, taskId, onFileAdded])
 
   // ── Download: cloud (Session 27) ──
   // The managed path below opens an OS explorer window at the file's folder,
@@ -713,27 +766,29 @@ export default function FileManager({
   }, [ctx])
 
   // ── Download handler (managed) ──
+  // S4c: the record's own folder_path (a shot's is SCENES/<scene>/<shot>/
+  // once re-filed), the legacy category + slug for a record without one.
   const handleDownload = useCallback(async (file) => {
     const api = window.electronAPI?.rabbit
     if (!api) return
     // Open the file's folder in OS explorer
     const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const pSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
+    const folderRel = recordFolderRel(file).replace(/\//g, '\\')
     const folderRoot = project?.folder_root
     let filePath
     if (folderRoot) {
-      filePath = folderRoot + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
+      filePath = folderRoot + '\\' + folderRel + '\\' + file.stored_name
     } else {
       const cfg = await api.readFilesConfig()
       const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
       if (rootBase) {
-        filePath = rootBase + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
+        filePath = rootBase + '\\' + projectSlug + '\\' + folderRel + '\\' + file.stored_name
       }
     }
     if (filePath) {
       await api.openInExplorer({ filePath: filePath.replace(/\//g, '\\') })
     }
-  }, [project, parentName, parentType, shotId])
+  }, [project, recordFolderRel])
 
   // ── Delete handler ──
   // W9 (B4): the question is the kit Dialog, not `window.confirm`. Asking and
@@ -760,26 +815,27 @@ export default function FileManager({
   }, [deleteTarget, ctx, managed, onFileDeleted])
 
   // ── Open folder in explorer ──
+  // S4c: the entity's folder as the tree has it (entityFolderRel).
   const handleOpenFolder = useCallback(async () => {
     const api = window.electronAPI?.rabbit
     if (!api) return
     const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const pSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
+    const folderRel = entityFolderRel.replace(/\//g, '\\')
     const folderRoot = project?.folder_root
     let folderPath
     if (folderRoot) {
-      folderPath = folderRoot + '\\' + parentType + '\\' + pSlug
+      folderPath = folderRoot + '\\' + folderRel
     } else {
       const cfg = await api.readFilesConfig()
       const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
       if (rootBase) {
-        folderPath = rootBase + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug
+        folderPath = rootBase + '\\' + projectSlug + '\\' + folderRel
       }
     }
     if (folderPath) {
       await api.openInExplorer({ filePath: folderPath.replace(/\//g, '\\') })
     }
-  }, [project, parentName, parentType, shotId])
+  }, [project, entityFolderRel])
 
   // ── Notes editing ──
   const handleSaveNotes = useCallback(async (fileId) => {

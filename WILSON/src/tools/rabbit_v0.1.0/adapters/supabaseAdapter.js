@@ -50,6 +50,13 @@ import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClie
 import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
+// Post-overhaul S4c: a shot's folder sits in its scene's, and the one-time
+// re-filing of a project's older shot folders (the pure rule lives there).
+import {
+  pendingShotRefiling, shotsCategoryRow, shotsCategoryEmpty, shotObjectPrefix, nestedShotKey,
+} from '../shotRefiling';
+import { THUMBNAIL_BUCKET } from '../storage/thumbnails';
+import { hasLocalServer } from '../../../lib/localData';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 import { splitSetAside, isSetAside } from '../state/setAside';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
@@ -1066,6 +1073,216 @@ async function insertFolderIfMissing(client, projectId, planned, byPath) {
   return ins.data;
 }
 
+// ── S4c: the per-entity folder, module-level so the re-filing can call it ──
+//
+// The per-entity folder. Audrey, explicitly: five scenes means five
+// independent folders under SCENES/, not one shared one. Creates the
+// category lazily too — a scene can exist from before the toggle was
+// flipped, and its folder must not be orphaned.
+//
+// S4c: a SHOT's folder nests in its scene's. The scene row is read here
+// (this adapter's own way of finding it — one small query; the planner stays
+// pure), the scene's folder is ensured first so its id is there to parent
+// on, and the shot's row goes under the scene's ACTUAL path. An EXISTING row
+// keeps the parent it has: a rename moves it within that parent, never
+// across one, so a project from before S4c keeps its shot folders under
+// SHOTS until refileShotFolders (below) moves the objects and the rows
+// together — the only thing that re-parents a shot.
+async function sceneRowFor(client, shot) {
+  if (!shot || !shot.scene_id) return null;
+  try {
+    const { data } = await client.from('scenes').select('id, name').eq('id', shot.scene_id).maybeSingle();
+    return data && data.id ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The scene a shot belongs to, by the shot's id (uploadFile's key needs it). */
+async function shotSceneId(client, shotId) {
+  if (!shotId) return null;
+  try {
+    const { data } = await client.from('shots').select('scene_id').eq('id', shotId).maybeSingle();
+    return data?.scene_id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureEntityFolderWith(client, projectId, project, entityType, entity) {
+  const scene = entityType === 'shot' ? await sceneRowFor(client, entity) : null;
+  const planned = planEntityFolder(project, entityType, entity, scene);
+  if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
+  const fk = ENTITY_FK_COLUMN[entityType];
+  const byPath = await foldersByPath(client, projectId);
+  const rows = [...byPath.values()];
+
+  // Renaming the entity MOVES its folder (folderPaths.js explains why),
+  // and this is checked before anything is inserted. Matching on the FK
+  // rather than the path is the whole point: the path is the thing that
+  // changed, so a path lookup would miss the existing row and create a
+  // second folder for one scene — the exact defect this session exists to
+  // prevent. The database would refuse it (folders_scene_uniq), which is
+  // the backstop, not the plan.
+  const mine = rows.find(f => f[fk] && f[fk] === entity?.id);
+  if (mine) {
+    const parentRow = mine.parent_id ? rows.find(f => f.id === mine.parent_id) : null;
+    const keptPath = parentRow
+      ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}`
+      : planned.folder.path;
+    if (mine.path === keptPath) return mine;
+    return unwrap(await client.from('folders')
+      .update({
+        slug:  planned.folder.slug,
+        path:  keptPath,
+        label: planned.folder.label,
+      })
+      .eq('id', mine.id).select().single());
+  }
+
+  // The root has to exist before a category can point at it, and a
+  // project created before 0041 has no rows at all.
+  if (!byPath.has('')) {
+    for (const step of planProjectFolders(project)) {
+      await insertFolderIfMissing(client, projectId, step, byPath);
+    }
+  }
+  await insertFolderIfMissing(client, projectId, planned.category, byPath);
+  if (planned.parent) {
+    const sceneRow = await ensureEntityFolderWith(client, projectId, project, 'scene', scene);
+    if (sceneRow) {
+      byPath.set(sceneRow.path, sceneRow);
+      if (sceneRow.path !== planned.folder.parentPath) {
+        planned.folder.parentPath = sceneRow.path;
+        planned.folder.path = `${sceneRow.path}/${planned.folder.slug}`;
+      }
+    }
+  }
+  await insertFolderIfMissing(client, projectId, planned.folder, byPath);
+  return byPath.get(planned.folder.path) || null;
+}
+
+// ── S4c: the one-time re-filing, cloud half ──────────────────────────────
+//
+// For each shot folder still under SHOTS whose shot has a scene
+// (shotRefiling.pendingShotRefiling): the scene's folder row is ensured;
+// then EVERY object of the shot is moved in its bucket — the body in
+// rabbit-files, its thumbnail in rabbit-thumbnails (a thumbnail lives where
+// its source lives, S44) — each VERIFIED at its new key before the files
+// row is rewritten to say so; then, and only then, the folder row is
+// re-parented. The order is the whole design: a stop anywhere leaves rows
+// that say where every file IS. An object that is already at its new key
+// with nothing at the old one is a move that landed on an earlier run and
+// is counted done; an object at BOTH keys is left alone and reported (a
+// move never overwrites and nothing here deletes). A files row whose
+// record could not be rewritten after a verified move is moved back, so
+// the row stays true. A body on this computer (a private project's,
+// storage_provider local_server) moves through the desktop's local media
+// route and is refused off the desktop; a body in the customer's own
+// bucket (s3) is refused — there is no move for it yet — and its shot is
+// left where it is, with the reason. The SHOTS category row goes only once
+// no folder row sits under it.
+async function objectExistsIn(bucket, key) {
+  const slash = key.lastIndexOf('/');
+  const dir = slash === -1 ? '' : key.slice(0, slash);
+  const leaf = slash === -1 ? key : key.slice(slash + 1);
+  const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
+  if (error) throw new Error(`storage list failed: ${error.message}`);
+  return (data || []).some(o => o.name === leaf);
+}
+
+async function moveObjectVerified({ client, bucketName, local }, from, to, name) {
+  if (local) {
+    const provider = getStorageProvider(FILE_PROVIDERS.LOCAL_SERVER);
+    if (typeof provider.move !== 'function') throw new Error(`“${name}” lives on this computer and its storage cannot move it`);
+    const [atTo, atFrom] = await Promise.all([provider.exists(to), provider.exists(from)]);
+    if (atTo) {
+      if (!atFrom) return 'landed-earlier';
+      throw new Error(`“${name}” exists at both its old and its new place on this computer; both were left`);
+    }
+    if (!atFrom) throw new Error(`“${name}” is missing from this computer (${from})`);
+    await provider.move(from, to);
+    if (!(await provider.exists(to))) throw new Error(`“${name}” did not arrive at ${to}`);
+    return 'moved';
+  }
+  const bucket = client.storage.from(bucketName);
+  const [atTo, atFrom] = await Promise.all([objectExistsIn(bucket, to), objectExistsIn(bucket, from)]);
+  if (atTo) {
+    if (!atFrom) return 'landed-earlier';
+    throw new Error(`“${name}” exists at both its old and its new place in ${bucketName}; both were left`);
+  }
+  if (!atFrom) throw new Error(`“${name}” is missing from ${bucketName} (${from})`);
+  const { error } = await bucket.move(from, to);
+  if (error) throw new Error(`“${name}” could not be moved in ${bucketName}: ${error.message}`);
+  if (!(await objectExistsIn(bucket, to))) throw new Error(`“${name}” did not arrive at ${to} in ${bucketName}`);
+  return 'moved';
+}
+
+async function refileOneObject(client, projectId, p, row) {
+  const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
+  const to = nestedShotKey(row.storage_path, ctx);
+  if (!to) return 'untouched'; // already nested, or not this shot's key shape
+  if (row.storage_provider === FILE_PROVIDERS.S3) {
+    throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
+  }
+  const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
+  if (local && !hasLocalServer()) {
+    throw new Error(`“${row.name}” lives on the computer that holds this private project's media: run this from the desktop app there`);
+  }
+  const where = { client, local, bucketName: BUCKET_FILES };
+  const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
+  try {
+    await moveObjectVerified(where, row.storage_path, to, row.name);
+  } catch (err) {
+    // A trashed row's body may already have been purged (0014's 30 days):
+    // nothing to move, and nothing to say.
+    if (row.deleted_at && /is missing from/.test(err?.message || '')) return 'gone';
+    throw err;
+  }
+  if (thumbTo) {
+    try {
+      await moveObjectVerified({ ...where, bucketName: THUMBNAIL_BUCKET }, row.thumbnail_url, thumbTo, row.name);
+    } catch (err) {
+      // The body has moved and its row has not: put the body back so the
+      // row stays true, then report the thumbnail's refusal.
+      try { await moveObjectVerified(where, to, row.storage_path, row.name); } catch (back) {
+        throw new Error(`“${row.name}” was moved to ${to} but its thumbnail could not follow (${err?.message || err}) and the body could not be moved back (${back?.message || back}); its record still says ${row.storage_path}`);
+      }
+      throw err;
+    }
+  }
+  const patch = { storage_path: to, ...(thumbTo ? { thumbnail_url: thumbTo } : {}) };
+  const up = await client.from('files').update(patch).eq('id', row.id);
+  if (up.error) {
+    try {
+      await moveObjectVerified(where, to, row.storage_path, row.name);
+      if (thumbTo) await moveObjectVerified({ ...where, bucketName: THUMBNAIL_BUCKET }, thumbTo, row.thumbnail_url, row.name);
+    } catch (back) {
+      throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${up.error.message}) and it could not be moved back (${back?.message || back}); its record still says ${row.storage_path}`);
+    }
+    throw new Error(`“${row.name}” could not be re-filed: ${up.error.message}`);
+  }
+  return 'moved';
+}
+
+async function refileOneShot(client, projectId, project, p, rows) {
+  const sceneFolder = await ensureEntityFolderWith(client, projectId, project, 'scene', p.scene);
+  if (!sceneFolder) throw new Error('the scene has no folder row');
+  let files = 0;
+  for (const row of rows) {
+    const did = await refileOneObject(client, projectId, p, row);
+    if (did === 'moved' || did === 'landed-earlier') files += 1;
+  }
+  const toPath = `${sceneFolder.path}/${p.folder.slug}`;
+  const up = await client.from('folders')
+    .update({ parent_id: sceneFolder.id, path: toPath })
+    .eq('id', p.folder.id).select().single();
+  if (up.error) throw new Error(`the folder row could not be moved: ${up.error.message}`);
+  return { files, toPath };
+}
+
+const BUCKET_FILES = 'rabbit-files';
+
 // ── Shot lists, items and edits (0084) — module-level helpers ────────────
 //
 // Shared by loadProject and the list methods so the two can never disagree
@@ -1856,11 +2073,6 @@ export function supabaseAdapter() {
       const moneyGated = !!scope.financial || legal;
       const container = uploadContainerFor(scope, projectId);
 
-      const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
-      const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
-      const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
-      const storagePath = `projects/${projectId}/${entity}/${entityId}/${Date.now()}-${safeName}`;
-
       // The folder row this file belongs to (0043). The caller may pass one —
       // the folder view knows exactly where it dropped the file — otherwise
       // resolve it from the container entity, which is the same lookup
@@ -1871,17 +2083,37 @@ export function supabaseAdapter() {
       // A Legal file is not filed in an entity's folder, passed or looked up:
       // the explorer shows it in the LEGAL folder (fileTree.js), whatever it
       // is about.
-      let folderId = legal ? null : (scope.folderId || null);
-      if (!folderId && container.key && !legal) {
+      let folderRow = null;
+      if (container.key && !legal) {
         try {
           const { data } = await client
-            .from('folders').select('id')
+            .from('folders').select('id, path')
             .eq('project_id', projectId)
             .eq(container.key, container.id)
             .maybeSingle();
-          folderId = data?.id || null;
+          folderRow = data && data.id ? data : null;
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
+      const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
+
+      const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
+      const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
+      const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
+      let prefix = `projects/${projectId}/${entity}/${entityId}`;
+      // S4c: a SHOT's objects sit inside its scene's prefix
+      // (shotRefiling.shotObjectPrefix: projects/<pid>/scenes/<sceneId>/
+      // <shotId>) — unless the shot's folder row still sits under SHOTS, a
+      // project from before S4c that has not been re-filed, where the old
+      // prefix keeps the objects and the folder together until the one-time
+      // move takes both. The third segment is `scenes` either way for a
+      // nested key, which no gate locks; never money-gated (an invoice is
+      // never a shot's).
+      if (!moneyGated && container.key === 'shot_id') {
+        const underShots = typeof folderRow?.path === 'string' && folderRow.path.startsWith('SHOTS/');
+        const sceneId = underShots ? null : await shotSceneId(client, container.id);
+        prefix = shotObjectPrefix(projectId, sceneId, container.id);
+      }
+      const storagePath = `${prefix}/${Date.now()}-${safeName}`;
 
       // Session 36: which store holds this body. Decided ONCE, here, next to
       // the branch that already chose the INVOICES segment — so the row and
@@ -3118,48 +3350,56 @@ export function supabaseAdapter() {
       return { folders: [...byPath.values()], created };
     },
 
-    // The per-entity folder. Audrey, explicitly: five scenes means five
-    // independent folders under SCENES/, not one shared one.
-    //
-    // Creates the category lazily too — a scene can exist from before the
-    // toggle was flipped, and its folder must not be orphaned.
+    // The per-entity folder (ensureEntityFolderWith, module-level, above):
+    // five scenes means five folders under SCENES/; a shot's folder sits in
+    // its scene's (S4c); an existing folder keeps its parent.
     async ensureEntityFolder(projectId, project, entityType, entity) {
       const client = await requireClient();
-      const planned = planEntityFolder(project, entityType, entity);
-      if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
-      const fk = ENTITY_FK_COLUMN[entityType];
-      const byPath = await foldersByPath(client, projectId);
+      return ensureEntityFolderWith(client, projectId, project, entityType, entity);
+    },
 
-      // Renaming the entity MOVES its folder (folderPaths.js explains why),
-      // and this is checked before anything is inserted. Matching on the FK
-      // rather than the path is the whole point: the path is the thing that
-      // changed, so a path lookup would miss the existing row and create a
-      // second folder for one scene — the exact defect this session exists to
-      // prevent. The database would refuse it (folders_scene_uniq), which is
-      // the backstop, not the plan.
-      const mine = [...byPath.values()].find(f => f[fk] && f[fk] === entity?.id);
-      if (mine) {
-        if (mine.path === planned.folder.path) return mine;
-        return unwrap(await client.from('folders')
-          .update({
-            slug:  planned.folder.slug,
-            path:  planned.folder.path,
-            label: planned.folder.label,
-          })
-          .eq('id', mine.id).select().single());
-      }
-
-      // The root has to exist before a category can point at it, and a
-      // project created before 0041 has no rows at all.
-      if (!byPath.has('')) {
-        for (const step of planProjectFolders(project)) {
-          await insertFolderIfMissing(client, projectId, step, byPath);
+    // ── S4c: the one-time re-filing of a project's shot folders ─────────
+    // What is pending is read from the rows (shotRefiling.pendingShotRefiling);
+    // each shot is moved whole (refileOneShot: objects verified, rows
+    // rewritten, the folder re-parented, in that order) and a failure in
+    // one shot leaves it where it is, named with its reason, while the
+    // others go on. `onProgress({ shot, done, total })` before each shot.
+    // The database refuses this for anyone who cannot write the project:
+    // folders_update and files_update (0041, 0083) and the storage UPDATE
+    // policies (0042, 0053) all demand can_write_project.
+    async refileShotFolders(projectId, project, opts = {}) {
+      const client = await requireClient();
+      const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
+      const folders = await listFoldersWith(client, projectId);
+      const shots = unwrapOptionalTable(await client.from('shots').select('id, name, scene_id').eq('project_id', projectId));
+      const scenes = unwrapOptionalTable(await client.from('scenes').select('id, name').eq('project_id', projectId));
+      const pending = pendingShotRefiling({ folders, shots, scenes });
+      const moved = [];
+      const left = [];
+      if (pending.length > 0) {
+        const files = unwrapOptionalTable(await client.from('files')
+          .select('id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id, deleted_at')
+          .eq('project_id', projectId)) || [];
+        for (const p of pending) {
+          progress({ shot: p.shot, name: p.folder.slug, done: moved.length + left.length, total: pending.length });
+          const rows = files.filter(f => (f.shot_id && String(f.shot_id) === String(p.shot.id)) || (f.folder_id && String(f.folder_id) === String(p.folder.id)));
+          try {
+            const { files: n, toPath } = await refileOneShot(client, projectId, project, p, rows);
+            moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files: n });
+          } catch (err) {
+            left.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, reason: err?.message || String(err) });
+          }
         }
       }
-      for (const step of [planned.category, planned.folder]) {
-        await insertFolderIfMissing(client, projectId, step, byPath);
+      // The empty SHOTS category goes only once nothing is left under it.
+      let removedShotsCategory = false;
+      const after = pending.length > 0 ? await listFoldersWith(client, projectId) : folders;
+      const category = shotsCategoryRow(after);
+      if (category && shotsCategoryEmpty(after)) {
+        const del = await client.from('folders').delete().eq('id', category.id);
+        if (!del.error) removedShotsCategory = true;
       }
-      return byPath.get(planned.folder.path) || null;
+      return { moved, left, removedShotsCategory };
     },
 
     // The project manifest — a generated MIRROR of the project's settings,

@@ -1137,6 +1137,23 @@
   .rb-asset-task-bid { color: var(--color-ink-2); }
   .rb-asset-task-bid[data-empty="true"] { color: var(--color-ink-3); }
   .rb-asset-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  /* Post-overhaul S4c: the level and experience popups' Files section, the
+     asset popup's frame and spacing (one hairline above, the table on the
+     paper inside the raised popup). */
+  .rb-ent-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  .rb-ent-detail-files .ui-table-scroll.rb-fm-scroll {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  /* The create form's note under Add files (a refused desktop pick). */
+  .rb-ent-files-note {
+    display: block;
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
 
   /* ── InlineText: the asset's name edited in place — the gallery card's
      (Dense, the card's 600) and the popup's title (H2, above). ── */

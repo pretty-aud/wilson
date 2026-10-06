@@ -21,7 +21,7 @@ import {
   GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
 } from './data/scenes'
 import { fid } from './ids'
-import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
+import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS, GAME_FOLDERS, GAME_FILES } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
   EXPENSES, PROJECT_RATE_OVERRIDES,
@@ -68,6 +68,11 @@ export function applyGameVariant(store) {
     asset.level_ids = levels.map(l => fid('level', l))
     asset.experience_ids = experiences.map(x => fid('experience', x))
   }
+  // S4c: the levels' and experiences' folders, and a file on one of each
+  // (data/files.js) — the explorer and the two popups' Files sections have
+  // something to show.
+  store.folders.push(...clone(GAME_FOLDERS))
+  store.files.push(...clone(GAME_FILES))
   return store
 }
 

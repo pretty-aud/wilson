@@ -621,16 +621,20 @@ describe('B4c review round two: the declarations that fix what round two measure
   it('the asset popup\'s two tables sit on the paper in a hairline frame, so the kit\'s raised header shows as a band; the Tasks table at the 36px row', () => {
     // Premise: the kit's header is the raised paper — the popup's own ground.
     expect(kitDecl('.ui-th', 'background-color')).toBe('var(--color-paper-raised)')
-    for (const sel of ['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll', '.rb-asset-detail-files .ui-table-scroll.rb-fm-scroll']) {
+    // Post-overhaul S4c: the level and experience popups' Files section
+    // frames FileManager's scroller the same way (it sits on the same raised
+    // popup).
+    for (const sel of ['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll', '.rb-asset-detail-files .ui-table-scroll.rb-fm-scroll', '.rb-ent-detail-files .ui-table-scroll.rb-fm-scroll']) {
       expect(declsFor(sel), sel).toMatchObject({
         'background-color': 'var(--color-paper)', border: '1px solid var(--color-rule)', 'border-radius': 'var(--radius-control)',
       })
     }
-    // Written in the files that own the scrollers, and only the popup frames FileManager's.
+    // Written in the files that own the scrollers, and only the popups frame FileManager's.
     expect(code.assets).toContain('scrollClassName="rb-asset-task-scroll"')
     expect(code.fileManager).toContain('scrollClassName="rb-fm-scroll"')
+    expect(code.entity).toContain('<div className="rb-ent-detail-files">')
     expect(rulesOf(sheet).filter(({ sel }) => /\.rb-fm-scroll(?![\w-])/.test(sel)).map(({ sel }) => sameSel(sel)))
-      .toEqual(['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll, .rb-asset-detail-files .ui-table-scroll.rb-fm-scroll'])
+      .toEqual(['.rb-asset-detail .ui-table-scroll.rb-asset-task-scroll, .rb-asset-detail-files .ui-table-scroll.rb-fm-scroll', '.rb-ent-detail-files .ui-table-scroll.rb-fm-scroll'])
     // 36px, not dense: the status cell's 28px select in 4 + 28 + 3 and the hairline.
     expect(code.assets).not.toMatch(/<Table\s+dense\s+className="rb-asset-task-table"/)
     expect(declsFor('.ui-table.rb-asset-task-table .ui-td.rb-asset-task-ctl')).toMatchObject({ 'padding-top': '4px', 'padding-bottom': '3px' })

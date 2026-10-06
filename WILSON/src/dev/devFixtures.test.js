@@ -154,8 +154,11 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // rate resolver, so the seeded bids carry the totals the app would save.
     // Post-overhaul S5b (0090): the set-aside split, so the fake cloud hides
     // exactly the rows the real loaders hide.
+    // Post-overhaul S4c: the shot-folder re-filing's pure rule
+    // (shotRefiling.js — what is pending, and where it goes), so the fake
+    // cloud re-files a project exactly as the real adapter does.
     const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags',
-      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath', 'tools/rabbit_v0.1.0/state/setAside']
+      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath', 'tools/rabbit_v0.1.0/state/setAside', 'tools/rabbit_v0.1.0/shotRefiling']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))

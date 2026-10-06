@@ -331,11 +331,15 @@ function folderRootRefusal(candidate) {
 
 // Next version number for a file within an asset: finds max existing version
 // and returns max+1. Returns 1 if no prior versions exist.
-function getNextVersion(managedFiles, fileName, assetId, shotId, sceneId) {
+// S4c: a level's and an experience's files version among themselves, as a
+// scene's and a shot's do.
+function getNextVersion(managedFiles, fileName, assetId, shotId, sceneId, levelId, experienceId) {
   const existing = (managedFiles || []).filter(f => {
     if (f.file_name !== fileName || f.deleted_at) return false;
     if (sceneId) return f.scene_id === sceneId;
     if (shotId) return f.shot_id === shotId;
+    if (levelId) return f.level_id === levelId;
+    if (experienceId) return f.experience_id === experienceId;
     return f.asset_id === assetId;
   });
   if (existing.length === 0) return 1;
@@ -1691,10 +1695,13 @@ function startLocalServer(distPath) {
     //
     // INVOICES keeps its exact spelling: migration 0039 matches that segment
     // with upper() on the Supabase side and the case is load-bearing there.
+    // Post-overhaul S4c: a shot's folder is SCENES/<scene>/<shot>; SHOTS is
+    // `lazy` — never planned for a project, made only for a shot with no
+    // scene (folderPaths.js says why, and the two lists are pinned equal).
     const FOLDER_CATEGORIES = [
       { slug: 'ASSETS',      entityType: 'asset',      enabledBy: null },
       { slug: 'SCENES',      entityType: 'scene',      enabledBy: 'scenes_enabled' },
-      { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled' },
+      { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled', lazy: true },
       { slug: 'LEVELS',      entityType: 'level',      enabledBy: 'levels_enabled' },
       { slug: 'EXPERIENCES', entityType: 'experience', enabledBy: 'experiences_enabled' },
       { slug: 'INVOICES',    entityType: 'invoice',    enabledBy: null },
@@ -1794,6 +1801,7 @@ function startLocalServer(distPath) {
         parentPath: null,
       }];
       for (const c of FOLDER_CATEGORIES) {
+        if (c.lazy) continue;
         if (c.enabledBy && !project?.[c.enabledBy]) continue;
         out.push({
           kind: 'category', entityType: c.entityType, slug: c.slug,
@@ -1803,22 +1811,36 @@ function startLocalServer(distPath) {
       return out;
     }
 
-    function planEntityFolderFor(entityType, entity) {
+    // S4c: `scene` is the shot's scene row, found by the caller in the
+    // bundle; with one the shot's folder sits in the scene's (`parent` is
+    // the scene's own entity folder), without one it is SHOTS/<shot>.
+    // folderPaths.planEntityFolder, line for line (folderParity.test.js).
+    function planEntityFolderFor(entityType, entity, scene) {
       const c = FOLDER_CATEGORIES.find(x => x.entityType === entityType);
       if (!c) return null;
       const slug = slugOrFallback(entity?.name, FOLDER_FALLBACK_NAME[entityType] || 'Untitled');
+      const nested = entityType === 'shot' && scene ? planEntityFolderFor('scene', scene) : null;
+      const base = nested ? nested.category : {
+        kind: 'category', entityType: c.entityType, slug: c.slug,
+        label: null, path: c.slug, parentPath: '',
+      };
+      const parentPath = nested ? nested.folder.path : base.path;
       return {
-        category: {
-          kind: 'category', entityType: c.entityType, slug: c.slug,
-          label: null, path: c.slug, parentPath: '',
-        },
+        category: base,
+        parent: nested ? nested.folder : null,
         folder: {
           kind: 'entity', entityType, slug,
           label: entity?.name || null,
-          path: `${c.slug}/${slug}`, parentPath: c.slug,
+          path: `${parentPath}/${slug}`, parentPath,
           fk: FOLDER_ENTITY_FK[entityType], entityId: entity?.id || null,
         },
       };
+    }
+
+    /** S4c: the scene row a shot's folder nests in, from the bundle. */
+    function sceneOfShot(bundle, shot) {
+      if (!shot || !shot.scene_id) return null;
+      return (bundle.scenes || []).find(s => s && s.id === shot.scene_id) || null;
     }
 
     // Adds the row when its path is free. Returns true when it wrote one, so
@@ -1887,24 +1909,46 @@ function startLocalServer(distPath) {
     // exists to prevent. On the Supabase side the database refuses that
     // (folders_scene_uniq); the local bundle has no such backstop, so getting
     // the lookup right is the whole guard here.
+    //
+    // S4c: a NEW shot's folder goes inside its scene's (the scene's own row is
+    // ensured first, so its id is there to parent on). An EXISTING row keeps
+    // the parent it has — a rename moves it within that parent, never across
+    // one: a project from before S4c keeps its shot folders under SHOTS until
+    // the one-time re-filing (POST …/folders/refile-shots) moves the files
+    // and the rows together, which is the only thing that re-parents a shot.
     function ensureEntityFolderRow(bundle, projectId, entityType, entity) {
-      const planned = planEntityFolderFor(entityType, entity);
+      const scene = entityType === 'shot' ? sceneOfShot(bundle, entity) : null;
+      const planned = planEntityFolderFor(entityType, entity, scene);
       if (!planned) return { row: null, changed: false };
       if (!bundle.folders) bundle.folders = [];
       let changed = ensureProjectFolderRows(bundle, projectId);
-      if (addFolderRow(bundle, projectId, planned.category)) changed = true;
 
       const fk = FOLDER_ENTITY_FK[entityType];
       const mine = bundle.folders.find(f => f[fk] && f[fk] === entity?.id);
       if (mine) {
-        if (mine.path !== planned.folder.path) {
+        const parentRow = mine.parent_id ? bundle.folders.find(f => f.id === mine.parent_id) : null;
+        const keptPath = parentRow ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}` : planned.folder.path;
+        if (mine.path !== keptPath) {
           mine.slug = planned.folder.slug;
-          mine.path = planned.folder.path;
+          mine.path = keptPath;
           mine.label = planned.folder.label;
           mine.updated_at = new Date().toISOString();
           changed = true;
         }
         return { row: mine, changed };
+      }
+      if (addFolderRow(bundle, projectId, planned.category)) changed = true;
+      if (planned.parent) {
+        // The scene's folder: by its own FK, so a renamed scene is found
+        // (the rule this function already keeps for every entity).
+        const parentEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', scene);
+        if (parentEnsured.changed) changed = true;
+        if (parentEnsured.row && parentEnsured.row.path !== planned.folder.parentPath) {
+          // The scene's row sits where IT is (a parent kept, as above): the
+          // shot's folder nests under the scene's actual path.
+          planned.folder.parentPath = parentEnsured.row.path;
+          planned.folder.path = `${parentEnsured.row.path}/${planned.folder.slug}`;
+        }
       }
       if (addFolderRow(bundle, projectId, planned.folder)) changed = true;
       return {
@@ -2905,6 +2949,154 @@ function startLocalServer(distPath) {
       res.json({ ok: true, removed: doomed.size });
     });
 
+    // ── Post-overhaul S4c: the one-time re-filing of shot folders ─────────
+    //
+    // Audrey, 2026-10-05: "shot folders should be in the scene folders".
+    // A project from before S4c has its shot folders under SHOTS/, on disk
+    // and in the bundle; this moves them into their scenes' folders, one
+    // shot at a time, and never by surprise (the Files tab offers it to
+    // someone who can write the project).
+    //
+    // The rule for WHAT is pending is the renderer's
+    // shotRefiling.pendingShotRefiling, copied here (folderParity.test.js
+    // pins the two): a folder row under SHOTS/ whose shot exists and has a
+    // scene that exists. A shot with no scene stays under SHOTS; it has
+    // nowhere to go.
+    function pendingShotRefilingFor(bundle) {
+      const folders = bundle.folders || [];
+      const shots = bundle.shots || [];
+      const scenes = bundle.scenes || [];
+      const out = [];
+      for (const folder of folders) {
+        if (!folder || !folder.shot_id || typeof folder.path !== 'string') continue;
+        if (!folder.path.startsWith('SHOTS/')) continue;
+        const shot = shots.find(s => s && String(s.id) === String(folder.shot_id));
+        if (!shot || !shot.scene_id) continue;
+        const scene = scenes.find(s => s && String(s.id) === String(shot.scene_id));
+        if (!scene) continue;
+        out.push({ folder, shot, scene });
+      }
+      return out.sort((a, b) => String(a.folder.path).localeCompare(String(b.folder.path)));
+    }
+
+    // One shot folder: the scene's folder row (and directory) first; the
+    // directory moved — whole when nothing sits at the destination, entry
+    // by entry into a destination that already exists, never over a file
+    // that is there (both are left and the shot is reported); every managed
+    // file that was on disk VERIFIED at its new place; then, and only then,
+    // the managed-file paths and the folder row rewritten. The bundle is
+    // written by the caller after each shot, so a stop part way leaves rows
+    // that say where every file is. A managed file already missing from
+    // disk before the move is counted as missing, not moved, and does not
+    // hold the folder back — the relink census is where it is found again.
+    // With no project folder on disk (no root resolves) the rows alone move.
+    function refileOneShotRow(bundle, projectId, root, p) {
+      const now = new Date().toISOString();
+      const sceneEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', p.scene);
+      const sceneRow = sceneEnsured.row;
+      if (!sceneRow) throw new Error('the scene has no folder row');
+      const fromPath = p.folder.path;
+      const toPath = `${sceneRow.path}/${p.folder.slug}`;
+      if ((bundle.folders || []).some(f => f.id !== p.folder.id && f.path === toPath)) {
+        throw new Error(`a folder already sits at ${toPath}`);
+      }
+      const prefixFrom = `${fromPath}/`;
+      const prefixTo = `${toPath}/`;
+      const retarget = (mf) => { mf.folder_path = prefixTo + mf.folder_path.slice(prefixFrom.length); mf.updated_at = now; };
+      const mine = (bundle.managedFiles || []).filter(mf => mf && typeof mf.folder_path === 'string' && mf.folder_path.startsWith(prefixFrom));
+      let files = 0;
+      let missing = 0;
+      if (root) {
+        const fromDir = resolveContainedFilePath(root, fromPath);
+        const toDir = resolveContainedFilePath(root, toPath);
+        if (!fromDir || !toDir) throw new Error('the folder path could not be resolved inside the project');
+        // Each record's place BEFORE anything moves: whether its file is on
+        // disk, and its sub-path under the folder (the merge below rewrites
+        // a record the moment its entry has moved, so the check after the
+        // move must not read the record's path again).
+        const onDisk = new Map(mine.map(mf => {
+          const at = resolveContainedFilePath(root, path.join(...mf.folder_path.split('/').filter(Boolean), mf.stored_name || ''));
+          return [mf, { was: !!(mf.stored_name && at && fs.existsSync(at)), rel: mf.folder_path.slice(prefixFrom.length).split('/').filter(Boolean) }];
+        }));
+        if (fs.existsSync(fromDir)) {
+          fs.mkdirSync(path.dirname(toDir), { recursive: true });
+          if (fs.existsSync(toDir)) {
+            for (const entry of fs.readdirSync(fromDir)) {
+              const s = path.join(fromDir, entry);
+              const d = path.join(toDir, entry);
+              if (fs.existsSync(d)) throw new Error(`“${entry}” exists at both ${fromPath} and ${toPath}; both were left`);
+              fs.renameSync(s, d);
+              // The rows of what just moved, at once, so a stop on the next
+              // entry leaves no row pointing at a file that has gone.
+              for (const mf of mine) if (mf.stored_name === entry && mf.folder_path === prefixFrom) { retarget(mf); files += 1; }
+            }
+            try { fs.rmdirSync(fromDir); } catch { /* something unknown is still in it; left */ }
+          } else {
+            fs.renameSync(fromDir, toDir);
+          }
+        }
+        for (const [mf, { was, rel }] of onDisk) {
+          if (!was) { missing += 1; continue; }
+          const at = resolveContainedFilePath(root, path.join(...toPath.split('/'), ...rel, mf.stored_name));
+          if (!at || !fs.existsSync(at)) {
+            const where = mf.folder_path.startsWith(prefixTo) ? 'its record was moved' : 'its record still says where it was';
+            throw new Error(`“${mf.file_name || mf.stored_name}” did not arrive at ${toPath} (${where})`);
+          }
+        }
+      }
+      for (const mf of mine) { if (mf.folder_path.startsWith(prefixFrom)) { retarget(mf); files += 1; } }
+      for (const f of bundle.folders) {
+        if (f.id === p.folder.id) { f.parent_id = sceneRow.id; f.path = toPath; f.updated_at = now; }
+        else if (typeof f.path === 'string' && f.path.startsWith(prefixFrom)) { f.path = prefixTo + f.path.slice(prefixFrom.length); f.updated_at = now; }
+      }
+      return { shotId: p.shot.id, name: p.folder.slug, from: fromPath, to: toPath, files, missing };
+    }
+
+    expressApp.post('/api/rabbit/projects/:projectId/folders/refile-shots', (req, res) => {
+      const projectId = req.params.projectId;
+      const bundle = readRabbitBundle(projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const root = resolveProjectFolder(bundle);
+      const moved = [];
+      const left = [];
+      for (const p of pendingShotRefilingFor(bundle)) {
+        try {
+          const result = refileOneShotRow(bundle, projectId, root, p);
+          materializeFolderDirs(bundle);
+          writeRabbitBundle(projectId, bundle);
+          moved.push(result);
+        } catch (err) {
+          // The rows already say where everything is (refileOneShotRow
+          // rewrites as it moves); write them so the next read agrees.
+          writeRabbitBundle(projectId, bundle);
+          left.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, reason: err.message });
+        }
+      }
+      // The SHOTS category row, and its directory, go only once nothing is
+      // left under them — the directory only when it is empty on disk.
+      let removedShotsCategory = false;
+      const stillUnder = (bundle.folders || []).some(f => f && typeof f.path === 'string' && f.path.startsWith('SHOTS/'));
+      const category = (bundle.folders || []).find(f => f && f.kind === 'category' && f.path === 'SHOTS');
+      if (category && !stillUnder) {
+        let dirEmpty = true;
+        if (root) {
+          const dir = resolveContainedFilePath(root, 'SHOTS');
+          if (dir && fs.existsSync(dir)) {
+            try {
+              dirEmpty = fs.readdirSync(dir).length === 0;
+              if (dirEmpty) fs.rmdirSync(dir);
+            } catch { dirEmpty = false; }
+          }
+        }
+        if (dirEmpty) {
+          bundle.folders = bundle.folders.filter(f => f.id !== category.id);
+          writeRabbitBundle(projectId, bundle);
+          removedShotsCategory = true;
+        }
+      }
+      res.json({ moved, left, removedShotsCategory, folders: bundle.folders || [], managedFiles: (bundle.managedFiles || []).filter(f => !f.deleted_at) });
+    });
+
     // ── The project manifest (Session 26) ─────────────────────────
     //
     // Audrey, 2026-08-03: the project's own details should be "saved in the
@@ -3435,7 +3627,7 @@ function startLocalServer(distPath) {
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const now = new Date().toISOString();
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
-      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id);
+      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id, req.body.level_id, req.body.experience_id);
       const vLabel = formatVersion(version);
       // 🚨 SANITISED. This lands in stored_name, which is joined under the
       // project root, so `/../../../Users/…/secret.docx` walks straight out of
@@ -3447,16 +3639,31 @@ function startLocalServer(distPath) {
       const fileNameSlug = fileSlugify(req.body.file_name || 'File');
       const storedName = `${projectSlug}_${fileNameSlug}_${vLabel}${ext}`;
 
-      // Build folder_path — scenes use SCENES/{slug}/, shots use SHOTS/{slug}/, assets use ASSETS/{slug}/
+      // Build folder_path. Post-overhaul S4c: a scene's, a shot's, a level's
+      // or an experience's file goes where the entity's FOLDER ROW says —
+      // ensureEntityFolderRow, the one planner both backends run
+      // (folderParity.test.js) — so a shot's files land in
+      // SCENES/<scene>/<shot>/ (or under SHOTS/ while the project's shot
+      // folders have not been re-filed, the row keeping its parent), and a
+      // level's or an experience's in LEVELS/<slug>/ or EXPERIENCES/<slug>/,
+      // which this route never filed before (Audrey, 2026-10-05: "levels
+      // and experiences dont allow for me to add files"). An asset's keeps
+      // its own slug column, as the import and rename routes do.
       let folderPath;
-      if (req.body.scene_id && !req.body.asset_id && !req.body.shot_id) {
-        const scene = (bundle.scenes || []).find(s => s.id === req.body.scene_id);
-        const sceneSlug = fileSlugify(scene?.name || 'Untitled-Scene');
-        folderPath = `SCENES/${sceneSlug}/`;
-      } else if (req.body.shot_id && !req.body.asset_id) {
-        const shot = (bundle.shots || []).find(s => s.id === req.body.shot_id);
-        const shotSlug = fileSlugify(shot?.name || 'Untitled-Shot');
-        folderPath = `SHOTS/${shotSlug}/`;
+      const entityFile = (
+        req.body.scene_id && !req.body.asset_id && !req.body.shot_id ? ['scene', 'scenes', req.body.scene_id]
+        : req.body.shot_id && !req.body.asset_id ? ['shot', 'shots', req.body.shot_id]
+        : req.body.level_id && !req.body.asset_id ? ['level', 'levels', req.body.level_id]
+        : req.body.experience_id && !req.body.asset_id ? ['experience', 'experiences', req.body.experience_id]
+        : null);
+      if (entityFile) {
+        const [entityType, bundleKey, entityId] = entityFile;
+        const entity = (bundle[bundleKey] || []).find(e => e.id === entityId);
+        if (!entity) return res.status(404).json({ error: `${entityType} not found` });
+        const ensured = ensureEntityFolderRow(bundle, req.params.projectId, entityType, entity);
+        if (!ensured.row) return res.status(500).json({ error: `no folder for this ${entityType}` });
+        if (ensured.changed) materializeFolderDirs(bundle);
+        folderPath = `${ensured.row.path}/`;
       } else {
         const asset = (bundle.assets || []).find(a => a.id === req.body.asset_id);
         const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
@@ -3469,6 +3676,8 @@ function startLocalServer(distPath) {
         asset_id:         req.body.asset_id || null,
         shot_id:          req.body.shot_id || null,
         scene_id:         req.body.scene_id || null,
+        level_id:         req.body.level_id || null,
+        experience_id:    req.body.experience_id || null,
         task_id:          req.body.task_id || null,
         file_name:        req.body.file_name || 'Untitled',
         stored_name:      storedName,

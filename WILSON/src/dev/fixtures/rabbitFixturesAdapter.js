@@ -33,6 +33,7 @@
 
 import { devWriteRefused } from '../devFixtures'
 import { planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN } from '../../tools/rabbit_v0.1.0/folderPaths'
+import { pendingShotRefiling, shotsCategoryRow, shotsCategoryEmpty } from '../../tools/rabbit_v0.1.0/shotRefiling'
 import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags, legalRefusalSentence } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
@@ -1098,11 +1099,78 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       for (const planned of planProjectFolders(project || projectOf(projectId))) materialiseFolder(projectId, planned)
       return adapter.listFolders(projectId)
     },
+    // S4c: a shot's folder nests in its scene's (the scene found in the
+    // store, the scene's folder ensured first); an existing folder keeps
+    // its parent — the cloud adapter's rule, so the fake cloud re-files a
+    // project exactly as the real one does.
     async ensureEntityFolder(projectId, project, entityType, entity) {
-      const planned = planEntityFolder(project || projectOf(projectId), entityType, entity)
+      const scene = entityType === 'shot' && entity?.scene_id ? (store.scenes.find(s => s.id === entity.scene_id) || null) : null
+      const planned = planEntityFolder(project || projectOf(projectId), entityType, entity, scene)
       if (!planned) return null
+      const fk = ENTITY_FK_COLUMN[entityType]
+      const mine = store.folders.find(f => f.project_id === projectId && f[fk] && f[fk] === entity?.id)
+      if (mine) {
+        const parent = mine.parent_id ? store.folders.find(f => f.id === mine.parent_id) : null
+        const keptPath = parent ? `${parent.path ? parent.path + '/' : ''}${planned.folder.slug}` : planned.folder.path
+        if (mine.path !== keptPath) {
+          mine.slug = planned.folder.slug; mine.path = keptPath; mine.label = planned.folder.label; mine.updated_at = now()
+        }
+        return clone(mine)
+      }
       materialiseFolder(projectId, planned.category)
+      if (planned.parent) {
+        const sceneRow = await adapter.ensureEntityFolder(projectId, project, 'scene', scene)
+        if (sceneRow && sceneRow.path !== planned.folder.parentPath) {
+          planned.folder.parentPath = sceneRow.path
+          planned.folder.path = `${sceneRow.path}/${planned.folder.slug}`
+        }
+      }
       return clone(materialiseFolder(projectId, planned.folder))
+    },
+
+    // S4c: the one-time re-filing, in memory — the cloud adapter's shape and
+    // order (the scene's folder, the files' keys, then the folder row; the
+    // empty SHOTS category last), on the fixtures' own key shape
+    // (…/projects/<pid>/<folder path>/<name>). Nothing is deleted; a second
+    // run finds nothing to move.
+    async refileShotFolders(projectId, project, opts = {}) {
+      const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {}
+      const folders = store.folders.filter(f => f.project_id === projectId)
+      const pending = pendingShotRefiling({ folders, shots: store.shots, scenes: store.scenes })
+      const moved = []
+      for (const p of pending) {
+        progress({ shot: p.shot, name: p.folder.slug, done: moved.length, total: pending.length })
+        const sceneFolder = await adapter.ensureEntityFolder(projectId, project || projectOf(projectId), 'scene', p.scene)
+        const toPath = `${sceneFolder.path}/${p.folder.slug}`
+        const fromMark = `/projects/${projectId}/${p.folder.path}/`
+        const toMark = `/projects/${projectId}/${toPath}/`
+        let n = 0
+        for (const f of store.files) {
+          if (f.project_id !== projectId) continue
+          const mine = (f.shot_id && String(f.shot_id) === String(p.shot.id)) || (f.folder_id && f.folder_id === p.folder.id)
+          if (!mine) continue
+          if (typeof f.storage_path === 'string' && f.storage_path.includes(fromMark)) {
+            f.storage_path = f.storage_path.replace(fromMark, toMark)
+            n += 1
+          }
+          if (typeof f.thumbnail_url === 'string' && f.thumbnail_url.includes(fromMark)) {
+            const before = f.thumbnail_url
+            f.thumbnail_url = before.replace(fromMark, toMark)
+            // The generated picture follows its key, as the bucket's object does.
+            if (store.thumbnails.has(before)) { store.thumbnails.set(f.thumbnail_url, store.thumbnails.get(before)); store.thumbnails.delete(before) }
+          }
+        }
+        const row = store.folders.find(f => f.id === p.folder.id)
+        row.parent_id = sceneFolder.id
+        row.path = toPath
+        row.updated_at = now()
+        moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files: n })
+      }
+      let removedShotsCategory = false
+      const after = store.folders.filter(f => f.project_id === projectId)
+      const category = shotsCategoryRow(after)
+      if (category && shotsCategoryEmpty(after)) { remove(store.folders, category.id); removedShotsCategory = true }
+      return { moved, left: [], removedShotsCategory }
     },
     async writeProjectManifest(projectId, manifest) { store.manifests[projectId] = clone(manifest); return { ok: true } },
     async writeProjectRates(projectId, mirror) { store.ratesMirror[projectId] = clone(mirror); return { ok: true } },

@@ -89,8 +89,11 @@ import {
   formatShotCode as shotCodeFor,
   nextSceneNumber as nextSceneNumberFor,
   nextShotNumber as nextShotNumberFor,
-  fileSlugify,
 } from '../entityNaming'
+// Post-overhaul S4c: the popups' Folder line is the folder ROW's path (a
+// shot's inside its scene's), planned by the one path function when the
+// row is not there yet.
+import { entityFolderPath } from '../folderPaths'
 // Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
 // Everything below is ADDED to the existing rows and popups — a chip strip
 // per shot row in both content modes, the primary take's poster standing in
@@ -3304,8 +3307,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   }
 
   const sceneCode = sceneCodeFor(project, scene.scene_number ?? 0)
-  const sceneSlug = fileSlugify(scene.name || 'Untitled-Scene')
-  const sceneFolderPath = `SCENES/${sceneSlug}/`
+  // The folder as the tree HAS it (its row), else as it would be planned —
+  // post-overhaul S4c: the row is the truth of where a folder is, and a
+  // scene's folder now holds its shots' folders (the Files tab shows them).
+  const sceneFolderRow = (ctx?.folders || []).find(f => f && f.scene_id === scene.id)
+  const sceneFolderPath = `${sceneFolderRow?.path || entityFolderPath('scene', scene)}/`
 
   return (
     <>
@@ -3801,8 +3807,12 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 
   // Build shot code
   const shotCode = shotCodeFor(project, scene?.scene_number ?? 0, shot.shot_number ?? 0)
-  const shotSlug = fileSlugify(shot.name || 'Untitled-Shot')
-  const shotFolderPath = `SHOTS/${shotSlug}/`
+  // The folder as the tree HAS it (post-overhaul S4c): inside its scene's
+  // folder — SCENES/<scene>/<shot>/ — or still under SHOTS/ in a project
+  // whose shot folders have not been re-filed (the Files tab offers it);
+  // with no row yet, where it would be planned.
+  const shotFolderRow = (ctx?.folders || []).find(f => f && f.shot_id === shot.id)
+  const shotFolderPath = `${shotFolderRow?.path || entityFolderPath('shot', shot, scene || null)}/`
   // Shot takes (milestone 2): the ordered list, and the primary take's poster
   // standing in while the shot has no thumbnail of its own (Q6).
   const shotTakeEntries = takes?.map?.get(shot.id) || []
