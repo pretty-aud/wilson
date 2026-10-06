@@ -160,14 +160,21 @@ lands in `LEVELS\<level>\`.
 ## 3. The numbers, measured
 
 - **Tests:** 272 test files / 6,591 tests at the start; 277 files / 6,671
-  tests at the end of this bundle's code, all passing. 40 deliberately
-  broken versions of the code were planted (the keys' page gate, the
+  tests at the end of this bundle's code; **279 files / 6,733 tests** after
+  the two review rounds, all passing. 112 deliberately broken versions of
+  the code were planted — 40 for the build (the keys' page gate, the
   overlay check, the text-field check, folders before files, the search's
   ancestors, the double-click guard, the deep link, the Location column, the
   lazy SHOTS category, the nested path, the pending rule, the rewrite before
   verification, the move-back, both-keys, s3, the directory move, the clash
   check, the SHOTS tidy, the managed-files folder, the level link, the
-  create form's upload, the popup's Folder line …) and every one was caught
+  create form's upload, the popup's Folder line …) and 36 for each review
+  round (the check before the first move, the row rewritten only after the
+  object is seen, the put-back only after a successful read-back, the
+  re-check before re-parenting, the paged reads, the counted SHOTS, the
+  unreachable and the fallback folder, the parent walk, the gc's twin
+  question and its fail-closed reads, the double-click window, the
+  progress line, the create form's one press …) — and every one was caught
   by a test.
 - **The database rehearsal** (wilson-dev, Northwind's two shot folders, a
   rolled-back transaction as its manager): the scene's folder row inserted;
@@ -193,11 +200,17 @@ lands in `LEVELS\<level>\`.
 - A shot's file in your own bucket is not moved (S4c-01); the Local Server
   move was replayed on a temp folder, not opened in Electron (S4c-06).
 - The storage garbage collector (`storage-gc`) learned to keep a shot's file
-  mid-move (its row names the other shape of the key); the Edge Function
-  needs deploying for that to hold on staging and prod (S4c-10). Until it
-  is, a move that stops between a file's move and its row is a file the
-  collector may delete a day later — run the move with the app open and
-  the network up, and run it again at once if it stops.
+  mid-move (its row names the other shape of the key) and to stop, not
+  delete, when a database read fails; the Edge Function needs deploying for
+  either to hold on staging and prod (S4c-10). Until it is, a move that
+  stops between a file's move and its row is a file the collector may
+  delete a day later — run the move with the app open and the network up,
+  and run it again at once if it stops.
+- Two people running the move at once can undo each other's step on one
+  file (S4c-12): run it from one place until a lock exists.
+- A level or experience made with files picked in its form holds the form
+  until every file is added; a multi-gigabyte copy on the Local Server is
+  minutes of *Adding … (1 of N)…* (S4c-13).
 
 ---
 
@@ -232,7 +245,19 @@ lands in `LEVELS\<level>\`.
 Checked in the development copy with its test data at 1440x900 and 1280x700
 (every step above), by the tests named in §3, and on the development
 database in a rolled-back rehearsal of every database step of the move as
-Northwind's manager, a member, a reviewer and a person with no seat.
+Northwind's manager, a member, a reviewer and a person with no seat. Then
+read twice by an adversarial reviewer, the second time attacking the first's
+corrections: round one found the move could leave a file no record named
+(and the garbage collector would have deleted it a day later), that the
+Local Server moved records without their files when the project folder was
+unreachable, and that the offer counted the active shot list's shots; round
+two found the first fix's unreachable-folder refusal skipped whenever a
+folder of the project's name existed on this computer, that the garbage
+collector's reads failed open, that renaming a scene on the Local Server
+dropped its shots' files to the project root in the Files tab, and that the
+double-click guard was shorter than Windows' double-click time. Every finding
+of both rounds is fixed and pinned by a test (112 deliberately broken
+versions caught in all; the hand-off lists them).
 
 **Not checked:** the Storage API's own move against a real bucket (the
 session has no signed-in cloud session; the first real run is staging's, and
