@@ -126,7 +126,27 @@ What is already true: the desktop app never copies footage — a bin records whe
 
 ---
 
-## The answer block (copy, change what you disagree with, paste back)
+## Her answers, 2026-10-06 (asked one by one in chat, multiple choice with a free line; recorded verbatim)
+
+- **B1** (from her 2026-10-06 statements): the footage lives on the server, on a locally accessed network; users reference the path, never copy.
+- **B2** (the same): a location by its network address, named; the per-computer question only as the fallback.
+- **B3:** "Show it, and let them log it (Recommended)".
+- **B4:** *"if the user allows external access pictures are fine. never take images when external access is denied"* — the controller's reading: the small picture per clip goes to the cloud ONLY in a company whose admin has turned the remote-viewing switch (B5a) on; while it is off, nothing of a clip leaves the server, not even a poster — a teammate on the office network still gets pictures, made on their own computer from the file it can reach; a teammate who cannot reach the file sees the name and details only.
+- **B5:** "okay lets go with option a" — the gateway (see above).
+- **B5a:** the admin's switch, per company, off by default (from her statement that the company admin decides).
+- **B6:** "Reviewers same as members" — reviewers can add and remove clips and bins too.
+- **B7:** "Yes, live (Recommended)".
+- **B8:** "Warn, then let me skip or add anyway (Recommended)".
+- **B9:** "Bins move with the project (Recommended)".
+- **B10:** "Reference only; a bin with clips asks move or remove (Recommended)".
+- **B11:** "Fine: show who added it and from where (Recommended)".
+- **B12:** "Stays exactly as it is (Recommended)".
+- **B13:** "Three sessions in order, after the Files session (Recommended)".
+- **Decided without asking:** not objected to.
+
+The plan built from these: `docs/design/BINS_CLOUD_PLAN.md`.
+
+## The answer block that was offered (superseded by the answers above)
 
 ```
 b1 the footage stays where it is. only the lists and the logging go to the cloud. an optional small preview upload for chosen clips can come later.
