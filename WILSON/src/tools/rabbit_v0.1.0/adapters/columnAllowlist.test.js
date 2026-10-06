@@ -57,6 +57,60 @@ describe('every client-written table has an allowlist entry', () => {
       'task_templates has no COLUMN_ALLOWLIST entry').toBeDefined()
   })
 
+  it('covers milestones, added in 0067', () => {
+    // Until 0067 the two milestone methods threw outright, so there was
+    // nothing to allowlist. Now TimelineView's editor writes them on both
+    // backends and RabbitProvider.updateMilestone re-sends the WHOLE row, so
+    // a missing entry here would PGRST204 every key-date edit in cloud with
+    // no error on screen — the S23 shape exactly.
+    expect(COLUMN_ALLOWLIST.milestones,
+      'milestones has no COLUMN_ALLOWLIST entry').toBeDefined()
+  })
+
+  // ── Track C, bundle C3 (migration 0075) ───────────────────────────────────
+  it('files carries document_kind and description — 0075, §6 #31 trap (a)', () => {
+    // 🚨 THE FAILURE THIS PINS IS SILENT IN BOTH DIRECTIONS. ProjectFilesTable's
+    // Kind select and Description cell have written these two on every gesture
+    // since S27; `files` had neither column, so toColumns stripped them and the
+    // PATCH became a 200 no-op that the optimistic setState hid until the next
+    // listFiles(). 0075 adds the columns; without these two names the write is
+    // still dropped, and with the names but no columns every PATCH carrying
+    // one dies as PGRST204. The migration and the allowlist are ONE change,
+    // and this is the half a test can hold.
+    expect(COLUMN_ALLOWLIST.files.has('document_kind'),
+      'files allowlist is missing document_kind (0075)').toBe(true)
+    expect(COLUMN_ALLOWLIST.files.has('description'),
+      'files allowlist is missing description (0075)').toBe(true)
+    expect(toColumns('files', { id: 'x', document_kind: 'brief', description: 'note' }))
+      .toEqual({ id: 'x', document_kind: 'brief', description: 'note' })
+  })
+
+  // ── Post-overhaul S4a (migration 0085) ────────────────────────────────────
+  it('files carries tags — 0085, the nine tags (Audrey\'s E3)', () => {
+    // The same silent failure as 0075's two columns, a third time: the file
+    // window's tag chips write `tags`, and without this name toColumns strips
+    // it and the PATCH is a 200 no-op the optimistic update hides.
+    expect(COLUMN_ALLOWLIST.files.has('tags'), 'files allowlist is missing tags (0085)').toBe(true)
+    expect(toColumns('files', { id: 'x', tags: ['shots', 'legal'] })).toEqual({ id: 'x', tags: ['shots', 'legal'] })
+    expect(toColumns('files', { id: 'x', tags: [] })).toEqual({ id: 'x', tags: [] })
+    // CONTROL, against the REAL toColumns: plant the fault (the name taken
+    // out of the real Set), watch the tags drop, put it back.
+    COLUMN_ALLOWLIST.files.delete('tags')
+    try {
+      expect(toColumns('files', { id: 'x', tags: ['shots'] })).toEqual({ id: 'x' })
+    } finally {
+      COLUMN_ALLOWLIST.files.add('tags')
+    }
+    expect(COLUMN_ALLOWLIST.files.has('tags')).toBe(true)
+  })
+
+  it('files still carries is_core_definer — the §6 #31 (b) polarity flag', () => {
+    // The flag D.O.G.'s CORE/REF split reads. If it ever left the allowlist,
+    // the Core checkbox would go quiet exactly as document_kind did.
+    expect(COLUMN_ALLOWLIST.files.has('is_core_definer')).toBe(true)
+    expect(toColumns('files', { is_core_definer: true })).toEqual({ is_core_definer: true })
+  })
+
   it('covers both dependency tables — the last two writers on the raw denylist', () => {
     // upsertDependency called sanitize(dep, []) — a denylist with an EMPTY drop
     // list — right through S23, S24 and S27, which added entries for every
@@ -123,8 +177,8 @@ describe('shots — the create payload from ScenesView', () => {
 
 describe('levels and experiences — the `files` key that has no column', () => {
   // 🚨 THE REGRESSION THIS FILE IS REALLY FOR.
-  // CreateLevelPopup sends { name, status, description, files } — an array of
-  // picked files (LevelsView.jsx:1004-1009). `files` is not a column and will
+  // CreateEntityPopup sends { name, status, description, files } — an array of
+  // picked files (EntityListView.jsx:1154-1159). `files` is not a column and will
   // not be one until S26 gives these entities folders. Without an allowlist
   // entry that single key PGRST204s the entire insert, and the New Level
   // button does nothing with no error, exactly like S23's New Task.
@@ -427,5 +481,258 @@ describe('projects — the Control Panel fields 0040 added', () => {
     // points at the pgTAP probe that explains why.
     const out = toColumns('projects', { title: 'Real', name: 'Wrong', code: 'Wrong' })
     expect(out).toEqual({ title: 'Real' })
+  })
+})
+
+
+// ── Milestones (0067) ───────────────────────────────────────────────────────
+
+describe('milestones — the editor payload from TimelineView', () => {
+  // TimelineView's editor save, mode 'milestone', builds exactly this, and
+  // RabbitProvider.addMilestone adds id + project_id.
+  const payload = {
+    id: 'm1', project_id: 'p1',
+    title: 'Lock picture', date: '2026-10-01', color: '#f59e0b',
+    description: 'the cut is frozen', phase_id: null,
+  }
+
+  it('keeps every field the editor sends', () => {
+    expect(toColumns('milestones', payload)).toEqual(payload)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('keeps a NULL phase_id rather than dropping the key', () => {
+    // Dropping the KEY and sending null are different writes: the first
+    // leaves an existing phase attached, the second detaches the milestone.
+    // The editor relies on the second — `draft.phase_id || null` — and an
+    // unparented key date is a real, displayed state (0067's S23 note).
+    expect(toColumns('milestones', { id: 'm1', phase_id: null }))
+      .toEqual({ id: 'm1', phase_id: null })
+  })
+
+  it('drops the trash columns — a client never writes them', () => {
+    // deleted_at/deleted_by are written by soft_delete_row and the stamp
+    // trigger, as definer. If a plain upsert could carry deleted_at, the write
+    // would be refused by milestones_update (the NEW row would be invisible to
+    // milestones_select) — a 42501 where the user pressed Save.
+    const out = toColumns('milestones', {
+      id: 'm1', title: 'Wrap', deleted_at: '2026-09-07T00:00:00Z', deleted_by: 'u1',
+    })
+    expect(out).toEqual({ id: 'm1', title: 'Wrap' })
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('drops isProjectBound, the synthetic marker flag', () => {
+    // TimelineView synthesizes project start/end markers with this flag and
+    // refuses to open the editor on them, so it cannot reach a write today.
+    // If a future affordance lets it, the key is dropped rather than taking
+    // the whole request with it.
+    expect(toColumns('milestones', { id: 'm1', isProjectBound: true }))
+      .toEqual({ id: 'm1' })
+  })
+})
+
+
+// ── Shot lists, items and edits (0084, post-overhaul S3a) ───────────────────
+//
+// Every test below is a PLANTED CONTROL: the payload goes in and must come out
+// identical with no warning, so removing any one key from the allowlist turns
+// it red (toColumns drops the key and warns). Each table also gets the
+// opposite control — a key that is NOT a column is dropped and warned about —
+// so the pair proves the entry filters rather than passing everything
+// through (the hazard pinned at the top of this file).
+
+// The S3a contract's row shapes, verbatim. The allowlists must be EXACTLY
+// these: a missing column loses a write, and an extra one PGRST204s it.
+const SHOT_LIST_ROW = {
+  id: 'l1', project_id: 'p1', workspace_id: 'w1',
+  title: 'Shot list 1', version: 1, summary: 'Created from existing scenes',
+  snapshot: {}, archived_at: null, archived_by: null,
+  created_at: '2026-09-30T00:00:00Z', created_by: 'u1',
+  updated_at: '2026-09-30T00:00:00Z', updated_by: 'u1',
+}
+const SHOT_LIST_ITEM_ROW = {
+  id: 'i1', shot_list_id: 'l1', project_id: 'p1', workspace_id: 'w1',
+  scene_id: null, shot_id: 'h1', position: 0,
+  created_at: '2026-09-30T00:00:00Z', created_by: 'u1',
+  updated_at: '2026-09-30T00:00:00Z', updated_by: 'u1',
+}
+const EDIT_ROW = {
+  id: 'e1', project_id: 'p1', workspace_id: 'w1', shot_list_id: 'l1',
+  title: 'Assembly', version: 2, summary: 'first pass', parent_edit_id: 'e0',
+  items: [{ id: 'ei1', scene_id: 's1', shot_id: 'h1', label: 'Wide', notes: 'hold' }],
+  snapshot: null, archived_at: null, archived_by: null,
+  created_at: '2026-09-30T00:00:00Z', created_by: 'u1',
+  updated_at: '2026-09-30T00:00:00Z', updated_by: 'u1',
+}
+
+describe('the three 0084 tables have entries, and each is EXACTLY its row shape', () => {
+  it('shot_lists, shot_list_items and edits are all in COLUMN_ALLOWLIST', () => {
+    for (const t of ['shot_lists', 'shot_list_items', 'edits']) {
+      expect(COLUMN_ALLOWLIST[t], `${t} has no COLUMN_ALLOWLIST entry`).toBeDefined()
+    }
+  })
+
+  it('each entry equals the contract row, key for key', () => {
+    const sorted = (x) => [...x].sort()
+    expect(sorted(COLUMN_ALLOWLIST.shot_lists)).toEqual(sorted(Object.keys(SHOT_LIST_ROW)))
+    expect(sorted(COLUMN_ALLOWLIST.shot_list_items)).toEqual(sorted(Object.keys(SHOT_LIST_ITEM_ROW)))
+    expect(sorted(COLUMN_ALLOWLIST.edits)).toEqual(sorted(Object.keys(EDIT_ROW)))
+  })
+})
+
+describe('shot_lists — the whole row the provider re-sends (0084)', () => {
+  it('keeps every column, archived_at / archived_by included', () => {
+    // The allowlist describes the TABLE, so all of the row survives here.
+    // What an upsert SENDS is narrower: upsertShotList / upsertEdit strip the
+    // four audit columns and archived_* BEFORE toColumns (S3a review round 1,
+    // addendum F) — pinned by supabaseLoadProject.test.js, "send no audit or
+    // archive column". Dropping them here instead would hide them from every
+    // future writer of the table, not just from the upsert.
+    expect(toColumns('shot_lists', SHOT_LIST_ROW)).toEqual(SHOT_LIST_ROW)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('drops the computed "Title · vN" label and warns', () => {
+    const out = toColumns('shot_lists', { id: 'l1', title: 'Shot list 1', label: 'Shot list 1 · v1' })
+    expect(out).toEqual({ id: 'l1', title: 'Shot list 1' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.shot_lists')
+    expect(warn.mock.calls[0][0]).toContain('label')
+  })
+})
+
+describe('shot_list_items — membership rows (0084)', () => {
+  it('keeps every column, a NULL scene_id and position 0 included', () => {
+    // Exactly one of scene_id / shot_id is set, so the other is a real NULL,
+    // and position 0 is the first item — dropping either key is a different
+    // write.
+    expect(toColumns('shot_list_items', SHOT_LIST_ITEM_ROW)).toEqual(SHOT_LIST_ITEM_ROW)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('drops a stray key and warns', () => {
+    const out = toColumns('shot_list_items', { id: 'i1', shot_id: 'h1', position: 3, kind: 'shot' })
+    expect(out).toEqual({ id: 'i1', shot_id: 'h1', position: 3 })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.shot_list_items')
+  })
+})
+
+describe('edits — the saved edit (0084)', () => {
+  it('keeps every column, the items array and a NULL parent / snapshot included', () => {
+    expect(toColumns('edits', EDIT_ROW)).toEqual(EDIT_ROW)
+    expect(toColumns('edits', { id: 'e1', parent_edit_id: null, snapshot: null }))
+      .toEqual({ id: 'e1', parent_edit_id: null, snapshot: null })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does NOT reach inside the items array', () => {
+    // 🚨 items is ONE jsonb column (0084 §5, the task_templates precedent).
+    // `label` and `notes` are keys of an edit ITEM, not columns — they must
+    // survive untouched even though `label` is dropped from a shot_lists row.
+    const out = toColumns('edits', EDIT_ROW)
+    expect(out.items).toEqual([{ id: 'ei1', scene_id: 's1', shot_id: 'h1', label: 'Wide', notes: 'hold' }])
+  })
+
+  it('drops a stray key and warns', () => {
+    const out = toColumns('edits', { id: 'e1', title: 'Assembly', draft: true })
+    expect(out).toEqual({ id: 'e1', title: 'Assembly' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.edits')
+  })
+})
+
+describe('the four lists 0084 widens', () => {
+  it('tasks keeps scene_id / shot_id — the TimelineView payload', () => {
+    // TimelineView.jsx:4355-4356 has sent both on every save since S23; they
+    // were dropped with a warning until 0084 gave them columns.
+    expect(COLUMN_ALLOWLIST.tasks.has('scene_id'), 'tasks allowlist is missing scene_id (0084)').toBe(true)
+    expect(COLUMN_ALLOWLIST.tasks.has('shot_id'), 'tasks allowlist is missing shot_id (0084)').toBe(true)
+    const payload = { id: 't1', project_id: 'p1', title: 'Grade SC1', scene_id: 's1', shot_id: 'h1' }
+    expect(toColumns('tasks', payload)).toEqual(payload)
+    // NULL is "not linked" — the key must survive so an unlink is written.
+    expect(toColumns('tasks', { id: 't1', scene_id: null, shot_id: null }))
+      .toEqual({ id: 't1', scene_id: null, shot_id: null })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('tasks still drops level_id / experience_id, which 0084 keeps local-only', () => {
+    // The same editor sends these two; D9 names scene and shot only.
+    const out = toColumns('tasks', { id: 't1', scene_id: 's1', level_id: 'lv1', experience_id: 'ex1' })
+    expect(out).toEqual({ id: 't1', scene_id: 's1' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.tasks')
+    expect(warn.mock.calls[0][0]).toContain('level_id')
+  })
+
+  it('assets keeps scene_ids / shot_ids — the relation pickers\' whole arrays', () => {
+    // ProjectAssetsView.jsx:2026 / :2040 send `{ scene_ids: next }` and
+    // `{ shot_ids: next }`; an EMPTY array is a real write (the last link
+    // removed) and must not vanish.
+    expect(COLUMN_ALLOWLIST.assets.has('scene_ids'), 'assets allowlist is missing scene_ids (0084)').toBe(true)
+    expect(COLUMN_ALLOWLIST.assets.has('shot_ids'), 'assets allowlist is missing shot_ids (0084)').toBe(true)
+    const payload = { id: 'a1', name: 'Hero', scene_ids: ['s1', 's2'], shot_ids: [] }
+    expect(toColumns('assets', payload)).toEqual(payload)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('assets still drops level_ids, which has no column', () => {
+    const out = toColumns('assets', { id: 'a1', shot_ids: ['h1'], level_ids: ['lv1'] })
+    expect(out).toEqual({ id: 'a1', shot_ids: ['h1'] })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.assets')
+    expect(warn.mock.calls[0][0]).toContain('level_ids')
+  })
+
+  it('budget_versions keeps shot_list_id and summary — the whole-row re-send', () => {
+    // BudgetView spreads the whole row on every activate and rename, so both
+    // ride along once a row carries them.
+    expect(COLUMN_ALLOWLIST.budget_versions.has('shot_list_id'),
+      'budget_versions allowlist is missing shot_list_id (0084)').toBe(true)
+    expect(COLUMN_ALLOWLIST.budget_versions.has('summary'),
+      'budget_versions allowlist is missing summary (0084)').toBe(true)
+    const payload = {
+      id: 'bv1', project_id: 'p1', name: 'Bid v2', type: 'bid', is_active: true,
+      snapshot: { lines: [] }, shot_list_id: 'l1', summary: 'pickups priced',
+    }
+    expect(toColumns('budget_versions', payload)).toEqual(payload)
+    expect(toColumns('budget_versions', { id: 'bv1', shot_list_id: null }))
+      .toEqual({ id: 'bv1', shot_list_id: null })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  // Post-overhaul S5 loosened this: an UNDONE delete re-inserts the version
+  // with its own created_at, so it keeps its place in the newest-first list
+  // and stays the "version before" F8's automatic line names. A new version
+  // sends none (the provider leaves it to the server's default).
+  it('budget_versions keeps created_at (S5: an undone delete keeps its place) and still drops updated_at', () => {
+    expect(toColumns('budget_versions', { id: 'bv1', summary: 's', created_at: '2026-09-30T00:00:00Z' }))
+      .toEqual({ id: 'bv1', summary: 's', created_at: '2026-09-30T00:00:00Z' })
+    expect(warn).not.toHaveBeenCalled()
+    // CONTROL: the other server-managed stamp is still dropped, said aloud.
+    const out = toColumns('budget_versions', { id: 'bv1', summary: 's', updated_at: '2026-09-30T00:00:00Z' })
+    expect(out).toEqual({ id: 'bv1', summary: 's' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.budget_versions')
+  })
+
+  it('projects keeps active_shot_list_id — an UNCHANGED pointer must pass', () => {
+    // 0084's guard refuses a CHANGE (only set_active_shot_list() may make
+    // one) but must let a whole-row re-send with the same value through.
+    expect(COLUMN_ALLOWLIST.projects.has('active_shot_list_id'),
+      'projects allowlist is missing active_shot_list_id (0084)').toBe(true)
+    expect(toColumns('projects', { title: 'Real', active_shot_list_id: 'l1' }))
+      .toEqual({ title: 'Real', active_shot_list_id: 'l1' })
+    expect(toColumns('projects', { active_shot_list_id: null }))
+      .toEqual({ active_shot_list_id: null })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('projects still drops a camelCase stray of the same field', () => {
+    const out = toColumns('projects', { title: 'Real', activeShotListId: 'l1' })
+    expect(out).toEqual({ title: 'Real' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.projects')
   })
 })

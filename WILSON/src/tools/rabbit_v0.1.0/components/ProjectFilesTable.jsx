@@ -1,25 +1,77 @@
 // ============================================================
-// ProjectFilesTable — shared project files table
+// ProjectFilesTable — the shared project files table
 // ============================================================
 //
-// Consistent table view for project files used across all views:
-// intake, project summary dashboard, control panel, project detail.
+// Drawn by four surfaces (plan §5 item 5: this file is lane B4's across all
+// of them): Intake (`IntakePrepare`), Summary twice (its read-only card and
+// the Control Panel's `ProjectFilesSection`) and the Projects page's detail
+// panel (`ProjectDetailPanel`). All four draw THIS table, so the four look
+// the same by construction.
+// 📌 2026-09-30, post-overhaul S4a (Audrey's E1): the Summary's two are gone —
+// the project's files are R.A.B.B.I.T.'s Files tab (ProjectFilesExplorer) —
+// so TWO surfaces draw it now, Intake and the Projects page
+// (rabbitFilesRender.test.jsx counts them).
 //
-// Columns: Core, Name, Kind, Type, Size, Description, Created, [Delete]
+// Columns: Core, Name, Kind, Type, Size, Description, Created,
+// [File activity], [Delete].
 //
-// Supports two visual variants:
-//   'dark'  (default) — dark bg, for RABBIT / dark pages
-//   'warm'  — warm brown palette, for Projects / light pages
+// ── B4 (2026-09-25): one language, on the kit ────────────────────────────
+// It was a CSS grid carrying two complete designs behind `variant ===
+// 'warm'` (review R4-31) — two header sizes, two paddings, zebra on one arm,
+// six colour pairs — and its dark arm drew every muted cell in `#78716c` on
+// `#1c1917`, 3.65:1, which was every contrast failure the walk reported on
+// Summary, on the Control Panel, and under Settings and Help. The warm arm
+// had no caller left (lane C1 put the Projects page on `paper`). Now:
+//
+//   · the kit `Table`, `dense` (a real <table>, 32px rows, the Label-step
+//     header, hairlines, no zebra) — the same table and the same row as the
+//     Files page's and the Tasks table's, not a lookalike;
+//   · every cell on the ink ladder (`rabbitFiles.css`), nothing under 4.5:1;
+//   · Kind is the kit `CellSelect` (B2's cell select, promoted: a kit
+//     request B2 filed and B4 filled), Size is a `numeric` cell — right
+//     aligned, tabular, the mono — and Type and Created are figures in the
+//     mono;
+//   · every icon button is the kit `IconButton` and is NAMED for its file
+//     ("Delete brief.pdf"): the Control Panel had 32 unnamed trash buttons;
+//   · radii come from the kit, so none is off the scale.
+//
+// SIZE READS ONE FIELD, `size_bytes` — the `files` column, and what
+// FileManager and the Files page read. The table used to read `size`, so
+// Summary mapped `size_bytes` → `size` at both its call sites
+// (`withDisplaySize`) and the Projects page mapped it again for its cloud
+// rows. The rows that are not `files` rows now carry `size_bytes` where they
+// are made (Intake's picked files; the Projects page's legacy local rows),
+// and both mappers are gone.
+//
+// 📌 KIND is `document_kind`, the intake's taxonomy; a cloud upload's own
+// `kind` is another taxonomy and is NOT aliased onto it. Since 0075 (Track C,
+// C3) a cloud row written by the Resources drop zone, D.O.G.'s create modal
+// or runAttachmentMigration carries document_kind (FILE_COLUMNS lists it and
+// uploadFile writes `scope.documentKind`); R.A.B.B.I.T.'s own uploads still
+// leave it NULL and show "—". (Merge review C-R1-06 corrected this note,
+// which had said every cloud row shows "—".)
 
 import { useState, useEffect } from 'react'
 import { FileText, Trash2, Image as ImageIcon, FileClock } from 'lucide-react'
+import { Table, Row, Th, Td, CellSelect, IconButton, EmptyState } from '../../../ui'
+import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../fileTags'
+import '../views/rabbitFiles.css'
 
 export const DOCUMENT_KINDS = [
   'script', 'treatment', 'gdd', 'brief', 'pitch_bible',
   'lookbook', 'deck', 'outline', 'notes', 'other',
 ]
 
-const ACCEPTED_EXTS = new Set(['txt', 'md', 'markdown', 'fountain', 'docx', 'pdf', 'pptx'])
+/* Sentence case (Q2); GDD is an initialism. The stored value is unchanged. */
+const KIND_LABELS = {
+  script: 'Script', treatment: 'Treatment', gdd: 'GDD', brief: 'Brief',
+  pitch_bible: 'Pitch bible', lookbook: 'Lookbook', deck: 'Deck',
+  outline: 'Outline', notes: 'Notes', other: 'Other',
+}
+// Exported for the Files explorer's file window (post-overhaul S4a, E10): its
+// Kind is this select over this list, so the two cannot drift.
+export const kindLabel = (k) => KIND_LABELS[k] || String(k).replace(/_/g, ' ')
+export const KIND_OPTIONS = DOCUMENT_KINDS.map((k) => ({ value: k, label: kindLabel(k) }))
 
 /* ── auto-detection heuristics ─────────────────────────────── */
 
@@ -75,6 +127,8 @@ function isMediaFile(f) {
   return mime.startsWith('image/') || mime.startsWith('video/')
 }
 
+const fileName = (f) => f.name || f.file_name || f.original_name || 'Untitled'
+
 /* ── main component ────────────────────────────────────────── */
 
 export default function ProjectFilesTable({
@@ -86,188 +140,138 @@ export default function ProjectFilesTable({
                      // storage_path); managed-file rows have no event stream.
   readOnly = false,
   maxHeight,
-  variant = 'dark',  // 'dark' | 'warm'
 }) {
-  if (files.length === 0) return null
+  if (files.length === 0) {
+    return <EmptyState compact Icon={FileText} title="No files attached" />
+  }
   const canEdit = !readOnly && !!onUpdate
-  const w = variant === 'warm'
-
-  /* ── variant-driven tokens ── */
-  const hdr = {
-    fontSize: w ? 11 : 9, fontFamily: 'ui-monospace,monospace',
-    textTransform: 'uppercase', letterSpacing: '0.06em',
-    color: w ? '#3a1e08' : '#fb923c',
-    padding: w ? '10px 14px' : '7px 8px',
-    whiteSpace: 'nowrap', fontWeight: w ? 700 : undefined,
-  }
-  const cell = {
-    fontSize: w ? 13 : 10, fontFamily: 'ui-monospace,monospace',
-    color: w ? '#3c2010' : '#d6d3d1',
-    padding: w ? '10px 14px' : '6px 8px',
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  }
-  const cols = w
-    ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 96px${onAudit ? ' 40px' : ''}${onDelete ? ' 40px' : ''}`
-    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 80px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
-
-  const mutedColor = w ? '#6b4423' : '#78716c'
-  const iconSz = w ? 15 : 13
 
   return (
-    <div style={{
-      border: w ? '1px solid rgba(120,70,30,0.3)' : '1px solid #44403c',
-      borderRadius: 4, overflowX: 'auto',
-      maxHeight, overflowY: maxHeight ? 'auto' : undefined,
-    }} className={w ? 'wilson-light-scroll' : undefined}>
-      {/* Header */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: cols,
-        backgroundColor: w ? 'rgba(120, 70, 30, 0.45)' : '#292524',
-        borderBottom: w ? '1px solid rgba(120,70,30,0.3)' : '1px solid #44403c',
-        position: 'sticky', top: 0, zIndex: 1,
-      }}>
-        <div style={hdr}>Core</div>
-        <div style={hdr}>Name</div>
-        <div style={hdr}>Kind</div>
-        <div style={hdr}>Type</div>
-        <div style={hdr}>Size</div>
-        <div style={hdr}>Description</div>
-        <div style={hdr}>Created</div>
-        {onAudit && <div style={hdr} />}
-        {onDelete && <div style={hdr} />}
-      </div>
+    <div
+      className="rb-files-frame"
+      data-scroll={maxHeight ? 'true' : undefined}
+      data-audit={onAudit ? 'true' : undefined}
+      data-delete={onDelete ? 'true' : undefined}
+      style={{ '--rb-files-max': maxHeight ? `${maxHeight}px` : undefined }}
+    >
+      <Table
+        dense
+        className="rb-files-table"
+        scrollClassName="rb-files-scroll"
+        head={
+          <Row>
+            <Th width="var(--rb-files-core)">Core</Th>
+            <Th>Name</Th>
+            <Th width="var(--rb-files-kind)">Kind</Th>
+            <Th width="var(--rb-files-type)">Type</Th>
+            <Th width="var(--rb-files-size)" numeric>Size</Th>
+            {/* Undefined (so `auto`, sharing with Name) until a narrow frame
+                sets it: see rabbitFiles.css. */}
+            <Th width="var(--rb-files-desc)">Description</Th>
+            <Th width="var(--rb-files-date)">Created</Th>
+            {onAudit && <Th width="var(--rb-files-icon)"><span className="sr-only">File activity</span></Th>}
+            {onDelete && <Th width="var(--rb-files-icon)"><span className="sr-only">Delete</span></Th>}
+          </Row>
+        }
+      >
+        {files.map((f) => {
+          const name = fileName(f)
+          const created = fmtDate(f.created_at || f.uploaded_at)
+          // S4b (0088): a Legal file is never core — its box is off and
+          // locked, with the reason (files_legal_not_core_chk).
+          const legal = isLegalFile(f)
+          return (
+            <Row key={f.id}>
+              <Td align="center">
+                <input type="checkbox" className="rb-files-core"
+                  checked={!!f.is_core_definer && !legal}
+                  onChange={canEdit && !legal ? e => onUpdate(f.id, { is_core_definer: e.target.checked }) : undefined}
+                  disabled={!canEdit || legal}
+                  title={legal ? LEGAL_NOT_CORE_REASON : undefined}
+                  aria-label={`Core file: ${name}`} />
+              </Td>
 
-      {/* Rows */}
-      {files.map((f, i) => (
-        <div key={f.id} style={{
-          display: 'grid', gridTemplateColumns: cols,
-          borderBottom: w ? '1px solid rgba(120,70,30,0.15)' : '1px solid #3a3733',
-          backgroundColor: w
-            ? (i % 2 === 0 ? 'rgba(120, 70, 30, 0.12)' : 'rgba(120, 70, 30, 0.22)')
-            : '#1c1917',
-          alignItems: 'center',
-        }}>
-          {/* Core */}
-          <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
-            <input type="checkbox" checked={!!f.is_core_definer}
-              onChange={canEdit ? e => onUpdate(f.id, { is_core_definer: e.target.checked }) : undefined}
-              disabled={!canEdit}
-              className="accent-orange-500"
-              style={{ width: w ? 16 : 14, height: w ? 16 : 14, cursor: canEdit ? 'pointer' : 'default' }} />
-          </div>
+              <Td>
+                <span className="rb-files-name">
+                  {isMediaFile(f)
+                    ? <ImageIcon aria-hidden="true" className="rb-files-glyph" />
+                    : <FileText aria-hidden="true" className="rb-files-glyph" />}
+                  <span className="rb-files-name-text" title={name}>{name}</span>
+                </span>
+              </Td>
 
-          {/* Name */}
-          <div style={{ ...cell, display: 'flex', alignItems: 'center', gap: 7 }}>
-            {isMediaFile(f)
-              ? <ImageIcon size={iconSz} style={{ color: w ? '#ea580c' : '#f97316', flexShrink: 0 }} />
-              : <FileText size={iconSz} style={{ color: w ? '#9a6438' : '#78716c', flexShrink: 0 }} />
-            }
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.name}>
-              {f.name || f.file_name || f.original_name || 'Untitled'}
-            </span>
-          </div>
+              <Td>
+                {canEdit ? (
+                  <CellSelect
+                    value={f.document_kind || null}
+                    onChange={v => onUpdate(f.id, { document_kind: v })}
+                    placeholder="—"
+                    options={KIND_OPTIONS}
+                    aria-label={`Kind for ${name}`} />
+                ) : (
+                  <span className="rb-files-quiet" data-empty={f.document_kind ? undefined : 'true'}>
+                    {f.document_kind ? kindLabel(f.document_kind) : '—'}
+                  </span>
+                )}
+              </Td>
 
-          {/* Kind */}
-          <div style={cell}>
-            {canEdit ? (
-              <select value={f.document_kind || ''}
-                onChange={e => onUpdate(f.id, { document_kind: e.target.value || null })}
-                style={{
-                  width: '100%', padding: w ? '3px 6px' : '2px 4px',
-                  fontSize: w ? 12 : 10, fontFamily: 'ui-monospace,monospace',
-                  backgroundColor: w ? 'rgba(120, 70, 30, 0.5)' : '#292524',
-                  color: f.document_kind
-                    ? (w ? '#3c2010' : '#f4a261')
-                    : (w ? '#7c4f1f' : '#57534e'),
-                  border: w ? '1px solid rgba(120,70,30,0.4)' : '1px solid #44403c',
-                  borderRadius: 3, outline: 'none',
-                }}>
-                <option value="">—</option>
-                {DOCUMENT_KINDS.map(k => <option key={k} value={k}>{k.replace(/_/g, ' ')}</option>)}
-              </select>
-            ) : (
-              <span style={{ color: w ? '#6b4423' : '#a8a29e' }}>
-                {f.document_kind ? f.document_kind.replace(/_/g, ' ') : '—'}
-              </span>
-            )}
-          </div>
+              <Td className="rb-files-mono">{getExt(f)}</Td>
 
-          {/* Type */}
-          <div style={{ ...cell, color: mutedColor }}>{getExt(f)}</div>
+              <Td numeric className="rb-files-size" data-empty={f.size_bytes ? undefined : 'true'}>
+                {fmtBytes(f.size_bytes)}
+              </Td>
 
-          {/* Size */}
-          <div style={{ ...cell, color: mutedColor }}>{fmtBytes(f.size)}</div>
+              <Td className="rb-files-desc">
+                {canEdit ? (
+                  <DescCell value={f.description || ''} name={name}
+                    onChange={v => onUpdate(f.id, { description: v })} />
+                ) : (
+                  <span className="rb-files-quiet" data-empty={f.description ? undefined : 'true'}
+                    title={f.description || undefined}>
+                    {f.description || '—'}
+                  </span>
+                )}
+              </Td>
 
-          {/* Description */}
-          <div style={cell}>
-            {canEdit ? (
-              <DescCell value={f.description || ''} onChange={v => onUpdate(f.id, { description: v })} warm={w} />
-            ) : (
-              <span style={{ color: w ? '#6b4423' : '#a8a29e', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {f.description || '—'}
-              </span>
-            )}
-          </div>
+              <Td className="rb-files-mono" title={created}>{created}</Td>
 
-          {/* Date */}
-          <div style={{ ...cell, color: mutedColor }}>{fmtDate(f.created_at || f.uploaded_at)}</div>
+              {onAudit && (
+                <Td align="center" className="rb-files-icon-cell">
+                  {f.storage_path ? (
+                    <IconButton Icon={FileClock} size="sm" title={`File activity for ${name}`}
+                      onClick={() => onAudit(f)} />
+                  ) : null}
+                </Td>
+              )}
 
-          {/* File activity (Session 14) */}
-          {onAudit && (
-            <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
-              {f.storage_path ? (
-                <button onClick={() => onAudit(f)} title="File activity"
-                  style={{
-                    color: w ? '#9a6438' : '#78716c', padding: 2, borderRadius: 3,
-                    border: 'none', background: 'none', cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = w ? '#ea580c' : '#fb923c'}
-                  onMouseLeave={e => e.currentTarget.style.color = w ? '#9a6438' : '#78716c'}>
-                  <FileClock size={iconSz} />
-                </button>
-              ) : null}
-            </div>
-          )}
-
-          {/* Delete */}
-          {onDelete && (
-            <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
-              <button onClick={() => onDelete(f.id)}
-                style={{
-                  color: w ? '#9a6438' : '#78716c', padding: 2, borderRadius: 3,
-                  border: 'none', background: 'none', cursor: 'pointer',
-                }}
-                onMouseEnter={e => e.currentTarget.style.color = w ? '#ef4444' : '#fca5a5'}
-                onMouseLeave={e => e.currentTarget.style.color = w ? '#9a6438' : '#78716c'}>
-                <Trash2 size={iconSz} />
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
+              {onDelete && (
+                <Td align="center" className="rb-files-icon-cell">
+                  <IconButton Icon={Trash2} size="sm" danger title={`Delete ${name}`}
+                    onClick={() => onDelete(f.id)} />
+                </Td>
+              )}
+            </Row>
+          )
+        })}
+      </Table>
     </div>
   )
 }
 
 /* ── description cell with local state + commit on blur ──── */
 
-function DescCell({ value, onChange, warm }) {
+// A native field, not the kit `Input`: the kit's blurs on Enter, and the
+// window's Enter handler then finds nothing focused and toggles the
+// companion (B3d-KR-2). Commit on blur, exactly as before.
+function DescCell({ value, onChange, name }) {
   const [local, setLocal] = useState(value)
   useEffect(() => { setLocal(value) }, [value])
   return (
     <input type="text" value={local}
       onChange={e => setLocal(e.target.value)}
       onBlur={() => { if (local !== value) onChange(local) }}
-      placeholder={warm ? 'Add description...' : '—'}
-      style={{
-        width: '100%',
-        padding: warm ? '3px 6px' : '2px 4px',
-        fontSize: warm ? 12 : 10,
-        fontFamily: 'ui-monospace,monospace',
-        backgroundColor: warm ? 'rgba(120, 70, 30, 0.2)' : 'transparent',
-        color: warm ? '#5c3415' : '#a8a29e',
-        border: warm ? '1px solid rgba(120,70,30,0.2)' : 'none',
-        borderRadius: 2, outline: 'none',
-      }} />
+      placeholder="—"
+      aria-label={`Description for ${name}`}
+      className="rb-files-cell-input" />
   )
 }

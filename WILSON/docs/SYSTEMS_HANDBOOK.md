@@ -151,9 +151,17 @@ Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.
 
-There is **no single-instance lock**: `app.requestSingleInstanceLock()` does not
-appear anywhere, so two copies can run against the same `userData` directory,
-each with its own Express port. (Tracked; see §17.)
+**Single instance (B3, 2026-09-07).** `app.requestSingleInstanceLock()` is taken
+immediately after the Squirrel guard — after, because an installer run is a
+legitimate second process. A second launch quits, and the running app's
+`second-instance` handler restores, shows and focuses the existing window; the
+flag is checked again at `whenReady` because `app.quit()` only STARTS the
+shutdown. Before this, two copies ran against the same `userData` directory,
+each with its own Express port, writing the same `otter-data/` and
+`rabbit-data/` JSON with last-writer-wins and no lock. MEASURED: no URL scheme
+is registered anywhere (`setAsDefaultProtocolClient` appears in no file, and
+neither packager declares one), so there is no deep link to forward yet; the
+handler is where one lands.
 
 #### The local Express server
 
@@ -163,10 +171,10 @@ Created inside `startLocalServer(distPath)` (`main.cjs:140-2086`).
 |---|---|---|
 | Bind | `listen(0, '127.0.0.1')` — **loopback only**, never reachable off-host | `main.cjs:2079` |
 | Port | OS-assigned ephemeral; read back and used as the window's own origin, so no port-discovery IPC exists | `main.cjs:2079-2082, 2121` |
-| CORS | `app.use(cors())` — no options, fully permissive | `main.cjs:143` |
+| CORS | Narrowed (B3) to the renderer's own origin, `credentials: true`; a missing `Origin` is allowed because a same-origin `fetch`, a plain `<img>` and a `<video crossOrigin>` all send none | `electron/localToken.cjs` `localCorsOptions` |
 | Body limit | `express.json({ limit: '50mb' })`; no multipart parser — uploads ride base64 inside JSON | `main.cjs:144` |
 | Static | `express.static(dist)` + an Express-5 catch-all `GET /{*splat}` → `index.html` | `main.cjs:2074-2077` |
-| Authentication | **None.** See the honesty note below. | — |
+| Authentication | **A per-launch token on every `/api` route** (B3): 32 random bytes, header `x-wilson-local-token` OR an httpOnly cookie, constant-time compare, bare 401. Static shell deliberately unguarded | `electron/localToken.cjs`, `src/lib/localServerFetch.js` |
 
 **Route families** — 89 literal route registrations; a generic sub-entity
 factory (18 entity names × 3 verbs) and a 4-entity thumbnail loop expand that to
@@ -197,13 +205,44 @@ roughly 144 endpoints at runtime.
 > called at `:2475`) unlinks `{userData}/otter-data/wilson-auth.json`, because
 > deleting code does not delete data.
 
-**Honesty note on the local server's security model.** The Express server is
-unauthenticated and mounts bare `cors()`. It is loopback-bound, so the exposure
-is to *other local processes and to web pages loaded in the user's own browser
-that can guess the ephemeral port* — not to the network. This is a known,
-tracked posture (TPN-NET-001; `/api/fetch-url` and `/api/fetch-raw` also accept
-arbitrary URLs with no allow-list — TPN-NET-002). Two route families do defend
-themselves, and the pattern is worth copying:
+**The local server's security model (rewritten by B3, 2026-09-07).** The Express
+server now requires a **per-launch token on every `/api` route** — Audrey's
+decision 21. `electron/localToken.cjs` is the whole of it: 32 random bytes
+minted in `startLocalServer`, one middleware mounted ahead of every route and
+**before `express.json`** (so an unauthenticated caller cannot make main buffer
+50 MB before being refused), accepting the header **or** the cookie, comparing
+in constant time, refusing with a bare 401 and no body.
+
+Two ways in, because two kinds of caller exist. The **header**
+(`x-wilson-local-token`) is attached by `src/lib/localServerFetch.js` from the
+token `preload.cjs` hands the renderer — and **only** to a same-origin URL,
+because `otterFetch` falls through to raw `fetch` for anything it does not
+recognise and `fetchImpl` is injected from outside in two more places, so an
+unconditional helper would post the launch secret to whatever host a widened
+call site named. The **cookie** is httpOnly, set on the loopback origin from
+main and awaited *before* `loadURL`; it is what carries `FileThumbnail`'s
+`<img src>`, `VideoPreview`'s `<video src>` and the hidden `<video>`
+`videoThumbnails.js` decodes frames from — element loads that cannot set a
+header.
+
+🚨 **The static shell and the SPA fallback are deliberately NOT guarded.** They
+serve `dist/` — the app's own built code, byte-identical on every machine and
+already in the installer on disk. The content TPN-NET is about is all under
+`/api`. Guarding them would turn a failed `cookies.set()` into a white window
+instead of a degraded feature. A local process that loads the shell gets a UI
+whose every call answers 401.
+
+🚨 **CORS is not the gate.** A non-browser caller ignores every CORS header;
+the narrowed allowlist only stops a page in the user's ordinary browser from
+*reading* a response it provoked. The token is the gate.
+
+Residual, recorded rather than mitigated: cookies are scoped by host and not by
+port, so the loopback cookie is offered to anything else listening on
+127.0.0.1 that this renderer contacts — it contacts nothing else, and the token
+is useless without the port. `/api/fetch-url` and `/api/fetch-raw` still accept
+arbitrary URLs with no allow-list (TPN-NET-002), but they are now behind the
+token. Two route families defend themselves in depth, and the pattern is worth
+copying:
 
 - `resolveContainedFilePath(baseDir, relPath)` (`electron/pathContainment.cjs`
   since S33, required by `main.cjs`; unit-tested in
@@ -253,7 +292,7 @@ exists anywhere); product name `WILSON`.
 | `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_references.json`, `_corrections.json`. **Legacy per-course `_quiz-history.json` files remain on existing installs and are no longer read or created (S30) — all six were empty, because nothing ever wrote one.** |
 | `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json`, **`_quiz-history.json`** | Single-object stores. Quiz history lives at the ROOT, beside `software/`, because a quiz spans courses and deleting a course must not take somebody's marks with it. |
 | `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
-| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents` |
+| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents`; since S3a (0084) also `shotLists, shotListItems, edits` |
 | `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
 | `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/{id}.json` | Workspace-scoped flat stores |
 | `{userData}/rabbit-data/thumbnails/` | Thumbnail cache |
@@ -265,7 +304,8 @@ exists anywhere); product name `WILSON`.
 A project may additionally have a **user-visible folder** on disk, created and
 maintained by `ensureProjectFolders` / `mirrorProjectDatabases`
 (`main.cjs:819-891`): `ASSETS/`, `{slug}_DATABASES/` (mirrors of project /
-team / tasks / timeline / budget JSON), `{slug}_FILES/`,
+team / tasks / timeline / budget JSON, and since S3a `scenes.json` — shot
+lists, their items, scenes, shots and edits; Audrey D21), `{slug}_FILES/`,
 `{slug}_RECEIPTS&INVOICES/`, `{slug}_CREWINVOICES/`, `{slug}_TALENTINVOICES/`,
 and `.trash/`.
 
@@ -325,7 +365,7 @@ anything that needs it is unavailable. The detection primitive is
 |---|---|
 | R.A.B.B.I.T. storage mode | Boot **forces** `supabase`, overriding any carried-over saved preference (`RabbitProvider.jsx:303-311`) |
 | O.T.T.E.R. content | Cloud adapter when signed in; a synthetic `401`/`501` with a stated reason when not — never a silent 404 (`otter_v0.3.1/adapters/index.js:99-117`) |
-| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`) — but since **S31 (0046) these are a CACHE, not the authority**, for the pet and for the two things that follow the person (the seven edited prompts and the agent prompt overrides). `public.user_pets` / `public.user_settings` are keyed by user with no workspace, and `src/lib/userState.js` fills the cache from the account on sign-in. Machine-specific keys in the same documents (`rabbit.adapterMode`, `rabbit.activeProjectId`, `storageLocation`) deliberately stay per-device — a saved disk path names a *different* folder on another computer |
+| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet.<userId>`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`; on the desktop the pet is `otter-data/pet.<userId>.json`, reached through `GET/POST/DELETE /api/pet?user=<uuid>`) — but since **S31 (0046) these are a CACHE, not the authority**, for the pet and for the two things that follow the person (the seven edited prompts and the agent prompt overrides). `public.user_pets` / `public.user_settings` are keyed by user with no workspace, and `src/lib/userState.js` fills the cache from the account on sign-in. **A3 (2026-09-07): the pet's cache is keyed by ACCOUNT and deleted on sign-out**, because `resolveUserPet` reads it to decide adoption and an install-wide copy handed one person's pet to another underneath RLS; the old unattributed `wilson.pet` / `pet.json` is still read when nobody is signed in but is never adopted into an account again. **The pet is cloud-only** (Audrey's ruling 5): every save goes to `public.user_pets`, the local write is the cache mirror rather than a fallback, so with no connection a change is not stored anywhere — Settings' Companion section and the companion's failure banner both say so. **Migration 0068** refuses an UPDATE whose `last_updated_at` (the decay anchor, not the touch column) is older than the stored row's, raising SQLSTATE `WP001`; the client re-reads instead of retrying. Machine-specific keys in the same documents (`rabbit.adapterMode`, `rabbit.activeProjectId`, `storageLocation`) deliberately stay per-device — a saved disk path names a *different* folder on another computer |
 | PDF extraction, Google-Sheet import, URL scraping | Unavailable; each caller gates on `hasLocalServer()` independently |
 | Storage providers | Only Supabase Storage works; the Settings card marks the others unavailable (`SettingsPage.jsx:578-581`) |
 | D.O.G. | Runs off the open project's cloud context; attachments are refused at the adapter (§13.1) |
@@ -656,7 +696,7 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | Migration | 0016 | 0018 |
 | Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
 | Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
-| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
@@ -665,6 +705,29 @@ topic-suffix cast so a hand-crafted topic string cannot error a policy.
 Deliberately **never broadcast**: `otter_*` (personal content — the workspace
 channel hands full row payloads to every subscriber) and `notes` /
 `note_subjects` (private).
+
+🚨 **`scenes`, `shots`, `levels` and `experiences` are off the channel BY
+CHOICE, not by omission.** Audrey ruled on 2026-09-07 that key dates get live
+sync "like tasks" and that those four keep the reload limit: a second window
+sees a change to them on its next project load. 0077 therefore added exactly
+one arm. The choice is machine-checked in `72_milestone_realtime.sql` probes
+11-14 (matched by FUNCTION, not by trigger name) rather than only written
+down, because "we meant to" and "we forgot" look identical in a schema. To
+change it, change the ruling, the trigger, `TABLE_TO_COLLECTION` in
+`state/realtimeMerge.js` and those probes together — the client merge standing
+ready for events the database never sends is worse than the limit, because it
+reads as working live sync.
+
+**Since 0084, `shot_lists`, `shot_list_items` and `edits` are off the channel
+too** — the same choice, carried over (0084 adds no broadcast arm; unlike the
+four above, no probe pins it yet). The consequence to know: `projects` IS
+broadcast, so a change of `projects.active_shot_list_id` reaches every window
+at once, and it can name a list another window has not loaded (one made after
+that window loaded the project). That window finds no active list for a
+moment — `activeShotListOf` returns null for an id it cannot find, so
+`ctx.scenes` / `ctx.shots` show every row — while the provider refreshes its
+lists; then they narrow to the new active list. A collaborator's membership
+changes likewise arrive only with the next load.
 
 *Operational gotcha:* on a hosted project whose Realtime tenant has never been
 active, `realtime.messages` has no partitions and `realtime.send()` silently
@@ -813,6 +876,11 @@ both described the pre-0042 set and S39's own brief inherited the error:
   `_delete`), the same predicate asserted rather than negated, plus
   `can_access_project_money`.
 
+Since **0088 (post-overhaul S4b)** the list the function holds is `INVOICES`,
+`FINANCE` and **`LEGAL`**, any case — one function body, so these eight and
+the eight `rabbit-thumbnails` policies (0053) moved together and none was
+restated (0088's post-condition 8 re-counts all sixteen).
+
 ⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
 `rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
 all three explicitly** and replaced them with the money four. Any document still
@@ -874,6 +942,7 @@ only matter if someone **replays a migration by hand**:
 | `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 | `0028` **or** `0031` | `0055` | **(S41)** 0055 widens the same CHECK a second time, to 19 values, with the four `storage_plan.*` actions. **The rule now goes both ways**: a bare re-run of EITHER earlier file restores a list without them, and every `operator-storage-plans` audit write then fails the same silent way — 200 to the operator, no certificate written. 🚨 **0031's own post-condition does not notice**: it greps the constraint for `%model.approved%`, which a 0031 replay satisfies perfectly. Only 0055's post-condition checks for `storage_plan.set`. |
+| `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. |
 | `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
@@ -998,7 +1067,8 @@ environment.
 
 ### 5.4 `operator-workspaces`
 
-Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
+Actions: `list`, `create`, `rename`, `admin_contact`, `send_setup_link`,
+`suspend`, `restore`, `teardown`.
 
 - `list` — paged calls to `operator_workspace_summary()`, the **single**
   cross-tenant read in the system. Returns per-company member/active/admin
@@ -1010,6 +1080,33 @@ Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
 - `rename` — name only; the slug is immutable by trigger.
 - `suspend` / `restore` — set and clear `workspaces.deleted_at`, with
   `already_suspended` / `not_suspended` conflict guards.
+- `admin_contact` (S43b, shipped by Track A bundle A1) — read-only. Returns
+  the company's founding admin — the oldest active `app_role = 'admin'`
+  membership by `created_at`, with the address read from the **auth** user —
+  plus `deliverable` (false for a synthesized address: `@wilson.invalid` from
+  `create`, or `wilson.<workspace8>.<local>@mail.petalstudios.co` from
+  `admin-create-user`) and `suspended`. It exists because `send_setup_link`
+  demands the address typed back and no other operator surface showed it:
+  `operator_workspace_summary()` returns counts, and the create-time
+  credentials dialog is show-once. Both actions read through ONE helper,
+  `loadFoundingAdmin()`, so the address displayed and the address demanded
+  cannot diverge; the helper throws on a failed lookup and both callers catch
+  it as `admin_lookup_failed` (the R2 review found the read-only caller had
+  not).
+- `send_setup_link` (S43b) — emails the founding admin a **recovery** link
+  (not an invite: the auth user already exists with `email_confirm: true`).
+  Refuses, in this order, a suspended company (`already_suspended`), a
+  synthesized address (`email_synthesized`) and a `confirm_email` that does
+  not match the address on file (`email_mismatch`, compared
+  case-insensitively); a failed send is surfaced as `send_failed` (502) and
+  never certified. On success it certificates `workspace.invite_sent`
+  (`WIL-7009`) with `context.sent_to` and `context.admin_username`. The
+  recovery TEMPLATE decides where the link points (`{{ .SiteURL }}`), not the
+  `redirectTo` hint. Limits: both actions share the operator **write** rate
+  bucket (`OPERATOR_WRITE_RPM`, 20/min), so opening the field and sending
+  spend two tokens; the console's Audit table shows the action, the message
+  and the expanded `context`, not the `WIL-` code; and re-sending is allowed —
+  nothing rate-limits a second link to the same company beyond that bucket.
 
 **Teardown — the ORDER is the design.** Reading it in sequence is the only way
 to understand why it cannot be simplified:
@@ -1031,6 +1128,36 @@ to understand why it cannot be simplified:
    workspace. They are built from `reservedProjectObjectPaths()` over the
    project ids the sweep already proved this workspace owns, so they inherit
    its tenancy check, and deduped against the row-derived set.
+   **Also in the collect step, since Track C / C2:** (3b) the **avatars** —
+   `user-avatars/{workspace_id}/…` LISTED by prefix, because no row names an
+   avatar object (`avatar_url` names the current one only) and the prefix is
+   the tenancy proof (0009's INSERT policy pins it); bounded at 5000 objects,
+   past which the scan stops and `avatars_truncated: true` says so. A listing
+   that fails refuses the teardown like any other scan. And (3c) the **open
+   upload reservations** — `sweep_open_uploads(workspace_id)` (0074) closes
+   every open `upload_reservations` row of the tenant, expired or not
+   (`completed` where the object landed, `abandoned` with a certificate
+   otherwise), BEFORE the CASCADE would take both that table and the tenant's
+   `file_events` away uncertified. The failure flag starts true and only an
+   answer clears it: a database without 0074 reads
+   `reservation_sweep_failed: true`, never 0/0. And (3d) the abandoned uploads
+   are certified AT ONCE — one `WIL-7012` per 40 paths, before any blob is
+   touched — because 3c commits its rows immediately and the CASCADE destroys
+   `file_events` moments later. **What 3d certifies is the company's WHOLE
+   `upload_abandoned` record**, read back from `file_events`: the reservations
+   3c just closed, plus any the hourly sweep or a person's own failed upload
+   had already certified, all of which the CASCADE is about to destroy. That
+   read is also what makes a retried teardown safe — a run that died between
+   3c and 3d left rows already closed, so a second attempt's sweep finds
+   nothing open, but the records are still there to be read (`truncated: true`
+   on the certificate if a company somehow had more than one page of them).
+   Nothing is destroyed in 3d (the partials expire at 24 h in Supabase Storage,
+   which nothing on the platform can see), so it is "certified abandoned",
+   never "purged". ⚠️ **A certificate that cannot be WRITTEN is logged and the
+   teardown continues** — `logPlatformEvent` reports an insert failure on
+   supabase-js's error channel to `console.error` and never throws, which is
+   deliberate (a destruction must not be half-done because its record failed)
+   and true of every `WIL-70xx` here, not only this one.
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -1049,13 +1176,23 @@ to understand why it cannot be simplified:
    `reserved_failed`): the inputs are two *candidates* per project, most of
    which will not exist, so folding them into `blobs_missing` would make the
    certificate read as a far larger failed purge than it was.
+   **Then, since Track C / C2:** (6b) the **avatars**, in `user-avatars`, own
+   pass, own counters (`avatars_found` / `_removed` / `_failed` /
+   `_truncated`), certificate per 40 paths (`WIL-7006` with `avatars: true`),
+   `avatars_removed` counted from `remove()`'s returned array like every other
+   count here. (The abandoned uploads were certified back in 3d.)
 7. **Delete the workspace row.** This fires the CASCADE.
 8. **Drop the queue rows — *after* the cascade, not before.** The `files`
    CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
    would leave those undrainable.
 9. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
    critical) with found/removed/missing/failed/rejected counts, plus the
-   reserved-object counts.
+   reserved-object counts — and, since Track C / C2, the `avatars_*` counts,
+   `reservations_abandoned` / `reservations_completed` /
+   `reservation_sweep_failed`, and `thumbnails_note`, a sentence stating that
+   `blobs_*` and `thumbnails_*` are ROW-DERIVED (an object whose row never
+   landed is neither removed nor counted), so that limit is on the certificate
+   itself and not only in §17.
 
 The reason the collection must happen *first*: after the CASCADE there is no way
 to discover which blobs belonged to the tenant, and `storage-gc`'s orphan scan
@@ -1529,9 +1666,9 @@ other options."* Suite 60 re-runs S34's NAS refusals under
 `provider = 'network'` for exactly this reason.
 
 🚨 **Money-gated files NEVER leave Supabase**, whatever the workspace chose.
-`INVOICES/` and `FINANCE/` are manager-only because the storage path's third
-segment says so and Postgres enforces it (`public.rabbit_money_segment`,
-0042). Drive has opaque ids and its own sharing model; S3 has bucket policies
+`INVOICES/`, `FINANCE/` and — since 0088 — `LEGAL/` are manager-only because
+the storage path's third segment says so and Postgres enforces it
+(`public.rabbit_money_segment`, 0042). Drive has opaque ids and its own sharing model; S3 has bucket policies
 — neither binds to a WILSON project role, so moving invoices to either
 re-opens the hole 0038 shipped and 0039 closed, somewhere RLS cannot see it.
 Enforced in **two** places: `fileProviderFor()` pins the client at the same
@@ -1604,21 +1741,50 @@ Every relink writes a `relinked` event, including a base-folder change itself.
 
 ### 12.3 `file_events` — the lifecycle stream
 
-Vocabulary (a CHECK constraint, not a convention): `uploaded`, `moved`,
-`relinked`, `trashed`, `restored`, `purged`. Cloud path changes emit `moved`;
-local relink emits `relinked`.
+Vocabulary (a CHECK constraint, not a convention): `uploaded`, `downloaded`
+(0047), `moved`, `relinked`, `trashed`, `restored`, `purged`, and
+`upload_abandoned` (0073). Cloud path changes emit `moved`; local relink emits
+`relinked`. `upload_abandoned` is written **only** by
+`sweep_abandoned_uploads()` (§12.4): a resumable upload whose
+`upload_reservations` row expired unreleased with no object landed. Its
+`file_id` is a SURROGATE — the fragment never had a `files` row — so the
+per-file audit drawer never shows one; the workspace takeout and the
+`WIL-3003` cleanup counts do. 0057 added the term without a writer and 0058
+withdrew it; suite 66 probe 27 now asserts the term and the writer land
+together.
 
-Written **only** by `trg_files_lifecycle` → `fn_file_events_capture()`
-(SECURITY DEFINER). INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
+Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
+DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
+for `upload_abandoned` only, joined in 0074 (Track C / C2) by
+`abandon_upload_reservation()` (the client's failure path: a resumable upload
+that FAILED with an error the server answered is certified at once, with the
+client's reason in `details.reason`) and `sweep_open_uploads()` (teardown: every
+open reservation of the tenant, `details.closed_by = 'teardown'`), both for
+`upload_abandoned` only; nothing else writes the table. INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
 `deleted_at` transition and/or `moved` on a `storage_path` change (one UPDATE
 can emit both); DELETE → `purged` with a JSONB snapshot whose `mime_type` is
 truncated to 256 characters, specifically so a client-writable oversized value
 can never trip the `details` CHECK and void the certificate.
 
 Read policy: project readers **plus** a workspace-admin arm, so proof of
-deletion stays readable after the project itself is gone. There are no FKs on
-`file_id` / `project_id` — deliberately, so the certificate outlives its
-subject. Append-only is enforced three ways: zero write policies, revoked
+deletion stays readable after the project itself is gone — **and, since 0074
+(Track C / C2, Audrey's ruling 22), a money arm.** Every row carries
+`is_financial`, snapshotted at capture by ONE definition,
+`file_event_is_financial()`: the `files` row's `is_financial` flag OR a
+row-shaped key under a money segment (`INVOICES/`, `FINANCE/`, `LEGAL/` —
+0042's `rabbit_money_segment`, widened by 0088). A non-money reader sees a
+flagged row **only when `event = 'purged'`** (deletion records stay visible to
+everyone who could read the project); every other event of an invoice — upload,
+move, trash, restore, download — is for workspace admins and project managers
+(`can_access_project_money`, 0037). **A Legal file's `purged` certificate is
+the exception (0088):** it names the file, so a certificate whose `old_path`
+was under `LEGAL/` is hidden from non-money readers too — put to Audrey in the
+S4b hand-off, reversible by deleting that one arm. One policy, every arm restated (a replay of
+0027 would drop the money arm; 0074's post-condition 3 is the tripwire).
+Limit: the flag is a snapshot — a file that becomes financial LATER keeps its
+earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
+no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
+its subject. Append-only is enforced three ways: zero write policies, revoked
 grants, and migration post-conditions.
 
 **The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
@@ -1630,7 +1796,7 @@ churn.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
-Function (adminGuard, workspace-scoped) then does three jobs:
+Function (adminGuard, workspace-scoped) then does four jobs:
 
 1. **Queue drain** — up to 500 pending rows, re-checking that no `files` row
    (live *or* trashed) still references the path before removing it, so a
@@ -1644,6 +1810,24 @@ Function (adminGuard, workspace-scoped) then does three jobs:
    reads (max_rows applies to service_role too — the unpaged version deleted
    *current* avatars past the cap), removing anything that is not a member's
    current `avatar_url` and older than 24 hours.
+4. **Abandoned-upload certification (0073, Track C)** — calls
+   `sweep_abandoned_uploads(workspace_id)`: every `upload_reservations` row
+   past its 24 h expiry that was never released is closed as `completed` (its
+   object landed, or a `files` row names the path) or `abandoned` (one
+   `file_events` `upload_abandoned` row, TPN-CONT-017). The counts land on the
+   certificate as `reservations_abandoned` / `reservations_completed`, and
+   `reservation_sweep_failed: true` says the sweep did not run to completion
+   — the RPC is missing (a database without 0073), it raised, or the run died
+   before step 4: the flag STARTS true and is cleared only when the RPC
+   answers, so the `WIL-3004` failure certificate, which carries the same
+   counts, can never claim a sweep that never ran (review round 1) — rather
+   than letting 0/0 claim one. It
+   destroys nothing (the partial is reaped by Supabase's own 24 h TUS expiry,
+   which nothing here can see), so TS-1.5's dual-authorisation argument does
+   not bind it and the same function also runs **hourly under pg_cron**
+   (`wilson-sweep-abandoned-uploads`, `39 * * * *`) across all workspaces; the
+   per-workspace call here is so an admin's cleanup click certifies now rather
+   than within the hour.
 
 🚨 **A row is not the only thing that makes an object wanted — the RESERVED
 rule (S36).** R.A.B.B.I.T. writes two objects straight to the bucket with **no
@@ -2258,6 +2442,709 @@ carries the install and which build to download. Packaged by
 - **`.ts` is deliberately NOT a video extension.** MPEG transport streams use
   it and so does every TypeScript file; this tool sees far more of the latter.
 
+### 12.8 The local demo folder (demo sprint, 2026-09-10)
+
+Audrey, 2026-09-08: *"for demo-ing i need the ability to use the system and
+not need a server or a cloud solution. I want to be able to setup a local
+folder on my local storage just to demo the system."* And on 2026-09-10,
+after the first cut put an entry on the sign-in screen: *"remove the work
+locally button at login. user still needs to login no matter what."*
+
+**What it is.** ONE user-chosen folder that holds everything R.A.B.B.I.T.
+writes on the desktop in Local Server mode — chosen after sign-in from
+Settings → Storage → *Local demo folder*, remembered per machine, copyable.
+
+```
+<folder>/
+  wilson-demo.json          manifest: format, kind, created_at/with, last_opened_at/with
+  projects/<slug>/          the project folders (the existing folder_slug layout)
+  .wilson/rabbit-data/      bundles, thumbnails, rate cards, team, templates
+```
+
+**Where it lives in code.** `electron/localDemoRoot.cjs` is the whole
+model, pure and unit-tested (`src/lib/localDemoRoot.test.js`, real temp
+folders): `makeLocalDemoRoot({ userDataDir, appVersion })` →
+`load / open / close / forget / getState / isKnownFolder / contains /
+rootDir / dataDir / projectsDir`. `electron/main.cjs` keeps its helper
+NAMES AND SIGNATURES and asks the module where they resolve:
+
+- `getRabbitDataDir()` → `localDemoDataDir() || userData/rabbit-data`.
+  Everything that hangs off it follows — `getThumbCacheDir()`, the project
+  bundles, rate cards, team members, task templates. NOT `files-config.json`:
+  that is per-machine configuration and stays in userData (review round 2,
+  M4 — a copied folder must not carry another machine's files root).
+- `resolveConfiguredRootDir()` → `localDemoProjectsDir()` first, then the
+  S34 chain (workspace root → machine default). Computed from the open
+  folder, never stored, so a copied folder still resolves.
+- `folderRootRefusal()` treats the open folder as the boundary (a project
+  folder must sit strictly inside it), ahead of the workspace-root arm.
+- `isUserAuthorizedRelinkDir()` counts the open folder as user-chosen (it
+  was picked in the OS dialog, or remembered from that pick).
+- `readRabbitBundle()` re-slugifies `folder_slug` on read (review round 1,
+  H3: `resolveProjectFolder`, `ensureProjectFolders`, `mirrorProjectDatabases`
+  and `resolveProjectFilesDir` join the RAW value; S40 hardened only
+  `resolveProjectFolderRoot`, and a copied demo folder is a bundle somebody
+  else wrote), and rebases a stored `folder_root` that points OUTSIDE the
+  open folder **and no longer exists** to `<folder>/projects/<slug>`,
+  logging a `relinked` event in the bundle. A live folder elsewhere keeps
+  its pointer (L9) but is NOT followed while a demo folder is open (review
+  round 2, H3: `storedRootUsable` → `storedRootAllowed`, by real path) —
+  the project resolves to `<folder>/projects/<slug>` instead, and the record
+  stays for the day the folder is opened on the machine it came from.
+- `getRabbitProjectDir()` and `DELETE /api/rabbit/projects/:id` contain the
+  project id with `resolveContainedFilePath` — Express 5 decodes `..%2F` in
+  route params, and the base is now a user-chosen folder.
+
+**The adopt / initialise / ask rule** (`classifyFolder`): a folder with a
+current manifest is adopted (never reinitialised); an empty folder (OS
+litter ignored) is initialised; a folder holding other files, or a manifest
+that cannot be read, ASKS — `open()` returns `needsConfirm` and writes
+nothing until the caller passes `allowForeign: true`; a manifest from a
+newer WILSON is refused with a sentence.
+
+**Per machine:** `userData/local-demo.json` = `{ activeFolder, recent[] }`
+(eight most recent, case-folded dedupe). `load()` runs FIRST in
+`app.whenReady()`, before the legacy cleanups derive a data dir. A
+remembered folder that is not on disk is reported as `missing` — the card
+shows *Locate it… / Forget it* — and is NEVER silently replaced by userData:
+`localDemoMissingGuard`, mounted once ahead of the `/api/rabbit` routes,
+answers 503 with the sentence until the person locates, forgets or closes
+the folder (review round 1, M6). Every folder is stored by its REAL path
+(`fs.realpathSync.native`), and `reset()` re-checks the real path of each
+subtree before `rmSync` — containment in pathContainment.cjs is lexical, and
+a junction planted inside a shared folder would otherwise reach outside
+(M7). `reset()` also refuses unless the manifest's `created_layout` says
+WILSON made `projects/` itself — a folder adopted with its own `projects/`
+is never emptied behind a confirm that promises the opposite (H2).
+
+**The IPC** (`local-demo:get-state / pick / open / close / forget / reset /
+open-in-explorer`, preload `electronAPI.localDemo`): IPC, not Express, for
+the S34 reason — the Express server answered any local origin when this was
+written, and a drive-by page must not repoint where the machine keeps its
+data (since B3, Track B, `cors()` answers the renderer's own origin only and
+every `/api` route needs the per-launch token, header or httpOnly cookie —
+IPC still stands, because any script on the renderer's origin carries that
+cookie). `open` accepts only a
+folder the user picked in the demo dialog THIS session (`demoAuthorizedDirs`
+— its own set, because a pick made for the files root is not consent to
+open a demo folder, M5) or one `local-demo.json` already remembers; the
+renderer's reopen path asks before initialising a remembered folder that
+now holds other files (M4).
+
+**The renderer** (`src/components/local/localDemoClient.js`,
+`StorageConnections.jsx`): the card shows the open folder in full with
+*Change folder… / Open in Explorer / Close folder* and the recent folders
+with *Open / Forget*; the old per-machine *Project files root* line stays
+only while no folder is open. Opening or closing a folder pins
+`otter-settings.rabbit.adapterMode = 'local_server'` (clearing
+`activeProjectId`) and RELOADS the window — RabbitProvider boots once per
+root; WorkspaceSwitcher's precedent. The machine-root gate (S34,
+TPN-AUTH-009: admins only while signed in to a workspace) covers every
+repoint. `localDemoWiring.test.js` pins every seam to its caller, and pins
+that `LoginScreen.jsx` and `App.jsx` carry nothing of this feature.
+
+**What stays in userData on purpose:** the pet, O.T.T.E.R.'s library and
+settings (including the adapter-mode switch itself), agent skills, the
+encrypted session. Local Server projects already in userData are not moved
+when a folder is opened; adoption, if wanted, is an explicit action.
+
+**Dev-only knobs** (both gated on `!app.isPackaged`): `WILSON_USER_DATA=<dir>`
+points a second instance at a scratch userData; `WILSON_DEV_OFFLINE=1`
+cancels every non-loopback request in `createWindow` — the "cable pulled"
+measurement; `WILSON_DEV_OFFLINE=stall` leaves them pending instead, the
+stalled network. The session restore at boot is bounded to 15 s
+(`withTimeout`, `c5e5a77`); measured 2026-09-10 on a staging build with a
+real saved sign-in: `=1` fails the restore in 10 ms and the sign-in screen is
+up 4.5 s after the page loads, `=stall` times out at 15.0 s and the sign-in
+screen follows 4.3 s later — never an orange window.
+
+**Not this feature (Audrey, 2026-09-10, after the build):** *"local file
+storage should be solely for media and files, database entries and data
+should still be cloud based."* Cloud rows with local file bodies exist in no
+mode — Supabase mode refuses uploads for a workspace on its own server, NAS
+or local folder (S36, `supabaseAdapter.js` `uploadFile`), and managed files,
+thumbnails on disk and the bins are `local_server`-only. The folder above
+moves the DATA local; it stays for the Friday demo, which runs in two parts
+(`DEMO_LOCAL_STORAGE_BRIEF.md` §7). The target model is the `network`
+provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
+session.
+
+**Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
+server however fresh the saved sign-in: restoring it goes through
+`supabase.auth.setSession()`, and `@supabase/auth-js` 2.101.1
+(`GoTrueClient._setSession`) confirms an unexpired token with a `_getUser`
+request, so an offline launch lands on the sign-in screen (corrected
+2026-09-10; `OUTSTANDING.md` carries the fix shape). An OPEN window keeps
+its session in memory: a refresh that fails with a network error keeps the
+session (`_callRefreshToken` removes it only on a non-retryable error), so
+after about an hour only the cloud features report unavailable. Open/close
+reload the window. `npm run dev` (browser) cannot run Local Server mode at
+all; a desktop build Audrey can sign into is `npx vite build --mode staging
+&& npx electron .` (dev builds point at wilson-dev, where her username is a
+different account). Walkthrough: `docs/walkthroughs/18_local_demo_folder.md`.
+
+**Review round 2 (2026-09-10, `src/lib/localDemoBoundary.test.js`).** The
+verdict was "the boundary does not hold", and every finding was fixed the
+same day: per-id files (rate cards, team members, task templates, the
+thumbnail cache) joined a client-chosen id raw — `dataFilePath` in
+`pathContainment.cjs` now contains them, and an escape is answered 404 by an
+error handler registered after the SPA fallback (H1/H2); a bundle's
+`thumbnail_image` is only opened from under a folder the person chose (H2);
+a stored `folder_root` / `files_dir` outside the open folder is not followed
+even when it exists (H3, above); `files-config.json` is per machine (M4);
+`reset()` refuses when either `projects/` or `.wilson/rabbit-data`
+pre-existed (M5); a folder that vanishes while open flips to *missing* on
+the next root question instead of being recreated (M6, `checkPresence`); a
+pick is recorded by real path too, so a junction-reached foreign folder can
+be confirmed (L7); and inside an open demo folder `folderRootRefusal` uses
+the folder's own posix-capable shape check (N8). Out of scope and recorded
+in `OUTSTANDING.md`: the O.T.T.E.R. software routes join `req.params` onto
+`getSoftwareDir()` the same way.
+
+### 12.8a Private projects — cloud rows, media on this computer (2026-09-11)
+
+**Audrey, 2026-09-11, verbatim:** *"all databases need to live in the
+supabase storage at all times. the only thing local storage should be
+related to is just the media files and asset of the project. … lets also
+just give users the ability to setup private projects for themselves."*
+Built the same night (`4c10387`); `DEMO_LOCAL_STORAGE_BRIEF.md` §8 records
+the decision, walkthrough 18's last section the clicks.
+
+**The model.** A private project is a cloud project row with
+`projects.is_private = true` (migration 0072). `projects_select` keeps
+0020's three conditions and gains one arm: `NOT is_private OR created_by =
+auth.uid() OR current_app_role() = 'admin'`. Every child table's SELECT
+policy already hops through `EXISTS (SELECT 1 FROM public.projects …)`
+under the caller's RLS (0014's live-parent rule), so files, assets, tasks,
+scenes, shots, folders and the realtime topic gate (0016) follow without a
+policy change of their own; pgTAP suite 80 pins the owner, the member, the
+admin and the child hop. `created_by` is stamped by `fn_audit_touch`, so the
+owner is the inserting caller by construction.
+
+**Where the media goes.** `uploadFile` (`supabaseAdapter.js`) decides the
+provider beside the money pin: a non-financial upload on a private project
+takes `FILE_PROVIDERS.LOCAL_SERVER`; everything else takes the S37
+workspace read exactly as before, and the S36 refusal of a whole workspace on
+`network` stands. `local_server` is now a REGISTERED provider on every
+surface — `storage/localServerProvider.js`, five functions over `fetch`
+against the desktop's own Express server, plus `getUrl` for playback and
+download — and off the desktop each function refuses with a sentence
+(`NOT_HERE`) instead of the registry's generic throw. The routes are
+`electron/localMedia.cjs` (`/api/rabbit/local-media`: describe / put /
+get with Range and `?download=` / head / delete), mounted from `main.cjs`
+with one line after the missing-folder guard and before the SPA fallback.
+The root is `getLocalMediaRoot()`: `<demo folder>\media` while a folder is
+open, `rabbit-data\local-media` under app data otherwise; a MISSING folder
+refuses (never a silent fallback). Thumbnails follow the body (S44's rule,
+`putThumbnailTo(storageProvider, …)` unchanged) and FileManager reads a
+`local_server` row's preview from the local URL instead of asking Petal to
+sign it. The client probes `is_private` once per session (42703 → absent),
+so a build ahead of the database lists projects as before and shows no
+checkbox; `createProject` drops the flag in that case.
+
+**The key is untrusted.** A `files` row is inserted by any project member
+through PostgREST, so the `storage_path` that reaches these routes is
+input, not our output: `checkMediaKey` admits only the shape `uploadFile`
+writes (`projects/<id>/<entity>/<entity id>/<leaf>`, plain segments, no
+dot-segments, separators, drive letters or device names), the disk path goes
+through `resolveContainedFilePath`, and the nearest existing ancestor is
+re-checked by REAL path so a junction inside the root cannot lead out
+(`localMedia.test.js`). Loopback, and locked like every other `/api` route
+since B3 — the per-launch token header or the httpOnly launch cookie, or a
+bare 401 (see "The local server's security model" above); the pre-B3
+"unauthenticated" stance no longer describes it.
+
+**Stated limits.** A local body is not purged when its row is hard-deleted
+or GC'd — the desktop is out of the cloud sweep's reach (`OUTSTANDING.md`);
+the folder's *Reset demo folder* leaves `media\` alone on purpose (its rows
+outlive the folder); the bins remain Local Server only (Audrey: next week).
+Opening a demo folder no longer pins Local Server mode (§12.8's "choosing a
+folder switches the backend" is gone).
+
+### 12.8b Deck attachments (Track C / C3, migration 0075)
+
+*Numbered 12.8b at the post-overhaul merge (2026-09-30): the demo sprint's §12.8
+and §12.8a were already in this file when Track C landed. Track C's hand-offs
+and commit messages call this section §12.8.*
+
+D.O.G.'s project attachments are **ordinary project files**, on every backend
+that has a file store. There is no second mechanism: the Resources drop zone
+and D.O.G.'s new-project modal both call `adapter.uploadFile`, so an
+attachment is a row in `public.files` / `bundle.files` with its body in
+`rabbit-files` / the project's files directory, and it inherits the quota
+meter, the reservation (§12.4), the money gate, `file_events` (§12.3), the
+30-day trash and the teardown sweep without any of them being told about it.
+
+**What marks a file as a DECK attachment** (`deckAttachments.js`, one module
+for one contract — the reader and its three writers drifted the moment they
+lived apart):
+
+- `document_kind` is non-null (0075's column, the ten-value enum 0000
+  declared) — whoever uploaded it; **or** the file is an image or a video
+  **filed against the project itself**, with no `scene_id` / `shot_id` /
+  `asset_id` / `task_id` / `phase_id` / `level_id` / `experience_id`.
+- 🚨 RABBIT's own uploads leave `document_kind` NULL, and for DOCUMENTS that
+  is the whole separation: a project's scripts and specs are not deck source
+  material unless someone gives them a Kind in the Resources table.
+- 🚨 **MEDIA HAS NO MARKER OF ITS OWN, SO THE MARKER IS WHERE IT WAS FILED.**
+  Review round 1 caught the first version of this rule admitting *every* image
+  and video the project had ever held. On a project a month into production
+  the twenty NEWEST files are renders, so the brief was pushed out of D.O.G.'s
+  budget entirely and 32 MiB of production media went into the generation
+  prompt in its place. An entity FileManager stamps the file with the entity it
+  was opened on; the Resources drop zone stamps nothing.
+- ⚠️ **The residue, stated rather than closed — and review round 2 corrected
+  WHERE it is.** Round 1 named "`FileManager` mounted at project level"; there
+  is no such mount, since every `<FileManager>` passes an entity. The surfaces
+  that really write project-level media are **`ProjectSummaryView`'s
+  ProjectFilesSection** (its Add Files calls `uploadFile(file, { type:
+  'project' })`, no entity keys) and **`BudgetView`'s expense receipts** (a
+  scope `uploadFile` does not read — its own `OUTSTANDING.md` entry). Files
+  from either are indistinguishable from a Resources drop and WILL be
+  included. Bounded rather than fixed: documents are always taken first
+  (below), so nothing can crowd out the brief, and D.O.G.'s File roles list
+  names every file it is using. Closing it properly needs a column that says
+  "filed as deck source material", which C3 did not take.
+- ⚠️ **On Local Server the entity check is weaker than it looks.** The Express
+  upload route writes `phase_id`, `asset_id` and `task_id` and drops
+  `scene_id`, `shot_id`, `level_id` and `experience_id`, so "no entity" there
+  can mean "the route discarded it". Narrow in practice — that backend's entity
+  FileManagers write the *managed* store, which `listFiles` never returns — but
+  real when the renderer runs without the preload bridge.
+- 🚨 A writer that KNOWS it is writing an attachment must therefore leave the
+  row recognisable. `documentKindFor()` is total by construction: media →
+  NULL, anything else → the detected kind **or `'other'`**. Using
+  `detectDocumentKind(name) || null` — which is what all three writers did at
+  first — writes NULL for a PDF whose name matches none of its heuristics, and
+  the file then uploads, lists in the grid, and is invisible to generation.
+  Measured, not reasoned about: `polarityRoundTrip.test.js` caught it on a
+  file called `legacy.pdf`.
+
+**What D.O.G. reads back, and the bound.** It lists the rows, filters them,
+then DOWNLOADS each body through `adapter.downloadFile` and rehydrates it —
+text as text, binary as base64 with the data-URL prefix stripped. Without that
+step a cloud attachment uploads perfectly and contributes nothing to
+generation, which is worse than the loud refusal it replaced. Bounded at
+**20 files and 32 MiB in total**, because `files` holds a project's whole
+production tree; anything over the budget is skipped rather than truncated,
+and the panel states how many were left out.
+
+🚨 **The budget is spent DOCUMENTS FIRST, then media, each newest-first**
+(`orderAttachmentCandidates`). A single date sort spends it on whatever
+happens to be newest, which on a working project is media — so what the bound
+costs is visual reference material and never the source material the deck is
+about.
+
+**The legacy arrays are still read.** `project.documents[]` /
+`visualAssets[]` are never written any more but are still merged into both the
+Resources list and D.O.G.'s source set on every backend, so nothing an
+existing local project had was lost. Moving them is a deliberate one-time
+action: **Settings → RABBIT → "Move deck attachments into project files"**,
+dry run required first, per-file ceiling **32 MiB**, oversized files named and
+left in place, and each entry cleared from the array only after its upload
+returns — so a crash mid-run means a re-run moves exactly what is left.
+
+⚠️ The ceiling is 32 MiB because `localServerAdapter.uploadFile` base64-encodes
+into a JSON body that `express.json({ limit: '50mb' })` caps — and Local Server
+is the only backend whose projects can hold legacy arrays at all, so a ceiling
+above ~37 MiB would never bind: those files would fail with a raw HTTP 413,
+counted as failures rather than named as oversize.
+
+**Two CORE flags with opposite defaults**, deliberately not unified — see
+§17's "Correctness" note. `runAttachmentMigration` is the one place they meet
+and it carries `isCore !== false` across explicitly.
+
+🚨 **A NEWLY WRITTEN ATTACHMENT IS CORE** (`NEW_ATTACHMENT_IS_CORE`), because
+that is what the legacy writer produced: it never set `isCore`, and D.O.G.
+reads a missing flag as CORE. Review round 1 found this bundle's first version
+writing `false` there, which turned an identical gesture — drop a brief on
+Resources — from "a primary source of truth for what this project IS" into
+"supporting reference material only", silently. Both measured polarity diffs
+stayed at zero throughout, because both covered the READ path and the
+migration and neither covered the WRITE path.
+
+⚠️ **`is_core_definer` is shared with RABBIT's Files views, and that is the
+whole of it — it does NOT reach intake.** Review round 1 added a paragraph
+here claiming a Resources drop became an intake candidate; review round 2
+traced it and found it false. `IntakeWizardView` keeps its files in local
+state, populated only by `IntakePrepare` from a picker as staging objects
+carrying a `dataUrl`, and `runIngestion` needs that `dataUrl` to extract text.
+A `files` row has none, and no code path puts one in that list. Left here as a
+correction rather than silently deleted, because "measured" was claimed for it
+and it had not been.
+
+### 12.9 Expense receipts are money (Track C / C4, migration 0076)
+
+An expense receipt is gated exactly like an invoice. `BudgetView`'s expense
+form uploads through `adapter.uploadFile(projectId, { financial: true }, file)`
+— **one key**, and it is genuinely one key because `uploadFile` spends
+`scope.financial` three times inside a single function:
+
+- the reserved **`INVOICES`** third path segment, which is what the four
+  `rabbit_files_money_*` storage policies key on and what the four base
+  `rabbit_files_*` policies negate — the **blob** gate. ⚠️ Review round 1
+  corrected this sentence twice over: it named `rabbit_files_invoices_*`, a
+  family **0042:212-214 dropped and replaced**, and it said *three* base
+  policies where 0042 creates four (`_select`, `_insert`, `_update`,
+  `_delete_own`) — eight in all, the count 0042's own post-condition asserts.
+  The predicate is `NOT public.rabbit_money_segment(seg 3)`, i.e. `INVOICES`
+  **or** `FINANCE` in **any case**, not a literal `'invoices'`;
+- **`files.is_financial`** — the **row** gate (0038);
+- the **Supabase pin** — a money body never leaves Petal's bucket whatever
+  storage the workspace selected (0050's `files_money_provider_chk`). This one
+  is `supabaseAdapter`'s alone; Local Server writes to the customer's disk with
+  `storage_provider: 'local_server'`.
+
+Local Server reads the same flag and writes the body into the project's
+invoices directory, so both write-capable backends gate on one word.
+
+**Legal files (post-overhaul S4b, 0088) are the same gate reached by the
+folder alone.** `uploadFile(projectId, { type: 'project', legal: true }, file)`
+spends `scope.legal` in the same three places: the reserved **`LEGAL`** third
+segment (the blob gate — `rabbit_money_segment` now lists it), `tags: ['legal']`
+on the row, and the Supabase pin (`fileProviderFor(..., { financial: true })` —
+Legal bodies never reach a customer bucket or the NAS-backed cloud provider).
+It does NOT set `is_financial`: a Legal file is not an invoice. The **row**
+gate reads both axes instead — the four `files_*` policies carry
+`(NOT public.file_row_is_money(is_financial, storage_path) OR
+public.can_access_project_money(project_id))` in USING and WITH CHECK, where
+`file_row_is_money` is the flag OR the third segment is a locked folder (0050's
+two axes, now the row's too). Two CHECKs make Legal a fact fixed at upload,
+Audrey's *"its just the folder that is locked"*: `files_legal_folder_chk` (the
+`legal` tag ⇔ the `LEGAL` segment, so a tag can neither be added nor removed
+later and a path cannot cross the boundary without it) and
+`files_legal_not_core_chk` (a Legal file is never Core — Intake and D.O.G. read
+core files as context every member sees). The client mirrors it: `uploadFile`
+asks the database `rabbit_money_segment('LEGAL')` (only a `true` is
+remembered, so a database migrated mid-session is picked up; one without 0088
+answers false, and the Legal option is greyed with one sentence), refuses
+a Legal upload by someone without the money gate before a byte moves, and
+refuses Legal + financial together. `fileTags.tagSettable` never lets anyone
+tick Legal (or Finance); the file window shows it as a locked fact. On the
+**Local Server** (no roles) a Legal upload goes into a real `LEGAL` folder
+beside `INVOICES`, the row's tag is the fact, and the PATCH routes
+(`electron/projectFilePatch.cjs`) refuse adding or removing it or making the
+file core — the UI says once that this backend cannot enforce who sees the
+folder and that it can be locked on the NAS.
+
+**What review round 1 added (0088 §3c, §3d, §5b; S4b, 2026-10-01).** Three
+more rules, each measured open on dev before it was written:
+`reserve_upload_bytes` refuses a key under a locked folder
+(`rabbit_money_key`) to anyone without the money gate, in its FIRST refusal
+and before the quota exemption — otherwise the definer sweeps and the
+active-path unique index answered whether a guessed Legal key existed.
+`files_money_key_chk` makes a row whose third segment is locked a real
+`projects/{id}/{SEGMENT}/…` key, so the row's gate (`split_part`) and the
+events' and objects' (`storage.foldername`) can never disagree. And
+`trg_files_legal_fixed` (BEFORE UPDATE OF `storage_path`) refuses any change
+to whether a row's path is under `LEGAL`, in either direction, for anyone —
+one UPDATE that moved a Legal row out and dropped its tag had satisfied the
+CHECK and declassified it. On the desktop, `electron/legalFiling.cjs` is the
+one place that decides where a Legal body lives (the project's `LEGAL`, or
+with no project folder the internal project directory's `LEGAL` — never the
+ordinary files directory), where it is read from, which S4a-period `legal`
+labels are stripped on read, and that relink never takes an invoice or a
+Legal file. The desktop→cloud migration (`src/cloud/migrate/runMigration.js`)
+puts a Legal body under `LEGAL` and an invoice's under `INVOICES` — and only
+where the cloud locks `LEGAL`; before round 1 it put every body under a
+`files` segment every member could read.
+
+**What review round 2 added (0088 §5c, §9b).** `trg_file_events_money` flags
+every `file_events` row at INSERT by 0074's `file_event_is_financial`,
+whoever writes it — the hourly `sweep_abandoned_uploads` wrote its
+`upload_abandoned` certificate unflagged, so an abandoned large Legal upload
+(or invoice) was named to every project reader. `workspace_upload_reserved_bytes`
+sets aside only the CALLER's own reservation for the key being weighed —
+`rabbit_petal_storage_ok`'s path argument had answered anyone whether a
+guessed key was reserved, and for how much. On the desktop the S4a-label
+clean-up runs once per project (`bundle.legalLabelsSettled`). The Projects
+page lists Legal files to the people the database gives them to, with the
+Core box locked — it is where a project file is deleted. Left open, put to
+Audrey: a money-cleared person can rename a Legal OBJECT out of `LEGAL`
+through the Storage API (OUTSTANDING S4b-10). There are
+exactly two: `adapters/index.js` registers three adapters and Google Drive's
+`uploadFile` is `readOnly()` — a function that throws (`googleDriveAdapter.js:267`)
+— so Drive cannot write an ungated receipt because it cannot write at all.
+⚠️ Nothing pins that, and C4 did not check it; a session that ever gives Drive
+a write path must revisit this section. No `lineId` is passed — the create form
+has no expense id yet, and **the edit path does not pass one either** — so
+`uploadFile` falls back to `projectId` (`supabaseAdapter.js:1184`). That
+fallback is not *documented*: the `UploadScope` typedef (`adapters/index.js`)
+lists neither `lineId` nor, more importantly, **`financial`** — the key this
+whole gate turns on is absent from the only contract describing the argument.
+The gate is the THIRD segment; the fourth is only organisation.
+
+🚨 **A consequence C4 did not name: a receipt BECAME EXEMPT FROM THE STORAGE
+QUOTA.** ⚠️ This paragraph is in the PAST TENSE throughout: it describes the
+state between C4 and 0078, and review round 2 found it still written in the
+present after 0078 had closed it. The RESTRICTIVE `petal_storage_quota_insert`
+(0055) then read `bucket_id <> 'rabbit-files' OR rabbit_quota_exempt_path(name)
+OR rabbit_petal_storage_ok(...)` — **the live arm 2 is now
+`rabbit_quota_exempt_object(name, metadata)`, and 0078's post-condition 6b
+raises if `rabbit_quota_exempt_path` appears in the policy at all** — and
+`rabbit_quota_exempt_path` is true for any money segment. Before C4 a receipt's
+third segment was `project`, so it was weighed and could be refused; C4 made it
+`INVOICES`, so **the quota could no longer refuse a receipt at any size**.
+Meanwhile `workspace_petal_committed_bytes` had no exemption clause, so those
+bytes still consumed the allowance that refuses ordinary media. 0055 justified
+the exemption on the premise that money paths are tiny — one invoice PDF per
+budget line — and `BudgetView`'s picker is `<input type="file" multiple>` with
+no `accept` and no size cap. Not a security hole (0037 gates `expenses`, so
+only money-cleared people reach it), but a billing one: a manager **could** burn
+a workspace's storage without limit and without refusal. **Bounding the
+exemption by object size was a pricing decision. Audrey ruled on it on
+2026-09-09 and 0078 is that ruling** — a new migration in 0055's family, NOT an
+edit to 0055. ✅ **FIXED by migration 0078 on 2026-09-09**, on Audrey's ruling
+of that day: BOUND THE EXEMPTION BY SIZE — not cap the picker, and not leave
+it. A money path stays quota-exempt only below a threshold; above it the object
+is weighed like any other and can be refused. **See §12.10**, which also
+records the enforcement site this paragraph did not know about.
+
+**Why this was a bug and not a gap.** `public.expenses` is one of the five
+tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
+a project manager can read — or create — an expense at all. The receipt,
+meanwhile, was uploaded with `{ type: 'expense' }`, and **`scope.type` is read
+by nothing** in the tree: not `supabaseAdapter`, not `localServerAdapter`, not
+the Express server. The scope was therefore empty and the receipt landed as an
+ordinary project-level file readable by every project member. The amount was
+manager-only and the receipt stating the amount was not. 0038's column comment
+had said "an invoice or receipt" since the day it was written; only the receipt
+half was ever wired.
+
+A consequence worth knowing: because a receipt is now financial, it is also
+excluded from D.O.G.'s attachment set (§12.8b) and from the Resources list,
+which both drop `is_financial` rows. That is the same rule C3 pinned for
+invoices, not a new one.
+
+🚨 **What migration 0076 did NOT close, and cannot.** It marks every existing
+receipt financial — a `files` row whose id appears in some `expenses.file_ids`,
+the only `file_ids` column in the schema — and backfills their `file_events` so
+the activity stream cannot serve the history of a row the reader can no longer
+see. Two residuals remain, both **counted and reported by the migration at
+apply time** rather than left invisible, and both empty on dev and staging:
+
+1. **Row gated, blob not.** The base storage policies key on the PATH segment
+   and never consult `is_financial`, so a pre-existing receipt's object stays
+   under its container segment. The path can no longer be DISCOVERED (the
+   `files` row carrying it is now manager-only), but anyone already holding one
+   keeps object-level read access. Moving bytes is not a migration's job —
+   `storage.objects.name` IS the S3 key — so this needs a one-time client-side
+   mover in the shape of C3's `runAttachmentMigration`.
+2. **A receipt on a customer's bucket cannot be flagged at all.**
+   `files_money_provider_chk` refuses a financial row outside Supabase, so the
+   backfill is scoped to `storage_provider = 'supabase'`. Without that scoping
+   the migration ABORTS on the first such row with a 23514 — proven by breaker
+   BM1, which kills the whole suite rather than failing an assertion.
+
+**The standing diagnostic** for both (run it as `service_role`/`postgres` — see the note under it):
+
+```sql
+SELECT
+  count(*) FILTER (WHERE f.is_financial
+                     AND f.storage_provider = 'supabase'
+                     AND NOT public.rabbit_money_key(f.storage_path)) AS blob_outside_money_segment,
+  count(*) FILTER (WHERE NOT f.is_financial
+                     AND f.storage_provider <> 'supabase')            AS ungated_on_customer_bucket
+FROM public.files f
+WHERE EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
+```
+
+🚨 **Read the two columns differently — review round 1 corrected a false
+invariant here.** This used to say "Both columns must be 0", which contradicts
+the two residuals described above and would send an operator to "fix" a
+documented, accepted state.
+
+- **`ungated_on_customer_bucket` must be 0** on any environment whose receipts
+  all live in Supabase. Non-zero is residual 2: those rows need their body
+  moved before they can be gated at all.
+- **`blob_outside_money_segment` is the SIZE of residual 1, not a fault.** Every
+  receipt 0076 backfills lands in this count by construction — 0076 computes
+  exactly it as `v_blob_outside` and **reports it as expected output**, and
+  suite 78 probe 55 asserts it is true of a backfilled receipt while probe 59
+  measures the exposure directly. It is 0 only where no receipt predates 0076.
+  A non-zero value is the backlog for the one-time body-mover, not a failure.
+
+Run it as `service_role`/`postgres`: as an ordinary money-cleared role the
+counts are RLS-scoped to that person's workspace, which is not the global
+answer the prose implies.
+
+A durable view over this query was deliberately NOT created: it would add a
+second readable surface over the money table, which is the class of defect this
+bundle exists to fix.
+
+🚨 **Residual 3, which C4 did not name at all: Local Server receipts uploaded
+before C4.** 0076 is a Postgres migration. The desktop keeps its own
+`is_financial` in its JSON bundle (`electron/main.cjs`), and **nothing
+backfills it and nothing moves those bodies into `INVOICES/`.** A receipt
+uploaded on the desktop before this bundle therefore stays ungated forever —
+still listed in Project Files, and still eligible as D.O.G. deck source
+material, which is the literal defect this entry marks fixed. Unlike residuals
+1 and 2 it is counted and reported by nothing. New desktop uploads are gated
+correctly; only the existing ones are stranded.
+
+**Reading a receipt back.** Marking it financial removed it from both surfaces
+that could open a file — `FileManager` and `ProjectsPage`'s **Project Files** table both
+drop `is_financial` rows — so after the gate went on, the manager who uploaded
+a receipt could see its name on the expense and open it nowhere. Review round 1
+added the receipt's own surface: `ExpensePopup` now has an open control that
+re-lists through the adapter and hands back a blob URL, the twin of
+`InvoiceAttachment.handleOpen`. A money file's only surface is the record it
+hangs off — that is the design, and it is now true of receipts as well as
+invoices.
+
+### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
+
+Audrey's ruling, 2026-09-09, on the consequence §12.9 describes: **bound the
+exemption by size**, rather than cap `BudgetView`'s picker. Migration **0078**
+is that bound. Migration number taken with her explicit permission the same day
+— the ledger had assigned 0078 onward to Track D, which has not started; Track
+D now begins at 0079.
+
+**The bound is one function.** `public.rabbit_quota_exempt_max_bytes()` returns
+**26214400** (25 MiB), mirroring how `storage_free_tier_bytes()` (0055) is the
+one definition of the free tier rather than a literal repeated at each site.
+⚠️ **It is still DUPLICATED, and the first draft of this section said otherwise.**
+That function is the one definition the PREDICATES read, but the figure is also
+written out in `StorageSection.jsx`'s two banners and as a literal in suite 77
+probes **55, 57, 60 and 61**. Moving the bound means editing the function FIRST
+and then every one of those; **suite 77 probe 64 asserts the value** and is what
+goes red if only the function moves.
+It was chosen against the real populations: `PROJECT.json` measured 2,959 bytes
+on staging, `FINANCE/RATES.json` is kilobytes, an invoice PDF is single-digit
+MB and a phone photograph of a receipt is 2–12 MB. Against what it refuses,
+the `rabbit-files` per-object ceiling is **53687091200 — 50 GiB** (measured on
+dev), so for exempt paths the effective ceiling drops by a factor of 2048.
+
+🚨 **THE EXEMPTION HAS TWO ENFORCEMENT SITES, AND §12.9 NAMED ONE.** This
+was found while building 0078, not while planning it:
+
+1. **`petal_storage_quota_insert`** (0055) — the RESTRICTIVE INSERT policy on
+   `storage.objects`. Arm 2 is now
+   `public.rabbit_quota_exempt_object(name, metadata)`.
+2. **`public.reserve_upload_bytes`** (0073, bundle C1) — which returned NULL
+   early for an exempt path, so nothing was reserved and nothing weighed. It
+   now tests `public.rabbit_quota_exempt_bytes(p_path, p_bytes)`.
+
+Site 2 is the one the client calls, from `supabaseProvider.js`, before any byte
+moves. Bounding only site 1 would let a 5 GB receipt reserve nothing, upload for
+ten minutes and be refused at commit — the exact failure bundle C1 was built to
+remove. pgTAP suite 77 probe 55 is what catches that: with the policy bounded
+and the reservation left unbounded, it is the only probe that goes red
+(measured as breaker B3).
+
+🚨 **BUT "BEFORE ANY BYTE MOVES" IS TRUE ONLY ABOVE 50 MiB, AND THE BOUND IS
+25 MiB.** `reserveUpload` is called only inside `if (shouldUseResumable(body))`,
+and `RESUMABLE_THRESHOLD_BYTES` is 52,428,800; `0073`'s header says it in one
+line — "Only the RESUMABLE path reserves (bodies above 50 MiB)". So a money file
+in **(25 MiB, 50 MiB]** loses the exemption, is never offered to site 2, transfers
+in full, and is refused by site 1 at commit — the very shape site 2 exists to
+prevent. Accepted rather than fixed: the bound binds correctly at both sites and
+only the TIMING differs in that band; such an upload is seconds, not the ten
+minutes C1 was about; ordinary media under 50 MiB has always been weighed only
+at commit; and raising the bound to 50 MiB would double the billing exposure to
+buy a cosmetic improvement. ⚠️ In that band the refusal is a raw
+`petal_storage_quota_insert` RLS violation, **not** the friendly PT402 sentence —
+`classifyUpload` is reached only from `FileManager`, never from the invoice or
+receipt pickers. Walkthrough 13 step 3 says so, so the tester cannot report it
+as a fault.
+
+**The predicate, and why it is shaped this way.** `rabbit_quota_exempt_path`
+(0055) is **unchanged** and is delegated to; it remains the one path
+classifier, and suite 65's probes 13–17 on it stay green. The size axis is a
+second, separately auditable predicate composed over it:
+
+```
+rabbit_quota_exempt_bytes(name, bytes)  = rabbit_quota_exempt_path(name)
+                                          AND COALESCE(bytes, 0) <= rabbit_quota_exempt_max_bytes()
+rabbit_quota_exempt_object(name, md)    = rabbit_quota_exempt_bytes(name, rabbit_object_incoming_bytes(md))
+```
+
+🚨 **`COALESCE(bytes, 0)` IS LOAD-BEARING: AN UNKNOWN SIZE KEEPS THE
+EXEMPTION.** This is the opposite of the intuitive polarity and it is what
+keeps 0055's **second** reason intact — the `FINANCE/RATES.json` mirror,
+rewritten on every rates change — together with 0055's **separate fourth
+exemption bullet**, the `PROJECT.json` manifest, rewritten on every project
+change. Neither is about size. ⚠️ 0055's three reasons all belong to the MONEY
+bullet, and the first draft of this section wrongly listed the manifest as one
+of them; the real third reason is **"invoices are the paperwork by which a
+company pays Petal"**, which 0055 calls the decisive one and which this
+migration does override above the bound — see the paragraph below. A bare
+comparison yields NULL when metadata carries no size, and **under a RESTRICTIVE
+policy a NULL DENIES**, so every such write would fail with a symptom
+indistinguishable from the bound working. Suite 77 **probe 63** is the probe
+that goes red if someone "tidies" the COALESCE away (measured as breaker B2),
+and **probe 62** is the precondition that makes it able to.
+
+🚨 **WHY OVERRIDING 0055's DECISIVE REASON IS RIGHT, ABOVE THE BOUND.** Reason
+three protects a company's ability to send the paperwork that pays Petal. A
+genuine invoice or receipt is single-digit MB, so 25 MiB never locks that
+paperwork out in practice. What reason three was never meant to protect is a
+50 GiB object under an `INVOICES/` segment — and because
+`workspace_petal_committed_bytes` counts those bytes with no matching
+exemption, such an object does not merely go unrefused: it consumes the
+allowance that refuses the company's own media. Left unbounded, reason three
+stops protecting billing and starts breaking the product it was written to keep
+working.
+
+⚠️ **AND THE COST, STATED RATHER THAN HIDDEN: the bound applies to the mirror
+and manifest arms too**, because `rabbit_quota_exempt_path` is ONE predicate and
+0078 bounds the predicate rather than the segment. The FIRST INSERT of a
+`PROJECT.json` or `FINANCE/RATES.json` larger than 25 MiB on a full or suspended
+workspace would be refused — the "corrupted folder view" 0055 wrote its
+exemption to prevent. The exposure is small and bounded: the manifest measured
+2,959 bytes, the mirror is kilobytes, both are written by WILSON rather than by
+a person, and after the first write the manifest is an upsert — an UPDATE this
+INSERT-only policy does not govern. A machine-written bookkeeping file that
+reached 25 MiB would be a defect worth surfacing rather than silently exempting.
+**Suite 77 probe 57 pins this deliberately**; if the manifest and mirror should
+stay unbounded instead, the change is to split the predicate and that probe is
+where to start.
+
+Failing open on an unknown size is safe because authorisation happens twice
+(0057): the tus permission phase carries `contentLength`, which a client could
+suppress, but `completeUpload` writes the row with metadata **authored by
+storage-api** including a true `size`. So a forged first phase buys only that
+the bytes move before the refusal — not a bypass. `rabbit_object_incoming_bytes`
+reads both keys, so the bound applies at both phases; suite 77 probe 61 pins
+the `contentLength` arm.
+
+**What this deliberately does NOT do**, stated so it is not rediscovered as a
+defect:
+
+- An oversized money file is **not rejected outright**. It loses the
+  EXEMPTION and becomes subject to the ordinary quota, so it still uploads
+  whenever the company has room. "Bounded" is not "capped"; that is the
+  difference Audrey chose.
+- A money file **under** the bound still consumes the allowance without being
+  refusable, because `workspace_petal_committed_bytes` counts it and gains no
+  exemption here. The asymmetry is deliberate and is now bounded at 25 MiB per
+  object instead of unbounded. Exempting small money files from the METER would
+  raise every company's effective quota, which is a pricing change nobody asked
+  for.
+- The INSERT-only limit of 0055/0057 is unchanged: an upsert reusing an
+  existing key becomes an UPDATE, which this policy does not govern.
+
+**The Admin Terminal copy carries the bound.** `StorageSection.jsx`'s suspended
+and at-ceiling banners said invoices, finance files and the manifest "still
+save"; they now say "still save if they are under 25 MB", because after 0078
+the unqualified sentence is false. ⚠️ The figure is duplicated from SQL, as
+"30 days" already is in the same banners; if the bound moves it moves in
+`rabbit_quota_exempt_max_bytes()` first, then in those two sentences **and in
+suite 77 probes 55, 57, 60, 61 and 64**.
+
+**Verification.** pgTAP suite **77 at 67/67** (probes 54–67 are 0078's), each
+proven by a breaker. On the predicate: **B1** dropping the size axis reddens the
+refusal probes (55, 57, 60, 61) and nothing else; **B2** removing the COALESCE
+reddens only 63; **B3** bounding the policy but not the reservation reddens only
+55, which is what proves the two-site claim rather than asserting it. On the
+post-conditions, added in review round 1 after it found that a substring check
+could not tell a polarity inversion apart: **B4** inverting the bucket arm to
+`bucket_id = 'rabbit-files'` fires post-condition 7, and **B5** negating the
+exemption arm fires post-condition 6a — both passed the original `LIKE` form. Probe 10 of that suite asserted "a 5 GB invoice is not
+refused" and was true until 0078; it now uses a real invoice's size and says so
+in place, because a probe that silently loses its teeth is how a gate stops
+being a gate.
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
@@ -2391,11 +3278,47 @@ applies the proposer's live subjects **additively**: update by slug in place,
 insert when absent, **never delete**. One approval must not silently strip
 lessons from everyone's official course.
 
-**What apply does not touch: the five reference documents.** Their merge
-semantics live in client JavaScript; reimplementing them in plpgsql would
-duplicate load-bearing logic and overwriting them would violate the
-additive-only rule. So an approval moves lesson content and not hotkey tables —
-and the approve dialog says so.
+**What apply moves: subjects, and four of the five reference documents.**
+SHIPPED 2026-09-07 (Track A, A4, `dfe666e`, Audrey’s decision 37). `hotkeys`,
+`functions`, `nodes` and `reference_urls` are merged into the standard as well,
+additively — an entry deleted on the fork survives on the standard.
+
+The merge stayed in **client JavaScript**; it was NOT reimplemented in plpgsql,
+which is the objection `MASTER_PLAN` §6 #29 raised and which still stands.
+`CR_DOC_MERGE` (`otterRoutes.js`) adapts a STORED document into the shape each
+existing merger expects: they were written for the GENERATOR’s output, and for
+`nodes` the two shapes differ, so handing a stored document straight in would
+merge nothing and report success. `mergeReferenceUrls` is new — there had never
+been one.
+
+**The ORDER is load-bearing in both directions.** The fork’s documents are read
+BEFORE the RPC, because deciding closes the consented review window below and the
+approver can no longer read the source afterwards; the merge is written AFTER it,
+because `otter_fork_course` snapshots the target’s documents into the
+`(before change #n)` archive during the RPC, so the archive keeps the OLD ones.
+
+**`corrections` do NOT move, and that is a choice.** `otter_fork_course` blanks
+them when making a fork, with the reason in its own body (*“the original
+author’s agent memory, not content”*), so a fork never inherits them and
+publishing a proposer’s to the company standard would contradict that rule.
+Audrey is asked to confirm in walkthrough `08_otter.md`.
+
+**Limit, in the other direction.** `otter_courses_update`’s WITH CHECK requires
+`current_app_role() = 'admin'` to write a `company_standard` course, while
+`otter_cr_apply` also admits the standard’s OWNER. A non-admin owner approving
+therefore gets the subjects and not the documents. The RPC has already committed
+by then, so this is REPORTED rather than rolled back: the result banner names each
+document that did not move.
+
+🚨 **And that person DOES have a surface.** A4 first shipped this thinking the
+case was unreachable because the Admin Terminal is admin-only. It is not:
+`RequestsView`’s `canDecide` is `isAdmin || ownTargets.has(target)`, so the OWNER
+of a company standard decides whatever their tier — and a plain member can own one,
+because approving a nomination promotes a course owned by whoever proposed it.
+`RequestsView` is therefore *the* surface where the refusal happens, and it now
+carries the same banner and the same confirm copy as the Admin Terminal. Both read
+their document names from one shared `DOC_LABELS` map so a third surface cannot
+drift again.
 
 **The consented review window.** Submitting a request grants reviewers **read**
 access to the proposer's own source course, opening on submit and closing the
@@ -2463,8 +3386,38 @@ cloud tables**, so they now work identically on both adapters — the toggles
 that reveal them (`projects.scenes_enabled` / `levels_enabled` /
 `experiences_enabled`) became columns in the same migration, because the tabs
 gate on them and adding the flags first would have unhidden views whose every
-write threw. **`milestones` remains local-only** and its Supabase adapter
-methods still throw with a stated reason.
+write threw. **Track A bundle A2 session 2 (migration 0067) did the same for
+`milestones`** — the last entity without a cloud table — so both adapters now
+behave identically for every entity. `phase_id` is nullable and
+`milestones_select` hops to the PROJECT, never the phase: a key date drawn on
+the timeline by its date alone is a real state, and a phase hop would let the
+insert land and the read deny it (the S23 trap). **A deleted key date now goes
+to the trash on both backends** (ruling 38): cloud through 0014's
+`soft_delete_row` / `restore_soft_deleted`, whose eight-table allowlist 0067
+extends, read back through the SECURITY DEFINER `milestones_trash_index`
+because the SELECT policy hides trashed rows by design; desktop through a
+`softDelete` opt on the shared sub-entity route factory plus a restore route.
+**Live sync, and the limit that stayed (0077, 2026-09-07).** Key dates ARE
+broadcast now, on the project topic with everything else — add, retitle, move
+the date, trash and restore all reach a second window without a reload, and
+`state/realtimeMerge.js` splices the row in **in date order** rather than
+appending it, because the Tasks tab renders milestone rows in array order and
+both adapters load them `ORDER BY date, id`. The comparator lives in
+`state/milestoneOrder.js` and is the single definition the two adapters and
+the merge layer all use.
+
+The four 0040 entities (scenes, shots, levels, experiences) keep the reload
+limit — Audrey's explicit choice, a conscious difference rather than an
+oversight; see §4.5. **Still not edit-history captured** (0012): that half of
+0067's stated limit is unchanged, for milestones and for those four.
+
+**Recently deleted key dates** is mounted on the `Timeline` toolbar (button:
+`Deleted`) and, since 2026-09-07, on the `Tasks` toolbar as well (button:
+`Deleted key dates` — longer on purpose, because a bare "Deleted" on a screen
+full of tasks would promise a list of deleted tasks, which does not exist; in
+sentence case since the UI overhaul's kit, like every other label).
+Both mounts pass identical props and `desktopMilestoneTrash.test.js` compares
+the two elements to keep it that way.
 
 **Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
 toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.
@@ -2508,7 +3461,7 @@ and restore. Hard purge at 30 days.
 |---|---|
 | `manager` | Everything a member can, plus manage the project roster |
 | `member` | Create/edit/delete entities; comment |
-| `reviewer` | Comment only — reads and comments, no entity writes |
+| `reviewer` | Reads and comments, no entity writes — and, since 0084, create and edit shot lists and edits (never scenes, shots, tasks or budgets) |
 
 Gating order: app admin/manager bypass everything → an **unstaffed** project is
 open to every active member for entity and comment writes (but roster
@@ -2517,14 +3470,33 @@ from somewhere) → once staffed, the seat rules apply. Because `fn_projects_aut
 seats the creator and producer on client creates, projects made in-app are
 staffed from birth — so plain members no longer get write access to **new**
 projects they are not seated on. That is the intent; legacy projects are
-unchanged.
+unchanged. **One exception to the bypass since 0084:** making a shot list
+active and archiving a list or an edit (`project.shotlist.activate`) need a
+workspace ADMIN or the PROJECT manager — a workspace manager without that
+seat is refused, and an unstaffed project opens neither (Audrey D8). Since
+0086 the person who MADE a list or an edit, while they may still write shot
+lists there, may also withdraw (archive) it while it is untouched, and
+restore what they withdrew — a rule about one row, so it is not a matrix
+action.
 
 > **LOCKSTEP INVARIANT.** `src/permissions/projectRoleMatrix.js` mirrors the
 > SQL helpers `can_write_project()`, `can_comment_project()` and
-> `can_manage_project_roster()` from migration 0013. Any change to one must
+> `can_manage_project_roster()` from migration 0013 — and, since 0084,
+> `can_edit_shot_lists()` (`project.shotlist.write`) and the seat check in
+> `set_active_shot_list()` / `archive_shot_list()` / `archive_edit()`
+> (`project.shotlist.activate`: workspace admin OR project manager, no
+> workspace-manager leg, no unstaffed opening). Any change to one must
 > ship with the matching change to the other. The migration's
 > `COMMENT ON FUNCTION` points back at the JavaScript file by name, closing the
 > loop from both ends.
+> (0084: `can_edit_shot_lists`'s comment names the file; the three RPCs'
+> comments do not, so this box is where their seat check is found.)
+> (0086: the two archive RPCs' MAKER path is per row — `created_by` and
+> `can_edit_shot_lists`, plus an untouched row to withdraw, or `archived_by`
+> = the caller and an unsaved row to restore — so it has no matrix action.
+> `shotListModel.js`'s `shotListWithdrawRefusal` / `editWithdrawRefusal` /
+> `withdrawnRestoreRefusal` mirror its row tests with the database's
+> sentences; the seat is `project.shotlist.write`, which the caller asks.)
 
 **Intake pipeline**: `is_core_definer` files only → text extraction (`.txt`,
 `.md`, `.fountain` direct; `.docx` via mammoth; `.pdf` via the local Express
@@ -2558,6 +3530,141 @@ entity attachments, all three adapters, plus the FileAudit drawer) and
 **managed files** (a local-disk folder mirror under `ASSETS/`, `SCENES/`,
 `SHOTS/`, driven through Electron IPC and available only on
 `localServerAdapter`).
+
+**Bins** (demo 2026-09-11, `docs/BINS_DESIGN.md`): the tab beside Scenes,
+visible under the same `scenes_enabled` toggle, Local Server only
+(`ctx.supportsBins`). A bin is a container inside the project — a tree
+(`bundle.bins`, `parent_bin_id`, hand-ordered) with a kind and a colour — and
+a bin file (`bundle.binFiles`) is a **reference** to a file where it sits on
+the machine (`source_path`), never copied, renamed or moved; a folder of
+numbered frames is one row (`is_sequence`); "copy to bin" makes a second row
+on the same path (an instance). Each row carries the logging an assistant
+editor types (display name, slate, take and modifier, camera, roll, shoot day,
+scene and shot links, tags, description, notes), the review marks
+(`review_flag` select / reject / unflagged, `circled`, an eight-colour label)
+and the technical columns read once by `ffmpeg -i` or `sharp`
+(`electron/ffmpeg.cjs` `probeMediaInfo`) — or, with no decoder on the
+machine, by the renderer's own hidden `<video>` / `<audio>` / `<img>`
+(`bins/binProbeFallback.js`), which the provider runs wherever the server
+answers `unavailable` and once per project after `refreshBins`, so a poster
+reaches the Scenes tab's chips without Bins being opened. `electron/rabbitBins.cjs` holds every
+route (bins, bin-files, prepare / add, probe, poster, stream, relink, roots),
+mounted from `main.cjs` with its helpers injected and gated to same-origin
+requests because every route takes or serves a path; the OS dialogs open in
+the main process through the same routes, and dropped files reach the
+renderer through `webUtils.getPathForFile` in the preload. Offline is a
+computed state on the list route; relink walks a picked or known folder
+(`bundle.binRoots` — one root per folder picked or dropped from, recorded by
+the add route from `prepare`'s `roots`, a covering folder replacing the ones
+under it, forgettable from the relink dialog) and matches by name and size
+through the existing `relinkMatcher`, automatically on open for known roots.
+After a relink the provider reads every relinked row again in the background
+(`rowsToReprobeAfterRelink`, both relink paths land in `binRelinkApply`):
+the poster cache is keyed by path + mtime, so under the new path there is no
+poster until a probe draws one, and without a decoder only the renderer's
+probe can. That probe waits for a presented frame after its seek and draws a
+blank frame again, a second further in if it stays black (`isBlankFrame`) —
+`seeked` alone drew black posters under load. The add dialog's name
+suggestions (`parseNameSuggestions`) read a modifier glued to the take
+(`24A_2_T3PU_B` → take 3 PU of shot 2, `24A-3PU` → take 3 PU).
+Every failure the adapter throws carries the route's `status` and `code`.
+The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
+drop are bound on the document while the tab is mounted, so they survive
+the focused control unmounting; the pure logic is `bins/binMedia.js`
+(the vocabulary, mirrored from the server and pinned by a parity test) and
+`bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
+assign bin files to shots many-to-many: a row per (shot, file) with a `role`
+(`primary` — one per shot that has any — `part` or `alt`), a `position` and
+`notes`; the routes live under the gated `…/shot-takes` prefix in
+`rabbitBins.cjs` (assign, patch, remove, reorder, and `replace`, the undo
+primitive that puts a shot's rows back verbatim), invariants re-established by
+`normalizeShotTakes` after every write, orphans (their shot or file gone)
+never pruned and carried on every read as `orphanTakes` beside the live,
+presented `shotTakes`, so the renderer's state keeps them and undoing a shot
+or file deletion restores its takes; while the stored primary's file is out,
+reads present the first live take as primary without writing, and nothing
+materialises that until a live take is explicitly promoted. The provider's
+`assignShotTakes` / `updateShotTake` / `removeShotTakes` / `reorderShotTakes`
+push snapshot undo entries (`replaceShotTakes` both ways); every mutator a
+history op names must be in the `mutationsRef` registry, pinned by
+`state/mutationsRegistry.test.js`. `bins/shotTakeSelectors.js` joins takes to
+files and shots (orphans skipped) and ranks files for a shot's picker.
+`ScenesView.jsx` adds a Takes chip strip per shot row in both content modes
+and on gallery cards, the primary take's poster standing in for an EMPTY shot
+thumbnail only, the ordered takes list in the shot popup (`views/bins/
+ShotTakesPanel.jsx`), the picker (`TakePickerDialog.jsx`, same scene first)
+and a one-click "use take length" (frame_count is never written otherwise).
+`BinsView.jsx` adds "Assign to shot…" (`AssignToShotDialog.jsx`, scene → shot,
+omitted hidden and counted, several shots at once), "Used in shots" on the
+inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
+carries open-in-Scenes / show-in-Bins across the shell's tabs.
+
+**Shot lists and edits** (post-overhaul S3a, migration 0084, 2026-09-30;
+Audrey's rulings D1–D22 in `docs/design/POST_OVERHAUL_PLAN.md` §0.1). A shot
+list is MEMBERSHIP, not copies: `shot_list_items` names a scene or a shot and
+its position in one list, and the scene and shot rows themselves are shared by
+every list that holds them (a rename in one list is a rename everywhere). A
+list is `title` + integer `version`, unique per project ("Title · v3"); "Save"
+writes the list's current contents into `shot_lists.snapshot`; lists and
+edits are archived, never deleted. An ARCHIVED list's ROW is frozen (title,
+version, summary, snapshot: "this shot list is archived — restore it before
+changing it"), and the UI verbs refuse to change its membership — but the
+DATABASE does not freeze that membership (review R2 reverted R1's freeze):
+the undo of a scene delete must put the scene back into every list it was
+in, archived ones included, and deleting a scene or a shot takes it out of
+every list (in the cloud the FK CASCADE, which RLS does not judge).
+`projects.active_shot_list_id` names the ACTIVE list, and every surface
+except the Scenes tab reads it — `ctx.scenes` / `ctx.shots` are the active
+list's rows and only those (every row when there is no active list, or when
+the pointer names a list this window has not loaded). While a project has an
+active list, a row in no live list shows on no other surface: D10 as Audrey
+ruled it, restored by review R2 after R1 had added "plus every row in no
+list", which also undid every deliberate removal from a project's only list.
+Accidents are stopped where they start (a new row whose membership write
+fails is deleted again), and Audrey's answer for reaching such rows is a
+"Not in any list (N)" entry in the Scenes tab's list picker (2026-09-30; S3b
+builds it on `ctx.unlistedScenes` / `unlistedShots`, which count LIVE lists
+only).
+`ctx.allScenes` / `allShots` / `scenesOf(listId)` / `shotsOf(listId)` give
+the rest. An edit is an ordered JSONB array of items referencing shot ids
+(repeats allowed), and a list's edits form ONE chain (D6): one root, each
+edit continued by at most one next edit, and an edit's parent fixed when it
+is made (0084's `edits_one_root_per_list_key` and `edits_one_child_key` and
+its guard; the same refusals on every backend). Writes to
+lists, items and edits pass `can_edit_shot_lists()` — `can_write_project`
+plus the REVIEWER seat, the first thing a reviewer may write — while set
+active and archive go through three SECURITY DEFINER RPCs that admit a
+workspace admin or the project manager, backed by guard triggers so the plain
+UPDATE policies cannot do either. **Withdraw (0086, Audrey 2026-09-30):** the
+two archive RPCs also let a row's MAKER, while they may still write shot
+lists there, set it aside while it is untouched — a list not Saved, with no
+live edit on it and not the active one; an edit not Saved and continued by
+no live edit — and restore what they set aside themselves while it is not
+Saved (what every withdraw left; a live edit that landed on it since does not
+block a restore, which only un-hides). The undo of "New list" / "New edit" is
+that withdraw, so a member or reviewer can take back what they just made; right
+after, the provider's `recentlyWithdrawn` lets the Scenes tab show it as
+"Recently removed" (openable, restorable) until the person leaves the tab.
+0086's trigger pins `created_by` to the inserting user and freezes it,
+because that right rests on it (`fn_audit_touch` kept whatever a client
+sent). No new column: a withdrawn row is one whose `archived_by` equals its
+`created_by` (as is a list a manager archived after making it). The undo of a
+Save goes back only while the stored Save is still the one it left, so a
+teammate's later Save is not erased by it, unless it lands between the
+undo's re-read and its write (the hand-off's known limits).
+Same-project composite FKs keep every link
+(items, tasks' new `scene_id` / `shot_id`, budget versions' `shot_list_id`,
+the active pointer) inside its own project. ⚠️ `0034_tasks_without_assets.sql`'s
+header still says scenes are "local-only BY DESIGN" and leaves `scene_id` /
+`shot_id` off `tasks` for that reason: 0040 (cloud scenes and shots) and 0084
+(the two columns) have overtaken it. Applied migrations are history and are
+not edited; only `level_id` / `experience_id` stay local-only. The D11
+backfill gave every
+project with scenes or shots "Shot list 1 · v1", active, in the cloud (the
+migration) and on the Local Server (on read, once, for bundles that predate
+the keys). The Local Server routes live in `electron/rabbitShotLists.cjs`;
+the pure model in `state/shotListModel.js`; the API is documented in
+`docs/sessions/handoffs/po-s3a-2026-09-30.md`.
 
 ### 13.4 The shell and the shared surfaces
 
@@ -3023,7 +4130,9 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > passed for twenty sessions, and **nothing ever requested that URL** — the
 > whole quiz feature was plumbing with no tap. Four features have now shipped
 > in that state (the folder tree S27, task templates S28, quiz history S30,
-> and `setOtterAdapterMode`, which is still dead). A test that pins a
+> and `setOtterAdapterMode`, dead from S10 until A4 gave it the `Library`
+> control on 2026-09-07 — six weeks of two comments describing a control
+> nobody had built). A test that pins a
 > MECHANISM cannot tell you the mechanism is reached; `quizWiring.test.js`
 > asserts that `nextQuestion` actually calls the writer, and fails if the call
 > is removed while every other test stays green.
@@ -3225,11 +4334,15 @@ of a session — this section is limits by design, that file is faults.
 
 **Video (S40) — §12.7c carries the detail**
 
-- 🚨 **The local Express server has NO authentication**, and since S40 it serves
-  **original media bytes** with Range support, not just manifests and 256px
-  derivatives. Loopback-bound, `cors()` with `Access-Control-Allow-Origin: *`,
-  ~94 routes. Tracked in `OUTSTANDING.md`; the fix is a per-launch bearer token
-  and it is its own session.
+- ✅ **The local Express server is authenticated (B3, 2026-09-07).** Its
+  `managed-files/:id/stream` route still serves **original media bytes** with
+  Range support — that is the feature — but every one of the ~94 `/api` routes
+  now demands the per-launch token, and `cors()` answers the renderer's own
+  origin instead of `*`. Measured on the running app: `GET
+  /api/rabbit/projects` from a process outside Electron returned the project
+  list before and returns 401 with an empty body after. See "The local server's
+  security model" above for the two arms and for what is deliberately left
+  unguarded.
 - **s3 video playback and s3 still-display are deferred**, matching S44's
   decision for images: no batch presign, a 300 s presigned-GET expiry against a
   3600 s Supabase one, and no S3 workspace anywhere to verify either against.
@@ -3303,6 +4416,14 @@ of a session — this section is limits by design, that file is faults.
   ⚠️ The manifest exemption tests the FILENAME as well as the depth: `[3] IS
   NULL` alone would let `projects/<id>/dailies.mov` through, a whole object at a
   time.
+  ✅ **BOUNDED BY SIZE since 0078** (Audrey's ruling, 2026-09-09): the exemption
+  holds only up to `rabbit_quota_exempt_max_bytes()` — 25 MiB — at BOTH
+  enforcement sites (the policy and `reserve_upload_bytes`). Above it a money
+  file is weighed like ordinary media: still uploadable with room to spare,
+  refusable without. An UNKNOWN size keeps the exemption, so the mirror and the
+  manifest are never blocked by absent metadata. ⚠️ The bound is applied to the
+  manifest and mirror arms too, not only to invoices — see §12.10 for why that
+  is acceptable and what it costs.
 - ✅ **The predicate WEIGHS the incoming object: `used + incoming <= quota`
   (0057).** S41 shipped `used < quota` deliberately, and it was right while the
   per-object cap was 50 MB — the overshoot was bounded and trivial. At 50 GiB
@@ -3322,16 +4443,93 @@ of a session — this section is limits by design, that file is faults.
   hold one clip next to a 50 GiB per-file cap. The number lives ONLY in
   `storage_free_tier_bytes()`; the client reads the resolved figure back from
   `workspace_storage_usage()`.
-- ⚠️ **CONCURRENT uploads can still exceed the quota, and this is OPEN.** Each
-  in-flight resumable upload is invisible to the others until it completes, so
-  two 30 GiB uploads started together against a 50 GiB quota both pass their
-  creation check. 0057 tried to close this by metering
-  `storage.s3_multipart_uploads.in_progress_size`; **0058 removed that because
-  WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects —
-  that table is written only by the S3-compatible protocol handler WILSON never
-  calls, so the arm summed a permanently empty set while claiming to close the
-  hole.** Suite 66 probe 13 now asserts the meter does NOT move, so re-adding it
-  fails there first. Recorded in `OUTSTANDING.md`.
+- ✅ **CONCURRENT uploads can no longer exceed the quota (0073, Track C).** A
+  resumable upload RESERVES its bytes in `public.upload_reservations` before
+  `tus.Upload.start()` — `reserve_upload_bytes(path, bytes)`, SECURITY DEFINER,
+  evaluating the SAME predicate as the policy under a per-workspace advisory
+  lock — and `workspace_petal_bytes()` adds active reservations to the total
+  the RESTRICTIVE policy weighs, so the second of two uploads that together
+  exceed the quota is refused at START, with the standing over-quota sentence
+  (HTTP 402 through PostgREST, SQLSTATE `PT402`). 0057's attempt metered a
+  table TUS never writes; suites 66/13 and 77/48 both assert that meter still
+  does not move (live on the hosted projects; CI's stack starts without
+  storage-api, so there both inserts are skipped and the probes are controls
+  only). **Two things that had to be true at once:** the policy now
+  passes the object's own key (`rabbit_petal_storage_ok(project, incoming,
+  path)`) so an upload's own reservation is never weighed against it, at the
+  tus trial insert or at completion; and the reservation arm EXCLUDES any
+  reservation whose object has landed, so object and reservation are never both
+  in `used` for the same instant, whatever the client does next — suite 77
+  probes 23–27 (23–25 failed by breakers B2/B3 before 0073 touched dev; 20,
+  26–27 and 30 by the review round's breakers against dev and staging — the second C1
+  hand-off has the table). **Limits, both directions:** only the
+  resumable path (bodies over 50 MiB) reserves — a standard PUT lands in one
+  request and is weighed as it lands; a reservation lasts 24 h (Supabase's own
+  TUS URL expiry, past which the upload cannot complete anyway) and a lapsed
+  one cannot admit an over-quota object because the policy re-weighs at commit;
+  reserved space shows as USED in `workspace_storage_usage()` and the operator
+  summary until the upload lands, is released, or expires; a database without
+  0073 makes the client upload UNRESERVED (PostgREST `PGRST202`, said in the
+  console) with the policy still gating at commit — exactly the pre-0073
+  behaviour, never a refusal. An abandoned upload's reservation expires and is
+  certified `upload_abandoned` by the sweep (§12.4): the certificate names the
+  abandonment, not the disposal of bytes, which SQL cannot see. **How a
+  reservation closes (0074, Track C / C2, Audrey's rulings of 2026-09-07):**
+  the upload lands → `release_upload_reservation` (`released`; the meter had
+  already stopped counting it). The upload FAILS with an error the server
+  answered (a 5xx, the session expired mid-way) → the client calls
+  `abandon_upload_reservation(path, reason)`, which closes the row `abandoned`
+  and writes the `upload_abandoned` certificate AT ONCE with the error text
+  (ruling 1; a "failure" reported after the object had in fact landed closes
+  `completed` and certifies nothing). The NETWORK dropped → neither RPC can
+  cross it; the row expires at 24 h and the hourly sweep certifies it, as does
+  a closed tab, a crash or the app quit mid-upload. The person next opens
+  Files → `release_stale_upload_reservations(keep)` closes their OWN open rows
+  except the keys that tab is still uploading, WITHOUT a certificate (ruling 2:
+  those rows lose theirs — so a closed tab no longer holds its bytes for a day
+  against the same person's retry). The company is torn down →
+  `sweep_open_uploads` closes every open row before the CASCADE and the
+  abandoned paths are certified in `platform_audit` as `WIL-7012` (§5). **Two
+  stated limits:** a second browser tab cannot see the first tab's in-flight
+  keys, so opening Files in tab B while tab A uploads releases A's row early —
+  the policy still refuses an over-quota object at commit, so the cost is a
+  late refusal, never an over-quota object; and there is NO per-person cap on
+  active reservations (ruling 3): a member who can write one project can
+  reserve the whole quota under fabricated keys until the 24 h expiry, which
+  is the bound. A database with 0073 but not 0074 makes the client fall back
+  to release on failure (PostgREST `PGRST202`, said in the console) and answers
+  0 to the stale release — the pre-0074 behaviour, never a refusal. And both "landed" tests — the meter's
+  exclusion arm and the sweep's classification — key on the object's CURRENT
+  name (`storage.objects.name`, then `files.storage_path`): nothing renames a
+  Petal object today (a move is a `folder_id` change), but a future rename
+  inside a reservation's 24 h would make an unreleased row count again and let
+  the sweep certify a completed upload as abandoned; the durable alternative,
+  if renames ever ship, is the `uploaded` `file_events` row, which snapshots the
+  path at upload time. The client's courtesy check (`classifyUpload`) reads the
+  same `usedBytes` and so refuses the second of two concurrent clips FIRST,
+  with the same "uploads in progress" sentence — the server's refusal is the
+  one a direct REST caller meets. And the reservation is written by the
+  CLIENT: an older desktop build, a stale web bundle or a direct call to the
+  storage REST API uploads unreserved and is gated only at commit, exactly as
+  before — the policy is the enforcement; the reservation is the early answer,
+  and it protects everyone else's uploads from the one that wrote it.
+- ✅ **Invoice activity is hidden from non-managers (0074, Track C / C2,
+  Audrey's ruling 22).** `file_events.is_financial` is snapshotted at capture
+  by one definition — the `files` row's flag OR a row-shaped key under
+  `INVOICES/` / `FINANCE/` — and `file_events_select` shows a flagged row to a
+  non-money reader ONLY as its `purged` certificate; workspace admins and
+  project managers (`can_access_project_money`) see every event, and
+  `log_file_downloaded` flags an invoice read the same way. Suite 78 (49
+  probes, ten breakers, each failing the probes it was built to fail).
+  **Limits, both directions:** the flag is a SNAPSHOT — a file that becomes
+  financial LATER keeps its earlier events unflagged, and a purged invoice that
+  lived outside a money segment before 0042 stays unclassified (its certificate
+  is visible to everyone anyway); a plain member simply sees fewer rows — there
+  is deliberately NO "hidden rows" indicator, because an indicator is an
+  existence oracle for invoices; and a workspace admin's money visibility rides
+  the JWT role (0026's read-only rationale), the same basis as the admin arm
+  beside it. Replaying 0027 or 0047 after 0074 would revert part of this;
+  0074's post-conditions 3–5 are the tripwires.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious
@@ -3432,7 +4630,13 @@ of a session — this section is limits by design, that file is faults.
   manager-only. Putting them in one file would hand the team the figures RLS
   just denied.
 - 🚨 **`public.rabbit_money_segment(text)` is the ONE definition of a
-  money-gated path segment (0042).** The three base `rabbit-files` storage
+  money-gated path segment (0042; `INVOICES`, `FINANCE`, and since 0088
+  `LEGAL`).** Its row twin is `public.file_row_is_money(flag, path)` (0088):
+  every `files` row decision — the four row policies, `log_file_downloaded`,
+  `fn_trash_authz`, the realtime skip, the edit-history snapshot — asks that,
+  never the flag alone. The Edge Function `storage-presign` carries a copy of
+  the list (`supabase/functions/_shared/moneySegments.ts`), held to the
+  function by `storagePresignBoundary.test.js`. The three base `rabbit-files` storage
   policies negate it; the four money policies assert it. Adding a third
   reserved segment is a one-line change to that function — **never** a
   parallel set of policies, because permissive policies OR together and a base
@@ -3520,6 +4724,17 @@ of a session — this section is limits by design, that file is faults.
   the people denied the amount on it. 🚨 **Re-running 0027 silently re-opens
   this** — it owns the three base storage policies and would recreate them
   without the exclusion, reporting success. Replay 0038 after it.
+- **Three paths named an invoice to the wrong person until 0088 (S4b),
+  measured in rolled-back transactions on wilson-dev, 2026-10-01.** The
+  realtime broadcast sent the whole `files` row — name, note, path — to every
+  reader of `rabbit:project:{id}`; money rows are no longer broadcast (another
+  window of a manager sees them on its next load). `edit_history_select` let a
+  workspace manager holding only a member seat read an invoice's history;
+  `edit_history` now snapshots `is_financial` + `project_id` for `files` rows
+  at capture and the policy gains the money arm. `fn_trash_authz` let a plain
+  member trash and restore an invoice by id (a write past the gate and an
+  existence oracle); a money row now needs `can_access_project_money`. All
+  three hold for Legal files too (suite 90).
 - **Invoices live in a folder called `INVOICES`** — a sibling of
   `<slug>_FILES` in the project folder on Local Server, and the reserved
   third path segment in cloud storage. 🚨 **The case of that segment is
@@ -3594,19 +4809,109 @@ of a session — this section is limits by design, that file is faults.
   `platform_audit`'s action CHECK has no value that would let them
   (TPN-LOG-007). The same CHECK reserves `operator.granted` / `operator.revoked`,
   which nothing emits.
-- `resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
-  (client-supplied, spoofable) where `provision-workspace` correctly uses the
-  last (TPN-NET-004); both still use per-isolate in-memory buckets
-  (TPN-NET-005), and six other functions have no limiter at all.
+- ~~`resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
+  (client-supplied, spoofable) … both still use per-isolate in-memory buckets
+  (TPN-NET-005)~~ ✅ **CLOSED for `resolve-login` by Track B bundle B1
+  (2026-09-06).** It keys on Cloudflare's `cf-connecting-ip` (fallback: the
+  X-Forwarded-For hop BEFORE the platform relay) and counts through the
+  durable `fn_rate_limit_hit` (0028) in two buckets — `resolve-login:company`
+  (20/min/IP) and `resolve-login:user` (30/min/IP), both env-tunable — with
+  the shared limiter's new `{ failOpen: false }`, so a limiter that cannot
+  count refuses rather than waves through (TPN-NET-011's constraint for a
+  pre-auth path). A throttled caller gets 429 and the screen says `TOO MANY
+  ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.`; that status depends only on the
+  caller's own count in the window, never on whether a name exists.
+  `provision-workspace` is out of the source tree (S43); six other functions
+  still have no limiter at all. 🚨 **"Take the LAST X-Forwarded-For hop" is
+  WRONG on this platform** — measured in B1 with a throwaway header-echo
+  function: the chain is `<caller-supplied…>, <client via Cloudflare>,
+  <client via the AWS balancer>, <13.248.0.0/14 relay>`, so the last hop is
+  Supabase's own relay and varies per request. Keyed on it, 22 requests from
+  one machine spread over ten limiter rows and nothing was refused; and a
+  relay's pooled counter would eventually refuse every customer behind it.
+  Do not copy the S9 `provision-workspace` recipe anywhere.
+- **Accepted, rate-limited disclosure: the company step is a company-existence
+  oracle** (Track B bundle B1; Audrey's ruling, fix plan answer 34 — "the
+  system should confirm the company listed first exists and is real"). Step 1
+  of sign-in asks `resolve-login` whether the typed company exists and gets a
+  boolean plus the canonical slug back. Anyone holding the anon key — which
+  the web app ships — can therefore test whether a name is a Petal customer,
+  at up to 20 names per minute per address, each behind a response-time
+  floor that today's round trip exceeds (equal timing for a hit and a miss
+  is measured, not enforced — see `resolve-login`'s header). A `*` in the
+  typed name is NOT a wildcard: PostgREST aliases `*` to `%` in an `ilike`
+  pattern, and B1's review round R1 measured `smo*` resolving the smoke
+  workspace and returning its slug (dev v8); the resolver now folds `*` to a
+  one-character `_` and re-checks the returned names for equality, so the
+  step answers for the exact name typed, or for whatever slugifies to the
+  exact slug (`smoke!` finds `smoke`; `pet*` does not find `petal`), and
+  nothing wider. Scenario 5 of `tests/e2e/auth.spec.ts` and the limiter
+  probe both submit the display name minus its last character plus `*` —
+  the one input only the re-check turns into a miss (R2).
+  What it does NOT reveal: status (a suspended, soft-deleted workspace answers
+  exactly like a name that never existed — one wording, `COMPANY NOT
+  FOUND.`), members, counts, or anything about a person; the username path's
+  enumeration defence (uniform wording, fake-email sign-in, constant time) is
+  untouched and pinned by a Playwright scenario. The alternative — never
+  checking — shipped for one S43 commit and signed people into the wrong
+  company; she chose the oracle with the trade-off on the table. Recorded as
+  `TPN-AUTH-009` in `TPN_AUDIT/FINDINGS.md`.
+- **Authentication events are logged server-side since 0070 (Track B bundle
+  B2, part 1) — and the hooks that feed them are a per-project dashboard
+  switch.** Measured before building: hosted GoTrue writes NOTHING to
+  `auth.audit_log_entries` (0 rows on dev beside 1,101 sessions; 0 on staging
+  beside 26) and `auth.mfa_challenges` is empty too, so the brief's reader had
+  nothing to read. `public.auth_events` (FORCE RLS) takes `sign_in` and
+  `mfa_verify` success/failure rows from `hook_password_verification_attempt`
+  and `hook_mfa_verification_attempt` (SECURITY DEFINER, executable by
+  `supabase_auth_admin` only, always `{"decision":"continue"}` — logging
+  hooks, never lockout hooks), and `sign_in` / `sign_out` / `idle_timeout` /
+  `session_cap` rows the CLIENT inserts, stamped by `trg_auth_events_stamp`
+  from the JWT and `auth.sessions` (user, company, session id, address, user
+  agent) so the body can name nobody but the caller. Reads: an operator sees
+  everything, a person their own rows, a workspace admin their company's rows
+  plus the hook rows of its members. Residuals, on purpose: hook rows carry no
+  address (GoTrue passes none; the client's own `sign_in` row is where the
+  address lives); a person in two companies has their hook rows visible to
+  the admins of both (GoTrue does not know which company a password check was
+  for); an unknown username never reaches GoTrue and lives in
+  `auth_attempt_log` instead. Until the two hooks are enabled in each
+  project's dashboard (OWED_AUDREY §14) the functions are inert and only
+  client rows flow. Suite 74 pins all of it. **Part 2 shipped (2026-09-06):**
+  the client writes `sign_in` (after a completed sign-in), `sign_out`,
+  `idle_timeout` and `session_cap` rows with `context.surface` (`app` /
+  `admin`); the idle warning at 25 minutes and sign-out at 30, and the 4-hour
+  cap with a 5-minute notice — wall-clock, evaluated on a tick, on activity
+  and on every return to visibility (`sessionTimeouts.js`), with clocks that
+  hang off each surface's own session key, shared by two tabs of one surface
+  on purpose and never across surfaces; `WIL-1002` on both expiries; Admin
+  Terminal → Logs → Sign-ins and the operator console's Sign-ins (filtered to
+  `platform_operators`); and **0071**, which confines the admin arm's
+  membership clause to hook rows — 0070's applied to every row, so an admin
+  of company A could read a shared member's client rows, address included,
+  for company B. The connection-lost banner: `connectionWatchdog.js` wraps
+  the one fetch supabase-js uses and raises "Connection lost — reload to
+  continue" when an auth, PostgREST or storage-download request is pending
+  past 20 s while `navigator.onLine` is true; uploads, the resumable path and
+  every Edge Function call (all raw fetch) are outside it by construction;
+  reproduction in `scripts/probes/connection-hang.mjs`. Reconnect without a
+  reload is deferred (fix plan answer 10).
 
 **Correctness**
 
-- A username that collides across two workspaces makes sign-in unreachable: the
-  resolver treats "two matches" as a miss unless a workspace slug disambiguates,
-  and the login screen has no slug field. (The resolver already accepts the
-  slug and the client already has the parameter — only the form field is
-  missing, and adding one changes the first screen every user sees, which is
-  why S17 left it.)
+- ~~A username that collides across two workspaces makes sign-in unreachable~~
+  ✅ **CLOSED (S43 `bec9185` / `158172c`, finished by Track B bundle B1,
+  2026-09-06).** Sign-in is company-first: step 1 verifies the company and
+  captures its canonical slug, step 2 sends username + password scoped to
+  it, so the resolver's "two matches is a miss" branch is unreachable from
+  the client. The same username in two companies is two different people
+  (Audrey: "two files with the exact name as long as they are in a different
+  folder"); `UNIQUE (workspace_id, username)` has said so since 0001, and
+  `admin-create-user` / `invite-member` both pre-flight it into a
+  `username_taken` 409 rather than a raw constraint error. The branch stays
+  for older clients and for the CI smoke probe, which resolve by username
+  alone. The company is remembered per device and a `?company=` deep link
+  pre-fills it; neither skips the verification.
 - `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup
   **failed**" lands in the log stream indistinguishable from the success line.
   One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so
@@ -3618,6 +4923,23 @@ of a session — this section is limits by design, that file is faults.
 - `CrewTeamTab` / `TalentTab` do not check `res.ok` on the invoice-folder call,
   so a 400 becomes a swallowed `ERR_INVALID_ARG_TYPE` and the Attach button
   appears to do nothing.
+- **Two CORE flags mean opposite things by default, and that is deliberate**
+  (Track C, C3; MASTER_PLAN §6 #31 trap (b)). D.O.G.'s legacy attachment
+  arrays carry `isCore` and read it as TRUE unless it says otherwise
+  (`f.isCore !== false`); `public.files.is_core_definer` is `NOT NULL DEFAULT
+  false` and is read strictly (`=== true`). Unifying them would move every
+  previously-unmarked file between CORE and REFERENCE, and CORE/REFERENCE is
+  injected into the generation prompt as "primary sources of truth" versus
+  "supporting reference material only" — so the decks would change with
+  nothing failing. Every writer therefore passes the flag EXPLICITLY, and the
+  one place the two meet, `runAttachmentMigration`, carries `isCore !== false`
+  across at the moment of the move. Migration 0075's post-condition 7 and
+  pgTAP 79's probe 17 fail if a later session "fixes" this in the database.
+  *~~The two ProjectFilesTable columns a cloud row could not keep~~ — fixed by
+  0075 in the same bundle: `document_kind` and `description` were written by
+  the Kind select and the Description cell on every gesture, stripped by
+  `toColumns` because `files` had neither column, and persisted only on Local
+  Server, whose PATCH route spreads `req.body`.*
 
 *Fixed in Session 17 and listed here only so a reader of an older copy is not
 misled:* milestones dropped on project load, `addManagedFile` unguarded
@@ -3633,14 +4955,28 @@ global Space shortcut firing from every page.
   *"just make Accept actually save."* The loss she was reporting was the
   accepted CORRECTION, which used to 404 on Local Server and report success
   anyway; that is fixed at both ends.
-- **Signing in on the desktop app empties the O.T.T.E.R. library** and there
-  is no control to switch back: `otterFetch` routes to Supabase whenever the
-  session carries a `workspace_id`, cloud holds zero courses, and
-  `setOtterAdapterMode` — described in two comments as "the Settings
-  override" — has **no callers**. Content de-prioritised by Audrey; the
-  silence is not. See `OUTSTANDING.md`.
-- Settings → Tools "Storage Location" is an editable field that has no effect;
-  `getDataDir()` hardcodes the userData path.
+- ~~**Signing in on the desktop app empties the O.T.T.E.R. library**~~ —
+  **SHIPPED 2026-09-07** (A4, `088dba8`, Audrey’s decision 3). O.T.T.E.R. →
+  `SETTINGS` → `Tool Settings` → **`Library`** offers `Company (signed in)`
+  and `This computer`, pinned per DEVICE in `localStorage` — not in
+  `otter-settings.json`, because the routing seam reads the pin SYNCHRONOUSLY at
+  ~90 call sites and `resolveUserSettings` already refuses to carry machine state
+  between computers. `setOtterAdapterMode` finally has callers: it had none from
+  Session 10 until now, the fourth feature to ship with none.
+  A notice on the library screen says which library is showing and carries the
+  way back, in BOTH directions, so recovery never depends on finding a padlocked
+  Settings tab. Phase 6’s pet index is cleared on the switch, or the pet keeps
+  answering from the library you just left for up to `INDEX_TTL_MS`.
+  **Two limits, both deliberate:** desktop only (there is no local library on the
+  web, and a `local` pin is REFUSED there because every content route would
+  answer 401 with the control that undoes it off-screen); and the switch sits
+  behind the Tools tab’s padlock, which is exactly why the on-screen notice
+  carries its own way back.
+- ~~Settings → Tools "Storage Location"~~ — **REMOVED 2026-09-07** (A4,
+  `088dba8`, decision 28b). It wrote `settings.storageLocation`, which nothing has
+  ever read; courses live under `getDataDir()` regardless. The `Library` control
+  is in its place. The project-files location in WILSON’s own General settings
+  is a different setting and is real.
 - R.A.B.B.I.T.'s agent integration is prompt-selection only — and in fact
   **unreachable**, not merely unwired: `App.jsx` hard-gates the whole agent
   surface to the O.T.T.E.R. page, so the RABBIT prompt can never reach the
@@ -3650,8 +4986,47 @@ global Space shortcut firing from every page.
   sites repo-wide, for O.T.T.E.R. as well as RABBIT. The copy claiming they
   "control which actions are honored at runtime" was corrected in S17; the
   state is still loaded, persisted, rendered and read by nothing.
-- D.O.G. cloud attachments: refused at the write layer, with the re-homing
-  plan and its seven traps catalogued in §6 #31. Re-owned post-1.0.
+- ~~D.O.G. cloud attachments: refused at the write layer~~ — **CLOSED, Track C
+  bundle C3 (`2a4924f`, migration 0075).** Attachments are ordinary project
+  files on every write-capable backend now: a row in `public.files` /
+  `bundle.files` and a body in `rabbit-files` / the project's files directory,
+  written through `adapter.uploadFile` by the Resources drop zone and by
+  D.O.G.'s new-project modal, and read back by D.O.G. through
+  `adapter.downloadFile`. The limits that remain, stated in both directions:
+  * D.O.G. reads at most **20** attachments per project and **32 MiB** in
+    total (`deckAttachments.js`), spending that budget **documents first, then
+    media, each newest-first**. `public.files` is every file RABBIT has stored
+    for that project, so selecting one must not start a gigabyte download —
+    and ordering by date alone spent it on renders, which is why the order is
+    by kind first. Anything that does not fit is skipped, never truncated, and
+    the panel says how many were left out.
+  * A stored row counts as a deck attachment when it has a `document_kind`
+    (0075) **or** is an image or video **filed against the project itself**.
+    The full rule, its residue and why the second arm needs that qualifier are
+    in §12.8b; the short version is that `document_kind` is the marker for
+    documents and media has none, so for media the marker is where it was
+    filed. ⚠️ This bullet read "or is an image or video" flat until review
+    round 2 — the very rule that let every plate and render in a project become
+    deck source material, corrected in the code by round 1 and left standing
+    here, in the section a reader goes to for the limits.
+  * The **legacy arrays are still read** on every backend, so no existing
+    project lost anything. Moving them is Audrey's own one-time action:
+    Settings → RABBIT → "Move deck attachments into project files", dry run
+    first, per-file ceiling **32 MiB** (Local Server's JSON body limit is
+    50 MB and the migration base64-encodes, so a larger ceiling would refuse
+    with a raw HTTP 413 instead of naming the file), oversized files named and
+    left in place.
+  * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
+    arrays default `isCore` TRUE and the two are deliberately NOT unified —
+    see §17's "Correctness" note and 0075's header. The migration carries
+    `isCore !== false` across explicitly, and the round-trip diff in
+    `polarityRoundTrip.test.js` is what proves no file changes side.
+  * Google Drive is read-only, so the drop zone is disabled there with a
+    sentence rather than a thrown stub.
+  * **Deleting means two different things** and the panel now says which:
+    in cloud mode it is 0014's soft delete (30-day window, still holding
+    quota); on Local Server it unlinks the body and certificates it as
+    `purged`, because there is no local trash.
 
 **Documentation drift inside the product**
 
@@ -3694,7 +5069,16 @@ documentation and starts being wrong answers.
   objects — `PROJECT.json` and `FINANCE/RATES.json`, built from the owned
   project ids rather than discovered — so what remains uncovered is only a blob
   no row points at *and* that the product does not write, i.e. a stranded
-  upload whose row never landed. Those are storage-gc's job.
+  upload whose row never landed. Those are storage-gc's job. **Since Track C /
+  C2 the certificate says this itself** — `WIL-7005` carries `thumbnails_note`,
+  a sentence stating that `blobs_*` and `thumbnails_*` are row-derived — and
+  the THIRD bucket, `user-avatars`, which teardown never touched before C2
+  (avatars are photographs of identifiable people, so "torn down" with them
+  resident was a personal-data statement), is LISTED by prefix rather than
+  derived: a stranded avatar IS removed and counted (`avatars_found` /
+  `_removed` / `_failed`, with `avatars_truncated: true` if the listing hit its
+  5000-object bound and stopped). Read that flag: truncated means objects
+  remain, stated, never assumed swept.
 
   🚨 **This entry used to end "the row-derived sweep covers every blob the
   product itself created", and that sentence had been false since S26 shipped
@@ -3703,8 +5087,10 @@ documentation and starts being wrong answers.
   `storage-gc`, a *destruction risk* that would have deleted every project's
   manifest and rates mirror (§12.4). **A gap in what a sweep can SEE is also a
   gap in what a collector can KEEP — read every such note in both directions.**
-- **No single-instance lock** in Electron; two copies can run against one
-  `userData` directory.
+- ~~**No single-instance lock** in Electron; two copies can run against one
+  `userData` directory.~~ **Closed by B3 (2026-09-07)** —
+  `app.requestSingleInstanceLock()`; a second launch quits and focuses the
+  running window.
 - **Realtime probes are lenient in CI** by design — there is no realtime
   service in the CI stack; hosted coverage comes from live probes.
 - **WILSON never enumerates a customer's bucket (S37)** — read this one in
@@ -3746,6 +5132,13 @@ documentation and starts being wrong answers.
 `src/cloud/errorCodes.js` is the client registry; `WIL-41xx` and the `admin`
 event type are **server-reserved** so clients cannot forge audit lines.
 
+⚠️ **`WIL-3005`, `WIL-3006` and `WIL-3007` are in this table and in
+`storage-secret/index.ts` but NOT in `errorCodes.js`** (measured 2026-09-07,
+Track A bundle A4). `describeErrorCode()` therefore returns *Unknown error
+code* for them in the Admin Terminal's Logs view. Not fixed here — they are
+Track C's codes and this was Track A's bundle; `OUTSTANDING.md` carries the
+entry. `eventVocabulary.test.js` exempts exactly those three, by name.
+
 | Range | Meaning | Stream |
 |---|---|---|
 | `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
@@ -3753,13 +5146,16 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
 | `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
+| `WIL-4108` | **Nomination approved by its own proposer** (A4, migration 0069). Written by `otter_nomination_apply`, a DEFINER function owned by a BYPASSRLS role, in the SAME transaction as the promotion and allowed to raise — an unrecorded self-promotion rolls the promotion back with it. Self-approval is **allowed** (Audrey, 2026-09-07: a manager can already promote by hand); this is the record, not a refusal. `severity` is `warning`; `context` carries `nomination_id`, `course_id`, `course_slug`, `course_name`, `approver_app_role`, `superseded_course_id` | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
 | `WIL-7005` | `workspace.teardown` certificate (critical) | `platform_audit` |
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
+| `WIL-7009` | `workspace.invite_sent` — a setup link was emailed to a company's founding admin (S43b); the address is in `context.sent_to` | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
+| `WIL-7012` | Teardown certified abandoned upload(s) (Track C / C2, 0074): every `upload_abandoned` record the company had — the open reservations `sweep_open_uploads()` closed plus any the hourly sweep or a person's own failed upload had already certified — preserved 40 paths per row, straight after the sweep and before any blob is touched, because the CASCADE destroys `file_events` moments later. Certifies the abandonment, not a disposal: the partials expire at 24 h in Supabase Storage. ⚠️ 7009 was NOT free — it is `workspace.invite_sent`, written by `send_setup_link` in the same function (Track A), and this table does not list it. | `platform_audit` |
 
 ---
 

@@ -163,6 +163,150 @@ function contextTextFor(site) {
   return null
 }
 
+/* ── Reading a JSX element's own attributes (UI overhaul B3, 2026-09-24) ─────
+ *
+ * The Timeline test below used to find each pane's props by slicing from
+ * `<Pane` to the literal "\n      />" — the closing line at SIX spaces of
+ * indent — so it checked the file's formatting as much as its gate. Measured
+ * by mutating the real file (eight mutants, three legitimate edits): a
+ * re-indented block did not fail it, the slice ran on past the block to the
+ * next six-space closer in the file, so a re-indented DetailPane with its
+ * prop DELETED still passed on a later element's prop. A prop inside a
+ * comment passed; `canWrite={true}` after the real prop (the value React
+ * uses) passed; a spread after it passed; and a second, ungated render was
+ * never looked at. The restyle has to touch all three blocks, so the check
+ * had to stop depending on how they are laid out before that began.
+ *
+ * So this reads what React reads: the element's opening tag, scanned from
+ * `<Name` to the `>` or `/>` that closes it, with braces, strings, template
+ * literals and comments tracked, so a `>` inside an arrow function or a
+ * comparison never ends the tag. The result is the tag's attributes in
+ * order — [name, value text] — with a spread recorded as '...'. Anything the
+ * scanner cannot read returns null, which the test reports as a FAILURE:
+ * an unparseable tag is never a pass.
+ */
+function skipQuoted(src, i) { // src[i] is ' or "
+  const q = src[i]
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') { i++; continue }
+    if (src[i] === q) return i + 1
+  }
+  return -1
+}
+
+function skipComment(src, i) { // src[i] is '/', src[i + 1] is '/' or '*'
+  if (src[i + 1] === '/') {
+    const end = src.indexOf('\n', i)
+    return end < 0 ? src.length : end
+  }
+  const end = src.indexOf('*/', i + 2)
+  return end < 0 ? -1 : end + 2
+}
+
+function skipTemplate(src, i) { // src[i] is a backtick
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') { i++; continue }
+    if (src[i] === '`') return i + 1
+    if (src[i] === '$' && src[i + 1] === '{') {
+      const end = skipBraced(src, i + 1)
+      if (end < 0) return -1
+      i = end - 1
+    }
+  }
+  return -1
+}
+
+/** From a `{`, the index just past its matching `}` (or -1). */
+function skipBraced(src, i) {
+  let depth = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (c === "'" || c === '"') i = skipQuoted(src, i)
+    else if (c === '`') i = skipTemplate(src, i)
+    else if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) i = skipComment(src, i)
+    else {
+      if (c === '{') depth++
+      else if (c === '}' && --depth === 0) return i + 1
+      i++
+    }
+    if (i < 0) return -1
+  }
+  return -1
+}
+
+/** The attributes of the JSX opening tag that starts at `from`, in order, or null. */
+function openingTagAttributes(src, from) {
+  const open = /^<[A-Za-z_$][\w$.]*/.exec(src.slice(from, from + 200))
+  if (!open) return null
+  const attrs = []
+  let i = from + open[0].length
+  while (i < src.length) {
+    const c = src[i]
+    if (/\s/.test(c)) { i++; continue }
+    if (c === '>' || (c === '/' && src[i + 1] === '>')) return attrs
+    if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) {
+      i = skipComment(src, i)
+      if (i < 0) return null
+      continue
+    }
+    if (c === '{') {
+      const end = skipBraced(src, i)
+      if (end < 0) return null
+      attrs.push(['...', src.slice(i + 1, end - 1).trim()])
+      i = end
+      continue
+    }
+    const name = /^[A-Za-z_$][\w$:-]*/.exec(src.slice(i, i + 200))
+    if (!name) return null
+    i += name[0].length
+    let j = i
+    while (/\s/.test(src[j] || '')) j++
+    if (src[j] !== '=') { attrs.push([name[0], 'true']); continue }
+    j++
+    while (/\s/.test(src[j] || '')) j++
+    let end = -1
+    if (src[j] === '{') end = skipBraced(src, j)
+    else if (src[j] === '"' || src[j] === "'") end = skipQuoted(src, j)
+    if (end < 0) return null
+    const raw = src.slice(j, end)
+    attrs.push([name[0], raw[0] === '{' ? raw.slice(1, -1).trim() : raw])
+    i = end
+  }
+  return null
+}
+
+/** What `canWrite` resolves to on an element: the LAST spelling wins, and a
+    spread after it could replace it, so that is reported as 'spread'. */
+function gateValue(attrs) {
+  let at = -1
+  attrs.forEach(([name], k) => { if (name === 'canWrite') at = k })
+  if (at < 0) return null
+  if (attrs.slice(at + 1).some(([name]) => name === '...')) return 'spread'
+  return attrs[at][1]
+}
+
+/** Offsets of every `<Name` render in `code` (not `<NameX`, not `</Name`). */
+const renderSites = (code, name) => [...code.matchAll(new RegExp(`<${name}(?![\\w$.])`, 'g'))].map((m) => m.index)
+
+/**
+ * Whether a component's `canWrite` comes from useProjectAccess(): 'ok', or
+ * what is wrong. Destructured as `canWrite` itself, nothing else may assign
+ * it; bound to another name (`canWrite: projectCanWrite`, post-overhaul S5d,
+ * so the Timeline can also stand down while a bid version is viewed), there
+ * must be exactly one `const canWrite = <that name> && …`.
+ */
+function gateDerivation(text) {
+  const m = text.match(/const\s*\{([^}]*)\}\s*=\s*useProjectAccess\s*\(/)
+  if (!m) return 'no destructure of useProjectAccess()'
+  const binding = m[1].match(/\bcanWrite\b\s*(?::\s*([A-Za-z_$][\w$]*))?/)
+  if (!binding) return 'useProjectAccess()\'s canWrite is not taken'
+  const assigned = [...text.matchAll(/(?:const|let|var)\s+canWrite\s*=\s*([^\n;]+)/g)].map((a) => a[1].trim())
+  const bound = binding[1] || null
+  if (!bound) return assigned.length ? `canWrite also assigned: ${assigned.join(' / ')}` : 'ok'
+  if (assigned.length !== 1) return `canWrite assigned ${assigned.length} times beside the gate's ${bound}`
+  return new RegExp(`^${bound}\\s*&&\\s*\\S`).test(assigned[0]) ? 'ok' : `canWrite = ${assigned[0]}`
+}
+
 describe('project write gate', () => {
   const sites = canOnProjectCallSites()
 
@@ -219,36 +363,163 @@ describe('project write gate', () => {
     // assertion with it.
     expect(text, 'canWrite must be destructured from the gate, not assigned a literal')
       .toMatch(/const\s*\{[^}]*\bcanWrite\b[^}]*\}\s*=\s*useProjectAccess\s*\(/)
+    // Post-overhaul S5d: the gate's answer is bound to another name
+    // (`canWrite: projectCanWrite`) so `canWrite` can ALSO stand down while a
+    // bid version is viewed (F2: viewing is read-only). Then `canWrite` must be
+    // BUILT from that name — `const canWrite = projectCanWrite && …` — or the
+    // destructure above would pass beside a `const canWrite = true` that gates
+    // nothing (the assertion's whole point, renamed around).
+    expect(gateDerivation(text), 'canWrite must be the gate\'s answer AND-ed with anything else, once').toBe('ok')
+  })
+  it('CONTROL: the derivation check fails on a literal, an OR and a second assignment, and passes the gate\'s own name or the S5d AND', () => {
+    const gate = 'const { canWrite: projectCanWrite, writeReason } = useProjectAccess()\n'
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite && !viewing`)).toBe('ok')
+    expect(gateDerivation('const { canWrite, writeReason } = useProjectAccess()')).toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = true`)).not.toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite || viewing`)).not.toBe('ok')
+    expect(gateDerivation(`${gate}const canWrite = projectCanWrite && !viewing\nconst canWrite = true`)).not.toBe('ok')
+    expect(gateDerivation(gate)).not.toBe('ok')
   })
 
   it('the Timeline gates the funnel AND the affordances, not just the funnel', () => {
-    const text = readSrc('tools/rabbit_v0.1.0/views/TimelineView.jsx')
+    const raw = readSrc('tools/rabbit_v0.1.0/views/TimelineView.jsx')
     // Gating openNewTask alone would leave ~12 visible, inert affordances —
     // the S23 "the button does nothing" defect in a new place. These are the
-    // three panes that render or host them; each must receive the flag.
+    // three panes that render or host them; EVERY render of each must pass
+    // the flag as its own attribute. Render sites are found in the
+    // comment-blanked text (a `<DetailPane` in prose is not a render) and read
+    // from the raw text at the same offset, which blankComments preserves.
+    const code = blankComments(raw)
     for (const pane of ['DetailZoomToolbar', 'DetailPane', 'OverviewPane']) {
-      const idx = text.indexOf(`<${pane}`)
-      expect(idx, `${pane} should be rendered by TimelineView`).toBeGreaterThan(-1)
-      // Slice to the element's own closing `/>` at its JSX indent rather than a
-      // fixed character budget — DetailPane's prop list alone runs past 4000
-      // characters, so a fixed window reported a false failure.
-      const end = text.indexOf('\n      />', idx)
-      expect(end, `${pane} should close at its own indent`).toBeGreaterThan(idx)
-      const block = text.slice(idx, end)
-      expect(block, `${pane} must receive canWrite, or its affordances stay live`)
-        .toMatch(/canWrite=\{canWrite\}/)
+      const sites = renderSites(code, pane)
+      expect(sites.length, `${pane} should be rendered by TimelineView`).toBeGreaterThan(0)
+      for (const at of sites) {
+        const attrs = openingTagAttributes(raw, at)
+        expect(attrs, `${pane} (offset ${at}): its opening tag could not be read`).not.toBeNull()
+        expect(gateValue(attrs),
+          `${pane} must receive canWrite={canWrite} as its own attribute (the last of that name, ` +
+          'with no spread after it), or its affordances stay live').toBe('canWrite')
+      }
     }
+  })
+
+  it('CONTROL: the pane check reads the attribute React reads, at any indent', () => {
+    // Written into the real TimelineView.jsx, the commented-out prop, the later
+    // `canWrite={true}`, the spread, the second ungated render and the
+    // re-indented block with no prop all PASSED the old "\n      />" slice
+    // (B3, 2026-09-24). Each is a self-contained snippet here, through the
+    // same functions the assertion above uses, so a change to the scanner is
+    // checked against every one of them.
+    const check = (snippet) => renderSites(blankComments(snippet), 'DetailPane').map((at) => {
+      const attrs = openingTagAttributes(snippet, at)
+      return attrs && gateValue(attrs)
+    })
+    // gated, whatever the formatting
+    expect(check('<DetailPane\n  rows={rows}\n  canWrite={canWrite}\n        />')).toEqual(['canWrite'])
+    expect(check('<DetailPane onX={() => a > b} canWrite={canWrite} label="a > b" />')).toEqual(['canWrite'])
+    expect(check('<DetailPane onX={(e) => `${e} }`} canWrite={canWrite}>{kids}</DetailPane>')).toEqual(['canWrite'])
+    expect(check('<DetailPane {...rest} canWrite={canWrite} />')).toEqual(['canWrite'])
+    // gates nothing
+    expect(check('<DetailPane rows={rows} />')).toEqual([null])
+    expect(check('<DetailPane canWrite={true} />')).toEqual(['true'])
+    expect(check('<DetailPane canWrite={canWrite} canWrite={true} />')).toEqual(['true'])
+    expect(check('<DetailPane canWrite={canWrite} {...{ canWrite: true }} />')).toEqual(['spread'])
+    expect(check('<DetailPane /* canWrite={canWrite} */ rows={rows} />')).toEqual([null])
+    expect(check('<DetailPane rows={rows}\n  // canWrite={canWrite}\n/>')).toEqual([null])
+    expect(check('<DetailPane onX={() => { const canWrite = true }} />')).toEqual([null])
+    expect(check('<DetailPane canWrite={canWrite} />\n<DetailPane rows={rows} />')).toEqual(['canWrite', null])
+    // a render inside a comment is not a render
+    expect(check('// <DetailPane canWrite={canWrite} />')).toEqual([])
+    expect(check('{/* <DetailPane canWrite={canWrite} /> */}')).toEqual([])
+    // an unreadable tag is null, which the assertion reports as a failure
+    expect(check('<DetailPane canWrite={canWrite} onX={() => "unterminated} />')).toEqual([null])
   })
 
   it('every R.A.B.B.I.T. surface that creates project entities consults the gate', () => {
     // The census that would have caught the Timeline in S23 instead of S29.
+    // Post-overhaul S3b: the Scenes tab, whose scene and shot verbs were
+    // ungated until a reviewer could write shot lists beside them.
     const surfaces = [
       'tools/rabbit_v0.1.0/views/TimelineView.jsx',
       'tools/rabbit_v0.1.0/views/ProjectTasksView.jsx',
       'tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx',
       'tools/rabbit_v0.1.0/components/TaskDetailPopup.jsx',
+      'tools/rabbit_v0.1.0/views/ScenesView.jsx',
     ]
     const ungated = surfaces.filter(rel => !/useProjectAccess|canOnProject/.test(readSrc(rel)))
     expect(ungated, 'these surfaces write project entities and must gate them').toEqual([])
+  })
+
+  // Post-overhaul S3b step 7: the Timeline test's shape, for the Scenes tab.
+  // A reviewer now builds shot lists on this tab, so its scene and shot
+  // verbs — which the database refuses them — must be gated where they are
+  // drawn: the flag from the gate's CALL, and every table, gallery and popup
+  // render handed it as its own attribute (a sub-view's `canWrite` defaults
+  // to false, so a render without it greys everything — and one handed
+  // `true` gates nothing).
+  const SCENES = 'tools/rabbit_v0.1.0/views/ScenesView.jsx'
+  // Post-overhaul S3c, step 3: EditTable (an edit's cut) writes the shot's
+  // status and frame count, so it takes the gate too.
+  const SCENE_SUBVIEWS = ['EditTable', 'SceneTable', 'ShotTable', 'SceneGallery', 'ShotGallery', 'SceneDetailPopup', 'ShotDetailPopup']
+  // Review round 1 (R1-04): the scene and shot popups made tasks for a
+  // reviewer — RelationsPanel shows "Add new task" whenever it is handed
+  // onCreateTask, and the funnel behind it checked nothing. Every hand-off
+  // of onCreateTask is conditional on the popup's gate, and every
+  // handleCreateTask refuses first.
+  const TOOLBAR_GATE = '<GatedAction allowed={canAddRows} reason={addReason}>'
+  const taskGates = (code) => ({
+    sites: (code.match(/onCreateTask=/g) || []).length,
+    gated: (code.match(/onCreateTask=\{canWrite \? /g) || []).length,
+    funnels: (code.match(/function handleCreateTask\(/g) || []).length,
+    refused: (code.match(/function handleCreateTask\([^)]*\) \{\s*if \(!canWrite\) return\b/g) || []).length,
+  })
+  it('ScenesView takes its entity gate from the call, and hands it to every table, gallery and popup', () => {
+    const raw = readSrc(SCENES)
+    const code = blankComments(raw)
+    expect(code).toMatch(/const\s*\{[^}]*\bcanWrite\s*:\s*canWriteProject\b[^}]*\}\s*=\s*useProjectAccess\s*\(/)
+    for (const view of SCENE_SUBVIEWS) {
+      const sites = renderSites(code, view)
+      expect(sites.length, `${view} should be rendered by ScenesView`).toBeGreaterThan(0)
+      for (const at of sites) {
+        const attrs = openingTagAttributes(raw, at)
+        expect(attrs, `${view} (offset ${at}): its opening tag could not be read`).not.toBeNull()
+        expect(gateValue(attrs), `${view} must receive canWrite={canWriteProject}`).toBe('canWriteProject')
+      }
+    }
+    // The toolbar's two creates sit inside a GatedAction whose flag is the
+    // gate's — and is off while an archived list, read-only, is on screen
+    // (review round 1, R1-02: a new row there went to the ACTIVE list), and
+    // (post-overhaul S3c, step 3) while an edit is on screen, where a new row
+    // would land in the list, out of sight of the cut.
+    expect(code).toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
+    expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    expect(code).toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<span ref=\{shotPickerRef\}/)
+    // R1-04: both popups' task creates.
+    expect(taskGates(code)).toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
+  })
+  it('CONTROL: the Scenes check fails on a render without the gate, with a literal, or with the toolbar ungated', () => {
+    const raw = readSrc(SCENES)
+    const check = (src) => SCENE_SUBVIEWS.flatMap((view) => renderSites(blankComments(src), view).map((at) => gateValue(openingTagAttributes(src, at) || [])))
+    expect(check(raw).every((v) => v === 'canWriteProject')).toBe(true)
+    // One render's prop taken out, or set to a literal: caught.
+    const first = raw.indexOf('canWrite={canWriteProject}')
+    expect(first).toBeGreaterThan(0)
+    expect(check(raw.slice(0, first) + raw.slice(first + 'canWrite={canWriteProject}'.length)).some((v) => v !== 'canWriteProject')).toBe(true)
+    expect(check(raw.replace('canWrite={canWriteProject}', 'canWrite={true}')).some((v) => v !== 'canWriteProject')).toBe(true)
+    // The New scene button out of its GatedAction: caught.
+    const code = blankComments(raw)
+    expect(code.indexOf(TOOLBAR_GATE)).toBeGreaterThan(0)
+    const ungated = code.replace(TOOLBAR_GATE, '')
+    expect(ungated).not.toMatch(/<GatedAction allowed=\{canAddRows\} reason=\{addReason\}>\s*<Button[^>]*onClick=\{handleNewScene\}/)
+    // Its flag not the gate's: caught.
+    expect(code.replace(/const canAddRows = canWriteProject && /, 'const canAddRows = true && ')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
+    // S3c: the edit term taken out is caught too.
+    expect(code.replace(" && !editOnScreen\n", '\n').replace(" && !editOnScreen\r\n", '\r\n')).not.toMatch(/const canAddRows = canWriteProject && viewed\.mode !== 'archived' && !editOnScreen\r?\n/)
+    // R1-04: a popup handing onCreateTask over whatever the gate, or a
+    // handleCreateTask that does not refuse first: caught.
+    const handOff = 'onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}'
+    expect(code.indexOf(handOff)).toBeGreaterThan(0)
+    expect(taskGates(code.replace(handOff, 'onCreateTask={() => setShowCreateTask(true)}'))).not.toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
+    expect(taskGates(code.replace(/(function handleCreateTask\(draft\) \{\s*)if \(!canWrite\) return/, '$1'))).not.toEqual({ sites: 2, gated: 2, funnels: 2, refused: 2 })
   })
 })

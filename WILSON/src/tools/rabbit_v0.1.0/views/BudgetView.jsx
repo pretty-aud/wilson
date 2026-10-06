@@ -10,23 +10,27 @@
 //   - By Asset — asset-grouped bid/logged/variance/cost
 //   - Custom   — user picks group-by + filter + rate card override
 //
-// Summary tab includes:
+// Summary tab includes (post-overhaul S5c, F11's order):
+//   - the "Budget active — in production" banner while a bid is locked
+//   - Bid days / Logged days / Variance
+//   - Bid versions (budget/BidVersions.jsx): the OPEN version's Save and
+//     Save as new version…, the SELECTED bid and the variance against it,
+//     Edit this version, Set budget active, Manage versions…
 //   - Editable margin % and contingency % (stored on project)
-//   - Budget versioning: create bid snapshots, select active, finalize
-//   - Grand total: base + margin + contingency
-//   - Variance against active bid version
+//   - The overall total: base + margin + contingency + the agency fee, the
+//     total before agency beside it (F7)
 //
 // Costs come from `useRateCard()` — entries are flattened into a
 // `{ role_slug → day_rate }` map. Tasks whose assigned_role_slug
 // is missing fall back to 0 day rate.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { v4 as uuidv4 } from 'uuid'
+import { createPortal } from 'react-dom'
 import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
-  Lock, LockOpen, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
-  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown,
+  Plus, Pencil, X, Undo2, Redo2,
+  Upload, FileText, Paperclip, FolderOpen, Search, Filter, ArrowUpDown, ArrowRight,
   BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
   Users, Star, Eye, CheckSquare, Square, MinusSquare,
   Film, Gamepad2, Zap,
@@ -38,32 +42,50 @@ import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudg
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
 import { buildRoleRates } from '../../../components/Budget/budgetMath'
-import CurrencyDisplay from '../components/CurrencyDisplay'
+import CurrencyDisplay, { formatMoney, formatTenths } from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
 import ClientViewTab from './budget/ClientViewTab'
-
-function fmtCurrency(val, currency = 'USD') {
-  const n = Number(val) || 0
-  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
+import MarginContPopover from './budget/MarginContPopover'
+import {
+  Table, Th, Td, Row, Stat, StatusDot, EmptyState, Loading,
+  SectionTitle, Button, IconButton, Switch, Banner, Toolbar, Dialog, HoverActions, Badge, Tabs, Spinner,
+} from '../../../ui'
+import { toInlineSafeBlob } from '../../../lib/inlineSafeBlob'
+// Post-overhaul S3c, step 1: which shot list a scene or shot is in (the
+// reports' tooltips), and the undo keys' "is the settings drawer in front of
+// me?" (Bins', Scenes' and the Timeline's keys ask it too).
+import { useHomeIndex } from './scenes/LinkHome'
+// Audrey's rule of 2026-10-02: a task linked outside the active list is
+// counted under "No scene in the active list" / "No shot in the active list", never dropped, and says where it points.
+import { activeIdsOf, linksInActive, notAssignedTitle, NO_SCENE_GROUP, NO_SHOT_GROUP } from './scenes/linkHomes'
+import { drawerOnScreen, visibleDialogCount } from './bins/binUi'
+// Post-overhaul S5c: bid versions as living documents on the Summary — the
+// block (S3c's "Based on shot list" moved into its save row), its questions,
+// and the model's arithmetic for the page's totals.
+import { BidVersionsBlock, ratesPendingFrom } from './budget/BidVersions'
+import VersionQuestions, { basedOnWords } from './budget/VersionQuestions'
+import { bidTotals, projectBudgetSettings, readVersion } from '../state/budgetVersionModel'
+import { resetToastWords } from '../state/versionWords'
+import { showDate } from '../dates'
+import './rabbitBudget.css'
 
 const TABS = [
   { id: 'summary',        label: 'Summary',       icon: DollarSign },
-  { id: 'by_phase',       label: 'By Phase',      icon: Layers     },
-  { id: 'by_role',        label: 'By Role',       icon: UserCircle },
-  { id: 'by_asset',       label: 'By Asset',      icon: Boxes      },
-  { id: 'by_scene',       label: 'By Scene',      icon: Film,      requires: 'scenes_enabled' },
-  { id: 'by_shot',        label: 'By Shot',       icon: Film,      requires: 'scenes_enabled' },
-  { id: 'by_level',       label: 'By Level',      icon: Gamepad2,  requires: 'levels_enabled' },
-  { id: 'by_experience',  label: 'By Experience', icon: Zap,       requires: 'experiences_enabled' },
+  { id: 'by_phase',       label: 'By phase',      icon: Layers     },
+  { id: 'by_role',        label: 'By role',       icon: UserCircle },
+  { id: 'by_asset',       label: 'By asset',      icon: Boxes      },
+  { id: 'by_scene',       label: 'By scene',      icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_shot',        label: 'By shot',       icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_level',       label: 'By level',      icon: Gamepad2,  requires: 'levels_enabled' },
+  { id: 'by_experience',  label: 'By experience', icon: Zap,       requires: 'experiences_enabled' },
   { id: 'custom',         label: 'Custom',        icon: Sparkles   },
   { id: '__div1__' },
-  { id: 'crew',           label: 'Crew/Team',     icon: Users      },
+  { id: 'crew',           label: 'Crew/team',     icon: Users      },
   { id: 'talent',         label: 'Talent',        icon: Star       },
   { id: 'expenses',       label: 'Expenses',      icon: Receipt    },
   { id: '__div2__' },
-  { id: 'client',         label: 'Client View',   icon: Eye        },
+  { id: 'client',         label: 'Client view',   icon: Eye        },
 ]
 
 const GROUP_BY_OPTIONS = [
@@ -86,13 +108,13 @@ const STATUS_FILTER_OPTIONS = [
   { id: 'blocked', label: 'Blocked' },
   { id: 'on_hold', label: 'On hold' },
   { id: 'pending_review', label: 'Pending review' },
-  { id: 'needs_revisions', label: 'Needs Revisions' },
+  { id: 'needs_revisions', label: 'Needs revisions' },
   { id: 'approved', label: 'Approved' },
   { id: 'final', label: 'Final' },
   { id: 'omitted', label: 'Omitted' },
 ]
 
-export default function BudgetView() {
+export default function BudgetView({ pageActive = false } = {}) {
   const ctx = useRabbit()
   const project = ctx?.project
   const phases       = ctx?.phases       || []
@@ -100,10 +122,18 @@ export default function BudgetView() {
   const tasks        = ctx?.tasks        || []
   const scenes       = ctx?.scenes       || []
   const shots        = ctx?.shots        || []
+  // Post-overhaul S3c: `scenes` / `shots` are the active list's (D10), and a
+  // task linked to a scene or shot it does not hold read "Unknown scene"
+  // here. The reports count it under "No scene in the active list" / "No shot in the active list" instead (Audrey's
+  // rule of 2026-10-02), the provider's lookups over every row saying in that
+  // row's tooltip what it points at; each scene's and shot's row says which
+  // list holds it (the tables are too dense to print it).
+  const sceneById    = ctx?.sceneById
+  const shotById     = ctx?.shotById
+  const homeOf       = useHomeIndex(ctx)
   const levels       = ctx?.levels       || []
   const experiences  = ctx?.experiences  || []
   const loading = ctx?.loadingProject
-  const budgetVersions = ctx?.budgetVersions || []
 
   const projectTeam = ctx?.projectTeam || []
   const syncProjectTeam = ctx?.syncProjectTeam
@@ -173,6 +203,11 @@ export default function BudgetView() {
   const hasNoRates = (rateCard.entries || []).length === 0
                   && (rateOverrides.overrides || []).length === 0
 
+  // Post-overhaul S5c: are the rates on hand the project's? Until they are,
+  // the versions block calls nothing unsaved and greys the verbs that write a
+  // bid, saying why (budget/BidVersions.jsx's ratesPendingFrom).
+  const ratesPending = ratesPendingFrom({ rateCard, rateOverrides, epoch: ctx?.rateOverridesEpoch ?? 0 })
+
   const variance = useMemo(
     () => ctx?.selectVarianceForProject?.() || { bid: 0, logged: 0, variance: 0 },
     [ctx]
@@ -196,60 +231,46 @@ export default function BudgetView() {
   if (loading) return <CenterMsg>Loading project...</CenterMsg>
   if (!project) return <CenterMsg>No project loaded</CenterMsg>
 
+  // The tab strip is the kit Tabs (R3-16, R3-17, R3-18, R3-29): the one
+  // active treatment, a 2px signal underline with no fill (the orange fill
+  // and its dead underline went), sentence case at the Body step. Every tab
+  // stays a tab, in its order; the two group hairlines are the kit's
+  // separators. The icon rides in the label at 14px, as ViewTabs' does.
+  const tabItems = TABS.filter(t => !t.requires || project?.[t.requires]).map(t => {
+    if (t.id.startsWith('__div')) return { separator: true }
+    const Icon = t.icon
+    return { id: t.id, label: <><Icon className="rb-budget-tab-icon" aria-hidden="true" />{t.label}</> }
+  })
+
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
-      {/* Tab strip */}
-      <div
-        className="flex items-center gap-2 px-5 py-2.5"
-        style={{ borderBottom: '1px solid #44403c' }}
-      >
-        {TABS.filter(t => !t.requires || project?.[t.requires]).map(t => {
-          if (t.id.startsWith('__div')) {
-            return <div key={t.id} className="self-stretch flex items-center mx-1"><div style={{ width: 1, height: 16, backgroundColor: '#292524' }} /></div>
-          }
-          const active = tab === t.id
-          const Icon = t.icon
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm transition-colors"
-              style={{
-                color: active ? '#fff7ed' : '#a8a29e',
-                backgroundColor: active ? '#ea580c' : 'transparent',
-                borderBottom: active ? '2px solid #ea580c' : '2px solid transparent',
-              }}
-            >
-              <Icon className="w-3 h-3" />
-              <span className="text-[10.5px] font-mono uppercase tracking-wider">
-                {t.label}
-              </span>
-            </button>
-          )
-        })}
+    <div className="rb-budget-view">
+      <div className="rb-budget-tabbar">
+        <Tabs
+          items={tabItems}
+          value={tab}
+          onChange={setTab}
+          label="Budget views"
+          panelId="rb-budget-panel"
+          className="rb-budget-tabs"
+        />
       </div>
 
       {/* Session 24: an empty rate card is the difference between "this
           budget is zero" and "this budget cannot be calculated yet". Without
-          this, both render as $0 and the second looks like a bug. */}
+          this, both render as $0 and the second looks like a bug. The copy
+          is the review's best on this surface (R3 "What works"): only its
+          capitals went (Q2), onto the kit Banner. */}
       {hasNoRates && (
-        <div
-          className="flex items-start gap-2 px-5 py-2.5"
-          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
-        >
-          <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" style={{ color: '#fb923c' }} />
-          <div className="text-[10.5px] font-mono leading-relaxed" style={{ color: '#d6d3d1' }}>
-            <span style={{ color: '#fb923c' }}>NO RATE CARD YET.</span>{' '}
-            Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
-            every total below will stay at zero until this workspace has rate-card
-            roles with rates. Add them in <span style={{ color: '#fff7ed' }}>Resources &rsaquo; Rate Card</span>.
-            Everything else on this page — actuals, expenses, margin and contingency — works now.
-          </div>
-        </div>
+        <Banner tone="warning" Icon={AlertCircle}>
+          <strong className="rb-budget-rates-lead">No rate card yet.</strong>{' '}
+          Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
+          every total below will stay at zero until this workspace has rate-card
+          roles with rates. Add them in <span className="rb-budget-rates-place">Resources &rsaquo; Rate card</span>.
+          Everything else on this page — actuals, expenses, margin and contingency — works now.
+        </Banner>
       )}
 
-      <div className="flex-1 overflow-auto p-6">
+      <div id="rb-budget-panel" role="tabpanel" className="rb-budget-panel">
         {tab === 'summary'  && (
           <SummaryTab
             ctx={ctx}
@@ -258,9 +279,9 @@ export default function BudgetView() {
             budget={budget}
             tasks={tasks}
             roleRates={roleRates}
+            ratesPending={ratesPending}
             missingRolesCount={missingRolesCount}
             rateCardName={rateCard.rateCards.find(c => c.id === rateCard.activeRateCardId)?.name}
-            budgetVersions={budgetVersions}
             budgetHook={budgetHook}
             rateCard={rateCard}
             teamMembers={assignedTeam}
@@ -277,10 +298,10 @@ export default function BudgetView() {
           <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_scene' && (
-          <BySceneTab scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <BySceneTab scenes={scenes} shots={shots} sceneById={sceneById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_shot' && (
-          <ByShotTab shots={shots} scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+          <ByShotTab shots={shots} scenes={scenes} sceneById={sceneById} shotById={shotById} homeOf={homeOf} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
         {tab === 'by_level' && (
           <ByLevelTab levels={levels} tasks={tasks} budget={budget} roleRates={roleRates} />
@@ -296,6 +317,9 @@ export default function BudgetView() {
             tasks={tasks}
             scenes={scenes}
             shots={shots}
+            sceneById={sceneById}
+            shotById={shotById}
+            homeOf={homeOf}
             levels={levels}
             experiences={experiences}
             budget={budget}
@@ -327,6 +351,7 @@ export default function BudgetView() {
         {tab === 'expenses' && (
           <ExpensesTab
             ctx={ctx}
+            pageActive={pageActive}
             project={project}
             phases={phases}
             assets={assets}
@@ -379,225 +404,167 @@ function aggregateTasks(taskList, roleRates) {
 }
 
 // ─── Summary tab ────────────────────────────────────────────
-function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingRolesCount, rateCardName, budgetVersions, budgetHook, rateCard, teamMembers, expensesHook }) {
+// Post-overhaul S5c (F11): top to bottom — the "Budget active — in
+// production" banner while a bid is locked, the three day tiles, the bid
+// versions block (budget/BidVersions.jsx), Cost breakdown, the Topsheet.
+//
+// Every version write goes through the provider's mutators — one undo step
+// each, never a reload (F12.4: the old path here wrote through the adapter
+// and then reloaded the project, which wiped Undo). This file calls no
+// adapter for a version, writes no lock field itself and never reloads the
+// project after a version write; rabbitBudgetRender.test.jsx pins all three.
+// The page's figures are the model's arithmetic (bidTotals), the one a
+// version's saved totals are made by, so the waterfall's overall total and a
+// version's cannot drift apart (F7).
+function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, ratesPending = null, missingRolesCount, rateCardName, budgetHook, rateCard, teamMembers, expensesHook }) {
   const knownRoles = Object.keys(roleRates).length
 
-  // ── Margin / Contingency (stored on project) ──
-  const marginPct = Number(project.budget_margin_pct ?? 0) || 0
-  const contingencyPct = Number(project.budget_contingency_pct ?? 0) || 0
-  const agencyEnabled = project?.budget_agency_enabled === true
-  const agencyPct     = Number(project?.budget_agency_pct ?? 20)
-  const baseCost = budget.total
-  const marginAmt = Math.round(baseCost * (marginPct / 100) * 100) / 100
-  const contingencyAmt = Math.round(baseCost * (contingencyPct / 100) * 100) / 100
-  const grandTotal = Math.round((baseCost + marginAmt + contingencyAmt) * 100) / 100
+  // ── Margin / contingency / agency (stored on the project) ──
+  const { marginPct, contingencyPct, agencyEnabled, agencyPct } = projectBudgetSettings(project)
+  const live = useMemo(
+    () => bidTotals({ tasks, roleRates, marginPct, contingencyPct, agencyEnabled, agencyPct }),
+    [tasks, roleRates, marginPct, contingencyPct, agencyEnabled, agencyPct],
+  )
   const currency = budget.currency
 
   function updateProjectField(field, value) {
     ctx?.updateProject?.(project.id, { [field]: value })
   }
 
-  // ── Budget versioning ──
-  const adapter = ctx?.getAdapter?.()
-  const [versionName, setVersionName] = useState('')
-  const [versionBusy, setVersionBusy] = useState(false)
-  const activeVersion = budgetVersions.find(v => v.is_active)
-  const isFinal = project.budget_finalized === true
-
-  async function createBidVersion() {
-    if (!versionName.trim() || !adapter?.upsertBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      const snapshot = {
-        tasks: tasks.map(t => ({
-          id: t.id, asset_id: t.asset_id,
-          assigned_role_slug: t.assigned_role_slug,
-          assigned_position: t.assigned_position,
-          bid_days: t.bid_days, logged_days: t.logged_days,
-          status: t.status,
-        })),
-        roleRates: { ...roleRates },
-        baseCost, marginPct, contingencyPct, grandTotal,
-        totalBidDays: variance.bid,
-      }
-      await adapter.upsertBudgetVersion({
-        id: uuidv4(),
-        project_id: project.id,
-        name: versionName.trim(),
-        type: 'bid',
-        is_active: budgetVersions.length === 0,
-        created_at: new Date().toISOString(),
-        snapshot,
-      })
-      setVersionName('')
-      // Refresh bundle
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to create budget version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  async function setActiveVersion(versionId) {
-    if (!adapter?.upsertBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      for (const v of budgetVersions) {
-        if (v.is_active !== (v.id === versionId)) {
-          await adapter.upsertBudgetVersion({
-            ...v,
-            is_active: v.id === versionId,
-          })
-        }
-      }
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to set active version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  async function deleteVersion(versionId) {
-    if (!adapter?.deleteBudgetVersion) return
-    setVersionBusy(true)
-    try {
-      await adapter.deleteBudgetVersion(versionId, project.id)
-      ctx?.setActiveProject?.(project.id)
-    } catch (err) {
-      console.error('Failed to delete budget version:', err)
-    } finally {
-      setVersionBusy(false)
-    }
-  }
-
-  // ── Bid → Active workflow ──
-  const [showActivateConfirm, setShowActivateConfirm] = useState(false)
+  // ── The lock (F9): "Budget active — in production" ──
+  // budget_active with no version on record still counts as locked (S5
+  // review round 1): the banner, and its way out, show either way.
   const isActive = project.budget_active === true
-  const lockedVersionId = project.budget_active_version_id || null
-  const lockedVersion = lockedVersionId ? budgetVersions.find(v => v.id === lockedVersionId) : null
-
-  async function activateBudget() {
-    if (!activeVersion) return
-    // Enrich the snapshot with additional locked data
-    const enrichedSnapshot = {
-      ...(activeVersion.snapshot || {}),
-      taskCount: tasks.length,
-      taskDurations: tasks.map(t => ({ id: t.id, name: t.name || t.title, bid_days: t.bid_days, status: t.status })),
-      lineItemTotals: {
-        baseCost, marginPct, marginAmt, contingencyPct, contingencyAmt, grandTotal,
-        agencyEnabled, agencyPct,
-        agencyAmt: agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0,
-      },
-      lockedAt: new Date().toISOString(),
+  const lockedVersion = isActive
+    ? ((ctx?.budgetVersions || []).find(v => v.id === project.budget_active_version_id) || null)
+    : null
+  const lockedRead = lockedVersion ? readVersion(lockedVersion) : null
+  const lockedBasedOn = lockedVersion ? basedOnWords(lockedVersion, ctx?.shotLists) : null
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState(null)
+  // One click and no question, so its undo toast is the way back: locking
+  // again would load the bid AS SAVED over production's edits.
+  async function resetToBidding() {
+    const step = ctx?.runWithUndoToast || ((run) => run())
+    setResetting(true)
+    setResetError(null)
+    try {
+      await step(() => ctx.resetToBidding(), resetToastWords(lockedVersion))
+    } catch (err) {
+      setResetError(err?.message || String(err))
+    } finally {
+      setResetting(false)
     }
-    // Save the enriched snapshot back onto the version
-    if (adapter?.upsertBudgetVersion) {
-      await adapter.upsertBudgetVersion({ ...activeVersion, snapshot: enrichedSnapshot })
-    }
-    // Mark project as active with the locked version
-    ctx?.updateProject?.(project.id, {
-      budget_active: true,
-      budget_active_version_id: activeVersion.id,
-      budget_finalized: true,
-    })
-    setShowActivateConfirm(false)
-    ctx?.setActiveProject?.(project.id)
   }
 
-  async function resetToTidding() {
-    ctx?.updateProject?.(project.id, {
-      budget_active: false,
-      budget_active_version_id: null,
-      budget_finalized: false,
-    })
-    ctx?.setActiveProject?.(project.id)
-  }
-
-  // ── Active version variance ──
-  const versionVariance = useMemo(() => {
-    if (!activeVersion?.snapshot) return null
-    const bidTotal = activeVersion.snapshot.grandTotal ?? activeVersion.snapshot.baseCost ?? 0
-    const diff = grandTotal - bidTotal
-    return { bidTotal, currentTotal: grandTotal, diff, pctChange: bidTotal > 0 ? (diff / bidTotal) * 100 : 0 }
-  }, [activeVersion, grandTotal])
+  // ── The versions' questions (budget/VersionQuestions.jsx): one at a time ──
+  const [ask, setAsk] = useState(null)
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* ── Active budget banner ── */}
-      {isActive && lockedVersion && (
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-sm"
-          style={{ backgroundColor: '#14532d', border: '1px solid #22c55e' }}
+    <div className="rb-budget-page">
+      {/* ── Active budget banner: the kit Banner in the success tone. The
+          words are the one ink and the tone is the tint and the icon, so
+          nothing here is green text (R3-13). ── */}
+      {isActive && (
+        <Banner
+          tone="success"
+          Icon={ShieldCheck}
+          action={(
+            <Button
+              size="sm"
+              Icon={RotateCcw}
+              loading={resetting}
+              onClick={resetToBidding}
+              title="Reset to bidding: the lock is lifted, and bid versions can be edited again"
+            >
+              Reset to bidding
+            </Button>
+          )}
         >
-          <ShieldCheck className="w-5 h-5 flex-shrink-0" style={{ color: '#4ade80' }} />
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-mono font-bold uppercase block" style={{ color: '#4ade80' }}>
-              Budget active — In production
-            </span>
-            <span className="text-xs font-mono block mt-0.5" style={{ color: '#86efac' }}>
-              Locked bid: <span className="font-bold">{lockedVersion.name}</span>
-              {' '}· {lockedVersion.snapshot?.lockedAt
-                ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
-                : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
-              {' '}· {fmtCurrency(lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0, currency)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={resetToTidding}
-            className="flex items-center gap-1.5 text-[10.5px] font-mono px-2.5 py-1 rounded-sm hover:bg-green-900 transition-colors flex-shrink-0"
-            style={{ color: '#86efac', border: '1px solid #22c55e' }}
-            title="Reset to bidding — re-enables bid version editing"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Reset to Bidding
-          </button>
-        </div>
+          <span className="rb-budget-active-title">Budget active — in production</span>
+          <span className="rb-budget-active-meta">
+            {lockedVersion ? (
+              <>
+                Locked bid: <span className="rb-budget-active-name">{lockedVersion.name}</span>
+                {/* Post-overhaul S3c (D18): the creative it was bid on. */}
+                {lockedBasedOn && (
+                  <>{' '}· Shot list: <span className="rb-budget-active-name">{lockedBasedOn}</span></>
+                )}
+                {' '}· locked {showDate(lockedVersion.locked_at || lockedVersion.created_at)}
+                {lockedRead?.overallKnown && (
+                  <>{' '}· <CurrencyDisplay value={lockedRead.overall} currency={currency} /> overall</>
+                )}
+              </>
+            ) : 'No bid version is on record as the locked one.'}
+          </span>
+          {resetError && <span className="rb-budget-active-error" role="alert">{resetError}</span>}
+        </Banner>
       )}
 
-      {/* ── Day totals row ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <BigTile
+      {/* ── Day totals row: three kit Stats in one row (R3-10). The hint is
+          the Stat's visible delta line, never a tooltip; the variance's good
+          or bad news is its value's tone. ── */}
+      <div className="rb-budget-stats">
+        <Stat
+          className="rb-budget-stat"
           label="Bid days"
-          value={variance.bid.toFixed(1)}
-          hint={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          value={formatTenths(variance.bid)}
+          delta={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          deltaTone="neutral"
         />
-        <BigTile
+        <Stat
+          className="rb-budget-stat"
           label="Logged days"
-          value={variance.logged.toFixed(1)}
-          hint={`${variance.bid > 0 ? Math.round((variance.logged / variance.bid) * 100) : 0}% of bid`}
+          value={formatTenths(variance.logged)}
+          delta={`${variance.bid > 0 ? Math.round((variance.logged / variance.bid) * 100) : 0}% of bid`}
+          deltaTone="neutral"
         />
-        <BigTile
+        <Stat
+          className="rb-budget-stat"
           label="Variance"
-          value={(variance.variance > 0 ? '+' : '') + variance.variance.toFixed(1)}
-          hint={varianceLabel(variance.variance)}
-          tone={varianceTone(variance.variance)}
+          value={formatTenths(variance.variance, { signed: true })}
+          valueTone={varianceTone(variance.variance)}
+          delta={varianceLabel(variance.variance)}
+          deltaTone="neutral"
         />
       </div>
+
+      {/* ── Bid versions (S5c, step 3): the open version's save row, then
+          the selected bid — between the tiles and the money, F11. ── */}
+      <Card title="Bid versions">
+        <BidVersionsBlock
+          ctx={ctx}
+          roleRates={roleRates}
+          currency={currency}
+          liveTotals={live}
+          ratesPending={ratesPending}
+          onAsk={setAsk}
+        />
+      </Card>
+      <VersionQuestions ctx={ctx} ask={ask} setAsk={setAsk} roleRates={roleRates} currency={currency} ratesPending={ratesPending} />
 
       {/* ── Cost Breakdown — clean waterfall with inline controls ── */}
       {/* UX: Proximity (controls next to values), Fitts's (wide touch targets), */}
       {/* Miller's (single scannable list), Jakob's (receipt/invoice familiarity) */}
       <Card title="Cost breakdown">
-        <div className="flex flex-col gap-0">
+        {/* One row treatment for the four inputs (R3-09): the label in the
+            second ink, the amount in the ink, right-aligned to one amount
+            column declared once in rabbitBudget.css (R3-35). A plus is the
+            figure's sign, never the label's. */}
+        <div className="rb-budget-wf">
           {/* Base cost — read only */}
-          <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
-            style={{ backgroundColor: '#1c1917' }}>
-            <span className="text-[13.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#d6d3d1' }}>
-              Base cost
+          <div className="rb-budget-wf-row">
+            <span className="rb-budget-wf-label">Base cost</span>
+            <span className="rb-budget-wf-amount">
+              <CurrencyDisplay value={live.baseCost} currency={currency} />
             </span>
-            <div className="text-base font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
-              <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
-            </div>
           </div>
 
           {/* Margin — inline editable */}
           <WaterfallRow
             label="Margin"
             pct={marginPct}
-            amount={marginAmt}
+            amount={live.marginAmt}
             currency={currency}
             onPctChange={v => updateProjectField('budget_margin_pct', v)}
             disabled={isActive}
@@ -607,83 +574,77 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           <WaterfallRow
             label="Contingency"
             pct={contingencyPct}
-            amount={contingencyAmt}
+            amount={live.contingencyAmt}
             currency={currency}
             onPctChange={v => updateProjectField('budget_contingency_pct', v)}
             disabled={isActive}
           />
 
-          {/* Agency fee — toggle + inline editable */}
-          <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
-            style={{ backgroundColor: '#1c1917' }}>
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>+ Agency fee</span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!agencyEnabled) {
-                    updateProjectField('budget_agency_enabled', true)
-                    if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
-                  } else {
-                    updateProjectField('budget_agency_enabled', false)
-                  }
-                }}
-                disabled={isActive}
-                className="relative w-8 h-4 rounded-full transition-colors focus:outline-none"
-                style={{ backgroundColor: agencyEnabled ? '#ea580c' : '#44403c', cursor: isFinal ? 'not-allowed' : 'pointer' }}
-              >
-                <span className="absolute top-[2px] left-0 rounded-full w-3 h-3 transition-transform"
-                  style={{ backgroundColor: '#fff7ed', transform: agencyEnabled ? 'translateX(18px)' : 'translateX(2px)' }} />
-              </button>
-              {agencyEnabled && (
-                <InlinePct value={agencyPct}
-                  onChange={v => updateProjectField('budget_agency_pct', v)}
-                  disabled={isActive} />
-              )}
-            </div>
-            <div className="text-[13.5px] font-mono text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
-              {agencyEnabled ? `+` : ''}{' '}
+          {/* Agency fee — the kit Switch (it was a hand-rolled one with no
+              name) + inline editable. It toggles exactly as before. */}
+          <div className="rb-budget-wf-row">
+            <span className="rb-budget-wf-label">Agency fee</span>
+            <Switch
+              checked={agencyEnabled}
+              onChange={() => {
+                if (!agencyEnabled) {
+                  updateProjectField('budget_agency_enabled', true)
+                  if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
+                } else {
+                  updateProjectField('budget_agency_enabled', false)
+                }
+              }}
+              disabled={isActive}
+              aria-label="Agency fee"
+            />
+            {agencyEnabled && (
+              <InlinePct value={agencyPct}
+                onChange={v => updateProjectField('budget_agency_pct', v)}
+                disabled={isActive} />
+            )}
+            <span className="rb-budget-wf-amount" data-off={agencyEnabled ? undefined : 'true'}>
               {agencyEnabled
-                ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
-                : 'OFF'}
-            </div>
+                ? formatMoney(live.agencyAmt, currency, { sign: 'always' })
+                : 'Off'}
+            </span>
           </div>
 
-          {/* Divider */}
-          <div style={{ borderTop: '2px solid #57534e', margin: '4px 0 6px' }} />
-
-          {/* Grand total */}
-          <div className="flex items-center justify-between py-4 px-4 rounded-sm"
-            style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="text-base font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
-              Grand Total
+          {/* The overall total: the page's one display number (R3-08), under
+              the one signal rule. Audrey's F7: "the total with the agency %
+              is ... the overall total" — so it is named that, here and on
+              every bid version, and the total before the agency fee is
+              shown under it, labelled, whenever the fee is on. */}
+          <div className="rb-budget-wf-total">
+            <span className="rb-budget-wf-total-label">Overall total</span>
+            <span className="rb-budget-wf-total-amount">
+              <CurrencyDisplay value={live.overall} currency={currency} />
             </span>
-            <div className="text-2xl font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
-              <CurrencyDisplay
-                value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
-                currency={currency}
-                style={{ color: '#d6d3d1' }} />
-            </div>
+            {agencyEnabled && (
+              <span className="rb-budget-wf-total-before">
+                {'Before agency '}<CurrencyDisplay value={live.beforeAgency} currency={currency} />
+              </span>
+            )}
           </div>
         </div>
 
         {/* Footer info row */}
-        <div className="flex items-center justify-between mt-3 px-1">
-          <div className="flex items-center gap-3">
+        <div className="rb-budget-wf-foot">
+          <div className="rb-budget-wf-source">
             {rateCardName && (
-              <span className="text-xs font-mono" style={{ color: '#78716c' }}>
-                Rates via <span style={{ color: '#a8a29e' }}>{rateCardName}</span>
+              <span className="rb-budget-hint">
+                Rates via <span className="rb-budget-wf-source-name">{rateCardName}</span>
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Actuals</span>
+          <div className="rb-budget-actuals">
+            <span className="ui-field-label">Actuals</span>
             <select
               value={project?.budget_actual_column_mode || 'fortnightly'}
               onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
               disabled={isActive}
-              className="px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+              className="ui-input rb-budget-actuals-mode"
+              data-size="sm"
+              aria-label="Actuals"
             >
               {COLUMN_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
@@ -695,233 +656,20 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 if (Number.isFinite(n) && n > 0 && n <= 100) updateProjectField('budget_actual_column_count', n)
               }}
               disabled={isActive}
-              className="w-12 px-2 py-1 text-xs font-mono rounded-sm text-center focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+              className="ui-input rb-budget-actuals-count"
+              data-size="sm"
+              aria-label="Actual columns"
             />
-            <span className="text-[11.5px] font-mono" style={{ color: '#78716c' }}>cols</span>
+            <span className="rb-budget-hint">cols</span>
           </div>
         </div>
 
         {missingRolesCount > 0 && (
-          <div
-            className="mt-3 flex items-start gap-2 p-2 rounded-sm"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
-          >
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
-            <p className="text-xs font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
-              {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
-              not in the rate card — those rows compute at $0.
-              ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
-            </p>
-          </div>
-        )}
-      </Card>
-
-      {/* ── Budget versioning ── */}
-      <Card title="Budget versions">
-        {/* Create new bid */}
-        <div className="flex items-end gap-2 mb-4">
-          <div className="flex-1">
-            <span className="text-[11.5px] font-mono uppercase tracking-widest block mb-1.5" style={{ color: '#fb923c' }}>
-              Save current as bid version
-            </span>
-            <input
-              type="text"
-              value={versionName}
-              onChange={e => setVersionName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
-              placeholder="e.g. Bid v1 — initial estimate"
-              disabled={isActive || versionBusy}
-              className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={createBidVersion}
-            disabled={!versionName.trim() || isActive || versionBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors disabled:opacity-40"
-            style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
-          >
-            {versionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-            Save
-          </button>
-        </div>
-
-        {/* Saved versions list */}
-        {budgetVersions.length === 0 ? (
-          <Empty>No budget versions saved yet. Create one to track bid snapshots.</Empty>
-        ) : (
-          <div className="flex flex-col gap-1">
-            <div
-              className="grid grid-cols-12 gap-2 px-3 py-1.5"
-              style={{ borderBottom: '1px solid #44403c' }}
-            >
-              <span className="col-span-1 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Active</span>
-              <span className="col-span-4 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Name</span>
-              <span className="col-span-2 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Date</span>
-              <span className="col-span-2 text-[10.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Total</span>
-              <span className="col-span-1 text-[10.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Days</span>
-              <span className="col-span-2 text-[10.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#78716c' }}>Actions</span>
-            </div>
-            {budgetVersions
-              .slice()
-              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-              .map(v => (
-                <div
-                  key={v.id}
-                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-sm text-xs font-mono items-center"
-                  style={{
-                    backgroundColor: isActive && v.id === lockedVersionId ? '#1a2e1a'
-                      : v.is_active ? '#292524' : '#1c1917',
-                    border: `1px solid ${isActive && v.id === lockedVersionId ? '#22c55e'
-                      : v.is_active ? '#ea580c' : '#44403c'}`,
-                  }}
-                >
-                  <span className="col-span-1">
-                    {isActive && v.id === lockedVersionId ? (
-                      <ShieldCheck className="w-3.5 h-3.5" style={{ color: '#4ade80' }} />
-                    ) : v.is_active ? (
-                      <CheckCircle className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setActiveVersion(v.id)}
-                        disabled={versionBusy || isActive}
-                        className="p-0.5 rounded-sm hover:bg-stone-800 transition-colors disabled:opacity-30"
-                        style={{ color: '#78716c' }}
-                        title={isActive ? 'Reset to bidding to change versions' : 'Set as active'}
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </span>
-                  <span className="col-span-4 truncate" style={{
-                    color: isActive && v.id === lockedVersionId ? '#86efac'
-                      : v.is_active ? '#fb923c' : '#d6d3d1'
-                  }}>
-                    {v.name}
-                    {isActive && v.id === lockedVersionId && (
-                      <span className="ml-1.5 text-[8.5px] uppercase tracking-wider px-1 py-0.5 rounded-sm"
-                        style={{ backgroundColor: '#166534', color: '#4ade80', border: '1px solid #22c55e' }}>
-                        Locked
-                      </span>
-                    )}
-                  </span>
-                  <span className="col-span-2" style={{ color: '#78716c' }}>
-                    {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
-                  </span>
-                  <span className="col-span-2 text-right" style={{ color: '#a8a29e' }}>
-                    <CurrencyDisplay
-                      value={v.snapshot?.grandTotal ?? v.snapshot?.baseCost ?? 0}
-                      currency={currency}
-                    />
-                  </span>
-                  <span className="col-span-1 text-right" style={{ color: '#a8a29e' }}>
-                    {(v.snapshot?.totalBidDays ?? 0).toFixed(1)}
-                  </span>
-                  <span className="col-span-2 flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => deleteVersion(v.id)}
-                      disabled={versionBusy || (isActive && v.id === lockedVersionId)}
-                      className="p-1 rounded-sm hover:bg-red-900/40 transition-colors disabled:opacity-20"
-                      style={{ color: '#ef4444' }}
-                      title={isActive && v.id === lockedVersionId ? 'Cannot delete locked version' : 'Delete version'}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </span>
-                </div>
-              ))}
-          </div>
-        )}
-
-        {/* Variance against active version */}
-        {versionVariance && (
-          <div
-            className="mt-3 p-3 rounded-sm"
-            style={{
-              backgroundColor: '#1c1917',
-              border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
-            }}
-          >
-            <span className="text-[11.5px] font-mono uppercase tracking-widest block mb-2" style={{ color: '#fb923c' }}>
-              Variance vs active bid ({activeVersion?.name})
-            </span>
-            <div className="flex items-baseline gap-4">
-              <span className="text-xl font-mono font-bold" style={{
-                color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
-              }}>
-                {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
-              </span>
-              <span className="text-xs font-mono" style={{ color: '#78716c' }}>
-                ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
-              </span>
-              <span className="text-xs font-mono" style={{ color: '#57534e' }}>
-                Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
-                {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Set Active button + confirmation dialog */}
-        {!isActive && budgetVersions.length > 0 && activeVersion && !showActivateConfirm && (
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setShowActivateConfirm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
-              style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Set Budget Active
-            </button>
-          </div>
-        )}
-
-        {/* Confirmation dialog */}
-        {showActivateConfirm && (
-          <div className="mt-3 p-4 rounded-sm" style={{ backgroundColor: '#1c1917', border: '2px solid #d97706' }}>
-            <div className="flex items-start gap-3 mb-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
-              <div>
-                <span className="text-sm font-mono font-bold block" style={{ color: '#fbbf24' }}>
-                  Confirm: Set budget to active
-                </span>
-                <p className="text-[11.5px] font-mono mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
-                  This will lock <span className="font-bold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
-                  the approved bid for this project. A snapshot of all task counts, durations, and budget totals
-                  will be frozen as the reference point for production.
-                </p>
-                <p className="text-[11.5px] font-mono mt-2 leading-relaxed" style={{ color: '#a8a29e' }}>
-                  While active, you will not be able to create new bid versions or switch between versions.
-                  You can reset this later if needed.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-              <button
-                type="button"
-                onClick={() => setShowActivateConfirm(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider transition-colors hover:bg-stone-800"
-                style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={activateBudget}
-                disabled={versionBusy}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
-                style={{ backgroundColor: '#d97706', color: '#fff7ed', border: '1px solid #b45309' }}
-              >
-                {versionBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                Confirm — Set Active
-              </button>
-            </div>
-          </div>
+          <Banner tone="warning" Icon={AlertCircle}>
+            {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
+            not in the rate card — those rows compute at $0.
+            ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
+          </Banner>
         )}
       </Card>
 
@@ -945,10 +693,6 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   const { lines, lineComputations } = budgetHook
   const agencyEnabled = project?.budget_agency_enabled === true
   const agencyPct = Number(project?.budget_agency_pct ?? 0) / 100
-
-  function fmtC(val) {
-    return (Number(val) || 0).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
-  }
 
   // ── Crew/Team: derived from team members + rate card + tasks ──
   const crewData = useMemo(() => {
@@ -1003,11 +747,11 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   const talentData = useMemo(() => {
     const TALENT_TYPE_PLURAL = {
       actor:            'Actors',
-      voice_actor:      'Voice Actors',
+      voice_actor:      'Voice actors',
       extra:            'Extras',
       background:       'Backgrounds',
-      stunt_performer:  'Stunt Performers',
-      motion_capture:   'Motion Capture Performers',
+      stunt_performer:  'Stunt performers',
+      motion_capture:   'Motion capture performers',
       other:            'Others',
     }
     const typeMap = {}
@@ -1053,60 +797,99 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
   if (!hasData) {
     return (
       <Card title="Topsheet rollup">
-        <Empty>No budget data yet. Add team members, talent lines, or expenses to see the rollup here.</Empty>
+        <Empty
+          compact
+          title="No budget data yet"
+          body="Add team members, talent lines, or expenses to see the rollup here."
+        />
       </Card>
     )
   }
 
-  // Column header
-  const colW = { dept: 'flex-1', sub: 90, agency: 80, bid: 100, actual: 100, variance: 100 }
-  function HeaderRow() {
-    return (
-      <div className="flex gap-2 px-2 py-1" style={{ borderBottom: '2px solid #57534e' }}>
-        <span className="flex-1 text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Category</span>
-        <span className="text-[9.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
-        {agencyEnabled && <span className="text-[9.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
-        <span className="text-[9.5px] font-mono uppercase tracking-widest text-right font-bold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
-        <span className="text-[9.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
-        <span className="text-[9.5px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
-      </div>
-    )
-  }
+  // The kit Table (R3-20). The money columns keep their order — Subtotal,
+  // Agency, Bid, Actual, Variance (R3-05) — and share one width, declared once
+  // in rabbitBudget.css. A section's row and the rows indented under it start
+  // their words on one rail: the indent is the section icon plus its gap.
+  const columns = agencyEnabled ? 6 : 5
 
   function DataRow({ label, subtotal, agencyFee, bidTotal, actualTotal, bold, indent }) {
     const v = actualTotal - bidTotal
     return (
-      <div className="flex gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
-        <span className={`flex-1 text-[11.5px] font-mono truncate ${bold ? 'font-bold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
-        <span className="text-[11.5px] font-mono text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
-        {agencyEnabled && <span className="text-[11.5px] font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
-        <span className={`text-[11.5px] font-mono text-right ${bold ? 'font-bold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
-        <span className="text-[11.5px] font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
-        <span className="text-[11.5px] font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
-          {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
-        </span>
-      </div>
+      <Row className="rb-budget-top-row" data-total={bold ? 'true' : undefined}>
+        <Td className="rb-budget-top-cat" data-indent={indent ? 'true' : undefined}>{label}</Td>
+        <Td numeric className="rb-budget-quiet">{formatMoney(subtotal, currency)}</Td>
+        {agencyEnabled && (
+          <Td numeric className="rb-budget-quiet">
+            <span className="rb-budget-dash" data-empty={agencyFee ? undefined : 'true'}>
+              {agencyFee ? formatMoney(agencyFee, currency) : '—'}
+            </span>
+          </Td>
+        )}
+        <Td numeric>{formatMoney(bidTotal, currency)}</Td>
+        <Td numeric>
+          <span className="rb-budget-dash" data-empty={actualTotal ? undefined : 'true'}>
+            {actualTotal ? formatMoney(actualTotal, currency) : '—'}
+          </span>
+        </Td>
+        <Td numeric>
+          <span className="rb-budget-var" data-tone={v > 0 ? 'danger' : v < 0 ? 'success' : 'zero'}>
+            {bidTotal > 0 || actualTotal > 0 ? formatMoney(v, currency, { sign: 'exceptZero' }) : '—'}
+          </span>
+        </Td>
+      </Row>
     )
   }
 
-  function SectionHeader({ label, icon }) {
+  function SectionHeader({ label, Icon }) {
     return (
-      <div className="flex items-center gap-2 px-2 pt-3 pb-1">
-        {icon}
-        <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{label}</span>
-      </div>
+      <Row>
+        <Td colSpan={columns}>
+          <span className="rb-budget-top-group">
+            <Icon className="rb-budget-top-icon" aria-hidden="true" />
+            {label}
+          </span>
+        </Td>
+      </Row>
     )
   }
 
   return (
     <Card title="Topsheet rollup">
-      <div className="flex flex-col gap-0.5">
-        <HeaderRow />
-
+      <Table
+        className="rb-budget-top"
+        head={(
+          <Row>
+            <Th>Category</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Subtotal</Th>
+            {agencyEnabled && <Th width="var(--rb-budget-col-money)" numeric>Agency</Th>}
+            <Th width="var(--rb-budget-col-money)" numeric>Bid</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Actual</Th>
+            <Th width="var(--rb-budget-col-money)" numeric>Variance</Th>
+          </Row>
+        )}
+        foot={(
+          <Row>
+            <Td>Grand total</Td>
+            <Td numeric>{formatMoney(grand.subtotal, currency)}</Td>
+            {agencyEnabled && <Td numeric>{formatMoney(grand.agencyFee, currency)}</Td>}
+            <Td numeric>{formatMoney(grand.bidTotal, currency)}</Td>
+            <Td numeric>
+              <span className="rb-budget-dash" data-empty={grand.actualTotal ? undefined : 'true'}>
+                {grand.actualTotal ? formatMoney(grand.actualTotal, currency) : '—'}
+              </span>
+            </Td>
+            <Td numeric>
+              <span className="rb-budget-var" data-tone={grand.variance > 0 ? 'danger' : grand.variance < 0 ? 'success' : 'zero'}>
+                {grand.bidTotal > 0 || grand.actualTotal > 0 ? formatMoney(grand.variance, currency, { sign: 'exceptZero' }) : '—'}
+              </span>
+            </Td>
+          </Row>
+        )}
+      >
         {/* ── Crew / Team ── */}
         {crewData.departments.length > 0 && (
           <>
-            <SectionHeader label="Crew / Team" icon={<Users className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label="Crew / Team" Icon={Users} />
             {crewData.departments.map(d => (
               <DataRow key={d.department} label={d.department} indent subtotal={d.subtotal} agencyFee={d.agencyFee} bidTotal={d.bidTotal} actualTotal={d.actualTotal} />
             ))}
@@ -1117,7 +900,7 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Talent ── */}
         {talentData.types.length > 0 && (
           <>
-            <SectionHeader label="Talent" icon={<Star className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label="Talent" Icon={Star} />
             {talentData.types.map(t => (
               <DataRow key={t.type} label={t.label} indent subtotal={t.subtotal} agencyFee={t.agencyFee} bidTotal={t.bidTotal} actualTotal={t.actualTotal} />
             ))}
@@ -1128,120 +911,20 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         {/* ── Expenses ── */}
         {expenseData.count > 0 && (
           <>
-            <SectionHeader label={`Expenses (${expenseData.count})`} icon={<Receipt className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <SectionHeader label={`Expenses (${expenseData.count})`} Icon={Receipt} />
             <DataRow label="All expenses" indent subtotal={expenseData.estimated} agencyFee={0} bidTotal={expenseData.estimated} actualTotal={expenseData.actual} />
           </>
         )}
-
-        {/* ── Grand total ── */}
-        <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
-          <div className="flex gap-2 px-2 py-2.5 rounded-sm mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
-            <span className="flex-1 text-[12.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Grand Total</span>
-            <span className="text-[12.5px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
-            {agencyEnabled && <span className="text-[12.5px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
-            <span className="text-[12.5px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
-            <span className="text-[12.5px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
-            <span className="text-[12.5px] font-mono text-right font-bold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
-              {grand.bidTotal > 0 || grand.actualTotal > 0 ? `${grand.variance > 0 ? '+' : ''}${fmtC(grand.variance)}` : '\u2014'}
-            </span>
-          </div>
-        </div>
-      </div>
+      </Table>
     </Card>
   )
 }
 
 
-// ─── Margin/contingency % input ─────────────��───────────────
-function PctInput({ label, value, onChange, disabled }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
-  }, [editing])
-
-  function start() {
-    if (disabled) return
-    setDraft(String(value || 0))
-    setEditing(true)
-  }
-
-  function commit() {
-    setEditing(false)
-    const num = parseFloat(draft)
-    if (Number.isFinite(num) && num !== value) onChange(num)
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
-        {label}
-      </span>
-      <div
-        className="relative"
-        style={{ width: 120, height: 34 }}
-      >
-        {editing ? (
-          <div className="absolute inset-0 flex items-center gap-1">
-            <input
-              ref={ref}
-              type="text"
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); commit() }
-                else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-              }}
-              className="w-full px-2 py-1.5 text-sm font-mono font-bold rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
-            />
-            <span className="absolute right-2 text-xs font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={start}
-            disabled={disabled}
-            className="absolute inset-0 text-right px-2 py-1.5 text-sm font-mono font-bold rounded-sm transition-colors disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: '#1c1917',
-              border: '1px solid #44403c',
-              color: disabled ? '#57534e' : '#f4a261',
-            }}
-          >
-            {value}%
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Cost row in the waterfall ──────────��───────────────────
-function CostRow({ label, amount, currency, prefix, bold, large }) {
-  return (
-    <div className="flex items-baseline justify-between">
-      <span
-        className={`text-[11.5px] font-mono ${bold ? 'font-bold uppercase tracking-wider' : ''}`}
-        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
-      >
-        {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
-        {label}
-      </span>
-      <CurrencyDisplay
-        value={amount}
-        currency={currency}
-        className={`font-mono ${bold ? 'font-bold' : ''} ${large ? 'text-xl' : 'text-sm'}`}
-        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
-      />
-    </div>
-  )
-}
-
 // ─── Waterfall row — inline % control next to computed amount ──
+// One of the waterfall's four input rows (R3-09). The amount carries its own
+// sign: a margin is an amount added by definition, so its plus is the
+// figure's (`sign: 'always'`, R3-14), never a prefix on the label.
 function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -1264,42 +947,42 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
   }
 
   return (
-    <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
-      style={{ backgroundColor: '#1c1917' }}>
-      <div className="flex items-center gap-2.5">
-        <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>+ {label}</span>
-        {editing ? (
-          <input
-            ref={ref}
-            type="text"
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); commit() }
-              else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-            }}
-            className="w-16 px-2 py-0.5 text-[13.5px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
-          />
-        ) : (
-          <button
-            type="button" onClick={start} disabled={disabled}
-            className="px-2 py-0.5 text-[13.5px] font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
-            style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
-          >
-            {pct}%
-          </button>
-        )}
-      </div>
-      <div className="text-[13.5px] font-mono text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
-        <CurrencyDisplay value={amount} currency={currency} style={{ color: '#a8a29e' }} />
-      </div>
+    <div className="rb-budget-wf-row">
+      <span className="rb-budget-wf-label">{label}</span>
+      {editing ? (
+        <input
+          ref={ref}
+          type="text"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commit() }
+            else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+          }}
+          className="ui-input rb-budget-pct"
+          data-size="sm"
+          aria-label={`${label} percentage`}
+        />
+      ) : (
+        <button
+          type="button" onClick={start} disabled={disabled}
+          className="ui-input rb-budget-pct"
+          data-size="sm"
+        >
+          {pct}%
+        </button>
+      )}
+      <span className="rb-budget-wf-amount">
+        {formatMoney(amount, currency, { sign: 'always' })}
+      </span>
     </div>
   )
 }
 
 // ─── Compact inline % input (for agency row) ──────────────
+// The same % control as WaterfallRow's (it was a size smaller), so the three
+// read as one kind of control.
 function InlinePct({ value, onChange, disabled }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -1333,8 +1016,9 @@ function InlinePct({ value, onChange, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-14 px-1.5 py-0.5 text-[11.5px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
-        style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
+        className="ui-input rb-budget-pct"
+        data-size="sm"
+        aria-label="Agency fee percentage"
       />
     )
   }
@@ -1342,8 +1026,8 @@ function InlinePct({ value, onChange, disabled }) {
   return (
     <button
       type="button" onClick={start} disabled={disabled}
-      className="px-1.5 py-0.5 text-[11.5px] font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
-      style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
+      className="ui-input rb-budget-pct"
+      data-size="sm"
     >
       {value}%
     </button>
@@ -1371,10 +1055,10 @@ function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [phases, assets, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks yet — nothing to roll up.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks yet" body="Nothing to roll up." />
 
   return (
-    <Card title="Phases">
+    <Card title="Phases" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Phase" countHeader="Tasks" />
     </Card>
   )
@@ -1397,10 +1081,10 @@ function ByRoleTab({ tasks, budget, roleRates }) {
       .sort((a, b) => b.bid - a.bid)
   }, [tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No roles assigned yet.</Empty>
+  if (rows.length === 0) return <Empty title="No roles assigned yet" />
 
   return (
-    <Card title="Roles">
+    <Card title="Roles" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Role" countHeader="Tasks" />
     </Card>
   )
@@ -1423,72 +1107,108 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
       .sort((a, b) => b.bid - a.bid)
   }, [assets, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No assets carry any task hours yet.</Empty>
+  if (rows.length === 0) return <Empty title="No assets carry any task hours yet" />
 
   return (
-    <Card title="Assets">
+    <Card title="Assets" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Asset" countHeader="Tasks" />
     </Card>
   )
 }
 
-// ─── By Scene tab (conditional — visible when scenes_enabled) ──
-function BySceneTab({ scenes, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const sceneId = t.scene_id || '__unscened__'
-      if (!groups[sceneId]) groups[sceneId] = []
-      groups[sceneId].push(t)
-    }
-    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
-    return Object.entries(groups)
-      .map(([sceneId, list]) => ({
-        ...aggregateTasks(list, roleRates),
-        name: sceneId === '__unscened__' ? 'No scene' : (sceneById[sceneId]?.name || 'Unknown scene'),
-        sortOrder: sceneId === '__unscened__' ? 9999 : (sceneById[sceneId]?.scene_number ?? 0),
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [scenes, tasks, roleRates])
+// ─── By Scene / By Shot: the rows (pure; exported for their tests) ──────
+// Post-overhaul S3c. The groups are the ACTIVE list's scenes and shots
+// (D10) and nothing else. Audrey's rule of 2026-10-02
+// (scenes/linkHomes.linksInActive): removing a list never removes the
+// Budget — a task linked to a scene or shot the active list does not hold
+// is counted under "No scene in the active list" / "No shot in the active list" (never dropped, never "Unknown"),
+// its stored link kept, and that row's tooltip says what its tasks point at
+// (`sceneById` / `shotById`, the provider's lookups over EVERY row; `homeOf`
+// for the lists). A scene's or shot's own row names its list in its tooltip.
 
-  if (rows.length === 0) return <Empty>No tasks linked to scenes yet.</Empty>
+/** By scene: a row per active scene with tasks, then "No scene in the active list". */
+export function bySceneRows({ scenes, shots = [], sceneById = null, homeOf = null, tasks, roleRates }) {
+  const active = activeIdsOf(scenes, shots)
+  const groups = {}
+  const outside = []
+  for (const t of tasks) {
+    const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById, homeOf })
+    const key = sceneId || '__unscened__'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+    outside.push(...o)
+  }
+  const byId = Object.fromEntries(scenes.map(s => [s.id, s]))
+  return Object.entries(groups)
+    .map(([sceneId, list]) => {
+      const scene = sceneId === '__unscened__' ? null : byId[sceneId]
+      const name = scene ? (scene.name || 'Untitled scene') : NO_SCENE_GROUP
+      return {
+        ...aggregateTasks(list, roleRates),
+        name,
+        title: scene ? (homeOf ? homeOf(scene.id).title(name) : undefined) : notAssignedTitle(outside),
+        sortOrder: scene ? (scene.scene_number ?? 0) : 9999,
+      }
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+/** By shot: a row per active shot with tasks ("Scene › Shot"), then "No shot in the active list". */
+export function byShotRows({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, roleRates }) {
+  const active = activeIdsOf(scenes, shots)
+  const groups = {}
+  const outside = []
+  for (const t of tasks) {
+    const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById, homeOf })
+    const key = shotId || '__unshot__'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+    outside.push(...o)
+  }
+  const shotOf = Object.fromEntries(shots.map(s => [s.id, s]))
+  const sceneOf = Object.fromEntries(scenes.map(s => [s.id, s]))
+  return Object.entries(groups)
+    .map(([shotId, list]) => {
+      const shot = shotId === '__unshot__' ? null : shotOf[shotId]
+      const parentScene = shot?.scene_id ? (sceneOf[shot.scene_id] || sceneById?.(shot.scene_id) || null) : null
+      const name = shot ? `${parentScene ? `${parentScene.name} › ` : ''}${shot.name || 'Untitled shot'}` : NO_SHOT_GROUP
+      return {
+        ...aggregateTasks(list, roleRates),
+        name,
+        title: shot ? (homeOf ? homeOf(shot.id).title(name) : undefined) : notAssignedTitle(outside),
+        sortOrder: shot ? (shot.shot_number ?? 0) : 9999,
+      }
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+// ─── By Scene tab (conditional — visible when scenes_enabled) ──
+function BySceneTab({ scenes, shots, sceneById = null, homeOf = null, tasks, budget, roleRates }) {
+  const rows = useMemo(
+    () => bySceneRows({ scenes, shots, sceneById, homeOf, tasks, roleRates }),
+    [scenes, shots, sceneById, homeOf, tasks, roleRates],
+  )
+
+  if (rows.length === 0) return <Empty title="No tasks linked to scenes yet" />
 
   return (
-    <Card title="Scenes">
+    <Card title="Scenes" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Scene" countHeader="Tasks" />
     </Card>
   )
 }
 
 // ─── By Shot tab (conditional — visible when scenes_enabled) ──
-function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
-  const rows = useMemo(() => {
-    const groups = {}
-    for (const t of tasks) {
-      const shotId = t.shot_id || '__unshot__'
-      if (!groups[shotId]) groups[shotId] = []
-      groups[shotId].push(t)
-    }
-    const shotById = Object.fromEntries(shots.map(s => [s.id, s]))
-    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
-    return Object.entries(groups)
-      .map(([shotId, list]) => {
-        const shot = shotById[shotId]
-        const parentScene = shot ? sceneById[shot.scene_id] : null
-        const prefix = parentScene ? `${parentScene.name} › ` : ''
-        return {
-          ...aggregateTasks(list, roleRates),
-          name: shotId === '__unshot__' ? 'No shot' : `${prefix}${shot?.name || 'Unknown shot'}`,
-          sortOrder: shotId === '__unshot__' ? 9999 : (shot?.shot_number ?? 0),
-        }
-      })
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [shots, scenes, tasks, roleRates])
+function ByShotTab({ shots, scenes, sceneById = null, shotById = null, homeOf = null, tasks, budget, roleRates }) {
+  const rows = useMemo(
+    () => byShotRows({ shots, scenes, sceneById, shotById, homeOf, tasks, roleRates }),
+    [shots, scenes, sceneById, shotById, homeOf, tasks, roleRates],
+  )
 
-  if (rows.length === 0) return <Empty>No tasks linked to shots yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to shots yet" />
 
   return (
-    <Card title="Shots">
+    <Card title="Shots" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Shot" countHeader="Tasks" />
     </Card>
   )
@@ -1513,10 +1233,10 @@ function ByLevelTab({ levels, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [levels, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to levels yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to levels yet" />
 
   return (
-    <Card title="Levels">
+    <Card title="Levels" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Level" countHeader="Tasks" />
     </Card>
   )
@@ -1541,17 +1261,17 @@ function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
       .sort((a, b) => a.sortOrder - b.sortOrder)
   }, [experiences, tasks, roleRates])
 
-  if (rows.length === 0) return <Empty>No tasks linked to experiences yet.</Empty>
+  if (rows.length === 0) return <Empty title="No tasks linked to experiences yet" />
 
   return (
-    <Card title="Experiences">
+    <Card title="Experiences" rule={false}>
       <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Experience" countHeader="Tasks" />
     </Card>
   )
 }
 
 // ─── Custom tab ───────────────────────────────────────────
-function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, experiences, budget, roleRates }) {
+function CustomTab({ project, phases, assets, tasks, scenes, shots, sceneById: findScene = null, shotById: findShot = null, homeOf = null, levels, experiences, budget, roleRates }) {
   const storageKey = `rabbit-budget-custom-${project.id}`
 
   const [prefs, setPrefs] = useState(() => {
@@ -1586,9 +1306,15 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
     const shotById  = Object.fromEntries((shots || []).map(s => [s.id, s]))
     const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
     const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
+    // Post-overhaul S3c: as the two reports above — the active list's scenes
+    // and shots, a task linked outside it under "No scene in the active list" / "No shot in the active list" with
+    // what it points at in that row's tooltip (Audrey's rule of 2026-10-02),
+    // a group's tooltip naming its list.
+    const active = activeIdsOf(scenes, shots)
+    const outside = []
     const groups = {}
     for (const t of filteredTasks) {
-      let key, label
+      let key, label, title
       switch (prefs.groupBy) {
         case 'phase': {
           const a = assetById[t.asset_id]
@@ -1598,12 +1324,23 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
         }
         case 'role':       key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
         case 'asset':      key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
-        case 'scene':      key = t.scene_id || '__none__'; label = key === '__none__' ? 'No scene' : (sceneById[key]?.name || 'Unknown scene'); break
+        case 'scene': {
+          const { sceneId, outside: o } = linksInActive({ scene_id: t.scene_id }, { active, sceneById: findScene, homeOf })
+          outside.push(...o)
+          key = sceneId || '__none__'
+          const sc = sceneId ? sceneById[sceneId] : null
+          label = sc ? (sc.name || 'Untitled scene') : NO_SCENE_GROUP
+          if (sc && homeOf) title = homeOf(sc.id).title(label)
+          break
+        }
         case 'shot': {
-          key = t.shot_id || '__none__'
-          if (key === '__none__') { label = 'No shot' } else {
-            const sh = shotById[key]; const sc = sh ? sceneById[sh.scene_id] : null
-            label = sc ? `${sc.name} › ${sh?.name || 'Unknown'}` : (sh?.name || 'Unknown shot')
+          const { shotId, outside: o } = linksInActive({ shot_id: t.shot_id }, { active, shotById: findShot, homeOf })
+          outside.push(...o)
+          key = shotId || '__none__'
+          if (!shotId) { label = NO_SHOT_GROUP } else {
+            const sh = shotById[shotId]; const sc = sh?.scene_id ? (sceneById[sh.scene_id] || findScene?.(sh.scene_id) || null) : null
+            label = sc ? `${sc.name} › ${sh.name || 'Untitled shot'}` : (sh.name || 'Untitled shot')
+            if (homeOf) title = homeOf(sh.id).title(label)
           }
           break
         }
@@ -1613,26 +1350,29 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
         case 'priority':   key = t.priority || 'medium'; label = key; break
         default:           key = 'all'; label = 'All'
       }
-      if (!groups[key]) groups[key] = { key, label, tasks: [] }
+      if (!groups[key]) groups[key] = { key, label, title, tasks: [] }
       groups[key].tasks.push(t)
     }
+    // "No scene in the active list" / "No shot in the active list": what its tasks point at outside the active list.
+    if (groups.__none__ && (prefs.groupBy === 'scene' || prefs.groupBy === 'shot')) groups.__none__.title = notAssignedTitle(outside)
     return Object.values(groups)
-      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label }))
+      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label, title: g.title }))
       .sort((a, b) => b.bid - a.bid)
-  }, [filteredTasks, assets, phases, scenes, shots, levels, experiences, prefs.groupBy, roleRates])
+  }, [filteredTasks, assets, phases, scenes, shots, findScene, findShot, homeOf, levels, experiences, prefs.groupBy, roleRates])
 
   const totalCost = rows.reduce((acc, r) => acc + r.cost, 0)
   const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card title="Custom view">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <div className="rb-budget-page">
+      <Card title="Custom view" rule={false}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Field label="Group by">
             <Select
               value={prefs.groupBy}
               onChange={v => setPrefs(p => ({ ...p, groupBy: v }))}
               options={GROUP_BY_OPTIONS.filter(o => !o.requires || project?.[o.requires]).map(o => ({ value: o.id, label: o.label }))}
+              aria-label="Group by"
             />
           </Field>
           <Field label="Phase filter">
@@ -1644,37 +1384,51 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
                 ...phases.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map(p => ({ value: p.id, label: p.name })),
                 { value: '__unphased__', label: 'Unphased' },
               ]}
+              aria-label="Phase filter"
             />
           </Field>
           <Field label="Status filter">
-            <Select
-              value={prefs.statusFilter}
-              onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
-              options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
-              colorFn={budgetStatusColor}
-            />
+            {/* The status is the kit's dot, from the one STATUS map (R3-11);
+                the select's words are the one ink. A status the map does not
+                know ("bidding") is the kit's neutral dot. */}
+            <span className="rb-budget-status-select" data-dot={prefs.statusFilter === '__all__' ? undefined : 'true'}>
+              {prefs.statusFilter !== '__all__' && (
+                <StatusDot status={prefs.statusFilter} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+              )}
+              <Select
+                value={prefs.statusFilter}
+                onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
+                options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+                aria-label="Status filter"
+              />
+            </span>
           </Field>
         </div>
       </Card>
 
       <Card title={`Breakdown · ${rows.length} group${rows.length === 1 ? '' : 's'}`}>
         {rows.length === 0 ? (
-          <Empty>No tasks match the current filters.</Empty>
+          <Empty compact title="No tasks match the current filters" />
         ) : (
-          <>
-            <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
-            <div
-              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-[11.5px] font-mono items-center"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
-            >
-              <span className="font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
-              <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
-              <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
-              <span />
-              <span />
-              <CurrencyDisplay value={totalCost} currency={budget.currency} className="font-bold" style={{ color: '#d6d3d1' }} />
-            </div>
-          </>
+          /* The totals are the table's own footer row (R3-04): the same
+             grid, the same cell padding and the same right edges as the
+             columns they total. */
+          <BreakdownTable
+            rows={rows}
+            currency={budget.currency}
+            labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'}
+            countHeader="Tasks"
+            foot={(
+              <Row>
+                <Td>Total</Td>
+                <Td numeric>{filteredTasks.length}</Td>
+                <Td numeric>{formatTenths(totalBid)}</Td>
+                <Td />
+                <Td />
+                <Td numeric><CurrencyDisplay value={totalCost} currency={budget.currency} /></Td>
+              </Row>
+            )}
+          />
         )}
       </Card>
     </div>
@@ -1685,12 +1439,12 @@ function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, expe
 const EXPENSE_FILTER_FIELDS = [
   { value: 'title',         label: 'Title',         type: 'text' },
   { value: 'description',   label: 'Description',   type: 'text' },
-  { value: 'purchase_date', label: 'Date',           type: 'text' },
-  { value: 'cost_status',   label: 'Cost Status',    type: 'select', options: ['over_budget', 'under_budget', 'on_budget', 'no_estimate'] },
-  { value: 'has_files',     label: 'Has Receipts',   type: 'select', options: ['yes', 'no'] },
-  { value: 'asset_id',      label: 'Linked Asset',   type: 'select', dynamic: 'assets' },
-  { value: 'phase_id',      label: 'Linked Phase',   type: 'select', dynamic: 'phases' },
-  { value: 'task_id',       label: 'Linked Task',    type: 'select', dynamic: 'tasks' },
+  { value: 'purchase_date', label: 'Date',          type: 'text' },
+  { value: 'cost_status',   label: 'Cost status',   type: 'select', options: ['over_budget', 'under_budget', 'on_budget', 'no_estimate'] },
+  { value: 'has_files',     label: 'Has receipts',  type: 'select', options: ['yes', 'no'] },
+  { value: 'asset_id',      label: 'Linked asset',  type: 'select', dynamic: 'assets' },
+  { value: 'phase_id',      label: 'Linked phase',  type: 'select', dynamic: 'phases' },
+  { value: 'task_id',       label: 'Linked task',   type: 'select', dynamic: 'tasks' },
 ]
 
 const EXPENSE_FILTER_OPS = {
@@ -1712,26 +1466,31 @@ const EXPENSE_FILTER_OPS = {
 
 const EXPENSE_SORTABLE_FIELDS = [
   { value: 'title',          label: 'Title' },
-  { value: 'estimated_cost', label: 'Estimated Cost' },
-  { value: 'actual_cost',    label: 'Actual Cost' },
+  { value: 'estimated_cost', label: 'Estimated cost' },
+  { value: 'actual_cost',    label: 'Actual cost' },
   { value: 'variance',       label: 'Variance' },
   { value: 'purchase_date',  label: 'Date' },
   { value: 'created_at',     label: 'Created' },
 ]
 
 const EXPENSE_GROUPABLE_FIELDS = [
-  { value: '',                label: 'No grouping' },
-  { value: 'cost_status',    label: 'Cost Status' },
+  { value: '',               label: 'No grouping' },
+  { value: 'cost_status',    label: 'Cost status' },
   { value: 'purchase_month', label: 'Month' },
-  { value: 'has_files',      label: 'Has Receipts' },
+  { value: 'has_files',      label: 'Has receipts' },
 ]
 
 const COST_STATUS_LABELS = {
-  over_budget:  'Over Budget',
-  under_budget: 'Under Budget',
-  on_budget:    'On Budget',
-  no_estimate:  'No Estimate',
+  over_budget:  'Over budget',
+  under_budget: 'Under budget',
+  on_budget:    'On budget',
+  no_estimate:  'No estimate',
 }
+
+/** The expenses table's columns — the checkbox, Title, the five money
+    columns, Date, Related, Files and the row's actions: what a group's
+    header row spans. */
+const EXPENSE_COLUMNS = 11
 
 function expenseCostStatus(exp) {
   const est = Number(exp.estimated_cost) || 0
@@ -1746,13 +1505,30 @@ function expenseVariance(exp) {
   return (Number(exp.actual_cost) || 0) - (Number(exp.estimated_cost) || 0)
 }
 
+// A stored key in words, in sentence case (Q2): `over_budget` -> "Over
+// budget". It capitalised every word.
 function fmtExpLabel(str) {
-  return (str || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const words = (str || '').replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 
 // ─── Expenses tab ──────────────────────────────────────────
-function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, currency }) {
+// Surface 2b: the tiles, the toolbar, the filter strip and the list on the
+// kit and rabbitBudget.css, with every control, its order and its behaviour
+// as they were (C1).
+//   · The list is the kit Table (R3-20): the same columns in the same order,
+//     the money in the lane's one order — Estimated, Margin, Contingency,
+//     Actual, Variance (R3-05) — every figure a numeric cell, a group's
+//     header a full-width row of the table.
+//   · A row's hover is the kit Row's (R3-23), its selection the kit Row's
+//     `selected` (R3-38), its checkbox a 28px square (R3-40), its Edit and
+//     Delete the kit HoverActions, revealed by focus as well as hover (R3-24,
+//     Q17(b)).
+//   · The two questions window.confirm asked are the kit Dialog (W9).
+//   · The toolbar, the tiles, the filters and the table share one left edge
+//     (R3-31): the shell's gutter.
+function ExpensesTab({ ctx, pageActive = false, project, phases, assets, tasks, expensesHook, currency }) {
   const {
     expenses, loading: expLoading, addExpense, updateExpense, deleteExpense,
     undo, redo, canUndo, canRedo,
@@ -1769,6 +1545,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   // Margin/contingency popover: { expId, x, y, h }
   const [mcPopover, setMcPopover] = useState(null)
+  // W9: the two questions window.confirm used to ask, as kit Dialogs.
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [confirmResetMc, setConfirmResetMc]       = useState(false)
 
   // ── Multi-select ──
   const [expSelected, setExpSelected] = useState(new Set())
@@ -1782,8 +1561,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     else setExpSelected(new Set(ids))
   }
   function expClearSelection() { setExpSelected(new Set()) }
+  // What window.confirm's OK did; the question is the Dialog below.
   function expBulkDelete() {
-    if (!window.confirm(`Delete ${expSelected.size} expense${expSelected.size === 1 ? '' : 's'}?`)) return
     for (const id of expSelected) deleteExpense(id)
     expClearSelection()
   }
@@ -1838,10 +1617,40 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
   }
 
-  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z
+  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z. R3-15 asked for a shortcut
+  // bar; Q10 rules there is none, so the keys and the Undo / Redo titles
+  // that name them stay exactly as they were (recorded). They do nothing
+  // while a delete or reset question is up (review round one, R1-08):
+  // window.confirm, which two of the three were, blocked every key behind
+  // it, and the kit Dialog does not. Only a question: with the expense popup
+  // open they work as they did (C1). Not only this tab's three (review round
+  // two, R2-01): any kit Dialog at the confirm width on screen, whoever
+  // opened it — the Save current view name, a question the app raises over
+  // the page — as the Scenes page's handler does. The kit writes the width
+  // token on its surface (`data-width="confirm"`, Dialog.jsx); the expense
+  // popup is the kit Dialog at the form width, so the keys still undo there.
+  const questionOpen = deleteConfirmId != null || confirmBulkDelete || confirmResetMc
+  // 🚨 S4a-07 (post-overhaul S3c, step 1): every page stays mounted and this
+  // listens on the WINDOW, so from another page Ctrl+Z undid R.A.B.B.I.T.'s
+  // last edit. It acts only while R.A.B.B.I.T. is the page on screen
+  // (`pageActive`, Rabbit.jsx's, as Scenes and Bins take it), and stands
+  // down under the settings drawer (not on the kit's overlay stack, S4a trap
+  // 10) as well as under a question.
+  const pageActiveRef = useRef(pageActive)
+  pageActiveRef.current = pageActive
+  // Post-overhaul S3c review round 1 (R1-05): the expense popup is this tab's
+  // own and keeps the keys (C1); any other kit Dialog on screen (Help, a
+  // question raised over the page) stands them down, as the Timeline's.
+  const ownDialogsRef = useRef(0)
+  ownDialogsRef.current = showPopup ? 1 : 0
   useEffect(() => {
     function onKey(e) {
+      if (!pageActiveRef.current) return
+      if (questionOpen || document.querySelector('.ui-dialog[data-width="confirm"]') !== null) return
+      if (drawerOnScreen()) return
+      if (visibleDialogCount() > ownDialogsRef.current) return
       const t = e.target
+      if (t && typeof t.closest === 'function' && t.closest('.ui-drawer')) return
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
@@ -1851,7 +1660,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, redo])
+  }, [undo, redo, questionOpen])
 
   // ── Lookups ──
   const phaseById = useMemo(() => Object.fromEntries(phases.map(p => [p.id, p])), [phases])
@@ -1955,8 +1764,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     return sortedKeys.map(key => ({
       key,
       label: groupBy === 'cost_status'    ? (COST_STATUS_LABELS[key] || key)
-           : groupBy === 'purchase_month' ? (key === '__no_date__' ? 'No Date' : key)
-           : groupBy === 'has_files'      ? (key === 'yes' ? 'Has Receipts' : 'No Receipts')
+           : groupBy === 'purchase_month' ? (key === '__no_date__' ? 'No date' : key)
+           : groupBy === 'has_files'      ? (key === 'yes' ? 'Has receipts' : 'No receipts')
            : key,
       items: map[key] || [],
     }))
@@ -1999,8 +1808,8 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     setMcPopover(null)
   }
 
+  // What window.confirm's OK did; the question is the Dialog below.
   async function resetAllMarginCont() {
-    if (!window.confirm('Reset all margin & contingency values to the project defaults? This cannot be undone.')) return
     for (const exp of expenses) {
       if (exp.margin_pct != null || exp.contingency_pct != null) {
         await updateExpense(exp.id, { margin_pct: null, contingency_pct: null })
@@ -2008,217 +1817,273 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     }
   }
 
-  if (expLoading) return <Empty>Loading expenses...</Empty>
+  // A header click sorts by its column, and a second click turns it round.
+  function sortBy(field) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+  }
 
-  // ── Render a single expense row ──
-  function ExpenseRow({ exp }) {
+  // The checkbox, the margin and contingency cells and the actions are not
+  // the row's click (which edits): their cells keep the click to themselves,
+  // as the wrappers they replace did.
+  const keepClick = e => e.stopPropagation()
+
+  if (expLoading) return <Loading label="Loading expenses..." />
+
+  const allSelected = processed.length > 0 && processed.every(e => expSelected.has(e.id))
+
+  // ── One expense, as a row of the table ──
+  // A render function, not a component declared in here: that was a new
+  // component type on every render, so React remounted every row each time
+  // anything changed, and a row's checkbox or Edit dropped the keyboard focus
+  // the moment it was used — the focus HoverActions reveals the row by.
+  function expenseRow(exp) {
     const est = Number(exp.estimated_cost) || 0
     const act = Number(exp.actual_cost) || 0
     const v = act - est
     const status = expenseCostStatus(exp)
-    const relCount = (exp.asset_ids?.length || 0) + (exp.phase_ids?.length || 0) + (exp.task_ids?.length || 0)
-    const fileCount = exp.file_ids?.length || 0
-    const statusColor = status === 'over_budget' ? '#fca5a5' : status === 'under_budget' ? '#86efac' : '#a8a29e'
+    const assetCount = exp.asset_ids?.length || 0
+    const phaseCount = exp.phase_ids?.length || 0
+    const taskCount  = exp.task_ids?.length || 0
+    const fileCount  = exp.file_ids?.length || 0
     const isChecked = expSelected.has(exp.id)
-
+    const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
+    const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
+    const mAmt = est * mPct / 100
+    const cAmt = est * cPct / 100
     return (
-      <div
-        className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-800 cursor-pointer group"
-        style={{ backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917', border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}` }}
+      <Row
+        key={exp.id}
+        interactive
+        selected={isChecked}
+        className="rb-budget-exp-row"
+        data-ticked={isChecked ? 'true' : 'false'}
         onClick={() => handleEdit(exp.id)}
       >
-        {/* Checkbox */}
-        <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => expToggleOne(exp.id)}
-            className="p-0.5 rounded hover:bg-stone-700 transition-colors"
-            style={{ opacity: isChecked ? 1 : undefined }}
+        <Td className="rb-budget-exp-check-cell" onClick={keepClick}>
+          <button
+            type="button"
+            onClick={() => expToggleOne(exp.id)}
+            className="rb-budget-check"
+            data-checked={isChecked ? 'all' : 'none'}
+            aria-pressed={isChecked}
+            aria-label={`Select "${exp.title || 'Untitled'}"`}
           >
-            {isChecked
-              ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              : <Square className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#57534e' }} />}
+            {isChecked ? <CheckSquare aria-hidden="true" /> : <Square aria-hidden="true" />}
           </button>
-        </div>
-        <div style={{ flex: 2 }} className="min-w-0">
-          <div className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>
-            {exp.title || <span style={{ color: '#78716c', fontStyle: 'italic' }}>Untitled</span>}
-          </div>
-          {exp.description && <div className="text-[10.5px] truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
-        </div>
-        <div style={{ flex: 1 }} className="text-[11.5px] font-mono">
-          <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
-        </div>
-        {(() => {
-          const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
-          const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
-          const mAmt = est * mPct / 100
-          const cAmt = est * cPct / 100
-          return (<>
-            <div style={{ flex: 0.6 }} className="text-[10.5px] font-mono" onClick={e => e.stopPropagation()}>
-              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
-                className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
-                style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
-              </button>
-            </div>
-            <div style={{ flex: 0.6 }} className="text-[10.5px] font-mono" onClick={e => e.stopPropagation()}>
-              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
-                className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
-                style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
-              </button>
-            </div>
-          </>)
-        })()}
-        <div style={{ flex: 1 }} className="text-[11.5px] font-mono">
-          <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
-        </div>
-        <div style={{ flex: 0.8 }} className="text-[11.5px] font-mono">
+        </Td>
+        <Td>
+          {/* V2 (B5b §4.2 item 4): both lines ellipsise at 1280, so each
+              carries its whole text as a tooltip. "Untitled" is the app's
+              word, not the expense's, and gets none. */}
+          <span className="rb-budget-exp-title" data-empty={exp.title ? undefined : 'true'} title={exp.title || undefined}>
+            {exp.title || 'Untitled'}
+          </span>
+          {exp.description && <span className="rb-budget-exp-desc" title={exp.description}>{exp.description}</span>}
+        </Td>
+        <Td numeric className="rb-budget-quiet">
+          <span className="rb-budget-dash" data-empty={est ? undefined : 'true'}>
+            <CurrencyDisplay value={est} currency={currency} />
+          </span>
+        </Td>
+        <Td numeric className="rb-budget-exp-mc-cell" onClick={keepClick}>
+          <button type="button" onClick={e => handleMcCellClick(e, exp.id)} className="ui-input rb-budget-exp-mc" data-size="sm">
+            {mAmt > 0
+              ? <CurrencyDisplay value={mAmt} currency={currency} signed />
+              : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric className="rb-budget-exp-mc-cell" onClick={keepClick}>
+          <button type="button" onClick={e => handleMcCellClick(e, exp.id)} className="ui-input rb-budget-exp-mc" data-size="sm">
+            {cAmt > 0
+              ? <CurrencyDisplay value={cAmt} currency={currency} signed />
+              : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+          </button>
+        </Td>
+        <Td numeric>
+          <span className="rb-budget-dash" data-empty={act ? undefined : 'true'}>
+            <CurrencyDisplay value={act} currency={currency} />
+          </span>
+        </Td>
+        <Td numeric className="rb-budget-quiet">
           {est > 0 ? (
-            <span style={{ color: statusColor }}>
-              {v > 0 ? '+' : ''}{<CurrencyDisplay value={v} currency={currency} style={{ color: statusColor }} />}
+            <span className="rb-budget-var" data-tone={status === 'over_budget' ? 'danger' : status === 'under_budget' ? 'success' : undefined}>
+              <CurrencyDisplay value={v} currency={currency} signed />
             </span>
-          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 1 }} className="text-[11.5px] font-mono">
-          <span style={{ color: exp.purchase_date ? '#a8a29e' : '#57534e' }}>{exp.purchase_date || '\u2014'}</span>
-        </div>
-        <div style={{ flex: 1.2 }} className="flex items-center gap-1 text-[10.5px] font-mono flex-wrap">
-          {relCount > 0 ? (
-            <>
-              {(exp.asset_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.asset_ids.length} asset{exp.asset_ids.length !== 1 ? 's' : ''}</span>}
-              {(exp.phase_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.phase_ids.length} phase{exp.phase_ids.length !== 1 ? 's' : ''}</span>}
-              {(exp.task_ids?.length || 0) > 0  && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.task_ids.length} task{exp.task_ids.length !== 1 ? 's' : ''}</span>}
-            </>
-          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 0.5 }} className="text-[11.5px] font-mono">
-          {fileCount > 0
-            ? <span className="flex items-center gap-1" style={{ color: '#a8a29e' }}><Paperclip className="w-3 h-3" /> {fileCount}</span>
-            : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-        </div>
-        <div style={{ flex: 0.5 }} className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => handleEdit(exp.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="Edit"><Pencil className="w-3 h-3" /></button>
-          <button type="button" onClick={() => setDeleteConfirmId(exp.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete"><Trash2 className="w-3 h-3" /></button>
-        </div>
-      </div>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td className="rb-budget-date" data-empty={exp.purchase_date ? undefined : 'true'}>
+          {exp.purchase_date || '—'}
+        </Td>
+        <Td className="rb-budget-exp-related">
+          {assetCount + phaseCount + taskCount > 0 ? (
+            <span className="rb-budget-exp-rels">
+              {assetCount > 0 && <Badge>{assetCount} asset{assetCount !== 1 ? 's' : ''}</Badge>}
+              {phaseCount > 0 && <Badge>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</Badge>}
+              {taskCount > 0 && <Badge>{taskCount} task{taskCount !== 1 ? 's' : ''}</Badge>}
+            </span>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td numeric>
+          {fileCount > 0 ? (
+            <span className="rb-budget-exp-files">
+              <Paperclip className="rb-budget-exp-files-icon" aria-hidden="true" />
+              {fileCount}
+            </span>
+          ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+        </Td>
+        <Td align="right" className="rb-budget-icon-cell" onClick={keepClick}>
+          <HoverActions>
+            <IconButton size="sm" Icon={Pencil} title="Edit" onClick={() => handleEdit(exp.id)} />
+            <IconButton size="sm" Icon={Trash2} danger title="Delete" onClick={() => setDeleteConfirmId(exp.id)} />
+          </HoverActions>
+        </Td>
+      </Row>
     )
   }
 
-  const COL_HEADER = [
-    { label: 'Title',       flex: 2 },
-    { label: 'Estimated',   flex: 1, field: 'estimated_cost' },
-    { label: 'Margin',      flex: 0.6, color: '#fb923c' },
-    { label: 'Conting.',    flex: 0.6, color: '#fb923c' },
-    { label: 'Actual',      flex: 1, field: 'actual_cost' },
-    { label: 'Variance',    flex: 0.8, field: 'variance' },
-    { label: 'Date',        flex: 1, field: 'purchase_date' },
-    { label: 'Related',     flex: 1.2 },
-    { label: 'Files',       flex: 0.5 },
-    { label: '',             flex: 0.5 },
-  ]
+  // ── A group's header: a full-width row of the table ──
+  function groupRow(g) {
+    return (
+      <Row key={`group-${g.key}`} className="rb-budget-exp-group">
+        <Td colSpan={EXPENSE_COLUMNS} className="rb-budget-exp-group-cell">
+          <span className="rb-budget-exp-group-head">
+            <span className="rb-budget-exp-group-label">{g.label}</span>
+            <span className="rb-budget-exp-group-count">({g.items.length})</span>
+            <span className="rb-budget-exp-group-totals">
+              Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} />
+              {' / '}
+              Act: <span className="rb-budget-exp-group-act"><CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} /></span>
+            </span>
+          </span>
+        </Td>
+      </Row>
+    )
+  }
+
+  const body = groups
+    ? groups.flatMap(g => [groupRow(g), ...g.items.map(exp => expenseRow(exp))])
+    : processed.map(exp => expenseRow(exp))
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Summary tiles */}
-      <div className="flex gap-3 flex-wrap">
-        <BigTile label="Estimated Total" value={fmtCurrency(totalEstimated, currency)} />
-        <BigTile label="Actual Total" value={totalActual > 0 ? fmtCurrency(totalActual, currency) : '\u2014'} />
+    <div className="rb-budget-exp-tab">
+      {/* Summary tiles: the kit Stat, through the tab's BigTile (R3-10). */}
+      <div className="rb-budget-stats">
+        <BigTile label="Estimated total" value={formatMoney(totalEstimated, currency)} />
+        <BigTile label="Actual total" value={totalActual > 0 ? formatMoney(totalActual, currency) : '—'} />
         <BigTile
           label="Variance"
           value={totalEstimated > 0 || totalActual > 0
-            ? `${totalVariance > 0 ? '+' : ''}${fmtCurrency(totalVariance, currency)}`
-            : '\u2014'}
+            ? formatMoney(totalVariance, currency, { sign: 'exceptZero' })
+            : '—'}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />
       </div>
 
-      {/* Toolbar — matching RABBIT pattern */}
-      <div className="flex items-center gap-3 px-1 flex-wrap">
-        {/* New expense */}
-        <button type="button" onClick={handleCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-          <Plus className="w-3.5 h-3.5" /> New expense
-        </button>
+      {/* The toolbar: the kit Toolbar, the same eleven controls in the same
+          order at the 28px height (C1; the Hick's hotspot's regrouping and
+          any overflow for Reset M/C are recorded for Audrey, not applied).
+          Search and the count keep the far end. */}
+      <Toolbar
+        wrap
+        className="rb-budget-exp-toolbar"
+        right={(
+          <>
+            <span className="rb-budget-search">
+              <Search className="rb-budget-search-icon" aria-hidden="true" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search expenses…"
+                aria-label="Search expenses"
+                className="ui-input rb-budget-search-input"
+                data-size="sm"
+              />
+              {search && (
+                <IconButton size="sm" Icon={X} title="Clear search" className="rb-budget-search-clear" onClick={() => setSearch('')} />
+              )}
+            </span>
+            <span className="rb-budget-count">{processed.length}/{expenses.length}</span>
+          </>
+        )}
+      >
+        <Button size="sm" variant="primary" Icon={Plus} onClick={handleCreate}>
+          New expense
+        </Button>
 
-        {/* Undo / redo */}
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)"
-            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Undo2 className="w-3.5 h-3.5" /></button>
-          <button type="button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)"
-            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Redo2 className="w-3.5 h-3.5" /></button>
-        </div>
+        <IconButton size="sm" Icon={Undo2} title="Undo (Ctrl+Z)" onClick={undo} disabled={!canUndo} />
+        <IconButton size="sm" Icon={Redo2} title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo} />
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Filter */}
-        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
-          <Filter className="w-3.5 h-3.5" /> Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-        </button>
+        <Button
+          size="sm"
+          Icon={Filter}
+          className="rb-budget-tool"
+          data-active={filters.length > 0 ? 'true' : 'false'}
+          aria-expanded={showFilterPanel}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+        >
+          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+        </Button>
 
-        {/* Sort */}
-        <div className="flex items-center gap-1.5">
-          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+        <span className="rb-budget-tool-group">
+          <ArrowUpDown className="rb-budget-tool-icon" aria-hidden="true" />
+          <select
+            value={sortField}
+            onChange={e => setSortField(e.target.value)}
+            aria-label="Sort"
+            className="ui-input rb-budget-tool"
+            data-size="sm"
+          >
             <option value="">No sort</option>
             {EXPENSE_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
+          {/* Its words and its name are "A→Z" / "Z→A", as they were. The
+              arrow is drawn as the kit's icon: Geist's Latin subset has no
+              U+2192, so the glyph came from Segoe UI (the walk's V1-01). */}
           {sortField && (
-            <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-[10.5px] font-mono uppercase rounded-sm hover:bg-stone-700 transition-colors"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-              {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
-            </button>
+            <Button
+              size="sm"
+              aria-label={sortDir === 'asc' ? 'A→Z' : 'Z→A'}
+              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            >
+              <span className="rb-budget-sort-dir">
+                {sortDir === 'asc' ? 'A' : 'Z'}
+                <ArrowRight className="rb-budget-sort-dir-icon" aria-hidden="true" />
+                {sortDir === 'asc' ? 'Z' : 'A'}
+              </span>
+            </Button>
           )}
-        </div>
+        </span>
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Group */}
-        <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+        <span className="rb-budget-tool-group">
+          <Layers className="rb-budget-tool-icon" aria-hidden="true" />
+          <select
+            value={groupBy}
+            onChange={e => setGroupBy(e.target.value)}
+            aria-label="Group"
+            className="ui-input rb-budget-tool"
+            data-size="sm"
+          >
             {EXPENSE_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-        </div>
+        </span>
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Saved views */}
         <ExpenseSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
 
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <span className="rb-budget-divider" aria-hidden="true" />
 
-        {/* Reset margin/contingency */}
-        <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Reset M/C
-        </button>
-
-        {/* Search */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xs ml-auto">
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search expenses..."
-            className="flex-1 px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
-          {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}><X className="w-3.5 h-3.5" /></button>
-          )}
-        </div>
-
-        <span className="text-[10.5px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
-      </div>
+        <Button size="sm" Icon={RotateCcw} onClick={() => setConfirmResetMc(true)}>
+          Reset M/C
+        </Button>
+      </Toolbar>
 
       {/* Filter panel */}
       {showFilterPanel && (
@@ -2230,110 +2095,150 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         />
       )}
 
-      {/* Column header */}
-      <div className="relative flex gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
-        {/* ── Bulk-action bar (overlays header) ── */}
+      <div className="rb-budget-exp-table">
+        {/* The bulk-action bar overlays the header, right of the checkbox
+            column, where it always did. The kit has no bulk bar (B2's is
+            its own too): this is the lane's, on the kit's Button. */}
         {expSomeSelected && (
-          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
-            style={{ left: 32, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
-              {expSelected.size} selected
-            </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={expBulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
-            </button>
-            <button type="button" onClick={expClearSelection}
-              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3.5 h-3.5" />
-            </button>
+          <div className="rb-budget-bulk">
+            <span className="rb-budget-bulk-count">{expSelected.size} selected</span>
+            <span className="rb-budget-divider" aria-hidden="true" />
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={() => setConfirmBulkDelete(true)}>
+              Delete
+            </Button>
+            <IconButton size="sm" Icon={X} title="Clear the selection" onClick={expClearSelection} />
           </div>
         )}
-        {/* Select-all checkbox */}
-        <div className="flex items-center flex-shrink-0" style={{ width: 20 }}>
-          <button type="button" onClick={() => expToggleAll(processed.map(e => e.id))} className="p-0.5 rounded hover:bg-stone-700 transition-colors">
-            {processed.length > 0 && processed.every(e => expSelected.has(e.id))
-              ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-              : expSomeSelected
-                ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
-                : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
-          </button>
-        </div>
-        {COL_HEADER.map((col, i) => (
-          <div key={i}
-            className={`text-[9.5px] font-mono uppercase tracking-widest ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
-            style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
-            onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
-          >
-            {col.label}
-            {sortField === col.field && <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
-          </div>
-        ))}
+
+        <Table
+          className="rb-budget-exp"
+          head={(
+            <Row>
+              <Th width="var(--rb-budget-exp-col-check)" className="rb-budget-exp-check-cell">
+                <button
+                  type="button"
+                  onClick={() => expToggleAll(processed.map(e => e.id))}
+                  className="rb-budget-check"
+                  data-checked={allSelected ? 'all' : expSomeSelected ? 'some' : 'none'}
+                  aria-label={allSelected ? 'Clear the selection' : 'Select every expense'}
+                  title={allSelected ? 'Clear the selection' : 'Select every expense'}
+                >
+                  {allSelected
+                    ? <CheckSquare aria-hidden="true" />
+                    : expSomeSelected
+                      ? <MinusSquare aria-hidden="true" />
+                      : <Square aria-hidden="true" />}
+                </button>
+              </Th>
+              <Th>Title</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'estimated_cost' ? sortDir : null} onSort={() => sortBy('estimated_cost')}>Estimated</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric>Margin</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric>Conting.</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'actual_cost' ? sortDir : null} onSort={() => sortBy('actual_cost')}>Actual</Th>
+              <Th width="var(--rb-budget-exp-col-money)" numeric sort={sortField === 'variance' ? sortDir : null} onSort={() => sortBy('variance')}>Variance</Th>
+              <Th width="var(--rb-budget-exp-col-date)" sort={sortField === 'purchase_date' ? sortDir : null} onSort={() => sortBy('purchase_date')}>Date</Th>
+              <Th width="var(--rb-budget-exp-col-related)">Related</Th>
+              <Th width="var(--rb-budget-exp-col-files)" numeric>Files</Th>
+              <Th width="var(--rb-budget-exp-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
+            </Row>
+          )}
+        >
+          {body}
+        </Table>
       </div>
 
-      {/* Table body — flat or grouped */}
-      {processed.length === 0 ? (
-        <Empty>{search || filters.length ? 'No matching expenses.' : 'No expenses yet \u2014 click "New expense" to add one.'}</Empty>
-      ) : groups ? (
-        <div className="flex flex-col gap-3">
-          {groups.map(g => (
-            <div key={g.key}>
-              <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-sm" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
-                <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{g.label}</span>
-                <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
-                <span className="ml-auto text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
-                  Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
-                  {' / '}
-                  Act: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#d6d3d1' }} />
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {g.items.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {processed.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
-        </div>
+      {/* Nothing to list: the kit EmptyState in sentence case (R3-19), under
+          the header as the empty line always was. */}
+      {processed.length === 0 && (
+        search || filters.length
+          ? <Empty compact title="No matching expenses" />
+          : <Empty compact title="No expenses yet" body={'Click "New expense" to add one.'} />
       )}
 
-
-      {/* Delete confirmation */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirmId(null)} />
-          <div className="relative rounded-sm p-5 flex flex-col gap-3" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 360 }}>
-            <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-sm font-bold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
-            <p className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
-            <div className="flex justify-end gap-2 mt-1">
-              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-[11.5px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={() => handleDelete(deleteConfirmId)} className="px-3 py-1.5 text-[11.5px] font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#dc2626', border: '1px solid #991b1b' }}>Delete</button>
-            </div>
-          </div>
-        </div>
+      {/* A row's Delete: the confirm it always asked, on the kit Dialog. Its
+          backdrop still closes it, as it always did. Every dialog here is
+          portalled into <body> (W9), so no container the shell gives this
+          tab can hold it. */}
+      {deleteConfirmId && createPortal(
+        <Dialog
+          width="confirm"
+          title="Delete expense"
+          dismissOnBackdrop
+          onClose={() => setDeleteConfirmId(null)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
+              <Button variant="danger" onClick={() => handleDelete(deleteConfirmId)}>Delete</Button>
+            </>
+          )}
+        >
+          This will permanently remove this expense. You can undo with Ctrl+Z.
+        </Dialog>,
+        document.body,
       )}
 
-      {/* Save view dialog */}
-      {showSaveDialog && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded-sm p-5 flex flex-col gap-4"
-            style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-[13.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
-            <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
-              placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
-            <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-[11.5px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={saveCurrentView} className="px-4 py-1.5 text-[11.5px] font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
-            </div>
-          </div>
-        </>
+      {/* W9: the bulk Delete's window.confirm, word for word. */}
+      {confirmBulkDelete && createPortal(
+        <Dialog
+          width="confirm"
+          title="Delete expenses"
+          onClose={() => setConfirmBulkDelete(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmBulkDelete(false); expBulkDelete() }}>Delete</Button>
+            </>
+          )}
+        >
+          {`Delete ${expSelected.size} expense${expSelected.size === 1 ? '' : 's'}?`}
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* W9: Reset M/C's window.confirm, word for word. */}
+      {confirmResetMc && createPortal(
+        <Dialog
+          width="confirm"
+          title="Reset margin & contingency"
+          onClose={() => setConfirmResetMc(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmResetMc(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { setConfirmResetMc(false); resetAllMarginCont() }}>Reset</Button>
+            </>
+          )}
+        >
+          Reset all margin & contingency values to the project defaults? This cannot be undone.
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* Save view: the kit Dialog, as the Tasks toolbar's (B2). */}
+      {showSaveDialog && createPortal(
+        <Dialog
+          width="confirm"
+          title="Save current view"
+          dismissOnBackdrop
+          onClose={() => setShowSaveDialog(false)}
+          footer={(
+            <>
+              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
+            </>
+          )}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={saveName}
+            onChange={e => setSaveName(e.target.value)}
+            placeholder="View name…"
+            aria-label="View name"
+            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
+            className="ui-input"
+          />
+        </Dialog>,
+        document.body,
       )}
 
       {/* Create / Edit popup */}
@@ -2347,7 +2252,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         />
       )}
 
-      {/* ── Margin/Contingency popover ── */}
+      {/* ── Margin/Contingency popover: the lane's one (R3-32) ── */}
       {mcPopover && (() => {
         const exp = expenses.find(e => e.id === mcPopover.expId)
         if (!exp) return null
@@ -2355,11 +2260,17 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
         const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
         return (
-          <ExpenseMarginContPopover
-            pos={mcPopover}
+          <MarginContPopover
+            // One editor per expense, as Crew's and Talent's are keyed per
+            // line: opened on another expense while this one is open (from
+            // the keyboard), it must not keep this one's draft and save it
+            // into the next (review round one, R1-04).
+            key={mcPopover.expId}
+            anchor={mcPopover}
+            amountLabel="Estimated cost"
+            baseAmount={est}
             marginPct={mPct}
             contPct={cPct}
-            estimatedCost={est}
             defaultMargin={defaultMarginPct}
             defaultCont={defaultContPct}
             currency={currency}
@@ -2373,75 +2284,9 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 }
 
 
-// ─── Expense margin/contingency popover ─────────────────���─
-function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defaultMargin, defaultCont, currency, onSave, onClose }) {
-  const [margin, setMargin] = useState(marginPct ?? '')
-  const [cont, setCont]     = useState(contPct ?? '')
-  const ref = useRef(null)
-
-  useEffect(() => {
-    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [onClose])
-
-  const popW = 280
-  const popH = 280
-  const left = Math.min(pos.x, window.innerWidth - popW - 12)
-  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4
-    : pos.y + pos.h + 4
-
-  const mPct = Number(margin) || 0
-  const cPct = Number(cont) || 0
-  const marginAmt = estimatedCost * mPct / 100
-  const contAmt   = estimatedCost * cPct / 100
-
-  return (
-    <div ref={ref} className="fixed z-[9999] rounded-sm shadow-2xl flex flex-col gap-2.5 p-3"
-      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
-        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
-        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
-          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
-        </button>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
-            placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
-        <div className="flex items-center gap-2">
-          <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
-            placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"
-          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
-        <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
-          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-          <RotateCcw className="w-3 h-3" /> Default
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ─── Expense filter panel ──────────────────────────────────
+// B2's filter strip, in this tab's gutter: a hairline box under the toolbar,
+// the kit's 28px fields and buttons, "Where" / "And" at the Label step.
 function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, onRemove, onClose }) {
   function getOptions(f) {
     const def = EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)
@@ -2454,53 +2299,64 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
   function getType(f) { return EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text' }
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-2 rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+    <div className="rb-budget-filters">
       {filters.map((f, i) => {
         const type = getType(f)
         const ops = EXPENSE_FILTER_OPS[type] || EXPENSE_FILTER_OPS.text
         const needsValue = !['is_empty', 'is_not_empty'].includes(f.op)
         return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-[10.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
-            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+          <div key={i} className="rb-budget-filter-row">
+            <span className="rb-budget-eyebrow rb-budget-filter-where">{i === 0 ? 'Where' : 'And'}</span>
+            <select
+              value={f.field}
+              onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
+              aria-label="Field"
+              className="ui-input rb-budget-filter-field"
+              data-size="sm"
+            >
               {EXPENSE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
-            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+            <select
+              value={f.op}
+              onChange={e => onUpdate(i, { op: e.target.value })}
+              aria-label="Condition"
+              className="ui-input rb-budget-filter-op"
+              data-size="sm"
+            >
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
-                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
-                  <option value="">-- select --</option>
+                <select
+                  value={f.value}
+                  onChange={e => onUpdate(i, { value: e.target.value })}
+                  aria-label="Value"
+                  className="ui-input rb-budget-tool"
+                  data-size="sm"
+                >
+                  <option value="">— select —</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
-                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
+                <input
+                  type="text"
+                  value={f.value || ''}
+                  onChange={e => onUpdate(i, { value: e.target.value })}
+                  placeholder="value…"
+                  aria-label="Value"
+                  className="ui-input rb-budget-filter-text"
+                  data-size="sm"
+                />
               )
             )}
-            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#fca5a5' }}><X className="w-3.5 h-3.5" /></button>
+            <IconButton size="sm" Icon={X} danger title="Remove this filter" onClick={() => onRemove(i)} />
           </div>
         )
       })}
-      <div className="flex items-center gap-2 mt-1">
-        <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
-          style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-          <Plus className="w-3.5 h-3.5" /> Add filter
-        </button>
+      <div className="rb-budget-filter-actions">
+        <Button size="sm" Icon={Plus} onClick={onAdd}>Add filter</Button>
         {filters.length > 0 && (
-          <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Done</button>
+          <Button size="sm" variant="ghost" onClick={onClose}>Done</Button>
         )}
       </div>
     </div>
@@ -2509,6 +2365,11 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
 
 
 // ─── Expense saved views dropdown ──────────────────────────
+// Restyled in place on the kit's float tokens, as the Tasks toolbar's is
+// (B2). The kit Menu cannot carry it unchanged: a Menu item has no trailing
+// action (load a view AND delete it from one row — B2's kit request K2), it
+// opens at a point rather than under its button, and it would add an
+// Escape and a capture-phase outside press this one never had.
 function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -2520,28 +2381,32 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   }, [open])
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-        <BookmarkPlus className="w-3.5 h-3.5" /> Views
-      </button>
+      <Button size="sm" Icon={BookmarkPlus} aria-expanded={open} onClick={() => setOpen(!open)}>
+        Views
+      </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded-sm overflow-hidden z-30"
-          style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          {views.length === 0 && <div className="px-3 py-2.5 text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>}
+        <div className="rb-budget-menu">
+          {views.length === 0 && <div className="rb-budget-menu-empty">No saved views</div>}
           {views.map(v => (
-            <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
-              onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
-              <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
-                className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors" style={{ color: '#fca5a5' }}><X className="w-3 h-3" /></button>
+            <div
+              key={v.id}
+              className="rb-budget-menu-item"
+              onClick={() => { onLoad(v); setOpen(false) }}
+            >
+              <span className="rb-budget-menu-label">{v.name}</span>
+              <IconButton
+                size="sm"
+                Icon={X}
+                danger
+                title={`Delete the saved view "${v.name}"`}
+                onClick={e => { e.stopPropagation(); onDelete(v.id) }}
+              />
             </div>
           ))}
-          <div style={{ borderTop: '1px solid #44403c' }}>
-            <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11.5px] font-mono transition-colors"
-              style={{ color: '#fb923c' }}>
-              <Save className="w-3 h-3" /> Save current view
+          <div className="rb-budget-menu-foot">
+            <button type="button" onClick={() => { onSave(); setOpen(false) }} className="rb-budget-menu-item">
+              <Save className="rb-budget-menu-icon" aria-hidden="true" />
+              <span className="rb-budget-menu-label">Save current view</span>
             </button>
           </div>
         </div>
@@ -2551,7 +2416,20 @@ function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 }
 
 
+// The receipt's open button while it fetches: the kit Spinner at the sm
+// icon's 14px, the size of the folder it stands in for — InvoiceAttachment's
+// BusyGlyph (A4-KR-6, until the kit IconButton takes `loading`).
+function ReceiptBusyGlyph({ 'aria-hidden': hidden }) {
+  return <Spinner size="sm" aria-hidden={hidden} />
+}
+
 // ─── Expense create / edit popup ───────────────────────────
+// The kit Dialog at the form width (560: the nearest token, and it holds
+// every field — the two cost fields are 190px each beside the variance).
+// Every field, its order and its save are as they were; the relation
+// pickers are restyled in place. Q17: Escape closes it now, and focus stays
+// inside it; its backdrop still closes it, as it always did. Portalled into
+// <body> (W9).
 function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency, onSave, onClose }) {
   const isEdit = !!expense
   const [title, setTitle]                 = useState(expense?.title || '')
@@ -2567,6 +2445,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [uploading, setUploading]         = useState(false)
   const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
+  const [openingId, setOpeningId]         = useState(null)
+  // Round 2: opening and uploading are two actions; sharing one error channel
+  // made an open failure read as an upload failure, and wiped a pending upload
+  // error on every open.
+  const [openError, setOpenError]         = useState(null)
   const fileInputRef = useRef(null)
 
   const [existingFiles, setExistingFiles] = useState([])
@@ -2595,7 +2478,66 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     try {
       const results = []
       for (const file of files) {
-        const uploaded = await adapter.uploadFile(projectId, { type: 'expense' }, file)
+        // 🚨 C4. `financial: true` IS THE WHOLE GATE, AND IT IS ONE KEY BECAUSE
+        // uploadFile SPENDS IT THREE TIMES. It picks the reserved `INVOICES`
+        // path segment — which is what the four `rabbit_files_money_*` storage
+        // policies key on and what the four base `rabbit_files_*` policies
+        // negate, the blob gate — it writes files.is_financial (the row gate,
+        // 0038), and on the Supabase backend it pins the body to Petal's
+        // bucket whatever storage the workspace chose (0050's
+        // files_money_provider_chk). The two gates are independent by design
+        // and either one alone is a way in, so they must be set together —
+        // which is why the flag is passed to the single writer rather than
+        // patched onto the row afterwards.
+        //
+        // ⚠️ BUNDLE C4's REVIEW ROUND 1 corrected three things in this comment.
+        // (Not to be confused with 0078's own review rounds, whose correction
+        // is the ✅ block under (c) below — two different reviews, months of
+        // work apart, both landing in this one comment.)
+        // (a) It named `rabbit_files_invoices_*`, a policy family 0042 DROPPED
+        //     and replaced with `rabbit_files_money_*` — the same phantom name
+        //     that caused the S39 incident recorded in OUTSTANDING.md. The
+        //     real predicate is `NOT rabbit_money_segment(seg 3)`: INVOICES or
+        //     FINANCE, in any case, not a literal 'invoices'.
+        // (b) The Supabase pin is supabaseAdapter's alone. Local Server writes
+        //     to the customer's disk with storage_provider 'local_server'; it
+        //     honours the same flag by routing into its own INVOICES dir.
+        // (c) 🚨 A FOURTH CONSEQUENCE, and it LOOSENS rather than tightens:
+        //     the INVOICES segment is exempt from the Petal storage quota
+        //     (0055's rabbit_quota_exempt_path short-circuits the RESTRICTIVE
+        //     petal_storage_quota_insert), while the meter still counts the
+        //     bytes. The picker below takes `multiple` files with no accept
+        //     and no size cap, so until 0078 a receipt could not be refused
+        //     for quota AT ANY SIZE. Not a security hole — 0037 gates
+        //     `expenses` — but a billing one.
+        //     ✅ BOUNDED BY 0078, on Audrey's ruling of 2026-09-09: the
+        //     exemption now holds only up to rabbit_quota_exempt_max_bytes()
+        //     (25 MiB). Above it a receipt is WEIGHED like ordinary media —
+        //     still uploadable while the company has room, refusable when it
+        //     does not. Handbook §12.10.
+        //
+        // What was here before was `{ type: 'expense' }`, and `scope.type` is
+        // read by NOTHING — not this adapter, not localServerAdapter, not the
+        // Express server. So the scope was effectively empty: a receipt landed
+        // as an ordinary project-level file, readable by every project member,
+        // while the `expenses` row that points at it is manager-only
+        // (0037 gates all five money tables on can_access_project_money).
+        // The amount was hidden and the receipt stating it was not — 0038's
+        // own words for why both gates exist.
+        //
+        // No `lineId`. The create form has no expense id yet, and — review
+        // round 1 — THE EDIT PATH DOES NOT PASS ONE EITHER, so the original
+        // "does not exist yet" reason was only half the story; one uniform
+        // folder per project's receipts is the actual justification. uploadFile
+        // falls back to `|| projectId` (supabaseAdapter.js). That fallback is
+        // NOT documented: the UploadScope typedef in adapters/index.js lists
+        // neither `lineId` nor `financial` — the key this whole gate turns on
+        // is missing from the only contract describing this argument.
+        // The gate is the THIRD segment; the fourth is only organisation.
+        //
+        // Deliberately NOT a matching change to `files.is_core_definer` — the
+        // C3 polarity lesson. This flag says "money", nothing else.
+        const uploaded = await adapter.uploadFile(projectId, { financial: true }, file)
         if (uploaded?.id) results.push({ id: uploaded.id, name: file.name, mime_type: file.type })
       }
       setUploadedFiles(prev => [...prev, ...results])
@@ -2617,6 +2559,72 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     setUploadedFiles(prev => prev.filter(f => f.id !== id))
     setExistingFiles(prev => prev.filter(f => f.id !== id))
   }
+
+  // 🚨 C4 REVIEW ROUND 1. THIS IS THE OTHER HALF OF MAKING A RECEIPT MONEY.
+  // Marking it financial removed it from BOTH surfaces that could open a file:
+  // `FileManager` drops every `is_financial` row (its comment says invoices
+  // "have their own surface" — a receipt had none), and `ProjectsPage`'s
+  // **Project Files** table filters them the same way ("Resources" is the
+  // left-hand nav section, not a per-project list — review round 2). So after the gate went on, the
+  // manager who uploaded a receipt could see its NAME here and open it
+  // nowhere — walkthrough 16's own step A3 asserts they can, and it could not
+  // have passed. A gate that locks out the person it is meant to admit is not
+  // a finished gate; this is the receipt's own surface, the twin of
+  // `InvoiceAttachment.handleOpen`.
+  //
+  // Always re-lists rather than trusting the row in state: a freshly uploaded
+  // file is only `{ id, name, mime_type }` from uploadFile's result, and
+  // downloadFile needs the real row. A missing row is the expected shape of
+  // "you are not cleared for this" as well as "it was deleted" — RLS returns
+  // an empty set, not an error — so say something either way.
+  async function openFile(id) {
+    setOpeningId(id)
+    setOpenError(null)
+    try {
+      const adapter = ctx?.getAdapter?.()
+      // 🚨 Round 2: this was a bare `return`, while the button that calls it
+      // renders unconditionally — the exact silent nothing-happens that
+      // `InvoiceAttachment`'s header calls the bug it replaced. Say it instead.
+      if (!adapter?.downloadFile || !adapter?.listFiles) {
+        throw new Error('This backend cannot open files.')
+      }
+      const files = await adapter.listFiles(projectId)
+      const row = (files || []).find(f => f.id === id)
+      if (!row) throw new Error('That receipt is no longer available to you.')
+      // 🚨 Merge review C-R2-02: the body's type is whatever the uploader's
+      // browser said it was (supabaseProvider stores file.type; rabbit-files
+      // has no allowed_mime_types; the picker has no accept), and a blob: URL
+      // runs on THIS origin — so a receipt uploaded as text/html or
+      // image/svg+xml would execute as script in the tab the next money
+      // reader opens. Re-typed first: image and PDF bodies render inline,
+      // everything else becomes a download (src/lib/inlineSafeBlob.js).
+      const blob = toInlineSafeBlob(await adapter.downloadFile(row))
+      const url = URL.createObjectURL(blob)
+      // 🚨 Round 2: `window.open` runs after TWO awaits — a listFiles round
+      // trip and a full body download — and transient user activation expires
+      // in a few seconds, so a large receipt gets the tab blocked. It returns
+      // null when that happens, and not checking it is the same silent failure
+      // again, one layer up.
+      // 🚨 Merge review C-R1-02: NO 'noopener' in the features string. The
+      // WHATWG window-open steps return null whenever noopener is set, so with
+      // it every SUCCESSFUL open took the "blocked" branch, threw, and revoked
+      // the blob before the tab could read it. The opener is severed by hand
+      // instead (`opened.opener = null`, the pre-noopener idiom), which keeps
+      // real pop-up-block detection and still gives the new tab no way back.
+      const opened = window.open(url, '_blank')
+      if (!opened) {
+        URL.revokeObjectURL(url)
+        throw new Error('Your browser blocked the new tab. Allow pop-ups for this site to open receipts.')
+      }
+      opened.opener = null
+      // Give the new tab time to take the blob before revoking it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      setOpenError(err?.message || 'Could not open that receipt.')
+    } finally {
+      setOpeningId(null)
+    }
+  }
   function handleSubmit() {
     if (!title.trim()) return
     setBusy(true)
@@ -2633,130 +2641,186 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const act = Number(actualCost) || 0
   const variance = act - est
 
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative flex flex-col rounded-sm shadow-2xl" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 620, maxHeight: '85vh' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b-2 border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
-          <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-orange-400" />
-            <span className="text-sm font-bold text-orange-400 uppercase tracking-wide">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-stone-700 transition-colors"><X className="w-5 h-5" style={{ color: '#a8a29e' }} /></button>
+  return createPortal(
+    <Dialog
+      width="form"
+      // In <body>, outside the app's `wilson-dark-scroll` root: the form and
+      // its relation lists scroll on the app's dark bar, as A4's Help does
+      // (review round one, R1-12).
+      className="wilson-dark-scroll"
+      title={isEdit ? 'Edit expense' : 'New expense'}
+      dismissOnBackdrop
+      onClose={onClose}
+      footer={(
+        <>
+          <span className="rb-budget-hint rb-budget-exp-note">
+            {isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}
+          </span>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={!title.trim() || busy}>
+            {busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="rb-budget-exp-form">
+        <Field label="Title *">
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="e.g. Software license, equipment rental"
+            aria-label="Title"
+            className="ui-input"
+            autoFocus
+          />
+        </Field>
+
+        {/* Costs row: Estimated + Actual + the variance they make */}
+        <div className="rb-budget-exp-costs">
+          <Field label={`Estimated cost (${currency})`}>
+            <input
+              type="number" step="0.01" min="0"
+              value={estimatedCost}
+              onChange={e => setEstimatedCost(e.target.value)}
+              placeholder="0.00"
+              aria-label="Estimated cost"
+              className="ui-input"
+            />
+          </Field>
+          <Field label={`Actual cost (${currency})`}>
+            <input
+              type="number" step="0.01" min="0"
+              value={actualCost}
+              onChange={e => setActualCost(e.target.value)}
+              placeholder="0.00"
+              aria-label="Actual cost"
+              className="ui-input"
+            />
+          </Field>
+          <Field label="Variance">
+            <span className="rb-budget-exp-variance">
+              {est > 0 ? (
+                <span className="rb-budget-var" data-tone={variance > 0 ? 'danger' : variance < 0 ? 'success' : undefined}>
+                  <CurrencyDisplay value={variance} currency={currency} signed />
+                </span>
+              ) : <span className="rb-budget-dash" data-empty="true">{'—'}</span>}
+            </span>
+          </Field>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Title */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Title *</label>
-            <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-          </div>
+        <Field label="Purchase date">
+          <input
+            type="date"
+            value={purchaseDate}
+            onChange={e => setPurchaseDate(e.target.value)}
+            aria-label="Purchase date"
+            className="ui-input rb-budget-exp-date"
+          />
+        </Field>
 
-          {/* Costs row: Estimated + Actual + Variance display */}
-          <div className="flex gap-4">
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
-              <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-            </div>
-            <div className="flex flex-col gap-1 flex-1">
-              <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
-              <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-            </div>
-            <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
-              <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Variance</label>
-              <div className="px-3 py-2 text-[11.5px] font-mono rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                {est > 0 ? (
-                  <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
-                    {variance > 0 ? '+' : ''}<CurrencyDisplay value={variance} currency={currency} className="inline" style={{ color: 'inherit' }} />
-                  </span>
-                ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
-              </div>
-            </div>
-          </div>
+        <Field label="Description / reason">
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Why was this expense incurred?"
+            rows={3}
+            aria-label="Description / reason"
+            className="ui-input rb-budget-exp-desc-input"
+          />
+        </Field>
 
-          {/* Date */}
-          <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
-            <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Purchase Date</label>
-            <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+        <Field label="Related items">
+          <div className="rb-budget-exp-pickers">
+            <RelationPicker label="Assets" icon={<Boxes className="rb-budget-rel-icon" aria-hidden="true" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
+            <RelationPicker label="Phases" icon={<Layers className="rb-budget-rel-icon" aria-hidden="true" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
+            <RelationPicker label="Tasks" icon={<FileText className="rb-budget-rel-icon" aria-hidden="true" />} items={tasks} selectedIds={taskIds} onChange={setTaskIds} nameKey="name" />
           </div>
+        </Field>
 
-          {/* Description */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Description / Reason</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none"
-              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
-          </div>
-
-          {/* Relations */}
-          <div className="flex flex-col gap-2">
-            <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Related Items</label>
-            <div className="space-y-2">
-              <RelationPicker label="Assets" icon={<Boxes className="w-3 h-3" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
-              <RelationPicker label="Phases" icon={<Layers className="w-3 h-3" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
-              <RelationPicker label="Tasks"  icon={<FileText className="w-3 h-3" />} items={tasks} selectedIds={taskIds} onChange={setTaskIds} nameKey="name" />
-            </div>
-          </div>
-
-          {/* File upload */}
-          <div className="flex flex-col gap-2">
-            <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
+        <Field label="Invoices / receipts">
+          <div className="rb-budget-exp-uploads">
             {allFiles.length > 0 && (
-              <div className="flex flex-col gap-1">
+              <div className="rb-budget-exp-file-list">
                 {allFiles.map(f => (
-                  <div key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-                    <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
-                    <span className="text-[11.5px] font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
-                    <button type="button" onClick={() => removeFile(f.id)} className="p-0.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#ef4444' }}><X className="w-3 h-3" /></button>
+                  <div key={f.id} className="rb-budget-exp-file">
+                    <Paperclip className="rb-budget-exp-file-icon" aria-hidden="true" />
+                    <span className="rb-budget-exp-file-name">{f.name}</span>
+                    {/* C4 review round 1: the receipt's own open control. A
+                        financial row is dropped by FileManager and by the
+                        Projects page, so this is the one place its uploader
+                        can open it — the twin of InvoiceAttachment's, on the
+                        kit: the Spinner stands in the glyph's place while it
+                        fetches (A4-KR-6, until IconButton takes `loading`). */}
+                    <IconButton
+                      size="sm"
+                      Icon={openingId === f.id ? ReceiptBusyGlyph : FolderOpen}
+                      title="Open this receipt"
+                      onClick={() => openFile(f.id)}
+                      disabled={openingId === f.id}
+                      aria-busy={openingId === f.id || undefined}
+                    />
+                    <IconButton size="sm" Icon={X} danger title={`Remove ${f.name}`} onClick={() => removeFile(f.id)} />
                   </div>
                 ))}
               </div>
             )}
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono rounded-sm transition-colors hover:bg-stone-700 self-start"
-              style={{ color: '#a8a29e', border: '1px dashed #44403c' }}>
-              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              {uploading ? 'Uploading...' : 'Upload files'}
-            </button>
-            {uploadError && (
-              <p className="text-[11px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
+            {openError && (
+              <p className="rb-budget-exp-error">{openError}</p>
             )}
-            <input ref={fileInputRef} type="file" multiple className="hidden"
-              onChange={e => { setUploadError(null); handleFileUpload(e) }} />
+            <Button
+              size="sm"
+              Icon={Upload}
+              loading={uploading}
+              loadingLabel="Uploading..."
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Upload files
+            </Button>
+            {uploadError && (
+              <p className="rb-budget-exp-error">{uploadError}</p>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={e => { setUploadError(null); handleFileUpload(e) }}
+            />
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t-2 border-stone-600 flex-shrink-0">
-          <p className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 text-[11.5px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={!title.trim() || busy}
-              className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>{busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}</button>
-          </div>
-        </div>
+        </Field>
       </div>
-    </div>
+    </Dialog>,
+    document.body,
   )
 }
 
 
 // ─── Relation picker (multi-select dropdown) ───────────────
+// Restyled in place: its button is the kit's 28px field, its count the kit
+// Badge (it was white on the signal fill, C6), its list on the kit's float
+// tokens. It opens, searches, ticks and closes exactly as before.
+// The expense popup is the kit Dialog now, and its relation pickers' open
+// lists are not on the kit's modal stack: an Escape pressed inside one closed
+// the whole popup, draft and all — before the kit, Escape did nothing there.
+// The kit Dialog skips an Escape already marked handled, as RelationsPanel's
+// in-panel layers use it (B4c). While a list is open, an Escape ANYWHERE in
+// its picker closes the list and is marked handled — on the toggle too,
+// where a click on it leaves focus (review round one, R1-05: that Escape
+// closed the popup and lost the draft); focus in the list goes back to the
+// toggle. The popup and its draft stay; with the list closed, Escape is the
+// popup's.
 function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const ref = useRef(null)
+  const toggleRef = useRef(null)
+  function closeOnEscape(e) {
+    if (!open || e.key !== 'Escape') return
+    e.preventDefault()
+    if (toggleRef.current && !toggleRef.current.contains(document.activeElement)) toggleRef.current.focus()
+    setOpen(false)
+  }
   useEffect(() => {
     if (!open) return
     function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
@@ -2773,30 +2837,42 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
     else onChange([...selectedIds, id])
   }
   return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm transition-colors hover:bg-stone-700 w-full text-left"
-        style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
-        {icon}<span>{label}</span>
-        {selectedIds.length > 0 && <span className="ml-auto px-1.5 py-0.5 rounded-sm text-[10.5px]" style={{ backgroundColor: '#ea580c', color: '#fff7ed' }}>{selectedIds.length}</span>}
+    <div ref={ref} className="rb-budget-rel" onKeyDown={closeOnEscape}>
+      <button
+        ref={toggleRef}
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="ui-input rb-budget-rel-toggle"
+        data-size="sm"
+      >
+        {icon}<span className="rb-budget-rel-label">{label}</span>
+        {selectedIds.length > 0 && <Badge className="rb-budget-rel-count">{selectedIds.length}</Badge>}
       </button>
       {open && (
-        <div className="absolute left-0 right-0 z-50 mt-1 rounded-sm shadow-xl flex flex-col" style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: 220 }}>
+        <div className="rb-budget-rel-menu">
           {items.length > 5 && (
-            <div className="p-1.5 border-b border-stone-700">
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} autoFocus
-                className="w-full px-2 py-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+            <div className="rb-budget-rel-search">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}...`}
+                aria-label={`Search ${label.toLowerCase()}`}
+                className="ui-input"
+                data-size="sm"
+                autoFocus
+              />
             </div>
           )}
-          <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? <div className="px-3 py-2 text-[10.5px] font-mono" style={{ color: '#78716c' }}>No items</div> : (
+          <div className="rb-budget-rel-options">
+            {filtered.length === 0 ? <div className="rb-budget-rel-empty">No items</div> : (
               filtered.map(it => {
                 const checked = selectedIds.includes(it.id)
                 return (
-                  <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-stone-700 transition-colors">
-                    <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="accent-orange-500 w-3.5 h-3.5" />
-                    <span className="text-[11.5px] font-mono truncate" style={{ color: checked ? '#d6d3d1' : '#a8a29e' }}>{it[nameKey] || 'Unnamed'}</span>
+                  <label key={it.id} className="rb-budget-rel-option" data-checked={checked ? 'true' : 'false'}>
+                    <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="rb-budget-rel-check" />
+                    <span className="rb-budget-rel-name">{it[nameKey] || 'Unnamed'}</span>
                   </label>
                 )
               })
@@ -2810,122 +2886,139 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
 
 
 // ─── Sub-components ───────────────────────────────────────
-function Card({ title, children }) {
+
+// (A figure to one decimal place — days, a percentage — is `formatTenths`,
+// CurrencyDisplay's, which Crew/team shares: one rounding, review round one,
+// R1-11.)
+
+// A section of a Budget tab: the kit SectionTitle (H2, sentence case, a
+// hairline above) over its content, with no box and no fill (R3-30). The
+// parent's gap is the only rhythm between sections (rabbitBudget.css).
+// `rule={false}` for a report's FIRST section (V2, B5b §4.2 item 5): it sits
+// 24px under the tab strip's own hairline, and two rules read as one border
+// drawn twice. The sections after it keep theirs.
+function Card({ title, children, rule = true }) {
   return (
-    <div className="rounded-sm p-5 mb-4" style={{ border: '1px solid #44403c' }}>
-      {title && (
-        <h3 className="text-[10.5px] font-mono uppercase tracking-widest font-bold mb-4 px-1" style={{ color: '#fb923c' }}>
-          {title}
-        </h3>
-      )}
+    <section className="rb-budget-section">
+      {title && <SectionTitle rule={rule}>{title}</SectionTitle>}
       {children}
-    </div>
+    </section>
   )
 }
 
+// Kept for the Expenses tab's four tiles: a thin wrapper over the kit Stat,
+// so every tile on the Budget is the kit's (R3-10). `tone` keeps its words.
 function BigTile({ label, value, hint, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
-  }[tone]
   return (
-    <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-[11.5px] font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
-      <span className="text-xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
-      {hint && <span className="text-[10.5px] font-mono mt-0.5" style={{ color: colors.label }}>{hint}</span>}
-    </div>
+    <Stat
+      className="rb-budget-stat"
+      label={label}
+      value={value}
+      delta={hint}
+      deltaTone="neutral"
+      valueTone={tone === 'good' ? 'success' : tone === 'danger' ? 'danger' : undefined}
+    />
   )
 }
 
-function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
+// The table behind the seven reports and Custom: the kit Table (R3-20). Name
+// left; Tasks, Bid, Logged, Variance and Cost numeric, header included
+// (R3-03), in the lane's one order (R3-05). A totals row is its `foot`
+// (R3-04), so it shares the columns it totals.
+function BreakdownTable({ rows, currency, labelHeader, countHeader, foot }) {
   return (
-    <div className="flex flex-col gap-1 p-3">
-      <HeaderRow cols={[labelHeader, countHeader, 'Bid', 'Logged', 'Variance', 'Cost']} sixCol />
+    <Table
+      className="rb-budget-report"
+      foot={foot}
+      head={(
+        <Row>
+          <Th>{labelHeader}</Th>
+          <Th width="var(--rb-budget-col-count)" numeric>{countHeader}</Th>
+          <Th width="var(--rb-budget-col-days)" numeric>Bid</Th>
+          <Th width="var(--rb-budget-col-days)" numeric>Logged</Th>
+          <Th width="var(--rb-budget-col-var)" numeric>Variance</Th>
+          <Th width="var(--rb-budget-col-money)" numeric>Cost</Th>
+        </Row>
+      )}
+    >
       {rows.map((row, i) => (
-        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-3 py-2 rounded-sm text-[11.5px] font-mono items-center transition-colors hover:bg-stone-800" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-          <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
-          <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
-          <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
-          <span style={{ color: '#a8a29e' }}>{row.logged.toFixed(1)}</span>
+        <Row key={`${row.name}-${i}`}>
+          {/* A scene's or shot's row says in its tooltip which shot list
+              holds it (post-overhaul S3c, D10): the table is too dense to
+              print it. */}
+          <Td title={row.title}>{row.name}</Td>
+          <Td numeric className="rb-budget-quiet">{row.taskCount}</Td>
+          <Td numeric className="rb-budget-quiet">{formatTenths(row.bid)}</Td>
+          <Td numeric className="rb-budget-quiet">{formatTenths(row.logged)}</Td>
           <VarianceCell value={row.variance} />
-          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
-        </div>
+          <Td numeric className="rb-budget-quiet">
+            <CurrencyDisplay value={row.cost} currency={currency} />
+          </Td>
+        </Row>
       ))}
-    </div>
+    </Table>
   )
 }
 
-function HeaderRow({ cols, sixCol }) {
-  return (
-    <div className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-3 py-1.5`} style={{ borderBottom: '1px solid #44403c' }}>
-      {cols.map(c => (
-        <span key={c} className="text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>{c}</span>
-      ))}
-    </div>
-  )
-}
-
+// A day variance: the good or bad news is the figure's tone, and the arrow
+// says which way.
 function VarianceCell({ value }) {
-  const tone = varianceTone(value)
-  const colors = { good: '#86efac', danger: '#fca5a5', neutral: '#a8a29e' }[tone]
   const Icon = value > 0 ? ArrowUp : value < 0 ? ArrowDown : Minus
   return (
-    <span className="flex items-center gap-1" style={{ color: colors }}>
-      <Icon className="w-3 h-3" />
-      {(value > 0 ? '+' : '') + value.toFixed(1)}
-    </span>
+    <Td numeric>
+      <span className="rb-budget-var" data-tone={value > 0 ? 'danger' : value < 0 ? 'success' : 'zero'}>
+        <Icon className="rb-budget-var-icon" aria-hidden="true" />
+        {formatTenths(value, { signed: true })}
+      </span>
+    </Td>
   )
 }
 
-function Field({ label, children }) {
+// A field: its label at the Label step over a Dense control (R3-06). A
+// <div>, not a <label>: the words were never a click target and do not
+// become one (C1); each control carries its own name.
+function Field({ label, children, className = '' }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>{label}</span>
+    <div className={`rb-budget-field ${className}`.trim()}>
+      <span className="ui-field-label">{label}</span>
       {children}
     </div>
   )
 }
 
-function budgetStatusColor(id) {
-  switch (id) {
-    case 'in_progress':     return '#fb923c'
-    case 'pending_review':  return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':        return '#4ade80'
-    case 'final':           return '#22c55e'
-    case 'blocked':         return '#ef4444'
-    case 'on_hold':         return '#fcd34d'
-    case 'omitted':         return '#57534e'
-    case 'bidding':         return '#c084fc'
-    default:                return '#a8a29e'
-  }
-}
-
-function Select({ value, onChange, options, colorFn }) {
+// The native select in the kit's well at the Dense step. The status colours
+// it used to paint on itself and its options are gone (R3-11): a status is
+// the kit's StatusDot beside it.
+function Select({ value, onChange, options, 'aria-label': ariaLabel }) {
   return (
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-      style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#d6d3d1' }}
+      className="ui-input"
+      data-size="sm"
+      aria-label={ariaLabel}
     >
-      {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   )
 }
 
-function CenterMsg({ children }) {
+// The whole view's "not yet" and "nothing" (R3-19). A message about loading
+// is the kit Loading, never the empty state — read with the kit's own test
+// for a loading string, so the shell's two calls need no change; anything
+// else is the kit EmptyState.
+function CenterMsg({ children, loading = /\bloading\b/i.test(String(children ?? '')) }) {
   return (
-    <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-      <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{children}</span>
+    <div className="rb-budget-center">
+      {loading ? <Loading label={children} /> : <EmptyState title={children} />}
     </div>
   )
 }
 
-function Empty({ children }) {
-  return <div className="text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>{children}</div>
+// "Nothing here" (R3-19): the kit EmptyState, `compact` inside a section.
+// A call that passes one string passes the title.
+function Empty({ children, title = children, body, compact = false }) {
+  return <EmptyState compact={compact} title={title} body={body} />
 }
 
 function varianceLabel(v) {
@@ -2934,8 +3027,14 @@ function varianceLabel(v) {
   return 'On target'
 }
 
+// A variance's tone in the kit's words (Stat's `valueTone`): over the bid is
+// the bad news.
 function varianceTone(v) {
   if (v > 0) return 'danger'
-  if (v < 0) return 'good'
+  if (v < 0) return 'success'
   return 'neutral'
 }
+
+// Surfaces 2a and 2b's mounted tests render these directly; the default
+// export is unchanged.
+export { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, BySceneTab, ByShotTab, CenterMsg, ExpensesTab, ExpensePopup }

@@ -7,12 +7,14 @@
 // the views to consume in Session 3.
 
 // ─── Status taxonomy helpers ────────────────────────────────
-const TASK_DONE_STATES = new Set(['approved', 'final', 'omitted']);
+// "Done" has exactly ONE definition, in dependencyStatus.js (Phase 7, Track A
+// bundle A2, 2026-09-06). This file carried its own set of done states and
+// AssetStatusWarningModal carried a private isDone; they agreed by luck. The
+// old name is kept as an alias so every existing caller keeps working.
+import { isDone } from './dependencyStatus';
 const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'needs_revisions']);
 
-export function isTaskDone(task) {
-  return task && TASK_DONE_STATES.has(task.status);
-}
+export const isTaskDone = isDone;
 export function isTaskActive(task) {
   return task && TASK_ACTIVE_STATES.has(task.status);
 }

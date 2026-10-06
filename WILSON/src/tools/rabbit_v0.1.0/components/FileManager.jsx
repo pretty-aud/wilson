@@ -26,24 +26,33 @@
 //   - Chunking: files grouped by asset, properties organized in columns
 //   - Fitts's Law: large add button, delete tucked away in full mode only
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
+import { createPortal } from 'react-dom'
+import { Plus, Download, Trash2, FolderOpen, X, Check } from 'lucide-react'
 import {
-  Plus, Download, Trash2, Table as TableIcon, LayoutGrid,
-  FolderOpen, Pencil, X, Check, Loader2,
-} from 'lucide-react'
+  Table, Row, Th, Td, Button, IconButton, Tabs, Banner, Badge, EmptyState, Dialog,
+} from '../../../ui'
+import '../views/rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
 import FileThumbnail, { extensionOf } from './FileThumbnail'
 import VideoPreview from './VideoPreview'
 import { fileSlugify } from '../entityNaming'
+import { isLegalFile } from '../fileTags'
 // Session 40 (§5f). Provider-keyed, because 50 MB is `rabbit-files`'s own limit
 // and applies to PETAL workspaces only — an s3 workspace takes ~5 GB from the
 // same browser, so a blanket "too large, use the desktop app" is a false
 // refusal for exactly the customers already paying for their own storage.
 import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
 import { activeWorkspaceProvider } from '../storage'
+import { localMediaUrl } from '../storage/localServerProvider'
+import { hasLocalServer } from '../../../lib/localData'
 import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
+import { releaseStaleUploadReservations } from '../../../cloud/storageApi'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../../lib/localServerFetch.js'
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -53,7 +62,7 @@ function formatBytes(bytes) {
 }
 
 function formatDate(iso) {
-  if (!iso) return '--'
+  if (!iso) return '—'   // one em dash for an empty value (R4-19), not "--"
   const d = new Date(iso)
   const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${m[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
@@ -110,6 +119,12 @@ export default function FileManager({
   const [desktopDecoder, setDesktopDecoder] = useState(null)
   // Session 40 (§5d.2): which row's video is open in the player, if any.
   const [previewFile, setPreviewFile] = useState(null)
+  // B4 (W9): the file a delete is waiting on — the kit Dialog's question, which
+  // was `window.confirm` — and the busy lock while it runs.
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  // The kit Tabs switch a region they can name (role="tabpanel").
+  const panelId = useId()
 
   // ── Session 27: WHICH file store is behind this component ──────────────
   //
@@ -147,7 +162,7 @@ export default function FileManager({
   // for a surface that cannot ask.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/rabbit/video-support')
+    localFetch('/api/rabbit/video-support')
       // 🚨 fetch RESOLVES for every status. An unchecked `.json()` here would
       // read a 404's body as junk and leave `ffmpeg` undefined — which is
       // falsy, so a missing ROUTE would report as a missing DECODER, and the
@@ -157,6 +172,22 @@ export default function FileManager({
       .catch(() => { /* unknown stays unknown, and unknown keeps the pointer */ })
     return () => { cancelled = true }
   }, [])
+
+  // Track C / 0074 (Audrey's ruling 2, 2026-09-07): opening Files releases
+  // this person's own STALE upload reservations — rows a closed tab or a crash
+  // left open, which would otherwise count against the company's quota for
+  // 24 h (walkthrough 13's "refused for a day" case). Supabase backend only;
+  // the keys THIS tab is still uploading are kept (uploadReservation.js tracks
+  // them). Best-effort by design: nothing on screen depends on it, and a
+  // database without 0074 answers "no such function", which is a 0.
+  // ⚠️ Stated limit (§17): a second tab cannot see the first tab's in-flight
+  // keys, so opening Files in tab B while tab A uploads releases A's row early.
+  // The storage policy still refuses an over-quota object at commit
+  // (0055/0073), so the cost is a late refusal, never an over-quota object.
+  useEffect(() => {
+    if (ctx?.adapterMode !== 'supabase') return
+    releaseStaleUploadReservations().catch(() => {})
+  }, [ctx?.adapterMode])
 
   // Filter to only files for this parent, exclude soft-deleted.
   //
@@ -174,7 +205,8 @@ export default function FileManager({
       // Invoices are manager-only and have their own surface. RLS already
       // hides them from anyone who cannot see them, but a manager WOULD get
       // them here, filed under whatever entity the budget line belonged to.
-      if (f.is_financial) return false
+      // S4b (0088): a Legal file the same — its surface is the Files tab.
+      if (f.is_financial || isLegalFile(f)) return false
       if (sceneId) return f.scene_id === sceneId
       if (shotId) return f.shot_id === shotId
       return f.asset_id === assetId
@@ -255,9 +287,23 @@ export default function FileManager({
   // teardown sweep, caught it, and its own review then found the same shape
   // surviving here.
   const [thumbUrls, setThumbUrls] = useState(() => new Map())
+  // Demo 2026-09-11: a PRIVATE project's previews live on THIS computer, at
+  // a URL the desktop's own server serves (electron/localMedia.cjs) —
+  // nothing to sign, and nothing a browser could show (off the desktop they
+  // fall through to file-type icons). Split out before the signing round
+  // trip and merged back into the same map the two render sites read.
+  const localThumbs = useMemo(
+    () => (hasLocalServer()
+      ? assetFiles
+        .filter(f => f.storage_provider === 'local_server' && f.thumbnail_url)
+        .map(f => [f.thumbnail_url, localMediaUrl(f.thumbnail_url)])
+      : []),
+    [assetFiles],
+  )
   const thumbKeys = useMemo(
     () => assetFiles
       .filter(f => f.storage_provider !== 's3')
+      .filter(f => f.storage_provider !== 'local_server')
       .map(f => f.thumbnail_url)
       .filter(Boolean),
     [assetFiles],
@@ -271,20 +317,21 @@ export default function FileManager({
   // useCallback'd method is stable.
   const signThumbnails = ctx?.thumbnailUrls
   useEffect(() => {
+    const local = new Map(localThumbs)
     if (!signThumbnails || thumbKeys.length === 0) {
-      setThumbUrls(new Map())
+      setThumbUrls(local)
       return
     }
     let cancelled = false
     signThumbnails(thumbKeys).then(map => {
       // The list can change while a signing round trip is in flight; a late
       // response must not overwrite a newer one.
-      if (!cancelled) setThumbUrls(map)
+      if (!cancelled) setThumbUrls(new Map([...local, ...map]))
     })
     return () => { cancelled = true }
     // thumbKeys is memoised on assetFiles, so this re-signs when the list
     // changes and not on every render.
-  }, [signThumbnails, thumbKeys])
+  }, [signThumbnails, thumbKeys, localThumbs])
 
   // Listen for copy progress IPC events
   useEffect(() => {
@@ -689,13 +736,13 @@ export default function FileManager({
   }, [project, parentName, parentType, shotId])
 
   // ── Delete handler ──
-  const handleDelete = useCallback(async (file) => {
-    const label = displayName(file)
-    if (!window.confirm(
-      managed
-        ? `Delete "${label}"? This will move the file to trash.`
-        : `Delete "${label}"? It can be restored by an admin.`
-    )) return
+  // W9 (B4): the question is the kit Dialog, not `window.confirm`. Asking and
+  // doing are two steps now; what is asked and what is done are unchanged.
+  const handleDelete = useCallback((file) => setDeleteTarget(file), [])
+  const confirmDelete = useCallback(async () => {
+    const file = deleteTarget
+    if (!file) return
+    setDeleting(true)
     try {
       // Cloud deletes are SOFT (0014) — deleteFile sets deleted_at and the
       // blob is deliberately left in place so a restore has something to
@@ -706,8 +753,11 @@ export default function FileManager({
       onFileDeleted?.()
     } catch (err) {
       setUploadError(err?.message || String(err))
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
     }
-  }, [ctx, managed, onFileDeleted])
+  }, [deleteTarget, ctx, managed, onFileDeleted])
 
   // ── Open folder in explorer ──
   const handleOpenFolder = useCallback(async () => {
@@ -742,30 +792,26 @@ export default function FileManager({
     setEditingNotes(null)
   }, [ctx, notesDraft, onFileUpdated])
 
+  // B4: one row of 28px controls on one baseline (R4-08, R4-16): the
+  // section's name in the Label role, the kit's Add files (primary: white on
+  // the signal fill, 5.2:1 — C6), and the kit Tabs for the two views (R4-07:
+  // the same control the Tasks view and the Assets toolbar use).
   return (
-    <div>
+    <div className="rb-fm-root">
       {/* Header bar */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
+      <div className="rb-fm-head">
+        <div className="rb-fm-title-group">
+          <span className="rb-fm-title">
             Files ({assetFiles.length})
           </span>
           {/* Opening an OS explorer window only means anything when the file
               is on this machine. In cloud mode there is no folder to open, so
               the control is absent rather than present and inert. */}
           {managed && (
-            <button
-              type="button"
-              onClick={handleOpenFolder}
-              className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors"
-              title="Open folder in explorer"
-              style={{ color: '#a8a29e' }}
-            >
-              <FolderOpen className="w-3 h-3" />
-            </button>
+            <IconButton Icon={FolderOpen} size="sm" title="Open folder in explorer" onClick={handleOpenFolder} />
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="rb-fm-actions">
           {/* The cloud picker. Hidden input + a button, so the button can look
               identical in both modes. */}
           {!managed && (
@@ -780,45 +826,23 @@ export default function FileManager({
               }}
             />
           )}
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            Icon={Plus}
+            loading={copying}
+            loadingLabel={managed ? 'Copying…' : 'Uploading…'}
             onClick={() => (managed ? handleAddManagedFiles() : cloudInputRef.current?.click())}
-            disabled={copying}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:brightness-110 transition-colors"
-            style={{
-              color: '#fff7ed',
-              backgroundColor: '#ea580c',
-              border: '1px solid #c2410c',
-              opacity: copying ? 0.6 : 1,
-            }}
           >
-            {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-            {copying ? (managed ? 'Copying...' : 'Uploading...') : 'Add files'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('table')}
-            title="Table"
-            className="p-1 rounded-sm"
-            style={{
-              color: viewMode === 'table' ? '#fb923c' : '#78716c',
-              backgroundColor: viewMode === 'table' ? '#44403c' : 'transparent',
-            }}
-          >
-            <TableIcon className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('gallery')}
-            title="Gallery"
-            className="p-1 rounded-sm"
-            style={{
-              color: viewMode === 'gallery' ? '#fb923c' : '#78716c',
-              backgroundColor: viewMode === 'gallery' ? '#44403c' : 'transparent',
-            }}
-          >
-            <LayoutGrid className="w-3 h-3" />
-          </button>
+            Add files
+          </Button>
+          <Tabs
+            label="File view"
+            panelId={panelId}
+            items={[{ id: 'table', label: 'Table' }, { id: 'gallery', label: 'Gallery' }]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
         </div>
       </div>
 
@@ -828,12 +852,7 @@ export default function FileManager({
           real permission answer — a reviewer, or a project the user cannot
           write to — and it has to say so. */}
       {uploadError && (
-        <div
-          className="mb-2 px-2 py-1 rounded-sm text-[10px] font-mono"
-          style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
-        >
-          {uploadError}
-        </div>
+        <Banner tone="danger" className="rb-fm-notice">{uploadError}</Banner>
       )}
 
       {/* ── Session 40 (§5f): ONE summary line per batch, never per file ────
@@ -842,21 +861,10 @@ export default function FileManager({
           genuine failure." Informational styling, deliberately not the red the
           error banner above uses: nothing here failed. */}
       {batchNotice && (
-        <div
-          className="mb-2 px-2 py-1 rounded-sm text-[10px] font-mono flex items-start justify-between gap-2"
-          style={{ color: '#fcd34d', backgroundColor: 'rgba(234,179,8,0.10)', border: '1px solid #78350f' }}
-        >
-          <span>{batchNotice}</span>
-          <button
-            type="button"
-            onClick={() => setBatchNotice(null)}
-            className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
-            style={{ color: '#a8a29e' }}
-            title="Dismiss"
-          >
-            <X className="w-2.5 h-2.5" />
-          </button>
-        </div>
+        <Banner tone="info" className="rb-fm-notice"
+          action={<IconButton Icon={X} size="sm" title="Dismiss" onClick={() => setBatchNotice(null)} />}>
+          {batchNotice}
+        </Banner>
       )}
 
       {/* ── Session 40 (§5f): the ONE case that is a real stop ──────────────
@@ -864,71 +872,55 @@ export default function FileManager({
           show. A dialog is right here and wrong for the other two. One dialog
           for the whole batch, listing every refusal — not one per file. */}
       {refusedFiles?.length > 0 && (
-        <div
-          className="mb-2 px-2 py-1.5 rounded-sm text-[10px] font-mono"
-          style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex flex-col gap-1">
-              {refusedFiles.map((m, i) => <span key={i}>{m}</span>)}
-            </div>
-            <button
-              type="button"
-              onClick={() => setRefusedFiles(null)}
-              className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
-              style={{ color: '#fca5a5' }}
-              title="Dismiss"
-            >
-              <X className="w-2.5 h-2.5" />
-            </button>
-          </div>
-        </div>
+        <Banner tone="danger" className="rb-fm-notice"
+          action={<IconButton Icon={X} size="sm" title="Dismiss" onClick={() => setRefusedFiles(null)} />}>
+          <span className="rb-fm-refused">
+            {refusedFiles.map((m, i) => <span key={i}>{m}</span>)}
+          </span>
+        </Banner>
       )}
 
       {/* Copy progress bar */}
       {copyProgress && (
-        <div className="mb-2">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[9px] font-mono truncate" style={{ color: '#a8a29e', maxWidth: 200 }}>
-              {copyProgress.fileName}
-            </span>
-            <span className="text-[9px] font-mono" style={{ color: '#fb923c' }}>
-              {copyProgress.percent}%
-            </span>
+        <div className="rb-fm-progress">
+          <div className="rb-fm-progress-line">
+            <span className="rb-fm-progress-name">{copyProgress.fileName}</span>
+            <span className="rb-fm-progress-pct">{copyProgress.percent}%</span>
           </div>
-          <div className="w-full rounded-full overflow-hidden" style={{ height: 3, backgroundColor: '#44403c' }}>
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${copyProgress.percent}%`, backgroundColor: '#ea580c' }}
-            />
+          <div className="rb-fm-progress-track">
+            <div className="rb-fm-progress-fill" style={{ '--rb-fm-pct': `${copyProgress.percent}%` }} />
           </div>
         </div>
       )}
 
-      {/* Empty state */}
+      {/* The one region the view Tabs switch. */}
+      <div id={panelId} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'} className="rb-fm-panel">
+
+      {/* Empty state — the kit's (R4-13): sentence case, never uppercase. */}
       {assetFiles.length === 0 && !copying && (
-        <div className="py-6 text-center">
-          <FolderOpen className="w-6 h-6 mx-auto mb-1" style={{ color: '#57534e' }} />
-          <span className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>
-            No files yet -- click "Add files" to get started.
-          </span>
-        </div>
+        <EmptyState compact Icon={FolderOpen} title="No files yet" body="Click “Add files” to get started." />
       )}
 
-      {/* Table view */}
+      {/* Table view — the kit Table (R4-01, R4-06): the Label-step header on
+          the raised paper, not 9px orange on a border-coloured fill; rows on
+          paper with hairlines. 36px rows: the 32px preview tile sets them. */}
       {assetFiles.length > 0 && viewMode === 'table' && (
-        <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-          <thead>
-            <tr style={{ backgroundColor: '#44403c' }}>
-              <Th />
+        <Table
+          className="rb-fm-table"
+          scrollClassName="rb-fm-scroll"
+          head={(
+            <Row>
+              <Th width="var(--rb-fm-thumb)"><span className="sr-only">Preview</span></Th>
               <Th>Name</Th>
-              <Th>Version</Th>
-              <Th>Size</Th>
-              <Th>Date</Th>
-              <Th>Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
+              <Th width="var(--rb-fm-version)">Version</Th>
+              <Th width="var(--rb-fm-size)" numeric>Size</Th>
+              <Th width="var(--rb-fm-date)">Date</Th>
+              {/* Named for a screen reader and blank on screen, as every
+                  other table's actions column (B4c review round two). */}
+              <Th width="var(--rb-fm-acts)"><span className="sr-only">Actions</span></Th>
+            </Row>
+          )}
+        >
             {assetFiles.map(f => {
               // 🚨 BOUND ONCE PER ROW, NOT DUPLICATED PER BRANCH. Writing the
               // element out in both arms of the video test would give this file
@@ -946,37 +938,37 @@ export default function FileManager({
                   thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
                 />
               )
+              const name = displayName(f)
               return (
-              <tr key={f.id} style={{ borderBottom: '1px solid #1c1917', backgroundColor: '#292524' }}>
-                <Td>
+              <Row key={f.id}>
+                <Td className="rb-fm-thumb-cell">
                   {/* §5d.2: on a video row the tile IS the play control. A
                       separate button would need its own column on a table that
                       is already tight, and the still frame is the obvious
                       affordance — it is a frame OF the thing it plays. */}
                   {isVideoRow(f) ? (
+                    // Named by what it does: a title alone loses to the
+                    // content, and a poster's alt (the file's name) would
+                    // name it instead (B4c review round one).
                     <button
                       type="button"
                       onClick={() => setPreviewFile(f)}
                       title={`Play ${displayName(f)}`}
-                      className="block"
+                      aria-label={`Play ${displayName(f)}`}
+                      className="rb-fm-play"
+                      data-playable="true"
                     >
                       {tile}
                     </button>
                   ) : tile}
                 </Td>
                 <Td>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1', maxWidth: 180 }}>
-                      {displayName(f)}
-                    </span>
+                  <span className="rb-fm-name-stack">
+                    <span className="rb-fm-name" title={name}>{name}</span>
                     {/* §5f: an inline note on the affected row. Does not block
                         anything and never has — the file uploaded fine. */}
                     {rowNotice(f) && (
-                      <span
-                        className="text-[9px] font-mono truncate"
-                        style={{ color: '#fcd34d', maxWidth: 180 }}
-                        title={rowNotice(f).message}
-                      >
+                      <span className="rb-fm-row-notice" title={rowNotice(f).message}>
                         No preview for this format
                       </span>
                     )}
@@ -985,7 +977,7 @@ export default function FileManager({
                         for is how schema debt starts — so the editor is absent
                         in cloud rather than saving into nothing. */}
                     {!managed ? null : editingNotes === f.id ? (
-                      <div className="flex items-center gap-1 mt-0.5">
+                      <span className="rb-fm-notes-edit">
                         <input
                           autoFocus
                           type="text"
@@ -993,99 +985,84 @@ export default function FileManager({
                           onChange={(e) => setNotesDraft(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveNotes(f.id)
-                            if (e.key === 'Escape') setEditingNotes(null)
+                            // B4: the note's Escape is the note's. Cancel it and
+                            // MARK it handled (K4's mark), so the dialog this
+                            // manager sits in stands down instead of closing on
+                            // the same key. TaskDetailPopup's `markFilesEscape`
+                            // did this from outside; it is gone.
+                            if (e.key === 'Escape') { e.preventDefault(); setEditingNotes(null) }
                           }}
-                          className="flex-1 px-1 py-0.5 text-[9px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                          style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                          aria-label={`Notes for ${name}`}
+                          className="rb-fm-notes-input"
                         />
-                        <button onClick={() => handleSaveNotes(f.id)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#86efac' }}>
-                          <Check className="w-2.5 h-2.5" />
-                        </button>
-                        <button onClick={() => setEditingNotes(null)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#fca5a5' }}>
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
+                        <IconButton Icon={Check} size="sm" title="Save note" onClick={() => handleSaveNotes(f.id)} />
+                        <IconButton Icon={X} size="sm" title="Cancel note" onClick={() => setEditingNotes(null)} />
+                      </span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => { setEditingNotes(f.id); setNotesDraft(f.notes || '') }}
-                        className="text-[9px] font-mono text-left truncate hover:underline"
-                        style={{ color: f.notes ? '#a8a29e' : '#57534e', maxWidth: 180 }}
+                        className="rb-fm-notes"
+                        data-empty={f.notes ? undefined : 'true'}
                       >
-                        {f.notes || 'Add notes...'}
+                        {f.notes || 'Add notes…'}
                       </button>
                     )}
-                  </div>
+                  </span>
                 </Td>
                 <Td>
                   {/* Versioning belongs to the managed store, which mints a
                       stored_name per version. A cloud row has no version, and
                       printing "v001" on every one of them would be a confident
                       lie about a feature that is not there. */}
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
-                    {f.version_label || (managed ? 'v001' : '--')}
-                  </span>
+                  {(f.version_label || managed)
+                    ? <Badge>{f.version_label || 'v001'}</Badge>
+                    : <span className="rb-fm-none">—</span>}
                 </Td>
-                <Td>
-                  <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>
-                    {formatBytes(f.size_bytes)}
-                  </span>
-                </Td>
-                <Td>
-                  <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>
-                    {formatDate(f.uploaded_at)}
-                  </span>
-                </Td>
-                <Td>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
+                <Td numeric className="rb-fm-size">{formatBytes(f.size_bytes)}</Td>
+                <Td className="rb-fm-date">{formatDate(f.uploaded_at)}</Td>
+                <Td className="rb-fm-acts-cell">
+                  <span className="rb-fm-acts">
+                    <IconButton
+                      Icon={Download}
+                      size="sm"
+                      title={managed ? `Show ${name} in explorer` : `Download ${name}`}
                       onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
-                      className="p-1 rounded-sm hover:bg-stone-700"
-                      title={managed ? 'Show in explorer' : 'Download'}
-                      style={{ color: '#a8a29e' }}
-                    >
-                      <Download className="w-3 h-3" />
-                    </button>
+                    />
                     {mode === 'full' && (
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(f)}
-                        className="p-1 rounded-sm hover:bg-stone-700"
-                        title="Delete file"
-                        style={{ color: '#fca5a5' }}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <IconButton Icon={Trash2} size="sm" danger title={`Delete ${name}`} onClick={() => handleDelete(f)} />
                     )}
-                  </div>
+                  </span>
                 </Td>
-              </tr>
+              </Row>
               )
             })}
-          </tbody>
-        </table>
+        </Table>
       )}
 
       {/* Gallery view */}
+      {/* Gallery view — cards on the raised paper, the tile in the paper
+          well, one hairline; the version the kit Badge (R4-29: `#44403c` is a
+          hairline, never a fill). */}
       {assetFiles.length > 0 && viewMode === 'gallery' && (
-        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+        <div className="rb-fm-gallery" data-file-view="gallery">
           {assetFiles.map(f => (
-            <div
-              key={f.id}
-              className="rounded-sm overflow-hidden flex flex-col"
-              style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
-            >
-              <div className="flex items-center justify-center" style={{ height: 100, backgroundColor: '#1c1917' }}>
+            <div key={f.id} className="rb-fm-card">
+              <div className="rb-fm-card-media">
                 {/* §5d.2, same rule as the table: on a video card the still
-                    frame is the play control. */}
+                    frame is the play control. On any other card it is inert
+                    and named for its file (B4c: a picture tile left it with
+                    no name at all). The name is an aria-label, the title's
+                    words: a title loses to the content, so a poster's alt
+                    or the extension label ("PDF") named it instead. */}
                 <button
                   type="button"
                   onClick={isVideoRow(f) ? () => setPreviewFile(f) : undefined}
                   disabled={!isVideoRow(f)}
-                  title={isVideoRow(f) ? `Play ${displayName(f)}` : undefined}
-                  className="block"
-                  style={{ cursor: isVideoRow(f) ? 'pointer' : 'default' }}
+                  title={isVideoRow(f) ? `Play ${displayName(f)}` : displayName(f)}
+                  aria-label={isVideoRow(f) ? `Play ${displayName(f)}` : displayName(f)}
+                  className="rb-fm-play"
+                  data-playable={isVideoRow(f) ? 'true' : undefined}
                 >
                   <FileThumbnail
                     file={f}
@@ -1095,58 +1072,37 @@ export default function FileManager({
                   />
                 </button>
               </div>
-              <div className="p-2 flex flex-col gap-0.5">
-                <span className="text-[10px] font-mono truncate" style={{ color: '#d6d3d1' }}>
-                  {displayName(f)}
-                </span>
+              <div className="rb-fm-card-body">
+                <span className="rb-fm-name" title={displayName(f)}>{displayName(f)}</span>
                 {/* §5f: the same inline note on the gallery card. */}
                 {rowNotice(f) && (
-                  <span
-                    className="text-[9px] font-mono truncate"
-                    style={{ color: '#fcd34d' }}
-                    title={rowNotice(f).message}
-                  >
+                  <span className="rb-fm-row-notice" title={rowNotice(f).message}>
                     No preview for this format
                   </span>
                 )}
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-mono px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
-                    {f.version_label || (managed ? 'v001' : '--')}
-                  </span>
-                  <span className="text-[9px] font-mono" style={{ color: '#78716c' }}>
-                    {formatBytes(f.size_bytes)}
-                  </span>
+                <div className="rb-fm-card-meta">
+                  {(f.version_label || managed)
+                    ? <Badge>{f.version_label || 'v001'}</Badge>
+                    : <span className="rb-fm-none">—</span>}
+                  <span className="rb-fm-figure">{formatBytes(f.size_bytes)}</span>
                 </div>
               </div>
-              <div
-                className="flex items-center justify-center gap-1 py-1"
-                style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
-              >
-                <button
-                  type="button"
+              <div className="rb-fm-card-foot">
+                <IconButton
+                  Icon={Download}
+                  size="sm"
+                  title={managed ? `Show ${displayName(f)} in explorer` : `Download ${displayName(f)}`}
                   onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
-                  className="p-1 rounded-sm hover:bg-stone-700"
-                  title={managed ? 'Show in explorer' : 'Download'}
-                  style={{ color: '#a8a29e' }}
-                >
-                  <Download className="w-3 h-3" />
-                </button>
+                />
                 {mode === 'full' && (
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(f)}
-                    className="p-1 rounded-sm hover:bg-stone-700"
-                    title="Delete file"
-                    style={{ color: '#fca5a5' }}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
+                  <IconButton Icon={Trash2} size="sm" danger title={`Delete ${displayName(f)}`} onClick={() => handleDelete(f)} />
                 )}
               </div>
             </div>
           ))}
         </div>
       )}
+      </div>
 
       {/* ── Session 40 (§5d.2): the player ──────────────────────────────────
           Mounted only while a file is selected, so no <video> element and no
@@ -1169,20 +1125,38 @@ export default function FileManager({
           onOpenExternally={managed ? () => handleDownload(previewFile) : undefined}
         />
       )}
+
+      {/* W9 (B4): the delete question, on the kit Dialog. 🚨 PORTALLED: the
+          kit Dialog does not portal, and this manager is drawn INSIDE other
+          popups — the asset popup and the scene popup centre themselves with
+          `transform`, which makes a `position: fixed` child lay out inside
+          their box, not the window's. A sibling of the host is the usual
+          answer (B3c); a component nested in three different hosts cannot
+          reach one, so it renders into <body>. React events still bubble
+          through the tree it was written in. */}
+      {deleteTarget && createPortal(
+        <Dialog
+          width="confirm"
+          title="Delete file"
+          onClose={() => setDeleteTarget(null)}
+          busy={deleting}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+              <Button variant="danger" onClick={confirmDelete} loading={deleting} loadingLabel="Deleting…">Delete</Button>
+            </>
+          )}
+        >
+          <p className="rb-fm-confirm">
+            {managed
+              ? `Delete "${displayName(deleteTarget)}"? This will move the file to trash.`
+              : `Delete "${displayName(deleteTarget)}"? It can be restored by an admin.`}
+          </p>
+        </Dialog>,
+        document.body,
+      )}
     </div>
   )
-}
-
-// ── Table atoms ──
-function Th({ children }) {
-  return (
-    <th className="px-2 py-1.5 text-[9px] font-mono uppercase tracking-wider text-left" style={{ color: '#fb923c' }}>
-      {children}
-    </th>
-  )
-}
-function Td({ children }) {
-  return <td className="px-2 py-1.5 align-middle">{children}</td>
 }
 
 // ── MIME type guesser ──

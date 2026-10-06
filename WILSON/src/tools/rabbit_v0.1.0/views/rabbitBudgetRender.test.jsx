@@ -1,0 +1,1914 @@
+/** @vitest-environment jsdom */
+// =============================================================================
+// Lane B5, mounted: the Budget's surfaces on the kit and rabbitBudget.css.
+// rabbitBudgetCss.test.js reads source text; this renders each surface and
+// asserts what a user would meet. One describe per surface, added in the
+// commit that moves it.
+// =============================================================================
+
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { render, cleanup, within, screen, fireEvent, act } from '@testing-library/react'
+import { _resetOverlaysForTests } from '../../../ui/overlay'
+// Review round two, R2-01: a question the app raises over a tab.
+import { Dialog } from '../../../ui/Dialog'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
+const rabbit = vi.hoisted(() => ({ current: { project: { budget_currency: 'EUR' } } }))
+// BudgetView's module graph (surface 2a): its hooks reach the cloud client
+// and the permission hook at import; the tabs mounted below are handed their
+// data as props and call neither.
+vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
+vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true }) }))
+vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [], rateCards: [] }) }))
+
+const { default: CurrencyDisplay, formatMoney, formatTenths, MONEY_LOCALE } = await import('../components/CurrencyDisplay')
+const { SummaryTab, BreakdownTable, CustomTab, ByPhaseTab, CenterMsg, ExpensesTab, ExpensePopup } = await import('./BudgetView')
+const { default: BudgetPopover, placePopover } = await import('./budget/BudgetPopover')
+const { default: MarginContPopover } = await import('./budget/MarginContPopover')
+const clientModule = await import('./budget/ClientViewTab')
+const { default: InvoiceAttachment } = await import('../../../components/Budget/InvoiceAttachment')
+const { default: CrewTeamTab } = await import('./budget/CrewTeamTab')
+const { default: TalentTab } = await import('./budget/TalentTab')
+// Post-overhaul S5c: the Summary's bid versions — a bid built by the app's
+// own snapshot builder, the dropdown's dates, the list words, the source pin.
+const { snapshotFromLive } = await import('../state/budgetVersionModel')
+const { showDate } = await import('../dates')
+const { basedOnWords } = await import('./budget/VersionQuestions')
+const { jsCode } = await import('../rabbitCssGuards.js')
+
+afterEach(() => { cleanup() })
+
+const here = dirname(fileURLToPath(import.meta.url))
+const read = (rel) => readFileSync(join(here, rel), 'utf8').replace(/\r\n/g, '\n')
+const BUDGET_FILES = ['./BudgetView.jsx', './budget/CrewTeamTab.jsx', './budget/TalentTab.jsx', './budget/ClientViewTab.jsx', './budget/BidVersions.jsx']
+
+/* ── surface 1: the money primitives (R3-01, R3-02, R3-14, R3-34) ────────── */
+describe('one money formatter', () => {
+  it('formats in one locale, whatever the viewer\'s is', () => {
+    expect(MONEY_LOCALE).toBe('en-US')
+    expect(formatMoney(1234567, 'USD')).toBe('$1,234,567')
+    expect(formatMoney(1234.6, 'EUR')).toBe('€1,235')
+    expect(formatMoney(1234.5, 'USD', { fractionDigits: 2 })).toBe('$1,234.50')
+  })
+  it('reads a missing amount as zero, as the four copies it replaces did', () => {
+    expect(formatMoney(null, 'USD')).toBe('$0')
+    expect(formatMoney(undefined, 'USD')).toBe('$0')
+    expect(formatMoney('12', 'USD')).toBe('$12')
+  })
+  it('places a sign where Intl places a negative\'s: before the symbol, both ways, and none on zero', () => {
+    const signed = (v) => formatMoney(v, 'USD', { sign: 'exceptZero' })
+    expect([signed(1234), signed(-1234), signed(0)]).toEqual(['+$1,234', '-$1,234', '$0'])
+    // An amount added by definition keeps its plus at zero, as the popovers print it.
+    expect(formatMoney(0, 'USD', { sign: 'always' })).toBe('+$0')
+  })
+  it('says what an unknown currency code is rather than throwing', () => {
+    expect(formatMoney(12.4, 'NOPE')).toBe('NOPE 12')
+  })
+  it('every copy is gone: no view formats money itself', () => {
+    for (const f of BUDGET_FILES) {
+      const src = read(f)
+      expect(src, f).not.toMatch(/function fmtC(urrency)?\(|toLocaleString\('en-US', \{ style: 'currency'/)
+      expect(src, f).not.toMatch(/'\+' : ''\}\$\{|`\+\$\{|'\+' : ''\}\s*\{?<CurrencyDisplay/)
+      expect(src, f).toMatch(/formatMoney/)
+    }
+  })
+})
+
+describe('CurrencyDisplay: the figure', () => {
+  it('is the tabular mono figure, in the caller\'s ink and size (no style of its own)', () => {
+    const { container } = render(<p style={{ color: 'rgb(1, 2, 3)' }}><CurrencyDisplay value={1200} currency="USD" /></p>)
+    const span = container.querySelector('span')
+    expect(span.className).toBe('rb-money-figure')
+    expect(span.getAttribute('style')).toBeNull()
+    expect(span.textContent).toBe('$1,200')
+  })
+  it('takes the project\'s currency when none is passed', () => {
+    const { container } = render(<CurrencyDisplay value={50} />)
+    expect(container.textContent).toBe('€50')
+  })
+  it('`signed` shows the sign Intl places; a missing value is the fallback dash', () => {
+    const { container, rerender } = render(<CurrencyDisplay value={-40} currency="USD" signed />)
+    expect(container.textContent).toBe('-$40')
+    rerender(<CurrencyDisplay value={40} currency="USD" signed />)
+    expect(container.textContent).toBe('+$40')
+    rerender(<CurrencyDisplay value={null} currency="USD" />)
+    expect(container.textContent).toBe('—')
+    rerender(<CurrencyDisplay value={Number.NaN} currency="USD" fallback="n/a" />)
+    expect(container.textContent).toBe('n/a')
+  })
+  // V2 (B5b §4.2 item 11): the pass-through is gone — no caller used it, and
+  // it was a door a colour could come back through. A class handed in is
+  // ignored, and no caller in src/ hands one.
+  it('takes no class: the figure\'s is its own', () => {
+    const { container } = render(<CurrencyDisplay value={1} currency="USD" className="rb-budget-x" />)
+    expect(container.querySelector('span').className).toBe('rb-money-figure')
+  })
+})
+
+/* ── surface 2a: Summary, the seven reports, Custom (R3-03 … R3-38) ───────── */
+describe('surface 2a', () => {
+  const phases = [{ id: 'ph1', name: 'Pre-production', sort_order: 0 }, { id: 'ph2', name: 'Delivery', sort_order: 1 }]
+  const assets = [{ id: 'a1', name: 'Hero', phase_id: 'ph1' }, { id: 'a2', name: 'Logo', phase_id: 'ph2' }]
+  const tasks = [
+    { id: 't1', asset_id: 'a1', assigned_role_slug: 'anim', bid_days: 4, logged_days: 5, status: 'in_progress' },
+    { id: 't2', asset_id: 'a1', assigned_role_slug: 'anim', bid_days: 2, logged_days: 1, status: 'approved' },
+    { id: 't3', asset_id: 'a2', assigned_role_slug: 'anim', bid_days: 3, logged_days: 0, status: 'bidding' },
+  ]
+  const roleRates = { anim: 500 }
+  const budget = { total: 4500, byRole: {}, currency: 'USD' }
+
+  /** Every declaration of a colour, a ground or an edge in an inline style —
+      what this surface moved into rabbitBudget.css. A width (the kit Th's) is
+      not one. */
+  const inlineColours = (root) => [...root.querySelectorAll('[style]')]
+    .map((el) => el.getAttribute('style'))
+    .filter((s) => /(^|;)\s*(color|background(-color)?|border(-[a-z]+)*|fill|stroke|opacity)\s*:/i.test(s))
+
+  it('a report is a real <table>: Name left, every figure a right-aligned numeric cell, header included (R3-03, R3-20)', () => {
+    const { container } = render(<ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />)
+    const table = container.querySelector('table.ui-table.rb-budget-report')
+    expect(table).not.toBeNull()
+    const ths = [...table.querySelectorAll('thead th')]
+    expect(ths.map((th) => th.textContent)).toEqual(['Phase', 'Tasks', 'Bid', 'Logged', 'Variance', 'Cost'])
+    expect(ths[0].getAttribute('data-numeric')).toBeNull()
+    for (const th of ths.slice(1)) {
+      expect(th.getAttribute('data-numeric'), th.textContent).toBe('true')
+      expect(th.getAttribute('data-align'), th.textContent).toBe('right')
+    }
+    const rows = [...table.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(2)
+    const first = [...rows[0].querySelectorAll('td')]
+    expect(first.map((td) => td.textContent)).toEqual(['Pre-production', '2', '6.0', '6.0', '0.0', '$3,000'])
+    expect(first[0].getAttribute('data-numeric')).toBeNull()
+    for (const td of first.slice(1)) {
+      expect(td.getAttribute('data-numeric')).toBe('true')
+      expect(td.getAttribute('data-align')).toBe('right')
+    }
+    // The day variance's sign is Intl's, and its news is its tone.
+    const second = [...rows[1].querySelectorAll('td')]
+    expect(second[4].textContent).toBe('-3.0')
+    expect(second[4].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('success')
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  it('Custom\'s totals are the <tfoot> of the table they total, not a sibling row (R3-04)', () => {
+    try { localStorage.clear() } catch { /* ignore */ }
+    const { container } = render(
+      <CustomTab project={{ id: 'p1' }} phases={phases} assets={assets} tasks={tasks}
+        scenes={[]} shots={[]} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
+    )
+    const tables = container.querySelectorAll('table')
+    expect(tables).toHaveLength(1)
+    const foot = tables[0].querySelector('tfoot')
+    expect(foot).not.toBeNull()
+    const cells = [...foot.querySelectorAll('td')]
+    expect(cells.map((td) => td.textContent)).toEqual(['Total', '3', '9.0', '', '', '$4,500'])
+    expect(cells.filter((td) => td.getAttribute('data-numeric') === 'true').map((td) => td.textContent)).toEqual(['3', '9.0', '$4,500'])
+    // The same six columns as the header: the total sits under what it totals.
+    expect(cells).toHaveLength(tables[0].querySelectorAll('thead th').length)
+    // The status filter is the kit's field, with no status colour of its own.
+    const status = container.querySelector('select[aria-label="Status filter"]')
+    expect(status.className).toContain('ui-input')
+    expect(status.getAttribute('style')).toBeNull()
+    expect([...status.options].map((o) => o.textContent)).toContain('Needs revisions')
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  // Post-overhaul S3c: `scenes` / `shots` are the ACTIVE list's (D10); a
+  // task linked to a scene or shot outside it read "Unknown scene" /
+  // "Unknown shot". Audrey's rule of 2026-10-02 (it narrowed step 1, which
+  // had named such a row through the lookups): the task is counted under
+  // "No scene in the active list" / "No shot in the active list" — never dropped, never brought back under a scene
+  // from another list — and that row's tooltip says what its tasks point at
+  // (ctx.sceneById / shotById, the lists that hold it). A scene's or shot's
+  // own row says in its tooltip which list holds it (D10's floor). The rule
+  // against real list operations is state/listRemovalKeepsTasks.test.jsx.
+  describe('By scene, By shot and Custom count a task linked outside the active list as not assigned (S3c, Audrey\'s rule of 2026-10-02)', () => {
+    const sceneA = { id: 'sA', name: 'Harbour', scene_number: 1 }
+    const sceneB = { id: 'sB', name: 'Lighthouse', scene_number: 2 }
+    const shotA = { id: 'hA', scene_id: 'sA', name: 'SC001_SH010', shot_number: 10 }
+    const shotB = { id: 'hB', scene_id: 'sB', name: 'SC002_SH010', shot_number: 10 }
+    const linked = [
+      { id: 'k1', asset_id: 'a1', scene_id: 'sA', shot_id: 'hA', assigned_role_slug: 'anim', bid_days: 1, logged_days: 0 },
+      { id: 'k2', asset_id: 'a1', scene_id: 'sB', shot_id: 'hB', assigned_role_slug: 'anim', bid_days: 2, logged_days: 0 },
+    ]
+    const all = { sA: sceneA, sB: sceneB, hA: shotA, hB: shotB }
+    const lookup = (id) => all[id] || null
+    const pickups = { id: 'L2', title: 'Pickups', version: 1 }
+    const homeOf = (id) => ({
+      lists: id === 'sB' || id === 'hB' ? [pickups] : [{ id: 'L1', title: 'Shoot', version: 2 }],
+      title: (name) => `${name}\nIn: ${id === 'sB' || id === 'hB' ? 'Pickups · v1' : 'Shoot · v2 (active)'}`,
+    })
+    const bodyRows = (root) => [...root.querySelectorAll('table.rb-budget-report tbody tr')]
+    const firstCells = (root) => bodyRows(root).map(tr => tr.querySelector('td'))
+    const figures = (root) => bodyRows(root).map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent))
+
+    it('By scene: the active list\'s scene by name, its list in the tooltip; the other list\'s under "No scene in the active list", saying what it points at', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour', 'No scene in the active list'])
+      expect(cells[0].getAttribute('title')).toBe('Harbour\nIn: Shoot · v2 (active)')
+      expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nScene “Lighthouse”: in Pickups · v1, not in the active list')
+      // Counted, not dropped: the task, its 2 bid days and their cost.
+      expect(figures(container)[1]).toEqual(['No scene in the active list', '1', '2.0', '0.0', '-2.0', '$1,000'])
+      expect(container.textContent).not.toContain('Unknown scene')
+    })
+    it('By shot: the same — "Harbour › SC001_SH010" by name, the other list\'s shot under "No shot in the active list"', async () => {
+      const { ByShotTab } = await import('./BudgetView')
+      const { container } = render(<ByShotTab shots={[shotA]} scenes={[sceneA]} sceneById={lookup} shotById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      const cells = firstCells(container)
+      expect(cells.map(td => td.textContent)).toEqual(['Harbour › SC001_SH010', 'No shot in the active list'])
+      expect(cells[0].getAttribute('title')).toBe('Harbour › SC001_SH010\nIn: Shoot · v2 (active)')
+      expect(cells[1].getAttribute('title')).toBe('Tasks here are linked outside the active list:\nShot “SC002_SH010”: in Pickups · v1, not in the active list')
+      expect(figures(container)[1].slice(1, 3)).toEqual(['1', '2.0'])
+    })
+    it('the scene back in the active list: the same task is under it again (nothing was written)', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA, sceneB]} shots={[shotA, shotB]} sceneById={lookup} homeOf={homeOf} tasks={linked} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(container).map(td => td.textContent)).toEqual(['Harbour', 'Lighthouse'])
+      expect(firstCells(container)[1].getAttribute('title')).toBe('Lighthouse\nIn: Pickups · v1')
+    })
+    it('Custom, grouped by shot and by scene: the same', () => {
+      for (const groupBy of ['shot', 'scene']) {
+        try { localStorage.setItem('rabbit-budget-custom-p9', JSON.stringify({ groupBy })) } catch { /* ignore */ }
+        const { container } = render(
+          <CustomTab project={{ id: 'p9' }} phases={[]} assets={[{ id: 'a1' }]} tasks={linked} scenes={[sceneA]} shots={[shotA]}
+            sceneById={lookup} shotById={lookup} homeOf={homeOf} levels={[]} experiences={[]} budget={budget} roleRates={roleRates} />,
+        )
+        const none = groupBy === 'shot' ? 'No shot in the active list' : 'No scene in the active list'
+        const cells = firstCells(container)
+        expect(cells.map(td => td.textContent).sort(), groupBy).toEqual([groupBy === 'shot' ? 'Harbour › SC001_SH010' : 'Harbour', none].sort())
+        expect(cells.find(td => td.textContent === none).getAttribute('title'), groupBy)
+          .toBe(`Tasks here are linked outside the active list:\n${groupBy === 'shot' ? 'Shot “SC002_SH010”' : 'Scene “Lighthouse”'}: in Pickups · v1, not in the active list`)
+        // The total is every task's: nothing dropped.
+        expect(container.querySelector('tfoot').textContent).toContain('3.0')
+        cleanup()
+      }
+      try { localStorage.removeItem('rabbit-budget-custom-p9') } catch { /* ignore */ }
+    })
+    it('a "No scene in the active list" holding only tasks with no scene at all has nothing to say', async () => {
+      const { BySceneTab } = await import('./BudgetView')
+      const { container } = render(<BySceneTab scenes={[sceneA]} shots={[shotA]} sceneById={lookup} homeOf={homeOf} tasks={[{ id: 'k9', asset_id: 'a1', bid_days: 1 }]} budget={budget} roleRates={roleRates} />)
+      expect(firstCells(container).map(td => [td.textContent, td.getAttribute('title')])).toEqual([['No scene in the active list', null]])
+    })
+  })
+
+  it('BreakdownTable passes its `foot` through into the one table', () => {
+    const { container } = render(
+      <BreakdownTable
+        rows={[{ name: 'A', taskCount: 1, bid: 1, logged: 1, variance: 0, cost: 10 }]}
+        currency="USD" labelHeader="Phase" countHeader="Tasks"
+        foot={<tr><td>foot</td></tr>}
+      />,
+    )
+    expect(container.querySelector('table > tfoot')?.textContent).toBe('foot')
+  })
+
+  describe('the Summary', () => {
+    // Post-overhaul S5c rewrote this block with the page (F11). The versions
+    // table, its inline activate panel and its adapter writes went; the bid
+    // versions are budget/BidVersions.jsx's block, read here through
+    // SummaryTab, and their questions budget/VersionQuestions.jsx's
+    // (bidVersions.test.jsx drives those over the real provider and dataset).
+    // The fake ctx carries what BudgetView hands the tab: the project, its
+    // versions and lists, and the provider's mutators as spies.
+    const base = { id: 'p1', budget_margin_pct: 10, budget_contingency_pct: 5, budget_agency_enabled: true, budget_agency_pct: 20 }
+    const LOCKED = { budget_active: true, budget_active_version_id: 'v1', budget_finalized: true }
+    const BIDDING = { budget_active: false, budget_active_version_id: null, budget_finalized: false }
+    // v1 is saved from these very rows (its totals are the page's own
+    // arithmetic); v0 was saved before S5 (no timeline, no agency fee kept).
+    const versionsFor = (project, rows = tasks) => [
+      { id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T12:00:00Z', locked_at: '2026-09-02T09:00:00Z', shot_list_id: null,
+        snapshot: snapshotFromLive({ tasks: rows, project, roleRates, savedAt: '2026-09-20T14:02:00Z' }) },
+      { id: 'v0', name: 'Bid v0', is_active: false, created_at: '2026-08-01T12:00:00Z', snapshot: { grandTotal: 4000, totalBidDays: 8 } },
+    ]
+    const makeCtx = (project, over = {}) => ({
+      project,
+      budgetVersions: versionsFor(project),
+      shotLists: [],
+      updateProject: vi.fn(),
+      setActiveProject: vi.fn(),
+      selectBudgetVersion: vi.fn(async () => {}),
+      saveBudgetVersion: vi.fn(async () => {}),
+      createBudgetVersion: vi.fn(async () => {}),
+      resetToBidding: vi.fn(async () => {}),
+      runWithUndoToast: vi.fn(async (run) => run()),
+      ...over,
+    })
+    // BudgetView hands the tab ctx.tasks; the block reads the live rows from
+    // ctx too (its "unsaved" is them against the open version), so the two
+    // are the same rows here as there.
+    const tab = (fake, rows = tasks) => {
+      const ctx = Object.assign(fake, { tasks: rows, phases: [], milestones: [] })
+      return (
+      <SummaryTab
+        ctx={ctx}
+        project={ctx.project}
+        variance={{ bid: 9, logged: 6, variance: -3 }}
+        budget={budget}
+        tasks={rows}
+        roleRates={roleRates}
+        missingRolesCount={0}
+        rateCardName="General"
+        budgetHook={{ lines: [], lineComputations: {} }}
+        rateCard={{ entries: [] }}
+        teamMembers={[]}
+        expensesHook={{ expenses: [{ estimated_cost: 300, actual_cost: 450 }] }}
+      />
+      )
+    }
+    const summary = (over = {}, ctxOver = {}) => tab(makeCtx({ ...base, ...LOCKED, ...over }, ctxOver))
+    const block = (root) => root.querySelector('section.rb-bv-block')
+    const button = (root, name) => within(root).queryByRole('button', { name })
+    // t3 bid at four days, not three: one more anim day, +$500 at base.
+    const changed = tasks.map(t => (t.id === 't3' ? { ...t, bid_days: 4 } : t))
+
+    it('the three day tiles are the kit Stat, the hint a visible line, the news the value\'s tone (R3-10)', () => {
+      const { container } = render(summary())
+      const tiles = [...container.querySelectorAll('.ui-stat')]
+      expect(tiles).toHaveLength(3)
+      for (const t of tiles) expect(t.classList.contains('rb-budget-stat')).toBe(true)
+      expect(tiles.map((t) => t.querySelector('.ui-stat-label').textContent)).toEqual(['Bid days', 'Logged days', 'Variance'])
+      expect(tiles.map((t) => t.querySelector('.ui-stat-delta')?.textContent)).toEqual(['3 tasks', '67% of bid', 'Under budget'])
+      const variance = tiles[2].querySelector('.ui-stat-value')
+      expect(variance.textContent).toBe('-3.0')
+      expect(variance.getAttribute('data-tone')).toBe('success')
+    })
+
+    it('F11: banner, tiles, bid versions, Cost breakdown, the Topsheet — in that order', () => {
+      const { container } = render(summary())
+      const page = container.querySelector('.rb-budget-page')
+      const order = [...page.children].map(el => (el.classList.contains('ui-banner') ? 'banner'
+        : el.classList.contains('rb-budget-stats') ? 'tiles'
+          : el.querySelector('section.rb-bv-block') ? 'versions'
+            : el.querySelector('.rb-budget-wf') ? 'cost'
+              : el.querySelector('table.rb-budget-top') ? 'topsheet' : 'other'))
+      expect(order).toEqual(['banner', 'tiles', 'versions', 'cost', 'topsheet'])
+    })
+
+    it('the waterfall: one row treatment, the plus is the figure\'s sign, the OVERALL total under one signal rule, the total before agency under it (R3-08, R3-09; F7)', () => {
+      const { container } = render(summary())
+      const rows = [...container.querySelectorAll('.rb-budget-wf-row')]
+      expect(rows.map((r) => r.querySelector('.rb-budget-wf-label').textContent)).toEqual(['Base cost', 'Margin', 'Contingency', 'Agency fee'])
+      expect(rows.map((r) => r.querySelector('.rb-budget-wf-amount').textContent)).toEqual(['$4,500', '+$450', '+$225', '+$900'])
+      const total = container.querySelector('.rb-budget-wf-total')
+      // S5c (F7, her words: "the total with the agency % is ... the overall
+      // total"): the label was "Grand total". The figure is unchanged.
+      expect(total.querySelector('.rb-budget-wf-total-label').textContent).toBe('Overall total')
+      expect(total.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent).toBe('$6,075')
+      expect(total.querySelector('.rb-budget-wf-total-before').textContent).toBe('Before agency $5,175')
+      // The agency toggle is the kit Switch, named, and locked while the budget is active.
+      const toggle = container.querySelector('button[role="switch"]')
+      expect(toggle.getAttribute('aria-label')).toBe('Agency fee')
+      expect(toggle.getAttribute('aria-checked')).toBe('true')
+      expect(toggle.disabled).toBe(true)
+      // CONTROL: with the fee off the two totals are one, and one is shown.
+      cleanup()
+      const off = render(summary({ budget_agency_enabled: false }))
+      expect(off.container.querySelector('.rb-budget-wf-total-amount').textContent).toBe('$5,175')
+      expect(off.container.querySelector('.rb-budget-wf-total-before')).toBeNull()
+    })
+
+    it('F7: the page\'s overall total and a bid saved from the same rows are ONE arithmetic — the selected bid\'s fact equals the waterfall\'s, and the variance is nothing', () => {
+      const { container } = render(summary(BIDDING))
+      const page = container.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent
+      const facts = [...container.querySelectorAll('.rb-bv-fact')]
+      const fact = (term) => facts.find(f => f.querySelector('dt').textContent === term)
+      expect(fact('Overall total').querySelector('.rb-money-figure').textContent).toBe(page)
+      expect(fact('Overall total').querySelector('.rb-bv-fact-note').textContent).toBe('with 20% agency')
+      expect(fact('Before agency').textContent).toBe('Before agency$5,175')
+      expect(container.querySelector('.rb-bv-vs-value').textContent).toBe('$0')
+      expect(container.querySelector('.rb-bv-vs-value').getAttribute('data-tone')).toBeNull()
+      // CONTROL: one more bid day on the live rows — the waterfall moves, the
+      // saved bid does not, and the variance says by how much, in the danger tone.
+      cleanup()
+      const ctx = makeCtx({ ...base, ...BIDDING })
+      const moved = render(tab(ctx, changed))
+      expect(moved.container.querySelector('.rb-budget-wf-total-amount .rb-money-figure').textContent).toBe('$6,750')
+      expect(moved.container.querySelector('.rb-bv-vs-value').textContent).toBe('+$675')
+      expect(moved.container.querySelector('.rb-bv-vs-value').getAttribute('data-tone')).toBe('danger')
+      expect(moved.container.querySelector('.rb-bv-vs-detail').textContent).toBe('Bid $6,075 · Now $6,750')
+    })
+
+    it('under a lock: the save row says the budget is active, Save as new version… is the one save verb and the orange one; the selected bid is the locked one, Edit this version greyed with the reason shown', () => {
+      const { container } = render(summary())
+      const b = block(container)
+      expect(b.querySelector('.rb-bv-state .ui-field-label').textContent).toBe('Budget active')
+      expect(b.querySelector('.rb-bv-state-line').textContent).toBe('Production changes are kept with Save as new version; the budget stays locked to “Bid v1”.')
+      expect(button(b, 'Save')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('primary')
+      const pick = within(b).getByRole('combobox', { name: 'Selected bid' })
+      expect(pick.disabled).toBe(true)
+      expect(pick.value).toBe('v1')
+      // F13: newest first, "Name · date · Locked"; never money (F10).
+      expect([...pick.options].map(o => o.textContent)).toEqual(['Choose a bid version', `Bid v1 · ${showDate('2026-09-01T12:00:00Z')} · Locked`, `Bid v0 · ${showDate('2026-08-01T12:00:00Z')}`])
+      expect(b.querySelector('.rb-bv-pick-head .ui-status').textContent).toBe('Locked')
+      const edit = button(b, 'Edit this version')
+      expect(edit.disabled).toBe(true)
+      expect(b.querySelector('.rb-bv-why').textContent).toBe('While the budget is active no version is opened: Reset to bidding first.')
+      expect(edit.getAttribute('aria-describedby')).toBe('rb-bv-why')
+      expect(button(b, 'Set budget active')).toBeNull()
+    })
+
+    it('a version open: Save is the page\'s one orange ONLY while it has unsaved changes — the kit attention state and "● Unsaved"; Save as new version… beside it is the secondary (step 5)', async () => {
+      const ctx = makeCtx({ ...base, ...BIDDING, open_budget_version_id: 'v1' })
+      const { container, rerender } = render(tab(ctx))
+      let b = block(container)
+      expect(b.querySelector('.rb-bv-open-name').textContent).toBe('Bid v1')
+      expect(b.querySelector('.rb-bv-open-status').textContent).toMatch(/^Saved /)
+      let save = button(b, 'Save')
+      expect(save.getAttribute('data-variant')).toBe('secondary')
+      expect(save.disabled).toBe(true)
+      expect(save.getAttribute('data-attention')).toBeNull()
+      expect(b.querySelector('.ui-btn-attention')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('secondary')
+      expect(b.querySelectorAll('[data-variant="primary"]')).toHaveLength(0)
+      // A change on the live rows: unsaved.
+      rerender(tab(ctx, changed))
+      b = block(container)
+      save = button(b, 'Save')
+      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Unsaved changes')
+      expect(save.getAttribute('data-variant')).toBe('primary')
+      expect(save.disabled).toBe(false)
+      expect(save.getAttribute('data-attention')).toBe('true')
+      expect(b.querySelector('.ui-btn-attention').textContent).toBe('Unsaved')
+      expect(b.querySelectorAll('[data-variant="primary"]')).toHaveLength(1)
+      await act(async () => { fireEvent.click(save) })
+      // Into the OPEN version, the list kept (untouched: undefined).
+      expect(ctx.saveBudgetVersion).toHaveBeenCalledWith('v1', { roleRates, basedOnListId: undefined })
+      // The open version is the selected one here: there is nothing to open.
+      expect(button(b, 'Edit this version').disabled).toBe(true)
+      expect(b.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it is open already — the Timeline and Budget show it now.')
+    })
+
+    it('while the rates are being read nothing is called unsaved and nothing that writes a bid can run, saying why', () => {
+      const project = { ...base, ...BIDDING, open_budget_version_id: 'v1' }
+      const ctx = makeCtx(project)
+      const pending = (
+        <SummaryTab ctx={ctx} project={project} variance={{ bid: 9, logged: 6, variance: -3 }} budget={budget} tasks={changed}
+          roleRates={roleRates} ratesPending="Reading the project’s rates…" missingRolesCount={0} rateCardName="General"
+          budgetHook={{ lines: [], lineComputations: {} }} rateCard={{ entries: [] }} teamMembers={[]} expensesHook={{ expenses: [] }} />
+      )
+      const { container } = render(pending)
+      const b = block(container)
+      // The sentence itself (review round 1, R1-07: a fixed 'Reading the rates…' said a read was under way after one had failed).
+      expect(b.querySelector('.rb-bv-open-status').textContent).toBe('Reading the project’s rates…')
+      expect(button(b, 'Save').disabled).toBe(true)
+      expect(button(b, 'Save').getAttribute('data-attention')).toBeNull()
+      // Not even the word: the kit shows "● Unsaved" while `attention` is on,
+      // disabled or not.
+      expect(b.querySelector('.ui-btn-attention')).toBeNull()
+      expect(button(b, 'Save as new version…').disabled).toBe(true)
+      expect(button(b, 'Set budget active').disabled).toBe(true)
+      // CONTROL: the same rows with the rates read are unsaved (above).
+    })
+
+    it('no version open: Save as new version… is the one save verb and the orange one; an old version is greyed for editing with its reason, and reads "Not recorded" for a total it never kept', async () => {
+      const ctx = makeCtx({ ...base, ...BIDDING })
+      const { container } = render(tab(ctx))
+      const b = block(container)
+      expect(b.querySelector('.rb-bv-state-line').textContent).toBe('No version is open.')
+      expect(button(b, 'Save')).toBeNull()
+      expect(button(b, 'Save as new version…').getAttribute('data-variant')).toBe('primary')
+      expect(button(b, 'Edit this version').disabled).toBe(false)
+      expect(button(b, 'Set budget active').disabled).toBe(false)
+      // Selecting v0 (an old version) writes at once (F13) — the provider's verb.
+      await act(async () => { fireEvent.change(within(b).getByRole('combobox', { name: 'Selected bid' }), { target: { value: 'v0' } }) })
+      expect(ctx.selectBudgetVersion).toHaveBeenCalledWith('v0')
+      cleanup()
+      const old = makeCtx({ ...base, ...BIDDING }, {})
+      old.budgetVersions = old.budgetVersions.map(v => ({ ...v, is_active: v.id === 'v0' }))
+      const r = render(tab(old))
+      const ob = block(r.container)
+      expect(button(ob, 'Edit this version').disabled).toBe(true)
+      expect(ob.querySelector('.rb-bv-why').textContent).toBe('Edit this version: it was saved before versions kept their schedule (no timeline captured), so it cannot be opened.')
+      const fact = (term) => [...ob.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === term)
+      expect(fact('Overall total').querySelector('dd').textContent).toBe('Not recorded')
+      expect(fact('Before agency').textContent).toBe('Before agency$4,000')
+      expect(fact('Timeline').querySelector('dd').textContent).toBe('—')
+      expect(fact('Timeline').querySelector('dd').getAttribute('title')).toBe('No timeline captured')
+      // An old version is compared before agency (like with like), and says so.
+      expect(ob.querySelector('.rb-bv-vs .ui-field-label').textContent).toBe('Variance vs the selected bid, before agency')
+    })
+
+    it('a budget active with no bid on record (S5 review round 1) still shows the banner — and its way out', () => {
+      const { container } = render(tab(makeCtx({ ...base, budget_active: true, budget_active_version_id: null })))
+      const banner = container.querySelector('.ui-banner')
+      expect(banner.querySelector('.rb-budget-active-meta').textContent).toBe('No bid version is on record as the locked one.')
+      expect(within(banner).getByRole('button', { name: 'Reset to bidding' })).toBeTruthy()
+    })
+
+    it('Reset to bidding is the provider\'s, through the undo toast, and its refusal is said in the banner', async () => {
+      const ctx = makeCtx({ ...base, ...LOCKED })
+      const { container } = render(tab(ctx))
+      await act(async () => { fireEvent.click(within(container.querySelector('.ui-banner')).getByRole('button', { name: 'Reset to bidding' })) })
+      expect(ctx.runWithUndoToast).toHaveBeenCalledWith(expect.any(Function), 'Back to bidding: “Bid v1” unlocked')
+      expect(ctx.resetToBidding).toHaveBeenCalledTimes(1)
+      expect(ctx.setActiveProject).not.toHaveBeenCalled()
+      cleanup()
+      const refusing = makeCtx({ ...base, ...LOCKED }, { resetToBidding: vi.fn(async () => { throw new Error('no adapter') }) })
+      const r = render(tab(refusing))
+      await act(async () => { fireEvent.click(within(r.container.querySelector('.ui-banner')).getByRole('button', { name: 'Reset to bidding' })) })
+      expect(r.container.querySelector('.rb-budget-active-error').textContent).toBe('no adapter')
+    })
+
+    // Post-overhaul S3c, step 2 (D18): "Based on shot list" beside the bid
+    // version — the project's live lists, the active one by default. S5c moved
+    // it into the save row: Save as new version… writes it (createBudgetVersion's
+    // basedOnListId) and the open version's Save keeps or changes it.
+    describe('Based on shot list (S3c step 2, D18; the save row since S5c)', () => {
+      const LISTS = [
+        { id: 'L1', title: 'Shoot', version: 2, archived_at: null },
+        { id: 'L2', title: 'Pickups', version: 1, archived_at: null },
+        { id: 'L3', title: 'Old cut', version: 4, archived_at: '2026-09-20T00:00:00Z' },
+      ]
+      const bidding = (extra = {}) => {
+        const project = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', ...extra.project }
+        const ctx = makeCtx(project, { shotLists: LISTS, budgetVersions: extra.versions || [], ...extra.ctx })
+        return { ctx, el: tab(ctx) }
+      }
+      const select = () => screen.getByRole('combobox', { name: 'Based on shot list' })
+      const saveAsNew = async (name) => {
+        fireEvent.click(screen.getByRole('button', { name: 'Save as new version…' }))
+        const dialog = screen.getByRole('dialog', { name: 'Save as new version' })
+        fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), { target: { value: name } })
+        await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save as new version' })) })
+        return dialog
+      }
+
+      it('offers the live lists (an archived one is not offered), the active one chosen and marked; the kit Select', () => {
+        render(bidding().el)
+        // In the lists' one order (S3a's sortShotLists: by title), as every picker shows them.
+        expect([...select().options].map(o => o.textContent)).toEqual(['No shot list', 'Pickups · v1', 'Shoot · v2 (active)'])
+        expect(select().value).toBe('L1')
+        expect(select().className).toContain('ui-input')
+      })
+      it('Save as new version… writes the chosen list (the dialog names it) — the default when nobody touches it, none for "No shot list"', async () => {
+        const one = bidding()
+        render(one.el)
+        const dialog = await saveAsNew('Bid v2')
+        expect(one.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v2', summary: '', roleRates, basedOnListId: 'L1' })
+        expect(dialog.textContent).toContain('Based on the shot list “Shoot · v2”.')
+        cleanup()
+        const two = bidding()
+        render(two.el)
+        fireEvent.change(select(), { target: { value: 'L2' } })
+        await saveAsNew('Bid v3')
+        expect(two.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v3', summary: '', roleRates, basedOnListId: 'L2' })
+        cleanup()
+        const none = bidding()
+        render(none.el)
+        fireEvent.change(select(), { target: { value: '' } })
+        await saveAsNew('Bid v4')
+        expect(none.ctx.createBudgetVersion).toHaveBeenLastCalledWith({ name: 'Bid v4', summary: '', roleRates, basedOnListId: null })
+      })
+      it('a project with no active list defaults to none', () => {
+        render(bidding({ project: { active_shot_list_id: null } }).el)
+        expect(select().value).toBe('')
+      })
+      it('a version OPEN: the Select shows its list; untouched, Save keeps it and nothing is unsaved; another list makes it unsaved, and Save writes it', async () => {
+        const project = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0, active_shot_list_id: 'L1', open_budget_version_id: 'vL' }
+        const vL = { id: 'vL', name: 'On pickups', is_active: true, created_at: '2026-09-04T00:00:00Z', shot_list_id: 'L2',
+          snapshot: snapshotFromLive({ tasks, project, roleRates, shotList: LISTS[1] }) }
+        const { ctx, el } = bidding({ project, versions: [vL] })
+        render(el)
+        expect(select().value).toBe('L2')
+        expect(screen.getByRole('button', { name: 'Save' }).disabled).toBe(true)
+        fireEvent.change(select(), { target: { value: 'L1' } })
+        const save = screen.getByRole('button', { name: 'Save' })
+        expect(save.getAttribute('data-attention')).toBe('true')
+        await act(async () => { fireEvent.click(save) })
+        expect(ctx.saveBudgetVersion).toHaveBeenCalledWith('vL', { roleRates, basedOnListId: 'L1' })
+      })
+      it('the selected bid names the list it was bid on: live by its own label, archived by the frozen one, gone by the frozen one, none as "None"', () => {
+        const words = [
+          { id: 'a', shot_list_id: 'L2', snapshot: { shot_list: { id: 'L2', title: 'Pickups (old name)', version: 1 } } },
+          { id: 'b', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } },
+          { id: 'c', shot_list_id: null, snapshot: { shot_list: { id: 'L9', title: 'Lost', version: 2 } } },
+          { id: 'd', snapshot: {} },
+        ].map(v => basedOnWords(v, LISTS))
+        expect(words).toEqual(['Pickups · v1', 'Old cut · v4 (archived)', 'Lost · v2 (not in this project now)', null])
+        const versions = [{ id: 'b', name: 'Archived', is_active: true, created_at: '2026-09-03T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } }]
+        const { container } = render(bidding({ versions }).el)
+        const fact = [...container.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === 'Shot list')
+        expect(fact.querySelector('dd').textContent).toBe('Old cut · v4 (archived)')
+        cleanup()
+        const r = render(bidding({ versions: [{ ...versions[0], shot_list_id: null, snapshot: {} }] }).el)
+        const none = [...r.container.querySelectorAll('.rb-bv-fact')].find(f => f.querySelector('dt').textContent === 'Shot list').querySelector('dd')
+        expect(none.textContent).toBe('None')
+        expect(none.getAttribute('data-empty')).toBe('true')
+      })
+      it('the active budget\'s banner names the list it was bid on', () => {
+        const versions = [{ id: 'v1', name: 'Bid v1', is_active: true, created_at: '2026-09-01T00:00:00Z', shot_list_id: 'L3', snapshot: { shot_list: { id: 'L3', title: 'Old cut', version: 4 } } }]
+        const { container } = render(bidding({ versions, project: { budget_active: true, budget_active_version_id: 'v1' } }).el)
+        expect(container.querySelector('.rb-budget-active-meta').textContent).toContain('Shot list: Old cut · v4 (archived)')
+      })
+    })
+
+    it('the Topsheet: a real table whose grand total is its <tfoot>, figures numeric (R3-20, R3-08)', () => {
+      const { container } = render(summary())
+      const table = container.querySelector('table.ui-table.rb-budget-top')
+      expect(table).not.toBeNull()
+      expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Category', 'Subtotal', 'Agency', 'Bid', 'Actual', 'Variance'])
+      const foot = [...table.querySelectorAll('tfoot td')]
+      expect(foot.map((td) => td.textContent)).toEqual(['Grand total', '$300', '$0', '$300', '$450', '+$150'])
+      expect(foot.slice(1).every((td) => td.getAttribute('data-numeric') === 'true')).toBe(true)
+      expect(foot[5].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    })
+
+    it('no element in the mounted Summary carries an inline colour, ground or edge', () => {
+      const { container } = render(summary())
+      expect(inlineColours(container)).toEqual([])
+      // …bidding too: the unlocked Summary shows Set budget active, and a
+      // version open with unsaved changes its Save in the attention state.
+      cleanup()
+      const again = render(tab(makeCtx({ ...base, ...BIDDING, open_budget_version_id: 'v0' }), changed))
+      expect(again.getByRole('button', { name: 'Set budget active' })).toBeTruthy()
+      expect(inlineColours(again.container)).toEqual([])
+    })
+
+    // S5 review round 1, R1-08 / S5c step 3: every version write goes through
+    // the provider. The old Summary wrote through the adapter, set the lock
+    // with updateProject and then reloaded the project — which wiped Undo
+    // (F12.4). Read from the files' code (comments left out).
+    describe('every version write is the provider\'s (S5c step 3, R1-08)', () => {
+      const FILES = ['./BudgetView.jsx', './budget/BidVersions.jsx', './budget/VersionQuestions.jsx']
+      const FAULTS = {
+        adapter: /\badapter\s*\??\.\s*(upsertBudgetVersion|deleteBudgetVersion|patchBudgetVersion|selectBudgetVersion)\b/,
+        lock: /\bbudget_(active|active_version_id|finalized)\s*:/,
+        reload: /\b(setActiveProject|reloadActiveProject)\s*\??\.?\s*\(/,
+      }
+      const codeOf = (f) => jsCode(read(f))
+      it('no file of the Summary calls the adapter for a version, writes the lock fields, or reloads the project', () => {
+        for (const f of FILES) {
+          for (const [name, re] of Object.entries(FAULTS)) expect(codeOf(f), `${f}: ${name}`).not.toMatch(re)
+        }
+        // …and the block does reach the provider's verbs.
+        const all = FILES.map(codeOf).join('\n')
+        for (const verb of ['createBudgetVersion', 'saveBudgetVersion', 'openBudgetVersion', 'selectBudgetVersion', 'renameBudgetVersion',
+          'updateBudgetVersionSummary', 'deleteBudgetVersion', 'activateBudget', 'resetToBidding']) {
+          expect(all, verb).toMatch(new RegExp(`ctx\\??\\.${verb}\\(`))
+        }
+      })
+      it('BudgetView hands the Summary whether the rates are read (ratesPendingFrom over its two rate hooks)', () => {
+        const src = codeOf('./BudgetView.jsx')
+        expect(src).toMatch(/const ratesPending = ratesPendingFrom\(\{ rateCard, rateOverrides, epoch: ctx\?\.rateOverridesEpoch \?\? 0 \}\)/)
+        expect(src).toMatch(/<SummaryTab[^>]*\bratesPending=\{ratesPending\}/)
+      })
+      it('CONTROL: the old path\'s three lines, planted, are each caught', () => {
+        const src = codeOf('./BudgetView.jsx')
+        expect(`${src}\nawait adapter.upsertBudgetVersion({ id })`).toMatch(FAULTS.adapter)
+        expect(`${src}\nawait adapter?.deleteBudgetVersion(id, pid)`).toMatch(FAULTS.adapter)
+        expect(`${src}\nctx?.updateProject?.(project.id, { budget_active: true })`).toMatch(FAULTS.lock)
+        expect(`${src}\nctx?.setActiveProject?.(project.id)`).toMatch(FAULTS.reload)
+      })
+    })
+  })
+
+  it('the view\'s "not yet" is the kit Loading, never the empty state; its "nothing" is the kit EmptyState (R3-19)', () => {
+    const { container, rerender } = render(<CenterMsg>Loading project...</CenterMsg>)
+    expect(container.querySelector('.ui-loading-inline')?.getAttribute('aria-label')).toBe('Loading project...')
+    expect(container.querySelector('.ui-empty')).toBeNull()
+    rerender(<CenterMsg>No project loaded</CenterMsg>)
+    expect(container.querySelector('.ui-empty .ui-empty-title')?.textContent).toBe('No project loaded')
+    expect(container.querySelector('.ui-loading-inline')).toBeNull()
+  })
+})
+
+/* ── surface 2b: the Expenses tab (R3-15 … R3-40, W9) ────────────────────── */
+describe('surface 2b', () => {
+  afterEach(() => {
+    cleanup()
+    _resetOverlaysForTests()
+    try { localStorage.clear() } catch { /* ignore */ }
+  })
+
+  /** Every declaration of a colour, a ground or an edge in an inline style. */
+  const inlineColours = (root) => [...root.querySelectorAll('[style]')]
+    .map((el) => el.getAttribute('style'))
+    .filter((s) => /(^|;)\s*(color|background(-color)?|border(-[a-z]+)*|fill|stroke|opacity)\s*:/i.test(s))
+
+  const EXPENSES = [
+    { id: 'e1', title: 'Camera package hire', description: 'Two-week hire', estimated_cost: 16800, actual_cost: 16800, purchase_date: '2026-09-08', phase_ids: ['ph1'], file_ids: ['f1'], contingency_pct: 10 },
+    { id: 'e2', title: 'Set timber and paint', estimated_cost: 4200, actual_cost: 3860, purchase_date: '2026-09-05', asset_ids: ['a1'], phase_ids: ['ph1'], task_ids: ['t1'], margin_pct: 5 },
+    { id: 'e3', title: '', estimated_cost: 260, actual_cost: 284, purchase_date: '' },
+  ]
+  /** The useExpenses hook, mocked: what the tab reads and the writes it makes. */
+  const hook = (over = {}) => ({
+    expenses: EXPENSES,
+    loading: false,
+    addExpense: vi.fn(async () => {}),
+    updateExpense: vi.fn(async () => {}),
+    deleteExpense: vi.fn(async () => {}),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    canUndo: false,
+    canRedo: true,
+    ...over,
+  })
+  const PROJECT = { id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }
+  // Post-overhaul S3c (S4a-07): the tab's undo keys act only while
+  // R.A.B.B.I.T. is the page on screen, as BudgetView is told; these tests
+  // put it there unless they say otherwise (the off-page tests below).
+  const tab = (h = hook(), project = PROJECT, pageActive = true) => (
+    <ExpensesTab ctx={{ getAdapter: () => ({}) }} pageActive={pageActive} project={project} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />
+  )
+  const rowsOf = (root) => [...root.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
+  const titles = (root) => rowsOf(root).map((r) => r.querySelector('.rb-budget-exp-title').textContent)
+
+  it('the list is the kit Table: the same columns, the lane\'s one money order, every figure a numeric cell (R3-20, R3-05)', () => {
+    const { container } = render(tab())
+    const table = container.querySelector('table.ui-table.rb-budget-exp')
+    expect(table).not.toBeNull()
+    const ths = [...table.querySelectorAll('thead th')]
+    expect(ths.map((th) => th.textContent)).toEqual(['', 'Title', 'Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Date', 'Related', 'Files', 'Actions'])
+    // Figures right-aligned, their headers with them; the words left.
+    expect(ths.filter((th) => th.getAttribute('data-numeric') === 'true').map((th) => th.textContent))
+      .toEqual(['Estimated', 'Margin', 'Conting.', 'Actual', 'Variance', 'Files'])
+    // The tab's default order, newest first; an untitled expense says so.
+    expect(titles(container)).toEqual(['Camera package hire', 'Set timber and paint', 'Untitled'])
+    const rows = rowsOf(container)
+    const numeric = (r) => [...r.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)
+    expect(numeric(rows[0])).toEqual(['$16,800', '—', '+$1,680', '$16,800', '$0', '1'])
+    expect(numeric(rows[1])).toEqual(['$4,200', '+$210', '—', '$3,860', '-$340', '—'])
+    expect(numeric(rows[2])).toEqual(['$260', '—', '—', '$284', '+$24', '—'])
+    // Money is the one figure (CurrencyDisplay); a variance is signed and its
+    // news is its tone.
+    expect(rows[1].querySelectorAll('td[data-numeric="true"] .rb-money-figure')).toHaveLength(4)
+    expect(rows[0].querySelector('.rb-budget-var').getAttribute('data-tone')).toBeNull()
+    expect(rows[1].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('success')
+    expect(rows[2].querySelector('.rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    // A header sorts its column, as its click always did; the kit's arrow and
+    // aria-sort say which way.
+    expect(ths[7].getAttribute('aria-sort')).toBe('descending')
+    fireEvent.click(within(ths[2]).getByRole('button'))
+    expect(ths[2].getAttribute('aria-sort')).toBe('ascending')
+    expect(titles(container)).toEqual(['Untitled', 'Set timber and paint', 'Camera package hire'])
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  it('a row: the kit Row\'s one hover and one selection, a 28px checkbox that keeps its focus, Edit and Delete in the kit HoverActions (R3-23, R3-38, R3-40, R3-24)', () => {
+    const { container } = render(tab())
+    const row = rowsOf(container)[0]
+    expect(row.getAttribute('data-interactive')).toBe('true')
+    // Edit and Delete: the kit's reserved slot, hidden at rest as they were,
+    // and reachable by focus, which reveals them (Q17(b)).
+    const slot = row.querySelector('.ui-hover-actions')
+    expect(slot.getAttribute('data-always')).toBeNull()
+    expect(within(slot).getByRole('button', { name: 'Delete' })).toBeTruthy()
+    const edit = within(slot).getByRole('button', { name: 'Edit' })
+    edit.focus()
+    expect(document.activeElement).toBe(edit)
+    expect(row.contains(document.activeElement)).toBe(true)
+    expect(readFileSync(join(here, '../../../index.css'), 'utf8'))
+      .toMatch(/:where\(tr, li, \.ui-hover-host\):focus-within \.ui-hover-actions/)
+    // One slot width, declared once for every row.
+    expect(container.querySelector('thead th:last-child').style.width).toBe('var(--rb-budget-exp-col-acts)')
+    // The checkbox ticks without opening the row, and it is the same element
+    // afterwards: the row is not remounted, so the focus stays on it.
+    const check = within(row).getByRole('button', { name: 'Select "Camera package hire"' })
+    expect(check.className).toBe('rb-budget-check')
+    check.focus()
+    fireEvent.click(check)
+    expect(row.getAttribute('data-selected')).toBe('true')
+    expect(check.getAttribute('aria-pressed')).toBe('true')
+    expect(check.isConnected).toBe(true)
+    expect(document.activeElement).toBe(check)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Selected is said one way, the kit Row's: no inline tint, no border.
+    for (const el of [row, ...row.querySelectorAll('td')]) expect(el.getAttribute('style')).toBeNull()
+  })
+
+  it('W9: the bulk Delete and Reset M/C ask on the kit Dialog in <body>; Cancel changes nothing, the action does what OK did', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    const h = hook()
+    const { container } = render(tab(h))
+    const rows = rowsOf(container)
+    fireEvent.click(within(rows[0]).getByRole('button', { name: /^Select/ }))
+    fireEvent.click(within(rows[2]).getByRole('button', { name: /^Select/ }))
+    const bar = () => container.querySelector('.rb-budget-bulk')
+    expect(bar().textContent).toContain('2 selected')
+
+    // The bulk Delete: the confirm's own words, portalled.
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
+    let dialog = screen.getByRole('dialog', { name: 'Delete expenses' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(container.contains(dialog)).toBe(false)
+    expect(dialog.querySelector('.ui-dialog-body').textContent).toBe('Delete 2 expenses?')
+    expect(document.activeElement.textContent).toBe('Cancel')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.deleteExpense).not.toHaveBeenCalled()
+    expect(rowsOf(container)).toHaveLength(3)
+    expect(container.querySelectorAll('tbody tr[data-selected="true"]')).toHaveLength(2)
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Delete' }))
+    dialog = screen.getByRole('dialog', { name: 'Delete expenses' })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' })) })
+    expect(h.deleteExpense.mock.calls.map((c) => c[0]).sort()).toEqual(['e1', 'e3'])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(bar()).toBeNull()
+
+    // Reset M/C: the same.
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.querySelector('.ui-dialog-body').textContent)
+      .toBe('Reset all margin & contingency values to the project defaults? This cannot be undone.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.updateExpense).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+    // Only the two with values of their own are written, as OK wrote them.
+    expect(h.updateExpense.mock.calls).toEqual([
+      ['e1', { margin_pct: null, contingency_pct: null }],
+      ['e2', { margin_pct: null, contingency_pct: null }],
+    ])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(confirm).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('a row\'s Delete asks as it always did, now on the kit Dialog in <body>; Delete deletes that one', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    fireEvent.click(within(rowsOf(container)[1]).getByRole('button', { name: 'Delete' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.textContent).toContain('This will permanently remove this expense. You can undo with Ctrl+Z.')
+    // The row's own click (edit) did not fire.
+    expect(screen.queryByRole('dialog', { name: 'Edit expense' })).toBeNull()
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' })) })
+    expect(h.deleteExpense).toHaveBeenCalledWith('e2')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('the margin & contingency popover is the lane\'s one: portalled to <body>, closed by an outside mousedown and by Escape, no inline colour (R3-32)', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const contCell = rowsOf(container)[0].querySelectorAll('.rb-budget-exp-mc')[1]
+    const open = () => { fireEvent.click(contCell); return screen.getByRole('dialog', { name: 'Margin & contingency' }) }
+    let pop = open()
+    expect(pop.parentElement).toBe(document.body)
+    expect(container.contains(pop)).toBe(false)
+    expect(pop.className).toBe('rb-pop-panel')
+    // Its one style is its width and its measured place, as custom
+    // properties; nothing in it or the page is an inline colour.
+    expect(pop.getAttribute('style')).toMatch(/^--rb-pop-w: 280; --rb-pop-x: \d+; --rb-pop-y: \d+;$/)
+    expect(inlineColours(document.body)).toEqual([])
+    // A cell opens the popover, not the row's edit dialog.
+    expect(screen.queryByRole('dialog', { name: 'Edit expense' })).toBeNull()
+    // The line's values, and the amount each adds (a plus even at zero).
+    const margin = within(pop).getByRole('spinbutton', { name: 'Margin %' })
+    expect(document.activeElement).toBe(margin)
+    expect(margin.value).toBe('0')
+    expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('10')
+    expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => a.textContent)).toEqual(['+$0', '+$1,680'])
+    // A press inside keeps it; one outside closes it, as the hand-rolled ones did.
+    fireEvent.mouseDown(margin)
+    expect(pop.isConnected).toBe(true)
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+    // Escape closes it too (Q17: none of the five did) and marks the key handled.
+    pop = open()
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { document.activeElement.dispatchEvent(esc) })
+    expect(esc.defaultPrevented).toBe(true)
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+    // Save writes through the hook and closes.
+    pop = open()
+    fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Margin %' }), { target: { value: '12' } })
+    expect([...pop.querySelectorAll('.rb-pop-amount')].map((a) => a.textContent)).toEqual(['+$2,016', '+$1,680'])
+    await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Save' })) })
+    expect(h.updateExpense).toHaveBeenCalledWith('e1', { margin_pct: 12, contingency_pct: 10 })
+    expect(screen.queryByRole('dialog', { name: 'Margin & contingency' })).toBeNull()
+  })
+
+  it('BudgetPopover places itself by its own measured box, never a written 280 x 320 (R3-32)', () => {
+    // Below the anchor if it fits; else above; else as low as the window allows.
+    expect(placePopover({ x: 40, y: 100, h: 28 }, 280, 200, 1024, 768)).toEqual({ x: 40, y: 132 })
+    expect(placePopover({ x: 900, y: 700, h: 28 }, 300, 250, 1024, 768)).toEqual({ x: 712, y: 446 })
+    expect(placePopover({ x: 40, y: 300, h: 28 }, 280, 700, 1024, 768)).toEqual({ x: 40, y: 56 })
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(300)
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(250)
+    try {
+      render(<BudgetPopover anchor={{ x: 900, y: 700, h: 28 }} title="Actual" onClose={() => {}} width={300}><p>Body</p></BudgetPopover>)
+      const pop = screen.getByRole('dialog', { name: 'Actual' })
+      expect(pop.style.getPropertyValue('--rb-pop-x')).toBe('712')
+      expect(pop.style.getPropertyValue('--rb-pop-y')).toBe('446')
+    } finally {
+      width.mockRestore()
+      height.mockRestore()
+    }
+  })
+
+  it('MarginContPopover takes general props, ready for Crew and Talent: the base, its name, the defaults', () => {
+    const onSave = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <MarginContPopover anchor={{ x: 10, y: 10, h: 28 }} amountLabel="Bid" baseAmount={1000} marginPct={10} contPct={5}
+        defaultMargin={20} defaultCont={15} currency="USD" onSave={onSave} onClose={onClose} />,
+    )
+    const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    const amounts = [...pop.querySelectorAll('.rb-pop-amount')]
+    expect(amounts.map((a) => a.textContent)).toEqual(['+$100', '+$50'])
+    expect(amounts[0].getAttribute('title')).toBe('Bid $1,000 × 10%')
+    expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).getAttribute('placeholder')).toBe('20')
+    fireEvent.click(within(pop).getByRole('button', { name: 'Default' }))
+    fireEvent.click(within(pop).getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledWith({ margin_pct: 20, contingency_pct: 15 })
+    fireEvent.click(within(pop).getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('New expense and a row open ExpensePopup: the kit Dialog named by its title, in <body>, every field in its order (Q17)', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    fireEvent.click(screen.getByRole('button', { name: 'New expense' }))
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.className).toContain('ui-dialog')
+    expect(dialog.getAttribute('data-width')).toBe('form')
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect([...dialog.querySelectorAll('.ui-field-label')].map((l) => l.textContent)).toEqual([
+      'Title *', 'Estimated cost (USD)', 'Actual cost (USD)', 'Variance', 'Purchase date',
+      'Description / reason', 'Related items', 'Invoices / receipts',
+    ])
+    const title = within(dialog).getByRole('textbox', { name: 'Title' })
+    expect(document.activeElement).toBe(title)
+    const create = within(dialog).getByRole('button', { name: 'Create' })
+    expect(create.disabled).toBe(true)
+    fireEvent.change(title, { target: { value: 'Lens rental' } })
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Estimated cost' }), { target: { value: '500' } })
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: 'Actual cost' }), { target: { value: '650' } })
+    // The variance they make: the one figure, signed, its news its tone.
+    expect(dialog.querySelector('.rb-budget-exp-variance').textContent).toBe('+$150')
+    expect(dialog.querySelector('.rb-budget-exp-variance .rb-budget-var').getAttribute('data-tone')).toBe('danger')
+    await act(async () => { fireEvent.click(create) })
+    expect(h.addExpense).toHaveBeenCalledWith({
+      title: 'Lens rental', description: '', estimated_cost: 500, actual_cost: 650, purchase_date: '',
+      asset_ids: [], phase_ids: [], task_ids: [], file_ids: [],
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // A row opens it to edit; Escape closes it now (Q17) and saves nothing.
+    fireEvent.click(rowsOf(container)[1].querySelector('.rb-budget-exp-title'))
+    const edit = screen.getByRole('dialog', { name: 'Edit expense' })
+    expect(within(edit).getByRole('textbox', { name: 'Title' }).value).toBe('Set timber and paint')
+    expect(within(edit).getByRole('button', { name: 'Save' })).toBeTruthy()
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.updateExpense).not.toHaveBeenCalled()
+    expect(inlineColours(document.body)).toEqual([])
+  })
+
+  it('the toolbar is the kit Toolbar: the same controls in the same order at 28px; the undo keys and their titles as they were (C1, R3-15)', () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const bar = container.querySelector('.ui-toolbar.rb-budget-exp-toolbar')
+    expect(bar).not.toBeNull()
+    const named = [...bar.querySelectorAll('button, select, input')].map((el) => el.getAttribute('aria-label') || el.textContent.trim())
+    expect(named).toEqual(['New expense', 'Undo (Ctrl+Z)', 'Redo (Ctrl+Shift+Z)', 'Filter', 'Sort', 'Z→A', 'Group', 'Views', 'Reset M/C', 'Search expenses'])
+    expect(screen.getByRole('button', { name: 'New expense' }).getAttribute('data-variant')).toBe('primary')
+    for (const el of bar.querySelectorAll('button')) expect(el.getAttribute('data-size')).toBe('sm')
+    for (const el of bar.querySelectorAll('select, input')) {
+      expect(el.className).toContain('ui-input')
+      expect(el.getAttribute('data-size')).toBe('sm')
+    }
+    expect(screen.getByRole('button', { name: 'Undo (Ctrl+Z)' }).disabled).toBe(true)
+    // The keys still undo and redo; Q10 rules out a bar to show them.
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+    expect(h.redo).toHaveBeenCalledTimes(1)
+    // Filter while filters apply: its count and the kit's active edge.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add filter' }))
+    const filter = screen.getByRole('button', { name: 'Filter (1)' })
+    expect(filter.getAttribute('data-active')).toBe('true')
+    expect(filter.getAttribute('aria-expanded')).toBe('true')
+    const strip = container.querySelector('.rb-budget-filters')
+    expect([...within(strip).getByRole('combobox', { name: 'Field' }).options].map((o) => o.textContent)).toContain('Cost status')
+    expect(inlineColours(container)).toEqual([])
+  })
+
+  it('saved views: the menu restyled in place (the kit Menu has no trailing action), its Save on the kit Dialog', () => {
+    const { container } = render(tab())
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    const menu = container.querySelector('.rb-budget-menu')
+    expect(menu.textContent).toContain('No saved views')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Save current view' }))
+    expect(container.querySelector('.rb-budget-menu')).toBeNull()
+    const dialog = screen.getByRole('dialog', { name: 'Save current view' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    const name = within(dialog).getByRole('textbox', { name: 'View name' })
+    fireEvent.change(name, { target: { value: 'Receipts' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    expect(within(container.querySelector('.rb-budget-menu')).getByRole('button', { name: 'Delete the saved view "Receipts"' })).toBeTruthy()
+    // An outside press closes it, as it always did.
+    fireEvent.mouseDown(document.body)
+    expect(container.querySelector('.rb-budget-menu')).toBeNull()
+  })
+
+  it('grouped, a group\'s header is a full-width row of the same table, in sentence case', () => {
+    const { container } = render(tab())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group' }), { target: { value: 'cost_status' } })
+    const tables = container.querySelectorAll('table')
+    expect(tables).toHaveLength(1)
+    const groups = [...tables[0].querySelectorAll('tbody tr.rb-budget-exp-group')]
+    expect(groups.map((g) => g.querySelector('.rb-budget-exp-group-label').textContent)).toEqual(['Over budget', 'Under budget', 'On budget'])
+    for (const g of groups) {
+      const cells = g.querySelectorAll('td')
+      expect(cells).toHaveLength(1)
+      expect(cells[0].getAttribute('colspan')).toBe(String(tables[0].querySelectorAll('thead th').length))
+    }
+    expect(groups[0].querySelector('.rb-budget-exp-group-totals').textContent).toBe('Est: $260 / Act: $284')
+  })
+
+  it('"Loading expenses..." is the kit Loading, never the empty state; no expenses is the kit EmptyState, in sentence case (R3-19)', () => {
+    const { container, rerender } = render(tab(hook({ loading: true })))
+    expect(container.querySelector('.ui-loading-inline')?.getAttribute('aria-label')).toBe('Loading expenses...')
+    expect(container.querySelector('.ui-empty')).toBeNull()
+    rerender(tab(hook({ expenses: [] })))
+    expect(container.querySelector('.ui-loading-inline')).toBeNull()
+    expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No expenses yet')
+    expect(container.querySelector('.ui-empty .ui-empty-body').textContent).toBe('Click "New expense" to add one.')
+    // The header stays over the empty list, as it did.
+    expect(container.querySelector('table.rb-budget-exp thead')).not.toBeNull()
+    // A search that matches nothing says so.
+    rerender(tab(hook()))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search expenses' }), { target: { value: 'zzz' } })
+    expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No matching expenses')
+  })
+
+  it('ExpensePopup renders on its own, portalled, for any caller', () => {
+    render(<ExpensePopup expense={null} phases={[]} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(within(dialog).getByText('Estimated cost (EUR)')).toBeTruthy()
+  })
+  it('Escape inside an open relation picker closes its list and keeps the popup and its draft, focus back on its toggle; with the list closed, Escape closes the popup (Q17)', () => {
+    const onClose = vi.fn()
+    const phases = [{ id: 'ph1', name: 'Pre-production' }]
+    render(<ExpensePopup expense={null} phases={phases} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    fireEvent.click(within(dialog).getByRole('button', { name: /Phases/ }))
+    const option = within(dialog).getByRole('checkbox', { name: 'Pre-production' })
+    option.focus()
+    fireEvent.keyDown(option, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    const toggle = within(dialog).getByRole('button', { name: /Phases/ })
+    expect(within(dialog).queryByRole('checkbox', { name: 'Pre-production' })).toBeNull()
+    expect(document.activeElement).toBe(toggle)
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  /* ── review round one ─────────────────────────────────────────────────── */
+  it('R1-05: with a list open, Escape on its toggle — where a click on it leaves focus — closes the list; the popup and its draft stay, and the next Escape closes the popup', () => {
+    const onClose = vi.fn()
+    const phases = [{ id: 'ph1', name: 'Pre-production' }]
+    render(<ExpensePopup expense={null} phases={phases} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Title' }), { target: { value: 'Lens rental' } })
+    const toggle = within(dialog).getByRole('button', { name: /Phases/ })
+    toggle.focus()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { toggle.dispatchEvent(esc) })
+    expect(esc.defaultPrevented).toBe(true)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'New expense' })).toBe(dialog)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(within(dialog).queryByRole('checkbox', { name: 'Pre-production' })).toBeNull()
+    expect(within(dialog).getByRole('textbox', { name: 'Title' }).value).toBe('Lens rental')
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('R1-04: the margin & contingency editor belongs to its expense: opened on another while one is open, it starts from that expense — never the last one\'s draft — and saves there', async () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const [camera, timber] = rowsOf(container)
+    fireEvent.click(camera.querySelectorAll('.rb-budget-exp-mc')[0])
+    let pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Margin %' }), { target: { value: '37' } })
+    // A click with no mousedown is the keyboard's (Enter / Space on the
+    // cell), so nothing outside the open editor was pressed.
+    fireEvent.click(timber.querySelectorAll('.rb-budget-exp-mc')[0])
+    pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+    expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('5')
+    expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('0')
+    await act(async () => { fireEvent.click(within(pop).getByRole('button', { name: 'Save' })) })
+    expect(h.updateExpense.mock.calls).toEqual([['e2', { margin_pct: 5, contingency_pct: 0 }]])
+  })
+
+  it('R1-08: Ctrl+Z and Ctrl+Shift+Z do nothing behind a delete or reset question — window.confirm blocked them — and work as before on the page and with the expense popup open (C1)', () => {
+    const h = hook()
+    const { container } = render(tab(h))
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+    }
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    const cancel = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    // The bulk Delete's question, Reset M/C's, a row's Delete: each with focus on its Cancel.
+    fireEvent.click(within(rowsOf(container)[0]).getByRole('button', { name: /^Select/ }))
+    fireEvent.click(within(container.querySelector('.rb-budget-bulk')).getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete expenses' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(screen.getByRole('dialog', { name: 'Reset margin & contingency' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    fireEvent.click(within(rowsOf(container)[1]).getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('dialog', { name: 'Delete expense' })).toBeTruthy()
+    press(document.activeElement)
+    expect(calls()).toEqual([0, 0])
+    cancel()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // No question up: the keys work on the page…
+    press(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(calls()).toEqual([1, 1])
+    // …and with the expense popup open, as they did.
+    fireEvent.click(rowsOf(container)[1].querySelector('.rb-budget-exp-title'))
+    press(within(screen.getByRole('dialog', { name: 'Edit expense' })).getByRole('button', { name: 'Cancel' }))
+    expect(calls()).toEqual([2, 2])
+  })
+
+  it('R2-01: Ctrl+Z and Ctrl+Shift+Z do nothing behind ANY kit question on screen — the Save current view name, and a question the app raises over the tab, neither of them this tab\'s three — and work again once it is gone (C1)', () => {
+    const h = hook()
+    const { rerender } = render(tab(h))
+    const press = (el) => {
+      expect(el.tagName, 'a button, never a field').toBe('BUTTON')
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true })
+      fireEvent.keyDown(el, { key: 'z', ctrlKey: true, shiftKey: true })
+    }
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    // Save current view: the kit Dialog at the confirm width, its name field
+    // focused; Tab would take focus to its Cancel.
+    fireEvent.click(screen.getByRole('button', { name: 'Views' }))
+    fireEvent.click(within(document.querySelector('.rb-budget-menu')).getByRole('button', { name: 'Save current view' }))
+    const save = screen.getByRole('dialog', { name: 'Save current view' })
+    expect(save.getAttribute('data-width')).toBe('confirm')
+    press(within(save).getByRole('button', { name: 'Cancel' }))
+    expect(calls()).toEqual([0, 0])
+    fireEvent.click(within(save).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // A question the app raises over the page (the update prompt is one): the
+    // kit Dialog at the confirm width, which this tab knows nothing of.
+    rerender(<>{tab(h)}<Dialog width="confirm" title="Restart to update" onClose={() => {}} footer={<button type="button">Later</button>}>A new version is ready.</Dialog></>)
+    press(within(screen.getByRole('dialog', { name: 'Restart to update' })).getByRole('button', { name: 'Later' }))
+    expect(calls()).toEqual([0, 0])
+    // Gone: the keys work on the page again.
+    rerender(tab(h))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    press(screen.getByRole('button', { name: 'Reset M/C' }))
+    expect(calls()).toEqual([1, 1])
+  })
+
+  // Post-overhaul S3c, step 1 (S4a-07): every page stays mounted and the
+  // keys listen on the window, so Ctrl+Z on D.O.G. undid the Budget's last
+  // change. binsView.test.jsx's off-page test is the shape.
+  it('S4a-07: on another page Ctrl+Z and Ctrl+Shift+Z do nothing and are not cancelled; back on R.A.B.B.I.T. the same keys undo and redo', () => {
+    const h = hook()
+    const { rerender } = render(tab(h))
+    const calls = () => [h.undo.mock.calls.length, h.redo.mock.calls.length]
+    const button = screen.getByRole('button', { name: 'Reset M/C' })
+    rerender(tab(h, PROJECT, false)) // she opens D.O.G.
+    for (const init of [{ key: 'z', ctrlKey: true }, { key: 'z', ctrlKey: true, shiftKey: true }, { key: 'y', ctrlKey: true }]) {
+      expect(fireEvent.keyDown(button, init), `${init.shiftKey ? 'Ctrl+Shift+' : 'Ctrl+'}${init.key} was taken on another page`).toBe(true)
+    }
+    expect(calls()).toEqual([0, 0])
+    // CONTROL: the gate, not a broken handler — back on the page they act.
+    rerender(tab(h, PROJECT, true))
+    fireEvent.keyDown(button, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(button, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(calls()).toEqual([1, 1])
+  })
+  it('S4a-07: closed by default — a host that does not say R.A.B.B.I.T. is on screen gets no keys', () => {
+    const h = hook()
+    render(<ExpensesTab ctx={{ getAdapter: () => ({}) }} project={PROJECT} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+  })
+  it('S4a-07: the keys stand down under R.A.B.B.I.T.\'s settings drawer (not on the kit\'s overlay stack, S4a trap 10), and act again once it is gone', () => {
+    const h = hook()
+    const drawer = <div className="ui-drawer-backdrop"><aside className="ui-drawer"><button type="button">Editable</button></aside></div>
+    const { rerender } = render(<>{tab(h)}{drawer}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Editable' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    rerender(tab(h))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+  })
+  // Post-overhaul S3c review round 1 (R1-05): only a QUESTION stood the keys
+  // down; R.A.B.B.I.T.'s Help (a reading-width Dialog) over the tab let a
+  // Ctrl+Z pressed in it undo underneath. The tab's own expense popup keeps
+  // them (C1); a kit Dialog that is not the tab's own stands them down.
+  it('S3c R1-05: a kit Dialog over the tab that is not its own stands the keys down; the tab\'s own expense popup keeps them', () => {
+    const h = hook()
+    const help = <div className="ui-dialog-backdrop"><div className="ui-dialog" data-width="reading"><button type="button">Help topic</button></div></div>
+    const { rerender } = render(<>{tab(h)}{help}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Help topic' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    // CONTROL: the same tab with nothing over it — the keys act.
+    rerender(tab(h))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reset M/C' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+    // The tab's own popup: one Dialog on screen, and it is the tab's — the keys act.
+    fireEvent.click(screen.getByRole('button', { name: 'New expense' }))
+    expect(document.querySelectorAll('.ui-dialog-backdrop')).toHaveLength(1)
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(2)
+  })
+  // Review round 2 (R2-05): the window's close question is App's own (no kit
+  // Dialog); its mark makes it a dialog over the tab to the keys.
+  it('S3c R2-05: under the window\'s close question the keys stand down (CONTROL: the same element without the mark does not)', () => {
+    const h = hook()
+    const question = (mark) => <div {...(mark ? { 'data-app-question': 'close' } : {})}><div role="dialog" aria-modal="true"><button type="button">Keep editing</button></div></div>
+    const { rerender } = render(<>{tab(h)}{question(true)}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Keep editing' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).not.toHaveBeenCalled()
+    rerender(<>{tab(h)}{question(false)}</>)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Keep editing' }), { key: 'z', ctrlKey: true })
+    expect(h.undo).toHaveBeenCalledTimes(1)
+  })
+  it('S4a-07: Rabbit.jsx says it — BudgetView\'s pageActive is currentPage === \'rabbit\', and the tab hands it to the Expenses tab', () => {
+    expect(read('../Rabbit.jsx')).toContain("{activeView === 'budget'   && <BudgetView pageActive={currentPage === 'rabbit'} />}")
+    expect(read('./BudgetView.jsx')).toMatch(/<ExpensesTab\s+ctx=\{ctx\}\s+pageActive=\{pageActive\}/)
+  })
+
+  it('R1-12: the expense popup carries the app\'s dark scrollbar class itself — in <body> it is outside the app\'s root, and its form and lists scroll', () => {
+    render(<ExpensePopup expense={null} phases={[]} assets={[]} tasks={[]} projectId="p1" ctx={null} currency="EUR" onSave={() => {}} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'New expense' })
+    expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+    expect(dialog.classList.contains('wilson-dark-scroll')).toBe(true)
+  })
+})
+
+/* ── surface 4: the Crew/team and Talent tabs (R3-05 … R3-37, W9) ────────── */
+describe('surface 4', () => {
+  afterEach(() => {
+    cleanup()
+    _resetOverlaysForTests()
+  })
+
+  /** Every declaration of a colour, a ground or an edge in an inline style. */
+  const inlineColours = (root) => [...root.querySelectorAll('[style]')]
+    .map((el) => el.getAttribute('style'))
+    .filter((s) => /(^|;)\s*(color|background(-color)?|border(-[a-z]+)*|fill|stroke|opacity)\s*:/i.test(s))
+  const sheet = read('./rabbitBudget.css')
+  const heads = (table) => [...table.querySelectorAll('thead th')].map((th) => th.textContent)
+  const cells = (tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)
+  const numerics = (tr) => [...tr.querySelectorAll('td[data-numeric="true"]')].map((td) => td.textContent)
+  const escape = () => {
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => { document.activeElement.dispatchEvent(esc) })
+    return esc
+  }
+  // Count mode: the period headers are "#1…#3", whatever today's date.
+  const PROJECT = { id: 'p1', budget_actual_column_mode: 'count', budget_actual_column_count: 3, budget_margin_pct: 0, budget_contingency_pct: 5 }
+
+  describe('Crew/team', () => {
+    /** One member (500/day x 4 bid days, a line with a 10% margin and a
+        $1,200 actual in period 1, its invoice attached), in one department. */
+    const hook = (over = {}) => ({
+      lines: [{ id: 'l1', sheet: 'crew', team_member_id: 'm1', margin_pct: 10, contingency_pct: null }],
+      actualsByLine: { l1: [{ id: 'a1', line_id: 'l1', column_index: 0, value: 1200, invoice_number: 'INV-7', attachment_name: 'inv.pdf', attachment_path: 'file:f1' }] },
+      addLine: vi.fn(async () => ({ id: 'new' })),
+      updateLine: vi.fn(async () => {}),
+      upsertActual: vi.fn(async () => {}),
+      deleteActual: vi.fn(),
+      ...over,
+    })
+    const tab = (h = hook(), over = {}) => (
+      <CrewTeamTab
+        budgetHook={h}
+        project={PROJECT}
+        tasks={[{ assigned_role_slug: 'anim', bid_days: 4 }]}
+        roleRates={{}}
+        rateCard={{ entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }] }}
+        teamMembers={[{ id: 'm1', name: 'Ana Ruiz', title: 'Animator', department: 'Animation', employment_type: 'fulltime' }]}
+        currency="USD"
+        {...over}
+      />
+    )
+    const memberRow = (root) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Ana Ruiz'))
+
+    it('is ONE kit table: the header reads … Bid total, Actual, Variance, then the periods (R3-05, R3-20)', () => {
+      const { container } = render(tab())
+      const tables = container.querySelectorAll('table')
+      expect(tables).toHaveLength(1)
+      expect(tables[0].className).toBe('ui-table rb-crew-table')
+      expect(heads(tables[0])).toEqual(['Member / role', 'Type', 'Rate', 'Days', 'Subtotal', 'Margin', 'Conting.', 'Bid total', 'Actual', 'Variance', '#1', '#2', '#3'])
+      // Each width is the sheet's, declared once and read by its header cell.
+      const ths = [...tables[0].querySelectorAll('thead th')]
+      expect(ths.map((th) => th.style.width)).toEqual(['', 'var(--rb-crew-w-type)', 'var(--rb-crew-w-rate)', 'var(--rb-crew-w-days)',
+        ...Array(6).fill('var(--rb-crew-w-money)'), ...Array(3).fill('var(--rb-crew-w-period)')])
+      // The table's one style is the period count the sheet sizes it by.
+      expect(tables[0].getAttribute('style')).toBe('--rb-crew-cols: 3;')
+      // A member's row: Actual before the Variance derived from it, every figure a numeric cell.
+      expect(numerics(memberRow(container))).toEqual(['$500', '4.0', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800'])
+      expect(memberRow(container).querySelector('.rb-crew-var').getAttribute('data-tone')).toBe('success')
+      // The department's header and subtotal are rows of the same table, the subtotal in the same order.
+      const group = container.querySelector('tbody tr.rb-crew-group')
+      expect(group.textContent).toBe('Animation1')
+      expect(group.getAttribute('data-selected')).toBeNull()
+      const subtotal = container.querySelector('tbody tr.rb-crew-subtotal')
+      expect(cells(subtotal)).toEqual(['Animation total', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800', ''])
+      expect(subtotal.getAttribute('data-selected')).toBeNull()
+    })
+
+    it('the grand total is the table\'s <tfoot>, in the same order', () => {
+      const { container } = render(tab())
+      const foot = container.querySelector('table > tfoot')
+      expect(foot).not.toBeNull()
+      expect(cells(foot.querySelector('tr'))).toEqual(['Grand total', '$2,000', '+$200', '+$100', '$2,000', '$1,200', '-$800', ''])
+      // Its columns are the header's: the label spans four, the periods one filler.
+      const spans = [...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)
+      expect(spans).toBe(container.querySelectorAll('thead th').length)
+    })
+
+    it('a period cell is the same 28px button, whose click opens the lane\'s popover in <body>; Escape and an outside press close it (R3-33, R3-32)', () => {
+      const { container } = render(tab())
+      const buttons = [...memberRow(container).querySelectorAll('button.rb-crew-cell')]
+      expect(buttons).toHaveLength(3)
+      expect(sheet).toMatch(/\.rb-crew-cell,\s*\.rb-talent-cell \{[^}]*height: var\(--control-sm\);/)
+      // An empty cell's text is its middle dot (the walk's step); a value is the money figure, its invoice a paperclip.
+      expect(buttons.map((b) => b.textContent)).toEqual(['$1,200', '·', '·'])
+      expect(buttons.map((b) => b.getAttribute('data-empty'))).toEqual([null, 'true', 'true'])
+      expect(buttons[0].querySelector('.rb-money-figure')).not.toBeNull()
+      expect(buttons[0].querySelector('svg.rb-crew-clip')).not.toBeNull()
+      const open = (b) => { fireEvent.click(b); return screen.getByRole('dialog', { name: 'Ana Ruiz / #2' }) }
+      let pop = open(buttons[1])
+      expect(pop.parentElement).toBe(document.body)
+      expect(container.contains(pop)).toBe(false)
+      expect(pop.className).toBe('rb-pop-panel')
+      expect(within(pop).getByText('Invoice #')).toBeTruthy()
+      expect(document.activeElement).toBe(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }))
+      expect(escape().defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+      pop = open(buttons[1])
+      fireEvent.mouseDown(within(pop).getByRole('textbox', { name: 'Invoice #' }))
+      expect(pop.isConnected).toBe(true)
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+    })
+
+    it('a popover belongs to its cell: opened on another cell while one is open, it starts from that cell, never the last one\'s draft', () => {
+      const { container } = render(tab())
+      const [, second, third] = memberRow(container).querySelectorAll('button.rb-crew-cell')
+      fireEvent.click(second)
+      const first = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      fireEvent.change(within(first).getByRole('spinbutton', { name: 'Amount (USD)' }), { target: { value: '999' } })
+      // A click with no mousedown is the keyboard's (Enter / Space on the
+      // cell), so nothing outside the open popover was pressed.
+      fireEvent.click(third)
+      const next = screen.getByRole('dialog', { name: 'Ana Ruiz / #3' })
+      expect(within(next).getByRole('spinbutton', { name: 'Amount (USD)' }).value).toBe('')
+    })
+
+    it('the popover saves and clears as it did: Save the kit primary, Clear the kit danger', async () => {
+      const h = hook()
+      const { container } = render(tab(h))
+      const [filled, empty] = memberRow(container).querySelectorAll('button.rb-crew-cell')
+      fireEvent.click(empty)
+      let pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      expect(within(pop).queryByRole('button', { name: 'Clear' })).toBeNull()
+      fireEvent.change(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }), { target: { value: '300' } })
+      fireEvent.change(within(pop).getByRole('textbox', { name: 'Invoice #' }), { target: { value: ' INV-9 ' } })
+      const save = within(pop).getByRole('button', { name: 'Save' })
+      expect(save.getAttribute('data-variant')).toBe('primary')
+      await act(async () => { fireEvent.click(save) })
+      expect(h.upsertActual).toHaveBeenCalledWith({
+        line_id: 'l1', column_index: 1, value: 300, invoice_number: 'INV-9',
+        attachment_name: null, attachment_path: null, source: 'manual',
+      })
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+      // A cell with a value opens on its own values, and Clear deletes it.
+      fireEvent.click(filled)
+      pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #1' })
+      expect(within(pop).getByRole('spinbutton', { name: 'Amount (USD)' }).value).toBe('1200')
+      expect(within(pop).getByRole('textbox', { name: 'Invoice #' }).value).toBe('INV-7')
+      const clear = within(pop).getByRole('button', { name: 'Clear' })
+      expect(clear.getAttribute('data-variant')).toBe('danger')
+      fireEvent.click(clear)
+      expect(h.deleteActual).toHaveBeenCalledWith('a1')
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #1' })).toBeNull()
+    })
+
+    it('Margin and Contingency open the lane\'s one editor, on the line\'s bid total (R3-32)', () => {
+      const { container } = render(tab())
+      const wells = memberRow(container).querySelectorAll('button.rb-crew-mc')
+      expect([...wells].map((w) => w.textContent)).toEqual(['+$200', '+$100'])
+      fireEvent.click(wells[1])
+      const pop = screen.getByRole('dialog', { name: 'Margin & contingency' })
+      expect(pop.parentElement).toBe(document.body)
+      expect(within(pop).getByRole('spinbutton', { name: 'Margin %' }).value).toBe('10')
+      expect(within(pop).getByRole('spinbutton', { name: 'Contingency %' }).value).toBe('5')
+      expect(pop.querySelector('.rb-pop-amount').getAttribute('title')).toBe('Bid total $2,000 × 10%')
+    })
+
+    it('W9: Reset M/C asks on the kit Dialog in <body>; Cancel keeps the values, Reset clears them through the hook', async () => {
+      const confirm = vi.spyOn(window, 'confirm')
+      const h = hook()
+      render(tab(h))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      let dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      expect(dialog.getAttribute('data-width')).toBe('confirm')
+      expect(dialog.querySelector('.ui-dialog-body').textContent)
+        .toBe('Reset all margin & contingency values to the project defaults? This cannot be undone.')
+      expect(document.activeElement.textContent).toBe('Cancel')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(h.updateLine).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+      expect(h.updateLine.mock.calls).toEqual([['l1', { margin_pct: null, contingency_pct: null }]])
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(confirm).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('review round one, R1-10: Reset M/C asked from the keyboard with a period popover open lands OVER the popover and takes the Escape — the first closes the question and hands focus back, the next the popover', () => {
+      const { container } = render(tab())
+      fireEvent.click(memberRow(container).querySelectorAll('button.rb-crew-cell')[1])
+      const pop = screen.getByRole('dialog', { name: 'Ana Ruiz / #2' })
+      // The keyboard's way to it: focus on Reset M/C, then its activation — a
+      // click with no mousedown, so nothing outside the popover was pressed.
+      const reset = screen.getByRole('button', { name: 'Reset M/C' })
+      reset.focus()
+      fireEvent.click(reset)
+      const question = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(pop.isConnected).toBe(true)
+      // Over it: the popover's layer is under the kit Dialog's backdrop.
+      const layer = (css, sel) => Number((css.replace(/\/\*[\s\S]*?\*\//g, '').match(new RegExp(`\\${sel} \\{[^}]*?z-index: (\\d+);`)) || [])[1])
+      const popLayer = layer(sheet, '.rb-pop-panel')
+      const dialogLayer = layer(read('../../../index.css'), '.ui-dialog-backdrop')
+      expect(popLayer).toBeGreaterThan(0)
+      expect(popLayer).toBeLessThan(dialogLayer)
+      expect(document.activeElement.textContent).toBe('Cancel')
+      expect(question.contains(document.activeElement)).toBe(true)
+      // The first Escape is the question's; focus goes back to Reset M/C.
+      let esc = escape()
+      expect(esc.defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Reset margin & contingency' })).toBeNull()
+      expect(pop.isConnected).toBe(true)
+      expect(document.activeElement).toBe(reset)
+      // The next is the popover's.
+      esc = escape()
+      expect(esc.defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Ana Ruiz / #2' })).toBeNull()
+    })
+
+    it('the tiles are the kit Stat and the bar the kit Toolbar, in sentence case; no brightness hover, no inline colour (R3-10, R3-23, Q2)', () => {
+      const { container } = render(tab())
+      const tiles = [...container.querySelectorAll('.ui-stat.rb-crew-stat')]
+      expect(tiles.map((t) => t.querySelector('.ui-stat-label').textContent)).toEqual(['Bid total', 'Actual total', 'Variance', 'Members'])
+      expect(tiles[2].querySelector('.ui-stat-value').getAttribute('data-tone')).toBe('success')
+      const bar = container.querySelector('.ui-toolbar.rb-crew-toolbar')
+      expect(bar.textContent).toContain('Crew/team budget')
+      expect([...bar.querySelectorAll('.ui-badge')].map((b) => b.textContent)).toEqual(['Margin: 0%', 'Contingency: 5%'])
+      expect(within(bar).getByRole('button', { name: 'Reset M/C' }).getAttribute('data-size')).toBe('sm')
+      expect(container.innerHTML).not.toMatch(/brightness|Grand Total|Bid Total|Actual Total/)
+      expect(inlineColours(container)).toEqual([])
+    })
+
+    it('no team is the kit EmptyState, in sentence case (R3-19)', () => {
+      const { container } = render(tab(hook(), { teamMembers: [], tasks: [] }))
+      expect(container.querySelector('table')).toBeNull()
+      expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No crew/team data yet')
+      expect(container.querySelector('.ui-empty > svg')).not.toBeNull()
+    })
+  })
+
+  describe('Talent', () => {
+    const hook = (over = {}) => ({
+      lines: [
+        { id: 't1', sheet: 'talent', label: 'Mara (lead)', talent_type: 'actor', rate: 900, days: 10, talent_agency_fee_pct: 15, margin_pct: null, contingency_pct: 10, union_id: 'EQ-1' },
+        { id: 't2', sheet: 'talent', label: 'Log book VO', talent_type: 'voice_actor', rate: 0, days: 0 },
+      ],
+      lineComputations: {
+        t1: { subtotal: 9000, agencyFee: 1350, bidTotal: 10350, actualTotal: 500, variance: -9850 },
+        t2: { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0, variance: 0 },
+      },
+      actualsByLine: { t1: [{ id: 'x1', line_id: 't1', column_index: 2, value: 500 }] },
+      addLine: vi.fn(async () => {}),
+      updateLine: vi.fn(async () => {}),
+      deleteLine: vi.fn(),
+      upsertActual: vi.fn(async () => {}),
+      deleteActual: vi.fn(),
+      loading: false,
+      ...over,
+    })
+    const tab = (h = hook()) => <TalentTab budgetHook={h} project={{ ...PROJECT, budget_contingency_pct: 0 }} currency="USD" />
+    const lineRow = (root, name) => [...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(name))
+
+    it('is ONE kit table: the header reads … Bid total, Actual, Variance, then the periods; the grand total its <tfoot> (R3-05, R3-20)', () => {
+      const { container } = render(tab())
+      const tables = container.querySelectorAll('table')
+      expect(tables).toHaveLength(1)
+      expect(heads(tables[0])).toEqual(['Name', 'Type', 'Rate', 'Days', 'Subtotal', 'Agent %', 'Margin', 'Conting.', 'Bid total', 'Actions', 'Actual', 'Variance', '#1', '#2', '#3'])
+      expect(tables[0].getAttribute('style')).toBe('--rb-talent-cols: 3;')
+      expect(numerics(lineRow(container, 'Mara (lead)'))).toEqual(['900', '10', '$9,000', '15', '—', '+$1,035', '$10,350', '$500', '-$9,850'])
+      const foot = tables[0].querySelector('tfoot tr')
+      expect(cells(foot)).toEqual(['Grand total', '$9,000', '', '—', '+$1,035', '$10,350', '', '$500', '-$9,850', ''])
+      expect([...foot.querySelectorAll('td')].reduce((n, td) => n + Number(td.getAttribute('colspan') || 1), 0)).toBe(15)
+    })
+
+    it('a period cell opens the lane\'s popover in <body>, closed by Escape and an outside press (R3-33, R3-32)', () => {
+      const { container } = render(tab())
+      const buttons = [...lineRow(container, 'Mara (lead)').querySelectorAll('button.rb-talent-cell')]
+      expect(buttons.map((b) => b.textContent)).toEqual(['·', '·', '$500'])
+      fireEvent.click(buttons[0])
+      let pop = screen.getByRole('dialog', { name: 'Mara (lead) / #1' })
+      expect(pop.parentElement).toBe(document.body)
+      expect(within(pop).getByText('Invoice #')).toBeTruthy()
+      escape()
+      expect(screen.queryByRole('dialog', { name: 'Mara (lead) / #1' })).toBeNull()
+      fireEvent.click(buttons[0])
+      pop = screen.getByRole('dialog', { name: 'Mara (lead) / #1' })
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('dialog', { name: 'Mara (lead) / #1' })).toBeNull()
+    })
+
+    it('a line\'s details open as a full-width row of the table under it, and close again', () => {
+      const { container } = render(tab())
+      fireEvent.click(within(lineRow(container, 'Mara (lead)')).getByRole('button', { name: 'Show details' }))
+      const rows = [...container.querySelectorAll('tbody tr')]
+      expect(rows).toHaveLength(3)
+      const detail = rows[1].querySelectorAll('td')
+      expect(detail).toHaveLength(1)
+      expect(detail[0].getAttribute('colspan')).toBe('15')
+      expect([...detail[0].querySelectorAll('.ui-field-label')].map((l) => l.textContent)).toEqual(['Union / Guild #', 'Agency', 'Agent', 'Phone', 'Email', 'Notes'])
+      expect(detail[0].textContent).toContain('EQ-1')
+      const hide = within(rows[0]).getByRole('button', { name: 'Hide details' })
+      expect(hide.getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(hide)
+      expect(container.querySelectorAll('tbody tr')).toHaveLength(2)
+    })
+
+    it('the inline cells keep Escape-reverts and Enter-commits; the type is the kit CellSelect, in sentence case', () => {
+      const h = hook()
+      const { container } = render(tab(h))
+      const row = () => lineRow(container, 'Mara (lead)')
+      fireEvent.click(within(row()).getByRole('button', { name: '900' }))
+      let input = row().querySelector('input.ui-input.rb-talent-cell-input')
+      expect(document.activeElement).toBe(input)
+      fireEvent.change(input, { target: { value: '950' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(h.updateLine).not.toHaveBeenCalled()
+      expect(within(row()).getByRole('button', { name: '900' })).toBeTruthy()
+      fireEvent.click(within(row()).getByRole('button', { name: '900' }))
+      input = row().querySelector('input.rb-talent-cell-input')
+      fireEvent.change(input, { target: { value: '950' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(h.updateLine).toHaveBeenCalledWith('t1', { rate: 950 })
+      // The type: the kit's in-cell select, its options in sentence case.
+      const select = within(row()).getByRole('combobox', { name: 'Talent type for Mara (lead)' })
+      expect(select.closest('.ui-cell-select')).not.toBeNull()
+      expect([...select.options].map((o) => o.textContent)).toEqual(['Actor', 'Voice actor', 'Extra', 'Background', 'Stunt performer', 'Motion capture performer', 'Other'])
+      fireEvent.change(select, { target: { value: 'extra' } })
+      expect(h.updateLine).toHaveBeenLastCalledWith('t1', { talent_type: 'extra' })
+    })
+
+    it('Delete is in the kit HoverActions (hover and focus); Reset M/C asks on the kit Dialog (R3-24, W9)', async () => {
+      const confirm = vi.spyOn(window, 'confirm')
+      const h = hook()
+      const { container } = render(tab(h))
+      const slot = lineRow(container, 'Mara (lead)').querySelector('.ui-hover-actions')
+      expect(slot.getAttribute('data-always')).toBeNull()
+      const del = within(slot).getByRole('button', { name: 'Delete' })
+      del.focus()
+      expect(document.activeElement).toBe(del)
+      fireEvent.click(del)
+      expect(h.deleteLine).toHaveBeenCalledWith('t1')
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      let dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      expect(dialog.closest('.ui-dialog-backdrop').parentElement).toBe(document.body)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      expect(h.updateLine).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Reset M/C' }))
+      dialog = screen.getByRole('dialog', { name: 'Reset margin & contingency' })
+      await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Reset' })) })
+      expect(h.updateLine.mock.calls).toEqual([['t1', { margin_pct: null, contingency_pct: null }]])
+      expect(confirm).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('tiles, toolbar and words in sentence case; no brightness hover, no inline colour (R3-10, R3-23, Q2)', () => {
+      const { container } = render(tab())
+      expect([...container.querySelectorAll('.ui-stat.rb-talent-stat .ui-stat-label')].map((l) => l.textContent)).toEqual(['Bid total', 'Actual total', 'Variance', 'Talent'])
+      const add = within(container.querySelector('.ui-toolbar.rb-talent-toolbar')).getByRole('button', { name: 'Add talent' })
+      expect(add.getAttribute('data-variant')).toBe('primary')
+      expect(container.innerHTML).not.toMatch(/brightness|Grand Total|Add Talent|Voice Actor/)
+      expect(inlineColours(container)).toEqual([])
+    })
+
+    it('"Loading talent..." is the kit Loading; no lines is the kit EmptyState with its Add talent (R3-19)', async () => {
+      const { container, rerender } = render(tab(hook({ loading: true })))
+      expect(container.querySelector('.ui-loading-inline')?.getAttribute('aria-label')).toBe('Loading talent...')
+      expect(container.querySelector('.ui-empty')).toBeNull()
+      const h = hook({ lines: [] })
+      rerender(tab(h))
+      expect(container.querySelector('.ui-loading-inline')).toBeNull()
+      expect(container.querySelector('.ui-empty .ui-empty-title').textContent).toBe('No talent budget lines yet')
+      await act(async () => { fireEvent.click(within(container.querySelector('.ui-empty')).getByRole('button', { name: 'Add talent' })) })
+      expect(h.addLine).toHaveBeenCalledWith({ sheet: 'talent', department: 'Talent', label: 'Talent 1', sort_order: 1, talent_type: 'actor' })
+    })
+  })
+})
+
+/* ── surface 5: the client estimate (R3-27, R3-39, C9) ───────────────────── */
+describe('the client estimate', () => {
+  const { default: ClientViewTab, estimateDocument } = clientModule
+  const TASKS = [
+    { assigned_role_slug: 'editor', bid_days: 10 },
+    { assigned_role_slug: 'dop', assigned_position: 'Camera', bid_days: 4 },
+  ]
+  const props = {
+    project: { title: 'Salt <b>Hours</b>', project_code: 'SH-01', budget_margin_pct: 10, budget_contingency_pct: 5 },
+    tasks: TASKS,
+    roleRates: { editor: 500, dop: 1000 },
+    budgetHook: { lines: [{ id: 't1', sheet: 'talent' }], lineComputations: { t1: { bidTotal: 2000 } } },
+    expensesHook: { expenses: [{ estimated_cost: 750 }] },
+    currency: 'USD',
+  }
+  // 5000 (editor) + 4000 (Camera) + 2000 (Talent) + 750 (Expenses) = 11750;
+  // contingency 5% = 587.5, production fee 10% = 1175; total 13512.5.
+  const LABELS = ['editor', 'Camera', 'Talent', 'Expenses / travel', 'Contingency', 'Production fee']
+
+  function printed() {
+    let html = ''
+    const win = { document: { write: (s) => { html += s }, close: vi.fn() }, focus: vi.fn(), print: vi.fn(), close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(win)
+    const utils = render(<ClientViewTab {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Print / export' }))
+    open.mockRestore()
+    return { html, win, ...utils }
+  }
+  const styleOf = (html) => html.match(/<style>([\s\S]*?)<\/style>/)[1]
+
+  it('the preview is the kit Table on the paper: numeric figures, the total in its <tfoot>, no inline colour (C9, R3-20)', () => {
+    const { container } = render(<ClientViewTab {...props} />)
+    const table = container.querySelector('table.ui-table')
+    expect(table).toBeTruthy()
+    expect([...table.querySelectorAll('tbody tr')].map((r) => r.cells[0].textContent)).toEqual(LABELS)
+    for (const r of table.querySelectorAll('tbody tr')) expect(r.cells[1].getAttribute('data-numeric')).toBe('true')
+    expect(table.querySelector('tfoot').textContent).toBe('Total$13,513')
+    expect(container.querySelector('.rb-client-sheet')).toBeTruthy()
+    for (const el of container.querySelectorAll('[style]')) expect(el.getAttribute('style')).not.toMatch(/color|background/)
+  })
+  it('says Client view, Estimated budget, Production fee and the signature lines in sentence case (Q2)', () => {
+    const { container } = render(<ClientViewTab {...props} />)
+    const text = container.textContent
+    for (const s of ['Client view', 'Estimated budget', 'Project code', 'Production fee', 'Estimate approved by:', 'Approver signature:', 'Date signed:']) expect(text).toContain(s)
+    expect(text).not.toMatch(/Client View|Estimated Budget|Production Fee|Approver Signature|Date Signed/)
+  })
+  it('prints in the app\'s face at the app\'s scale — never Courier, nothing under 11px (R3-27)', () => {
+    const { html } = printed()
+    const css = styleOf(html)
+    expect(html).not.toMatch(/Courier/i)
+    expect(css).toMatch(/body \{ font-family: Geist, /)
+    const sizes = [...css.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]))
+    expect(sizes.length).toBeGreaterThan(3)
+    for (const s of sizes) expect([11, 12, 13, 14, 16, 20]).toContain(s)
+    expect(css).toMatch(/h1 \{ font-size: 20px;/)
+    expect(css).toMatch(/th \{[^}]*font-size: 11px;[^}]*text-transform: uppercase;/)
+    expect(css).toMatch(/body \{[^}]*font-size: 13px;/)
+  })
+  // jsdom's CSSOM keeps only `font-family` of an @font-face rule, so the
+  // reader is fed a document the way Chromium presents one; the Playwright
+  // capture in the hand-off proves the real window loads both faces.
+  it('appFontFaces carries the app\'s own @font-face rules for Geist — every descriptor, each url() absolute against its sheet — and no other face', () => {
+    const face = (family, src, extra = '') => ({
+      cssText: `@font-face { font-family: "${family}"; src: url("${src}") format("woff2-variations"); font-weight: 400 600;${extra} }`,
+      style: { getPropertyValue: (p) => (p === 'font-family' ? `"${family}"` : '') },
+    })
+    const doc = {
+      baseURI: 'http://localhost:5267/rabbit',
+      styleSheets: [
+        { href: null, cssRules: [face('Geist', '/fonts/geist-latin-wght.woff2', ' unicode-range: U+0-FF;'), { cssText: '.x { color: red }', style: { getPropertyValue: () => '' } }] },
+        // A built stylesheet: a relative url resolves against the SHEET.
+        { href: 'file:///C:/app/dist/assets/index-abc.css', cssRules: [{ cssRules: [face('Geist Mono', '../fonts/geist-mono-latin-wght.woff2')] }] },
+        { href: 'https://cdn.example/x.css', get cssRules() { throw new Error('SecurityError') } },
+        { href: null, cssRules: [face('Pixel', '/fonts/pixel.woff2')] },
+      ],
+    }
+    const faces = clientModule.appFontFaces(doc).split('\n').map((s) => s.trim())
+    expect(faces).toEqual([
+      '@font-face { font-family: "Geist"; src: url(http://localhost:5267/fonts/geist-latin-wght.woff2) format("woff2-variations"); font-weight: 400 600; unicode-range: U+0-FF; }',
+      '@font-face { font-family: "Geist Mono"; src: url(file:///C:/app/dist/fonts/geist-mono-latin-wght.woff2) format("woff2-variations"); font-weight: 400 600; }',
+    ])
+  })
+  it('the print document carries those rules first in its sheet', () => {
+    const faces = '@font-face { font-family: "Geist"; src: url(http://h/fonts/g.woff2); }'
+    const html = estimateDocument({ title: 'T', code: 'C', date: 'd', rows: [], total: 0, currency: 'USD', faces })
+    expect(styleOf(html).trim().startsWith(faces)).toBe(true)
+  })
+  it('prints what the preview shows: the same lines in the same order, the same figures', () => {
+    const { html, container } = printed()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const printedRows = [...doc.querySelectorAll('tbody tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent])
+    const shown = [...container.querySelectorAll('table.ui-table tbody tr, table.ui-table tfoot tr')].map((r) => [r.cells[0].textContent, r.cells[1].textContent])
+    expect(printedRows).toEqual(shown)
+  })
+  it('escapes the user\'s own words into the print document', () => {
+    const { html } = printed()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    expect(doc.querySelector('h1').textContent).toBe('Salt <b>Hours</b>')
+    expect(doc.querySelector('h1 b')).toBeNull()
+  })
+  it('prints once the page has laid out and its face has loaded, then closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const { win } = printed()
+      expect(win.print).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(250)
+      expect(win.print).toHaveBeenCalledTimes(1)
+      expect(win.close).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+  it('estimateDocument is pure: the same input, the same document', () => {
+    const input = { title: 'T', code: 'C', date: '1/1/2026', rows: [{ label: 'a', amount: 1 }], total: 1, currency: 'USD', faces: '' }
+    expect(estimateDocument(input)).toBe(estimateDocument(input))
+  })
+})
+
+/* ── surface 4's tail: the popovers' invoice field ────────────────────────── */
+describe('InvoiceAttachment', () => {
+  const noStyle = (root) => expect([...root.querySelectorAll('[style]')].map((e) => e.getAttribute('style'))).toEqual([])
+  it('with no file: the Label-step "Invoice file" over the kit secondary Button "Attach invoice" (Q2)', () => {
+    const { container } = render(<InvoiceAttachment getAdapter={() => null} projectId="p1" lineId="l1" name="" path="" onChange={() => {}} />)
+    expect(container.querySelector('.rb-inv-label').textContent).toBe('Invoice file')
+    const attach = screen.getByRole('button', { name: 'Attach invoice' })
+    expect(attach.classList.contains('ui-btn')).toBe(true)
+    expect(attach.getAttribute('data-variant')).toBe('secondary')
+    noStyle(container)
+  })
+  it('with a file: its name, then the kit icon buttons Open invoice and Remove attachment; Remove clears it', () => {
+    const onChange = vi.fn()
+    const { container } = render(<InvoiceAttachment getAdapter={() => null} projectId="p1" lineId="l1" name="inv.pdf" path="file:f1" onChange={onChange} />)
+    expect(container.querySelector('.rb-inv-name').textContent).toBe('inv.pdf')
+    expect(screen.getByRole('button', { name: 'Open invoice' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove attachment' }))
+    expect(onChange).toHaveBeenCalledWith({ name: '', path: '' })
+    noStyle(container)
+  })
+})
+
+/* ── review round one, R1-11: one rounding for a days figure ─────────────── */
+describe('review round one, R1-11: every tab rounds days as toFixed(1) did', () => {
+  afterEach(() => { cleanup(); _resetOverlaysForTests() })
+
+  it('formatTenths rounds as toFixed(1) — 1.15 is 1.1, 29.95 is 29.9 — keeping Intl\'s sign and no grouping', () => {
+    expect([formatTenths(1.15), formatTenths(29.95)]).toEqual([(1.15).toFixed(1), (29.95).toFixed(1)])
+    expect([formatTenths(1.15), formatTenths(29.95)]).toEqual(['1.1', '29.9'])
+    expect([formatTenths(1.15, { signed: true }), formatTenths(-29.95, { signed: true }), formatTenths(0, { signed: true })]).toEqual(['+1.1', '-29.9', '0.0'])
+    expect([formatTenths(12345.6), formatTenths(null), formatTenths('4')]).toEqual(['12345.6', '0.0', '4.0'])
+  })
+
+  it('Summary and Crew/team print the same figure for the same days: 1.15 bid days is 1.1 on both, 29.95 logged 29.9', () => {
+    const { container: summary } = render(
+      <SummaryTab
+        ctx={{ updateProject: vi.fn(), setActiveProject: vi.fn(), getAdapter: () => ({ upsertBudgetVersion: vi.fn(), deleteBudgetVersion: vi.fn() }) }}
+        project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }}
+        variance={{ bid: 1.15, logged: 29.95, variance: 28.8 }}
+        budget={{ total: 0, byRole: {}, currency: 'USD' }}
+        tasks={[]}
+        roleRates={{}}
+        missingRolesCount={0}
+        rateCardName="General"
+        budgetVersions={[]}
+        budgetHook={{ lines: [], lineComputations: {} }}
+        rateCard={{ entries: [] }}
+        teamMembers={[]}
+        expensesHook={{ expenses: [] }}
+      />,
+    )
+    expect([...summary.querySelectorAll('.ui-stat .ui-stat-value')].map((v) => v.textContent)).toEqual(['1.1', '29.9', '+28.8'])
+    cleanup()
+    const { container: crew } = render(
+      <CrewTeamTab
+        budgetHook={{ lines: [{ id: 'l1', sheet: 'crew', team_member_id: 'm1' }], actualsByLine: {}, addLine: vi.fn(), updateLine: vi.fn(), upsertActual: vi.fn(), deleteActual: vi.fn() }}
+        project={{ id: 'p1', budget_actual_column_mode: 'count', budget_actual_column_count: 3, budget_margin_pct: 0, budget_contingency_pct: 0 }}
+        tasks={[{ assigned_role_slug: 'anim', bid_days: 1.15 }]}
+        roleRates={{}}
+        rateCard={{ entries: [{ member_id: 'm1', role_slug: 'anim', day_rate: 500 }] }}
+        teamMembers={[{ id: 'm1', name: 'Ana Ruiz', title: 'Animator', department: 'Animation', employment_type: 'fulltime' }]}
+        currency="USD"
+      />,
+    )
+    const row = [...crew.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Ana Ruiz'))
+    expect([...row.querySelectorAll('td[data-numeric="true"]')][1].textContent).toBe('1.1')
+  })
+
+  it('every days figure comes through the one helper: no toFixed and no second formatter in the Budget\'s views', () => {
+    for (const f of BUDGET_FILES) {
+      const src = read(f)
+      expect(src, f).not.toMatch(/\.toFixed\(/)
+      expect(src, f).not.toMatch(/function formatTenths\(/)
+    }
+    expect(read('./budget/CrewTeamTab.jsx')).toMatch(/\bformatTenths\(row\.bidDays\)/)
+    expect(read('./BudgetView.jsx')).toMatch(/import CurrencyDisplay, \{[^}]*\bformatTenths\b[^}]*\} from '\.\.\/components\/CurrencyDisplay'/)
+  })
+})
+
+/* ── V2, the second visual QA pass (2026-09-27): B5b §4.2 items 3, 4, 10 ──── */
+describe('V2: the Budget items B5b left for the second visual pass', () => {
+  afterEach(() => { cleanup(); _resetOverlaysForTests() })
+
+  it('item 3: nothing in the tool builds a currency formatter but CurrencyDisplay — the project Summary\'s own, in the viewer\'s locale, is gone', () => {
+    const tool = join(here, '..')
+    const own = readdirSync(tool, { recursive: true })
+      .map((f) => String(f).replace(/\\/g, '/'))
+      .filter((f) => /^(views|components)\/.+\.jsx?$/.test(f) && !/\.test\./.test(f) && f !== 'components/CurrencyDisplay.jsx')
+      .filter((f) => /Intl\.NumberFormat\([\s\S]{0,160}?style:\s*'currency'|function fmtMoney\(/.test(readFileSync(join(tool, f), 'utf8')))
+    expect(own).toEqual([])
+    // The sweep reads what it claims to: the Summary is in it, and a planted copy is caught.
+    expect(readdirSync(join(tool, 'views')).includes('ProjectSummaryView.jsx')).toBe(true)
+    expect(/Intl\.NumberFormat\([\s\S]{0,160}?style:\s*'currency'/.test("new Intl.NumberFormat(undefined, {\n  style: 'currency',")).toBe(true)
+    // The Summary calls the one formatter, and keeps its dash for an amount
+    // it does not have (the old copy printed '—' for null and NaN).
+    const summary = read('./ProjectSummaryView.jsx')
+    expect(summary).toMatch(/import \{ formatMoney \} from '\.\.\/components\/CurrencyDisplay'/)
+    expect(summary).toMatch(/value=\{moneyOrDash\(budget\.total, budget\.currency\)\}/)
+    expect(summary).toMatch(/function moneyOrDash\(n, currency\) \{\n\s+return n == null \|\| Number\.isNaN\(Number\(n\)\) \? '—' : formatMoney\(n, currency\)\n\}/)
+  })
+
+  it('item 4: an expense\'s title and description, each cut with an ellipsis at 1280, carry their whole text as a tooltip', () => {
+    const h = {
+      expenses: [
+        { id: 'e1', title: 'Camera package hire', description: 'Two-week hire', estimated_cost: 16800, actual_cost: 16800, purchase_date: '2026-09-08' },
+        { id: 'e3', title: '', estimated_cost: 260, actual_cost: 284, purchase_date: '' },
+      ],
+      loading: false, addExpense: vi.fn(), updateExpense: vi.fn(), deleteExpense: vi.fn(), undo: vi.fn(), redo: vi.fn(), canUndo: false, canRedo: false,
+    }
+    const { container } = render(
+      <ExpensesTab ctx={{ getAdapter: () => ({}) }} project={{ id: 'p1', budget_margin_pct: 0, budget_contingency_pct: 0 }} phases={[]} assets={[]} tasks={[]} expensesHook={h} currency="USD" />,
+    )
+    const rows = [...container.querySelectorAll('table.rb-budget-exp tbody tr.rb-budget-exp-row')]
+    const hire = rows.find((r) => r.textContent.includes('Camera package hire'))
+    expect(hire.querySelector('.rb-budget-exp-title').getAttribute('title')).toBe('Camera package hire')
+    expect(hire.querySelector('.rb-budget-exp-desc').getAttribute('title')).toBe('Two-week hire')
+    // "Untitled" is the app's word, not the expense's: no tooltip repeats it.
+    const untitled = rows.find((r) => r.textContent.includes('Untitled'))
+    expect(untitled.querySelector('.rb-budget-exp-title').hasAttribute('title')).toBe(false)
+  })
+
+  it('item 5: a report\'s first section draws no hairline of its own, 24px under the tab bar\'s (a double rule); the sections after it keep theirs', () => {
+    const phases = [{ id: 'ph1', name: 'Pre-production', sort_order: 0 }]
+    const assets = [{ id: 'a1', name: 'Hero', phase_id: 'ph1' }]
+    const tasks = [{ id: 't1', asset_id: 'a1', assigned_role_slug: 'anim', bid_days: 4, logged_days: 5, status: 'in_progress' }]
+    const budget = { total: 2000, byRole: {}, currency: 'USD' }
+    const { container: byPhase } = render(<ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={{ anim: 500 }} />)
+    const phaseSections = [...byPhase.querySelectorAll('.ui-section')]
+    expect(phaseSections).toHaveLength(1)
+    expect(phaseSections[0].hasAttribute('data-rule')).toBe(false)
+    cleanup()
+    try { localStorage.clear() } catch { /* ignore */ }
+    const { container: custom } = render(
+      <CustomTab project={{ id: 'p1' }} phases={phases} assets={assets} tasks={tasks}
+        scenes={[]} shots={[]} levels={[]} experiences={[]} budget={budget} roleRates={{ anim: 500 }} />,
+    )
+    const customSections = [...custom.querySelectorAll('.ui-section')]
+    expect(customSections.map((s) => s.getAttribute('data-rule'))).toEqual([null, 'true'])
+    // The five reports the file does not export: each one's only section is
+    // told the same, in the source.
+    const src = read('./BudgetView.jsx')
+    for (const fn of ['ByRoleTab', 'ByAssetTab', 'BySceneTab', 'ByShotTab', 'ByLevelTab', 'ByExperienceTab']) {
+      const body = src.slice(src.indexOf(`function ${fn}(`), src.indexOf('\n}\n', src.indexOf(`function ${fn}(`)))
+      expect(body.match(/<Card\b[^>]*>/g), fn).toEqual([expect.stringMatching(/\brule=\{false\}/)])
+    }
+  })
+
+  it('item 10: while it fetches, the open-invoice button shows the kit spinner, and the folder again when it is done', async () => {
+    let finish
+    const adapter = { listFiles: vi.fn(() => new Promise((r) => { finish = r })), downloadFile: vi.fn() }
+    render(<InvoiceAttachment getAdapter={() => adapter} projectId="p1" lineId="l1" name="inv.pdf" path="file:f1" onChange={() => {}} />)
+    const open = screen.getByRole('button', { name: 'Open invoice' })
+    expect(open.querySelector('.ui-spinner')).toBeNull()
+    await act(async () => { fireEvent.click(open) })
+    expect(open.getAttribute('aria-busy')).toBe('true')
+    expect(open.querySelector('.ui-spinner')).not.toBeNull()
+    // No such row: the error path ends the fetch, as a finished one does.
+    await act(async () => { finish([]) })
+    expect(open.hasAttribute('aria-busy')).toBe(false)
+    expect(open.querySelector('.ui-spinner')).toBeNull()
+  })
+})

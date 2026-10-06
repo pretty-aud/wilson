@@ -43,6 +43,15 @@ export const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
 // straight through and every scenario would fail step 1.
 export const WORKSPACE = process.env.WILSON_E2E_WORKSPACE_SLUG || 'smoke'
 
+// B1 review round R2: the fixture's DISPLAY NAME, for the control that proves
+// a `*` is not a wildcard at the company step. The name minus its last
+// character plus `*` is the one input that reaches the resolver's equality
+// re-check (a three-letter prefix already misses at the database, so it would
+// stay green with the re-check deleted). Same footing as WORKSPACE: an
+// identifier, not a credential. Set WILSON_E2E_WORKSPACE_NAME alongside
+// WILSON_E2E_WORKSPACE_SLUG if the probe account ever moves company.
+export const WORKSPACE_NAME = process.env.WILSON_E2E_WORKSPACE_NAME || 'Smoke Workspace'
+
 if (!PASSWORD) {
   throw new Error(
     'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '
@@ -51,11 +60,22 @@ if (!PASSWORD) {
   )
 }
 
-// Step 1 of 2. The company step deliberately makes NO network call — it
-// shape-checks the slug and advances — so there is nothing to wait on beyond
-// the step cross-fade; waiting for the Username field covers it.
+// Step 1 of 2. Since `158172c` (S43, "the company is a real gate") this step
+// POSTs `{company}` to resolve-login and only advances on `exists:true` —
+// the earlier "no network call, shape-check only" note was true for one
+// commit. Waiting for the Username field covers the round trip.
+//
+// ⚠️ B1: resolve-login's limiter is now DURABLE and per IP (20 company
+// checks and 30 credential checks per minute per address). Each scenario
+// here spends one or two of each; the whole file stays well under, but a
+// spec that loops sign-ins will hit `TOO MANY ATTEMPTS` — that is the
+// limiter working, not a flake.
 export async function clearCompanyStep(page: Page, workspace = WORKSPACE) {
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 15_000 })
+  // UI overhaul D2: the title is sentence case now (Q2 — uppercase survives
+  // only in the transition title and the 11px Label step), so this regex is
+  // case-insensitive. It is a LOOSENING: it matches the old LOGIN and the new
+  // Login, so it cannot regress while the restyle rolls through the lanes.
+  await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
   await page.getByLabel('Company').fill(workspace)
   await page.getByRole('button', { name: /^continue$/i }).click()
   await expect(page.getByLabel('Username')).toBeVisible({ timeout: 10_000 })

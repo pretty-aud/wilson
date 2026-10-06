@@ -53,6 +53,8 @@ test('in-app navigation pushes /wilson/<page> URLs and back returns', async ({ p
 test('signed out, deep links land on the login screen — not a blank page', async ({ page }) => {
   for (const path of ['/wilson/dog', '/wilson/rate-card', '/wilson/admin-terminal']) {
     await page.goto(path)
-    await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 15_000 })
+    // Case-insensitive since UI overhaul D2 sentence-cased the auth titles;
+    // it matches both spellings, so it cannot regress. See authFlow.ts.
+    await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
   }
 })

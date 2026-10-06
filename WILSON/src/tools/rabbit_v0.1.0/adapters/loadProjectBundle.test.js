@@ -43,6 +43,15 @@ const EXPECTED_KEYS = [
   // would be reset to [] by the EMPTY_BUNDLE spread and the whole tree would
   // vanish on every project switch.
   'folders',
+  // The bin system (demo 2026-09-11): same trap, four more keys.
+  'bins', 'binFiles', 'binRoots', 'shotTakes',
+  // Post-overhaul S3a (0084): omitted, the EMPTY_BUNDLE spread would reset
+  // them and every surface reading the ACTIVE list (D10) would silently fall
+  // back to "every scene and shot".
+  'shotLists', 'shotListItems', 'edits',
+  // Post-overhaul S5b (0090): omitted, an open would read every set-aside
+  // row as LOST and re-make it instead of bringing it back.
+  'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
 ]
 
 /** A server bundle with one identifiable row in every collection. */
@@ -95,5 +104,411 @@ describe('localServerAdapter.loadProject — bundle key coverage', () => {
     stubFetch(serverBundle())
     const bundle = await localServerAdapter().loadProject('p1')
     expect(bundle.project).toEqual({ id: 'p1', title: 'Project One' })
+  })
+})
+
+
+// ── Milestone trash (A2 session 2, ruling 38) ───────────────────────────────
+//
+// The desktop DELETE now stamps deleted_at instead of splicing the row out
+// (electron/main.cjs, the softDelete opt), so the bundle CONTAINS trashed
+// milestones and the adapter is what keeps them off the timeline. That filter
+// is the local mirror of milestones_select's `deleted_at IS NULL` arm in 0067:
+// if the two backends disagree, the same project looks different depending on
+// where it is stored, which is the parity Audrey's Phase 3 exists to enforce.
+
+describe('localServerAdapter — trashed milestones', () => {
+  const LIVE    = { id: 'm-live',    title: 'Lock picture' }
+  const TRASHED = { id: 'm-trashed', title: 'Wrap', deleted_at: '2026-09-07T10:00:00Z' }
+  const OLDER   = { id: 'm-older',   title: 'Scout', deleted_at: '2026-09-01T10:00:00Z' }
+
+  it('loadProject hides trashed milestones and keeps live ones', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [LIVE, TRASHED] })
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.milestones).toEqual([LIVE])
+  })
+
+  it('listMilestones hides them too — the timeline reads both paths', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [LIVE, TRASHED] })
+    expect(await localServerAdapter().listMilestones('p1')).toEqual([LIVE])
+  })
+
+  it('listTrashedMilestones returns only the trashed ones, newest first', async () => {
+    // Newest first matches milestones_trash_index's ORDER BY deleted_at DESC,
+    // so the panel lists them the same way on both backends.
+    stubFetch({ project: { id: 'p1' }, milestones: [OLDER, LIVE, TRASHED] })
+    const rows = await localServerAdapter().listTrashedMilestones('p1')
+    expect(rows.map(r => r.id)).toEqual(['m-trashed', 'm-older'])
+  })
+
+  it('restoreMilestone reports the server answer as a boolean', async () => {
+    // The cloud RPC returns false when the row was already live (someone else
+    // restored it first). The desktop route answers { restored: false } in the
+    // same case, and callers must be able to read both the same way.
+    stubFetch({ ok: true, restored: false })
+    expect(await localServerAdapter().restoreMilestone('m1', 'p1')).toBe(false)
+    stubFetch({ ok: true, restored: true })
+    expect(await localServerAdapter().restoreMilestone('m1', 'p1')).toBe(true)
+  })
+})
+
+
+// ── R1 corrections (A2 session 2) ───────────────────────────────────────────
+
+describe('localServerAdapter — R1 corrections', () => {
+  const MAR = { id: 'm-mar', title: 'March',    date: '2026-03-01' }
+  const JAN = { id: 'm-jan', title: 'January',  date: '2026-01-01' }
+  const FEB = { id: 'm-feb', title: 'February', date: '2026-02-01' }
+  const NODATE = { id: 'm-none', title: 'Undated' }
+
+  it('orders milestones by date, matching the cloud order(date) the adapter sends', async () => {
+    // R1: the commit claimed "both adapters agree" on order while this one
+    // returned bundle INSERTION order. Invisible on the Gantt, which draws by
+    // date; visible in ProjectTasksView's milestone rows, which render array
+    // order.
+    stubFetch({ project: { id: 'p1' }, milestones: [MAR, JAN, FEB] })
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m-jan', 'm-feb', 'm-mar'])
+  })
+
+  it('sorts listMilestones the same way', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [MAR, JAN, FEB] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-jan', 'm-feb', 'm-mar'])
+  })
+
+  it('puts an undated milestone LAST, as Postgres puts NULLs last ascending', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [NODATE, FEB] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-feb', 'm-none'])
+  })
+
+  it('destroyMilestone asks for a HARD delete, not the trash', async () => {
+    // Undoing a CREATE must leave no row and no trash entry: on Local Server
+    // nothing purges, so an undone create would otherwise sit in "Recently
+    // deleted" forever with no way to remove it.
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true }) }
+    })
+    await localServerAdapter().destroyMilestone('m1', 'p1')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].method).toBe('DELETE')
+    expect(calls[0].url).toContain('/milestones/m1?purge=1')
+  })
+
+  it('deleteMilestone does NOT ask for a purge', async () => {
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true }) }
+    })
+    await localServerAdapter().deleteMilestone('m1', 'p1')
+    expect(calls[0].url).not.toContain('purge')
+  })
+})
+
+
+// ── R2 L5: the sort must agree with Postgres, not merely be a sort ─────────
+
+describe('byMilestoneDate matches ORDER BY date, id', () => {
+  it('breaks ties on id rather than on bundle order', async () => {
+    // `ORDER BY date` alone leaves equal dates in an arbitrary heap order in
+    // Postgres, while Array.prototype.sort is spec-stable and keeps insertion
+    // order — so two key dates on the same day could render differently on the
+    // two backends, which is the symptom ordering was added to remove. Both
+    // sides now break ties on id.
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-z', date: '2026-05-01' },
+      { id: 'm-a', date: '2026-05-01' },
+      { id: 'm-m', date: '2026-05-01' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-a', 'm-m', 'm-z'])
+  })
+
+  it('compares dates as dates, not as strings', async () => {
+    // localeCompare put '2026-1-5' AFTER '2026-01-15'; Postgres orders them
+    // Jan 5 then Jan 15. Only reachable from a hand-edited or imported bundle,
+    // since the editor emits padded ISO — but a string compare on a date
+    // column is wrong wherever it appears.
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-15', date: '2026-01-15' },
+      { id: 'm-5',  date: '2026-1-5' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-5', 'm-15'])
+  })
+
+  it('an unparseable date sorts with the nulls, at the end', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-bad', date: 'not a date' },
+      { id: 'm-ok',  date: '2026-01-15' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-ok', 'm-bad'])
+  })
+})
+
+
+// ── Shot lists, items and edits (post-overhaul S3a, 0084) ───────────────────
+//
+// The twelve adapter methods the S3a contract (its round-1 addendum, A: the
+// two membership DELTA writes; its round-2 addendum, R2-2: the positions-only
+// reorder) gives every backend, driven against a
+// fetch spy: each must hit the route electron/rabbitShotLists.cjs registers,
+// with the verb and body that route reads. A wrong URL here is a 404 on the
+// desktop and nothing anywhere else — the routes' own test mounts the module
+// on a fresh app and never sees the adapter.
+
+describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
+  function spyFetch(reply = { ok: true }) {
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: init?.method || 'GET',
+        body: init?.body === undefined ? undefined : JSON.parse(init.body),
+      })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply }
+    })
+    return calls
+  }
+
+  // Rows deliberately out of order: insertion order is NOT the answer.
+  const L_B = { id: 'l-b', created_at: '2026-09-30T10:00:00.000Z' }
+  const L_A = { id: 'l-a', created_at: '2026-09-30T10:00:00.000Z' }
+  const L_OLD = { id: 'l-z', created_at: '2026-09-01T09:00:00.000Z' }
+  const I_2 = { id: 'i-2', position: 2 }
+  const I_0B = { id: 'i-b', position: 0 }
+  const I_0A = { id: 'i-a', position: 0 }
+  const I_10 = { id: 'i-10', position: 10 }
+
+  it('loadProject orders shotLists and edits by created_at then id, shotListItems by position then id', async () => {
+    stubFetch({ project: { id: 'p1' }, shotLists: [L_B, L_OLD, L_A], shotListItems: [I_10, I_2, I_0B, I_0A], edits: [L_B, L_A, L_OLD] })
+    const b = await localServerAdapter().loadProject('p1')
+    expect(b.shotLists.map(r => r.id)).toEqual(['l-z', 'l-a', 'l-b'])
+    expect(b.edits.map(r => r.id)).toEqual(['l-z', 'l-a', 'l-b'])
+    // 10 after 2: a numeric sort, not a string one.
+    expect(b.shotListItems.map(r => r.id)).toEqual(['i-a', 'i-b', 'i-2', 'i-10'])
+  })
+
+  it('FAILING CONTROL: the sort copies — the server bundle arrays keep their order', async () => {
+    const payload = { project: { id: 'p1' }, shotLists: [L_B, L_A], shotListItems: [I_2, I_0A], edits: [] }
+    stubFetch(payload)
+    await localServerAdapter().loadProject('p1')
+    expect(payload.shotLists.map(r => r.id)).toEqual(['l-b', 'l-a'])
+    expect(payload.shotListItems.map(r => r.id)).toEqual(['i-2', 'i-a'])
+  })
+
+  it('the three list* methods read the bundle (GET /projects/:id) and sort the same way', async () => {
+    const calls = spyFetch({ project: { id: 'p1' }, shotLists: [L_B, L_A], shotListItems: [I_2, I_0A], edits: [L_B, L_OLD] })
+    const a = localServerAdapter()
+    expect((await a.listShotLists('p1')).map(r => r.id)).toEqual(['l-a', 'l-b'])
+    expect((await a.listShotListItems('p1')).map(r => r.id)).toEqual(['i-a', 'i-2'])
+    expect((await a.listEdits('p1')).map(r => r.id)).toEqual(['l-z', 'l-b'])
+    expect(calls.map(c => [c.method, c.url])).toEqual([
+      ['GET', '/api/rabbit/projects/p1'],
+      ['GET', '/api/rabbit/projects/p1'],
+      ['GET', '/api/rabbit/projects/p1'],
+    ])
+  })
+
+  it('the list* methods answer [] for a bundle without the keys', async () => {
+    spyFetch({ project: { id: 'p1' } })
+    const a = localServerAdapter()
+    expect(await a.listShotLists('p1')).toEqual([])
+    expect(await a.listShotListItems('p1')).toEqual([])
+    expect(await a.listEdits('p1')).toEqual([])
+  })
+
+  it('upsertShotList POSTs the row to …/projects/:project_id/shot-lists', async () => {
+    const calls = spyFetch({ id: 'l1' })
+    const list = { id: 'l1', project_id: 'p1', title: 'Pickups', version: 2 }
+    expect(await localServerAdapter().upsertShotList(list)).toEqual({ id: 'l1' })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists', body: list }])
+  })
+
+  it('patchShotList (S3b) POSTs ONLY the change, with the stored row\'s id, to …/projects/:projectId/shot-lists — the route merges a partial body', async () => {
+    const calls = spyFetch({ id: 'l1', title: 'Main shoot' })
+    expect(await localServerAdapter().patchShotList('p1', 'l1', { title: 'Main shoot' })).toEqual({ id: 'l1', title: 'Main shoot' })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists', body: { title: 'Main shoot', id: 'l1' } }])
+  })
+
+  it('upsertEdit POSTs the row to …/projects/:project_id/edits', async () => {
+    const calls = spyFetch({ id: 'e1' })
+    const edit = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }
+    await localServerAdapter().upsertEdit(edit)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/edits', body: edit }])
+  })
+
+  it('upsertShotList and upsertEdit refuse a row with no project_id, without a request', async () => {
+    const calls = spyFetch()
+    await expect(localServerAdapter().upsertShotList({ title: 'x' })).rejects.toThrow(/project_id/)
+    await expect(localServerAdapter().upsertEdit({ title: 'x' })).rejects.toThrow(/project_id/)
+    expect(calls).toEqual([])
+  })
+
+  it('replaceShotListItems PUTs { items } to …/shot-lists/:listId/items', async () => {
+    const rows = [{ id: 'i1', shot_list_id: 'l1', scene_id: 's1', shot_id: null, position: 0 }]
+    const calls = spyFetch(rows)
+    const items = [{ id: 'i1', scene_id: 's1', position: 0 }, { shot_id: 'sh1' }]
+    expect(await localServerAdapter().replaceShotListItems('p1', 'l1', items)).toEqual(rows)
+    expect(calls).toEqual([{ method: 'PUT', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('upsertShotListItems POSTs { items } to …/shot-lists/:listId/items — the DELTA, not the whole-set PUT', async () => {
+    // Same URL as replace; the verb is the whole difference, and a PUT here
+    // would delete every row of the list this client did not name (R1
+    // provider#0) — so the method is pinned, not just the URL.
+    const rows = [{ id: 'i9', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 4 }]
+    const calls = spyFetch(rows)
+    const items = [{ scene_id: 's2', position: 4 }]
+    expect(await localServerAdapter().upsertShotListItems('p1', 'l1', items)).toEqual(rows)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items', body: { items } }])
+  })
+
+  it('deleteShotListItems POSTs { ids } to …/shot-lists/:listId/items/delete and answers { deleted }', async () => {
+    const calls = spyFetch({ deleted: ['i1'] })
+    expect(await localServerAdapter().deleteShotListItems('p1', 'l1', ['i1', 'i2'])).toEqual({ deleted: ['i1'] })
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items/delete', body: { ids: ['i1', 'i2'] } }])
+  })
+
+  it('repositionShotListItems POSTs { items: [{ id, position }], positionsOnly: true } to …/shot-lists/:listId/items (R2-2)', async () => {
+    // Same URL and verb as the upsert; the FLAG is the whole difference, and
+    // without it a reorder from a stale view re-inserts a row a collaborator
+    // removed — so the body is pinned exactly, flag included. scene_id /
+    // shot_id are cut: a move changes position only.
+    const rows = [{ id: 'i2', shot_list_id: 'l1', scene_id: 's2', shot_id: null, position: 0 }]
+    const calls = spyFetch(rows)
+    const changed = [
+      { id: 'i2', shot_list_id: 'l1', project_id: 'p1', scene_id: 's2', shot_id: null, position: 0 },
+      { id: 'i1', scene_id: 's1', position: 1 },
+    ]
+    expect(await localServerAdapter().repositionShotListItems('p1', 'l1', changed)).toEqual(rows)
+    expect(calls).toEqual([{
+      method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/items',
+      body: { items: [{ id: 'i2', position: 0 }, { id: 'i1', position: 1 }], positionsOnly: true },
+    }])
+  })
+
+  it('repositionShotListItems leaves a bad payload for the ROUTE to refuse, never inventing a position', async () => {
+    // A missing position is dropped by JSON (the route answers 400 rather
+    // than defaulting it), and a non-array is sent as is instead of throwing
+    // a TypeError before any request.
+    const calls = spyFetch([])
+    const a = localServerAdapter()
+    await a.repositionShotListItems('p1', 'l1', [{ id: 'i1' }])
+    await a.repositionShotListItems('p1', 'l1', 'x')
+    await a.repositionShotListItems('p1', 'l1')
+    expect(calls.map(c => c.body)).toEqual([
+      { items: [{ id: 'i1' }], positionsOnly: true },
+      { items: 'x', positionsOnly: true },
+      { positionsOnly: true },
+    ])
+  })
+
+  it('a delta\'s refusal arrives with its status and code', async () => {
+    // (Round 1 pinned this with the archived-list 409; round 2's R2-1 removed
+    // that refusal, so the duplicate-membership 409 carries the pin now.)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 409, headers: { get: () => 'application/json' },
+      json: async () => ({ error: 'a shot list holds each scene and each shot once', code: 'conflict' }),
+    }))
+    const err = await localServerAdapter().upsertShotListItems('p1', 'l1', [{ scene_id: 's1' }]).catch(e => e)
+    expect(err.status).toBe(409)
+    expect(err.code).toBe('conflict')
+    expect(err.message).toBe('[localServer] a shot list holds each scene and each shot once')
+  })
+
+  it('setActiveShotList POSTs { listId } and answers the new active id', async () => {
+    const calls = spyFetch({ active_shot_list_id: 'l1' })
+    expect(await localServerAdapter().setActiveShotList('p1', 'l1')).toBe('l1')
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/active-shot-list', body: { listId: 'l1' } }])
+  })
+
+  it('setActiveShotList(null) — and an undefined listId — send an EXPLICIT null, and answer null', async () => {
+    // The route refuses a body without the key rather than guessing "clear";
+    // JSON.stringify would drop an undefined value, so the adapter must not
+    // pass one through.
+    const calls = spyFetch({ active_shot_list_id: null })
+    expect(await localServerAdapter().setActiveShotList('p1', null)).toBeNull()
+    expect(await localServerAdapter().setActiveShotList('p1', undefined)).toBeNull()
+    expect(calls.map(c => c.body)).toEqual([{ listId: null }, { listId: null }])
+  })
+
+  it('archiveShotList POSTs { archived } to …/shot-lists/:listId/archive, true by default', async () => {
+    const calls = spyFetch({ id: 'l1', archived_at: 'x' })
+    const a = localServerAdapter()
+    await a.archiveShotList('p1', 'l1')
+    await a.archiveShotList('p1', 'l1', false)
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/archive', body: { archived: true } },
+      { method: 'POST', url: '/api/rabbit/projects/p1/shot-lists/l1/archive', body: { archived: false } },
+    ])
+  })
+
+  it('archiveEdit POSTs { archived } to …/edits/:editId/archive, true by default', async () => {
+    const calls = spyFetch({ id: 'e1' })
+    const a = localServerAdapter()
+    await a.archiveEdit('p1', 'e1')
+    await a.archiveEdit('p1', 'e1', false)
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/rabbit/projects/p1/edits/e1/archive', body: { archived: true } },
+      { method: 'POST', url: '/api/rabbit/projects/p1/edits/e1/archive', body: { archived: false } },
+    ])
+  })
+
+  it('a route refusal arrives as an Error carrying the status and the code', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false, status: 409, headers: { get: () => 'application/json' },
+      json: async () => ({ error: 'the active shot list cannot be archived — make another list active first', code: 'conflict' }),
+    }))
+    const err = await localServerAdapter().archiveShotList('p1', 'l1').catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toBe('[localServer] the active shot list cannot be archived — make another list active first')
+    expect(err.status).toBe(409)
+    expect(err.code).toBe('conflict')
+  })
+
+  it('there is no delete method for lists or edits (D4/D18: archived, never deleted)', () => {
+    const a = localServerAdapter()
+    expect(a.deleteShotList).toBeUndefined()
+    expect(a.deleteEdit).toBeUndefined()
+  })
+})
+
+
+// Post-overhaul S5b (0090's twin): the desktop's GET answers the RAW bundle,
+// stamps and all, so the adapter splits the set-aside rows out exactly as the
+// cloud's loader does (A9). The Drive loader runs the same split (read-only
+// backend, no fetch to stub: pinned on its source).
+describe('localServerAdapter — set-aside rows (S5b)', () => {
+  it('splits the stamped rows and the edges on them out of the live arrays', async () => {
+    const b = serverBundle()
+    b.tasks = [{ id: 't1' }, { id: 't2', set_aside_at: '2026-10-05T10:00:00Z' }]
+    b.phases = [{ id: 'ph1' }]
+    b.dependencies = [{ id: 'd1', predecessor_id: 't1', successor_id: 't2' }]
+    stubFetch(b)
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks.map(t => t.id)).toEqual(['t2'])
+    expect(bundle.dependencies).toEqual([])
+    expect(bundle.setAsideDependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('CONTROL: no stamp, nothing moves', async () => {
+    const b = serverBundle()
+    b.tasks = [{ id: 't1' }, { id: 't2' }]
+    stubFetch(b)
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1', 't2'])
+    expect(bundle.setAsideTasks).toEqual([])
+  })
+  it('the Drive loader returns its bundle through the same split', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('./googleDriveAdapter.js', import.meta.url), 'utf-8')
+    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],\s*\}\);/)
+    expect(src).toMatch(/import \{ splitSetAside \} from '\.\.\/state\/setAside';/)
   })
 })

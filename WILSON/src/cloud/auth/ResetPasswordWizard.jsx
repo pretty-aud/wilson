@@ -37,12 +37,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthShell, {
-  AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_BUTTON_STYLE,
-  AUTH_HINT_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
+  AUTH_PROSE_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_GAP_BETWEEN_BLOCKS,
   AuthField,
   AuthPasswordInput,
 } from './AuthShell'
@@ -183,7 +184,14 @@ export default function ResetPasswordWizard({ onDone }) {
       // Sign out so the user has to re-auth with the new password — this is
       // both a sanity check and how we round-trip through NewUserWelcome
       // when the invite path lands here.
-      await supabase.auth.signOut()
+      //
+      // `scope: 'global'` ON PURPOSE (Audrey, 2026-09-04, fix plan answer 12:
+      // "keep signing out everywhere on a password reset; say so on screen").
+      // A new password revokes every refresh token the person holds — every
+      // device, and the operator console too. The form above says so before
+      // they commit, and the done screen says it happened. Contrast
+      // App.jsx's wilsonSignOut, which is deliberately `scope: 'local'`.
+      await supabase.auth.signOut({ scope: 'global' })
       setStage('done')
       setBusy(false)
     } catch (err) {
@@ -199,9 +207,21 @@ export default function ResetPasswordWizard({ onDone }) {
   // Session 43 §A7: field + button styling comes from AuthShell.
   const primaryButton = (isBusy) => ({
     ...AUTH_BUTTON_STYLE,
-    cursor: isBusy ? 'default' : 'pointer',
-    opacity: isBusy ? 0.55 : 1,
+    ...(isBusy ? AUTH_BUTTON_BUSY_STYLE : null),
   })
+
+  // AUTH-21. The press is the auth family's affordance and this surface had
+  // none of it — the same control that presses on the sign-in screen sat dead
+  // under the finger here, which is worse than nobody having it. A two percent
+  // :active scale in CSS: no handler, nothing written to the DOM node, nothing
+  // to leave stuck at 0.98 when a mouse-up lands somewhere else.
+  //
+  // One literal per file rather than one per button, because its permanent
+  // home is `.ui-btn:active` in the kit (hand-off kit request K1) and the day
+  // that lands these are grepped and deleted. LoginScreen and MfaSection carry
+  // the same line; the single exported token they should all share belongs in
+  // AuthShell and is not this file's to add.
+  const PRESS_CLASS = 'active:scale-[0.98]'
 
   return (
     <AuthShell
@@ -211,19 +231,30 @@ export default function ResetPasswordWizard({ onDone }) {
       showLogoIntro={false}
       playStartupSound={false}
     >
+      {/* AUTH-09: the outer stack separates BLOCKS — the title from whichever
+          stage is mounted — so it takes the block gap. 18px was hand-typed here
+          and in three sibling files, and 14px below was off the scale entirely. */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: AUTH_GAP_BETWEEN_BLOCKS, minWidth: '320px',
       }}>
-        <div style={AUTH_TITLE_STYLE}>NEW PASSWORD</div>
+        {/* Q2 / AUTH-11: sentence case. The visible AuthField labels below stay
+            UPPERCASE — Label is the one role that keeps its case. */}
+        <div style={AUTH_TITLE_STYLE}>New password</div>
 
         {stage === 'loading' && (
-          <div style={AUTH_HINT_STYLE}>VERIFYING LINK…</div>
+          // AUTH-05 / AUTH-11: a status sentence, not a label. It was
+          // `VERIFYING LINK…` in the hint role, typographically identical to
+          // the field labels beside it.
+          <div style={AUTH_PROSE_STYLE}>Verifying link…</div>
         )}
 
         {stage === 'confirm' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          // AUTH-10: centred column, left-aligned sentence. The wrapper's
+          // `maxWidth: 38ch` and `textAlign: center` belong to the prose role.
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            {/* AUTH-12: was 14 / 500 / +0.04em / textTransform none, inline. */}
+            <div style={AUTH_PROSE_STYLE}>
               {link?.type === 'invite'
                 ? 'Welcome to WILSON. Confirm below to activate your account and choose a password.'
                 : 'Confirm below to continue resetting your password.'}
@@ -232,6 +263,7 @@ export default function ResetPasswordWizard({ onDone }) {
               type="button"
               onClick={handleConfirm}
               disabled={busy}
+              className={PRESS_CLASS}
               style={primaryButton(busy)}
             >
               {busy ? 'Confirming…' : 'Continue'}
@@ -240,8 +272,10 @@ export default function ResetPasswordWizard({ onDone }) {
         )}
 
         {stage === 'invalid' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
+          // The longest paragraph on the surface, and the one the 60ch measure
+          // in AUTH_PROSE_STYLE exists for (AUTH-10, AUTH-12).
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            <div style={AUTH_PROSE_STYLE}>
               This link has already been used, or it has expired.
               {' '}
               Invite and reset links work only once — and some email providers
@@ -252,6 +286,7 @@ export default function ResetPasswordWizard({ onDone }) {
             <button
               type="button"
               onClick={handleDone}
+              className={PRESS_CLASS}
               style={AUTH_BUTTON_STYLE}
             >
               Back to login
@@ -285,20 +320,38 @@ export default function ResetPasswordWizard({ onDone }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={primaryButton(busy)}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={primaryButton(busy)}>
               {busy ? 'Updating…' : 'Set password'}
             </button>
+
+            {/* B1 (answer 12): the reset revokes every session, and the
+                person should know that BEFORE they press the button — the
+                operator console tab they may have open goes too. Sentence
+                case (AUTH-11: every message on this surface is), and the
+                PROSE role: it is a sentence, and the hint role is for
+                label-like fragments (AUTH-05 / AUTH-12), left-aligned in its
+                own measure rather than centred (AUTH-10) — the same reason
+                "Verifying link…" above moved. Merge review round 1, B-R1-05. */}
+            <div style={AUTH_PROSE_STYLE}>
+              You will be signed out on every device.
+            </div>
           </form>
         )}
 
         {stage === 'done' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
-              Password updated. Sign in with your new password.
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AUTH_GAP_BETWEEN_BLOCKS }}>
+            {/* ⚠️ Playwright matches this sentence on /password updated/i.
+                Only its typographic role changed (AUTH-12); the opening words
+                are load-bearing. B1 (answer 12) added the second sentence: the
+                done screen says the global sign-out happened. */}
+            <div style={AUTH_PROSE_STYLE}>
+              Password updated. You have been signed out on every device —
+              sign in again with your new password.
             </div>
             <button
               type="button"
               onClick={handleDone}
+              className={PRESS_CLASS}
               style={AUTH_BUTTON_STYLE}
             >
               Continue

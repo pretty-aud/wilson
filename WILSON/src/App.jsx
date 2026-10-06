@@ -1,6 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
+import DevFixturesBadge from './dev/DevFixturesBadge'
+import { PageHeader, IconButton, ToastProvider, Button } from './ui'
+// T3: the close-confirmation dialog below is the one surface in this file
+// still written entirely as inline style objects. Its type now reads the
+// scale from here rather than restating 16px / 13px / 12px by hand.
+import {
+  TYPE, LEADING, WEIGHT, PAPER, INK_2, SIGNAL, BACKDROP,
+  RADIUS_FLOAT, SHADOW_FLOAT, DIALOG, DANGER,
+} from './ui/tokens'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
@@ -13,17 +22,23 @@ import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
-import { loadPet, savePetData, loadOtterSettings, saveOtterSettings } from './lib/localData'
-import { canCreateNewEgg, mintEggFrom } from './lib/petLifecycle'
+import { loadPet, savePetData, clearPetCache, loadOtterSettings, saveOtterSettings } from './lib/localData'
+import { canCreateNewEgg, mintEggFrom,
+         DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS, CORPSE_TO_GHOST_MS,
+         derivePetState, applyOfflineDecay } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
-import { PAGE_BARS } from './layout/pageBars'
-import { resolveUserPet, saveCloudPet, mirrorPetToCache,
-         resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
+import { installCompanionShiftHotkey } from './lib/companionHotkey'
+import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
+import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
+         resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
+         getUserStateOwner } from './lib/userState'
+import PetNotice from './components/PetNotice'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
 import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'
 import DashboardPage from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
 import HelpPage from './components/HelpPage'
@@ -41,10 +56,26 @@ import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
-import { otterFetch } from './tools/otter_v0.3.1/adapters'
+import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { withTimeout } from './cloud/auth/withTimeout'
+// The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
+// (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
+import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
+// B2 part 2 (Track B): the session block's own pieces — the auth_events
+// emitter, the idle/cap timeouts, their notice, the connection-lost banner
+// and the WIL-1002 reporter.
+import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from './cloud/auth/authEvents'
+import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
+import SessionWarning, { describeSessionExpiry } from './cloud/auth/SessionWarning'
+import ConnectionLostBanner from './cloud/ConnectionLostBanner'
+import { reportAppEvent } from './cloud/errorCodes'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
+// Post-overhaul S3c, step 7 (D12): an unsaved edit asks before every exit.
+import { hasUnsavedWork, confirmLeave, unsavedForClose, subscribeLeaveGuards } from './tools/rabbit_v0.1.0/state/leaveGuard'
+// S3c review round 1 (R1-11): the close question takes the keyboard as a dialog does.
+import { pushModal, isTopModal, focusableWithin } from './ui/overlay'
+import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
 // Wrapper that bridges AgentProvider context to SettingsPage
@@ -89,21 +120,33 @@ function PetCompanionWithAgent(props) {
   )
 }
 
-const PAGE_TITLES = {
-  home: 'HOME',
-  dog: 'D.O.G.',
-  otter: 'O.T.T.E.R.',
-  rabbit: 'R.A.B.B.I.T.',
-  settings: 'SYSTEM SETTINGS',
-  'project-manager': 'PROJECTS',
-  'rate-card': 'RATE CARD',
-  'team-members': 'TEAM MEMBERS',
-  dashboard: 'DASHBOARD',
-  'admin-terminal': 'ADMIN TERMINAL',
-  help: 'HELP',
-};
+// PAGE_TITLES, PAGE_BARS, the nav columns and the header's chrome all derive
+// from ONE registry now — `src/layout/pages.js`. This table was the first of
+// the three hand-maintained lists a new page had to be added to, and the one
+// the Files page WAS added to while missing the bar table (review F32 / F-R04).
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+
+// One page wrapper for all twelve pages (F2). The scroll class and the focus
+// / caret / selection scope both come from the registry's `surface`, so the
+// scroll classes stop doing double duty as the surface scope (F1 hand-off §7)
+// and a page cannot be dark in one and light in the other.
+//
+// 🚨 Module level, NOT inside App. A component declared inside a render is a
+// new type on every render, so React unmounts and remounts its subtree — and
+// the entire reason every page is rendered at once is to PRESERVE that state.
+function PageSurface({ id, currentPage, overflow = 'auto', children }) {
+  const page = getPage(id);
+  return (
+    <div
+      className={page.surface === 'dark' ? 'wilson-dark-scroll' : 'wilson-light-scroll'}
+      data-surface={page.surface}
+      style={{ display: currentPage === id ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow }}
+    >
+      {children}
+    </div>
+  );
+}
 
 // Phase 6: the ceiling on reading the courses for one chat message. Generous
 // enough that a cold index build over a real library finishes (it is bounded-
@@ -146,8 +189,49 @@ async function checkSessionValid() {
   try {
     const saved = await loadSession();
     if (!saved) return null;
-    const session = await hydrateSupabase(saved);
+    // Demo sprint (2026-09-10): BOUNDED. hydrateSupabase → setSession refreshes
+    // an expired token over the network with no ceiling of its own, and NOTHING
+    // renders until this returns (`showOverlay && sessionChecked` gates the
+    // sign-in screen, `authed` the shell): Audrey's all-orange window on
+    // 2026-09-10 was a 2026-09-07 session and a stalled refresh. The same
+    // ceiling as every await in LoginScreen; a timeout is "no session", so the
+    // sign-in screen appears within it. The request is left to settle
+    // (withTimeout races, never aborts) — a late success is harmless.
+    const session = await withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore');
     return session ?? null;
+  } catch (err) {
+    console.warn('[wilson] session restore skipped:', err?.message ?? err);
+    return null;
+  }
+}
+
+/**
+ * The user id inside the STORED session, read without touching supabase-js.
+ *
+ * 🚨 A3. The pet cache is keyed by account, and the cache read has to happen
+ * BEFORE usePermissions resolves — that early render is the whole reason the
+ * mount effect exists. Nothing else knows the identity that early: `authed` is
+ * a boolean, and asking supabase.auth would contend on auth-js's global
+ * per-storageKey lock, which one hung call can pin for the whole app (see
+ * docs/OUTSTANDING.md, "One hung getSession()").
+ *
+ * The access token is a JWT whose `sub` is the user id. Decoding the payload is
+ * NOT verification and is not treated as any: nothing is authorised on the
+ * strength of it. It picks a cache key, and a wrong one reads a cache that does
+ * not exist. The same decode, for the same reason, is in WorkspaceSwitcher.
+ *
+ * Returns null on anything unexpected, which routes the read to the historical
+ * unattributed store — the signed-out behaviour.
+ */
+async function storedSessionUserId() {
+  try {
+    const saved = await loadSession();
+    const token = saved?.access_token;
+    if (typeof token !== 'string') return null;
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof claims?.sub === 'string' ? claims.sub : null;
   } catch { return null; }
 }
 
@@ -169,58 +253,37 @@ const TRANSITION = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  PET CONSTANTS
+//  PET CONSTANTS AND THE COLD-START RULES — now in src/lib/petLifecycle.js
 // ═══════════════════════════════════════════════════════════════════
-const DECAY_RATES = {
-  low:    { hunger: 0.4,  happiness: 0.25 },
-  medium: { hunger: 0.67, happiness: 0.5  },
-  high:   { hunger: 1.2,  happiness: 1.0  }
-};
-const EVOLVE_TIMES = { low: 30 * 60000, medium: 20 * 60000, high: 10 * 60000 };
-const SLEEP_DURATIONS = { low: 3 * 60000, medium: 2 * 60000, high: 1 * 60000 };
-
-function derivePetState(pet) {
-  if (!pet) return 'content';
-  if (pet.form === 'corpse' || pet.form === 'ghost') return 'dead';
-  // 🚨 AN EGG IS NOT STARVING. Phase 3, 2026-08-12.
-  //
-  // Every egg is minted with `hunger: 0`, and the hunger ladder below turns
-  // that into 'starving' — rendered in RED on Settings and as a sad face by the
-  // sprite. So a brand-new egg announced itself as about to die, which is
-  // exactly how somebody who has just replaced a pet that DID die would read
-  // "the fix did not work".
-  //
-  // Eggs do not eat: the decay tick's first line returns early for 'egg', so
-  // hunger never moves until it hatches. The label was meaningless as well as
-  // alarming. Display only — `state` is derived on every read and is
-  // deliberately absent from the stored columns (0046).
-  if (pet.form === 'egg') return 'content';
-  if (pet.sleepingSince) return 'sleeping';
-  if (pet.hunger <= 15) return 'starving';
-  if (pet.hunger <= 40) return 'hungry';
-  if (pet.happiness <= 30) return 'lonely';
-  return 'content';
-}
+//
+// 🚨 A3 (2026-09-07): DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS,
+// CORPSE_TO_GHOST_MS, derivePetState and applyOfflineDecay MOVED OUT, and the
+// move is the point rather than tidiness.
+//
+// They were module-level functions in a 2000-line component file, so the only
+// instrument that could reach them was a regex over this file's source — the
+// kind of pin the A2 session found wrong three times in one sitting.
+// A3 changes three of applyOfflineDecay's rules at once (the corpse that never
+// became a ghost, Pet Mode while the app is closed, and sleep and evolution
+// offline); changing them somewhere they could only be pinned by
+// string-matching was not defensible. petLifecycle.test.js drives the real
+// functions instead.
+//
+// The LIVE 30-second tick below is still a separate, impure algorithm and stays
+// here. The two are kept in step by sharing the tables and CORPSE_TO_GHOST_MS,
+// not by being one function.
 
 /**
- * Bring a stored pet up to date from elapsed time. Pure — returns a new object.
+ * How much of a rated exchange is KEPT in the pet's feedback array.
  *
- * 🚨 THIS IS WHY DECAY IS NOT PERSISTED ON A TIMER (S31). hunger and happiness
- * are a value AT AN ANCHOR (`lastUpdatedAt`), not raw state, so a pet that has
- * not been touched for a week needs no writes at all — the anchor stays put and
- * this recomputes the difference on the next read. Removing the 30-second
- * whole-object auto-save is what stops two signed-in computers overwriting each
- * other; this function is the half that makes that safe.
- *
- * ⚠️ The decay anchor is `lastUpdatedAt`, NOT `lastFedAt`. The plan documents
- * said to anchor on last_fed_at; MEASURED 2026-08-05, `lastFedAt` is written by
- * handleFeed and read by NOTHING anywhere in src/ or electron/.
- *
- * It was previously inline in the mount effect, and the live 30s tick applies a
- * different, fuller algorithm (sleep-end, evolution, corpse→ghost). They still
- * differ; this is the cold-start one, extracted so the local and cloud load
- * paths cannot drift apart.
+ * Not a display limit — nothing displays these strings. The one consumer
+ * (sendChat's RECENT FEEDBACK block) slices both fields to 60 characters, so
+ * this is eight times what is ever read, and it is what keeps a fifty-entry
+ * array an order of magnitude below user_pets' 262,144-byte CHECK. See the note
+ * at handleThumbRating for the measurement.
  */
+const FEEDBACK_SNIPPET_CHARS = 500;
+
 /**
  * The fields whose change MUST reach storage. Everything else is either
  * recomputable from the anchor (hunger, happiness, state) or already saved by
@@ -229,36 +292,23 @@ function derivePetState(pet) {
  * This is what replaced the 30-second whole-object auto-save: the four
  * transitions a timer used to be needed for — falling asleep, waking, evolving,
  * dying — persist when they happen and at no other time.
+ *
+ * ⚠️ Stays in this file: it is persistence wiring rather than a lifecycle rule,
+ * and it is only ever used beside petPersistedSigRef three lines away.
  */
 function petMaterialSignature(pet) {
   if (!pet) return null;
   return [pet.form, pet.sleepingSince || '', pet.evolvedAt || '', pet.diedAt || ''].join('|');
 }
 
-function applyOfflineDecay(input) {
-  const pet = { ...input };
-  if (pet.lastUpdatedAt && pet.form !== 'egg' && pet.form !== 'corpse' && pet.form !== 'ghost') {
-    const elapsed = (Date.now() - new Date(pet.lastUpdatedAt).getTime()) / 60000;
-    if (elapsed > 0 && !pet.sleepingSince) {
-      const rates = DECAY_RATES[pet.difficulty] || DECAY_RATES.medium;
-      const babyMult = pet.form === 'baby' ? 2 : 1;
-      pet.hunger = Math.max(0, pet.hunger - elapsed * rates.hunger * babyMult);
-      pet.happiness = Math.max(0, pet.happiness - elapsed * rates.happiness * babyMult);
-    }
-    if (pet.hunger <= 0) {
-      pet.form = 'ghost';
-      pet.diedAt = pet.diedAt || new Date().toISOString();
-      pet.hunger = 0;
-    }
-  }
-  if (pet.form !== 'egg' && !pet.breed) pet.breed = 'otter';
-  pet.state = derivePetState(pet);
-  return pet;
-}
-
 export default function App() {
   const [authed, setAuthed] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
+  // B2 part 2: the session's identity (the JWT's session_id) keys the 4-hour
+  // cap clock so a reload keeps it; the notice is the one line the login
+  // screen shows after a timed-out session says why it ended.
+  const [sessionId, setSessionId] = useState(null);
+  const [signedOutNotice, setSignedOutNotice] = useState('');
   const [sessionChecked, setSessionChecked] = useState(false);
   // 'login' (default) | 'forgot-password' | 'recovery'
   //
@@ -311,11 +361,6 @@ export default function App() {
   // could not stay a Tailwind class.
   const [navHovered, setNavHovered] = useState(null);
 
-  // Triggers to open tool settings panels from nav strip
-  const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
-  const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);
-  const [openRabbitSettingsTrigger, setOpenRabbitSettingsTrigger] = useState(0);
-
   // Pet visibility state — hides sprite during page transitions
   const [petVisible, setPetVisible] = useState(true);
 
@@ -336,9 +381,29 @@ export default function App() {
   // Check persisted Supabase session on mount. `session` carries the JWT that
   // RLS uses to gate every request; losing it means logged-out state.
   useEffect(() => {
+    // Dev tester mode — Audrey, 2026-09-11 (UI overhaul F1): "no just bypass
+    // password entry." 🚨 DEV BUILDS ONLY: `import.meta.env.DEV` is a
+    // compile-time constant, so `vite build` (the installer, the beta,
+    // Vercel) drops this branch; there is no runtime switch. With
+    // VITE_DEV_AUTOLOGIN=tester in .env.local the sign-in screen is skipped
+    // with NO credentials and NO session: usePermissions stays empty (no
+    // role, no workspace) and every RLS-gated query returns nothing, so the
+    // chrome, the fonts and the kit are reviewable while the tables are
+    // empty. The credentialed variant (VITE_DEV_AUTOLOGIN=1 + a test
+    // account) lives in LoginScreen.jsx and gives a real session.
+    if (import.meta.env.DEV && import.meta.env.VITE_DEV_AUTOLOGIN === 'tester') {
+      console.warn('[wilson] DEV tester mode: sign-in skipped, no session, no workspace (VITE_DEV_AUTOLOGIN=tester; dev builds only)');
+      setAuthed(true);
+      setShowOverlay(false);
+      setSessionChecked(true);
+      return;
+    }
     checkSessionValid().then(session => {
       if (session) {
         setAuthed(true);
+        // A resumed session is not a sign-in: no auth_events row here, but the
+        // cap clock must find its original start under this same session id.
+        setSessionId(sessionIdOf(session));
         // Session 17: a recovery / invite link must NOT be swallowed by an
         // existing session. The overlay is what mounts ResetPasswordWizard
         // (`showOverlay && sessionChecked && authMode === 'recovery'`), so
@@ -360,8 +425,15 @@ export default function App() {
   // Invoked by <LoginScreen/> on successful signInWithPassword. The session
   // has already been persisted by LoginScreen via sessionStorage.saveSession,
   // so we only need to flip the gate here.
-  const handleAuth = useCallback(() => {
+  const handleAuth = useCallback((session) => {
+    signingOutRef.current = null;   // a new session may be signed out again
+    setSessionId(sessionIdOf(session));
+    setSignedOutNotice('');
     setAuthed(true);
+    // B2 part 2: the client's own sign_in row — the one WITH the address and
+    // the company (the password hook's row carries neither). Fire-and-forget:
+    // it never gates the sign-in and it reports its own failure to the console.
+    recordAuthEvent('sign_in');
   }, []);
 
   // Whenever the user is authenticated, check their workspace_members row for
@@ -472,13 +544,67 @@ export default function App() {
   // next token refresh, minutes later, with nothing on screen connecting the
   // two. Ending THIS surface's session is what the button promises.
   //
-  // ⚠️ The same unscoped call still exists in ResetPasswordWizard; it is left
-  // alone here because changing what a password reset revokes is a security
-  // decision, not a tidy-up. Recorded in docs/OUTSTANDING.md.
-  useEffect(() => {
-    window.wilsonSignOut = async () => {
-      try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* swallow */ }
+  // ResetPasswordWizard signs out GLOBALLY on purpose (B1, Audrey's answer
+  // 12): a new password revokes every session, the console's included, and
+  // its `scope: 'global'` is explicit. The two calls differ by decision.
+  //
+  // B2 part 2 (Track B): one exit for every way a session ends on this
+  // surface. `event` names the auth_events row written BEFORE the token is
+  // revoked (after it there is no JWT to write with): 'sign_out' for the
+  // button (the default, so the existing callers are unchanged), 'idle_timeout'
+  // or 'session_cap' from useSessionTimeouts, null for no row. An expiry also
+  // emits WIL-1002 — declared in errorCodes.js since S9 and wired by nothing
+  // until now (TPN-LOG-005) — and sets the one-line reason the login screen
+  // shows. Both writes are bounded and best-effort and run side by side, so
+  // leaving never waits more than one ceiling on a dead network.
+  //
+  // R2: ONE sign-out at a time, and the persisted session goes FIRST. The
+  // timeouts and the Settings button can both fire in the window the log
+  // writes take, which wrote two rows and clobbered the reason; `signingOut`
+  // makes the second caller await the first. And `clearSession()` runs
+  // before any network call, because `supabase.auth.signOut()` awaits
+  // `getSession()` internally and can hang forever on the silent-network
+  // failure this bundle's banner exists for — leaving the encrypted session
+  // on disk. The in-memory JWT still serves the two log writes.
+  const signingOutRef = useRef(null);
+  const signOutLocal = useCallback(async ({ event = 'sign_out' } = {}) => {
+    if (signingOutRef.current) return signingOutRef.current;
+    const run = (async () => {
+      // 🚨 A3: THE CACHED PET LEAVES WITH THE PERSON.
+      //
+      // `clearSession()` clears the auth blob and nothing else. The per-device
+      // pet cache survived on purpose — SessionSection says so — on the grounds
+      // that the React state leak was closed. But resolveUserPet READ that
+      // uncleaned copy to decide whether to adopt it, so on a shared computer
+      // person A's pet could be lifted into person B's account. A3 keys the
+      // cache by account; this is the other half, and both are needed: the key
+      // stops it being adopted by anyone else, this stops it lying around.
+      //
+      // Captured BEFORE the teardown below nulls the ref. Best effort by
+      // construction — clearPetCache never throws — because a cache that will
+      // not cooperate must not trap somebody in a session they asked to leave.
+      const leavingUserId = petUserIdRef.current || bootOwnerRef.current;
+      bootOwnerRef.current = null;
+      const expiry = EXPIRE_REASONS.includes(event) ? event : null;
+      setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
       await clearSession();
+      // The cache goes right behind the session: a local write (or a loopback
+      // DELETE on the desktop), never a cloud call, so it sits ahead of the
+      // bounded log writes rather than behind a revoke that may hang.
+      if (leavingUserId) await clearPetCache(leavingUserId);
+      const writes = [];
+      if (event) writes.push(recordAuthEvent(event));
+      if (expiry) {
+        writes.push(withTimeout(reportAppEvent({
+          code: 'WIL-1002', eventType: 'auth', severity: 'info',
+          context: { reason: expiry, surface: 'app' },
+        }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
+      }
+      if (writes.length) await Promise.all(writes);
+      try {
+        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+      } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      setSessionId(null);
       // 🚨 Belt and braces with the perms.userId teardown effect: this runs
       // even if the permissions channel is slow to notice, so the next person
       // at this computer cannot see the previous person's pet for a beat.
@@ -490,14 +616,39 @@ export default function App() {
       // somebody else's session.
       setPetSaveError(null);
       setNewPetStatus(null);
+      // R1 of A3: and the notice, which is a third channel with the same
+      // defect the two lines above exist to fix. An error notice never
+      // auto-dismisses, so person A's "could not be synced from your account"
+      // sat on person B's screen until B clicked the X.
+      setPetNotice(null);
+      setPetNoticeSticky(null);
       setAuthed(false);
       setShowOverlay(true);
       // Arm the welcome again — signing back in during the same session is a
       // new arrival, and a once-per-page-load ref would silently skip it.
       welcomePlayedRef.current = false;
-    };
-    return () => { delete window.wilsonSignOut; };
+    })();
+    signingOutRef.current = run;
+    // Released on the next sign-in (handleAuth), not here: everything after
+    // this point is signed out, and a second call in that state should be
+    // the no-op the guard makes it.
+    return run;
   }, []);
+  useEffect(() => {
+    window.wilsonSignOut = signOutLocal;
+    return () => { delete window.wilsonSignOut; };
+  }, [signOutLocal]);
+
+  // B2 part 2: the idle warning at 25 minutes, sign-out at 30, and the
+  // absolute 4-hour cap — sessionTimeouts.js carries the numbers and the
+  // reasoning. Keyed on the session id so a reload keeps the cap clock; web
+  // and Electron alike; its clocks live under this surface's own storage key
+  // so the operator console's tab can neither keep this one alive nor end it.
+  const sessionTimeouts = useSessionTimeouts({
+    enabled: authed,
+    sessionId,
+    onExpire: (reason) => { signOutLocal({ event: reason }); },
+  });
 
   const handleAnimationComplete = () => {
     setShowOverlay(false);
@@ -519,13 +670,109 @@ export default function App() {
 
   // Close confirmation dialog (Electron only)
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  // Post-overhaul S3c, step 7 (D12): an unsaved edit is folded INTO this one
+  // question — never a second dialog before or after it. The guards that can
+  // be answered from here (state/leaveGuard.js) are read when it opens: their
+  // words, and Keep editing / Discard and close / Save edit and close.
+  const [closeUnsaved, setCloseUnsaved] = useState([]);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeError, setCloseError] = useState(null);
 
+  // S3c review round 2 (R2-05): where focus was when the question opened —
+  // taken before it renders (its first answer's autoFocus moves focus in the
+  // commit) and handed back when it closes, as the kit Dialog does.
+  const closeOpenerRef = useRef(null);
   useEffect(() => {
     if (!window.electronAPI?.onCloseRequested) return;
     const cleanup = window.electronAPI.onCloseRequested(() => {
+      closeOpenerRef.current = document.activeElement;
+      setCloseUnsaved(unsavedForClose());
+      setCloseError(null);
       setShowCloseDialog(true);
     });
     return cleanup;
+  }, []);
+  const closeNow = () => { setShowCloseDialog(false); window.electronAPI?.forceClose(); };
+  // S3c review round 1 (R1-11): C1 is lifted for the post-overhaul sessions,
+  // and D12 says Escape = Keep editing. While the question is up it is on the
+  // kit's overlay stack (a kit Dialog under it stops answering Escape and
+  // Tab; the pet's Shift stands down), Escape is its first answer (Keep
+  // editing, or Cancel), and Tab stays inside it — bound only while it is
+  // shown, and only while it is the top layer.
+  const closeDialogRef = useRef(null);
+  const closeBusyRef = useRef(false);
+  closeBusyRef.current = closeBusy;
+  useEffect(() => {
+    if (!showCloseDialog) return undefined;
+    const id = {};
+    const unregister = pushModal(id);
+    const onKey = (e) => {
+      if (!isTopModal(id)) return;
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        if (!closeBusyRef.current) setShowCloseDialog(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusableWithin(closeDialogRef.current);
+      if (!items.length) return;
+      const i = items.indexOf(document.activeElement);
+      if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
+        e.preventDefault();
+        (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    // R2-01: the unsaved work can go while the question is up — its list
+    // archived elsewhere, a sign-out — and the words follow it (never while
+    // its own answer runs: that one ends in a close or a refusal).
+    const unfollow = subscribeLeaveGuards(() => {
+      if (!closeBusyRef.current) setCloseUnsaved(unsavedForClose());
+    });
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      unfollow();
+      unregister();
+      // R2-05: focus back where it was (Escape, Cancel, Keep editing), if
+      // that control is still there.
+      const opener = closeOpenerRef.current;
+      closeOpenerRef.current = null;
+      if (opener && opener !== document.body && opener.isConnected) opener.focus?.();
+    };
+  }, [showCloseDialog]);
+  // How many unsaved edits the question is about ("it" or "them").
+  const closeCount = closeUnsaved.reduce((n, g) => n + (typeof g.count === 'function' ? g.count() : 1), 0);
+  const closeAfter = async (how) => {
+    setCloseBusy(true);
+    setCloseError(null);
+    try {
+      // R2-01: work that has gone since the question opened is not answered for.
+      for (const g of closeUnsaved) {
+        if (typeof g.dirty === 'function' && !g.dirty()) continue;
+        await (how === 'save' ? g.save() : g.discard());
+      }
+      setCloseBusy(false);
+      closeNow();
+    } catch (err) {
+      setCloseBusy(false);
+      setCloseError(err?.message || String(err));
+      // What is still unsaved after the refusal, named.
+      setCloseUnsaved(unsavedForClose());
+    }
+  };
+  // In a browser (no desktop close question), an unsaved edit asks through
+  // the browser's own leave prompt. Never in the desktop app: there the close
+  // question above asks, and a second prompt would follow it.
+  useEffect(() => {
+    if (window.electronAPI) return;
+    const onBeforeUnload = (e) => {
+      if (!hasUnsavedWork('close')) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
   // Zoom state — track current zoom level so visualizer can counter-scale
@@ -577,9 +824,72 @@ export default function App() {
   // the newest-wins queue they implemented now live in lib/coalescingSave.js,
   // where they can be tested. The semantics S30 established are unchanged.)
   const [petSaveError, setPetSaveError] = useState(null);
+  // ── A3: A SURFACE THAT DOES NOT DEPEND ON THE PET RENDERING ──────────────
+  //
+  // 🚨 The two conditions that most need saying are exactly the two the app
+  // could not say:
+  //
+  //   * "Your pet changed on another device — refreshed", after migration
+  //     0068 refuses this window's stale copy. The existing save banner lives
+  //     inside PetCompanion's CHAT POPUP, which is closed on every page change
+  //     and only renders once the pet has hatched.
+  //   * A failed pet LOAD. `petSaveError` has been representable since S31 and
+  //     INVISIBLE ever since, because when the load fails `petData` stays null
+  //     and App renders no companion at all — so the only renderer of the error
+  //     is unmounted by the error.
+  //
+  // <PetNotice> is mounted at the very bottom of the tree, inside the kit's
+  // <ToastProvider> whose pinned row is <UndoToast>, outside every
+  // `{petData && …}` gate.
+  // null | { kind: 'info' | 'error', message }
+  const [petNotice, setPetNotice] = useState(null);
+  // 🚨 R1 OF A3: TWO LIFETIMES, NOT ONE STATE RENDERED TWICE.
+  //
+  // The first version passed `petNotice` to BOTH the toast and Settings' pet
+  // card, and the comment on the Settings prop claimed "the toast goes away,
+  // this does not". It was false: dismissing the toast — by its X or by its
+  // ten-second timer — called setPetNotice(null) and removed the Settings copy
+  // at the same instant, so the durable surface the brief asked for did not
+  // exist. This one is cleared only by a sign-out or by a later successful
+  // save, so somebody who was looking elsewhere can still find out what
+  // happened.
+  const [petNoticeSticky, setPetNoticeSticky] = useState(null);
+
+  // Say it in both places at once. Stable identity: it goes into savePet's
+  // closure and must not change performPetSave's identity.
+  const announcePetNotice = useCallback((notice) => {
+    setPetNotice(notice);
+    setPetNoticeSticky(notice);
+  }, []);
+
+  // 🚨 R1 OF A3: STABLE, and the reason is measured. PetNotice's dismissal
+  // timer lists onDismiss in its dependency array; App passing a fresh arrow
+  // restarted that timer on EVERY App render, and with a live pet the
+  // dream-cloud effect re-renders App every 3s then 8–15s — so the documented
+  // ten-second dismissal only landed when a gap happened to exceed ten
+  // seconds. The comment in PetNotice claiming it is "keyed on the message,
+  // not the object" was true of the message and untrue of the handler.
+  const dismissPetNotice = useCallback(() => setPetNotice(null), []);
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
   const petUserIdRef = useRef(null);
+  // 🚨 R2 OF A3: WHO THE STORED SESSION SAYS THIS IS, KNOWN BEFORE PERMISSIONS
+  // RESOLVE.
+  //
+  // `setUserStateOwner` is only called inside the identity effect, behind
+  // `if (!perms.ready) return`, and perms.ready waits on
+  // supabase.auth.getSession() — the call this repo already records as able to
+  // hang the whole app. Meanwhile `authed` is set independently by
+  // checkSessionValid(), so the pet renders and can be clicked. In that window
+  // both petUserIdRef and getUserStateOwner() are null, so a Feed or a Pet
+  // Mode click took the signed-out branch, wrote the UNATTRIBUTED store and
+  // reported success — the exact defect R1's finding 4 was meant to close,
+  // surviving in the window it did not cover.
+  //
+  // The mount effect already computes this identity to pick a cache key; it is
+  // kept so the save path can ask "do I KNOW I am signed out?" rather than
+  // "is the owner installed yet?". Cleared wherever the session ends.
+  const bootOwnerRef = useRef(null);
   // S31: the last material signature actually written. Primed by both load
   // paths so that LOADING a pet never counts as a change to persist.
   const petPersistedSigRef = useRef(null);
@@ -665,9 +975,39 @@ export default function App() {
   // because two hand-rolled versions of it in this file both reported a success
   // for a write that had not happened, and neither was visible to a test that
   // reads source text. This half is only the WRITE.
+  //
+  // 🚨 A3: THIS NO LONGER STAMPS A FRESH ANCHOR ON EVERY SAVE.
+  //
+  // It used to write `{ ...data, lastUpdatedAt: new Date().toISOString() }`, so
+  // every write claimed its hunger and happiness were true AT THAT INSTANT —
+  // even a Pet Mode toggle from a window that had been sitting on a week-old
+  // copy. That made migration 0068's stale-write guard INERT: the stale
+  // window's anchor was always the fresher one, so it always won.
+  //
+  // The rule now, and it is also what 0046 says the column means: the anchor
+  // moves when, and only when, hunger or happiness moved. applyOfflineDecay
+  // moves it on load if it decayed anything; the live tick moves it every tick;
+  // feeding, petting a HATCHED pet, waking, hatching and a thumbs-up that adds
+  // happiness each move it at the point they change the numbers. Everything
+  // else — Pet Mode, difficulty, Reset History, a rename, a thumbs-down,
+  // petting an egg that does not hatch — re-sends the anchor it is holding,
+  // unchanged, and 0068 accepts an equal anchor.
+  //
+  // ⚠️ R2: THE ONE AMENDMENT, and it is a SECOND save rather than an exception
+  // to this rule. Resuming Pet Mode restarts the decay clock, so the anchor
+  // has to move — but a window that stamps `now` on a stale pet defeats 0068
+  // by construction. handlePetModeToggle therefore saves the held anchor
+  // first and stamps a fresh one only if that save LANDED. Every save that
+  // reaches this function still obeys the sentence above.
+  //
+  // ⚠️ The fallback exists for a pet object that somehow has no anchor at all
+  // (a hand-edited cache). Sending null would be rejected by toPetRow and the
+  // save would fail for a reason nobody could read.
   const performPetSave = useCallback(async (data) => {
     try {
-      const next = { ...data, lastUpdatedAt: new Date().toISOString() };
+      const next = data.lastUpdatedAt
+        ? data
+        : { ...data, lastUpdatedAt: new Date().toISOString() };
       // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
       // Electron". `hasLocalServer()` (window.electronAPI) is true for the
       // DESKTOP APP IN CLOUD MODE too, so branching on it would pin every
@@ -677,17 +1017,87 @@ export default function App() {
       // Read from a ref rather than a dependency so savePet keeps a stable
       // identity: it sits in the decay/auto-save effects' dependency lists, and
       // S30 moved petSaving to a ref for exactly this reason.
-      if (petUserIdRef.current) {
+      const owner = petUserIdRef.current;
+      if (owner) {
         await saveCloudPet(next);
         // The cache is a mirror, never the authority. It must not be able to
-        // report failure for a cloud write that succeeded.
-        await mirrorPetToCache(next);
+        // report failure for a cloud write that succeeded. A3: it is written
+        // under the OWNER's key, so the next person at this computer cannot be
+        // handed this pet.
+        await mirrorPetToCache(next, owner);
+      } else if (getUserStateOwner() || bootOwnerRef.current) {
+        // 🚨 R1 OF A3: SIGNED IN, BUT THE PET'S ROUTING IS NOT ESTABLISHED.
+        //
+        // This is the failed-cloud-read state: the effect below deliberately
+        // leaves petUserIdRef null so a blip cannot re-point writes at an
+        // account. The first version then fell through to the local branch and
+        // called savePetData(next, null) — writing the UNATTRIBUTED store,
+        // which the account arm of loadPet never reads again — and returned
+        // TRUE. The change was discarded on the next launch and reported as
+        // saved, on a shared computer it was left for the next signed-out
+        // launcher to see, and clearPetCache refuses by design to remove it.
+        // It also contradicted the copy shipped in the same commit: "There is
+        // no offline copy."
+        //
+        // Failing loudly is the honest answer, and it is what that copy
+        // promises.
+        // ⚠️ R2: THE COPY NAMES THE RELAUNCH, because nothing retries. The
+        // identity effect is keyed [perms.ready, perms.userId], both
+        // primitives, and usePermissions re-setStates on TOKEN_REFRESHED
+        // without changing userId — so the effect never re-runs and
+        // petUserIdRef is never installed for the life of the process. A
+        // sentence promising "it will save once the connection comes back"
+        // would be a promise the code does not keep. Filed in OUTSTANDING.
+        throw new Error(
+          'Your pet could not be reached in your account, so this change was not saved. Reopen WILSON to try again.');
       } else {
-        await savePetData(next);
+        await savePetData(next, owner);
       }
       setPetSaveError(null);
+      // A later success clears the STICKY notice outright — R2: the
+      // kind === 'error' condition meant an 'info' one ("refreshed") was
+      // rendered on Settings, with no dismiss control, for the rest of the
+      // session, through any number of later successful saves. The comment
+      // that used to sit here said it lived out its own ten seconds, which is
+      // true of the toast and was false of this state.
+      setPetNoticeSticky(null);
+      // The TOAST keeps the condition: an info toast has its own ten-second
+      // timer and a dismiss button, and cutting it short on an unrelated save
+      // would take the explanation off screen mid-sentence.
+      setPetNotice(n => (n && n.kind === 'error' ? null : n));
       return true;
     } catch (err) {
+      // ── A3: 0068's refusal is not a save failure ──────────────────────────
+      //
+      // 🚨 AND IT IS EXPLICITLY NOT RETRIED. Retrying would re-send the same
+      // stale copy against a row that has moved on, which is the clobber the
+      // guard exists to stop — with the extra insult that the second attempt
+      // would look like a bug rather than a decision. Audrey's ruling 4: the
+      // stale window gets a refresh notice.
+      if (isStalePetWrite(err)) {
+        setPetSaveError(null);
+        announcePetNotice({
+          kind: 'info',
+          message: 'Your pet changed on another device — refreshed.',
+        });
+        try {
+          const fresh = await fetchCloudPet();
+          if (fresh) {
+            const brought = applyOfflineDecay(fresh);
+            // Prime, do not save: this is a LOAD, and the account already holds
+            // the copy it is loading.
+            petPersistedSigRef.current = petMaterialSignature(brought);
+            setPetData(brought);
+            const owner = petUserIdRef.current;
+            if (owner) await mirrorPetToCache(brought, owner);
+          }
+        } catch {
+          // The re-read is best effort. The notice has already told the user
+          // their copy is stale, which is the part that matters; the next
+          // launch reads the account again anyway.
+        }
+        return false;
+      }
       setPetSaveError(err?.message || 'Your pet could not be saved.');
       return false;
     }
@@ -728,8 +1138,22 @@ export default function App() {
     let mounted = true;
     (async () => {
       try {
-        const stored = await loadPet();
-        if (!mounted) return;
+        // 🚨 A3: ATTRIBUTED. The cache is keyed by account now, so this read
+        // has to know whose it is — and it runs BEFORE usePermissions resolves,
+        // which is the whole reason this effect exists. The stored session is
+        // the only identity available this early; its access token is a JWT
+        // whose `sub` is the user id. No session means a signed-out or
+        // local-only launch, which reads the historical unattributed store.
+        //
+        // ⚠️ loadPet(userId) returns NULL rather than minting when this account
+        // has never been cached here. A first sign-in on a new computer must
+        // not flash a blank egg before the account's real pet arrives.
+        const owner = await storedSessionUserId();
+        // R2: the save path consults this during the window before permissions
+        // resolve. See bootOwnerRef.
+        bootOwnerRef.current = owner;
+        const stored = await loadPet(owner);
+        if (!mounted || !stored) return;
         const fresh = applyOfflineDecay(stored);
         // Prime, do not save. An offline death computed here is idempotent —
         // the next load recomputes the same ghost from the same anchor — so
@@ -767,8 +1191,44 @@ export default function App() {
   useEffect(() => {
     if (!perms.ready) return;
     const userId = perms.userId || null;
-    petUserIdRef.current = userId;
-    // The settings writers live in other components and must know too.
+    // 🚨 A3: THE PET'S ROUTING IS NOT SET HERE ANY MORE — only CLEARED here.
+    //
+    // This used to be `petUserIdRef.current = userId`, unconditionally, BEFORE
+    // the async read below. If resolveUserPet() then threw, the catch
+    // deliberately kept rendering the stale device pet while savePet had
+    // already been re-pointed at the account — so any interaction, or the decay
+    // tick reaching death, wrote that stale pet over the account row with no
+    // adoption decision and no staleness check. A transient Supabase blip on
+    // the second computer was enough to overwrite the first computer's pet.
+    //
+    // The S34 storage-root effect, two blocks below, refuses to act on a failed
+    // read for exactly this reason. This copies it: an identity CHANGE is a
+    // real state change and clears the routing immediately (writes fall back to
+    // this machine's cache, which is harmless), and only a read that SUCCEEDS
+    // installs the new owner.
+    if (petUserIdRef.current !== userId) {
+      // 🚨 R1 OF A3: AND THE PET GOES WITH IT, on a REAL switch.
+      //
+      // petData is only blanked when userId is falsy, so an identity change
+      // A → B with no intervening signed-out state left A's pet on screen
+      // while the routing moved to B — and any interaction, or a decay tick
+      // reaching sleep, evolution or death, would then write A's pet into B's
+      // row. The account-scoped cache closes the ADOPTION route into another
+      // account; this closes the write route.
+      //
+      // ⚠️ Only when the ref already held somebody. On a cold start it is null
+      // and the mount effect has just rendered this person's cached pet —
+      // blanking there would replace an instant render with a blank screen
+      // until the cloud answers, which is the thing that effect exists to
+      // prevent.
+      const previousOwner = petUserIdRef.current;
+      petUserIdRef.current = null;
+      if (previousOwner) setPetData(null);
+    }
+    // The settings writers live in other components and must know too. They are
+    // a different store with a different failure mode — a settings write that
+    // lands in the wrong account is recoverable, a pet write is not — so this
+    // one is still set up front.
     setUserStateOwner(userId);
 
     // ── Signed out: TEAR DOWN. ───────────────────────────────────────────────
@@ -780,7 +1240,7 @@ export default function App() {
     // nearly unreachable only because the sole sign-out control is buried in
     // the MFA enrolment gate. Adding a reachable one without this teardown
     // would turn a latent leak into a routine one.
-    if (!userId) { setPetData(null); return; }
+    if (!userId) { setPetData(null); bootOwnerRef.current = null; return; }
 
     let cancelled = false;
     // Phase 3: the read is stamped with the epoch it was ISSUED in. Creating a
@@ -790,7 +1250,12 @@ export default function App() {
     const epoch = petEpochRef.current;
     (async () => {
       try {
-        const { pet, adopted } = await resolveUserPet();
+        const { pet, adopted } = await resolveUserPet(userId);
+        // The read landed AND produced a pet: from here on, saves belong to
+        // this account. R1: gated on `pet` as well, so a resolve that somehow
+        // yields nothing cannot re-point writes at an account whose pet is not
+        // on screen.
+        if (!cancelled && pet) petUserIdRef.current = userId;
         // 🚨 Phase 3: this NO LONGER `return`s when the epoch has moved. It
         // only skips INSTALLING the pet, then falls through to the settings
         // half below. Returning here meant that creating an egg while the
@@ -813,7 +1278,7 @@ export default function App() {
           // again — the pet drifts dead-ward on every sign-in. The invariant
           // this file states at petMaterialSignature is that hunger/happiness
           // and lastUpdatedAt are only ever written TOGETHER, by savePet.
-          if (adopted) await mirrorPetToCache(fresh);
+          if (adopted) await mirrorPetToCache(fresh, userId);
         }
 
         // The settings half. Filling the per-device cache from the account is
@@ -829,7 +1294,28 @@ export default function App() {
         // It must still SAY so, because "your pet stopped syncing" and "your pet
         // is fine" look identical on screen.
         if (!cancelled) {
-          setPetSaveError(err?.message || 'Your pet could not be synced from your account.');
+          // 🚨 R2: FALL BACK TO THIS ACCOUNT'S OWN CACHE.
+          //
+          // The mount effect has `[]` deps, so on an identity switch it has
+          // already run under the PREVIOUS identity — and the switch now
+          // blanks petData deliberately. Without this, a failed read on a
+          // switch left the new person with a blank Companion card even
+          // though their own cached pet was sitting on the machine. The cache
+          // is per-account, so this can only ever read their own.
+          try {
+            const cached = await loadPet(userId);
+            if (!cancelled && cached) {
+              const fresh = applyOfflineDecay(cached);
+              petPersistedSigRef.current = petMaterialSignature(fresh);
+              setPetData(fresh);
+            }
+          } catch { /* the cache is a cache; the message below is the point */ }
+          const message = err?.message || 'Your pet could not be synced from your account.';
+          setPetSaveError(message);
+          // 🚨 A3: and SAY it somewhere that exists when the pet does not. When
+          // this is a cold start the catch leaves petData null, so the
+          // companion — the only renderer of petSaveError — is never mounted.
+          announcePetNotice({ kind: 'error', message });
         }
       }
     })();
@@ -859,6 +1345,20 @@ export default function App() {
     if (!perms.ready) return;
     clearPetKnowledgeCache();
   }, [perms.ready, perms.userId, perms.workspaceId]);
+
+  // ── A4: the library switch moves the pet's index too ──────────────────────
+  // O.T.T.E.R.'s Settings → Library control flips the adapter between the
+  // company library and this computer's. The index above is keyed on the
+  // IDENTITY, which does not change when the switch is flipped — so without
+  // this the pet would keep answering out of the library the person just
+  // switched away from, warm for INDEX_TTL_MS (five minutes) with nothing on
+  // screen to say so. Phase 6's retrieval reads through the same `otterFetch`
+  // seam, so the CONTENT follows the switch by itself; only the cache does not.
+  //
+  // Subscribed rather than keyed on a state value because the mode lives in a
+  // module variable in the adapters, not in React state: an effect dependency
+  // could not see it move.
+  useEffect(() => subscribeOtterAdapterMode(() => clearPetKnowledgeCache()), []);
 
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,
@@ -906,7 +1406,13 @@ export default function App() {
       setPetData(prev => {
         if (!prev) return prev;
         if (prev.form === 'egg' || prev.form === 'corpse' || prev.form === 'ghost') return prev;
-        if (!prev.petMode) return prev;
+        // R1 of A3: `=== false`, not falsy, so this genuinely mirrors
+        // applyOfflineDecay. They disagreed for `petMode: undefined` — frozen
+        // while the app was open, decaying while it was closed — and the
+        // commit claimed they were the same. Unreachable today (fromPetRow
+        // always yields a boolean and defaultPet sets true); made true anyway,
+        // because the claim is what the next reader will rely on.
+        if (prev.petMode === false) return prev;
 
         const next = { ...prev };
         const rates = DECAY_RATES[next.difficulty] || DECAY_RATES.medium;
@@ -954,7 +1460,12 @@ export default function App() {
               savePet(ghost);
               return ghost;
             });
-          }, 10000);
+            // 🚨 A3: SAME CONSTANT AS THE LOAD PATH. This timeout is the ONLY
+            // thing that used to promote a corpse, and closing the app inside
+            // it stranded the pet as a corpse forever. petLifecycle's
+            // applyOfflineDecay now finishes the transition on load, and both
+            // read CORPSE_TO_GHOST_MS so the window cannot drift.
+          }, CORPSE_TO_GHOST_MS);
         }
 
         // Baby evolution check
@@ -1072,7 +1583,10 @@ export default function App() {
     setPetData(prev => {
       if (!prev) return prev;
       if (prev.hunger >= 100) return prev;
-      const next = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastFedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1 };
+      // A3: hunger moved, so the anchor moves with it. See performPetSave —
+      // the save no longer stamps one, because a stamp on every write made
+      // migration 0068's stale-write guard inert.
+      const next = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastFedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
       next.state = derivePetState(next);
       savePet(next);
       return next;
@@ -1095,6 +1609,8 @@ export default function App() {
           next.bornAt = new Date().toISOString();
           next.hunger = 80;
           next.happiness = 80;
+          // A3: hatching sets both numbers, so it sets the anchor too.
+          next.lastUpdatedAt = new Date().toISOString();
           next.lastSleptAt = new Date().toISOString();
           next.state = derivePetState(next);
           savePet(next);
@@ -1113,7 +1629,10 @@ export default function App() {
       if (petData.sleepingSince) {
         setPetData(prev => {
           if (!prev) return prev;
-          const next = { ...prev, sleepingSince: null, lastSleptAt: new Date().toISOString(), interactionCount: 0 };
+          // A3: decay resumes now, so the anchor is now. Without this the next
+          // cold start would decay the whole sleep as if the pet had been awake
+          // through it.
+          const next = { ...prev, sleepingSince: null, lastSleptAt: new Date().toISOString(), interactionCount: 0, lastUpdatedAt: new Date().toISOString() };
           next.state = derivePetState(next);
           savePet(next);
           return next;
@@ -1122,7 +1641,8 @@ export default function App() {
       }
       setPetData(prev => {
         if (!prev) return prev;
-        const next = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastPettedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1 };
+        // A3: happiness moved, so the anchor moves with it.
+        const next = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastPettedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
         next.state = derivePetState(next);
         savePet(next);
         return next;
@@ -1144,10 +1664,28 @@ export default function App() {
 
     setPetData(prev => {
       if (!prev) return prev;
+      // 🚨 A3: WHAT IS STORED IS BOUNDED, AND MEASURED.
+      //
+      // These two fields were stored UNTRUNCATED (the 2000-character trim above
+      // applies only to what is SENT to the model), fifty entries are kept, and
+      // Create Egg carries the whole array into the new pet. MEASURED on
+      // wilson-dev 2026-09-07: fifty entries whose botResponse is 4096
+      // characters — the ceiling a max_tokens 1024 reply reaches — come to
+      // 219,807 bytes against user_pets' 262,144-byte CHECK. 84% of the cap,
+      // and `userMsg` is whatever somebody pasted into the chat, which is not
+      // bounded at all. A violation throws inside saveCloudPet, and the write
+      // most likely to trip it is the one taken by a person whose pet has just
+      // died.
+      //
+      // 🚨 THE ONLY CONSUMER SLICES BOTH TO 60 CHARACTERS (the RECENT FEEDBACK
+      // block in sendChat, which shows the last ten). Nothing displays these
+      // strings anywhere. So the bound below loses nothing that is read, and
+      // takes a maximal array from ~220 KB to under 55 KB — an order of
+      // magnitude clear of the cap instead of inside its noise.
       const entry = {
         timestamp: new Date().toISOString(),
-        userMsg: lastUser?.content || '',
-        botResponse: lastAssistant.content || '',
+        userMsg: (lastUser?.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
+        botResponse: (lastAssistant.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
         rating
       };
       const feedback = [...(prev.feedback || []), entry].slice(-50);
@@ -1159,6 +1697,11 @@ export default function App() {
       };
       if (rating === 'up' && prev.petMode && (prev.form === 'baby' || prev.form === 'adult')) {
         next.happiness = Math.min(100, next.happiness + 5);
+        // A3: and ONLY here. A thumbs-down changes the feedback array and no
+        // number, so it re-sends the anchor it holds and 0068 accepts it as an
+        // equal — which is what stops a rating from a stale window counting as
+        // "this copy is newer".
+        next.lastUpdatedAt = new Date().toISOString();
       }
       next.state = derivePetState(next);
       savePet(next);
@@ -1203,7 +1746,16 @@ export default function App() {
     // Build context
     let context = '\n\n--- CURRENT CONTEXT ---';
     context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
-    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), R.A.B.B.I.T. (Resource Allocation, Budgeting & Breakdown Intake Tool), System Settings, Projects, Rate Card, Help`;
+    // 🚨 A FOURTH hand-kept list of page names lived here. It was missing
+    // four of the twelve pages and still said "System Settings" after Q7
+    // renamed it. It is the registry now, like the other three — and
+    // `adminOnly` is filtered out exactly as the nav filters it, so the
+    // companion does not tell a non-admin that an Admin terminal exists.
+    const pageList = PAGES
+      .filter(p => !p.adminOnly)
+      .map(p => (p.subtitle ? `${p.title} (${p.subtitle})` : p.title))
+      .join(', ');
+    context += '\nAVAILABLE PAGES: ' + pageList;
 
     // RABBIT knowledge snippet — appended when the user is on the
     // RABBIT page so the companion can field tool-specific questions
@@ -1217,7 +1769,7 @@ export default function App() {
       context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
       context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
       context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
-      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → App settings → Storage tab.`;
       context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
     }
 
@@ -1339,20 +1891,26 @@ export default function App() {
     }
   }, [chatMessages, authed, currentPage, petData]);
 
-  // Enter key toggles companion (when not editing text)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const tag = document.activeElement?.tagName;
-      const editable = document.activeElement?.isContentEditable;
-      const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
-      if (e.key === 'Enter' && !e.defaultPrevented && !isEditing && petData && !showOverlay) {
-        e.preventDefault();
-        setCompanionOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [petData, showOverlay]);
+  // A bare Shift tap opens and closes the companion — never while typing in a
+  // field, never over a dialog (post-overhaul S2a, Audrey's C12). It was
+  // Enter, which took the key from every focused button (OUTSTANDING P1-01);
+  // Enter now presses whatever has focus. The listener lives in
+  // lib/companionHotkey.js so a test mounts the SAME handler the app installs.
+  //
+  // Installed ONCE, in a layout effect, reading the pet and the sign-in
+  // overlay through a ref at the moment of a tap (review round 2, B-R2-02 and
+  // B-R2-04): window listeners run in the order they were added, and the
+  // session's activity listener — which closes "Still there?" on any key — is
+  // added in a passive effect once signed in. Installed first and never again,
+  // the hotkey sees that alert still open on the very keydown that closes it,
+  // so the tap that wakes the screen does not also open the pet; and a pet
+  // update every 30s no longer resets a half-made tap.
+  const companionKeyState = useRef({ petData, showOverlay });
+  useLayoutEffect(() => { companionKeyState.current = { petData, showOverlay }; });
+  useLayoutEffect(() => installCompanionShiftHotkey({
+    getState: () => companionKeyState.current,
+    toggle: () => setCompanionOpen(prev => !prev),
+  }), []);
 
   // Handle navigation links from companion chat
   const handleCompanionNavLink = useCallback((navStr) => {
@@ -1368,15 +1926,61 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pet settings callbacks (for SettingsPage) ──
+  // 🚨 R2 OF A3: THE RESUME ANCHOR IS EARNED, NOT ASSERTED — AND R1'S FIX FOR
+  // IT WAS A WORSE BUG THAN THE ONE IT FIXED.
+  //
+  // R1 was right that turning Pet Mode back ON is a decay-clock event: while
+  // it is off nothing advances the anchor (the live tick returns `prev`,
+  // applyOfflineDecay skips), so the row keeps the anchor from the moment it
+  // was switched off, and the first launch after switching it on measures the
+  // WHOLE paused period and applies it in one go — six hours off, flipped on,
+  // reopened, hunger 0, form 'ghost'.
+  //
+  // 🚨 BUT STAMPING `now` INSIDE THE TOGGLE MADE MIGRATION 0068 INERT FOR THE
+  // ONE CONTROL WALKTHROUGH 07 TELLS AUDREY TO PRESS. A stale window's write
+  // is refused because its anchor is OLDER; a fresh stamp makes it newer, so
+  // the whole six-hour-old pet — hunger, happiness, form, name, the feedback
+  // array — was accepted over the other machine's, silently, with no notice.
+  // One click. It was also the only save in the app that minted a fresh anchor
+  // without moving hunger or happiness, which is exactly the shape 0068's
+  // header says makes the guard inert.
+  //
+  // So the anchor is taken in TWO STEPS. The toggle is saved with the anchor
+  // the window is HOLDING, which 0068 can still refuse; only a save that
+  // LANDED — which means this window's copy is the account's copy — earns the
+  // fresh one. A stale window gets the refusal, the re-read and the notice
+  // instead, which is ruling 4 working as intended.
+  //
+  // ⚠️ Two round trips for one toggle, and a window of one of them in which
+  // another machine could write between the two. That is bounded by a network
+  // round trip instead of by however long Pet Mode was off, which is the trade
+  // being made.
+  const resumeAnchorAfterLandedSave = useCallback((landed) => {
+    if (!landed) return;
+    setPetData(cur => {
+      if (!cur || cur.petMode !== true) return cur;
+      // Only the forms that decay. An egg, a corpse or a ghost gains nothing
+      // from a fresh anchor — applyOfflineDecay skips all three — so bumping
+      // there would spend a round trip to weaken 0068 for no benefit, and
+      // Audrey's own pet is a ghost.
+      if (cur.form !== 'baby' && cur.form !== 'adult') return cur;
+      const bumped = { ...cur, lastUpdatedAt: new Date().toISOString() };
+      savePet(bumped);
+      return bumped;
+    });
+  }, [savePet]);
+
   const handlePetModeToggle = useCallback((enabled) => {
     setPetData(prev => {
       if (!prev) return prev;
       const next = { ...prev, petMode: enabled };
       next.state = derivePetState(next);
-      savePet(next);
+      const resuming = enabled && prev.petMode === false;
+      const saving = savePet(next);
+      if (resuming) saving.then(resumeAnchorAfterLandedSave);
       return next;
     });
-  }, [savePet]);
+  }, [savePet, resumeAnchorAfterLandedSave]);
 
   const handleDifficultyChange = useCallback((difficulty) => {
     setPetData(prev => {
@@ -1462,8 +2066,21 @@ export default function App() {
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
   // fromHistory: true when the browser back/forward button initiated the
   // navigation — the URL is already right, so don't push a new entry.
-  const navigateTo = useCallback((targetPage, fromHistory = false) => {
+  const navigateTo = useCallback((targetPage, fromHistory = false, asked = false) => {
     if (transitionRef.current || targetPage === currentPage) return;
+    // Post-overhaul S3c, step 7 (D12): leaving R.A.B.B.I.T. with an unsaved
+    // edit asks first — BEFORE the transition, which is untouchable (C2).
+    // Keep editing stays; after a back/forward press the address goes back
+    // to this page, so the two never disagree.
+    if (!asked && currentPage === 'rabbit' && hasUnsavedWork('page')) {
+      confirmLeave('page').then((go) => {
+        if (go) { navigateToRef.current(targetPage, fromHistory, true); return; }
+        if (fromHistory && URL_ROUTING_ENABLED) {
+          try { window.history.pushState({ page: currentPage }, '', urlForPage(currentPage)); } catch { /* keep the page */ }
+        }
+      });
+      return;
+    }
     transitionRef.current = true;
     // Phase 3: the Create Egg result describes one press, not a lasting state.
     // Without this it survived every later visit to Settings, so a success
@@ -1612,12 +2229,13 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Page flags
-  const isDog = currentPage === 'dog';
-  const isOtter = currentPage === 'otter';
-  const isRabbit = currentPage === 'rabbit';
+  // Page flags. `isDarkPage` and the header's shape are the registry's answer
+  // now, not a hand-kept list: Team Members is the first page on the Q1 dark
+  // ground that is NOT a tool, and the two used to be the same condition.
+  const page = getPage(currentPage) || getPage('home');
   const isHome = currentPage === 'home';
-  const isDarkPage = isDog || isOtter || isRabbit;
+  const isToolPage = page.chrome === 'tool';
+  const isDarkPage = page.surface === 'dark';
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar.
@@ -1662,7 +2280,16 @@ export default function App() {
   // dark orange, as an interactive state on large bold type — not content
   // text on an orange surface. Do not remove it while enforcing the colour
   // rule.
-  const navOpacity = (key, dimmed) => (dimmed ? 0.35 : (navHovered === key ? 0.7 : 1));
+  //
+  // ── UI overhaul F2, the state extraction (plan §5) ──────────────────────
+  // The resolution above is right and stays; what changed is WHERE it lands.
+  // It used to be an inline `opacity` computed from `navHovered`, and an
+  // inline value beats any class — which is the whole defect this comment
+  // documents, one step removed. The state is now a single data attribute
+  // and the two values live in `.wilson-nav-item[data-state]` in index.css,
+  // so hover and dimmed STILL resolve in exactly one place (the property
+  // that mattered) and a later restyle can reach them from a stylesheet.
+  const navState = (key, dimmed) => (dimmed ? 'dimmed' : (navHovered === key ? 'hover' : 'rest'));
   // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
   // the same state rather than leaving a keyboard user with no feedback.
   const navStateProps = (key) => ({
@@ -1673,57 +2300,66 @@ export default function App() {
   });
 
   const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
-  const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
 
-  // Main nav strip: always includes HOME + tools + RESOURCES trigger + SYSTEM SETTINGS
-  // (context-aware: omits whichever page the user is currently on)
+  // ── The nav strip, from the registry (F2) ────────────────────────────────
+  // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
+  // order, filtered for the page you are on and for the admin-only surface
+  // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
+  // share one list — Session 9). The one item that is NOT a page is
+  // assembled beside them here: the RESOURCES toggle.
+  //
+  // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
+  // side in the same column; they became "Tool settings" and "App settings".
+  // Post-overhaul S2a (Audrey's C6, 2026-09-29): the tool half left the
+  // strip for all three tools. Each tool's gear is at the right end of its
+  // OWN strip, Help beside it (C7) — the three counters that opened a
+  // tool's settings from here, their props and the tools' effects are gone
+  // with it. "App settings" stays: it is a page.
+  //
+  // The strip is GROUPED: destinations above the hairline, the resources
+  // toggle and App settings below. A separator is not a control (C1); it is
+  // Proximity doing the work eleven equal-weight peers were asking the reader
+  // to do (Hick's law — the strip is the app's whole navigation).
   const getNavStripItems = () => {
-    const items = [];
-    items.push({ label: 'HOME', action: () => closeNavAndGo('home') });
+    const primary = navPages('primary', { currentPage });
+    const appSettings = primary.find(p => p.id === 'settings');
+    const items = primary
+      .filter(p => p.id !== 'settings')
+      .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-    if (currentPage !== 'dog')    items.push({ label: 'D.O.G.',    action: () => closeNavAndGo('dog') });
-    if (currentPage !== 'otter')  items.push({ label: 'O.T.T.E.R.',  action: () => closeNavAndGo('otter') });
-    if (currentPage !== 'rabbit') items.push({ label: 'R.A.B.B.I.T.', action: () => closeNavAndGo('rabbit') });
-    if (currentPage !== 'dashboard') items.push({ label: 'DASHBOARD', action: () => closeNavAndGo('dashboard') });
-
-    // Page-specific SETTINGS for tool pages
-    if (isDog)    items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenSettingsTrigger) });
-    if (isOtter)  items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenOtterSettingsTrigger) });
-    if (isRabbit) items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenRabbitSettingsTrigger) });
-
-    // RESOURCES trigger (toggles sub-column; no direct navigation)
-    items.push({ label: 'RESOURCES', isResourcesTrigger: true });
-
-    // SYSTEM SETTINGS (hide when already on Settings)
-    if (currentPage !== 'settings') {
-      items.push({ label: 'SYSTEM SETTINGS', action: () => closeNavAndGo('settings') });
+    const tail = [];
+    // RESOURCES trigger (toggles the sub-column; no direct navigation)
+    tail.push({ label: 'Resources', isResourcesTrigger: true });
+    if (appSettings) {
+      tail.push({ label: appSettings.navLabel, action: () => closeNavAndGo(appSettings.id) });
     }
 
-    return items;
+    return [...items, { separator: true }, ...tail];
   };
 
   // Sub-column items shown when RESOURCES is expanded
-  const getResourcesNavItems = () => {
-    const all = [
-      { id: 'project-manager', label: 'PROJECTS' },
-      { id: 'rate-card',       label: 'RATE CARD' },
-      { id: 'team-members',    label: 'TEAM MEMBERS' },
-      // Session 9: admin-only surface — filtered from the ARRAY (not hidden
-      // per-button) so keyboard/mouse share one list.
-      ...(perms.role === 'admin' ? [{ id: 'admin-terminal', label: 'ADMIN TERMINAL' }] : []),
-      { id: 'help',            label: 'HELP' },
-    ];
-    return all
-      .filter(i => i.id !== currentPage)
-      .map(i => ({ label: i.label, action: () => closeNavAndGo(i.id) }));
-  };
+  const getResourcesNavItems = () => navPages('resources', {
+    currentPage,
+    isAdmin: perms.role === 'admin',
+  }).map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-  const getNavStripHeight = () => {
-    const mainCount = getNavStripItems().length;
-    const resCount = getResourcesNavItems().length;
-    const count = Math.max(mainCount, resCount);
-    return count * 24 + (count - 1) * 16 + 48;
+  // 🚨 The 24 here was an ASSUMED line box for 16px type (review, nav finding)
+  // and would have been wrong the moment the size changed — which is this
+  // commit. It is now the H1 step's own box: 20px x 1.2 = 24px, named, beside
+  // the value it is derived from. Each column is measured separately and the
+  // taller one sets the strip, rather than one count standing for both.
+  const NAV_ITEM_PX = 24;   // --text-h1 (20px) x --text-h1--line-height (1.2)
+  const NAV_GAP_PX = 16;
+  const NAV_PAD_PX = 24;    // the one page gutter, top and bottom
+  const columnHeight = (rows) => {
+    if (rows.length === 0) return 0;
+    const content = rows.reduce((h, r) => h + (r.separator ? 1 : NAV_ITEM_PX), 0);
+    return content + (rows.length - 1) * NAV_GAP_PX + 2 * NAV_PAD_PX;
   };
+  const getNavStripHeight = () => Math.max(
+    columnHeight(getNavStripItems()),
+    columnHeight(getResourcesNavItems()),
+  );
 
   // Determine bar heights based on transition state
   const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
@@ -1738,35 +2374,31 @@ export default function App() {
   // Render ALL pages simultaneously — hide inactive ones to preserve state
   const renderAllPages = () => (
     <>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      <PageSurface id="home" currentPage={currentPage}>
         <Home onNavigate={navigateTo} currentPage={currentPage} />
-      </div>
-      <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
         <DeckOutlineGenerator
           onNavigate={navigateTo}
-          showNavMenu={showNavMenu}
-          onToggleNavMenu={() => setShowNavMenu(prev => !prev)}
-          openSettingsTrigger={openSettingsTrigger}
+          currentPage={currentPage}
           zoomLevel={zoomLevel}
         />
-      </div>
-      <div style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="otter" currentPage={currentPage} overflow="hidden">
         <Otter
           onNavigate={navigateTo}
           currentPage={currentPage}
-          openSettingsTrigger={openOtterSettingsTrigger}
           onContextChange={setOtterContext}
         />
-      </div>
-      <div style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="rabbit" currentPage={currentPage} overflow="hidden">
         <Rabbit
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
-          openSettingsTrigger={openRabbitSettingsTrigger}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent
           petData={petData}
           onPetModeToggle={handlePetModeToggle}
@@ -1779,118 +2411,109 @@ export default function App() {
           // own outcome, success as well as failure.
           newPetStatus={newPetStatus}
           newPetPending={newPetPending}
+          // A3: the pet's cross-device notice on the page that describes the
+          // pet. R1: this is the STICKY copy, not the toast's — they were one
+          // state, so dismissing the toast erased the durable surface at the
+          // same instant and the claim below it was false.
+          petNotice={petNoticeSticky}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="project-manager" currentPage={currentPage}>
         <Projects onNavigate={navigateTo} />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="rate-card" currentPage={currentPage}>
         <RateCardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="team-members" currentPage={currentPage}>
         <TeamMembersPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="project-files" currentPage={currentPage} overflow="hidden">
+        {currentPage === 'project-files' && <ProjectFilesExplorer />}
+      </PageSurface>
+      <PageSurface id="dashboard" currentPage={currentPage}>
         <DashboardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'admin-terminal' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="admin-terminal" currentPage={currentPage}>
         <AdminTerminalPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="help" currentPage={currentPage}>
         <HelpPage />
-      </div>
+      </PageSurface>
     </>
   );
 
-  // What to show in the top bar
+  // ── The one page header (F2; plan §4, review F32) ────────────────────────
+  // This was FOUR blocks: three byte-identical tool headers differing only in
+  // two strings, and an eight-way OR chain listing the pages that get the
+  // plain header — a list a new page had to be added to by hand, and the
+  // third of the three lists 'project-files' had to appear in. Both are the
+  // registry's `chrome` field now.
   const renderTopBarContent = () => {
-    if (isDog) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">D.O.G.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Deck Outline Generator</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
+    if (page.chrome === 'none') return null; // Home — no bar content
 
-    if (isOtter) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">O.T.T.E.R.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">On-demand Training & Technical Education Resource</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+    return (
+      <PageHeader
+        title={page.title}
+        subtitle={page.subtitle}
+        measure={page.measure}
+        leading={page.chrome === 'tool' ? (
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt=""
+            className="h-[43.1px] w-auto brightness-0 invert"
+          />
+        ) : null}
+        actions={(
+          <IconButton
+            icon={Menu}
             title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (isRabbit) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">R.A.B.B.I.T.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Resource Allocation, Budgeting & Breakdown Intake Tool</p>
-            </div>
-          </div>
-          <button
+            surface="chrome"
+            aria-expanded={showNavMenu}
             onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
-      const pageLabel = PAGE_TITLES[currentPage] || currentPage;
-      return (
-        <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
-          <h1 className="text-[20px] font-bold tracking-tight uppercase text-white">{pageLabel}</h1>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    return null; // Home page — no bar content
+          />
+        )}
+      />
+    );
   };
 
   return (
     <AgentProvider>
     <RabbitProvider>
-    <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
+    {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
+        manager, replacing five systems in five screen positions). It lives
+        here so a page never mounts a second one; F2's worked example is its
+        first caller and the four tool systems fold in with their lanes.
+
+        `bar` is the current page’s bottom-bar height, so the stack sits 24px
+        above the BAR rather than 24px off the window (F4, D1b §7: two toasts
+        straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
+        `petBottomOffset` takes, and the RESTING value rather than the
+        compressed one, for the same reason the pet uses it — a toast must not
+        slide during the page transition.
+
+        `pinned` is R.A.B.B.I.T.'s UndoToast, the stack's LAST row (merge
+        review round 2, A-R2-02): as a second fixed surface at bottom-centre
+        it shared the stack's anchor — on the tool pages (8px bar) the first
+        toast spanned 32–73px over its 24–74px — and a sticky pet notice
+        painted over the Undo button and took its clicks. In the stack it sits
+        below whatever push() has put up, with the stack's own gap, on the
+        stack's layer. It still reads useRabbit() and stays the one instance;
+        the note at the old mount point (bottom of this tree) says why it is
+        mounted at app level at all. */}
+    <ToastProvider bar={pageBars.bottom} pinned={<UndoToast />}>
+    <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
+      {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
+          `import.meta.env.DEV` is a build-time constant, so `vite build` drops
+          the element and the import with it. */}
+      {import.meta.env.DEV && <DevFixturesBadge />}
+      {/* B2 part 2: "Connection lost — reload to continue", fed by
+          connectionWatchdog through the Supabase client's fetch. Above every
+          overlay (`.connection-banner`, index.css); under the title bar in
+          Electron through the kit's `--titlebar-offset`, so the window
+          controls stay reachable. Rendered signed in or out — a hung sign-in
+          is the same hang. */}
+      <ConnectionLostBanner />
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -1899,7 +2522,7 @@ export default function App() {
           <ModelWarningBanner />
 
           {/* ===== TOP ORANGE BAR ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: topHeight,
             flexShrink: 0,
@@ -1925,7 +2548,7 @@ export default function App() {
           </div>
 
           {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             overflow: 'hidden',
             height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
@@ -1935,7 +2558,11 @@ export default function App() {
             alignItems: 'center',
             justifyContent: 'flex-end',
             gap: '48px',
-            paddingRight: '48px',
+            // ONE page gutter (plan §3.3). The strip was right-aligned at 48px
+            // while the hamburger that opens it sits at 24px, so every item
+            // slid out 24px short of the control that summoned it — the two
+            // never lined up on any page.
+            paddingRight: 'var(--spacing-gutter)',
             zIndex: 9,
           }}>
             {/* Resources sub-column — slides in from the left of the main strip */}
@@ -1955,13 +2582,9 @@ export default function App() {
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="text-white font-bold uppercase tracking-[0.2em]"
-                  style={{
-                    fontSize: '16px',
-                    whiteSpace: 'nowrap',
-                    opacity: navOpacity(`res:${item.label}`, false),
-                    transition: 'opacity 200ms ease',
-                  }}
+                  className="wilson-nav-item"
+                  data-state={navState(`res:${item.label}`, false)}
+                  style={{ whiteSpace: 'nowrap' }}
                   {...navStateProps(`res:${item.label}`)}
                 >
                   {item.label}
@@ -1976,7 +2599,18 @@ export default function App() {
               alignItems: 'flex-end',
               gap: '16px',
             }}>
-              {getNavStripItems().map((item) => {
+              {getNavStripItems().map((item, i) => {
+                // The group break: a hairline in the frame's own ink, not a
+                // control and not a heading — see getNavStripItems.
+                if (item.separator) {
+                  return (
+                    <div
+                      key={`sep-${i}`}
+                      aria-hidden="true"
+                      style={{ height: '1px', width: '96px', backgroundColor: 'rgba(28,25,23,0.35)' }}
+                    />
+                  );
+                }
                 const isTrigger = item.isResourcesTrigger;
                 const dimmed = navResourcesOpen && !isTrigger;
                 return (
@@ -1994,14 +2628,9 @@ export default function App() {
                       }
                       item.action();
                     }}
-                    className="font-bold uppercase tracking-[0.2em]"
-                    style={{
-                      fontSize: '16px',
-                      whiteSpace: 'nowrap',
-                      color: '#fff',
-                      opacity: navOpacity(`main:${item.label}`, dimmed),
-                      transition: 'opacity 200ms ease',
-                    }}
+                    className="wilson-nav-item"
+                    data-state={navState(`main:${item.label}`, dimmed)}
+                    style={{ whiteSpace: 'nowrap' }}
                     {...navStateProps(`main:${item.label}`)}
                   >
                     {item.label}
@@ -2011,8 +2640,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ===== Dark page border — when on DOG or OTTER page and idle ===== */}
-          {isDarkPage && !isAnimating && (
+          {/* ===== Tool page border — the band under the bars, tools only ===== */}
+          {isToolPage && !isAnimating && (
             <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
           )}
 
@@ -2075,7 +2704,12 @@ export default function App() {
               // that instant is precisely this window).
               // A blocked click retries; a swallowed one is just lost.
               pointerEvents: isAnimating ? 'none' : 'auto',
-              padding: (isDarkPage || currentPage === 'help') ? 0 : '3vh 0',
+              // Plan §3.3: nothing in `vh`. This was `3vh 0` — 27px at 900px
+              // tall and 21px at 700 — so the app's one vertical rhythm
+              // changed with the window. A tool owns its whole field (0), and
+              // Help paints its own two-column shell; every other page takes
+              // the one 24px gutter.
+              padding: (isToolPage || currentPage === 'help') ? 0 : 'var(--spacing-gutter) 0',
               display: 'flex',
               flexDirection: 'column',
             }}>
@@ -2084,7 +2718,7 @@ export default function App() {
           </div>
 
           {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: bottomHeight,
             flexShrink: 0,
@@ -2111,6 +2745,12 @@ export default function App() {
               currentPage={currentPage}
               petData={petData}
               petSaveError={petSaveError}
+              // R1 of A3: the cloud-only sentence is only TRUE for a save made
+              // by a signed-in person. petSaveError multiplexes load, sync,
+              // save and egg failures, so on a failed SYNC it said "this
+              // change is not stored" when there was no change, and signed out
+              // the pet genuinely is local.
+              petIsCloudBacked={!!perms.userId}
               companionOpen={companionOpen}
               onCompanionToggle={setCompanionOpen}
               chatMessages={chatMessages}
@@ -2149,9 +2789,10 @@ export default function App() {
           session check so returning users don't briefly see the login form. */}
       {showOverlay && sessionChecked && authMode === 'login' && (
         <LoginScreen
+          notice={signedOutNotice}
           onForgotPassword={() => setAuthMode('forgot-password')}
-          onAuthenticated={() => {
-            handleAuth();
+          onAuthenticated={(session) => {
+            handleAuth(session);
             handleAnimationComplete();
             setWelcomeQueued(true);
           }}
@@ -2206,82 +2847,162 @@ export default function App() {
         />
       )}
 
+      {/* B2 part 2: "Still there?" at 25 idle minutes, "Session ending" five
+          minutes before the 4-hour cap. Above the gates (a person mid-wizard
+          is still a person about to be signed out), below the banner. The
+          idle dialog is the kit Dialog lifted to 210 — above the quit dialog
+          at 200 — and the cap notice rides the toast stack the ToastProvider
+          above anchors over `pageBars.bottom` (merge review round 1,
+          B-R1-02 / B-R1-03). */}
+      {authed && (
+        <SessionWarning
+          phase={sessionTimeouts.phase}
+          deadline={sessionTimeouts.deadline}
+          onStay={sessionTimeouts.stay}
+        />
+      )}
+
       {/* Close confirmation dialog */}
       {showCloseDialog && (
-        <div style={{
+        // S3c review round 2 (R2-05): not a kit Dialog, so the pages' undo
+        // keys did not see it (binUi counts `.ui-dialog-backdrop`): Ctrl+Z
+        // took back an edit under "Close WILSON". The marker is what they
+        // count it by (binUi's APP_QUESTION).
+        <div data-app-question="close" style={{
           position: 'fixed', inset: 0, zIndex: 200,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.6)',
+          backgroundColor: BACKDROP,
         }}>
-          <div style={{
-            backgroundColor: '#1c1917',
-            border: '2px solid #ea580c',
-            borderRadius: '6px',
+          {/* ROUND ONE, FINDING 3: "take the whole object or take none of
+              it". The first pass converted ONE hex here — the Close button's
+              fill — and left seven, including a `color: '#ea580c'` three
+              lines above a `SIGNAL_FILL`, in a commit whose thesis was C8.
+              Every value on this surface is a token now. Where a hex had an
+              exact token it kept its value; the two that moved are named
+              where they moved.
+
+              The surface stays hand-rolled rather than becoming the kit's
+              `Dialog` (the light shell's own box). Its controls are the
+              kit's `Button`, which is a pure swap and is what fixes the
+              contrast and the hovers below. S3c review round 1 (R1-11): C1
+              is lifted for these sessions, so it is now a dialog to a screen
+              reader (named by its heading, described by its words) and to
+              the keyboard (the effect above: the overlay stack, Escape, Tab
+              kept inside). */}
+          <div
+            ref={closeDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wilson-close-title"
+            aria-describedby="wilson-close-words"
+            style={{
+            backgroundColor: PAPER,
+            // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
+            // `signal` "the frame" as one of its four jobs — and loses the
+            // second pixel, which is the only thing §3.3 objects to.
+            border: `1px solid ${SIGNAL}`,
+            borderRadius: `${RADIUS_FLOAT}px`,
+            boxShadow: SHADOW_FLOAT,
             padding: '32px 36px 28px',
-            maxWidth: '400px',
+            // S3c step 7: three answers do not fit the confirm width (they
+            // overflowed its frame); folded, the question takes the form's.
+            maxWidth: `${closeUnsaved.length ? DIALOG.form : DIALOG.confirm}px`,
             width: '90%',
             textAlign: 'center',
           }}>
-            <h2 style={{
-              color: '#ea580c',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              letterSpacing: '0.15em',
-              textTransform: 'uppercase',
+            {/* The dialog title is the H2 step (§3.1): 16 / 1.3 / 600 /
+                sentence / no tracking, in the app's sans. It was 16px BOLD
+                UPPERCASE at +0.15em in `monospace` — four emphasis mechanisms
+                on one four-word heading, and the only `monospace` left in
+                this file. The SIZE is unchanged; the leading is not, because
+                it was unset and inheriting Tailwind preflight's 1.5. */}
+            <h2 id="wilson-close-title" style={{
+              color: SIGNAL,
+              fontSize: `${TYPE.h2}px`,
+              lineHeight: LEADING.h2,
+              fontWeight: WEIGHT.h2,
               marginBottom: '12px',
-              fontFamily: 'monospace',
             }}>Close WILSON</h2>
-            <p style={{
-              color: '#a8a29e',
-              fontSize: '13px',
-              lineHeight: '1.5',
+            {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
+                uses; `ink-2` is its replacement and reads 8.49:1 here. */}
+            <p id="wilson-close-words" style={{
+              color: INK_2,
+              fontSize: `${TYPE.dense}px`,
+              lineHeight: LEADING.dense,
               marginBottom: '24px',
             }}>
-              Make sure you have exported your work before closing.
+              {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
+                  this one question (D12) — what it is, of which list; of
+                  several, "them" (review round 1, R1-12). */}
+              {closeUnsaved.length
+                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard them.' : 'Save it before closing, or discard it.'}`
+                : 'Make sure you have exported your work before closing.'}
             </p>
+            {closeError && (
+              <p role="alert" style={{
+                color: DANGER,
+                fontSize: `${TYPE.dense}px`,
+                lineHeight: LEADING.dense,
+                marginBottom: '16px',
+              }}>
+                {closeError}
+              </p>
+            )}
+            {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
+                first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
+                and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
+                resting and **3.03:1 on hover**, both under the 4.5 §3.2 says
+                "does not ship", and both WORSE than the defect that was
+                fixed. It then reported the surface as clean. The hover half
+                is precisely D2's kit request K8, which the kit had already
+                fixed for light ghost buttons ("a light ghost button turned
+                2.10:1 at the exact moment the pointer reached it").
+
+                Both controls are the kit's `Button` now, which is why this is
+                a deletion rather than a repair: the secondary variant is
+                transparent with a hairline and the full ink (15.45:1, and
+                its hover is `--color-hover`, an overlay that cannot drop the
+                ink), the primary is `signal-fill` with white (5.18:1). The
+                type, the 3px control radius and BOTH hover states come from
+                `.ui-btn[data-variant]` in CSS.
+
+                That also settles the protocol's state-extraction step, which
+                round one correctly called a violation: the four
+                `onMouseEnter`/`onMouseLeave` handlers that wrote
+                `e.currentTarget.style.backgroundColor` are gone, and an
+                inline style can no longer beat a hover rule because there is
+                no inline style left to do it. */}
+            {/* With an unsaved edit, D12's three answers, Keep editing first
+                and focused — and Escape (R1-11). Without one, Cancel first and
+                focused, as every question's staying answer is. */}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button
+              <Button
+                variant="secondary"
+                autoFocus
+                disabled={closeBusy}
                 onClick={() => setShowCloseDialog(false)}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  backgroundColor: '#44403c',
-                  color: '#a8a29e',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontFamily: 'monospace',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#57534e'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#44403c'; }}
+                style={{ flex: 1 }}
               >
-                Cancel
-              </button>
-              <button
-                onClick={() => { setShowCloseDialog(false); window.electronAPI?.forceClose(); }}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  letterSpacing: '0.1em',
-                  textTransform: 'uppercase',
-                  backgroundColor: '#ea580c',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontFamily: 'monospace',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#c2410c'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ea580c'; }}
+                {closeUnsaved.length ? 'Keep editing' : 'Cancel'}
+              </Button>
+              {closeUnsaved.length > 0 && (
+                <Button
+                  variant="danger"
+                  disabled={closeBusy}
+                  onClick={() => closeAfter('discard')}
+                  style={{ flex: 1 }}
+                >
+                  Discard and close
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                loading={closeBusy}
+                onClick={() => (closeUnsaved.length ? closeAfter('save') : closeNow())}
+                style={{ flex: 1 }}
               >
-                Close
-              </button>
+                {closeUnsaved.length ? 'Save edit and close' : 'Close'}
+              </Button>
             </div>
           </div>
         </div>
@@ -2290,9 +3011,19 @@ export default function App() {
     {/* ── Undo toast (soft-delete forgiveness window) ──
         Mounted at app level, not inside the RABBIT shell, because
         deletes can fire from pages (e.g. ProjectsPage) where the
-        Rabbit page div is display:none. position:fixed, reads
-        useRabbit() — must stay the single instance. */}
-    <UndoToast />
+        Rabbit page div is display:none; reads useRabbit() — must stay
+        the single instance. Since merge review round 2 (A-R2-02) it is
+        the toast stack's PINNED row — the `pinned` prop of the ToastProvider
+        at the top of this tree — rather than a second fixed surface here. */}
+    {/* ── A3: the pet's notices, mounted OUTSIDE `{petData && …}` ──
+        The stale-copy refresh from migration 0068, and a failed pet LOAD —
+        which had nowhere to show itself at all, because the failure unmounts
+        the only thing that rendered it. */}
+    <PetNotice notice={petNotice} onDismiss={dismissPetNotice} />
+    </ToastProvider>
+    {/* Post-overhaul S3c, step 7 (D12): the one question every exit asks
+        while an edit is unsaved — any page can ask it (navigateTo). */}
+    <LeaveEditDialog />
     </RabbitProvider>
     </AgentProvider>
   );

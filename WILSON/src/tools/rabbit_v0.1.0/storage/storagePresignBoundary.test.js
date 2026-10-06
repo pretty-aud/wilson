@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkRowShapedPath } from '../../../../supabase/functions/_shared/presignPath.ts'
 import { MONEY_SEGMENTS, isMoneySegment } from '../../../../supabase/functions/_shared/moneySegments.ts'
@@ -64,6 +64,11 @@ describe('checkRowShapedPath — the presign path gate', () => {
     ['FINANCE', `projects/${PID}/FINANCE/RATES.json`],
     ['lowercase invoices (0039: the gate is case-folded)', `projects/${PID}/invoices/x/1-invoice.pdf`],
     ['mixed-case Finance', `projects/${PID}/Finance/RATES.json`],
+    // 0088 (S4b): LEGAL is a locked folder, so a Legal body never leaves
+    // Supabase either — refused here in any case, thumbnail included.
+    ['LEGAL', `projects/${PID}/LEGAL/x/1-contract.pdf`],
+    ['lowercase legal', `projects/${PID}/legal/x/1-contract.pdf`],
+    ['a Legal thumbnail', `projects/${PID}/Legal/x/1-contract.pdf.jpg`],
   ])('refuses a money-segment path: %s', (_label, path) => {
     const r = checkRowShapedPath(path)
     expect(r.ok).toBe(false)
@@ -101,17 +106,33 @@ describe('checkRowShapedPath — the presign path gate', () => {
   })
 })
 
-describe('the money vocabulary has ONE definition (0042), and the copies agree', () => {
-  it('matches the segments in 0042\'s SQL text, cross-copy', () => {
-    const sql = read('supabase', 'migrations', '0042_money_segments_and_manifest_rewrite.sql')
-    const m = sql.match(/upper\(seg\) IN \(([^)]*)\)/)
-    expect(m, 'rabbit_money_segment vocabulary not found in 0042').toBeTruthy()
+describe('the money vocabulary has ONE definition (0042, widened by 0088), and the copies agree', () => {
+  // The LATEST migration that (re)defines the function is the live body —
+  // 0088 since S4b. Reading 0042 alone would keep passing after a later
+  // migration changed the list, which is the drift this test exists to catch.
+  function latestDefinition() {
+    const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
+      .filter(f => /^\d{4}_.*\.sql$/.test(f)).sort()
+    let last = null
+    for (const f of files) {
+      const sql = read('supabase', 'migrations', f)
+      if (sql.includes('CREATE OR REPLACE FUNCTION public.rabbit_money_segment(')) last = { f, sql }
+    }
+    return last
+  }
+
+  it('matches the segments in the latest migration that defines it, cross-copy', () => {
+    const def = latestDefinition()
+    expect(def?.f).toBe('0088_legal_files.sql')
+    const body = def.sql.slice(def.sql.indexOf('CREATE OR REPLACE FUNCTION public.rabbit_money_segment('))
+    const m = body.match(/upper\(seg\) IN \(([^)]*)\)/)
+    expect(m, 'rabbit_money_segment vocabulary not found').toBeTruthy()
     const sqlSegments = m[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')).sort()
     expect(sqlSegments).toEqual([...MONEY_SEGMENTS].sort())
   })
 
   it('matches the literal strings, so two identical wrong copies still fail', () => {
-    expect([...MONEY_SEGMENTS].sort()).toEqual(['FINANCE', 'INVOICES'])
+    expect([...MONEY_SEGMENTS].sort()).toEqual(['FINANCE', 'INVOICES', 'LEGAL'])
   })
 
   it('agrees with reservedObjects\' RATES_SEGMENT', () => {
@@ -121,6 +142,7 @@ describe('the money vocabulary has ONE definition (0042), and the copies agree',
   it('is case-folded, because rabbit_money_segment is upper()-folded', () => {
     expect(isMoneySegment('invoices')).toBe(true)
     expect(isMoneySegment('Finance')).toBe(true)
+    expect(isMoneySegment('legal')).toBe(true)
     expect(isMoneySegment('assets')).toBe(false)
     expect(isMoneySegment('')).toBe(false)
     expect(isMoneySegment(null)).toBe(false)
@@ -304,10 +326,32 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   it('the two upload surfaces RENDER a refusal instead of logging it', () => {
     // S37 gave uploadFile three new guaranteed-throw paths; both of these
     // catches used to end their journey in the devtools console.
-    for (const view of ['BudgetView.jsx', 'ProjectSummaryView.jsx']) {
-      const src = read('src', 'tools', 'rabbit_v0.1.0', 'views', view)
-      expect(src, view).toContain('setUploadError(err?.message')
-      expect(src, view).toContain('{uploadError}')
+    // Post-overhaul S4a (E1): the project-level Add files left the Summary's
+    // Control Panel for the Files tab (ProjectFilesExplorer), and the rule
+    // went with it — the Summary no longer uploads at all.
+    const surfaces = [
+      ['src', 'tools', 'rabbit_v0.1.0', 'views', 'BudgetView.jsx'],
+      ['src', 'components', 'Resources', 'ProjectFilesExplorer.jsx'],
+    ]
+    for (const parts of surfaces) {
+      const src = read(...parts)
+      const name = parts[parts.length - 1]
+      expect(src, name).toContain('setUploadError(err?.message')
+      expect(src, name).toContain('{uploadError}')
     }
+    // Any call spelling (post-overhaul S4a review round 1, R1-TST-16: the
+    // first cut read only `uploadFile?.(`, and `ctx.uploadFile(` passed).
+    const CALLS_UPLOAD = /\buploadFile\s*(?:\?\.\s*)?\(/
+    const summary = read('src', 'tools', 'rabbit_v0.1.0', 'views', 'ProjectSummaryView.jsx')
+    expect(summary).not.toMatch(CALLS_UPLOAD)
+    for (const call of ['uploadFile?.(f)', 'ctx.uploadFile(f)', 'await uploadFile (f)', 'x.uploadFile ?. (f)']) expect(call, call).toMatch(CALLS_UPLOAD)
+    expect('const { uploadFile } = ctx').not.toMatch(CALLS_UPLOAD)
+    // …and no mention at all in its CODE (round 2, R2-TST-09: an alias,
+    // `const up = ctx.uploadFile; up(f)`, or `ctx['uploadFile'](f)` passed
+    // the call's shape). A comment may still name it.
+    const codeOf = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(codeOf(summary)).not.toContain('uploadFile')
+    for (const planted of ["const up = ctx.uploadFile\nup(f)", "ctx['uploadFile'](f)"]) expect(codeOf(planted), planted).toContain('uploadFile')
+    expect(codeOf('// the Files tab calls uploadFile now\nconst x = 1')).not.toContain('uploadFile')
   })
 })

@@ -9,9 +9,35 @@
 //
 // The host page is responsible for actually pushing the rows
 // into the rate card via `bulkUpsertEntries(rows)`.
+//
+// ── UI overhaul C1 ───────────────────────────────────────────────────────────
+//
+// Nobody reviewed this file: the critic named it as a coverage gap — "another
+// table" inside a four-overlay file — and the plan pulled it into this bundle
+// on that basis. It therefore has no measured findings of its own and takes
+// the generic contracts.
+//
+// It was a hand-rolled overlay: its own backdrop, its own Escape listener, a
+// `#fef3e8` near-white sheet with a 2px `#7c2d12` frame (C9), an `#f4a261`
+// header band, a `#fee2e2` pink error panel, a `#fed7aa` warning strip, a
+// `#fff7ed` footer, a 10px mono header row and 12px mono cells, and
+// `hover:bg-orange-50` — a hover LIGHTER than the page, which reads as a hole
+// rather than a highlight.
+//
+// It is `Dialog` + `Table` now, so it inherits the modal stack, the busy lock
+// and topmost-only Escape (Q17) instead of its own partial copy of one, and
+// the preview grid is the same object as the table it is previewing INTO —
+// which is the point: you are looking at rows that are about to become those
+// rows. Same eight columns, same confirm, same cancel, same counts, same
+// errors, same ignored-column warning.
+//
+// `workbench` (960): eight columns of which three are money. `reading` (720)
+// clipped the region and size columns at 1280.
+// ============================================================
 
-import { useEffect } from 'react'
-import { X, CheckCircle2, AlertTriangle, FileWarning } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, FileWarning } from 'lucide-react'
+import { Banner, Button, Card, Dialog, EmptyState, Row, Table, Td, Th } from '../../../ui'
+import '../../Resources/resources.css'
 
 function fmtCurrency(value, currency) {
   if (value === null || value === undefined || value === '') return '—'
@@ -26,6 +52,13 @@ function fmtCurrency(value, currency) {
   }
 }
 
+// 🚨 Sums to exactly 100: 22 + 16 + 10 + 12 + 12 + 12 + 8 + 8.
+const COL = {
+  role: '22%', slug: '16%', currency: '10%',
+  day: '12%', week: '12%', month: '12%',
+  region: '8%', size: '8%',
+}
+
 export default function ImportPreviewModal({
   open,
   source,         // 'CSV' | 'XLSX' | 'PDF' | 'Google Sheet'
@@ -35,177 +68,117 @@ export default function ImportPreviewModal({
   onClose,
   onConfirm,
 }) {
-  useEffect(() => {
-    if (!open) return
-    function onKey(e) { if (e.key === 'Escape' && !busy) onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, busy, onClose])
-
   if (!open || !result) return null
 
   const { rows = [], unmapped = [], totalRows = 0, errors = [], sheetName } = result
   const canConfirm = rows.length > 0 && !busy
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(28, 25, 23, 0.6)' }}
-      onClick={() => !busy && onClose()}
+    <Dialog
+      width="workbench"
+      title={`Import ${source} preview`}
+      subtitle={fileName ? (
+        <span className="rc-preview-file"><bdi>{fileName}{sheetName ? ` › ${sheetName}` : ''}</bdi></span>
+      ) : null}
+      busy={busy}
+      onClose={onClose}
+      // Both of these overlays closed on a backdrop click before. `Dialog`
+      // makes that opt-in (Q17: the ~60 overlays adopting it must not
+      // silently GAIN the click and lose a half-filled form), which means an
+      // overlay that already had it must ask for it back, or the restyle has
+      // changed what a click does — C1.
+      dismissOnBackdrop
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={() => onConfirm(rows)} disabled={!canConfirm}>
+            {busy ? 'Importing…' : `Add ${rows.length} row${rows.length === 1 ? '' : 's'}`}
+          </Button>
+        </>
+      )}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex flex-col rounded-sm shadow-2xl"
-        style={{
-          width: 'min(900px, 92vw)',
-          maxHeight: '80vh',
-          backgroundColor: '#fef3e8',
-          border: '2px solid #7c2d12',
-        }}
-      >
-        {/* ── Header ── */}
-        <div
-          className="flex items-center justify-between px-5 py-3"
-          style={{ borderBottom: '2px solid #7c2d12', backgroundColor: '#f4a261' }}
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
-              Import {source} preview
-            </span>
-            {fileName && (
-              <span
-                className="text-[11px] font-mono px-2 py-0.5 rounded-sm"
-                style={{ backgroundColor: '#fef3e8', color: '#7c2d12', border: '1px solid #7c2d12' }}
-              >
-                {fileName}{sheetName ? ` › ${sheetName}` : ''}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="p-1 rounded-sm hover:bg-orange-200 disabled:opacity-30 transition-colors"
-            style={{ color: '#1c1917' }}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+      <div className="rc-preview">
         {/* ── Status strip ── */}
-        <div className="px-5 py-2 flex items-center gap-4 text-[11px] font-mono" style={{ color: '#7c2d12' }}>
-          <span className="flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {rows.length} row{rows.length === 1 ? '' : 's'} ready
+        <div className="rc-preview-status">
+          <span>
+            <CheckCircle2 aria-hidden="true" />
+            <span className="rc-preview-count">{rows.length}</span>
+            {' '}row{rows.length === 1 ? '' : 's'} ready of <span className="rc-preview-count">{totalRows}</span> parsed
           </span>
-          <span style={{ color: '#7c2d12', opacity: 0.7 }}>/ {totalRows} parsed</span>
           {unmapped.length > 0 && (
-            <span className="flex items-center gap-1" style={{ color: '#7c2d12' }}>
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {unmapped.length} column{unmapped.length === 1 ? '' : 's'} ignored
+            <span data-tone="warning">
+              <AlertTriangle aria-hidden="true" />
+              <span className="rc-preview-count">{unmapped.length}</span>
+              {' '}column{unmapped.length === 1 ? '' : 's'} ignored
             </span>
           )}
           {errors.length > 0 && (
-            <span className="flex items-center gap-1" style={{ color: '#991b1b' }}>
-              <FileWarning className="w-3.5 h-3.5" />
-              {errors.length} error{errors.length === 1 ? '' : 's'}
+            <span data-tone="danger">
+              <FileWarning aria-hidden="true" />
+              <span className="rc-preview-count">{errors.length}</span>
+              {' '}error{errors.length === 1 ? '' : 's'}
             </span>
           )}
         </div>
 
-        {/* ── Errors panel ── */}
         {errors.length > 0 && (
-          <div
-            className="mx-5 mb-2 p-2 rounded-sm text-[11px] font-mono max-h-24 overflow-auto"
-            style={{ backgroundColor: '#fee2e2', border: '1px solid #991b1b', color: '#991b1b' }}
-          >
-            {errors.map((e, i) => <div key={i}>• {e}</div>)}
-          </div>
+          <Banner tone="danger" Icon={FileWarning}>
+            <ul className="rc-errors">
+              {errors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          </Banner>
         )}
 
-        {/* ── Unmapped warning ── */}
         {unmapped.length > 0 && (
-          <div
-            className="mx-5 mb-2 p-2 rounded-sm text-[11px] font-mono"
-            style={{ backgroundColor: '#fed7aa', border: '1px solid #7c2d12', color: '#7c2d12' }}
-          >
+          <Banner tone="warning" Icon={AlertTriangle}>
             Ignored columns: {unmapped.map(u => u.header).filter(Boolean).join(', ') || '(blank headers)'}
-          </div>
+          </Banner>
         )}
 
-        {/* ── Preview table ── */}
-        <div className="flex-1 overflow-auto mx-5 mb-3 rounded-sm" style={{ border: '1px solid #f4a261' }}>
-          <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-            <thead className="sticky top-0 z-10">
-              <tr style={{ backgroundColor: '#f4a261' }}>
-                {['Role', 'Slug', 'Currency', 'Day', 'Week', 'Month', 'Region', 'Size'].map((h, i) => (
-                  <th
-                    key={h}
-                    className="px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider text-left"
-                    style={{
-                      color: '#1c1917',
-                      borderBottom: '1px solid #7c2d12',
-                      textAlign: i >= 3 && i <= 5 ? 'right' : 'left',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-xs font-mono" style={{ color: '#7c2d12', opacity: 0.7 }}>
-                    No rows could be parsed.
-                  </td>
-                </tr>
+        {/* ── Preview table ──
+            The same component the rows are about to land in, which is what
+            makes this a preview rather than a second rendering of the same
+            data in a different language. */}
+        {rows.length === 0 ? (
+          <EmptyState
+            Icon={FileWarning}
+            title="Nothing to import"
+            body="No rows could be parsed from this file."
+          />
+        ) : (
+          <Card pad={false} className="rc-preview-card">
+            <Table
+              dense
+              aria-label={`${source} import preview`}
+              head={(
+                <Row>
+                  <Th width={COL.role}>Role</Th>
+                  <Th width={COL.slug}>Slug</Th>
+                  <Th width={COL.currency}>Currency</Th>
+                  <Th width={COL.day} numeric>Day</Th>
+                  <Th width={COL.week} numeric>Week</Th>
+                  <Th width={COL.month} numeric>Month</Th>
+                  <Th width={COL.region}>Region</Th>
+                  <Th width={COL.size}>Size</Th>
+                </Row>
               )}
+            >
               {rows.map((r, i) => (
-                <tr key={i} className="hover:bg-orange-50">
-                  <td className="px-2 py-1 text-xs" style={{ color: '#1c1917' }}>{r.role_label}</td>
-                  <td className="px-2 py-1 text-xs font-mono" style={{ color: '#7c2d12' }}>{r.role_slug}</td>
-                  <td className="px-2 py-1 text-xs font-mono" style={{ color: '#7c2d12' }}>{r.currency || 'USD'}</td>
-                  <td className="px-2 py-1 text-xs font-mono text-right" style={{ color: '#1c1917' }}>{fmtCurrency(r.day_rate, r.currency)}</td>
-                  <td className="px-2 py-1 text-xs font-mono text-right" style={{ color: '#1c1917' }}>{fmtCurrency(r.week_rate, r.currency)}</td>
-                  <td className="px-2 py-1 text-xs font-mono text-right" style={{ color: '#1c1917' }}>{fmtCurrency(r.month_rate, r.currency)}</td>
-                  <td className="px-2 py-1 text-xs" style={{ color: '#1c1917' }}>{r.region || '—'}</td>
-                  <td className="px-2 py-1 text-xs" style={{ color: '#1c1917' }}>{r.project_size || '—'}</td>
-                </tr>
+                <Row key={i}>
+                  <Td>{r.role_label}</Td>
+                  <Td>{r.role_slug}</Td>
+                  <Td>{r.currency || 'USD'}</Td>
+                  <Td numeric>{fmtCurrency(r.day_rate, r.currency)}</Td>
+                  <Td numeric>{fmtCurrency(r.week_rate, r.currency)}</Td>
+                  <Td numeric>{fmtCurrency(r.month_rate, r.currency)}</Td>
+                  <Td>{r.region || '—'}</Td>
+                  <Td>{r.project_size || '—'}</Td>
+                </Row>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Footer ── */}
-        <div
-          className="flex items-center justify-end gap-2 px-5 py-3"
-          style={{ borderTop: '1px solid #f4a261', backgroundColor: '#fff7ed' }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="px-4 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-            style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(rows)}
-            disabled={!canConfirm}
-            className="px-4 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-            style={{
-              color: '#fff7ed',
-              backgroundColor: '#ea580c',
-              border: '1px solid #7c2d12',
-            }}
-          >
-            {busy ? 'Importing…' : `Add ${rows.length} row${rows.length === 1 ? '' : 's'}`}
-          </button>
-        </div>
+            </Table>
+          </Card>
+        )}
       </div>
-    </div>
+    </Dialog>
   )
 }

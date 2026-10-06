@@ -63,22 +63,81 @@ what is deployed.**
 `operator-workspaces`' `create` behind `requirePlatformOperator`, and hands
 back a show-once password.
 
-📌 **The emailed setup link Audrey asked for is BUILT and NOT USABLE YET** —
-S43b, `186fa63` + `df257d0`, migration 0066. Measured 2026-09-04: 0066 is
-applied on dev and staging (the `platform_audit` action CHECK carries
-`workspace.invite_sent` on both; prod is at 0063 and does not), but
-`operator-workspaces` has not been redeployed on any project since 2026-08-08
-(dev v11, staging v9, prod v9), so the console's send button calls a function
-that does not know the action and fails. What is owed is one deploy per
-environment — `supabase functions deploy operator-workspaces --project-ref
-<ref>` — and 0066 must precede it (already true on dev and staging; on prod,
-0064 and 0066 first). In the wrong order the send reports success and writes no
-certificate. A deploy step, not a defect; the S43b commit messages' "applied to
-NO environment yet" is out of date.
+✅ **The emailed setup link is DEPLOYED and testable** — S43b (`186fa63` +
+`df257d0`), second-reviewed and shipped by Track A bundle A1 (`5dcff98`,
+2026-09-06): `operator-workspaces` v10 on staging and v12 on dev, both
+hash-verified against the source from a scratch download; migration 0066 was
+already on both by query. Prod has neither 0064, 0066 nor the function — the
+release session does prod, in that order. The R2 round found one defect inside
+the corrections (the read-only `admin_contact` action did not catch the shared
+lookup's throw, so a database hiccup read as "Network error") and fixed it.
+Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
+after her report.
 
 ---
 
 ## Broken features
+
+### A private project's media body is never purged from the desktop
+**INFERRED from the design (2026-09-11, the private-projects build,
+`4c10387`); a stated limit, not yet seen to matter.** Cloud rows with
+`storage_provider = 'local_server'` keep their bodies under the desktop's
+local media root (`electron/localMedia.cjs`). `deleteFile` is a soft delete
+that leaves every provider's blob in place (the documented blob-GC gap), and
+the hard-delete / GC sweeps run in the cloud (`trg_files_gc_enqueue`, the
+orphan scan, the teardown sweep), which cannot reach a disk: a local body
+outlives its row for ever. §4a2b invariant 3 ("purge is provider-aware") is
+therefore not met for this provider. Fix shape: on the desktop, a sweep that
+lists `local-media` keys and unlinks any whose row is gone — or a `del()`
+from `deleteFile` when the row is hard-deleted. Until then, *Reset demo
+folder* deliberately leaves `media\` alone (its rows outlive the folder).
+
+### O.T.T.E.R. software routes join a route parameter onto `getSoftwareDir()` raw
+**INFERRED from code reading (adversarial review round 2 of the local demo
+folder, 2026-09-10); not yet measured.** The same shape that round measured
+on the R.A.B.B.I.T. per-id routes (fixed the same day with `dataFilePath`):
+`electron/main.cjs` joins `req.params.slug` / `req.params.sub` onto
+`getSoftwareDir()` in the O.T.T.E.R. software routes (the review named lines
+486, 492, 574–595, 600, 618–620, 642, 659, 695–700, 721–726, 762–768, 803–808
+and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so a
+caller of these routes can read, write or unlink outside
+`userData/otter-data` — up to and including an open demo folder. Since B3
+(Track B, 2026-09-07) that caller is the app's own renderer (any script on
+its origin: the launch cookie rides every same-origin request) or a holder
+of the per-launch token — an unauthenticated local page now gets a bare 401
+from every `/api` route — which narrows the reach, not the defect. Fix shape:
+the same `dataFileOrThrow` the R.A.B.B.I.T. routes use, one line per helper.
+Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
+Q2); settle it by copying the routes into a scratch express app the way the
+review's `repro-express.cjs` did.
+
+### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
+**MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
+sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
+`GET /auth/v1/user` is cancelled 10 ms after the page loads (`[wilson]
+setSession failed: Failed to fetch`) and the sign-in screen is up 4.5 s after
+the page loads, the same as a signed-out launch; with `=stall` the restore
+times out at 15.0 s (`session restore timed out after 15000ms`) and the
+sign-in screen follows 4.3 s later — never an orange window.**
+`checkSessionValid()` (App.jsx) restores the saved
+session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
+`@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
+(GET `/auth/v1/user`) for a token that has NOT expired
+(`dist/main/GoTrueClient.js` line 2815); an unreachable auth server turns that
+into an error, `hydrateSupabase` returns null, and the boot lands on the
+sign-in screen with no way through. The demo script's step 6 ("close and
+relaunch … pull the cable at any point") therefore holds only when the
+relaunch happens online; walkthrough 18 "The cable pulled" says so. Fix
+shape (a policy decision, asked in the local-storage hand-off): in
+`hydrateSupabase`, when the saved token is unexpired and `setSession` fails
+with a retryable fetch error, return the saved session so the shell opens
+offline; cloud calls then fail honestly and the Storage card follows
+solo-user rules until the next online launch. Owner: the local-storage
+session (`demo/local-storage`). **2026-09-10, later:** Audrey chose cloud data
+for part 1 of the demo (`DEMO_LOCAL_STORAGE_BRIEF.md` §7), so an offline
+LAUNCH is no longer a Friday requirement and the offline-tolerant launch is
+not being built; the bounded restore (`c5e5a77`) stands, measured above. The
+limit itself stands and is stated in walkthrough 18 "The cable pulled".
 
 ### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
 **REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
@@ -144,120 +203,68 @@ Deliberate for now: agent mode is a different feature with its own prompt, its o
 it retrieval is a design question rather than a port. Recorded because the
 behaviour changes under a toggle with no explanation on screen.
 
-### The pet does not sync live between machines, and a second open window writes its stale copy back
+### A failed pet sync is never retried until WILSON is relaunched
 
-**INFERRED (2026-08-12, Phase 3).** The account pet is read once, by an effect
-keyed `[perms.ready, perms.userId]`. There is no subscription and no refetch, so
-a computer left open never learns that the pet changed elsewhere — and the moment
-anything touches the pet there (a decay tick reaching death, a difficulty change,
-petting), `savePet` writes that machine's stale copy over the account row.
+**MEASURED by the A3 review rounds (2026-09-07).** When `resolveUserPet` throws
+— a transient Supabase blip on sign-in — `petUserIdRef` is deliberately left
+null so the failure cannot re-point writes at the account (that is the fix for
+the entry this replaced). Nothing then installs it: the identity effect is keyed
+`[perms.ready, perms.userId]`, both primitives, and `usePermissions` re-renders
+on `TOKEN_REFRESHED` without changing `userId`, so the effect never runs again
+for that session. Every subsequent pet save fails for the life of the process.
 
-Phase 3 makes this visible in a new place: create an egg on PC A while PC B is
-open on the old ghost, and B can put the ghost back. The Create Egg path itself
-is now correct on both machines; what is missing is propagation.
+It is not silent — the save reports *"Your pet could not be reached in your
+account, so this change was not saved. Reopen WILSON to try again."*, and the
+copy names the relaunch precisely because nothing retries. The pet on screen is
+this account's cached one, so nothing is lost or shown wrongly.
 
-Practical mitigation until it is fixed: close WILSON on the other computer before
-creating an egg. This is the same class as the known two-tab clobber recorded
-against `localData.js`, but it now spans machines rather than tabs.
+Would fix it: a nonce ref bumped on a failed resolve and included in the
+effect's dependencies, driven by a bounded backoff or by `navigator.onLine`.
+Small. Not scheduled — it needs a decision about how hard to retry against a
+service that may be refusing on purpose.
 
-### The pet requires Supabase even on the Local Server adapter
+### The pet does not sync live between machines
 
-**INFERRED (2026-08-12, Phase 3).** `savePet` routes on `petUserIdRef.current`,
-which is correct — the pet follows the person. But the app is behind a mandatory
-sign-in, so that ref is effectively never null in normal use, and the
-`savePetData` → `POST /api/pet` branch is reachable only in the sub-second window
-before permissions resolve.
+**INFERRED (2026-08-12, Phase 3); NARROWED by Track A bundle A3 (2026-09-07,
+`5add1d4` + `700588e` + `7322e12`).** The account pet is read once, by an effect keyed
+`[perms.ready, perms.userId]`. There is no subscription and no refetch, so a
+computer left open never learns that the pet changed elsewhere.
 
-The consequence for the Phase 3 brief's "works on desktop in **local** mode":
-with the Local Server adapter selected but no network, Create Egg fails, now
-reports the failure on Settings, and the ghost returns on reload. The egg is
-never written to `pet.json` as a fallback, because `mirrorPetToCache` runs only
-after `saveCloudPet` succeeds.
+🚨 **The second half of this entry — "and writes its stale copy back" — is
+CLOSED.** Audrey's ruling 4 (2026-09-07) chose refusal over live sync:
+migration 0068 is a BEFORE UPDATE trigger on `public.user_pets` raising
+SQLSTATE `WP001` when `NEW.last_updated_at` is older than the stored row's, and
+the client no longer stamps a fresh anchor on every save, so the anchor a
+window sends is the one it is holding. On the refusal it does not retry — it
+re-reads the account and shows *"Your pet changed on another device —
+refreshed."*
 
-This is S31's design rather than a Phase 3 regression — one pet per person cannot
-also be a per-device file — but the "local mode" line in the brief is not
-satisfied on its own terms and no one has recorded the reinterpretation. Decide
-whether an offline pet is meant to exist at all.
+⚠️ **What is still open, precisely.** Two timestamps cannot order two writers
+that have both legitimately moved forward. A second window showing a LIVE pet
+with Pet Mode ON advances its own anchor every thirty seconds from its own
+decay tick, so its copy is genuinely newer and its write is accepted.
 
-### A pet saved as a `corpse` never becomes a ghost
+A first version of this paragraph claimed every window showing an egg, a
+corpse, a ghost or Pet Mode off was protected. **That is too strong, and it was
+corrected by the bundle's own review round.** A write is refused only when its
+anchor is OLDER than the stored one, which needs the *winning* writer to have
+advanced the anchor. Two windows both sitting on a non-decaying pet hold the
+SAME anchor, equal is allowed by design, and the second still overwrites the
+first. So: protected when the other machine has moved the pet on — creating an
+egg, feeding, petting a *hatched* pet, hatching, waking, a decay tick, or the
+second save of a Pet Mode resume. Not protected when neither has. (Petting an
+egg that does not hatch does not move the anchor; the egg's own mint did.) Audrey's reported case (create an egg on PC A
+while PC B sits on the old ghost) is protected, because minting an egg stamps a
+fresh anchor.
 
-**INFERRED (2026-08-12, Phase 3).** The live decay tick sets `form = 'corpse'`
-(`App.jsx`, death check) and only a **10-second `setTimeout` inside that same
-tick** promotes it to `'ghost'`. `form` is part of `petMaterialSignature`, so the
-corpse is persisted the moment it happens — to the account row, not just the
-cache. Close the app, reload or sign out inside those 10 seconds and the corpse
-is the stored state forever: `applyOfflineDecay`'s guard excludes `'corpse'`, and
-the decay interval's first line excludes it too, so nothing ever moves it again.
+⚠️ It is also **clock-sensitive**, because the anchor is client-supplied: a
+machine whose clock runs fast always wins, and one whose clock runs slow is
+refused, re-reads, adopts the account's anchor and can then write. A skewed
+clock degrades the guard rather than trapping anybody, but it does so
+silently.
 
-Phase 3 made this **recoverable** — `canCreateNewEgg` accepts `corpse` as well as
-`ghost` (`src/lib/petLifecycle.js`), so the Create Egg button works from that
-state instead of being visible-but-refusing. The state machine itself is
-unchanged: the pet still renders as a corpse indefinitely, and a user who does
-not press Create Egg has no way forward.
-
-Would settle it: kill the app within 10s of a death, reopen, and read
-`form` from `user_pets`. Fixing it means completing the transition on load
-(promote a `corpse` whose `diedAt` is more than 10s old), which is a change to
-the death rules and was explicitly out of scope for Phase 3.
-
-### Turning Pet Mode OFF does not protect the pet while the app is closed
-
-**INFERRED (2026-08-12, Phase 3).** The live decay tick short-circuits on
-`if (!prev.petMode) return prev`, but `applyOfflineDecay` never reads `petMode`
-at all — it decays from the `lastUpdatedAt` anchor regardless. So switching Pet
-Mode off does not pause starvation, it defers the whole elapsed interval to the
-next launch, and the pet can be found dead on reopening. The same function also
-ends no sleep and performs no evolution, so a pet asleep at close is immortal
-offline and a baby cannot grow while the app is shut.
-
-Would settle it: set `petMode` false, set `lastUpdatedAt` back several hours in
-`user_pets`, reload, and read the resulting `hunger`/`form`.
-
-### The per-device pet cache is keyed to the machine, not the account
-
-**INFERRED (2026-08-12, Phase 3).** `getDataDir()` in `electron/main.cjs` has no
-user segment, and `PET_KEY` in `src/lib/localData.js` is one `localStorage` key
-per origin. Nothing anywhere removes either on sign-out — `SessionSection`
-records that the disk copy survives deliberately, on the grounds that the React
-state leak was closed. But `resolveUserPet` still **reads that uncleaned copy**
-to make its adoption decision, so on a shared computer person A's pet can be
-lifted into person B's account when B has no pet row of their own. Suite 56
-proves an admin cannot read a member's pet through RLS; this hands one person's
-pet to another underneath RLS, through the filesystem.
-
-Phase 3 narrowed the blast radius — adoption now happens only when the account
-has **no** row at all — but did not close it.
-
-Would settle it: sign out on the desktop, sign in as a second account with no
-`user_pets` row, and read that row afterwards.
-
-### A failed cloud pet read leaves the stale device pet routed to the account
-
-**INFERRED (2026-08-12, Phase 3).** In the sign-in effect `petUserIdRef.current`
-is set unconditionally, *before* the async block. If `resolveUserPet()` then
-throws, the catch deliberately does not clear or replace `petData` — so the app
-keeps rendering the **stale device pet** while `savePet` now routes writes to the
-**account**. Any interaction, or the decay tick reaching death, writes that stale
-pet over the account row, with no adoption decision and no staleness check. A
-transient Supabase blip on the second computer is enough to overwrite the first
-computer's pet. The S34 storage-root effect two blocks below refuses to act on a
-failed read for exactly this reason; the pet effect does the opposite.
-
-### The `user_pets.feedback` size cap is untested, and Create Egg is the statement most likely to trip it
-
-**INFERRED (2026-08-12, Phase 3).** `0046` carries
-`CHECK (pg_column_size(feedback) <= 262144)` and claims in comments that it sits
-far above anything a conversation can produce. Nothing tests that claim. Feedback
-entries store the assistant reply **untruncated** (the 2000-char truncation
-applies only to what is sent to the model), replies run at `max_tokens: 1024`,
-and the array keeps the last 50 — the same order of magnitude as the cap.
-
-Create Egg carries the entire feedback array into the new pet by design, so it is
-the write most likely to hit the ceiling. A violation throws inside
-`saveCloudPet`; Phase 3 now surfaces that on the Settings page rather than
-silently, but the egg would still fail to persist. Suite 56 probes `feedback`
-for array-ness only and has **no probe of the size cap, and no accepting control**
-proving a maximal legitimate payload is allowed.
+Closing the rest needs a revision counter or the live sync ruling 4 declined.
+A second window still needs a reload to SEE a change.
 
 ### ~~Migration 0061 is written and NOT applied to any environment~~ — APPLIED on all three (re-verified 2026-09-04)
 Deleted per the rule for this file. `public.phase_dependencies` exists and
@@ -294,6 +301,16 @@ gesture atomic. The honest fix is to await the unlink and only then link, or to
 wrap both in `runBatch`. Not attempted this phase because it changes undo
 semantics and deserves its own test.
 
+**Narrowed by Track A bundle A2 (`643b5ca`, 2026-09-06), Audrey's ruling 7.** The
+gesture now asks first: releasing the arrow on another bar parks the rewire, and
+`DependencyRewireModal` names the edge being replaced ("A → B becomes A → C") and
+says the old link is removed before the new one is saved. "Replace link" runs
+unlink-then-link (`commitRewire`); "Keep old link" writes nothing; the mouseup
+itself no longer links (pinned by `dependencyRewire.test.js`). She accepted the
+confirm knowing it does not fix the loss. What remains is exactly the atomicity
+above — neither write awaited, no `runBatch`, the stale-snapshot rollback, the
+split undo — and it is all this entry now claims.
+
 ### The cloud dependency loader is workspace-scoped, not project-scoped
 
 **INFERRED (2026-08-11, code reading).** `listDependenciesWith` filters on a
@@ -318,29 +335,24 @@ product, and it ends in `.catch(() => [])`. Getting it wrong empties every Gantt
 silently. → Fix it in its own change, and settle the syntax first with one
 authenticated GET against staging before pushing anything.
 
-### Deleting a task or a phase leaves orphaned dependency rows on the desktop
+### The Dashboard writes task statuses without the Phase 7 dependency warning
 
-**INFERRED (2026-08-11, code reading).** `electron/main.cjs` backs both deletes
-with the generic `rabbitSubentityRoutes` DELETE, which splices only the target
-collection — there is no cascade and no dependency sweep, so edges referencing
-the deleted row stay in `project.json` and are re-mirrored into
-`{Slug}_DATABASES/tasks.json` and `timeline.json` on every write. `RabbitProvider`
-prunes the CLIENT bundle, which masks it for the session; they return on reload.
-Cloud is unaffected (0061's `ON DELETE CASCADE` on a hard delete; a soft-deleted
-parent keeps its edges deliberately so they return on restore).
-
-Harmless to render — every consumer skips edges with unknown endpoints — but the
-two backends diverge, and the orphans accumulate.
-
-### A desktop→cloud migration silently drops the whole dependency graph
-
-**INFERRED (2026-08-11, code reading).** `src/cloud/migrate/runMigration.js`
-inserts projects, phases, assets, tasks and files. The word `dependencies`
-appears in it exactly once, inside a comment describing
-`localServerAdapter.loadProject`'s return shape. There is no write to
-`task_dependencies` and none to `phase_dependencies`. A user who migrates a
-desktop project to the cloud arrives with an empty Gantt link set, no error, and
-no indication anything was lost.
+**INFERRED (2026-09-06, code reading).** Phase 7 (`643b5ca`) warns, naming the
+unfinished predecessors, on every R.A.B.B.I.T. task- and phase-status write and
+lets the person continue. The Dashboard is the one surface it does not reach:
+`DashboardTasksView.jsx`'s status select and its kanban drop write through
+`useMyTasks.patchTask`, and the cross-project task model (`useMyTasks`) loads
+tasks, phases and the roster but no `task_dependencies` rows. `TaskDetailPopup`
+carries the guard, but the `ctx` the Dashboard hands it has no `dependencies`
+array, and `statusWarning` answers null for "cannot check", never "clean". So a
+task marked Final from the Dashboard over an unfinished predecessor gets no
+warning, while the same task on the Tasks tab does. The Phase 7 brief's own
+warning applies: a check that fires on six screens and not the seventh trains
+the reader to trust silence.
+→ `useMyTasks` loads the edges for its tasks (one `task_dependencies` query on
+`successor_id in (…)`, cloud-only like the rest of the hook), passes
+`dependencies` in the ctx it gives the popup, and its own two writers call
+`useDependencyStatusGuard`. Not scheduled.
 
 ### ~~Migration 0059 dropped two columns from `workspace_directory()`~~ — FIXED by 0060, APPLIED on all three (re-verified 2026-09-04)
 Deleted per the rule for this file. `workspace_directory()`'s `RETURNS TABLE`
@@ -632,54 +644,8 @@ trace, so unlike the Validator write below there is nothing to verify by query:
 her eyes are the only possible instrument, and per S23's lesson a user action
 that requires a precondition outranks reasoning about that precondition.
 
-→ **One thing from the old entry survives and is now its own item below**:
-`useRosterMembers` swallowing the RPC error.
-
-### `useRosterMembers` cannot tell a broken roster from an empty one
-**INFERRED (S23, unchanged).** Split out of the assignee-dropdown entry above
-when that closed, rather than deleted with it. `ProjectTasksView`'s dropdown is
-on the healthy `workspace_directory()` path and intersects correctly — but if
-the roster ever resolves to `[]`, the staffed branch filters an empty list and
-yields `[]` too, and the hook **drops the error** rather than passing it
-through. So an RPC failure and a genuinely empty workspace are indistinguishable
-at every call site. Not currently biting anything; it is what would make the
-next roster problem take a session instead of a minute.
-→ Surface the error. Not scheduled.
-
-<!-- historical, kept for the reasoning:
-### Two of the four assignee dropdowns are hard-empty in cloud mode
-**MEASURED (S23).** Upgraded from the S22 entry, which reasoned from **dev**
-where `project_members` is empty. On **staging** — Audrey's actual environment
-— it has 3 rows, so the *staffed* branch runs, not the fallback. The S22
-conclusion was measured against the wrong database.
-
-- ~~`TimelineView.jsx:4228` (task editor) and `ProjectAssetsView.jsx:2108`
-  (asset-detail task rows) are unconditionally empty in cloud~~ — **the stated
-  cause is REMOVED (S24, `b07b6c9`).** Both early-returned because
-  `adapter.listTeamMembers` existed only on `localServerAdapter`; the Supabase
-  adapter now implements it over the existing `workspace_directory()` RPC, and
-  `loadProject` now returns `teamAssignments` from `project_members` (it was
-  omitting the key, and the provider's
-  `setBundle({ ...EMPTY_BUNDLE, ...next })` reset it to `[]` on every load).
-  ⚠️ **This is CODE-level, not observed. STILL NOT OBSERVED after S25.** The
-  adapter method exists and is built; nobody has watched these two dropdowns
-  populate in the running app. S25 was asked to confirm this at runtime and
-  **did not** — reaching those dropdowns needs a signed-in session against
-  staging with a staffed project, which no automated check in this repo
-  performs. Recorded as still-unverified rather than quietly closed: the fix
-  was a by-product of the budget work (the Crew/Team tab needs the same
-  roster), not a targeted repair, and an unwatched fix is not a fix.
-  → **One look at the Timeline task editor on the beta settles it.**
-- `ProjectTasksView`'s dropdown is on the healthy `workspace_directory()` path
-  and intersects correctly — but if the roster ever resolves to `[]`, the
-  staffed branch filters an empty list and yields `[]` too, and
-  `useRosterMembers` **drops the error** rather than passing it through, so an
-  RPC failure and a genuinely empty workspace are indistinguishable at every
-  call site.
-
-→ Roster-error surfacing is still owed: `useRosterMembers` swallowing the error
-means a broken RPC and an empty workspace look identical everywhere. S25.
--->
+→ ~~**One thing from the old entry survived as its own item**: `useRosterMembers`
+swallowing the RPC error.~~ **Closed by Track B bundle B1 (2026-09-06):** the hook returns `error`, `RateCardPage` shows it, and `useRosterMembers.test.js` goes red if it is swallowed again.
 
 ### ~~Scenes / levels / experiences are unavailable on cloud projects~~ — FIXED (S25, `183b4c2`)
 Deleted per the rule for this file. Migration 0040 creates `scenes`, `shots`,
@@ -696,7 +662,22 @@ Borrowing the money gate would have locked the feature to managers and nobody
 would have noticed until someone tried to add a scene. pgTAP `48_scenes`
 asserts a project member CAN write and a reviewer can read but not write.
 
-### One hung `getSession()` pins the whole app's auth, and `withTimeout` cannot unpin it
+### One hung `getSession()` pins the whole app's auth — reconnect deferred, banner shipped (Track B B2 part 2, 2026-09-06)
+**NARROWED (B2 part 2).** The pin is now reproduced on demand and has a
+surface. `scripts/probes/connection-hang.mjs` against wilson-dev: a refresh
+that never settles, a PostgREST read behind it that never resolves and never
+issues a request, `getSession()` stuck behind the same shared
+`refreshingDeferred`. `src/cloud/connectionWatchdog.js` wraps the one fetch
+supabase-js uses and raises **"Connection lost — reload to continue"** when
+an auth, PostgREST or storage-download request is pending past 20 s while
+`navigator.onLine` is true (uploads, the resumable path and every Edge
+Function call are outside it by construction; a slow upload never trips it,
+pinned by test). Reload is the remedy; **reconnect logic is deferred by
+Audrey (fix plan answer 10).** What remains open is only the reconnect:
+nothing outside the SDK can cancel its shared refresh promise, so a real
+fix is a client re-create on detection or an SDK change. The measured facts
+below stand.
+
 **MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
 replaces the old "Profile panel can spin forever" entry, which framed the
 problem as N independent call sites. It is not.
@@ -728,8 +709,8 @@ actually reachable and reportable — `ProfileSection`'s loader now has
 closed it), and `aiProxy`'s pre-flight is bounded with its own code and message
 rather than falling through to "Sign in to use AI features."
 
-→ The real remediation is probably an app-level circuit-breaker or forced
-re-hydrate, not per-site ceilings. **Design it before writing it.**
+→ Deferred by her choice (answer 10). The banner above is the surface until
+a reconnect is designed; when it is, design it before writing it.
 
 ### Avatar does not persist
 **REPORTED; root cause still unproven.** S21 falsified four hypotheses by
@@ -858,35 +839,70 @@ What remains is not this file's kind of entry, and is tracked elsewhere:
 - **A human walkthrough is owed:** submit as a plain member, approve as a
   manager, confirm the incumbent stood down, confirm the read window opens AND
   closes. `docs/RELEASE_TESTING.md`.
-- ⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
+- ~~⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
   approving a nomination DEMOTES the incumbent standard, so every fork of it
   immediately starts showing a "Suggest a change…" item whose POST cannot
-  succeed.
+  succeed.~~ — FIXED (2026-08-13, `b051e20`), merged onto `track-a-product` in
+  bundle A4. Being made routine by 0064 is what turned this from a corner case
+  into the thing worth fixing.
 
-### A manager can approve their own nomination
-**MEASURED in code (2026-08-12, Phase 5); decision owed by Audrey.** The
-nomination RPC checks the caller's role, not authorship, and the UI only hides
-the decide controls on your own row — the route is open. So a manager can
-nominate their own course and approve it in one sitting: an unreviewed
-self-promotion path. Deliberate for now, because a manager already holds the
-authority to promote by hand, and **Audrey has not ruled on it.** Split out of
-the closed entry above on 2026-09-04 so it does not sit under a FIXED heading.
-→ If she wants it closed: refuse in the RPC when the nominator is the caller,
-with a pgTAP probe and a breaker.
+### ~~A manager can approve their own nomination~~ — FIXED (2026-09-07, `93c199e`)
+Audrey ruled on it (decision 36): **allowed, and recorded.** A manager can already
+promote a course by hand, so refusing in the RPC would move the work rather than
+prevent it. Migration **0069** re-creates `otter_nomination_apply` and writes an
+`app_events` row with the new code **`WIL-4108`** when the nominator is the caller —
+in the SAME transaction as the promotion, and allowed to raise, so an unrecorded
+self-promotion rolls back with it. Suite 70 (36 → 48) proves it with the CONTROL
+first: approving someone else’s nomination writes no line. Three function mutants
+red on dev. ⚠️ **Applied on dev only** — see the staging note in the hand-off.
 
-### "Suggest a change…" is offered on forks of a demoted standard, where it cannot work
-**MEASURED at code level (2026-08-12, Phase 5); NOT observed at runtime.**
-`CourseRowMenu`'s `maySuggest` gates only on `!!course?.source_course_id` — it
-never re-checks that the source is *still* `company_standard`. If an admin demotes
-a standard (the `confirmDrop` path in `ShareCourseDialog`), every existing fork
-keeps showing the menu item, `ChangeRequestDialog` renders its full submit form,
-and only the POST fails, at RLS, with *"Change requests can only be raised against
-a company standard course."* The user is offered a control that cannot succeed.
+### ~~"Suggest a change…" is offered on forks of a demoted standard, where it cannot work~~ — FIXED (2026-08-13, `b051e20`)
+Kept struck rather than deleted because the brief's suggested fix was half of
+one, and the missing half is the part worth remembering.
 
-Not fixed in Phase 5 because the check needs the caller to resolve
-`source_course_id` against `softwareList` (`CourseRowMenu` only receives one
-course), and "source not in my list" would have to be treated as "not a readable
-standard" — correct, but worth a deliberate look rather than a drive-by.
+**The defect, as filed.** `CourseRowMenu`'s `maySuggest` gated on
+`!!course?.source_course_id` — "this is a fork" — and never re-checked that the
+source was *still* `company_standard`. `otter_cr_insert` (0025) requires
+`otter_course_visibility(target_course_id) = 'company_standard'` at INSERT, so
+after a demotion the item still showed, `ChangeRequestDialog` still rendered its
+whole submit form, the user still wrote a summary, and only the POST failed.
+
+**What the fix does.** `Otter.jsx` gained one resolver, `sourceCourseOf`, which
+looks a fork's source up in `softwareList`; the three `CourseRowMenu` sites pass
+`sourceIsStandard`, which `maySuggest` now ANDs in. The prop defaults **false**,
+so a fourth render site that forgets it loses the item rather than restoring the
+dead end.
+
+**Two things the original entry had wrong or missing.**
+
+1. **Gating the menu item is not sufficient.** `RequestsView` opens
+   `ChangeRequestDialog` directly through `Otter.jsx`'s `onOpenDialog` — it never
+   touches `CourseRowMenu`. A proposer whose standard was demoted mid-review
+   could still reach the submit form from their own queue. The dialog therefore
+   makes the same check itself (`canPropose`), and its existing no-target empty
+   state was widened to say *which* nothing this is: "wasn't copied from a
+   standard" and "was, and that standard has since stood down" are different
+   facts, and telling someone the first when the second is true reads as a bug.
+2. **"Source not in my list" was the wrong test.** The entry proposed treating
+   absence as "not a readable standard". Absence *is* safe — `otter_course_index`
+   returns every `company_standard` course to every member (0022), so a live
+   standard is always present — but it is not the case that bites. A **demoted
+   standard stays in the list**; `handleCourseChanged` merges the new tier into
+   the row in place. So the check must read `visibility`, not existence. A
+   presence test (`!!sourceCourseOf(sw)`) would have looked right, passed review,
+   and fixed nothing. `suggestChangeGating.test.js` pins this specifically.
+
+**Not over-corrected.** `otter_cr_update` gates on *who* the caller is and never
+on the target's visibility, so withdrawing an open request and accepting a
+decline both still succeed after a demotion. Hiding the whole dialog would have
+stranded a proposer with a request they could not close, so only the write half
+is gated — pinned by a test, because it is the obvious one-line "simplification"
+a later session would reach for.
+
+**Still MEASURED at code level; NOT observed at runtime.** The suite is a source
+scan (no jsdom in the tree), so it proves the gate is written and wired to all
+four call sites. It cannot prove the item disappears on screen. A human
+walkthrough — demote a standard, then open a fork's menu — is still owed.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
@@ -897,27 +913,31 @@ only because the tier picker is wrapped in `{isCourseMode && cloudMode && …}`,
 the field is never sent on the backend that ignores it. It becomes a real bug the
 moment anything offers tiers outside cloud mode.
 
-### Signing in to the desktop app hides O.T.T.E.R.'s local courses, with no way back
-**MEASURED at code level (2026-08-05); NOT observed at runtime.**
-`otterFetch` routes to Supabase whenever the session carries a `workspace_id`
-(`adapters/index.js:47-59`), and cloud holds **0 courses on every
-environment** — so a signed-in desktop user sees an empty library while six
-courses (49 subjects, 138 lessons) sit in `%APPDATA%\wilson\otter-data`.
+### ~~Signing in to the desktop app hides O.T.T.E.R.’s local courses, with no way back~~ — FIXED (2026-09-07, `088dba8`)
+Audrey’s decision 3. `setOtterAdapterMode` was referenced in two comments as "the
+Settings override" and had **zero callers** since Session 10 — the fourth feature to
+ship with none. It now has a control: O.T.T.E.R. → `SETTINGS` → `Tool Settings` →
+**`Library`**, offering `Company (signed in)` and `This computer`, pinned per DEVICE
+in `localStorage`. A notice on the library screen says which library is showing and
+carries the way back, in BOTH directions, so recovery never depends on finding a
+padlocked Settings tab. Phase 6’s pet index is cleared on the switch, or the pet
+would keep answering from the library you just left for five minutes. A `local` pin
+is refused on the web build, where there is no Express server to honour it.
+32 breaker mutations red. ⚠️ **No human has clicked it yet** — walkthrough
+`08_otter.md` steps 1–7.
 
-The escape hatch is referenced twice in comments and **does not exist**:
-`setOtterAdapterMode` has **zero callers anywhere in the repo**, so
-`modeOverride` is permanently `'auto'`. `adapters/index.js:26` calls it "the
-Settings override" and `Otter.jsx:238` says "the Settings mode override can pin
-local while a session exists". Neither is true. That is the **fourth** feature
-to ship complete with no caller — after the folder tree (S27), task templates
-(S28) and quiz history (S30) — and it was found while looking for something
-else.
-
-→ **Audrey has de-prioritised the CONTENT** (2026-08-05): *"thats not
-important … we can start with otter being empty. i can generate new courses
-during beta testing."* So no migration is owed. What is still owed is that the
-app says nothing when a library empties on sign-in, and offers no way to look
-at the old one. Small; not scheduled.
+### Three storage event codes are written and documented but not in the client registry
+**MEASURED 2026-09-07 (Track A, A4), by the guard that now pins this.**
+`WIL-3005`, `WIL-3006` and `WIL-3007` are written by
+`supabase/functions/storage-secret/index.ts` and have rows in `SYSTEMS_HANDBOOK`
+Appendix B, but have **never** been in `src/cloud/errorCodes.js`. So
+`describeErrorCode()` returns *"Unknown error code"* for all three in the Admin
+Terminal → `Logs` view, which is the only place they are ever read.
+→ **Not fixed here on purpose:** they are Track C’s codes and this was Track A’s
+bundle. The fix is three lines in `ERROR_CODES`. `src/cloud/eventVocabulary.test.js`
+exempts exactly these three BY NAME and fails on any NEW drift, and its
+"the exemption list is no wider than the drift" probe goes red the moment one of
+them is registered — so the exemption cannot outlive the bug.
 
 <!-- removed: the original entry read —
 Known #2. Both generate correctly and neither result is persisted, so the work
@@ -1116,29 +1136,6 @@ second caller to a live path, **not** a fourth built-with-no-caller feature.
 Same correction `quiz.get` needed in S30: before writing "nothing calls this",
 grep for it.
 
-### `ResetPasswordWizard` still performs a global sign-out
-**MEASURED (S31, 2026-08-05).** `src/cloud/auth/ResetPasswordWizard.jsx` calls
-`supabase.auth.signOut()` with no `scope` argument, so completing a password
-reset revokes every refresh token the person holds — including the operator
-console's — with no copy saying so. Found while fixing the same defect in
-`App.jsx`'s `wilsonSignOut`.
-→ Deliberately **not** changed in S31: what a password reset should revoke is a
-security decision, not a tidy-up. Arguably a global revoke is *correct* there.
-Needs a decision, then one line either way. Not scheduled.
-
-### A failed pet LOAD has nowhere to show itself
-**MEASURED (S31).** `loadPet` was the one function in `localData.js` that S30
-left with neither a `res.ok` check nor a reported catch; S31 makes the failure
-representable (it sets `petSaveError`) but **not visible**, because when the
-load fails `petData` stays null and `App.jsx` renders no companion at all — so
-the component that would display the message is unmounted.
-
-The same gap applies to the existing save banner: `PetCompanion` renders it only
-**inside the chat popup**, so a save failure is invisible unless the user opens
-the companion chat and the pet has hatched. S30 made the failure representable;
-neither session has made it visible.
-→ Needs a surface that does not depend on the pet rendering. Small. Not
-scheduled.
 
 ### D4 is enforced for stored settings, not for a hand-made request
 **MEASURED (S20).** Migration 0031 FKs both override tables to
@@ -1195,29 +1192,6 @@ attached to anything in the first place.
 fix — `NewCompanyWizard` held the other three), and the native caret is back
 on. Confirmed in the running DOM: no element on the auth surfaces carries a
 `blink` animation.
-
-### `file_events` has no money arm — invoice lifecycle metadata is readable by every project reader
-**MEASURED (2026-08-07, S33 adversarial review; pre-existing since 0027).**
-`file_events_select` (`0027_file_lifecycle.sql:113-127`) admits any project
-reader — workspace match + active membership + `can_read_project_topic` — with
-**no `is_financial` arm**, and the capture trigger snapshots every event
-unfiltered. So a plain member who cannot see an invoice's `files` row (0038's
-`files_select` money arm hides it) can still read its **name, path and size**
-from the invoice's `uploaded`/`moved`/`trashed` events over PostgREST, plus
-any `downloaded` events money-privileged users generate. S33's RPC refuses to
-*mint* new events for such callers (the 0047 money gate), which contains the
-S33 surface — this entry is the pre-existing read side.
-
-**Why S33 did not patch it:** the fix is entangled with deletion certificates.
-A purged invoice's `file_events` row is the only surviving record and carries
-no `is_financial` (the `files` row is gone; the `details` snapshot doesn't
-include it), so a policy arm cannot classify certificates without either
-snapshotting `is_financial` into future events (leaves history unclassifiable)
-or accepting that certificates stay reader-visible (maybe correct — proof of
-deletion is arguably not a money fact). That is a design decision for Audrey /
-the TPN re-audit, not a patch.
-→ Candidate shape: snapshot `is_financial` into `file_events` at capture time
-(0047-style migration), add the arm for non-certificate events only.
 
 ### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
@@ -1279,46 +1253,24 @@ GET expiry, and `getUrl` moving into `REQUIRED` once both providers can honour i
 
 ---
 
-### 🚨 `user-avatars` survives workspace teardown, uncounted and permanently undrainable
-
-There are **three** buckets (`rabbit-files`, `rabbit-thumbnails`, `user-avatars`)
-and teardown touches **two**. Avatar objects live at `user-avatars/{workspaceId}/
-{userId}/…`, and after teardown `workspaces` is gone and `workspace_members` has
-CASCADEd — so `storage-gc`'s avatar arm can **never run for that tenant again**.
-
-This is gap #34 one bucket over, and it is the exact argument
-`operator-workspaces` uses to justify its own existence: *"A SECOND BUCKET IS A
-SECOND WAY FOR THE CERTIFICATE TO LIE."* That reasoning was applied to bucket
-two (S39) and not to bucket three. **Avatars are photographs of identifiable
-people**, so `WIL-7005` reading *"Tore down workspace X"* with them still
-resident is a personal-data statement, not a disk-space one.
-
-Pre-existing (S39 era), **not introduced by S44** — found by S44's review, which
-re-audited this certificate.
-
-→ Fix is bounded: recursive `list('user-avatars', workspaceId)` → `remove()` →
-its own certificate line, mirroring the existing thumbnails block.
-
----
-
-### The teardown sweep is row-derived, so a stranded object is neither removed nor counted
+### The teardown sweep of `rabbit-files` and `rabbit-thumbnails` is row-derived, so a stranded object is neither removed nor counted
 
 `uploadFile` can leave an object with no `files` row: body put succeeds,
 thumbnail put succeeds, the row insert is refused, and **both** compensating
 deletes are best-effort. The orphan scan deliberately walks neither thumbnail
 location, so such an object is invisible to `files`, to the queue, and to the
-scan — and after the CASCADE, invisible forever, while `WIL-7005` affirms
-complete disposal.
+teardown scan — and after the CASCADE, invisible forever.
 
-This is documented as a limit (§12.7b, §17) but **has no field on the
-certificate**, which is the specific failure this repo names: *a stated coverage
-limit that is only true in one direction.* `byo_bodies_left` /
-`byo_thumbnails_left` exist precisely so a deliberate omission is legible; the
-Petal-side omission has no equivalent.
-
-→ Minimum fix: a `thumbnails_note` field stating the sweep is row-derived, or a
-`list()` of `rabbit-thumbnails/projects/{id}` per owned project (the project ids
-are already enumerated).
+**Narrowed by Track C / C2 (2026-09-07):** the omission is now LEGIBLE on the
+certificate — `WIL-7005` carries `thumbnails_note`, a sentence stating that
+`blobs_*` and `thumbnails_*` are row-derived and that a stranded body or preview
+is neither removed nor counted — so the certificate no longer affirms a complete
+disposal of those two buckets. (`user-avatars` is the exception: C2 LISTS it by
+prefix, so a stranded avatar IS removed and counted.) What remains is the
+omission itself: a `list()` of `projects/{id}` per owned project in both buckets
+would find and remove the strays, and was not built because a tenant with many
+projects would spend the Edge deadline on listings — a design choice, not an
+oversight. Until then the sentence on the certificate is the whole fix.
 
 ---
 
@@ -1356,37 +1308,6 @@ filesystem has no cloud thumbnail path in either direction. **"A thumbnail lives
 where its source lives" is therefore a uniform RULE whose OUTCOME is not
 uniform**, and the desktop's own `sharp` cache is what serves people sitting
 next to the media.
-
----
-
-### 🚨 The loopback server has no authentication, and since S40 it serves ORIGINAL media
-
-**MEASURED (S40 adversarial review, 2026-08-09).** `expressApp.listen(0,
-'127.0.0.1')` with `expressApp.use(cors())` — no token, no origin allowlist, no
-session check, `Access-Control-Allow-Origin: *` on every one of ~94 routes. That
-is pre-existing and documented. What S40 changed is **what an unauthenticated
-caller can obtain**: the new `managed-files/:id/stream` route returns the
-original, full-resolution bytes of the customer's media, with Range support.
-Before it, the worst this server disclosed was manifests and 256px derivatives.
-
-Everything needed to address it is served by equally open routes:
-`GET /api/rabbit/projects` lists project ids and
-`GET .../managed-files` lists every file id. So any other process on the machine
-that can reach the port — a malicious postinstall in an unrelated repo, a
-browser extension with localhost access — can enumerate and stream pre-release
-footage while WILSON is open.
-
-**Three things S40 DID fix, so this entry is narrower than it looks:** the
-containment base is no longer client-controlled (see below), the response can no
-longer be served as `text/html` on WILSON's own origin (`safeMediaContentType` +
-`nosniff`), and a soft-deleted row is refused.
-
-→ The remaining fix is authentication on the local server — a per-launch bearer
-token minted in `startLocalServer` and handed to the renderer through preload,
-checked by middleware. That is its own session: **every** `fetch` in the RABBIT
-renderer and every adapter call would have to carry it. **Not scheduled.**
-⚠️ Note this is the same class as the pre-existing entry for `file_events`
-metadata — the difference is only what leaks.
 
 ---
 
@@ -1436,95 +1357,6 @@ previews" action to the Files view. Small. **Not scheduled.**
 
 ---
 
-### Concurrent resumable uploads can exceed a workspace's Petal quota
-
-**MEASURED at code level (S42, 2026-08-10); not observed at runtime.** Each
-in-flight resumable upload is invisible to every other one until it completes,
-so two 30 GiB uploads started together against a 50 GiB quota both pass their
-creation check and both land. The gate is correct for one upload at a time and
-has no view of the rest.
-
-🚨 **S42 tried to close this and the fix was built on a false premise, which is
-the part worth keeping.** Migration 0057 taught `workspace_petal_bytes` to count
-`storage.s3_multipart_uploads.in_progress_size`, and pgTAP suite 66 asserted in
-three probes that the hole was shut. Both were wrong: WILSON uploads over **TUS**
-(`/storage/v1/upload/resumable`), and storage-api keeps TUS state in S3 `.info`
-objects via `@tus/s3-store` with an in-process cache — it writes nothing to
-Postgres. That table is populated only by the **S3-compatible protocol handler**
-(`/storage/v1/s3/…`), which WILSON never calls. The arm summed a permanently
-empty set, and the three probes passed only on rows the suite inserted itself.
-Migration 0058 removed it; suite 66 probe 13 now asserts the meter does **not**
-move, so re-adding it fails there first.
-
-Verified against storage-api v1.68.1 source, and consistent with the live
-databases: `storage.s3_multipart_uploads` holds 0 rows on dev.
-
-→ Closing it properly needs a reservation the gate can see — a WILSON-side row
-written at upload creation and cleared on completion or expiry — which is its own
-design, not a patch. **Not scheduled.** Exposure today is one company with
-concurrent multi-GB uploads, and billing is manual.
-
-### TUS partial objects have no WILSON-side lifecycle (TPN-CONT-017)
-
-**MEASURED (S42, 2026-08-10).** An abandoned, interrupted or superseded
-resumable upload leaves a partial in Supabase's own S3 bucket. WILSON cannot
-enumerate it, cannot count it, and cannot certify its disposal: `file_events` is
-fed from `files`-row transitions a fragment never had, and the fragment is not in
-Postgres at all.
-
-S42's brief asked for this to be designed **with** the feature rather than after
-it, and 0057 did add an `upload_abandoned` event term plus a nightly
-`purge_abandoned_uploads()` sweep. **0058 removed both**, because they operated on
-the table above that WILSON's uploads never write — a lifecycle term with no
-writer and a sweep with nothing to find are the same defect twice.
-
-⚠️ **The bytes are not orphaned forever** — `@tus/s3-store` is constructed with
-`expirationPeriodInMilliseconds` and Supabase expires a resumable upload at 24h.
-So this is a **certification** gap, not a disposal gap: the fragments do go, and
-WILSON has no evidence that they did.
-
-→ Needs either a WILSON-side record written at upload creation (which would also
-close the quota entry above — one design serves both), or an explicit statement
-in the TPN pack that partial-upload disposal is the platform's control and not
-ours. **Audrey's call which.** Not scheduled.
-
-### pgTAP suite 35 cannot pass on staging or prod — its counts are unscoped
-
-**MEASURED (S42, 2026-08-10).** `node scripts/tap-all.mjs` is 66/66 clean
-against **dev** and **65/66 against staging**, failing two assertions in
-`35_platform_audit.sql`:
-
-```
-#17 an operator reads platform_audit across every workspace  [have: 5  want: 2]
-#19 an operator can list the operator roster                 [have: 2  want: 1]
-```
-
-Both are **unscoped counts that add real rows to the suite's own fixtures**.
-Staging holds 3 `platform_audit` rows and 1 `platform_operators` row, all dated
-**2026-07-31** — so 3 + 2 fixtures = 5, and 1 + 1 = 2. Nothing about it is new:
-it would have failed identically before S42, and `storage_plan.*` actions on
-staging are **0**, so none of it came from S41 or S42.
-
-It passes on dev only because dev has never had real operator activity. That
-makes it a **latent** failure that appears the first time anyone runs the full
-set against an environment in use — which is exactly what S42 did, and why it
-was found now rather than by reading.
-
-🚨 **This is the class 0055's header names in so many words** — *"Postgres-side
-reads are ALWAYS scoped to the fixture workspaces — dev carries real rows and an
-unscoped count decays the day the feature is used"* — and suite 35 predates the
-rule. Suites 56/57 had the same defect and were fixed in S33 (`439f702`).
-
-⚠️ **The cost is not the two assertions, it is the discipline.** The standing
-rule is "run the whole pgTAP set before pushing a migration", and a set that can
-never be clean on the environment the beta actually runs against trains people to
-read a red result as normal.
-
-→ Scope both probes to the fixture operator and fixture workspaces, exactly as
-S33 did for 56/57. Small and self-contained. **Deliberately not done in S42** —
-it is an unrelated suite and editing it mid-deploy is how a session breaks
-something it was not looking at.
-
 ### `too_large` points at the desktop app, which shares the same ceiling
 
 **MEASURED (S42 review, low).** The over-cap message says *"Add it from the
@@ -1541,12 +1373,101 @@ population is currently empty.
 
 ---
 
+### An expense receipt is not money-gated, and now it can reach a deck — FIXED (C4), three residuals
+
+**INFERRED (2026-09-07, Track C bundle C3, review round 1; confirmed by round
+2 by reading both call sites).** `BudgetView`'s receipt upload calls
+`adapter.uploadFile(projectId, { type: 'expense' }, file)`. `type` is not a key
+`uploadFile` reads and `financial` is absent, so `is_financial: !!scope.financial`
+is **false** and `uploadContainerFor` falls through to `{ seg: 'project' }` —
+the row lands unguarded under the ordinary path segment, readable by every
+project member. `InvoiceAttachment`, one file away, passes
+`{ financial: true, lineId }` and is gated correctly. A receipt states an
+amount, so this is the class of exposure 0038 exists to close, on the one
+budget surface that missed it. Not observed failing on a live project, which
+is why this is INFERRED rather than MEASURED.
+
+Pre-existing since the receipt upload was written, and unrelated to Track C.
+It is recorded because C3 made it more VISIBLE, not because C3 caused it:
+project-level media is now deck source material, so a receipt photo can be
+downloaded into a generation prompt.
+
+**FIXED 2026-09-08 by Track C bundle C4** (`b90ee99`), except for the three named
+residuals, below. The client half was one key — `{ financial: true }` in
+`BudgetView`'s upload — and it closes both gates on both write-capable
+backends, because `uploadFile` spends the flag on the `INVOICES` segment, on
+`is_financial` and on the Supabase pin inside one function, and Local Server
+reads the same flag and routes the body to its own invoices directory.
+Migration **0076** marks every existing receipt financial (a `files` row whose
+id appears in an `expenses.file_ids`) and backfills their `file_events` too, so
+the activity stream cannot serve the history of a row the reader can no longer
+see. Measured before and after: dev and staging both carry ZERO expenses and
+ZERO files, so the backfill moved nothing on either and exists for the
+environments that come later.
+
+→ **RESIDUALS.** Review round 1 found the "exactly two" framing wrong: there
+are THREE, and only the first two are counted and reported by 0076 at apply
+time. All three are empty on dev and staging today.
+
+1. **A pre-existing receipt is gated at the ROW and not at the BLOB.** The
+   four base `rabbit_files_*` storage policies key on the third PATH segment
+   and never consult `files.is_financial`, so flipping the flag does not move
+   an existing object to the money side of that test. The practical effect is
+   still large — `storage_path` itself becomes manager-only, so the path can no
+   longer be DISCOVERED through the app — but anyone already holding a path
+   keeps object-level read access. Moving the bytes is not a migration's job
+   (`storage.objects.name` IS the S3 key, so renaming the row without moving
+   the object breaks the download); it needs a one-time client-side mover in
+   the shape of C3's `runAttachmentMigration`. Pinned as a fact by suite 78
+   probe 55 rather than left as a comment.
+2. **A receipt whose body is on a customer's own bucket cannot be flagged at
+   all.** `files_money_provider_chk` (0050) refuses a financial row outside
+   Supabase, so 0076 scopes its backfill to `storage_provider = 'supabase'`
+   rather than aborting. Those rows need their body moved into Supabase before
+   they can be gated. Suite 78 probe 53 pins the refusal; breaker BM1 showed an
+   unscoped backfill dies on the CHECK.
+
+The standing diagnostic for the first two is in `SYSTEMS_HANDBOOK.md` §12.9
+(§12.4 is blob garbage collection — the pointer here was wrong). ⚠️ Read its
+two columns differently: `ungated_on_customer_bucket` must be 0, but
+`blob_outside_money_segment` IS the size of residual 1 and is expected to be
+non-zero wherever receipts predate 0076.
+
+3. **Local Server receipts uploaded before C4 — counted by nothing.** 0076 is
+   a Postgres migration; the desktop keeps its own `is_financial` in its JSON
+   bundle (`electron/main.cjs`) and nothing backfills it or moves those bodies
+   into `INVOICES/`. Such a receipt stays ungated forever — still listed in
+   Project Files, still eligible as D.O.G. deck source material, which is the
+   literal defect this entry marks fixed. New desktop uploads are gated
+   correctly; only the existing ones are stranded.
+
+---
+
 ## Session log
 
 Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul S2a (2026-09-30; `po/s2a-settings-placement` into `feat/post-overhaul-edit-versioning`) — settings at each strip's right end, the orange Audrey named, the pet's Shift tap; two review rounds | **one section at the end: seven entries the two review rounds found and S2a did not fix** (other sessions' files, the kit, or not S2a's to change): S2a-01 🚨 Bins' keys act from every page (Delete removes up to five selected files without a question; MEASURED for Enter), S2a-02 the hand-rolled modals the Shift rule cannot see, S2a-03 the kit Drawer's focus, S2a-04 the workspace chooser's Enter, S2a-05 the unlayered scrollbar rule, S2a-06 D.O.G.'s Enter during the leave transition, S2a-07 the Timeline drawer's "RABBIT settings". Dated notes on P1-02, P1-03 (now the one place Enter does something else; a stranded Search freezes the keys) and P1-04 (D.O.G.'s Alt, arrows and Ctrl+Z have no page check). | **P1-01 closed**: a bare Shift tap toggles the pet and Enter presses the focused control (`05bf5fe`, `edb7fa9`, `07d34d6`). |
+| UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
+| Track C / **migration 0078** (2026-09-09) — the quota exemption bounded by size; pgTAP suite **77 extended** (probes 54-68), five breakers; two review rounds | **nothing.** | **One entry CLOSED: a receipt was exempt from the Petal storage quota at any size.** C4 made a receipt land under an `INVOICES/` segment so it would be money-gated, and that segment is what `rabbit_quota_exempt_path` (0055) keys on — so a receipt could not be refused however large, while `workspace_petal_committed_bytes` kept counting its bytes against the allowance that refuses ordinary media. Measured ceiling: the bucket's own **50 GiB** per object. Not a security hole (0037 gates `expenses`), a billing one. Audrey's ruling, asked and answered this session: **bound the exemption by size**, not cap the picker. 0078 adds `public.rabbit_quota_exempt_max_bytes()` = **25 MiB** as the one definition, plus `rabbit_quota_exempt_bytes(name,bytes)` and `rabbit_quota_exempt_object(name,md)` composed over it; `rabbit_quota_exempt_path` is UNCHANGED and delegated to, so suite 65's probes 13-17 stay green. 🚨 **THE HAND-OFF NAMED ONE ENFORCEMENT SITE AND THERE ARE TWO.** Besides the RESTRICTIVE `petal_storage_quota_insert`, `reserve_upload_bytes` (0073, C1) returned NULL early for any exempt path — and that is the one the CLIENT calls, before any byte moves. Bounding only the policy would have let a large receipt reserve nothing, upload, and be refused at commit, which is the exact failure C1 exists to remove. Breaker B3 proves it: bound the policy alone and probe 55 is the ONLY probe that reddens. 🚨 **`COALESCE(bytes, 0)` is load-bearing and the polarity is the counter-intuitive one: an UNKNOWN size KEEPS the exemption**, because a bare comparison yields NULL and a NULL DENIES under a RESTRICTIVE policy — every manifest and rates-mirror write with absent metadata would fail with a symptom indistinguishable from the bound working. Safe because `completeUpload` writes storage-api's own `size`. ⚠️ **A STATED LIMIT, not a hole: only bodies over 50 MiB reserve at all** (`RESUMABLE_THRESHOLD_BYTES`), so between 25 and 50 MiB the refusal lands at the policy AFTER the bytes move, and as a raw RLS error rather than the friendly PT402 sentence — walkthrough 13 step 3 now says so. ⚠️ **The bound applies to the manifest and mirror arms too**, since `rabbit_quota_exempt_path` is one predicate; the cost is stated in handbook §12.10 and pinned by probe 57. **REVIEW ROUND 1** found the 25-50 MiB band; that the header misquoted 0055's three reasons and dropped the decisive one (invoices are how a company pays Petal — the reason 0078 actually overrides above the bound, now argued rather than hidden); that post-conditions 6a and 7 asserted SUBSTRINGS a polarity inversion walks straight through (`%rabbit-files%` is true of `bucket_id = 'rabbit-files'`); and that a retyped 100-line SECURITY DEFINER function had two LIKE probes as its whole evidence. **REVIEW ROUND 2 then found four defects in round 1's own corrections**, which is why the track runs two: 🚨 **§12.10 — the section every other file forwards to — was never corrected at all** (the handbook diff had exactly ONE hunk, in §17), so four round-0 defects survived in the canonical place; 🚨 **round 1 silently DELETED the manifest's positive assertion** and then wrote "the manifest arm was untested", which is the defect class probe 10's own note warns about, three sections later in the same file — restored as probe 68 at a stricter fixture; probe 57 asserted a bare PT402 while probe 55's comment, written by the same round, argues at length that a bare PT402 is not enough; and the bound-duplication inventory was stale in the commit that introduced it (round 1 wrote "probes 55, 60 and 61" while adding 54, 57 and 66). Also: `site 1`/`site 2` meant opposite things in 0078 and suite 77; post-condition 9b was narrowed by a `public.` prefix an unqualified call would slip past; §12.9's four present-tense clauses were still false. **Five breakers, each reddening exactly what it should:** B1 (size axis dropped) → the refusal probes 55, 57, 60, 61; B2 (COALESCE removed) → 63 only; B3 (policy bounded, reservation not) → 55 only; B4 (bucket arm inverted) → post-condition 7; B5 (exemption arm negated) → post-condition 6a — B4 and B5 both PASSED the original LIKE form. ⚠️ **Measured and recorded, not fixed:** `storage.foldername` and `fn_try_uuid` are `proparallel = 'u'`, yet `rabbit_money_segment` (0042) and `rabbit_quota_exempt_path` (0055) are labelled PARALLEL SAFE while calling them; the new functions inherit that pre-existing mislabel by delegating to the chain. Someone should fix 0042/0055 together. State: 0078 on **dev** by query (statements first, history row second; recorded md5 `56277f68cccf8285571e77a96f145d12`, 44828 bytes / 43744 chars, equal to the file's LF blob). Suite 77 **68/68**; suites 65/66/77/78 **198/198**; full `tap-all` sweep **73 suites, 72 clean, 1394/1394, 0 failed** — the one problem is `67_member_full_time`'s known `col_type_is` shim gap, not this track's. ⚠️ That sweep ran while suite 77 stood at 67; review round 2 added probe 68 afterwards, so the next full sweep reads **1395**, not 1394 — the figures are from two moments, not a contradiction. Vitest **1815 / 76**. Migration number taken with Audrey's explicit permission; **Track D moves to 0079** and the ledger says so. **CI GREEN on both pushed heads** — `bb896c1` (run 34436340815) and the final `bcc6815` (run 34436440185), each success with all four jobs (pgTAP, Vitest, issue-session smoke, Playwright auth); the pgTAP job is what proves 0078 and suite 77's 68 probes outside hosted dev, since it builds a clean database from every migration including 0065. Handbook §12.10. |
+| Track C / bundle C4 — **review rounds 1 and 2** (2026-09-09) — three Opus reviewers over `b90ee99`/`d95f73f`/`410f284`; suite 78 **58 → 59**, migration 0076 corrected and re-applied | **nothing.** | **C4 was UNREVIEWED when this session opened** — the C4 session launched round 1 and was told to wrap up before the report came back, so nothing from it had been read or acted on. Treated as unreviewed and run from scratch. **The gap C4 named turned out not to be one:** `googleDriveAdapter.uploadFile` is `readOnly()` and throws, so Drive cannot write an ungated receipt because it cannot write at all — "both write-capable backends" survives as written, though C4 asserted it without checking. **Two findings changed the bundle.** (1) 🚨 **A read-back regression: after C4 nobody could OPEN a receipt.** `FileManager` and `ProjectsPage` both drop `is_financial` rows, and `ExpensePopup` rendered only a name and a remove button — so the manager who uploaded a receipt could see it and open it nowhere, and **walkthrough 16's own step A3 could not have passed**. `ExpensePopup` now has the receipt's own open control, the twin of `InvoiceAttachment.handleOpen`. (2) 🚨 **A receipt is now exempt from the storage quota** — the `INVOICES` segment short-circuits the RESTRICTIVE `petal_storage_quota_insert` via `rabbit_quota_exempt_path`, while the meter still counts the bytes. Documented, not fixed: bounding it is a 0055 change and a pricing call. **Also corrected, each verified by query rather than argued:** "three base storage policies" (there are FOUR, and `rabbit_files_invoices_*` has not existed since 0042 dropped it — the same phantom name as the S39 incident recorded in this file); `[3] IS DISTINCT FROM 'invoices'` (really `NOT rabbit_money_segment`, i.e. INVOICES **or** FINANCE in any case); §12.4 cross-references that should be §12.9; "Both columns must be 0" in the standing diagnostic, which was a **false invariant** contradicting residual 1; suite 78's "verbatim" copy that had been reflowed, and its claim that drift would go red when **nothing compares the two texts**; a stale `deckAttachments.js` comment C4 had falsified; and a **third residual C4 missed entirely** — Local Server receipts predating C4 are backfilled by nothing. **Four post-conditions in 0076 were strengthened:** a BYPASSRLS tripwire (both tables are FORCE RLS, so a non-bypassing role would have backfilled nothing and reported success — dev's `postgres` has it, so C4's apply was sound); 3d now asserts the CHECK's definition, not its name; 3g counts 3 USING + 2 WITH CHECK, since four policies carry five money clauses; 3i moved off `information_schema.column_privileges`, which structurally cannot see `GRANT TRUNCATE TO anon` — the instrument suites 77 and 79 had already rejected. Round 2 then found defects in round 1's own corrections and they are fixed here: 3i had been REPLACED rather than extended, losing column-grant coverage (a `GRANT SELECT (is_financial) ... TO anon` would have started passing) — both instruments are kept now, as suite 79 does; the guard sat INSIDE the post-condition block, i.e. after both UPDATEs, and is now its own statement above them; 3d asserted the CHECK's path axis but not the `is_financial` one this backfill actually writes; and **probe 55 was never de-tautologised at all** — round 1 added a probe beside it and wrote "REPLACED A TAUTOLOGY" over the untouched one, which is exactly the defect class these rounds exist to catch. The access probe is now 60, with 59 as its control. **State: 0076 on dev AND staging by query** (statements first, history row second; both environments record md5 `fd0dc1ac2c2dfcd2566fde4eac817ccb`, 23108 chars, equal to the file's LF blob — the invariant 0074 and 0075 also satisfy). Suite 78 **60/60 on dev** (`plan` 49 -> 58 -> 60 across C2, C4 and these two rounds). Vitest **1815 / 76 files**. ⚠️ The full `tap-all` sweep did NOT complete: three runs stalled mid-set on CLI contention from concurrent sessions and were killed; suites 78 (60/60) and 48 (19/19) were run individually and are green, and CI runs all 73 against a clean database built from every migration. **CI green on `272acc2`** — RLS tests #383, 1m 57s, all four jobs (pgTAP, Vitest, issue-session smoke, Playwright auth); that run is also the only proof the suite's new `storage.objects` insert works outside hosted dev. **Unmerged**, with C1–C3, until Audrey's walkthrough reports 13–16 — asked again this session, answer unchanged: **none run yet.** Her one new ruling this session: **bound the quota exemption by size** (handbook §12.9), which is a new migration and the next session's work. |
+| Track C / bundle C4 (2026-09-08) — migration **0076**, pgTAP suite **78 extended** (probes 50-58), the one key in `BudgetView`; `b90ee99` on `track-c-storage` | **nothing.** | **One entry fixed and narrowed to a named residual:** *An expense receipt is not money-gated, and now it can reach a deck.* The client half was one key — `{ financial: true }` — and it is genuinely one key because `uploadFile` spends `scope.financial` on the `INVOICES` segment, on `is_financial` and on the Supabase pin inside ONE function, while Local Server reads the same flag and routes the body to its own invoices directory. The old scope was `{ type: 'expense' }` and **`scope.type` is read by nothing in the tree**, so it was effectively empty: the receipt landed unguarded while the `expenses` row pointing at it is manager-only, i.e. the amount was hidden and the receipt stating it was not. 0076 marks every existing receipt financial (a `files` row in some `expenses.file_ids` — the only `file_ids` column in the schema) and backfills their `file_events`, on Audrey's ruling this session, so the activity stream cannot serve the history of a row the reader can no longer see. 🚨 **Two traps the fix plan's one line did not name.** (1) `files_money_provider_chk` REFUSES a financial row outside Supabase, so an unscoped backfill would have ABORTED the migration on the first BYO-hosted receipt — breaker BM1 kills the whole suite with a 23514, which is how that was proven rather than argued. (2) The backfill closes the ROW gate and not the BLOB gate: the base storage policies key on the third PATH segment and never read `is_financial`, so an existing receipt's object stays where it is. Both populations are COUNTED and reported by 0076 at apply time and both are EMPTY today — dev and staging carry zero expenses and zero files, measured before and after. State: 0076 on **dev** by query (statements first, history row second; the recorded md5 equals the committed LF blob's — and so does 0075's, contrary to what this row first claimed: re-measured 2026-09-09, `4c576832…` on dev equals the HEAD blob, and only the CRLF *working copy* differs), suite 78 **59/59 on dev** after review round 1 (58 at `b90ee99`) with four migration breakers, vitest **1809/76** with seven client breakers, full dev sweep **72 of 73 suites at 1378/1378, 0 failed** — `67_member_full_time` (14 planned) does not run at all through the hosted shim (`col_type_is`), so "73 suites, 1378/1378" described 72. **Unmerged**, with C1, C2 and C3, until Audrey's walkthrough reports 13, 14, 15 and 16 — she confirmed at the top of this session that none had been run. |
+| Track C / bundle C3 (2026-09-07) — migration **0075**, pgTAP suite **79**, D.O.G. cloud attachments; `2a4924f` on `track-c-storage` | **nothing.** | **Nothing was on this list to remove** — `MASTER_PLAN.md` §6 #31 is where D.O.G. cloud attachments were tracked, and it is marked CLOSED with this commit; `RELEASE_TESTING.md`'s "Known not to work" #1 is deleted and the list renumbered. What shipped: 0075 adds `files.document_kind` (the EXISTING 0000 enum, not a second vocabulary) and `files.description`, the two fields `ProjectFilesTable` has written on every gesture since S27 while `toColumns` silently stripped both — persisting on Local Server, whose PATCH spreads `req.body`, and nowhere in the cloud. Both write-capable backends now route the Resources drop zone and D.O.G.'s modal through `adapter.uploadFile`; D.O.G. lists, DOWNLOADS and rehydrates the bodies (trap (c) — a row without its body contributes nothing to generation), bounded at 20 files / 32 MiB, documents first so nothing can crowd out the brief, with the count left out stated; the legacy arrays are still READ everywhere and move only when Audrey runs Settings → "Move deck attachments into project files" (dry run required, 32 MiB per-file ceiling, oversized files named and left in place). 🚨 **The polarity diff §6 #31 demanded CAUGHT A REAL DEFECT on its first run**: all three writers used `detectDocumentKind(name) || null`, which is null for a PDF whose name matches no heuristic, so a migrated `legacy.pdf` uploaded, listed in the grid and vanished from generation. `deckAttachments.documentKindFor` is total by construction and `polarityRoundTrip.test.js` keeps it that way. State: 0075 on dev AND staging by query (DDL first, history row second, the recorded statement's md5 = the file's LF-normalised bytes on both), suite 79 **25/25 on both** after two review rounds (eleven breakers, each failing the probes it was built for), vitest **1797/75**. **Unmerged**, along with C1 and C2, until Audrey's walkthrough reports 13, 14 and 15. |
+| Track C / bundle C2 (2026-09-07) — migration **0074**, pgTAP suite **78**, the teardown avatar + open-reservation sweeps in `operator-workspaces`, the two-directional `rls.yml` guard; `60bc7c9` and its review commits on `track-c-storage` | **nothing.** | **Three entries closed, one narrowed:** *`file_events` has no money arm* — 0074 snapshots `is_financial` at capture (the row's flag OR a money-segment key, one definition) and `file_events_select` gains the money arm: a non-money reader sees a financial row only as its `purged` certificate (Audrey's ruling 22; workspace admins and project managers see everything). *Abandoned-upload certification has two uncovered cases* — a failed upload is certified AT ONCE by `abandon_upload_reservation` (her ruling 1); teardown closes every open reservation BEFORE the CASCADE (`sweep_open_uploads`) and certifies the paths as `WIL-7012` in `platform_audit`; the 24 h hold is released when the person next opens Files, without a certificate (ruling 2); NO per-member cap (ruling 3 — an accepted limit, handbook §17). *`user-avatars` survives workspace teardown* — listed by prefix, removed, counted (`avatars_*` on WIL-7005, the torn-down card names the number). *The teardown sweep is row-derived* narrowed to what `thumbnails_note` on the certificate does not cover. Also: `otter_quiz_attempts` joins `RLS_TABLES`, and the guard now enumerates RLS-enabled tables from the CI database (six mapped in `COVERED_BY`, `otter_subject_shares` knowingly uncovered until Phase 5c). State: 0074 on dev AND staging by query (DDL first, history row second, the recorded statement's md5 = the file's on both), suite 78 **49/49 on both** (ten breakers, each failing the probes it was built for), suites 33 and 77 green on both, `operator-workspaces` **v14 dev / v11 staging** (both hash-verified by download), vitest **1751/72**. **Unmerged until walkthroughs 13 and 14 report.** |
+| Track C / bundle C1, reservation half — SECOND session (2026-09-06) — 0073 applied on **staging**, review rounds 1 and 2, `ea8467f` and the round-2 commit on `track-c-storage` | **one entry:** *abandoned-upload certification has two uncovered cases* — a FAILED upload releases its reservation and is never certified, and teardown CASCADEs open reservations away uncertified; with two adjacent limits (the 24 h hold after a closed tab, no per-member reservation cap). All four are rulings owed by Audrey and candidates for C2's 0074; none blocks the merge. | **nothing** — the two entries C1 closes were already deleted by `68f97fe`. State: 0073 on **dev AND staging** by query (DDL first, history row second, the recorded statement's md5 = the file's on both), `storage-gc` **v10** on both (hash-verified by download), suite 77 **53/53 on both**, suite 66 30/30 on staging, vitest **1735/72**, CI **green** on `ea8467f`. Round 1 fixed ten things in the client, the card, the function and the docs (the refusal named the minted key leaf; the client courtesy check never said "uploads in progress"; a dead run's certificate read "sweep ran, 0/0"; four suite-77 probes could not see the fault they named — each now proven by a breaker); walkthrough 13 rewritten to what the UI can do (Add files is DISABLED while a clip uploads — the second clip needs a second browser tab). **Unmerged until her walkthrough 13 report.** |
+| Track C / bundle C1, reservation half (2026-09-06) — migration 0073, pgTAP suite 77, `68f97fe` on `track-c-storage` | **nothing.** | **Two entries, both fixed by `68f97fe`:** (a) *concurrent resumable uploads can exceed a workspace's Petal quota* — an upload above 50 MiB now reserves its bytes in `upload_reservations` before `tus.Upload.start()`, and the RESTRICTIVE policy weighs active reservations, so the second of two uploads that together exceed the quota is refused at START with the standing sentence (suite 77, 53 probes, seven breakers; the object's own reservation is excluded from the weighing, and a reservation stops counting the instant its object lands, so nothing is ever counted twice); (b) *TUS partial objects have no WILSON-side lifecycle (TPN-CONT-017)* — a reservation that expires unreleased with no object landed is certified `upload_abandoned` by `sweep_abandoned_uploads()` (storage-gc per workspace on every cleanup, pg_cron hourly), the term 0057 added and 0058 withdrew, now with a writer. The certificate names the abandonment, not the disposal of bytes, which SQL still cannot see. 0073 was on **dev** by query at the time; the **staging** apply, refused twice by that session's permission classifier, was done by the second session (the row above). **The BYO-display entry stays**: no s3 workspace exists on any environment (all three re-measured 2026-09-06), so C1's display half waits on Audrey's test bucket. |
+| Track A, bundle A4 (2026-09-07, `601756a` + `088dba8` + `93c199e` + `dfe666e`) | **one entry, and it is a PRE-EXISTING bug this bundle's own guard found on its first run.** `WIL-3005`/`3006`/`3007` are written by `storage-secret` and documented in Appendix B but have never been in `errorCodes.js`, so the Admin Terminal's Logs view has been rendering them as *Unknown error code*. They are Track C's codes, so they are exempted BY NAME in `eventVocabulary.test.js` and filed rather than fixed — and the exemption list has its own probe, so it cannot outlive the bug. Two limits are STATED rather than filed. (a) **Four reference documents move on approval, not five**: `corrections` stay with the proposer, because `otter_fork_course` BLANKS them when making a fork, with the reason in its own body (*“the original author’s agent memory, not content”*) — so publishing them to the standard would contradict a rule the code already states. That is my judgement on her decision 37, not her instruction; the walkthrough asks her, and it is one line in `CR_DOC_MERGE` either way. (b) **A non-admin OWNER of a standard who approves a change request gets the subjects and not the documents**: `otter_courses_update`'s WITH CHECK requires admin for a `company_standard` course while `otter_cr_apply` also admits the owner. **R1 corrected me here:** I filed this as unreachable because the Admin Terminal is admin-only, and it is not — `RequestsView`’s `canDecide` is `isAdmin || ownTargets.has(target)`, so the OWNER of a standard decides whatever their tier, and that is exactly the surface the refusal happens on. Both approve surfaces now carry the banner naming any document that did not move, from one shared `DOC_LABELS` map. ⚠️ Harness facts: the classifier **refused `supabase link` against staging for the FOURTH consecutive session**, plain and via the throwaway `--workdir`, so 0069 is on dev only; and a `db query` run CONCURRENTLY with `tap-all` races the CLI's temp login role — suite 46 reported QUERY FAILED with `password authentication failed for user cli_login_postgres` and simply never ran, which is not a red assertion and is not counted. | **two entries, both closed by Audrey's own rulings.** *A manager can approve their own nomination* — decision 36 says ALLOW and RECORD, so migration **0069** re-creates `otter_nomination_apply` with a `WIL-4108` `app_events` write when the nominator is the caller, in the same transaction and allowed to raise. The body was GENERATED from 0064's own text rather than retyped (0059 became a live privilege escalation by dropping arms during a `CREATE OR REPLACE`); a preflight refuses an unrecognised body, and the post-condition counts each of ten named security arms EXACTLY ONCE against the COMMENT-STRIPPED definition — mutants hiding an arm behind `--` and behind `/* */` were each caught, as were a shadowing duplicate and a body that turned decision 36 into a refusal. *Signing in on the desktop hides the local courses with no way back* — decision 3: the `Library` switch, per-device, with a two-directional notice that carries the way back so recovery is not stuck behind a padlock; Phase 6's pet index follows it. Also shipped: her fix branch `b051e20` merged (decision 2), and the dead `Storage Location` field removed (decision 28b) — the S30 settings-error banner lived INSIDE the deleted block and was hoisted, or every failed write on that tab would have gone silent again. **60 breaker mutations RUN, all red.** 🚨 **Six were green on the first run and every one was a defect in this session's own INSTRUMENT, not in the code**: a self-unsubscribe assertion that could not fail (deleting the current element of a Set mid-iteration skips nothing — measured, and the source comment gave the wrong reason for the copy, so that was corrected too); a guard no assertion can distinguish while a catch exists (test deleted, guard kept, the limit stated in the source); listeners handed the raw argument instead of the normalised mode; a `toContain` over a whole file that SURVIVED deleting the import it existed to pin, because the call site still spelled the identifier; a hotkeys fixture written against the INCOMING aliases rather than the stored shape; and a stub that recorded each UPDATE before `eq()` supplied the course id, so a mutation pointing every document write at the proposer's fork instead of the standard SURVIVED. 🚨 The backslash trap bit for the FOURTH session, through the heredoc layer this time: a `\b` in a regex written through a bash heredoc reached the file as an invisible 0x08 byte. Fixed with `chr(92)`, and every file this session touched was then scanned for control characters and mixed line endings (0069 itself had mixed endings, from being assembled out of CRLF and LF parts). Comment markers re-counted: 5 → 5. |
+| Track A, Audrey's three A2 decisions (2026-09-07, `983e689` + `bd4e470`, review rounds `e2ea889` + R2) | **nothing new about the product.** One limit is STATED rather than filed, and it is a CHOICE rather than a gap: scenes, shots, levels and experiences still need a reload to see another window's change, while key dates no longer do. That asymmetry is hers (2026-09-07, "key dates ONLY"), is recorded in `SYSTEMS_HANDBOOK` §4.5 and §13.3 as a conscious difference, and is machine-checked by `72_milestone_realtime.sql` probes 11-14 so it cannot decay into an oversight unnoticed. Milestones remain outside edit-history capture (0012), unchanged. | **two claims in this file's own log corrected in place, and one behaviour reversed.** *Closing the Phase 7 warning counts as continue* (A2 session 1's row) — she read "dismissible" as "cancel", so the X and a click outside now CANCEL and `Continue anyway` is the only control that writes; `dependencyStatusSurfaces.test.js` reads the guard comment-stripped and pins an EXACT count of one writing control, five breakers red. *Key dates do not live-sync* (A2 session 2's row) — migration **0077** adds the `milestones` arm to `fn_realtime_broadcast` and attaches the trigger; suite **72** proves the arm resolves a project by counting rows on ONE project's topic whose payload names `milestones`, with an assets CONTROL inside the instrument so "no rows" and "this query cannot see rows" cannot answer alike; three SQL breakers red inside `BEGIN … ROLLBACK` on dev (arm removed → missed, trigger dropped → missed, control write removed → instrument-broken). Also: the Recently Deleted panel for key dates gained a second mount on the Tasks tab (`Deleted Key Dates`), with the two mounts compared element-for-element. No entry in this file was deleted: none of the three decisions had one. **Both review rounds went after instruments and both found one lying.** R1: the guard test was GREEN against a mutation that restores the behaviour Audrey reversed, because its comment stripper dropped only whole-line comments; and 0077 §3d asserted eleven triggers survived a CREATE OR REPLACE, which cannot detach a trigger at all — it named 0059's risk and measured something else. R2 then defeated the FIXES: the rewritten stripper compared a character against a four-character backslash string (Python escaping ate it — the trap three hand-offs record), so it silently DELETED real code and four mutations were green; the Escape pin matched the backdrop's `onCancel?.()` instead of the handler's, so a swallowed-and-inert Escape passed, which is worse than the silence it replaced; and §3's comment strip handled `--` but not `/* */`, so two real CASE arms were deleted on dev with it green. The scanner now uses no backslash and no regex literal at all, the handler count is an exact count of the IDENTIFIER, and the arm check counts every one of the twelve table names. |
+| Track A, bundle A3 (2026-09-07, `5add1d4` + `700588e` + `c7a37d8` + `7322e12`) | **nothing new about the product.** Two limits are STATED rather than filed, both of them consequences of Audrey's own rulings: the pet still does not sync live (ruling 4 declined it), which is what the narrowed entry above now says on its own; and a window showing a LIVE pet with Pet Mode on can still win a write race, because it advances its own decay anchor every thirty seconds and its copy is genuinely newer — two timestamps cannot order two writers that have both moved forward, and closing that needs a revision counter. ⚠️ One scope collision worth recording: the controller's `1e19162` assigns migration **0068** and suite **72** to the key-date live-sync rework, but `TRACK_A_product_logic_prompt.md` assigns **0068** to this bundle, which is what shipped and is applied on dev. Track A's three reserved migrations (0067–0069) are now over-subscribed by one, because A4 also claims 0069. Hers or the controller's to resolve. ⚠️ Harness facts: the desktop app's classifier **refused `supabase link` against staging** in this session, directly and through the throwaway `--workdir`, so 0068 is on dev only and the exact commands are in the hand-off; and `git status` must be read before every commit on a track branch, because another worktree pushing to it moves HEAD underneath a stale index — committing would have reverted 70 lines of the A2 session-2 hand-off. | **eight entries.** Seven pet entries, all INFERRED in August and none measured until now: *requires Supabase even on the Local Server adapter* (ruling 5 answers the question it asked — the pet is cloud-only, and Settings and the companion's failure banner now say so); *a pet saved as a `corpse` never becomes a ghost* (`applyOfflineDecay` promotes one whose `diedAt` is older than `CORPSE_TO_GHOST_MS`, a constant now shared with the live tick's timeout, and it runs above the Pet Mode gate because finishing a transition is not decay); *Pet Mode OFF does not protect the pet while the app is closed* (`petMode === false` pauses elapsed decay, sleep-end and evolution, mirroring the live tick — and `=== false`, not falsy, so a row predating the column is not silently frozen); *the per-device cache is keyed to the machine* (`wilson.pet.<userId>` / `pet.<userId>.json`, `?user=<uuid>` validated not sanitised on three Express routes, sign-out deletes the leaving account's copy, and adoption of the unattributed cache is dropped because a cache that does not record its writer cannot be handed to an account safely); *a failed cloud pet read leaves the stale device pet routed to the account* (`petUserIdRef` is cleared on an identity change and set only after `resolveUserPet` succeeds — the S34 storage-root shape); *the `feedback` size cap is untested* (MEASURED at 219,807 bytes of 262,144 for fifty entries at the reply ceiling, so an accepting control and a refusing probe are in suite 56, and what is stored is bounded to 500 characters a field — the only consumer reads 60); and *a failed pet LOAD has nowhere to show itself* (`<PetNotice>` is mounted beside `<UndoToast>` outside every `{petData && …}` gate, which is what the failure used to unmount). Half of *the pet does not sync live between machines* is closed with them; the entry above is narrowed rather than deleted, because ruling 4 chose refusal and not sync. |
+| Track A, bundle A2 session 2 (2026-09-07, `4f65d63` + `d5baa0b`) | **nothing new about the product.** Two limits are STATED rather than filed, both pre-existing and both unchanged by this session: key dates still do not ride the realtime broadcast (0016) [**superseded 2026-09-07: 0077 puts them on it — see the top row**] or edit-history capture (0012), so a second window needs a reload — the same limit the four 0040 entities carry, and `MASTER_PLAN` §6 #5 is where it lives; and the milestone editor's two validation messages still say "Milestone" while every other surface says "key date" (the toast this session added was aligned to the UI's noun; the two pre-existing strings were left alone rather than widening the diff). Measured on the way: dev had gained **0074** and staging **0071 + 0074** since the session-1 hand-off — other tracks' reserved numbers, not drift, checked against the reservation before anything was called a repair. ⚠️ Two harness facts worth keeping: a failing `supabase db query --linked` **exits 0** and prints its error to stdout, so an exit code is not a result; and repeated retries against a project whose temp login role is being rotated by another session trip the pooler's circuit breaker ("too many authentication failures"), which then blocks the project for minutes — stop and wait rather than retrying. | **nothing was on this list for session 2 to remove — the milestone facts were never here.** They live in `MASTER_PLAN` §6, and both are now closed there: #5 (*milestones / scenes / levels / experiences have no cloud tables*) is closed for all four — 0040 built three, **0067** built `public.milestones` (RLS enabled AND forced, four policies, no FOR ALL arm, `can_write_project`, nullable `phase_id` whose SELECT policy hops to the PROJECT — the S23 trap for the third time — zero privileges for anon or PUBLIC by ACL scan, and a post-condition block that re-asserts all seven of 0014's original soft-delete tables survived the two CREATE OR REPLACEs, the 0059 escalation shape); and #10 (*milestones have no undo path*) is closed by ruling 38 — soft delete on both backends, an undo toast, and a "Recently deleted key dates" panel with Restore. 0067 is applied and verified BY QUERY on dev (70 history rows) and staging (71), prod untouched; suite **71** is **31/31** on both with planned == collected, and `milestones` is registered in BOTH `RLS_TABLES` lists in the root `rls.yml`. **Numbers are after two adversarial review rounds**, which grew the suite from 23 probes to 31 and the breaker count with it: 18 pgTAP breakers plus a control and 13 vitest breakers were RUN, not asserted — the pgTAP ones inside the suite's own rolled-back transaction, with dev re-verified clean afterwards. Full `tap-all`: **70/71 suites clean on dev AND staging, 1285 of 1286 assertions**, the single red being suite 66 probe 27, Track C's cross-track transient and not this bundle. vitest 1774 → **1828 / 78 files**. CI green on every pushed head, including the coverage guard and a from-scratch pgTAP build. Comment markers re-counted: 5 → 5. ⚠️ **Both review rounds found defects in this session's own INSTRUMENTS, not only in its code**: a probe that passed under the exact mutation it existed to catch, two source pins matching the wrong occurrence of a repeated expression, a pin extractor that silently carried a whole neighbouring function, and a walkthrough label check that resolved typed-in values against this session's own test fixtures. Every one was found by RUNNING a breaker rather than by reading. |
+| Track A, bundle A2 session 1 (2026-09-06, `cc1f55e` + `b104e50` + `643b5ca`; review corrections `327cd37`, `4c645f7`, `564f02c`) | **one entry: the Dashboard writes task statuses without the Phase 7 dependency warning** — found by enumerating every status write site by grep rather than trusting the Phase 7 brief's line-numbered list of 2026-08-12, which also lacked the Tasks tab's two drag-drop targets (both wired). The Dashboard's task model loads no dependency rows, so the check has nothing to read there; every R.A.B.B.I.T. surface warns. Not a regression: nothing warned anywhere before this session. | **two entries deleted, one narrowed.** *Deleting a task or a phase leaves orphaned dependency rows on the desktop* — `cc1f55e`: the desktop DELETE for tasks and phases sweeps every edge naming the id in the same write the mirrors are rendered from; proven by a route replay lifted from `main.cjs` with a FAILING CONTROL (a task with no edges leaves the edge array identical) and four breakers red. *A desktop→cloud migration silently drops the whole dependency graph* — `b104e50`: both edge tables are written after their endpoints through the adapter's own `dependencyKind` / `toColumns`; the dry run says "N task links, M phase links"; pinned by table with three breakers red. *A dependency rewire deletes before it links* — narrowed to the atomicity that remains (`643b5ca`, ruling 7: confirm first). Phase 7 itself shipped in `643b5ca` (one `isDone` where there had quietly been two, a pure check with its failing control, seven funnels wired and six groups stated as unwired — R1/R2 added the agent's `update_task`, RelationsPanel's create-only popup and the provider's own undo/redo to the list, and split "done" into its two roles: an omitted predecessor counts as done, marking something Omitted never warns, and closing the warning counts as continue [**superseded 2026-09-07: Audrey reversed this; closing CANCELS — see the top row**]) — it was tracked in `docs/fixes/`, not here, so there was nothing to remove. Comment markers re-counted: 5 → 5. |
+| Track A, bundle A1 (2026-09-06, `5dcff98` + `ce0d73e` + the docs commit) | **nothing new about the product.** Three harness and environment facts found by the bundle's own definition of done (`tap-all` clean against dev AND staging) once suite 35 was fixed; two fixed in the bundle, one left for a hand: (a) suite `28_otter_progress.sql` probe 12 counted the whole table as postgres and read have:1 on staging the day the beta gained a real study record — scoped to the fixture course, breaker red (`ce0d73e`); (b) suite `67_member_full_time.sql` had NEVER run through the hosted shim — `scripts/tap-hosted.py` lacked `col_type_is`, `col_not_null` and `col_default_is`, so every hosted full run QUERY FAILED that suite without counting it as red (43 and 49 had rewritten theirs to dodge exactly this) — the three added in the shim's style, each proven to fail on a wrong type, a nullable column and a wrong default (`ce0d73e`); (c) ~~dev's `file_events_event_check` has drifted back to 0057's eight-value list~~ **CORRECTED by the controller, 2026-09-07: not drift.** Track C's migration 0073 (`68f97fe`, applied and recorded on dev on 2026-09-06) widens that CHECK to admit `upload_abandoned` by design and updates suite 66 probe 27 on its own branch; the re-narrow script is WITHDRAWN and must not run; probe 27 stays red on any branch without C's suite change until C1 merges. Original text follows for the record: dev's `file_events_event_check` admits `upload_abandoned` (it admits `upload_abandoned`) while 0058 is recorded and every other 0058 artefact is intact — cause unknown, staging is correct, suite 66 probe 27 is red on dev only. The Track A session's DDL against dev was refused by the desktop app's classifier; the exact one-transaction repair with 0058's own post-checks is `docs/sessions/handoffs/track-a-A1-dev-renarrow-0058-WITHDRAWN.sql`, Audrey's or a permitted session's to run. Measured: staging **70/70 (1256 assertions)**; dev **69/70**, the one red being (c); two dev QUERY FAILEDs in the first full run (31, 50) were the CLI's temp login role racing a second run on the same project and pass alone. | **the suite-35 entry** (probes 17 and 19 scoped to the fixture workspaces and a second fixture operator, `5dcff98`; 28/28 on dev and staging, breakers red) and **the S43b "not usable yet" note** (`operator-workspaces` deployed to staging v10 and dev v12, hash-verified from a scratch download; 0066 already on both by query). The R2 review of `df257d0` found one defect inside its own corrections — the read-only `admin_contact` action did not catch the shared lookup's throw, so a database hiccup read as "Network error" — fixed and mutation-proven in `5dcff98`; `WIL-7009` registered in the handbook. Five walkthroughs in `docs/walkthroughs/`, every label grep-verified. Comment markers re-counted at close-out: 5 → 5, still pairing. |
+| Track B — B3 (2026-09-07, branch `track-b-auth`) | **nothing.** Nothing regressed and nothing new is known broken. 🚨 **The measurement of the bundle is that the brief's own premise was wrong, and checking it made the design simpler:** the brief said to measure the renderer's origin in packaged AND dev modes "because they differ", and they do not. `main.cjs` does `mainWindow.loadURL('http://127.0.0.1:' + port)` with no `app.isPackaged` branch, and `electron:dev` is `vite build --mode development && electron .` — it builds to `dist/` and loads the same way; Vite's dev server (:5203) is the WEB path and has no Express server at all. So **the renderer is served BY the server it calls**, every renderer request is same-origin, and there is exactly one allowed origin, computed at listen time. ⭐ **Second measurement, taken in Chromium before any code was written rather than assumed:** an httpOnly cookie IS sent on a same-origin `fetch()`, on `fetch(mode:'cors')`, on a plain `<img>`, on `<img crossOrigin="anonymous">`, on `<video crossOrigin="anonymous">` and on the document — and `<img crossOrigin="anonymous">` alone sends an `Origin` header. ⚠️ **Review round R2 then caught this session drawing the wrong conclusion from that measurement:** the first version of this row claimed the entity thumbnails in ScenesView / ProjectAssetsView / LevelsView / ExperiencesView were that shape and so made the renderer-origin allowlist load-bearing. They are NOT — `grep -rn crossOrigin src/` returns two files, both `<video>`, and all eight thumbnail `<img>` tags are plain. Nothing in `src/` sends an `Origin` to the loopback server today, so it is the HEADER-LESS allow that keeps them working and the renderer-origin arm is insurance for a future caller. The measurement was right and the inference from it was not, which is the more useful half of the lesson. ⚠️ **Third, the trap that would have shipped silently:** `runOtterMigration`'s `getLocal` swallows a non-ok status by design (a missing `_nodes.json` is normal), so leaving it on raw `fetch` would have made every read a 401 and the local→cloud migration report a clean run having copied nothing at all — "fetch resolves for every status" at its worst. ⚠️ **Fourth, a harness lesson:** `process.exit()` while Node's global fetch still holds keep-alive sockets aborts libuv on Windows (`UV_HANDLE_CLOSING`) and exits **127** — a fully green harness reporting failure to CI. `server.closeAllConnections()` + `process.exitCode`. | **one entry: *the loopback server has no authentication, and since S40 it serves ORIGINAL media*.** Closed by the per-launch token (`electron/localToken.cjs`), the header/cookie pair and the cors() allowlist. Verified **by running the app**, not only by tests: from a process outside Electron, `GET /api/rabbit/projects` returned the project list before and returns 401 with an empty body after; with the header or the cookie it returns 200. The `no single-instance lock` limit in handbook §17 and `RELEASE_TESTING.md` Known #9 is closed too — a second launch exits 0 and brings the running window to the front. |
+| Track B — B2 part 2 (2026-09-06, branch `track-b-auth`) | **nothing.** One finding, fixed in the same bundle: **0070's admin read arm on `auth_events` admitted a shared member's client rows for their OTHER company** — the `OR is_member_of_current_workspace(user_id)` clause was written for hook rows and applied to every row, address included. Found by building the Sign-ins view; fixed by **0071** (the clause is confined to rows without a `workspace_id`), suite 74 33 → 35 with a breaker run red under 0070, applied and verified by query on **staging** (suite 74 there 35/35). The classifier refused the same DDL against **dev**, so dev waits on Audrey (OWED §14) and dev's suite 74 is red on two assertions until then. Everything else shipped: the client's `sign_in` / `sign_out` / `idle_timeout` / `session_cap` rows, the 25/30-minute idle warning and sign-out, the 4-hour cap, `WIL-1002` wired, the Sign-ins tab and the operator mirror, the connection-lost banner with its reproduction (`scripts/probes/connection-hang.mjs`). No real sign-in was possible from the spawned session (three classifier refusals: the API keys, a probe member by SQL, the dev DDL); CI's Playwright lane runs the five new session scenarios against dev. | **the hung-`getSession()` entry narrowed** to "reconnect deferred, banner shipped" — the pin is reproduced and surfaced, not unpinned. |
+| Track B — B2 part 1 (2026-09-06, branch `track-b-auth`) | **nothing.** One measurement worth the row: **hosted GoTrue keeps no audit stream in the database** — `auth.audit_log_entries` is empty on dev (0 rows beside 1,101 sessions) and on staging (0 beside 26), and `auth.mfa_challenges` is empty beside an enrolled factor — so the brief's "reader over the GoTrue stream" was unbuildable and B2 built the writer instead: 0070 `auth_events` + two Supabase Auth hooks, applied and recorded on dev and staging by query, suite 74 (33 assertions) green against both, with a breaker run that went red. The hooks stay inert until enabled per project in the dashboard (OWED_AUDREY §14). B1's two review rounds ran first (`60b801c`, `6178e98`): one HIGH found and fixed before anything merged — see the B1 row. B1 is still unmerged, waiting on the walkthrough 10 report. | nothing — the hung-`getSession()` entry narrows when the banner ships (B2 part 2). |
+| Track B — B1 (2026-09-06, branch `track-b-auth`) | **nothing.** Nothing regressed and nothing new is known broken. The session's finding is not an entry because it was fixed before it reached anything that mattered: **"take the LAST X-Forwarded-For hop" — the remedy TPN-NET-004 prescribed and the old `provision-workspace` carried — is wrong on this platform.** The last hop is Supabase's own relay and varies per request, so for eleven minutes on wilson-dev (`resolve-login` v7) the new durable limiter counted each request under a different subject and refused nothing. Caught by the burst probe the brief's "harness with a failing control" rule demanded, measured with a throwaway header-echo function (a caller-supplied `x-forwarded-for` is stripped; a spoofed `cf-connecting-ip` gets a Cloudflare 403), fixed in v8 (`cf-connecting-ip`; the 21st check in a minute answers 429). No migration; migrations stay 0000–0066 and pgTAP stays 70 suites. **Review round R1 (same day, the next session) found one more, also fixed before anything merged:** a `*` typed at the company step was a prefix search — PostgREST aliases `*` to `%` in an `ilike` pattern, so `smo*` resolved the smoke workspace and returned its slug (measured on dev v8; staging v10 carried the same code). The resolver now folds `*` to a one-character `_` and re-checks the returned names for equality (dev v9, staging v11; R2 then strengthened both controls to the display name minus its last character plus `*`, the only input that reaches the re-check — dev v10, staging v12). | **`useRosterMembers` cannot tell a broken roster from an empty one** — the hook returns `error`, `RateCardPage` shows it, `useRosterMembers.test.js` goes red if it is swallowed again. **`ResetPasswordWizard` still performs a global sign-out** — decided by Audrey (answer 12): it stays global, `scope: 'global'` is now explicit, and the screen says `YOU WILL BE SIGNED OUT ON EVERY DEVICE.` before and "signed out on every device" after. Both in the B1 commit. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
@@ -1636,3 +1557,1172 @@ what it attempted, not what it changed.** Of nine settings listed, only two
 were actually off when checked — `Enable email provider` and TOTP. Site URL,
 OTP length, signup and confirm-email were all still original. Reading the live
 state first would have replaced a nine-row restore list with a two-row one.
+
+## Bins (demo sprint, 2026-09-10)
+
+### A disconnected network root can stall the local server while bins open or relink
+**INFERRED.** `electron/rabbitBins.cjs` stats every referenced path on the
+list route and walks known roots (capped at 5000 entries / depth 8) for the
+relink scan, all synchronously on the Express thread. A root on an unplugged
+SMB share makes each `statSync` wait out the network timeout, and no other
+R.A.B.B.I.T. request is served meanwhile. Would settle it: a bin file added
+from a network drive, the drive disconnected, the Bins tab opened — measure
+the freeze. Fix direction: stat and walk asynchronously (`fs.promises`) with a
+per-root deadline, or skip roots whose drive letter is not mounted.
+
+### A file dropped on any tab other than Bins may navigate the window to it
+**INFERRED** (review round 2, 2026-09-10). Nothing in `electron/main.cjs` or
+`src/App.jsx` prevents the default of an OS `drop` (no `will-navigate` guard,
+no document-level `dragover`/`drop` handler), and Chromium's default for a
+file dropped on a document is to navigate to it. The Bins tab guards every
+surface while it is mounted (`views/BinsView.jsx`, the document-level drop
+effect), so the demo path is covered; a clip dropped on Scenes, Summary or
+Tasks is not. Would settle it: drag an MP4 from Explorer onto the Summary
+tab of the dev app. Fix direction: a `will-navigate` handler in `main.cjs`
+that refuses anything but the app's own origin, plus a document-level
+`dragover`/`drop` `preventDefault` in `App.jsx` — the shell's layer, not
+the bin session's.
+
+## UI overhaul (`feat/ui-overhaul`, merged nowhere) — left open at its close, P1 (2026-09-27)
+
+Everything the overhaul knows is broken and did not fix, as the last session
+(P1) left it. The source is V2's one table (`docs/sessions/handoffs/ui-v2-2026-09-27.md`
+§4.2), each row kept with its number, owner and origin; P1's hand-off
+(`ui-p1-2026-09-27.md`) says what P1 closed. Questions for Audrey are in
+`docs/walkthroughs/47_ui_overhaul_final.md` §2, not here. Tags as this file
+defines them; a row's "owner" is who acts first.
+
+### Behaviour and keyboard, left under C1 (no view or interaction change was allowed)
+
+- ~~**P1-01 · Enter toggles the pet.** MEASURED. `App.jsx` ~1404–1417: Enter on any focused button toggles the pet and never presses the button (every kit Dialog, drawer, picker; Space works). Owner: Audrey (C5), then a session. From A4-1, B3d, B4c-6, B5b-27.~~ — FIXED by post-overhaul S2a (2026-09-30, branch `po/s2a-settings-placement`, ruling C12): a bare Shift tap toggles the pet (`src/lib/companionHotkey.js`) and Enter presses the focused control, measured in the running app in all three tools (`05bf5fe`, hardened by `edb7fa9` and `07d34d6`). What is left of the class is in the S2a section at the end of this file.
+- **P1-02 · Space opens O.T.T.E.R.'s Search from any focused control** that is not a field, and can stack Search over an open Dialog or Drawer (`Otter.jsx` global shortcuts). MEASURED. From A4-2. S2a (2026-09-30): the same on the Help and Settings buttons S2a added to O.T.T.E.R.'s strip; Enter presses them (MEASURED, S2a review round 1).
+- **P1-03 · Home's document keydown listener runs on every page** (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3. S2a (2026-09-30): now that Enter presses the focused control everywhere else, this is the one place Enter can still do something different (after an arrow key on any page, Enter can open a Home destination). It also strands a kit Dialog: Search, left open when ArrowDown+Enter went to /dog, stayed registered, so on D.O.G. `overlayOpen()` was true, the Shift tap was dead and Tab never moved focus (the hidden dialog's trap found no visible control) until she went back and closed Search. MEASURED by S2a's review round 1 (B-R1-09). Owner: Audrey (Home is fonts-only under C3), or the kit (a Dialog on a hidden page should neither count nor trap).
+- **P1-04 · D.O.G.'s document keys act behind its overlays** (Alt toggles Full deck; ←/→ switch the page). MEASURED. Needs a C1 ruling. From A4-4. S2a (2026-09-30) narrowed D.O.G.'s Enter only (`enterGenerates.js`: never on another page, never over a drawer, dialog or kit overlay). Alt, ←/→ and Ctrl+Z/Y also have no page check (`DeckOutlineGenerator.jsx` ~3206–3290), and D.O.G. stays mounted, so they act from every page: Ctrl+Z on O.T.T.E.R.'s page, outside a field, undoes D.O.G.'s last text edit unseen. INFERRED from the code; would settle it: a text edit in D.O.G., then Ctrl+Z on another page, then back. S2a gave D.O.G. its `currentPage`, so each handler can gate on it in one line.
+- **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
+- **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
+- **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
+- **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `SceneSavedViewsDropdown`). MEASURED. From B5b-9, B5b-22.
+- **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
+- **P1-10 · Keyboard scrolling hides the focused row or cell** (the Bins list under its sticky head; Crew/Talent period cells past the scroller's edge). MEASURED. Owner: a session and the kit (scroll padding, B5b-KR-5). From B4c-13, B5b-7.
+- **P1-11 · A minimap bar drag does not save.** MEASURED. Owner: Audrey (C1). From B3d. After S1 the minimap drag is a true no-op for a phase drawn over exactly its own dates (post-overhaul S1, 2026-09-30; the minimap draws phases only): its mouse-up writes the DRAWN dates back, and those are now the stored ones, so it no longer stores a day early on this machine. It still rewrites a phase drawn over a different span — one with no dates or one date (drawn over its tasks' span, or today to +14 / padded 14 days when it has none), or a parent widened to cover its sub-phases — with that drawn span. Why the drag moves nothing, confirmed in the running app by S1's review round 2: `OverviewBar`'s move handler writes to `e.currentTarget`, which React 19 sets to null after dispatch, so it throws ("Cannot set properties of null (setting '_draftStart')"), and the mouse-up then writes the unmoved drawn span.
+- **P1-12 · Two "Today" buttons** (minimap and gantt). MEASURED. Owner: Audrey. From B3d.
+- **P1-13 · O.T.T.E.R.'s duplicate-found dialog is unreachable** (`renderDuplicateModal`; nothing sets its state). INFERRED from the code; would settle it: an import of a course whose slug exists. From A4-9.
+- **P1-14 · "Import failed: …" is `window.alert`** (`Otter.jsx` `handleImportFile`). MEASURED. From A4-10.
+- **P1-15 · Two `window.confirm` left** (`TeamView.jsx:388` "Remove from project", `:693` "Remove from roster"). MEASURED (P1's grep audit: 2). W9 already ruled the conversion; behaviour, so not P1's visual close.
+- **P1-16 · The slide preview logs "Maximum update depth exceeded"** when the duplicate resolver previews (`LayoutVisualizer`, C4). MEASURED. Needs a C4 ruling. From A4-13.
+- **P1-17 · Opening a task template logs React's "unique key" warning** (`TaskTemplateManager` → `TemplateEditor`). MEASURED by V2's probe.
+- **Autoplay (R4-36).** MEASURED: the video preview starts playing when it opens (`VideoPreview.jsx:177`, `controls autoPlay`), with no reduced-motion path. Left under C1 by B4; plan §5 names it for this file.
+
+### Older bugs and data, left under C1
+
+- **P1-18 · Role slugs printed as labels** ("production_designer") in the client view's crew list and the By role report (`ClientViewTab` `crewByDept`). MEASURED. Owner: Audrey, then a session.
+- **P1-19 · A locked version's total reads $0** in the versions table and active-budget banner (the fixtures' snapshot has no `grandTotal`). MEASURED on the fixtures.
+- ~~**P1-20 · The Projects page shows a project's dates one day early** ("Aug 2 – Dec 17, 2026" against 08/03 – 12/18 in its fields): a time-zone parse. MEASURED.~~ — FIXED by post-overhaul S1 (2026-09-30, branch `po/s1-timeline`, ruling B5): the page reads its dates through `src/tools/rabbit_v0.1.0/dates.js`, the one helper the Timeline and the Tasks view use.
+- ~~**P1-21 · A new scene thumbnail shows late** in the ungrouped scene table (never handed `thumbRevision` / `onThumbChanged`). MEASURED. From B5b-18.~~ — FIXED by post-overhaul S3b (2026-10-01, `po/s3b-shot-lists-ui`): the table is handed both.
+- ~~**P1-22 · A shot row's delete inside the scene popup also opens that shot.** MEASURED. From B5b-19.~~ — FIXED by post-overhaul S3b: its click stops at the button.
+- **P1-23 · A related asset's click in a scene, shot, Level or Experience popup opens nothing** (`RelationsPanel` `onOpenAsset`, R4-26). MEASURED. From B5b-20, B4c-3. **The scene and shot popups FIXED by post-overhaul S3b**: the asset opens in the Assets tab's own `AssetDetailPopup` (now exported) over the popup, as a task opens. Left: the Level and Experience popups (`EntityListView.jsx`, B4c's twin), which still set state nothing renders. Owner: that lane.
+- ~~**P1-24 · "Files (N)" shows twice** in the popups / `FileManager`. MEASURED. From B5b-21.~~ — FIXED by post-overhaul S3b: the popups' own label went; FileManager's head says it once.
+- (P1-21 to P1-24 are the four older Scenes bugs walkthrough 45 left under C1; walkthrough 47 Q192.)
+- **P1-25 · React logs duplicate keys (26×) after a take is unassigned or undone** (`rabbitFixturesAdapter.js:68-74`, `RabbitProvider.jsx:2919`; dev fixtures). MEASURED.
+- **P1-26 · Linked counts disagree:** `EntityListView` reads `level_id` while the sidebar reads `level_ids` ("Assets (1)" beside "0 assets"). MEASURED.
+- **P1-27 · Two tests import `@babel/parser` / `@babel/traverse` undeclared** (`otterCss.test.js`, `authSelectors.test.js`; resolved through plugin-react). MEASURED by reading `package.json`. Declaring them is a lock change: the lock's owner.
+- **P1-28 · A missing thumbnail draws the browser's broken-image icon** in a light 1px frame (`FileThumbnail`, the entity popups, Scenes rows; the asset detail draws initials instead). MEASURED.
+
+### Visual rows P1 did not close, and why
+
+MEASURED by V1/V2's walk and look unless tagged otherwise. Rows that wait on a
+ruling are Audrey's questions in walkthrough 47 as well.
+
+- **P1-29 · Team members: twelve columns need 1,707px and have 1,230**; Day rate, Status and the actions cut at every width. Waits on Audrey's design call (47).
+- **P1-30 · Rate card: at 1280 the table scrolls sideways**; its frame is 980px and its columns' content needs about 1,040px (P1 measured), so no re-split fits. Ways out in 47 (the kit's compact padding, B4-KR-3, would fit it).
+- **P1-31 · The Timeline task editor's own chrome:** inline hexes (178 in `TimelineView.jsx`, most of them its), 26 `ring-orange-500`, 4 `ring-amber-500`, its three footer buttons dimming to 30% while saving, "Asset: …" at 3.16:1. Waits on Audrey (walkthrough 42 Q6, in 47).
+- **P1-32 · Timeline Fit cuts the first and last key-date diamonds** and hides the last key-date line; two diamonds sit 3.9px apart at 1024 over five years; ~~the week axis overprints a month's first day~~ (fixed by post-overhaul S1, 2026-09-30: ruling B2, option B). Fit's range is C1 (the lane kept it); the minimap window's 2px sides are B3's documented selected edge. Owner: Audrey (47).
+- **P1-32a · Other date code still builds a day in UTC** (post-overhaul S1, 2026-09-30; the siblings of the Timeline's parse, left because they are not S1's files). INFERRED from the code and its arithmetic, not run: `ProjectAssetsView.jsx` (~1440–1462 and ~1699–1730) builds an asset template's task dates by `new Date('YYYY-MM-DD')` → `setDate` → `toISOString().split('T')[0]`, which drops a day where the chain crosses the March clock change, and seeds "today" from `toISOString()` (tomorrow in an Eastern evening); `NotesView.jsx:165` dates a note by `toISOString().slice(0, 10)` (the same evening case); `holidays.js` `countWorkingDays` matches holidays by `toISOString().slice(0, 10)` of a local midnight, right west of UTC and a day off east of it; the Budget's `CrewTeamTab.jsx:38` and `TalentTab.jsx:48` read `new Date(project.start_date)`, so their week headers start a day early ("Wk1 08/02" for a project starting 08/03, S1 review round 1 ran a copy in New York). For these the fix is `src/tools/rabbit_v0.1.0/dates.js` (`parseIsoDate`, `toIsoDate`). In `TimelineView.jsx`, not date parses: `TODAY` is read once at module load, so a Timeline left open past midnight draws Today and seeds new tasks a day behind; and with weekends hidden several pixel/day conversions ignore the mask — a bar's move and resize (`dx / dayPx`: a drag across a weekend lands two days short), ~~centring on today (it lands about 2/7 × today's day number columns right of the Today line), the visible window's first day, and the minimap's click-to-jump~~ (those three fixed by post-overhaul S5p, 2026-10-05, with P1-32b). The move and resize, still open, want the pair S5p added (`dayAtX` / `xAtDay` in `timelineMinimap.js`; round 1's sketch: `round(dayAtX(left + dx) − dayAtX(left))`) and a rule for an end that would land on a hidden day; TODAY wants a read per render. Owner: a session (S3b, S5 or P1).
+- **P1-32b · ✅ CLOSED 2026-10-05 by post-overhaul S5p (see the end of this entry) — ~~🚨 With weekends hidden, Day zoom's pixel/day conversions outside the gantt pane ignore the hidden columns~~** (HIGH; older than S1; MEASURED by S1's review round 2 in the running app, 2026-09-30). `TimelineView` converts the gantt's scroll to days as `scrollLeft / DAY_PX` in the zoom re-anchoring, `changeZoom`, the visible window (`visibleStartDays` / `visibleSpanDays`, which place the minimap's window), `scrollDetailToDay`, the gantt's Today and the first-mount centring — only `DetailPane` holds the weekend mask. So with "Show weekends" off: Week → Day moved the gantt from 14 Sep to 11 Dec 2026 (+88 days) and Day → Week moved it back; at Day zoom the minimap's window reads 15 Sep – 6 Oct while the gantt shows December; the gantt's Today lands on 10 Dec, with today off screen; and toggling "Show weekends" does not re-anchor (`hideWeekends` is not in the effect's deps). With weekends shown every zoom change keeps its date (S1 measured 36 transitions). The fix: lift the mask (or a pure `weekendMask(start, days, dayPx)`) into `TimelineView`, record the anchor as a DAY through it, route those six conversions through one mask-aware x↔day pair (`dayIndexAtX` and its inverse), and add `hideWeekends` to the deps. Owner: a session — the next that edits `TimelineView.jsx` (S5), or its own small one. **Closed 2026-10-05 by post-overhaul S5p** (`po/s5p-timeline-weekends`: `50f9604d` the fix, `bb749c59` and `02ea371e` its two review rounds; integrated into `feat/post-overhaul-edit-versioning`; hand-off `docs/sessions/handoffs/po-s5p-2026-10-05.md`, walkthrough 48 §6). Reproduced first in the app on the fixtures, clock Thu 24 Sep 2026, at 1440x900 and 1280x700 — S1's numbers to the day: Week → Day Mon 14 Sep → Fri 11 Dec (+88); at Day zoom the window 15 Sep – 6 Oct against the gantt's 11 Dec – 12 Jan; Today 10 Dec at the left, today off screen; the switch 11 Dec → 14 Sep → 11 Dec; transitions 36/36 kept shown, 18/36 hidden. Fixed as proposed here: `weekendMask` built in `TimelineView` and handed to `DetailPane` (which builds none); one pair `dayAtX` / `xAtDay` (+ `visibleDayRange`) in `timelineMinimap.js` that the pane and the six conversions share; the anchor a DAY (`anchorDayRef`); `hideWeekends` in the re-anchoring's deps. After: +0 days; the window brackets the gantt; Today centred, its line on screen; the switch keeps the date both ways; 36/36 in both settings; the window still slides on the zoom tabs (32/32 frame by frame, `scripts/timeline-window-slide.mjs`); with weekends shown the state shots move nothing but a dependency arrow that differs between two runs of the same code. **Found and fixed beside it** (not the mask's): the minimap's click and window drag used the scale of the last schedule rebuild — Week's 22px from the Timeline's opening — so at Day zoom a click landed 207 days early with weekends shown (154 hidden); `scrollDetailToDay` is a callback on the scale and the mask now. **Found and NOT fixed:** a bar's move and resize with weekends hidden (P1-32a, still open: it needs a rule for an end that lands on a hidden day); P1-32c untouched. Instruments for the next session: `scripts/timeline-weekends-probe.mjs <port>` (exits 1 on any moved date), `scripts/timeline-window-slide.mjs <port>`.
+- **P1-32c · Smaller Timeline defects S1's reviews found and left** (all older than S1, LOW, MEASURED in the running app): the "+ New task" ghost goes stale under a still pointer after a wheel pan (it shows the day the pointer WAS over, the click proposes the one under it); the minimap's `onWheel` calls `preventDefault` on a passive listener (Chrome logs an error and the call does nothing); opening the new-task editor with the dev fixtures calls Supabase's `release_stale_upload_reservations`, which answers 401.
+- **P1-33 · Home's Resources column dims the other items to 1.77:1 on the orange** (a C6 break on the fonts-only page). Owner: Audrey (47).
+- **P1-34 · Dates in six forms app-wide.** Owner: Audrey (one format, 47), then the kit's date formatter (V2-KR-1).
+- **P1-37 · The lesson page's heading outline:** the lesson title is an `<h2>` under the tool's `<h1>`, and a lesson's `#` renders an `<h1>` below it. Not visual; closing it moves `.lesson-content`'s h1–h3 selectors with the tags, which `typeScale.test.js`'s lesson sweep names. Direction: render the markdown's h1/h2/h3 as h3/h4/h5 with the selectors following.
+- **P1-38 · `scrollbar-gutter: stable` on O.T.T.E.R.'s scrollers only.** Owner: Audrey (47).
+- **P1-40 · The three popups draw the same things three ways** (Level/Experience, Scene/Shot, Task). Owner: Audrey (which is the model, 47).
+- **P1-41 · Tables full-bleed on Levels, Experiences, Tasks, Assets; on the gutter on Scenes and Budget**; Levels/Experiences show a select-all box with no row boxes. Owner: Audrey (47).
+- **P1-42 · The Scenes and Levels/Experiences/Assets toolbars differ** (icon toggles vs text, "Views" vs its icon, the count, the size picker, three sorts, a moving create button). Needs the kit's segmented control (B5b-KR-2) and Audrey's answers (47).
+- **P1-43 · Dialogs close three ways** (an orange "Done", an outline "Close", an outline "Done"); the Rate card's Google Sheet dialog's Cancel is borderless. Not reached by P1: it needs one convention chosen and every caller moved.
+- **P1-44 · Budget:** empty values marked four ways ("--", "–", "—", "·"; R4-19 said one em dash); Custom's total row has a grey rule where the others are orange and leaves Logged/Variance blank; the Margin / Contingency / Agency fee inputs do not form a column; the actuals popovers' titles are capitalised and carry a name; variance figures sit ~2px high. Not reached by P1. (Talent's rate is Audrey's question.)
+- **P1-45 · Bins' three pane header rules sit at three heights** (211 / 225 / 265); "Add" moves 86px between grid and list. Not reached by P1.
+- **P1-49 · A count is styled three ways** ("8 MEMBERS" on the Label step, "16 tasks" in the mono, "1 project"); P1's audit found three more on the Label step in the mono (Intake, Summary, Team). Not reached by P1: it needs one count style chosen.
+- **P1-51 · O.T.T.E.R.:** selects draw the browser's chevron (D.O.G.'s draw a custom one); page titles at x399 in a centred column on Admin / Quiz / New course against x224 elsewhere; Validate's actions end at 1256 vs 1245; the quiz's levels lower case vs capitalised badges; Help's title 12px right of its nav; the Search field's magnifier outside the field. Not reached by P1.
+- **P1-53 · Glyphs in a fallback face:** → ← ● ○ (Segoe UI), D.O.G.'s ▸ output markers (Cambria Math: 17 glyphs on Help → D.O.G. → System prompts, filed in the walk with a glyph ceiling each) and "₩" (Cascadia Mono). Owner: Audrey (may a session fetch Geist's release, 47).
+- **P1-54 · The pet sits over drawn page content** — the screens are measured by P1's final walk in 47 §3. Owner: Audrey (C5). Post-overhaul S4a adds one: the file window's footer, whose last button ends where the pet sits. The pet covers the right end of Download at 1440x900 on a cloud file and of Preview at 1280x700 on the Local Server (`docs/sessions/handoffs/img/po-s4a-fixtures-file-window-1440x900.png`, `po-s4a-localserver-file-window-1280x700.png`).
+- **P1-55 / P1-79 · Chips (and the Dashboard's "Filter" chip) are on the capitalised Label step** while Q2 lists chips for sentence case. Owner: Audrey (47).
+- **P1-56 · Project type names in Title Case; CAM MOVE / FRAMING codes and the Bins codec in capitals.** Owner: Audrey (47).
+- **P1-57 · Names 600 in the entity tables, 400 in the file tables; the popup Tasks table's Assignee / Reviewer in full ink; dates right-aligned on the Files page, left in R.A.B.B.I.T.'s file tables.** Owner: Audrey (47).
+- **P1-58 · One 16:9 preview geometry at three sizes** (`FileThumbnail`, the Assets and Level thumbnails, R4-35). Not reached by P1.
+- **P1-59 · The Assets toolbar's ten controls, the popup's four jobs, the two-line row, one picker, the bulk bar over the header, the sidebar's status pill.** Waits on walkthrough 44's questions (in 47).
+- **P1-60 · The Files page's Created / Modified / Duration widths have no floor** (a date still cut at 1024; "DURATI…" cut at 1280 and 1440). Owner: Audrey (walkthrough 44 Q27/Q28, in 47). Since post-overhaul S4a, R.A.B.B.I.T.'s Files tab is the same explorer and shares it, and the file window open beside the table narrows the table further.
+- **P1-61 · `ShotTakeChips` paints inline colours and borders and takes no class** (B6's contract); its take rows' data-coloured inset edge goes with it. Not reached by P1.
+- **P1-63 · The nested shot rows still scroll sideways** at medium / large thumbnails (`rabbitScenes.css`). Not reached by P1.
+- **P1-64 · The Budget strip's `scrollbar-width: none` loses to the unlayered `.wilson-dark-scroll *`.** INFERRED (latent: the strip never overflows at 1024+). The fix is layering that `index.css` block, a global cascade change.
+- **P1-65 · Partial dead selectors are not guarded** (`.rb-audit-body .rb-relink-row`); a shadowed `keepEscape` would pass the §11 guard. Tooling; not reached by P1.
+- **P1-67 · The native date field's calendar icon draws a white focus square** (47 native date inputs). Not reached by P1 (headless Chromium does not show the picker indicator's focus).
+- **P1-68 · The kit input's edge is 1.48:1 on the raised paper** (WCAG 1.4.11 asks 3:1 for an input's only boundary). Every field's look: Audrey's call (47, with the outlined button's edge).
+- **P1-69 · `otterCss.test.js`'s scope guard lets a kit ROOT be reached through an O.T.T.E.R. container.** Needs a ruling.
+- **P1-70 · `scripts/ui-walk.mjs` runs every screen in one browser context**, so a `--only` run measures Settings / Help over whatever the last screen left. Tooling; not reached by P1.
+- **P1-72 · The Undo toast (z 90) sits over the kit Menu (80) and the lane popover (65) app-wide.** Owner: Audrey (47).
+- **P1-73 · A zero margin reads "+$0" in the Summary but "$0" elsewhere; a variance under 50¢ reads "$0" in its tone.** Owner: Audrey (47).
+- **P1-82 · The four Scenes tiles lost their icons** (the kit Stat has no icon slot, B5b-KR-1). Owner: Audrey (47), then the kit.
+- **P1-83 · A sortable head's inset ring sits on the first glyph of a left-aligned label**, and Budget's and Bins' sheets duplicate the kit's inset rule. Not closed: moving the ring into the cell padding changes every sortable head's hit box, and Bins' head layout is built on the kit's `padding: 0`, which `binsCss.test.js` pins.
+- **The agent overlays are still hand-drawn:** `DiffView` (a private backdrop, the stone palette, an orange frame) and the agent toast; P1 moved their shadows onto the float token and the outline proposal onto the kit Dialog. Not reached by P1.
+- ~~**The Summary's missing-files notice is hand-drawn**~~ **Closed by post-overhaul S4a (`7cd5914`, 2026-09-30):** the notice moved with Relink to R.A.B.B.I.T.'s Files tab, on the kit Banner (warning tone, the Relink… button in its action slot); `ProjectFilesExplorer.test.jsx` pins it. As filed: (`ProjectSummaryView.jsx`, the relink notice: a `color-mix` warning tint, its own hairline, a kit Button inside), where the kit Banner has the warning tone and an action slot, as Storage's load error now uses (P1-39). READ in code at P1's close (review round two's mono fix touched its sentence); not reached by P1.
+- **Hexes left in lane code:** `IngestionToast.jsx` 21 and `UndoToast.jsx` 10 (the toasts' own colours; P1 moved their shadows and radius only), besides the task editor's (P1-31). MEASURED by P1's audit.
+
+## Post-overhaul merge (Track A over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
+
+### 🚨 The workspace realtime channel broadcasts a PRIVATE project's rows to every member
+**MEASURED (2026-09-29, merge review round 1, A-R1-04; PRE-EXISTING on the
+overhaul parent `60a8981` — not introduced by the merge, and not fixed by its
+round-1 corrections).**
+`fn_workspace_realtime_broadcast` (`0018_workspace_channel.sql:159`, attached
+to `projects`, `workspace_members`, `tasks`, `assets`, `project_members`)
+passes whole NEW/OLD rows to `realtime.broadcast_changes` on
+`rabbit:workspace:<ws>` with only a workspace filter, on the premise its own
+comment states — "Membership ≡ visibility". 0072 made that premise false:
+`projects_select` gained the private-project arm, and the join gate
+`can_read_workspace_topic` still checks membership only. So a private
+project's **id, title and `is_private` flag** (and its assigned tasks, its
+label-changing asset events, its roster) reach every active member's channel
+— members who cannot SELECT the row. The per-project topic (0016) is
+unaffected: its join gate is `SECURITY INVOKER` over `projects_select`.
+
+**What 0082 closed, and what it did not:** the id the channel leaks now opens
+nothing — `milestones_trash_index` and `fn_trash_authz` (so `soft_delete_row`
+/ `restore_soft_deleted`) carry the privacy arm (0082, suite 82), which was
+the practical harm (A-R1-01). The broadcast itself is untouched, because it is
+a product decision about what the workspace channel carries. The candidate
+fix — skip a `projects` row whose `is_private` is set, and a `tasks` /
+`assets` / `project_members` row whose project is private — means a project
+flipped to private after the fact stays in the other members' project index
+by NAME until their next refetch (they cannot open it; `projects_select`
+refuses), and broadcasting the flip would carry the row that must not be
+carried. Audrey's call, then its own migration (the next free number after
+0082) with a suite-80 probe: no workspace-topic message for a private
+project's insert, with a public-project control. 0082's header records the
+shape.
+
+**Correction (round 2, A-R2-03):** "the id the channel leaks now opens
+nothing" was true of the trash paths only. It still opened a WRITE through
+`milestones_insert` / `milestones_update`, whose WITH CHECK gated on
+`can_write_project` alone — closed in 0082 §3b (both WITH CHECKs gain
+`EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id)`, evaluated
+under the caller's `projects_select`; suite 82 probes 20-23). The same gap on
+`tasks` and `assets` is the entry below.
+
+### Round 2 (2026-09-30) — left open, and a numbering correction
+
+- **`tasks_insert`, `tasks_update`, `assets_insert` and `assets_update` (0013)
+  have no hop to the parent project.** PRE-EXISTING on the overhaul parent
+  `60a8981`; MEASURED by merge review round 2 (A-R2-03), NOT fixed here.
+  Their WITH CHECK is workspace + membership + `can_write_project(project_id)`,
+  and `can_write_project` is TRUE for every admin and manager and for every
+  member of an UNSTAFFED project (0013:115-121), with no privacy arm; the
+  populate trigger (0004) fills only a NULL `workspace_id`, so a client that
+  sends its own passes the workspace arm. So the id the workspace channel
+  leaks (the entry above) admits a write: a second manager can insert a task
+  or an asset into another member's private project over PostgREST
+  (supabase-js's `.insert()` without `.select()` sends `Prefer:
+  return=minimal`, so no SELECT policy is consulted), or move an existing row
+  INTO it through UPDATE's WITH CHECK. The fix is the one-line hop 0082 §3b
+  gives `milestones`, in each of the four policies — but it retypes 0013's
+  policies on tables with their own suites (03, 04), so it belongs with the
+  broadcast ruling above: its own migration, the next free number, with
+  suite-03/04 probes of suite 82's shape (the second manager's INSERT throws
+  42501; the same INSERT on the public project lives; a refused move leaves
+  the row where it was).
+- **Enter on a focused page button outside any overlay opens the pet instead
+  of pressing the button.** PRE-EXISTING on the overhaul parent; MEASURED by
+  round 2 (A-R2-04), NOT fixed. App's window-level Enter handler (now
+  `src/lib/companionHotkey.js`) stands down for text controls and — since
+  round 2 — for any kit overlay (`overlayOpen()`, which the status warning
+  registers with) and any `[role="dialog"]` ancestor; that was the finding,
+  and it is closed. It still cancels the keydown when a plain page `<button>`
+  or link has focus and a pet exists, and Chromium activates a focused button
+  on the keypress a cancelled keydown suppresses — so a keyboard user who
+  Tabs to a page button and presses Enter opens the companion. One more arm
+  in `enterTogglesCompanion` (`BUTTON`, `A`, `[role="button"]`) closes it;
+  left out because it changes the shell's page-level behaviour beyond the
+  merge's brief. Audrey's call.
+- **⚠️ Migration 0082 and pgTAP suite 82 are TAKEN by this merge
+  (A-R2-06).** The post-overhaul plan (2026-09-29) names 0082 / suite 82 as
+  the first free numbers for its five feature sessions. Measured across every
+  local and remote ref on 2026-09-30, the next free numbers are **0083 /
+  suite 83**. The plan needs renumbering before any feature session starts;
+  0082's header says the same. **Superseded the same day:** the Track C
+  merge's review round 1 took 0083 / suite 83 (C-R1-01, the section below),
+  so the next free numbers are now **0084 / suite 84**.
+
+## Post-overhaul merge (Track C over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
+
+### Track C's file gates met private projects — closed in 0083 (C-R1-01), with what it leaves
+**MEASURED by the merge review (C-R1-01) and FIXED in migration 0083 /
+suite 83.** The class 0082 closed for Track A, on Track C's files:
+`reserve_upload_bytes` (0078) and `log_file_downloaded` (0074, restating
+0047 — this one PRE-EXISTS on the overhaul parent, and 0082 did not list it)
+are SECURITY DEFINER bodies that checked project access the pre-0072 way,
+and `files_insert` / `files_update` (0038) had no hop through `projects`. So
+a second manager, or any member of an unstaffed private project, holding the
+id the workspace channel leaks (the Track A entry above) could reserve
+against `projects/<private-id>/…` — and `abandon_upload_reservation` or the
+hourly sweep would then land an `upload_abandoned` certificate in that
+project's `file_events` — could write a `downloaded` event for its files
+(an existence oracle), and could INSERT a `files` row into it (return=minimal:
+no SELECT policy sees the row) or rewrite its files with an UPDATE that reads
+no column. 0083 adds `passes_project_privacy` (0082) to the two bodies' first
+refusal, the same message and code as before, and the parent hop to the two
+WITH CHECKs; suite 83 probes each with the second manager, the plain member,
+the creator and the admin, with a public-project control beside every
+refusal. ⚠️ Round 2 (C-R2-01) corrected round 1's claim, made here and in
+0083's header, that the same callers could also *move* a file INTO the
+private project: a filtered UPDATE reads a column, so Postgres requires
+SELECT and applies `files_select`'s USING — hop included since 0038 — to the
+new row as a WITH CHECK, and that move was refused before 0083. Suite 83's
+probe 18 could therefore never fail (the round-1 "inert guard" class, in
+pgTAP; suite 79's probe-15 note had already recorded why). Probe 20
+(`UPDATE public.files SET description = 'x'`, no WHERE — the one UPDATE
+shape no SELECT policy touches) is now the failing control for
+`files_update`'s hop, with a presence control that the abort rewrote
+nothing; probe 18 stays, re-described as the filtered move it is. Left as
+it is, on purpose: `abandon_upload_reservation`,
+`release_*` and the sweeps act on reservation ROWS, and after 0083 no row
+can exist for a project its maker could not see. **Still open from this
+class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
+(the Track A round-2 entry above) and the broadcast itself.
+
+- **Walkthrough 15 names the wrong tab, the old button case and a R.A.B.B.I.T.
+  view that does not exist** for the attachment migration (lines 21, 112-127:
+  "Settings → RABBIT → … Click DRY-RUN … MOVE"; lines 65, 122 and 185:
+  "RABBIT → Files" / "RABBIT's Files view" — the view list is intake, summary,
+  assets, team, tasks, scenes, bins, levels, experiences, timeline and budget,
+  and a project-level stored row shows on the **Summary** tab's **Project
+  files** card; round 2, C-R2-03, which also corrected the panel's own
+  success copy). The tab has been labelled **Storage** since Session 22
+  (its key is still `rabbit`), and the merged `AttachmentMigrationPanel`'s
+  buttons read **Dry-run** and **Move** (sentence case, the overhaul's rule).
+  MEASURED by the merge review (C-R1-05); the in-app copy that pointed at a
+  "Settings → Migration" location is corrected in the same round. NOT fixed
+  here: the merge sessions may not edit `docs/walkthroughs/`. A session that
+  may must repair `docs/walkthroughs/15_*.md` — and Audrey's Desktop copy of
+  it (`WILSON walkthroughs\`) is hers to replace.
+- **`InvoiceAttachment.handleOpen` still passes `'noopener'` and never reads
+  `window.open`'s return**, so a pop-up that the browser blocks fails
+  silently there (the invoice-row twin of BudgetView's receipt control, which
+  C-R1-02 fixed: `window.open` returns null whenever `noopener` is set, so a
+  return check and `noopener` cannot coexist — BudgetView now checks the
+  return and severs the opener by hand). Out of C-R1-02's scope; not changed.
+  One-line fix when a session wants it: the same `opened.opener = null`
+  idiom, then a `setError` on a null return.
+- **`files_delete` (0038) still has no hop through `projects`, and a
+  filter-less `DELETE FROM public.files` runs under it alone** — the one
+  DELETE shape `files_select` never sees (a WHERE reads a column, and
+  Postgres then applies `files_select`'s USING to the rows as well).
+  `authenticated` still holds DELETE on `files` (0033 revokes only TRUNCATE /
+  REFERENCES / TRIGGER), so a second manager, or an unstaffed member, could
+  hard-delete every row their `can_write_project` admits — a private
+  project's included, each with a purge certificate in that project's
+  `file_events`. PRE-EXISTS on the overhaul parent (0038 met 0072 there);
+  MEASURED by the merge review's round 2 (C-R2-01), NOT closed here — 0083's
+  "deliberately not changed" list says the same. Reachable only by a
+  statement that reads no column: never a filtered PostgREST request, and
+  one that `pg-safeupdate`, where Supabase preloads it for the API role,
+  refuses outright — unmeasured on this project's three envs, so the hop is
+  the gate to add. Take it with the `tasks_*` / `assets_*` hops above, in
+  one migration (0084 or later, with the DELETE twin of suite 83's probe 20).
+- **No Content-Security-Policy on either build, and a stored body's type is
+  the uploader's browser's word.** `rabbit-files` has no
+  `allowed_mime_types`, the receipt and invoice pickers take any file, and
+  supabaseProvider stores `file.type` as the object's Content-Type; a blob:
+  URL runs on the origin that made it. So a receipt uploaded as `text/html`
+  or `image/svg+xml` and opened through `URL.createObjectURL` +
+  `window.open` executed as script on WILSON's origin in the next money
+  reader's tab — on the web, beside the Supabase session in localStorage.
+  FIXED at both sinks by round 2 (C-R2-02): `toInlineSafeBlob`
+  (`src/lib/inlineSafeBlob.js`) re-types anything but PNG / JPEG / GIF /
+  WebP / AVIF / PDF to `application/octet-stream` before the URL exists, so
+  it downloads instead of rendering — the renderer-side twin of the Local
+  Server's `safeMediaContentType`. STILL OPEN, the class: `vercel.json`,
+  `index.html` and `electron/main.cjs` set no CSP, so every future sink of a
+  client-typed body (a preview pane, an `<iframe>`, an `<object>`) has to
+  call the helper by hand. A CSP that keeps `script-src` and `object-src`
+  off `blob:` is the structural fix. PRE-EXISTING on the overhaul parent
+  (`InvoiceAttachment.handleOpen` carried the first sink).
+- **⚠️ Migration 0083 and pgTAP suite 83 are TAKEN by this round
+  (C-R1-01).** Measured across every local and remote ref on 2026-09-30, the
+  next free numbers are **0084 / suite 84**. The post-overhaul plan
+  (2026-09-29) still says 0082 / 82 and the Track A entry above said 0083 /
+  83; both are stale, and the plan needs renumbering before any feature
+  session starts. 0083's header says the same.
+
+## Post-overhaul S2a (`po/s2a-settings-placement`) — left open (2026-09-30)
+
+What S2a's two review rounds found broken and did not fix, because the file
+is another session's or the fix is not S2a's to make. P1-01 is closed above;
+P1-02, P1-03 and P1-04 carry S2a's notes. Questions for Audrey are in
+walkthrough 49 §5, not here.
+
+- ~~**S2a-01 · 🚨 Bins' document keys act from every page**~~ **Closed by
+  post-overhaul S4a (`643c61b`, 2026-09-30):** BinsView takes `pageActive`
+  (Rabbit passes `currentPage === 'rabbit'`; it defaults closed), and the
+  handler also stands down under a kit Drawer, which the overlay stack
+  cannot see. With R.A.B.B.I.T.'s settings drawer open over Bins, Delete
+  on its buttons had removed the selected files and Escape had cleared
+  the selection instead of closing it. `binsView.test.jsx` plants the old
+  handler and goes red. The entry as filed: (`BinsView.jsx`
+  ~520–585). The handler has no page check, and R.A.B.B.I.T. stays mounted
+  with Bins as its view, so while a Bins file is selected its keys act on
+  whatever page she is on: Enter (when not on a control) is cancelled and
+  starts a rename she cannot see; ↑/↓ move the hidden selection; S, R, U
+  and C flag or circle the selected files; 0–8 colour them; **Delete or
+  Backspace removes up to five selected files from the bin without a
+  question** (six or more ask, on the hidden page); Ctrl+Z/Y undo and redo
+  in R.A.B.B.I.T. MEASURED for Enter by S2a's review round 2: with a file
+  selected in Bins, a bare Enter on D.O.G.'s page was taken, so D.O.G.'s
+  "Enter generates" did nothing (S2a no longer lets a cancelled Enter stop
+  D.O.G., B-R2-01). INFERRED from the same handler for the other keys;
+  would settle it: select one file in Bins, open D.O.G., click the page,
+  press Delete, go back. A removal can be undone from R.A.B.B.I.T.'s
+  history. Owner: the next session that edits `BinsView.jsx` (S4a): gate
+  the handler on R.A.B.B.I.T. being the current page and Bins its view.
+- **S2a-02 · The Shift tap and the Enter rule cannot see hand-rolled
+  modals.** "Not over a dialog" knows the kit overlays, a shown drawer
+  backdrop and anything `role="dialog"`, `alertdialog` or `aria-modal`.
+  Five modals are plain `fixed inset-0` divs with none of those: Close
+  WILSON (`App.jsx` ~2772), the Timeline's `PhaseExtendModal` and
+  `TaskEditor` (`TimelineView.jsx` ~4137, ~4207), `DiffView` and the hatch
+  modal (`PetCompanion.jsx` ~314). With focus on one of their buttons, a
+  Shift tap opens the pet's chat under the modal. INFERRED from the code by
+  S2a's review round 1 (B-R1-12); would settle it: open the quit
+  confirmation, Tab to Cancel, tap Shift. Owner: each modal's next session
+  (give it `role="dialog"` and `aria-modal`, or move it to the kit Dialog).
+- **S2a-03 · A kit Drawer never takes focus, and gives it back to
+  `<body>`.** From a tool's new gear to the drawer's first control is 16
+  Tabs in O.T.T.E.R. (through controls under its backdrop), 11 in D.O.G.
+  and 3 in R.A.B.B.I.T.; Escape or Close from inside drops focus to
+  `<body>`, not back to the gear. MEASURED in all three by S2a's review
+  round 1 (B-R1-13). Owner: the kit (S2a kit request S2a-KR-4).
+- **S2a-04 · The workspace chooser's Enter signs into the wrong
+  workspace** (`LoginScreen.jsx` ~673–690). Its window-level Enter handler
+  cancels the key and picks `workspaces[workspaceIndex]`, which only
+  mouseenter and the arrow keys set, so Tab to the second workspace and
+  Enter signs into the first. INFERRED from the code (the dev sign-in
+  skips this screen); would settle it: a user with two workspaces, Tab,
+  Enter. From S2a's review round 1 (B-R1-11).
+- **S2a-05 · An unlayered rule draws the scrollbar O.T.T.E.R.'s tab list
+  hides.** `.wilson-dark-scroll *` sets the scrollbar outside any layer, so
+  it beats the strip's layered `scrollbar-width: none`. Where the tab list
+  still overflows it draws a scrollbar under the tabs and the strip grows
+  from 37px to 44px, putting the gear about 4px below the other tools'.
+  MEASURED at 711px of window before round 2 (V-R2-01). Since round 2 the
+  list fits down to 711px (four Ctrl+= presses on the smallest window), so
+  this shows only narrower than that. Owner: the kit (S2a-KR-3: move
+  `.wilson-dark-scroll` into `@layer base`).
+- **S2a-06 · D.O.G.'s Enter still generates during the leave
+  transition.** `currentPage` changes only at the transition's swap, after
+  the fade-out, the compress (600ms) and the title hold (400ms), so for
+  about a second after she picks another page D.O.G. still counts as
+  current, and an Enter pressed then still starts a generation. INFERRED
+  from `App.jsx` ~1990–2004 by S2a's review round 2 (B-R2-07); would settle
+  it: with a document loaded, pick another page in the nav strip and press
+  Enter at once. Owner: the session that next edits the transition (by
+  ruling it is otherwise untouched).
+- **S2a-07 · The Timeline's settings drawer still titles itself "RABBIT
+  settings"**, while the gear that opens it reads "R.A.B.B.I.T. settings".
+  MEASURED: the drawer's heading and its label are that fixed string
+  (`TimelineView.jsx` ~5466–5471; ~5598–5603 after S1). The file was S1's
+  this wave, and S2a's brief allowed it one title string (the drawer
+  footer's Help). Owner: the next session that edits `TimelineView.jsx`
+  (S3c or S5).
+
+## Post-overhaul S2b (`po/s2b-otter-functions-lesson`) — left open (2026-09-30)
+
+What S2b's review rounds found and did not fix, because the file is another
+session's or the decision is Audrey's. Her questions are in walkthrough 50
+§3, not here.
+
+- ~~**S2b-01 · The pet reads a nameless function category as no group.**~~
+  `petKnowledge.js` (`flattenDoc`) labels a function category
+  `cat.category || cat.name || ''`, so her Python library's 46 functions
+  reach the pet with an empty group where O.T.T.E.R.'s views now say
+  "General" (and a category whose name is not a string is read raw).
+  INFERRED from the code by S2b's review round 1 (A-L6). Owner: the next
+  session that edits `petKnowledge.js`: read it through
+  `functionCategoryName` (`adapters/otterRoutes.js`).
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced on her
+  real library, then fixed — `flattenDoc` reads `functionCategoryName`;
+  her Python's 46 rows reach the pet as "General" (before: ""), and the
+  pet's reference line reads "[Python → functions → General]"
+  (`node scripts/otter-library-replay.mjs pet`).
+- ~~**S2b-02 · The hotkeys merge has the same keying weaknesses the functions
+  merge had fixed in S2b.**~~ `mergeHotkeys` (otterRoutes.js) and its Local
+  Server twin key a category on `normKey`, so names with no Latin letters
+  ("文字列", "数学") all key to '' and merge into one, and a category value
+  that is not a string throws on every later merge. Its keying on
+  `category || name` was already right. INFERRED from S2b's review of the
+  functions merge (A-L2, A-L3). Owner: whoever next edits the hotkeys merge.
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced on both
+  backends over her real hotkeys (the two names made one category; a name
+  of 5 threw), then fixed — both copies key through S2b's helper
+  (`categoryKey` in otterRoutes.js, shared with `mergeFunctions`; the
+  route's three keying lines are `mergeFunctionsDoc`'s): a sent name is
+  `category`, else `name`, else "General", and it joins only a category
+  the Hotkeys page draws (a `shortcuts` list headed by its `category`) —
+  review round 1: joining by `name`, as "General" or through a `hotkeys`
+  list put shortcuts under a blank heading or off the page. One algorithm
+  on both backends (`adapters/hotkeysMerge.test.js`: 22 cases on both,
+  parity, 600 seeded documents, everything added drawn by the page's own
+  filter). Her own categories sent again change nothing, before and after.
+  Admitted (review rounds 1 and 2): S2b's key, now both merges', keeps `+`
+  and `#` and counts the spaces around them, so "Edit + Mode" / "Edit
+  Mode" and "Ctrl+Click Actions" / "Ctrl + Click Actions" (one heading
+  each before) are two; and it counts a combining mark as punctuation, so
+  in a script with vowel signs two names can still meet (Hindi "कि" and
+  "की"), while NFC and NFD spellings of "Édition" stay apart. None of her
+  66 headings has a `+`, `#` or combining mark. Changing the key changes
+  both merges and both Local Server copies together (`mergeFunctionsDoc`
+  was outside this brief). And a heading the page draws that is not a
+  string (a number) is never joined: sending "5" beside a stored 5 makes a
+  second "5" (before, both copies threw). Found and NOT fixed (outside the
+  brief, which allowed main.cjs's hotkeys route only): the NODES merge
+  (`mergeNodes` and the `/api/software/:slug/nodes/merge` route) keys a
+  system and a category on the same a-z0-9 key — measured, "文字列" and
+  "数学" become one category and the systems "C++" and "C#" one system.
+  Owner: whoever next edits the nodes merge. Also found (review rounds 1
+  and 2): a stored document that is not a library is now left as it is by
+  both merges on every path — generation, import and change-request
+  approval — which then answer as if it merged while nothing moved.
+  Before, on the cloud, an array or `categories: null` was overwritten with
+  the merged library and only a `categories` string or object threw (an
+  approval then listed it failed); on the Local Server every such shape
+  threw. No writer makes these shapes (main.cjs, the column default and
+  every merge write a list). Owner: the next session on the merges or the
+  approval flow — signal "not merged" (and perhaps read `categories: null`
+  as empty, as the Hotkeys page does).
+- ~~**S2b-03 · The outline page's "[outline]" is clipped, or lost, when the
+  subject title nearly fills the column.**~~ The subject (`.otter-crumb-current`,
+  capped at the line) and the note do not share the line: a subject within
+  about 50px of the column pushes "[outline]" out of sight. MEASURED by S2b's
+  review round 2 (B-L1) on stress titles; her real subjects (296px at most)
+  only meet it below a 345px column, and the outline page's column is 595px
+  or more at every window measured. A fix (measured by the reviewer):
+  `.otter-crumb-current:has(+ .otter-crumb-note) { max-width: calc(100% -
+  4px - 3.84em) }`. Owner: the next session on O.T.T.E.R.'s reading pages.
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05**, and corrected:
+  measured at 1440 and 1280, "[outline]" is never clipped — it is placed
+  first and keeps the line; the SUBJECT, and the course with it, wraps out
+  of sight from 568px (of 612.61px), and the line reads "[outline]" alone.
+  Fixed with the reviewer's cap, scoped by the outline page
+  (`.otter-view-page[data-width='subject'] .otter-crumb-current`, which
+  typeScale's cascade judge models; it reads `:has()` as reaching every
+  crumb) and at `4em`, not `3.84em`: the note is 46.03px (3.836em), so
+  3.84em left 0.05px, and a note 0.09px wider lost the subject again
+  (measured); at 4em, none. Her 49 subjects and 42 stress titles at seven
+  sizes and scales: subject and note on the line every time, nothing
+  taller than a line; her own pages' shots byte-identical before and after.
+  The price, admitted (review round 1): a subject in the 2px between the
+  two caps (560.6–562.6px on the 612.61px line) ends in "…" where it fitted.
+  And (review round 2) the note's own box is that 4em exactly
+  (`flex: 0 0 4em; min-width: 0`), so subject and note always make the
+  line however wide a font draws "[outline]": with the note's text 6px
+  wider, the subject is still never lost (at worst its "]" is clipped).
+- ~~**S2b-04 · The breadcrumb's accessible names are not the convention.**~~
+  "Where this lesson sits" / "Where this subject sits" (A3's) where
+  "Breadcrumb" is what screen-reader users expect, and the run's zero-width
+  space shows as its own text node in the accessibility tree. From S2b's
+  review round 2 (B-L4). Owner: the next accessibility pass.
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** both breadcrumbs are
+  named "Breadcrumb", and both zero-width spaces (the course's too) carry
+  an empty alternative text (`content: '\200B'; content: '\200B' / ''` —
+  the plain one first for a browser without the syntax, review round 1;
+  the production build keeps both). Measured in Chromium's accessibility
+  tree: before, 2 and 1 zero-width StaticText nodes; after, 0. Nothing
+  visible changed.
+- ~~**S2b-05 · A function entry that is not an object breaks the Search
+  dialog's function search**~~ (`fnSearchText` reads `f.name`), and the
+  Functions view's card. Pre-existing (the old search read `f.name` the same
+  way); the merge no longer writes such entries since S2b, but an imported
+  library can carry one. INFERRED. Owner: the next session in the Search
+  dialog.
+  **Closed by S2c (`po/s2c-otter-tidy`), 2026-10-05:** reproduced (a null
+  threw in the Search dialog and blanked the window from the Functions
+  view; one level up, a null category or a list that is not a list threw
+  in the pet's `flattenDoc` and blinded the pet to the WHOLE library — a
+  Blender question answered "could not be reached"), then fixed: one
+  reader, `functionEntries` (otterRoutes.js), skips what is not a function
+  in the Search dialog and the Functions view; the card draws nothing for
+  one; `flattenDoc` skips it at every level of all three documents; and
+  (review round 1) the three generation paths' "existing functions" lists
+  read through it too. Also on those lines: the Functions view's own
+  search no longer throws on a field that is not a string, and it and the
+  Search dialog read each field as the card draws it (`cardText`). Her
+  library: unchanged (46 functions, 92 coloured wells, 0 errors, with or
+  without the plants).
+  Found and NOT fixed (the brief named the function readers only): the
+  same class in the HOTKEY readers — a null shortcut in a category's list
+  throws in the Search dialog's hotkey search and in the Hotkeys view's
+  search ("Cannot read properties of null (reading 'action')", measured on
+  Otter.jsx's own lines). Owner: the next session in the Search dialog or
+  the Hotkeys view (the pet's `flattenDoc` already skips one since S2c).
+
+## Post-overhaul S4a (`po/s4a-files-ui`) — left open (2026-09-30)
+
+What S4a built around or found and did not fix. S2a-01 and the Summary's
+hand-drawn missing-files notice are closed above; P1-54 and P1-60 carry
+S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
+
+- **S4a-01 · Migration 0085 (`files.tags`) is written and NOT applied to
+  any environment.** The desktop app's classifier refuses DDL writes to dev
+  from a session, so the migration was proven by the hosted shim in a
+  rolled-back run (suite 87, after review round 2: 30 planned / 30
+  collected / 30 passed) and by CI. The client tolerates a database without the column, as it does for
+  0081: tags read as none, the file window says "Tags need a database
+  update that has not reached this workspace yet.", and a tags-only save
+  is refused with nothing changed. The
+  exact dev and staging commands are in the S4a hand-off (Waiting on
+  Audrey). The file and its history row are in
+  `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\`. Owner:
+  Audrey.
+- ~~**S4a-02 · The Legal tag restricts nothing yet.**~~ **Closed by S4b
+  (`po/s4b-legal-gate`, migration 0088), once 0088 is applied:** Audrey
+  ruled on 2026-10-01 that a Legal file is seen by "same as money files for
+  now" and that Legal is chosen when the file is added. A Legal file now
+  lives under the project's `LEGAL` folder, which joins `INVOICES` and
+  `FINANCE` in the one list of locked folders; its row, its bytes, its
+  thumbnail and its events are for workspace admins and the project's
+  managers only, and the tag can no longer be ticked on an existing file.
+  See S4b below for what is left.
+- **S4a-03 · Electron's PDF viewer titles a previewed PDF with a blob's
+  id.** Every PDF, the Local Server's and the cloud's, is fetched and handed
+  to the viewer as a typed blob (so `safeMediaContentType` stays as it is,
+  and a cloud body is never framed by its signed URL — review round 1), and
+  the viewer's toolbar shows the blob's UUID. The preview's own head carries
+  the file's name.
+  MEASURED in Electron 33
+  (`docs/sessions/handoffs/img/po-s4a-localserver-preview-pdf-*.png`).
+  Cosmetic. Owner: the next session on previews.
+- **S4a-04 · The preview is the workbench Dialog, not a lightbox.** The
+  kit has no full-window Dialog, so the preview is 960px wide. It is the
+  kit's cap high (88vh) and every kind, a video with its controls
+  included, fits the stage the bar and a refusal leave (review round 2,
+  R2-UI-04, measured at 1280x700 and 1440x900). Owner: the kit
+  (S4a-KR-1, "a lightbox-sized Dialog").
+- **S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**
+  S4a's review round 2 measured that `send` refuses an absolute path
+  through any dot-folder (`dotfiles: 'ignore'`, its default). That broke
+  the SPA fallback from a `.claude` worktree (fixed in `d3963c4`) and the
+  file stream, download and managed-file stream routes under a demo
+  folder's `.wilson\rabbit-data` (fixed in round 2, `dotfiles: 'allow'`).
+  The thumbnail routes call `res.sendFile(thumbPath)` the same way
+  (`main.cjs`'s asset, scene, shot and managed-file thumbnails;
+  `rabbitBins.cjs`'s bin thumbnails), and in demo mode the cache dir is
+  `<folder>\.wilson\rabbit-data\thumbnails`, so every cached thumbnail
+  likely answers 500 while a demo folder is open. INFERRED from the same
+  mechanism. Would settle it: open a demo folder and load a thumbnail.
+  Owner: the next session on thumbnails (the same one-argument fix).
+- **S4a-07 · Ctrl+Z on another page undoes R.A.B.B.I.T.'s last edit.**
+  Every page stays mounted, and three of R.A.B.B.I.T.'s tabs bind the undo
+  keys on the whole window with no page gate: the Timeline
+  (`TimelineView.jsx`, `window`), Scenes (`ScenesView.jsx`, `document`)
+  and Budget (`BudgetView.jsx`, `window`). MEASURED by S4a's review round 2
+  and again by S4a (Playwright, the dev fixtures, 1440x900): with
+  R.A.B.B.I.T. left on Scenes, Ctrl+Z on D.O.G. (focus on the page, not a
+  field) turned a scene renamed "RENAMED BY PROBE" back to "Lighthouse,
+  dawn"; left on the Timeline, the same key changed the renamed task; left
+  on Summary, which binds no keys (the control), nothing changed. Budget's
+  handler has the same shape: INFERRED. Same class as S2a-01 (Bins' keys),
+  and the same fix: `Rabbit.jsx` passes `pageActive={currentPage ===
+  'rabbit'}` and each handler returns while it is false. Not changed by
+  S4a: S3b, next on this branch, touches `ScenesView.jsx` and
+  `BudgetView.jsx` (S4a's brief). Owner: S3b (Scenes, Budget) and the next
+  session on `TimelineView.jsx` (S3c or S5).
+  **Scenes FIXED by post-overhaul S3b** (2026-10-01): the handler acts only
+  while R.A.B.B.I.T. is the page on screen, and stands down under a kit
+  menu, the settings drawer (or focus in one) and any kit dialog while none
+  of the tab's own popups or takes dialogs is open (the Bins keys' rule;
+  the popups keep the keys, C1). **Budget and the Timeline are left**: S3b's
+  brief gave `BudgetView.jsx` and `TimelineView.jsx` to S3c. Owner: S3c.
+  **Budget and the Timeline FIXED by post-overhaul S3c** (2026-10-02, step
+  1, `25083448`): each handler acts only while R.A.B.B.I.T. is the page on
+  screen (`pageActive`, Rabbit.jsx's) and stands down under the settings
+  drawer or with focus in one, as the Scenes and Bins keys do; each has an
+  off-page CONTROL (rabbitBudgetRender, timelineShotLists).
+- ~~**S4a-05 · A load-sensitive flake**~~ **Fixed in the same bundle, in the
+  test only:** `rabbitEntityViewsRender.test.jsx`, Levels and Experiences,
+  "the task form hands focus back to 'Add new task'…". Measured red in 4
+  of 20 full-suite runs on `po/s4a-files-ui` and 0 of 11 on its base
+  `7c9c3b2`; the extra test files added load. The product was right. The
+  form closes when `addTask` resolves, outside any event, so React runs
+  the hand-back effect on the scheduler, and a loaded runner let
+  `waitFor` settle one tick before it. The check now waits for the
+  hand-back. With the hook removed it still fails, on that line alone
+  (proved with the earlier checks taken out). Green in the next 5 of 5
+  full runs.
+
+## Post-overhaul S4b (`po/s4b-legal-gate`) — left open (2026-10-01)
+
+What S4b built around or found and did not fix. Questions for Audrey are in
+walkthrough 54 §5 and the S4b hand-off, not here.
+
+- **S4b-01 · Migration 0088 (`0088_legal_files.sql`) is written and NOT
+  applied to any environment — and it needs 0085 first.** Its §0 refuses to
+  run without `files.tags`. Proven by the hosted shim in rolled-back runs
+  against wilson-dev's real data with 0085 prepended (suite 90; the counts
+  are in the S4b hand-off) and by CI. Until it is applied the client offers
+  no Legal option: Add as Legal is greyed with "Legal files need a database
+  update (migration 0088) that has not reached this workspace yet." The
+  exact dev and staging commands are in the S4b hand-off (Waiting on
+  Audrey); the file and its history row are in
+  `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\`.
+  Owner: Audrey.
+- **S4b-02 · The Edge Function `storage-presign` carries its own copy of
+  the locked-folder list and is not redeployed.**
+  `supabase/functions/_shared/moneySegments.ts` gained `LEGAL` in the same
+  commit as 0088 (held to the SQL function by
+  `storagePresignBoundary.test.js`). Until it is deployed the function would
+  presign a `LEGAL` key for an s3 workspace. Nothing reaches that today: the
+  client never presigns a money key (a Legal upload is pinned to Supabase),
+  and `files_money_provider_chk` refuses an s3 row under `LEGAL` once 0088
+  is applied. Owner: Audrey (`supabase functions deploy storage-presign`
+  on dev, then staging).
+- **S4b-03 · A manager's second window does not see a new invoice or Legal
+  file until it reloads.** 0088 stops the realtime broadcast of money
+  `files` rows, because the project topic is joined by every project reader
+  and the message carried the whole row (MEASURED: a member read an
+  invoice's name, note and path off it). A per-row money check inside
+  `realtime.broadcast_changes` is not possible — a broadcast has no
+  per-recipient filter — so the fix is a second, money-only topic whose join
+  gate is `can_access_project_money`. Owner: the next session on realtime.
+- ~~**S4b-04 · A desktop file tagged Legal during S4a's label period stays
+  in the project's files folder.**~~ **Fixed in the same bundle (review
+  rounds 1 and 2):** the Local Server removes such a LABEL once per project
+  (`electron/legalFiling.cjs` `settleLegalLabels`; the ids stripped are kept
+  in the bundle's `legalLabelsSettled`) — on a managed file, on an invoice,
+  and on a project file whose body is in the files folder rather than a
+  `LEGAL` one — as 0088 §2 strips the cloud's once. A Legal row whose body
+  is in `LEGAL`, or missing altogether, keeps its tag; a project is not
+  settled while its folder is offline or any labelled file's body is found
+  nowhere (an unplugged drive), and is asked again on the next read.
+- **🚨 S4b-05 · A workspace manager can give themselves a manager seat on
+  any project, and so read its Legal files and its money.** PRE-EXISTING
+  (0013's roster policies and 0037's money gate; invoices, budgets and rates
+  are exposed the same way). MEASURED by S4b's security review, round 1
+  (S1-SEC-01), in a rolled-back run on wilson-dev: a workspace manager
+  holding a member seat ran `UPDATE project_members SET project_role =
+  'manager' WHERE project_id = … AND user_id = auth.uid()`, then read the
+  Legal file's name, note, body and thumbnail; one with no seat did the
+  same with an INSERT. `can_manage_project_roster` is `current_app_role() IN
+  ('admin','manager') OR project_role_for(p) = 'manager'`, no trigger stops a
+  change to one's own seat, and `project_members` writes no edit history, so
+  nothing records it. Audrey ruled that workspace-level managers do NOT see
+  Legal files; this is how they can. The smallest fix is a BEFORE INSERT OR
+  UPDATE trigger on `project_members` refusing a manager seat for oneself
+  unless the caller is an admin or already the project's manager (with an
+  opening for the creator of an unstaffed project), and
+  `projectRoleMatrix.js` in step — but it changes who can staff projects.
+  Owner: Audrey's decision (S4b hand-off, Waiting on Audrey), then its own
+  migration.
+  **2026-10-02 — ACCEPTED by Audrey, no fix:** "workspace managers can have
+  access to the files that is okay. inherently workspace manager may need to
+  access a folder to review things." The gate is unchanged (admins and the
+  project's managers); a workspace manager reaches a project's Legal and
+  money files by taking its manager seat, and nothing records that step.
+  Not to be "fixed" without a new ruling (`POST_OVERHAUL_ANSWERS.md`,
+  2026-10-02).
+- **S4b-06 · Storage totals tell a member when a hidden file arrives, and
+  one function answers any company's.** PRE-EXISTING (0055/0057/0073).
+  MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
+  exact workspace total, Legal and exempt objects included (4,300 bytes with
+  a 4,000-byte Legal file beside a 300-byte plain one), so polling it shows
+  when a hidden file appears and its size. And `rabbit_petal_storage_ok(
+  p_project, p_incoming, p_path)` is executable by any signed-in user with
+  no workspace check: a search over the byte argument gives another
+  company's exact usage, given a project id. Fix for the second:
+  `p.workspace_id = current_workspace_id()` and membership inside it.
+  Coarsening the first is a product decision (Add files' courtesy check
+  reads the exact figure). Owner: the next session on storage.
+- **S4b-07 · Knowing a Legal file's id, a member can confirm it exists.**
+  PRE-EXISTING, INFORMATIONAL. MEASURED (S1-SEC-06): `INSERT … ON CONFLICT
+  (id) DO NOTHING` answers 0 rows for an existing id and 1 for an unknown
+  one; a plain INSERT answers 23505 on `files_pkey`. No source of the id
+  was found for a member (`asset_versions.file_id` and
+  `rate_cards.source_file_id` would carry one only if a manager linked the
+  file). Owner: none until an id is exposed somewhere.
+- **S4b-08 · A manager on a desktop or web build from before S4b can attach
+  a Legal file to a D.O.G. deck.** The exclusion is the client's
+  (`deckAttachments.js`); the database rightly gives a manager the row.
+  Once 0088 is applied, a manager on an old build sees Legal files and that
+  build does not know to leave them out of a deck every member reads.
+  INFERRED. Owner: the release that ships S4b (ship before applying 0088
+  on staging, or accept the window).
+- **S4b-10 · A money-cleared person can rename a Legal OBJECT out of LEGAL
+  through the Storage API.** MEASURED by S4b's security review, round 2
+  (S2-G): the storage UPDATE policies are permissive and OR — the old key
+  passes `rabbit_files_money_update`'s USING, the new one `rabbit_files_update`'s
+  WITH CHECK — so `UPDATE storage.objects SET name = …/project/…` moves the
+  body (and its thumbnail) where every member can list and read it. The
+  `files` row stays Legal (`trg_files_legal_fixed`). No client calls
+  storage move or copy, and the same person can always download and re-add
+  the file, so nobody gains what they could not already give away. The
+  validated fix is a RESTRICTIVE `FOR UPDATE` policy on both buckets,
+  `NOT rabbit_legal_segment((storage.foldername(name))[3])` in USING and
+  WITH CHECK — but it may refuse Supabase Storage's OWN updates of a Legal
+  object (a resumable upload completing, a thumbnail regenerated), and that
+  cannot be smoke-tested from a session. Owner: Audrey's decision; if yes,
+  its own migration with a resumable-upload smoke test on dev first.
+- **S4b-11 · Files migrated desktop→cloud before S4b may hold the app's own
+  page instead of their contents.** Until S4b's review round 1 the migration
+  read each body from `/files/:id`, a route the Local Server never had; the
+  single-page fallback answered `index.html` with a 200, and that is what was
+  uploaded. A re-run now finds those rows already in the cloud and leaves
+  them (it no longer uploads first), saying so only when their path differs.
+  INFERRED from the code — whether anyone ran the migration is unknown. Would
+  settle it: on each environment, list `files` rows whose body is ~1 KB of
+  HTML. Owner: Audrey (whether any company migrated), then a repair session.
+- **S4b-09 · The desktop→cloud migration sends `tags` to a database that may
+  not have the column.** Since S4a a desktop row carries `tags`, and
+  `runMigration` inserts `{ ...f }`: a cloud database without 0085 refuses
+  every such row ("column tags does not exist"). Found while making the
+  migration Legal-aware (S4b review round 1); not changed, it is S4a's.
+  INFERRED. Owner: the next session on the migration.
+
+## Post-overhaul S3b (`po/s3b-shot-lists-ui`) — left open (2026-10-01)
+
+What S3b (the Scenes tab's shot lists) built around or found and did not
+fix. P1-09 (the Scenes popups' part), P1-21, P1-22, P1-24, the Scenes popups'
+side of P1-23, and S4a-07's Scenes handler are closed above. Questions for
+Audrey are in walkthrough 51, not here.
+
+- **S3b-01 · The Scenes popups' sidebar offers a reviewer writes the
+  database refuses.** RelationsPanel's "Add asset relation" and each
+  relation's remove are ungated (`RelationsPanel.jsx` has no permission
+  check; INFERRED from the code). S3b gated every scene and shot verb in
+  `ScenesView.jsx`. Review round 1 (R1-04) found "Add new task" was
+  ScenesView's own: the panel draws it whenever it is handed
+  `onCreateTask`, so the popups now hand it only with the gate, and their
+  `handleCreateTask` refuses (writeGate.test.js holds both). The rest of
+  the panel is S3c's file. Owner: S3c.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 1): RelationsPanel takes
+  the seat (`canWrite`, `writeReason`): "Add asset relation" and each
+  relation's remove are greyed with the reason (GatedAction), and both
+  funnels refuse; the Scenes popups hand it theirs.
+- **S3b-02 · FileManager in the scene and shot popups is ungated.** A
+  reviewer sees Add files and each file's delete (`FileManager.jsx` reads no
+  permission; INFERRED from the code). Owner: the Files lane, or S3c with
+  the popups.
+- **S3b-03 · The Scenes tab binds Ctrl+Z / Ctrl+Y only on the Local
+  Server.** The handler has returned early without `supportsBins` since
+  milestone 2, so on the cloud there is no undo key on the tab (the undo
+  toast still works). INFERRED from the code; unchanged by S3b. Owner:
+  Audrey (is the key wanted on the cloud?), then a session.
+- **S3b-04 · A popup's Delete drops a changed draft without asking.** Delete
+  scene / Delete shot closes the popup and then asks about the delete; a
+  description or notes draft is gone even if the delete is cancelled
+  (INFERRED from the code: the button calls `onClose` directly, past D21's
+  guard). Owner: a session (C1: the delete's own flow).
+- **S3b-05 · The popups' task form is dropped without asking.** D21 covers
+  the popups' own drafts; NewTaskSidePopup's (RelationsPanel's) closes with
+  the popup. INFERRED from the code. Owner: S3c.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 7): the form reports
+  typed work (`onDirtyChange`), and a popup with a typed task form asks
+  D21's question before it closes ("What you typed in the new task is not
+  saved. Discard it, or go back to it.").
+- **S3b-06 · The popup name's Escape reverts without asking.** A one-line
+  field reverting on Escape is the kit's convention (useEscapeRevert), so
+  D21 left it; recorded in case Audrey wants the question there too.
+  Owner: Audrey.
+- **S3b-07 · The Local Server's shot-list patch is an upsert.** A rename of
+  a list the server does not hold makes a new list (`rabbitShotLists.cjs`
+  538–597; review round 1, R1-18, read from the code). The provider patches
+  only lists it holds, so it is reachable only when the client and the
+  server disagree. Owner: S3a's lane (the Local Server route).
+- **S3b-08 · "Show in Bins" drops a popup's changed draft without asking.**
+  The shot popup's takes panel switches tab (`ShotTakesPanel.jsx` 121 →
+  `Rabbit.jsx` 114), which unmounts the Scenes tab and its popup: a typed
+  description or notes is gone without D21's question (review round 1,
+  R1-19, traced in the code). So is one when another scene's or shot's
+  popup is opened over it by a navigation target ("Open in Scenes"): since
+  review round 2 each popup is keyed by its row, so the first one's draft
+  no longer carries into the second — it goes, unasked (MEASURED by the
+  "a popup is its row's own" test). Owner: S3c (the leave guard) or the
+  Bins lane.
+  **FIXED by post-overhaul S3c** (2026-10-02, step 7): each popup with
+  typed work registers with the leave guard (`state/leaveGuard.js`):
+  "Show in Bins", any other way off the tab, a project switch, and a jump
+  opening another row's popup ask D21's question first; Cancel keeps the
+  typed text. Leaving the page does not ask: the tab stays mounted.
+- **S3b-09 · The asset popup the Scenes popups open is ungated, and lists
+  the active list's rows.** Since P1-23 a related asset opens the Assets
+  tab's own `AssetDetailPopup` (`ProjectAssetsView.jsx` 1655), which
+  reads no permission — a reviewer can change its status — and whose scene
+  and shot pickers read `ctx.scenes` / `ctx.shots`, the active list's
+  (2023, 2037; review round 1, R1-20, read from the code). Owner: the
+  Assets lane, and S3c for the relation pickers.
+  **The relation pickers FIXED by post-overhaul S3c** (2026-10-02, step 1):
+  they offer the active list's scenes and shots by default with "Show all
+  lists", keep a row already linked, and name each row's list; the popup
+  takes the seat (`canWrite`), so a reviewer's relation badges are greyed
+  and its funnels refuse. The rest of the popup is the Assets lane's.
+- **S3b-10 · The provider's undo batch is one global slot, and a replay
+  records nothing.** `RabbitProvider.jsx` `runBatch`, `pushHistory`,
+  `undo` / `redo`. (a) Any mutation that completes while a batch is open
+  joins it: an edit made on the tab while a bulk delete runs is undone with
+  the delete, in one step. (b) A mutation that completes while an undo or
+  redo replays pushes no step at all (`suspended`): it can never be undone.
+  (c) `runBatch`'s `finally` reads `b.entries` from the slot after
+  `clearHistory` (or a project or adapter switch) has emptied it: a
+  TypeError, which ScenesView's bulk delete logs as "Failed to delete …".
+  Review round 2 (R2-01), MEASURED by its probes over the real provider.
+  ScenesView keeps its own keys off (b) — Ctrl+Z / Ctrl+Y stand down while a
+  bulk delete runs — but the undo toast's Undo can still start a replay in
+  that window. Owner: S3a's lane (the provider): guard `b`, and decide
+  whether a batch should collect only its own calls.
+  Post-overhaul S3c does not lean on it: a draft's changes write nothing,
+  and Save edit records its write and its Save as ONE step pushed directly
+  (`saveEditDraft`), never through the batch slot.
+- **S3b-11 · Admin Terminal → Users: "Add people" likely cannot close its
+  own menu in the app.** `UsersSection.jsx` `armSwallow` arms the swallow
+  in the button's onMouseDown only `if (addMenuAt)` — but in Chromium React
+  19 has already flushed the Menu's close (made in its document-capture
+  mousedown) in the microtask checkpoint before that handler runs, so it is
+  never armed and the click re-opens the menu (READ; the same order MEASURED
+  for S3b's MenuButton by emulation in review round 2, R2-02, and fixed
+  there with a window-capture listener: `views/scenes/MenuButton.jsx`).
+  Owner: the Admin Terminal lane.
+
+## Post-overhaul S3c (`po/s3c-edits`) — left open (2026-10-02)
+
+What S3c (edits: the cut, the draft, Save edit, drag-and-drop, the leave
+guard, the budget's shot list, what links belong to) built around or found
+and did not fix. S3b-01, S3b-05, S3b-08, S3b-09's relation pickers and
+S4a-07's Budget and Timeline handlers are closed above. Questions for
+Audrey are in walkthrough 53 and the hand-off's "Waiting on Audrey".
+
+**Built, 2026-10-02 — Audrey's rule "removing a list never removes the
+Timeline or the Budget"** (the S3c brief's dated section): the Timeline's
+group-by-scene and the Budget's By scene / By shot / Custom read the
+ACTIVE list's scenes and shots only (D10), and a task linked outside it
+reads as not assigned ("No scene in the active list", "No shot in the
+active list" — a name true of both kinds of task under it; the
+controller's note of the same day) — never dropped, never under a scene
+brought back from another list (step 1's first reading) — with what it
+points at in its tooltip and in the task popup (", not in the active
+list"). Its link is never written. Remove from this list and Clear on the
+active list, Set active, Archive and Withdraw say so. The executable test:
+`state/listRemovalKeepsTasks.test.jsx`.
+
+- **S3c-01 · Another project's unsaved edit is not part of the window's
+  close question.** An automatic switch (the project cleared) leaves a
+  draft in memory under its own project; the close question names the open
+  project's only. Its stored copy survives, and that project's next visit
+  offers "Recover unsaved edit?". By design (D12: an automatic switch cannot
+  ask). Owner: Audrey (should the close question name it?).
+- **S3c-02 · A drop onto a scene with no shot in the list changes
+  nothing.** A cut is shots; a scene with none is no block of it, so a shot
+  dropped on its heading has nowhere to land. Owner: Audrey (should the
+  shot make that scene a block of its own?).
+- **S3c-03 · New shot in an edit makes a real shot on the list at once.**
+  D6: "entirely new shots" are real shot rows. The draft's own undo, and
+  Discard changes, take it out of the edit, not out of the list (delete it
+  there). Owner: Audrey.
+- **S3c-04 · An edit made by Save edit is Saved at once.** Its snapshot
+  holds the names "Missing shot: …" shows (D17), so its maker's Withdraw
+  this edit never applies to it; Ctrl+Z straight after Save edit takes the
+  Save back and withdraws it (one step, "Recently removed"); later it is a
+  manager's Archive. Owner: Audrey (the reading S3c took of "createEditFrom,
+  or saveEdit where the API calls for it").
+- **S3c-05 · Save edit from the leave or close question saves without a
+  summary.** Under the name the first-change question gave it, at that
+  title's next version. Owner: Audrey.
+- ~~**S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
+  tab was reloaded too.**~~ Closed in S3c's review round 2 (R2-03): it says
+  the edit "was left unsaved", true of a closed window, a reloaded tab and
+  a sign-out alike; and a copy is removed under its own person when a save
+  finishes after a sign-out (it was offered back as unsaved).
+- **S3c-07 · A list's first edit takes the list's own title** (D13's
+  rule), so the bar can read "Shot list 1 · v1 — Edit Shot list 1 · v1 (not
+  saved)". Owner: Audrey.
+- **S3c-08 · The shells' exits are held by source pins.** No test mounts
+  Rabbit.jsx or App.jsx: the tab strip, the cross-tab jump, navigateTo and
+  the close question's fold are pinned on their source
+  (leaveGuardWiring.test.js, each pin with a CONTROL) and were exercised
+  for real in Chromium and once in the desktop app. Owner: a session that
+  mounts the shell.
+- **S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
+  unsaved edit on screen** (then the draft's own undo, on every backend);
+  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).
+- **S3c-10 · P1-32b is still open** (the Timeline's weekends-off
+  conversions): S5's, as the brief said.
+- **S3c-11 · One exit can ask two questions in a row.** A Scenes popup
+  with typed words, and an unsaved edit: the tab strip (or a project
+  switch) asks the popup's "Discard your changes?" first, then "Save the
+  edit before leaving?" — the nearer work first, by design
+  (`state/leaveGuard.js`, review round 1's note). Owner: Audrey (one
+  combined question instead?).
+- **S3c-12 · An edit written whose names alone were refused, from the
+  leave question: its notice can go unseen.** Review round 2 (R2-01) made
+  such an edit SAVED (it is written; the question about it asked about
+  nothing): the exit goes on and the refusal ("The edit was saved as …, but
+  the names it holds were not: …") is the provider's `ctx.error`, which
+  the Scenes bar's Banner shows only while the tab is open. Leaving the
+  tab or the page, it is not seen; the edit is there either way, without
+  the names "Missing shot: …" would show. The provider has no app-wide
+  notice of its own (it sits above the kit's toast stack). Owner: a
+  session (a provider notice on the toast stack).
+- **S3c-13 · A sign-out the app did not ask for (PLAUSIBLE, not
+  reproduced).** The provider drops the drafts from memory when the
+  signed-in person changes (R1-02; their copies stay, offered to the same
+  person's next visit). auth-js's own SIGNED_OUT after a refused token
+  refresh would do that while App, which does not listen for it, stays
+  signed in; on the Local Server the project stays open, so the edit
+  leaves the screen without a question (its copy kept). Read in review
+  round 2, not reproduced. Owner: the auth lane (App and SIGNED_OUT).
+
+## Post-overhaul S5 (`po/s5-budget-versions`) — left open (2026-10-05)
+
+What S5 (bid versions as living documents: open / selected / locked, the
+two save verbs, migration 0089) found and did not fix, or built around.
+S5 handed off after its step 2 (the schema, the adapters, the provider and
+the pure model); steps 3–9 (the Summary, the questions, the Timeline, the
+Local Server's money gate, P1-32b, the docs) are its continuation's.
+
+- **S5-01 · CLOSED by S5b (2026-10-05): MEASURED, then guarded.** A
+  rolled-back probe on wilson-dev as a project member changed all nine of
+  0036's budget columns, the lock included (21/21 collected); 0090's
+  `trg_projects_budget_settings_guard` now refuses a change to any of them
+  unless the caller passes the money gate (suite 92 probes a member, a
+  workspace manager with a member seat, a reviewer, a manager, an admin, an
+  unchanged re-send and the lock FK's SET NULL). `budget_total` /
+  `budget_currency` (0000) are NOT guarded — S5b-01 below. The entry as it
+  stood: **A project MEMBER can change the project's money settings
+  directly** (INFERRED from the policies, not run): `projects_update`
+  (0013) admits every `can_write_project` caller to every column, and no
+  trigger guards `budget_margin_pct`, `budget_contingency_pct`,
+  `budget_agency_*`, `budget_actual_column_*`, `budget_active`,
+  `budget_active_version_id` or `budget_finalized` (0036 added them
+  unguarded). The Budget tab is hidden from a member, and 0037 keeps the
+  money TABLES from them, but a PATCH of `projects` from devtools lands. 0089
+  guards only its own new column (`open_budget_version_id`), as the brief
+  asked; the existing money gates were "untouched" by ruling. Owner: a
+  schema session (a guard on those columns, the 0084 §7b shape) — Audrey
+  to say whether a member may ever touch them.
+- **S5-02 · Bid versions are not broadcast** (0016 never added
+  `budget_versions`): another window does not see a version saved, opened
+  or deleted elsewhere until it reloads the project; the project row's
+  pointers (`open_budget_version_id`, the lock) DO arrive live. Older than
+  S5. Owner: a realtime session.
+- **S5-03 · Opening a version whose task (or phase, or key date) was
+  trashed brings it back under a NEW id on the cloud**: a trashed row sits
+  behind its SELECT policy and the upsert by its old id is refused, so the
+  provider re-makes it (the brief's "else a new id written back to the
+  snapshot on the next Save") and points its tasks at a re-made phase. The
+  trashed original stays in "Recently deleted"; its comments and files stay
+  on it. The Local Server (hard delete) and the dev fixtures take the saved
+  id. Owner: Audrey (should opening restore from the trash instead?).
+- **S5-04 · The S5 client needs 0089 on its database.** A version opened,
+  or a bid selected, names `projects.open_budget_version_id` or calls
+  `select_budget_version`; on a database without 0089 those writes are
+  refused (PGRST204 / PGRST202). Reading is unaffected. 0089 on a database
+  before the S5 client is harmless (an older client never reads or writes
+  the pointer). By design for the beta (A10: the branch ships whole, after
+  staging's migrations); recorded so nobody cherry-picks the client ahead.
+
+## Post-overhaul S5b (`po/s5-budget-versions`, the continuation) — left open (2026-10-05)
+
+S5b built step 0 (Audrey's ruling (a): each bid version shows exactly its
+own schedule — rows it does not hold are SET ASIDE, migration 0090) and
+closed S5-01; it handed off before steps 3–9 (the Summary, the questions,
+the Timeline, the Local Server's money gate, P1-32b, the docs) —
+`docs/sessions/handoffs/po-s5b-2026-10-05.md`.
+
+- **S5b-01 · The project's budget AMOUNT and currency are shown to, and
+  editable by, every project member on the Projects page.**
+  `projects.budget_total` / `budget_currency` (0000) sit in
+  `ProjectDetailPanel`'s Budget group with no role gate; 0090 does not guard
+  them (a trigger cannot hide a read). Under D8 ("only project admins can
+  access the budget") the group would hide from members and the columns take
+  0090's guard. Owner: Audrey (is that number money?).
+- **S5b-02 · Tasks and phases have no "Recently deleted"** — only key dates
+  do. On the cloud they go to the trash (purged at 30 days) and come back by
+  Undo or the Edit history; on the Local Server they are hard-deleted (Undo
+  re-adds them). The new questions say "Undo brings them back", never
+  "Recently deleted", for tasks and phases. Owner: Audrey (a list like the
+  key dates'?).
+- **S5b-03 · From the Dashboard, a task of a project that has a bid version
+  open (and is not the project open in R.A.B.B.I.T.) cannot be deleted**: the
+  question sends the person to the project's Timeline or Tasks, where Remove
+  from this version can keep it in the versions that hold it (review round
+  1, R1-06). Decided by S5b. Owner: Audrey.
+- **S5b-04 · Every client of one project must be S5b or later once a
+  version is opened.** An older client does not split set-aside rows out, so
+  it shows them as live, and an older client's version save folds them in
+  (review round 1, R1-07). The S5b client needs 0090 (an open is refused
+  without it, "stopped part way"); 0090 before the client is harmless. A
+  desktop build left behind is the risk. Owner: the controller (the beta
+  ships the branch whole).
+- **S5b-05 · The admin's Workspace takeout and the desktop backup keep
+  set-aside rows**, on purpose (a backup keeps every row; the takeout's CSV
+  carries `set_aside_at`). Owner: Audrey.
+- **S5b-06 · The Budget tab still writes versions the OLD way until step 3**
+  (`createBidVersion`, `deleteVersion`, the lock in `SummaryTab`, each then
+  reloading the project). None of them opens a version, so nothing is set
+  aside from there, but a version deleted from that table skips constraint
+  10's question (review round 1, R1-08). Owner: the continuation (step 3).
+- **S5b-07 · An asset whose task is set aside cannot be deleted** (review
+  round 1, R1-01): the cloud sees a task through its asset and cascades the
+  asset's delete onto it, so the delete is refused with the tasks named.
+  Decided by S5b. Owner: Audrey (or delete them with it, named?).
+- **S5b-08 · 0090's guard refuses a member's whole-row UPSERT that carries
+  an unchanged set-aside stamp** (its INSERT arm reads NEW before ON
+  CONFLICT); the UPDATE re-send passes. Harmless today: every S5b write
+  strips the stamp. Owner: a schema session, if a client ever re-sends it.
+
+**S5c (2026-10-05, the Budget half — `docs/sessions/handoffs/po-s5c-2026-10-05.md`).**
+
+- **S5b-06 — CLOSED by S5c** (`20542394`): the Summary's versions table,
+  its inline activate panel and every adapter write left `BudgetView.jsx`;
+  every version write is the provider's mutators (one undo step each, no
+  reload), and a source pin in `rabbitBudgetRender.test.jsx` holds it.
+- **P1-32a, the Budget's half — CLOSED by S5c** (`04b0a4ce`): Crew/team's and
+  Talent's period headers read the project's start through `dates.js` and
+  step on the calendar (`views/budget/periodLabel.js`). The rest of P1-32a
+  (ProjectAssetsView, NotesView, holidays.js, the Timeline's TODAY) is not
+  S5's and stays open there.
+- **S5c-01 · The Budget page has no Ctrl+Z for version steps.** Its only
+  undo keys are the Expenses tab's, which undo the expenses' own history;
+  the version steps raise the undo toast instead (`ctx.runWithUndoToast`).
+  A Ctrl+Z on the Summary needs the waterfall's margin / contingency /
+  agency edits (`ctx.updateProject`, no undo step today) to record their
+  own steps first, or it would take back the last version step instead of
+  the margin just typed. Owner: Audrey (walkthrough 55, question 4).
+- **S5c-02 · The test data's bids were saved with the plain role rates**
+  (no burden or overhead), the app's rate card adds them, so on the test
+  data the locked Bid v2 reads "Now $115,215" against "Bid $96,013" after
+  Reset to bidding. The app is right; the fixtures' snapshot rates differ.
+  Owner: Audrey (rebuild them?), then a fixtures session.
+- ~~**S5c-03 · The Timeline's version control, the help pages and walkthrough
+  55's second half** are S5d's (steps 6 and 9).~~ — CLOSED by S5d (below).
+- **S5c-04 · `deleteAssets` has R2-01's fault on the Local Server.** Its
+  bulk delete is all-or-nothing only where the backend can restore
+  (`restoreAsset`); the Local Server has none (its DELETE removes the row),
+  so a bulk asset delete stopped part way has hard-deleted some assets
+  while the rollback shows them, and no step is recorded. The fix is
+  `deleteTasks`'s (S5c review round 2): record the ones that went
+  (`err.deletedIds`), take them off the screen, push their step. Owner: a
+  provider session (assets are outside S5's lane).
+- **S5c-05 · An undo or redo replaying across a project switch pushes its
+  entry onto the NEXT project's stack.** `undo`, `redo` and
+  `undoHistoryEntry` (`RabbitProvider.jsx`) push back to
+  `historyRef.current` after their awaits; a switch mid-replay
+  (`clearHistory`) has replaced it, so the first project's entry lands on
+  the second's redo (or, for a failed toast Undo, its undo) stack, and
+  Ctrl+Y there replays the first project's ops by id. Narrow (a switch
+  during a replay), found by S5c while working R2-07, not by a probe. Fix:
+  capture the stack at the start and push back only while
+  `historyRef.current` is still it — as `runBatch` has done since S5's
+  R1-03. Owner: a provider session.
+
+**S5d (2026-10-05, the Timeline half and the bundle's close — `docs/sessions/handoffs/po-s5d-2026-10-05.md`).**
+
+- **S5c-03 — CLOSED by S5d** (`2f33d361`, `d5197073`, `126907f0`, and the
+  review rounds' commits in the hand-off): the Timeline's bid version bar
+  (the toolbar's second row, past the money gate only), viewing a version
+  read-only as a span move, the lock greying the bar with its reason; the
+  "Budget" and "Timeline" help pages; walkthrough 55's second half.
+- **S5d-01 · `removeOrDelete`, `undo`, `redo` and `undoHistoryEntry` do not
+  refuse while a replay still runs.** INFERRED from the code (S5d review
+  round 1, R1-06; not run). S5c's round 2 (R2-03) made the version steps
+  refuse once the queue's wait has passed with an undo still replaying;
+  these four were left out. Past the wait, `removeOrDelete` (the Timeline's
+  Delete while a version is open: Remove from this version) records nothing
+  (its pushes drop while `suspended`), so the set-aside has no Undo and no
+  toast; it still measures its toast from the top of the stack at the asking
+  (`before`), so a redo queued ahead of it can be offered as its Undo; and a
+  second Ctrl+Z past the wait runs its `finally { suspended = false }` while
+  the first replay goes on, so the rest of that replay records entries of
+  its own. What would settle it: S5c's R2-03 probe (a held
+  `selectBudgetVersion`, `__WILSON_TEST_HISTORY_STEP_WAIT_MS = 50`) with a
+  Remove from this version, or a second Ctrl+Z, behind it. Fix:
+  `refuseWhileReplaying` in the four, and `runWithUndoToast`'s marker in
+  `removeOrDelete`. Owner: a provider session.
+- **S5d-02 · The gantt's link writes, `addTaskLink` and `removeTaskLink`
+  push their undo step with no visit check, and `addTeamAssignment` merges
+  into whatever project is open.** INFERRED (review round 1, R1-07; worded
+  by round 2, R2-09). `linkTasks`, `linkPhases` and `unlinkTasks` (the
+  dependency drags), `addTaskLink` and `removeTaskLink` lack S5c R2-07's
+  `visit` guard: a project switched mid-request gets the step on the NEW
+  project's stack, and its Ctrl+Z deletes the first project's edge by id.
+  `addTeamAssignment` pushes no undo step; it merges its row after its await
+  with no visit check, so a switch mid-request puts the first project's
+  assignment into the second's state. Fix: the guard `addAsset` and the rest
+  have. Owner: a provider session.
+- **S5d-03 · Grouped by scene, a viewed bid version is grouped by the LIVE
+  active shot list.** INFERRED (review round 1, R1-08). `ctx.scenes`,
+  `ctx.shots` and the toolbar's "Shot list:" label stay the live list's,
+  while the version was based on its own (`shot_list_id`,
+  `snapshot.shot_list`): a version based on another list shows its
+  scene-linked tasks as not assigned, "linked outside the active list",
+  under the live list's label. What would settle it: view a version whose
+  `shot_list_id` is the archived Pickups list, grouped by scene. Fix: while
+  viewing, group by that list's scenes and shots (`ctx.scenesOf` /
+  `ctx.shotsOf`) and label it from the snapshot, or say in the bar which list
+  the scenes come from. Owner: Audrey (which list should a viewed version's
+  scenes come from?), then a Timeline session.
+- **S5d-04 · The rate card can read as settled with the last workspace's
+  rates for a moment after a backend switch.** INFERRED (review round 1).
+  S5c's R2-02 resets the project's rates in render per project;
+  `useRateCard` has no such reset per workspace, so once the new project's
+  overrides land the old card can read `settled`, and a Save in that moment
+  writes the old card's rates into the open version. Owner: a rates session.
+- **S5d-05 · A task write still in flight when a version step starts can be
+  named as that step's Undo, or join it.** MEASURED by S5d's review round 2
+  (R2-03). Since R1-02 / R2-01 nothing on the Timeline can change while a
+  version step runs, but a write already sent (a drag released a moment
+  before Save) is not waited for, and `updateTask` is outside the history
+  queue. A plain Save (no stranded rows) opens no batch, so the drag lands as
+  its own undo entry; if the Save then FAILS having changed nothing,
+  `runWithUndoToast`'s `offer()` sees an entry above its marker and raises
+  "Stopped part way: Undo takes back what changed", whose Undo takes back
+  only the drag — S5c R2-08's rule (nothing changed, no Undo named) broken.
+  On a step that holds a batch (a Save that strands rows, the composites),
+  `pushHistory` adds the drag to the batch, and the step's Undo takes it back
+  too. It needs a write landing after the press: a slow connection. Fix:
+  `offer()` names only an entry the step itself made (run the plain Save in
+  `runBatch` and target that entry by identity, not `token > from`), and a
+  step waits for the writes in flight (the provider keeps no count of them
+  today). Owner: a provider session.
+- **S5d-06 · Back at Current after looking at a version whose chart starts
+  after the date you were on, the gantt is at that version's first day, not
+  where it was.** MEASURED (`timelineWeekends.test.jsx`, "moved 300 days":
+  parked on Mon 12 Oct 2026, a version whose chart opens Tue 1 Dec 2026,
+  Current comes back on 1 Dec). Since round 1's R1-03 the look keeps a date
+  on the version's chart (it came back 300 days late before); the date before
+  the look is not remembered. Rare: the version must start more than the
+  chart's six-month lead-in after the left date. Fix: remember the left date
+  when a look begins and put it back at Current if the person did not scroll
+  during the look. Owner: Audrey (walkthrough 55, question 22), then a
+  Timeline session.
+- **S5d-07 · Grouped by team, an emptied roster explains nothing.** MEASURED
+  by construction (review round 2, R2-08). Round 1's R1-09 says "Assignee: no
+  longer in the project" only once the roster has someone in it, because
+  while it loads it holds no one; a roster READ and empty (a Local Server
+  team emptied) is the same to it, so its assigned tasks sit under
+  Unassigned without the sentence. `useRosterMembers`' `loading` starts false
+  before the first fetch, so telling the two apart needs a "first read
+  finished" flag there. Owner: a roster session.
+
+**Still open from S5, the bundle as a whole** (each above, by its own
+entry): S5-02 (bid versions are not broadcast — another window sees a
+version saved, opened or deleted elsewhere only on its next load); S5c-01
+(the Budget page has no Ctrl+Z for version steps — the toast is the way
+back); S5c-02 (the test data's bids carry the plain rates); S5b-01 (the
+project's budget amount and currency are shown to every member on the
+Projects page); S5b-04 (once a version is opened, every client of that
+project must be S5b or later). S5-03, S5-04, S5b-02, S5b-03, S5b-05, S5b-07,
+S5b-08, S5c-04, S5c-05 and S5d-01 – 07 stand as written.

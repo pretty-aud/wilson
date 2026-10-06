@@ -1,0 +1,432 @@
+/** @vitest-environment jsdom */
+// =============================================================================
+// B2's popups, RENDERED (UI overhaul B2, review round one). Until this file no
+// test mounted TaskDetailPopup or the task template manager: the Dashboard's
+// test mocks the popup out, and the kit's tests prove only the kit. Round
+// one's guard review deleted the Escape-reverts-first handling from both files
+// and the whole suite stayed green. What is pinned here is behaviour the
+// running app showed round one breaking, and that source text cannot prove:
+//
+//   · W2 — Escape inside an open editor reverts it and the dialog stays; the
+//     second Escape closes it;
+//   · K5 — a press on the backdrop keeps a save-on-blur edit (it discarded it);
+//   · the files column's layers (FileManager's, lane B4's) own their Escape:
+//     its VideoPreview (the kit Dialog since B4c) and a text field (its notes);
+//   · the template editor's dependency picker: Escape closes the picker, then
+//     the editor, then the manager, one layer per press; its scrim takes the
+//     click that dismisses it.
+// =============================================================================
+
+import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { _resetOverlaysForTests, menuOpened } from '../../../ui/overlay'
+
+vi.mock('../../../ui/overlay', async (importOriginal) => {
+  const real = await importOriginal()
+  return { ...real, menuOpened: vi.fn(() => vi.fn(real.menuOpened())) }
+})
+
+vi.mock('../../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
+vi.mock('../state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
+vi.mock('../../../components/TeamMembers/useRosterMembers', () => ({ useRosterMembers: () => ({ members: [], mode: 'supabase' }) }))
+vi.mock('../../../components/RateCard/useRateCard', () => ({ useRateCard: () => ({ entries: [] }) }))
+vi.mock('../../../permissions/usePermissions', () => ({ usePermissions: () => ({ role: 'admin', ready: true }) }))
+// FileManager is lane B4's; the popup only has to leave its layers their keys.
+// B4c: its VideoPreview is the kit Dialog, portalled into <body> and opened
+// by a row's play control once the popup is up — so this mock opens one the
+// same way, and the popup's `filesLayerOpen` guard (which walked the column
+// for a fixed hand-rolled layer) is gone. The sheet below still gives jsdom
+// the two position rules a browser has, so a check that reads only inline
+// styles, or one that scans the whole document (and so finds the backdrop),
+// fails here as it would in the app.
+const files = vi.hoisted(() => ({ noteEscape: vi.fn() }))
+vi.mock('../components/FileManager', async () => {
+  const { useState } = await import('react')
+  const { createPortal } = await import('react-dom')
+  const { Dialog } = await import('../../../ui/Dialog')
+  function FileManagerMock() {
+    const [preview, setPreview] = useState(false)
+    return (
+      <div>
+        {/* B4: FileManager's notes editor marks its own Escape (K4's mark) —
+            the popup's `markFilesEscape`, which marked it from outside, is gone.
+            `unmarked` is a text field that does NOT, to prove the popup no
+            longer marks on anyone's behalf. */}
+        <input type="text" aria-label="File note" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); files.noteEscape() } }} />
+        <input type="text" aria-label="Unmarked field" />
+        <button type="button">Download</button>
+        <button type="button" onClick={() => setPreview(true)}>Play clip.mov</button>
+        {preview && createPortal(
+          <Dialog title="clip.mov" dismissOnBackdrop onClose={() => setPreview(false)}>preview</Dialog>,
+          document.body,
+        )}
+      </div>
+    )
+  }
+  return { default: FileManagerMock }
+})
+let positions
+beforeAll(() => {
+  positions = document.createElement('style')
+  positions.textContent = '.fixed { position: fixed; } .ui-dialog-backdrop { position: fixed; }'
+  document.head.appendChild(positions)
+})
+afterAll(() => positions.remove())
+const rabbit = vi.hoisted(() => ({ current: null }))
+const templates = vi.hoisted(() => ({ current: null }))
+vi.mock('../../../components/TaskTemplates/useTaskTemplates', () => ({ useTaskTemplates: () => templates.current }))
+
+const { default: TaskDetailPopup } = await import('../components/TaskDetailPopup')
+const { default: TaskTemplateManager } = await import('../../../components/TaskTemplates/TaskTemplateManager')
+
+afterEach(() => { cleanup(); _resetOverlaysForTests(); files.noteEscape.mockClear(); menuOpened.mockClear() })
+
+const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
+
+function popup({ withFiles = false } = {}) {
+  const updateTask = vi.fn()
+  const onClose = vi.fn()
+  const task = { id: 't1', title: 'Lock the script', description: 'Old words', notes: 'Old note', status: 'final', priority: 'high', asset_id: withFiles ? 'a1' : null }
+  const ctx = {
+    tasks: [task], assets: withFiles ? [{ id: 'a1', name: 'Script' }] : [], phases: [],
+    project: { id: 'p1' }, scenes: [], shots: [], levels: [], experiences: [],
+    teamAssignments: [], managedFiles: [], updateTask, deleteTask: vi.fn(),
+    myProjectRole: 'manager', projectIsStaffed: false, activeProjectId: 'p1',
+  }
+  render(<TaskDetailPopup taskId="t1" ctx={ctx} onClose={onClose} />)
+  return { updateTask, onClose }
+}
+
+describe('TaskDetailPopup, rendered', () => {
+  it('W2: Escape in an open editor reverts it and the popup stays; the next Escape closes it', () => {
+    const { updateTask, onClose } = popup()
+    fireEvent.click(screen.getByRole('button', { name: 'Old words' }))
+    const box = screen.getByLabelText('Description')
+    fireEvent.change(box, { target: { value: 'New words' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(updateTask).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Old words' })).toBeTruthy()
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // Every inline editor in the popup, not only Description (round two's
+  // guard review: the Title and Notes editors' Escape could reach the Dialog
+  // with the suite green).
+  for (const [name, open, box, old] of [
+    ['Title', () => document.querySelector('.rb-task-textblock[data-size="line"]'), 'Title', 'Lock the script'],
+    ['Notes', () => screen.getByRole('button', { name: 'Old note' }), 'Notes', 'Old note'],
+  ]) {
+    it(`W2 on ${name}: Escape reverts it and the popup stays; the next Escape closes it`, () => {
+      const { updateTask, onClose } = popup()
+      fireEvent.click(open())
+      const field = screen.getByLabelText(box)
+      fireEvent.change(field, { target: { value: 'Not kept' } })
+      fireEvent.keyDown(field, { key: 'Escape' })
+      expect(onClose).not.toHaveBeenCalled()
+      expect(updateTask).not.toHaveBeenCalled()
+      expect(screen.queryByDisplayValue('Not kept')).toBeNull()
+      expect(document.body.textContent).toContain(old)
+      escape()
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  }
+
+  it('K5: a click outside keeps the edit that was being typed', () => {
+    const { updateTask, onClose } = popup()
+    fireEvent.click(screen.getByRole('button', { name: 'Old words' }))
+    const box = screen.getByLabelText('Description')
+    box.focus()
+    fireEvent.change(box, { target: { value: 'Typed, then clicked away' } })
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(updateTask).toHaveBeenCalledWith('t1', { description: 'Typed, then clicked away' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("the files column's text field (FileManager's notes, an <input>) has its own Escape: the popup stays", () => {
+    const { onClose } = popup({ withFiles: true })
+    const note = screen.getByLabelText('File note')
+    note.focus()
+    fireEvent.keyDown(note, { key: 'Escape' })
+    expect(files.noteEscape).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('B4: the popup no longer marks a files-column Escape for anyone — an unmarked field\'s Escape closes it', () => {
+    // `markFilesEscape` is gone: a layer in the files column owns its Escape
+    // by marking it (FileManager's notes editor does, since B4).
+    const { onClose } = popup({ withFiles: true })
+    const field = screen.getByLabelText('Unmarked field')
+    field.focus()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("an Escape on a files-column control that is not a text field closes the popup (only typing is the column's own)", () => {
+    const { onClose } = popup({ withFiles: true })
+    const download = screen.getByRole('button', { name: 'Download' })
+    download.focus()
+    fireEvent.keyDown(download, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('W2 in the files column: Escape in the upload-file-name editor reverts it and the popup stays; the next closes it', () => {
+    const { onClose } = popup({ withFiles: true })
+    fireEvent.click(document.querySelector('.rb-task-detail-files .rb-task-textblock'))
+    const box = screen.getByRole('textbox', { name: 'Upload file name' })
+    fireEvent.change(box, { target: { value: 'renamed.mov' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: 'Upload file name' })).toBeNull()
+    expect(document.querySelector('.rb-task-detail-files .rb-task-textblock').textContent).not.toContain('renamed.mov')
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("B4c: the files column's video preview is the kit Dialog on the modal stack — one Escape closes it and the popup stays, with no guard in the popup", () => {
+    const { onClose } = popup({ withFiles: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Play clip.mov' }))
+    expect(screen.getByRole('dialog', { name: 'clip.mov' })).toBeTruthy()
+    escape()
+    expect(screen.queryByRole('dialog', { name: 'clip.mov' })).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Post-overhaul S3c, step 1: `ctx.scenes` / `ctx.shots` are the ACTIVE
+// list's (D10). A task linked to a shot only ANOTHER list holds lost its
+// files column and read "—" in its Shot picker; now the link resolves, the
+// popup prints which list holds it, and the pickers offer the active list
+// by default with "All lists" for the rest.
+describe('TaskDetailPopup: a link to another shot list\'s shot (S3c step 1)', () => {
+  const sceneA = { id: 'A', name: 'Harbour', scene_number: 1 }
+  const sceneB = { id: 'B', name: 'Lighthouse', scene_number: 2 }
+  const a1 = { id: 'a1', scene_id: 'A', name: 'SC001_SH010' }
+  const b1 = { id: 'b1', scene_id: 'B', name: 'SC002_SH010' }
+  const b2 = { id: 'b2', scene_id: 'B', name: 'SC002_SH020' }
+  const every = { A: sceneA, B: sceneB, a1, b1, b2 }
+  const lists = [{ id: 'L1', title: 'Shoot', version: 2 }, { id: 'L2', title: 'Pickups', version: 1 }]
+  const items = [
+    { id: 'i1', shot_list_id: 'L1', scene_id: 'A' }, { id: 'i2', shot_list_id: 'L1', shot_id: 'a1' },
+    { id: 'i3', shot_list_id: 'L2', scene_id: 'B' }, { id: 'i4', shot_list_id: 'L2', shot_id: 'b1' }, { id: 'i5', shot_list_id: 'L2', shot_id: 'b2' },
+  ]
+  function popupOn(task, over = {}) {
+    const updateTask = vi.fn()
+    const ctx = {
+      tasks: [task], assets: [], phases: [], levels: [], experiences: [],
+      project: { id: 'p1', scenes_enabled: true, active_shot_list_id: 'L1' },
+      scenes: [sceneA], shots: [a1], allScenes: [sceneA, sceneB], allShots: [a1, b1, b2],
+      sceneById: (id) => every[id] || null, shotById: (id) => every[id] || null,
+      shotLists: lists, shotListItems: items, edits: [],
+      teamAssignments: [], managedFiles: [], updateTask, deleteTask: vi.fn(),
+      myProjectRole: 'manager', projectIsStaffed: false, activeProjectId: 'p1',
+      ...over,
+    }
+    render(<TaskDetailPopup taskId={task.id} ctx={ctx} onClose={() => {}} />)
+    return { updateTask }
+  }
+  const optionNames = (label) => [...screen.getByLabelText(label).options].map(o => o.textContent)
+
+  it('the linked shot resolves: its files column, its name in the picker (not "—"), and its list printed under the field', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })
+    expect(screen.getByText('Shot: SC002_SH010')).toBeTruthy()
+    expect(screen.getByLabelText('Shot').value).toBe('b1')
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010'])
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.textContent).toContain('Pickups · v1')
+    // Audrey's rule of 2026-10-02: the field says what the link points at and
+    // that the active list does not hold it — the Timeline and the Budget
+    // show this task as not assigned until it does.
+    expect(home.getAttribute('data-outside')).toBe('true')
+    expect(home.querySelector('.rb-scene-home-outside').textContent).toBe(', not in the active list')
+    expect(home.getAttribute('title')).toBe('SC002_SH010\nIn: Pickups · v1\nNot in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.')
+    expect(home.querySelector('.sr-only').textContent).toBe('In: Pickups · v1. Not in the active list, so the Timeline and the Budget read its tasks as not assigned to it until it is in the active list again.')
+  })
+  it('a link the active list holds says nothing of it', () => {
+    popupOn({ id: 't7', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'A', shot_id: 'a1' })
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.textContent).toContain('Shoot · v2')
+    expect(home.getAttribute('data-outside')).toBeNull()
+    expect(home.querySelector('.rb-scene-home-outside')).toBeNull()
+    expect(home.getAttribute('title')).toBe('SC001_SH010\nIn: Shoot · v2 (active)')
+  })
+  it('a scene in the active list with a shot outside it: the words are about the shot', () => {
+    popupOn({ id: 't6', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'A', shot_id: 'b1' })
+    const home = document.querySelector('.rb-task-links .rb-scene-home')
+    expect(home.getAttribute('title')).toMatch(/^SC002_SH010\n/)
+    expect(home.getAttribute('data-outside')).toBe('true')
+  })
+  it('"All lists" widens both pickers to every row of the project, and back', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' })
+    const toggle = screen.getByRole('switch', { name: 'All lists' })
+    fireEvent.click(toggle)
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010', 'SC002_SH020'])
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+    fireEvent.click(toggle)
+    expect(optionNames('Shot')).toEqual(['—', 'SC002_SH010'])
+  })
+  it('"All lists" adds another list\'s scenes to an unlinked task\'s Scene picker', () => {
+    popupOn({ id: 't8', title: 'Plan', status: 'in_progress', priority: 'medium' })
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour'])
+    fireEvent.click(screen.getByRole('switch', { name: 'All lists' }))
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour', 'Lighthouse'])
+  })
+  it('an unlinked task offers the active list\'s rows only, and no words of a list', () => {
+    popupOn({ id: 't8', title: 'Plan', status: 'in_progress', priority: 'medium' })
+    expect(optionNames('Scene')).toEqual(['—', 'Harbour'])
+    expect(document.querySelector('.rb-task-links .rb-scene-home')).toBeNull()
+    expect(screen.getByRole('switch', { name: 'All lists' })).toBeTruthy()
+  })
+  it('the Dashboard\'s context (no lists in it) prints no list words: it would say "In no shot list" of a shot that is in one', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' }, { shotLists: undefined })
+    expect(document.querySelector('.rb-scene-home')).toBeNull()
+  })
+  it('CONTROL: without the provider\'s lookups (the old path) the shot does not resolve — no files column, an empty picker', () => {
+    popupOn({ id: 't9', title: 'Comp', status: 'in_progress', priority: 'medium', scene_id: 'B', shot_id: 'b1' }, { sceneById: undefined, shotById: undefined, allScenes: undefined, allShots: undefined })
+    expect(screen.queryByText('Shot: SC002_SH010')).toBeNull()
+  })
+})
+
+describe('the task template manager, rendered', () => {
+  function manager() {
+    const updateTemplate = vi.fn()
+    templates.current = {
+      templates: [{
+        id: 'tp1', name: 'Environment build', description: '', project_id: null,
+        tasks: [
+          { id: 'k1', name: 'Model', role_slug: '', bid_days: 3, depends_on: [] },
+          { id: 'k2', name: 'Texture', role_slug: '', bid_days: 2, depends_on: [] },
+        ],
+      }],
+      loading: false, error: null,
+      getTemplateStats: (t) => ({ taskCount: t.tasks.length, totalDays: 5 }),
+      addTemplate: vi.fn(), updateTemplate, deleteTemplate: vi.fn(),
+    }
+    rabbit.current = { projects: [], project: null, myProjectRole: null }
+    const onClose = vi.fn()
+    render(<TaskTemplateManager onClose={onClose} />)
+    return { onClose, updateTemplate }
+  }
+
+  it('Escape closes the dependency list, then the editor, then the manager — one layer per press', () => {
+    const { onClose } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getAllByRole('dialog')).toHaveLength(2)
+    const trigger = screen.getAllByRole('button', { expanded: false }).find((b) => b.classList.contains('rb-tpl-deps'))
+    trigger.focus()
+    fireEvent.click(trigger)
+    expect(screen.getByRole('group', { name: 'Depends on' })).toBeTruthy()
+    escape()
+    expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(2)
+    // Closing it hands focus back to its trigger (round two).
+    expect(document.activeElement).toBe(trigger)
+    escape()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(onClose).not.toHaveBeenCalled()
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('the open list registers with overlay.js as a menu, and unregisters when it closes', () => {
+    manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const trigger = document.querySelectorAll('.rb-tpl-deps')[0]
+    trigger.focus()
+    expect(menuOpened).not.toHaveBeenCalled()
+    fireEvent.click(trigger)
+    expect(menuOpened).toHaveBeenCalledTimes(1)
+    const unregister = menuOpened.mock.results[0].value
+    expect(unregister).not.toHaveBeenCalled()
+    escape()
+    expect(unregister).toHaveBeenCalledTimes(1)
+  })
+
+  it("W2 on a template's name in the list: Escape reverts it and the manager stays; the next closes it", () => {
+    const { updateTemplate, onClose } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Environment build' }))
+    const box = screen.getByRole('textbox', { name: 'Template name' })
+    fireEvent.change(box, { target: { value: 'Not kept' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(updateTemplate).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Environment build' })).toBeTruthy()
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a dependency toggles and the list stays open; its scrim takes the click that closes it', () => {
+    const { updateTemplate } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const trigger = document.querySelectorAll('.rb-tpl-deps')[0]
+    trigger.focus()
+    fireEvent.click(trigger)
+    const list = screen.getByRole('group', { name: 'Depends on' })
+    fireEvent.click(within(list).getByRole('button', { name: /Texture/ }))
+    expect(updateTemplate).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('group', { name: 'Depends on' })).toBeTruthy()
+    const scrim = document.querySelector('.rb-tpl-scrim')
+    expect(scrim).not.toBeNull()
+    fireEvent.click(scrim)
+    expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(2)
+  })
+
+  it('keyboard focus leaving the list and its trigger closes it (round two)', () => {
+    manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const trigger = document.querySelectorAll('.rb-tpl-deps')[0]
+    trigger.focus()
+    fireEvent.click(trigger)
+    const option = within(screen.getByRole('group', { name: 'Depends on' })).getAllByRole('button')[0]
+    fireEvent.blur(trigger, { relatedTarget: option })
+    expect(screen.getByRole('group', { name: 'Depends on' })).toBeTruthy()
+    fireEvent.blur(option, { relatedTarget: screen.getByRole('button', { name: 'Add task' }) })
+    expect(screen.queryByRole('group', { name: 'Depends on' })).toBeNull()
+  })
+
+  it("W2 in the editor: Escape in the description reverts it and the editor stays; the next closes the editor only", () => {
+    const { updateTemplate, onClose } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Click to add description…' }))
+    const box = screen.getByLabelText('Description')
+    fireEvent.change(box, { target: { value: 'Not kept' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(screen.getAllByRole('dialog')).toHaveLength(2)
+    expect(updateTemplate).not.toHaveBeenCalled()
+    escape()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("W2 on a task's name in the editor: Escape reverts it and the editor stays; the next closes the editor only", () => {
+    const { updateTemplate, onClose } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    const box = screen.getByRole('textbox', { name: 'Task name…' })
+    fireEvent.change(box, { target: { value: 'Not kept' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(screen.getAllByRole('dialog')).toHaveLength(2)
+    expect(updateTemplate).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Model' })).toBeTruthy()
+    escape()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('K5 in the editor: a click outside keeps the description being typed', () => {
+    const { updateTemplate } = manager()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Click to add description…' }))
+    const box = screen.getByLabelText('Description')
+    box.focus()
+    fireEvent.change(box, { target: { value: 'Drawings first' } })
+    const backdrops = document.querySelectorAll('.ui-dialog-backdrop')
+    fireEvent.mouseDown(backdrops[backdrops.length - 1])
+    expect(updateTemplate).toHaveBeenCalledWith('tp1', { description: 'Drawings first' })
+  })
+})

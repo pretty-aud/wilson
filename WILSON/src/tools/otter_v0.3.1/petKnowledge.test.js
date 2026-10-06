@@ -21,6 +21,7 @@ import {
   flattenDoc, rankDocRows, shouldRetrieve, matchedStems, requiredCoverage,
   MAX_BLOCK_CHARS, MAX_LESSON_CHARS, TRUNCATION_MARK, INDEX_TTL_MS,
 } from './petKnowledge'
+import { functionCategoryName } from './adapters/otterRoutes.js'
 
 // ── a fake backend ───────────────────────────────────────────────────────────
 // Shaped like otterFetch: it RESOLVES for every status, which is the property
@@ -740,6 +741,34 @@ describe('flattenDoc — three shapes, none interchangeable', () => {
     expect(rows[0].detail).toContain('returns number')
   })
 
+  it('functions: each category is grouped under the heading O.T.T.E.R.\'s views show — "General" when it has none (S2c, S2b-01)', () => {
+    // Her real Python library is ONE category with neither `category` nor
+    // `name`, of 46 functions; the Functions view and the Search dialog head
+    // it "General" (functionCategoryName, S2b). Until S2c the pet grouped
+    // those rows under '' — no group — and read a name that is not a string
+    // raw (an object grouped as "[object Object]").
+    const fn = { name: 'print', syntax: 'print(x)' }
+    const cases = [
+      [{ functions: [fn] }, 'General'],
+      [{ name: 'Math', functions: [fn] }, 'Math'],
+      [{ category: 'Strings', name: 'Text', functions: [fn] }, 'Strings'],
+      [{ category: '', name: '', functions: [fn] }, 'General'],
+      [{ category: '   ', functions: [fn] }, 'General'],
+      [{ category: '​', functions: [fn] }, 'General'],
+      [{ category: '  Files  ', functions: [fn] }, 'Files'],
+      [{ category: 5, name: 'Math', functions: [fn] }, 'Math'],
+      [{ category: { a: 1 }, functions: [fn] }, 'General'],
+      [{ category: ['x'], functions: [fn] }, 'General'],
+      [{ category: '文字列', functions: [fn] }, '文字列'],
+    ]
+    for (const [cat, want] of cases) {
+      const rows = flattenDoc({ categories: [cat] }, 'functions')
+      expect(rows.map(r => r.group), JSON.stringify(cat)).toEqual([want])
+      // ONE heading for the pet and the page, read by the same function.
+      expect(rows[0].group, JSON.stringify(cat)).toBe(functionCategoryName(cat))
+    }
+  })
+
   it('nodes — the one with a `systems` wrapper', () => {
     const rows = flattenDoc({ systems: [{ system: 'Shader Nodes', categories: [{ category: 'Input', nodes: [{ name: 'Texture Coordinate', description: 'outputs UVs' }] }] }] }, 'nodes')
     expect(rows[0]).toEqual({ label: 'Texture Coordinate', detail: 'outputs UVs', group: 'Shader Nodes / Input' })
@@ -755,6 +784,26 @@ describe('flattenDoc — three shapes, none interchangeable', () => {
   it('🚨 reading a document with the WRONG kind yields nothing, not garbage', () => {
     // nodes data read as hotkeys: `categories` is absent, so no rows.
     expect(flattenDoc({ systems: [{ system: 'S', categories: [] }] }, 'hotkeys')).toEqual([])
+  })
+
+  it('🚨 what is not an entry is skipped at every level, in every kind — never a throw (S2c, S2b-05)', () => {
+    // An imported library can carry a null, a string, a number or a list
+    // where an entry belongs, and the merge carries a stored one over
+    // untouched (S2b). A null CATEGORY threw here (Cannot read properties of
+    // null), a list that was not one threw (5 is not iterable).
+    const JUNK = [null, 'x', 5, ['y'], true]
+    const fns = flattenDoc({ categories: [...JUNK, { functions: 5 }, { functions: 'ab' }, { functions: { a: 1 } },
+      { category: 'Math', functions: [...JUNK, { name: 'abs', syntax: 'abs(x)' }] }] }, 'functions')
+    expect(fns).toEqual([{ label: 'abs', detail: 'abs(x)', group: 'Math' }])
+    const hks = flattenDoc({ categories: [...JUNK, { category: 'A', shortcuts: 5 }, { category: 'B', hotkeys: { a: 1 } },
+      { category: 'Transform', shortcuts: [...JUNK, { action: 'Scale', windows: 'S' }] }] }, 'hotkeys')
+    expect(hks).toEqual([{ label: 'Scale', detail: 'S', group: 'Transform' }])
+    const nodes = flattenDoc({ systems: [...JUNK, { system: 'X', categories: 5 }, { system: 'Shader Nodes', categories: [...JUNK, { category: 'C', nodes: 'ab' },
+      { category: 'Input', nodes: [...JUNK, { name: 'Fresnel', description: 'facing ratio' }] }] }] }, 'nodes')
+    expect(nodes).toEqual([{ label: 'Fresnel', detail: 'facing ratio', group: 'Shader Nodes / Input' }])
+    // A list where the document's own list belongs reads as none.
+    for (const kind of ['hotkeys', 'functions']) for (const categories of [{ a: 1 }, 'ab', 5]) expect(flattenDoc({ categories }, kind)).toEqual([])
+    for (const systems of [{ a: 1 }, 'ab', 5]) expect(flattenDoc({ systems }, 'nodes')).toEqual([])
   })
 })
 
@@ -801,6 +850,44 @@ describe('retrieveOtterKnowledge — reference documents ride along', () => {
     expect(r.block).toContain('Scale')
     expect(r.block).toContain('then type a number')
     expect(r.block).toContain('Press S to scale')
+  })
+
+  it('a nameless function category reaches the pet as "General", the heading she sees (S2c, S2b-01)', async () => {
+    // Her Python library's shape, end to end: the row the model is handed
+    // names the group the Functions view shows. Before S2c it read
+    // "[Python → functions] print()".
+    const PYTHON = {
+      '/api/software': [{ slug: 'python', name: 'Python', type: 'coding_language' }],
+      '/api/software/python/subjects': [],
+      '/api/software/python/hotkeys': { categories: [] },
+      '/api/software/python/functions': { categories: [{ functions: [
+        { name: 'print()', syntax: 'print(*objects)', description: 'Outputs values to the console' },
+        { name: 'len()', syntax: 'len(s)', description: 'Returns the length of an object' },
+      ] }] },
+      '/api/software/python/nodes': { systems: [] },
+    }
+    const r = await retrieveOtterKnowledge({ question: 'how do I use print in python', fetchImpl: makeFetch(PYTHON) })
+    expect(r.block).toContain('- [Python → functions → General] print(): print(*objects)')
+    expect(r.block).not.toMatch(/\[Python → functions\] /)
+  })
+
+  it('🚨 ONE malformed document never blinds the pet to the whole library (S2c, S2b-05)', async () => {
+    // Measured before S2c: a null category in PYTHON's functions made the
+    // index build throw, and a BLENDER question was answered "could not be
+    // reached" — every course lost for one entry in one file.
+    const MIXED = {
+      ...WITH_DOCS, // Blender and Python, as the Local Server lists them
+      '/api/software/python/hotkeys':{ categories: [null, { category: 'X', shortcuts: 5 }] },
+      '/api/software/python/functions': { categories: [null, 'x', { functions: [null, 'print', { name: 'print()', syntax: 'print(*objects)' }] }] },
+      '/api/software/python/nodes': { systems: [null, { system: 'S', categories: [null] }] },
+    }
+    const blender = await retrieveOtterKnowledge({ question: 'how do I scale something in blender', fetchImpl: makeFetch(MIXED) })
+    expect(blender.reachable).toBe(true)
+    expect(blender.block).toContain('then type a number')
+    expect(blender.block).not.toMatch(/could not be reached/)
+    clearPetKnowledgeCache()
+    const python = await retrieveOtterKnowledge({ question: 'how do I use print in python', fetchImpl: makeFetch(MIXED) })
+    expect(python.block).toContain('- [Python → functions → General] print(): print(*objects)')
   })
 
   it('🚨 never asks for `reference_urls` — that is the COLUMN, not the route key', async () => {

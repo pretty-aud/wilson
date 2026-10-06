@@ -156,13 +156,15 @@ this (2026-09-04); the chip is her click.
 Then close out in the chat as the briefs say: remaining bundles, plain
 English, fixed / diagnosed / hers to do.
 
-**Model, from 2026-09-07 (Audrey's instruction): every NEW session runs on
-Opus 5 (`claude-opus-5`).** Sessions already running finish on the model they
-started with. The user-level default in `~/.claude/settings.json` says
-`"model": "claude-opus-5"`; the desktop app's own model picker can override
-it, so **the first line of every new session's chat states the model it is
-running on**, and if that is not Opus 5 the session stops and tells Audrey
-before doing any work. Review subagents pass `model: "opus"`.
+**Model (Audrey's instruction, updated 2026-09-09): every NEW session runs on
+the model its chip prompt names. From 2026-09-09 that is Fable 5.1 at max
+effort (`claude-fable-5-1`), which is also the user-level default in
+`~/.claude/settings.json`; from 2026-09-07 to 2026-09-09 it was Opus 5.**
+Sessions already running finish on the model they started with. The desktop
+app's own model picker can override the default, so **the first line of every
+new session's chat states the model it is running on**, and if that is not
+the named model the session stops and tells Audrey before doing any work.
+Review subagents pass `model: "opus"` or better.
 
 ## 6. Merging, in tandem
 

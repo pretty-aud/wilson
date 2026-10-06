@@ -1,6 +1,14 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { Panel, Card, Button, IconButton, Switch, Chip, Badge, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs } from '../../ui';
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
+import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
+import {
+  isDeckAttachmentRow, dogTypeForRow, documentKindFor,
+  orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
+  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MIB,
+} from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
 import { modelFor, tuningFor } from '../../lib/activeModel';
@@ -16,9 +24,49 @@ import { parseSlideContent, correctGeometryIconOrder, parsePlacedAssets } from '
 import { saveFileToFolder, deriveDeckTitle, exportHistory, exportVisHistory } from './export';
 import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
+import './dog.css';
 import HistoryModal from './modals/HistoryModal';
+import { enterIsDogs } from './enterGenerates';
 
-export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Project attachments that live in the file store (Track C, bundle C3;
+// MASTER_PLAN §6 #31).
+//
+// 🚨 TRAP (c) OF §6 #31, AND IT IS THE ONE THAT MAKES THIS FEATURE WORTH
+// BUILDING. `legacyProjectFiles` below requires an inline `content` payload and
+// skips any entry without one, so routing attachments to storage WITHOUT a
+// download-and-rehydrate step would make them upload successfully and
+// contribute NOTHING to generation — silently, which is worse than the loud
+// throw the cloud path used to give. The rows say a file is there; only the
+// BODY can reach the model. The effect below exists to fetch that body.
+//
+// (§6 #31 said `adapter.downloadFile` had "zero call sites anywhere". That was
+// true when it was filed and is not now — S24's InvoiceAttachment and
+// FileManager's download both ride it. Re-measured before relying on it.)
+//
+// WHICH rows count, what each becomes, and the bound on how many are read all
+// live in `deckAttachments.js`, beside the three writers that have to satisfy
+// them — see that file's header for why the reader and the writers are one
+// module and what it cost to learn that.
+
+function blobToDogContent(blob, type) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('could not read the file'));
+    if (type === 'text') {
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.readAsText(blob);
+    } else {
+      reader.onload = () => {
+        const s = String(reader.result || '');
+        resolve(s.includes(',') ? s.split(',')[1] : s);
+      };
+      reader.readAsDataURL(blob);
+    }
+  });
+}
+
+export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -76,16 +124,10 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   // Settings Menu State
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts'); // 'prompts' or 'format'
-  // showNavMenu and onToggleNavMenu are now received as props from App.jsx
-
-  // Open settings panel when triggered from container nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setShowSettingsMenu(true);
-    }
-  }, [openSettingsTrigger]);
+  // Opened by the gear at the right end of the "Deck outline" bar. The WILSON
+  // nav strip's "Tool settings" item and the counter it bumped are gone
+  // (post-overhaul S2a, Audrey's C6), and with them the two nav props nothing
+  // here ever read.
 
   // Project Integration State — projects come from the unified
   // RabbitProvider store (same source as the Projects page and
@@ -96,11 +138,27 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
   const updateUnifiedProject = rabbitCtx?.updateProject;
-  // Session 12: cloud projects carry no documents/visualAssets (locked #17 —
-  // D.O.G. gets no content model; cloud-readable file blobs are S14 work).
-  // The attachment affordances degrade visibly in cloud mode instead of
-  // silently losing files at the adapter.
-  const cloudProjects = rabbitCtx?.adapterMode === 'supabase';
+  // Session 12: cloud projects carried no documents/visualAssets, so the
+  // attachment affordances degraded visibly rather than losing files silently
+  // at the adapter. C3 gave them a real home (public.files + rabbit-files,
+  // migration 0075), so the degraded copy is gone — and with it the
+  // `cloudProjects` flag that gated it: nothing on this surface differs
+  // between cloud and Local Server any more, only between a backend that can
+  // store files and one that cannot (`canStoreFiles`, below).
+  const adapterMode = rabbitCtx?.adapterMode;
+  // 🚨 STABLE, AND THAT MATTERS. RabbitProvider's context VALUE is a useMemo
+  // over a long dependency list, so it takes a new identity whenever the
+  // bundle or the projects index changes — many times a session. `getAdapter`
+  // is its own `useCallback(..., [])` and never changes, so an effect that
+  // downloads file bodies can depend on THIS and not on the whole context.
+  // Depending on `rabbitCtx` would re-run that effect on every provider
+  // render and re-download every attachment each time.
+  const getAdapter = rabbitCtx?.getAdapter;
+  // 🚨 §6 #31 trap (f): the MODE, never `typeof adapter.uploadFile`. Google
+  // Drive's uploadFile is `readOnly('uploadFile')` — a function that throws —
+  // so a typeof check reads as "this backend can store files" for the one
+  // backend that cannot.
+  const canStoreFiles = adapterSupportsWrites(adapterMode);
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -132,11 +190,27 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     return projects.find(p => p.id === selectedProjectId) || null;
   }, [selectedProjectId, projects]);
 
-  // Convert project files to DOG-compatible format for injection into generation.
-  // Each file carries `isCore`: files marked core are the ones that define
-  // the project concept itself; the rest are reference / supporting context.
-  // Default is true so existing projects keep working — explicit opt-out only.
-  const projectFiles = useMemo(() => {
+  // ── The project's attachments, from BOTH stores (Track C, C3) ────────────
+  //
+  // 🚨 §6 #31 TRAP (b), THE POLARITY, LIVES IN THESE TWO READERS AND NOWHERE
+  // ELSE. The legacy arrays carry `isCore` and default it TRUE
+  // (`doc.isCore !== false`); `files.is_core_definer` is NOT NULL DEFAULT
+  // false. A 1:1 map would flip every previously-unmarked legacy file from
+  // CORE to REF and change generation output for every existing project —
+  // which is the one consequence §6 #31's disposition row calls out by name.
+  //
+  // So the two readers keep their OWN polarity, deliberately:
+  //   * a legacy-array row  -> isCore = f.isCore !== false   (default TRUE)
+  //   * a stored files row  -> isCore = is_core_definer === true (from data)
+  //
+  // Nothing is inferred across the boundary. The only place the two meet is
+  // runAttachmentMigration, which writes `isCore !== false` into
+  // is_core_definer when it MOVES a row — so a legacy file that was CORE is
+  // still CORE after the move, and the outline does not change. That is what
+  // the polarity diff in this bundle's commit message measures.
+  //
+  // Legacy half first: unchanged since S12 apart from this comment.
+  const legacyProjectFiles = useMemo(() => {
     if (!selectedProject) return [];
     const files = [];
     // Add project documents
@@ -153,6 +227,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'image',
           mediaType: doc.type,
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       } else if (doc.type === 'application/pdf' || doc.name?.endsWith('.pdf')) {
         files.push({
@@ -162,6 +239,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'pdf',
           mediaType: 'application/pdf',
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       } else {
         // Text-based files — decode base64 to text if needed
@@ -174,6 +254,9 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           type: 'text',
           mediaType: 'text/plain',
           isCore,
+          source: 'legacy',
+          category: 'documents',
+          rowId: doc.id,
         });
       }
     });
@@ -191,10 +274,159 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         type: isVideo ? 'video' : 'image',
         mediaType: asset.type || (isVideo ? 'video/mp4' : 'image/png'),
         isCore,
+        source: 'legacy',
+        category: 'visualAssets',
+        rowId: asset.id,
       });
     });
     return files;
   }, [selectedProject]);
+
+  // ── The stored half: rows in public.files / bundle.files, rehydrated ──────
+  //
+  // Asynchronous, so it cannot be a useMemo: the rows come from the adapter
+  // and each body is a separate download. See the module header for the bound
+  // and for why trap (c) makes the download mandatory rather than an
+  // optimisation.
+  const [storedProjectFiles, setStoredProjectFiles] = useState([]);
+  const [storedFilesBusy, setStoredFilesBusy] = useState(false);
+  const [storedFilesNote, setStoredFilesNote] = useState('');
+  // 🚨 SEPARATE FROM THE NOTE, and round 2 is why. Round 1 put the create
+  // modal's upload failure into `storedFilesNote` — the same state the fetch
+  // effect ends by overwriting with '' — so the message it promised was "NOT
+  // silent" could be erased by a listFiles round trip that landed after it.
+  // An error the effect never writes cannot be raced.
+  const [storedFilesError, setStoredFilesError] = useState('');
+
+  useEffect(() => {
+    // 🚨 A REQUEST TOKEN, NOT A BOOLEAN. Selecting project A then B while A's
+    // downloads are in flight must not let A's bodies land in B's panel; a
+    // plain `cancelled` flag closes over the right effect run but this state
+    // is also written from the reload path below, so the token is compared on
+    // every setState rather than only at the end.
+    let live = true;
+    const adapter = getAdapter?.();
+    if (!selectedProjectId || !adapter?.listFiles || !adapter?.downloadFile) {
+      setStoredProjectFiles([]);
+      setStoredFilesNote('');
+      // 🚨 R1: CLEARED HERE TOO. It used to be set only on the live path and
+      // cleared only at the end of it, so an aborted run (`if (!live) return`)
+      // followed by an early return left "Reading project attachments…" on
+      // screen for the rest of the session, hiding the real count.
+      setStoredFilesBusy(false);
+      return () => { live = false; };
+    }
+    setStoredFilesBusy(true);
+    setStoredFilesError('');
+    (async () => {
+      let rows;
+      try {
+        rows = await adapter.listFiles(selectedProjectId);
+      } catch (err) {
+        // A backend that cannot list is not an error here — the legacy arrays
+        // still render and still generate. Never silent, though: this is the
+        // layer that eats it (S30's rule).
+        console.warn('[DOG] project files not listed:', err?.message || err);
+        if (live) { setStoredProjectFiles([]); setStoredFilesNote(''); setStoredFilesBusy(false); }
+        return;
+      }
+      // 🚨 R1: ORDERED BY KIND FIRST, then date. A single date sort spends
+      // the budget on whatever is newest, which on a working project is media
+      // — so the brief the deck is about falls off the end and is reported
+      // only as "N more files are not included". See
+      // deckAttachments.orderAttachmentCandidates.
+      const candidates = orderAttachmentCandidates((rows || []).filter(isDeckAttachmentRow));
+
+      const out = [];
+      let bytes = 0;
+      let skippedTooBig = 0;
+      let failed = 0;
+      for (const row of candidates) {
+        if (out.length >= DOG_ATTACHMENT_MAX_FILES) break;
+        const size = row.size_bytes ?? 0;
+        // Skipped, never truncated: half a brief is worse than no brief,
+        // because nothing downstream can tell it is half.
+        if (bytes + size > DOG_ATTACHMENT_MAX_BYTES) { skippedTooBig++; continue; }
+        const type = dogTypeForRow(row);
+        try {
+          const blob = await adapter.downloadFile(row);
+          if (!live) return;
+          const content = await blobToDogContent(blob, type);
+          if (!live) return;
+          // 🚨 THE POLARITY, from DATA: strict === true against a NOT NULL
+          // boolean. Never `!== false`, which is the legacy default-TRUE idiom
+          // and would mark every stored file CORE.
+          const isCore = row.is_core_definer === true;
+          const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
+          out.push({
+            id: `file-${row.id}`,
+            file: { name: `${labelPrefix} ${row.name}`, size },
+            content,
+            type,
+            mediaType: row.mime_type
+              || (type === 'pdf' ? 'application/pdf'
+                : type === 'text' ? 'text/plain'
+                : type === 'video' ? 'video/mp4' : 'image/png'),
+            isCore,
+            source: 'stored',
+            rowId: row.id,
+          });
+          bytes += size;
+        } catch (err) {
+          // One unreadable body must not take the whole panel down — a
+          // relinked Local Server file whose disk path is gone answers 410,
+          // and `fetch` resolves for every status (the standing trap), which
+          // downloadFile turns into a throw. Counted, then reported.
+          console.warn('[DOG] attachment body not read:', row.name, err?.message || err);
+          failed++;
+        }
+      }
+      if (!live) return;
+      // 🚨 R1: `left` ALREADY INCLUDES the two counted causes, so listing all
+      // three side by side double-counted them. Only the remainder — files the
+      // COUNT cut off — is reported as its own number, and the size figure
+      // comes from the constant rather than a literal beside it.
+      const left = candidates.length - out.length - skippedTooBig - failed;
+      const parts = [];
+      if (left > 0) {
+        parts.push(`${left} more file${left === 1 ? '' : 's'} on this project ` +
+          `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads ` +
+          `${DOG_ATTACHMENT_MAX_FILES} attachments at most, documents first, ` +
+          `up to ${DOG_ATTACHMENT_MAX_MIB} MiB in total`);
+      }
+      if (skippedTooBig > 0) {
+        // ⚠️ "did not fit" rather than "over the budget": this counts files
+        // that did not fit the REMAINING budget, so a 400 KB reference photo
+        // behind a 31 MiB document lands here too. Round 1 made this more
+        // specific and less true; round 2 made it true again.
+        parts.push(`${skippedTooBig} did not fit in the remaining space`);
+      }
+      if (failed > 0) parts.push(`${failed} could not be read`);
+      setStoredProjectFiles(out);
+      setStoredFilesNote(parts.join(' · '));
+      setStoredFilesBusy(false);
+    })();
+    return () => { live = false; };
+    // 🚨 `adapterMode`, not the adapter object: getAdapter returns
+    // adapterRef.current and keeps ONE identity across a backend switch, so
+    // without the mode in this list a switch from Local Server to Supabase
+    // would leave the previous backend's bodies on screen.
+    //
+    // ⚠️ NO RELOAD KEY. Round 1 added one and then removed both of its
+    // bumpers in the same commit (the Core toggle reconciles locally now, and
+    // the create modal selects the project, which re-runs this effect on its
+    // own) — leaving dead state with a comment naming two callers that no
+    // longer existed, and a source pin holding it in place. Round 2 removed
+    // it. If a future write needs to force a re-read, add the trigger and its
+    // caller together.
+  }, [selectedProjectId, getAdapter, adapterMode]);
+
+  // Both stores, one list. Legacy first so an existing project's ordering —
+  // and therefore its generation output — is untouched by the new source.
+  const projectFiles = useMemo(
+    () => [...legacyProjectFiles, ...storedProjectFiles],
+    [legacyProjectFiles, storedProjectFiles],
+  );
 
   // Combined files: uploaded + project (for use in generation)
   const allFiles = useMemo(() => {
@@ -248,15 +480,71 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     return parts.length > 0 ? parts.join('\n') : '';
   }, [selectedProject, projectFiles]);
 
-  // Flip a project file's CORE / REFERENCE flag and persist it
-  // through the unified project store. The flag lives directly on
-  // the file row in `documents[]` / `visualAssets[]` — the rest of
-  // the row is left untouched.
-  const toggleProjectFileCore = useCallback(async (category, fileId) => {
+  /**
+   * Flip a project file's CORE / REFERENCE flag and persist it.
+   *
+   * TWO STORES, TWO WRITES, and the entry says which it is. A legacy row's
+   * flag lives on the object inside `documents[]` / `visualAssets[]` on the
+   * project row; a stored row's lives in `files.is_core_definer`. Writing the
+   * wrong one is silent — the array write on a stored row would be refused by
+   * ATTACHMENTS_MSG in cloud mode and would invent an array entry on Local
+   * Server — so the branch is on `entry.source`, which
+   * legacyProjectFiles/storedProjectFiles both stamp at the point they are
+   * built rather than on anything inferred here.
+   *
+   * 🚨 The two polarities are preserved on the way OUT as well as in: a legacy
+   * flip reads `f.isCore !== false` (default TRUE) and a stored flip reads
+   * `is_core_definer === true`. See the note above legacyProjectFiles.
+   */
+  const toggleProjectFileCore = useCallback(async (entry) => {
+    if (!entry) return;
+
+    if (entry.source === 'stored') {
+      // 🚨 R1, §6 #31 trap (f) AGAIN, at the one gate this bundle missed.
+      // `if (!adapter?.updateFile)` is the typeof check the trap names:
+      // googleDriveAdapter sets `updateFile: readOnly('updateFile')`, a
+      // FUNCTION THAT THROWS, so on Drive the guard passed, the tag flipped
+      // optimistically, the write threw into a console line and the reload
+      // flipped it back — a silent revert. The mode is the gate here as
+      // everywhere else, and the button is disabled to match.
+      if (!canStoreFiles) return;
+      const adapter = getAdapter?.();
+      if (!adapter?.updateFile) return;
+      const next = !entry.isCore;
+      const relabel = (f, core) => ({
+        ...f, isCore: core,
+        file: { ...f.file,
+          name: `${core ? '[Project · CORE]' : '[Project · REF]'} ` +
+                `${f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')}` },
+      });
+      // Optimistic, and reconciled LOCALLY rather than by a reload.
+      setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, next) : f)));
+      try {
+        await adapter.updateFile(entry.rowId, {
+          is_core_definer: next,
+          project_id: selectedProjectId,
+        });
+      } catch (err) {
+        // 🚨 R1: DO NOT BUMP THE RELOAD KEY HERE. It is a dependency of the
+        // fetch effect, so every click re-ran the effect and re-DOWNLOADED
+        // every attachment body — up to 20 files and 32 MiB per toggle. Worse
+        // than the bandwidth: supabaseAdapter.downloadFile calls the
+        // log_file_downloaded RPC and Local Server's route appends a
+        // `downloaded` event, so each click wrote N audit rows for downloads
+        // nobody performed, into the very stream 0047 exists to keep honest.
+        // One flag changed; only that flag is reconciled.
+        console.error('[DOG] toggle core flag failed:', err);
+        setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, !next) : f)));
+        setStoredFilesError(`That file's role could not be saved: ${err?.message || err}`);
+      }
+      return;
+    }
+
     if (!selectedProject || !updateUnifiedProject) return;
+    const category = entry.category;
     const list = Array.isArray(selectedProject[category]) ? selectedProject[category] : [];
     const next = list.map(f => {
-      if (f.id !== fileId) return f;
+      if (f.id !== entry.rowId) return f;
       const current = f.isCore !== false; // default true
       return { ...f, isCore: !current };
     });
@@ -265,7 +553,7 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     } catch (err) {
       console.error('[DOG] toggle core flag failed:', err);
     }
-  }, [selectedProject, updateUnifiedProject]);
+  }, [selectedProject, selectedProjectId, updateUnifiedProject, getAdapter, canStoreFiles]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -289,6 +577,12 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           content: reader.result,
           type: file.type,
           size: file.size,
+          // C3: the ORIGINAL File, kept beside the data URL. A backend with a
+          // file store takes the File through adapter.uploadFile; only a
+          // backend without one falls back to the base64 array. Re-deriving a
+          // File from the data URL would work and would also silently change
+          // the bytes' name and type, which the storage path is built from.
+          raw: file,
         });
         reader.readAsDataURL(file);
       });
@@ -305,25 +599,92 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   // Handle creating a new project from the modal — writes through
   // the unified RabbitProvider so the same record shows up in the
   // Projects page and RABBIT itself, not just inside DOG.
+  /**
+   * Create a project from the modal, with whatever the two pickers hold.
+   *
+   * 🚨 CREATE FIRST, THEN UPLOAD, on every backend that has a file store.
+   * S15's finding was that createProject discarded droppedAttachments
+   * entirely, so this modal lost every file in cloud mode with no error at
+   * all; S15 made it refuse. C3 makes it WORK instead — but only by writing
+   * the files where they belong, which needs the project's id, which only
+   * exists after the create returns. Passing the arrays would still be
+   * refused by ATTACHMENTS_MSG in cloud mode, and that refusal stays: it is
+   * what catches a caller nobody migrated.
+   *
+   * A create that succeeds and an upload that fails is NOT silent: the
+   * project exists (correctly — it was created), and the failure is surfaced
+   * on the panel rather than swallowed into a console line, because the files
+   * are the reason the person opened this modal.
+   */
   const handleCreateProjectFromModal = useCallback(async () => {
     if (!newProjectTitle.trim() || !createUnifiedProject) return;
+    const pending = [...newProjectDocuments, ...newProjectAssets];
     try {
       const created = await createUnifiedProject({
         title:        newProjectTitle.trim(),
         description:  newProjectDescription.trim(),
         startDate:    newProjectStartDate,
         endDate:      newProjectEndDate,
-        documents:    newProjectDocuments,
-        visualAssets: newProjectAssets,
+        // Only when there is nowhere better. Drive has no store and no create
+        // either, so in practice this arm is the legacy path for a backend
+        // that grows one later — it is not dead, it is the honest fallback.
+        ...(canStoreFiles ? {} : {
+          documents:    newProjectDocuments,
+          visualAssets: newProjectAssets,
+        }),
         status:       'active',
       });
+      // 🚨 SELECTED IMMEDIATELY — round 2 reversed round 1 here, because
+      // round 1 traded a message race for two worse things. Selecting AFTER
+      // the uploads meant an upload rejection skipped the selection entirely:
+      // the project existed, the modal closed, the pickers were cleared, and
+      // D.O.G. still pointed at whatever was selected before — so the person
+      // could neither see the project they had just made nor retry the files.
+      // And the error itself became invisible, because the panel that renders
+      // it is inside `{selectedProject && …}`, which was exactly the case that
+      // had not been selected.
+      //
+      // The race round 1 was avoiding is closed properly instead: the failure
+      // goes to `storedFilesError`, which the fetch effect never writes.
       if (created?.id) setSelectedProjectId(created.id);
+
+      if (created?.id && canStoreFiles && pending.length > 0) {
+        const adapter = getAdapter?.();
+        if (adapter?.uploadFile) {
+          setStoredFilesBusy(true);
+          for (const f of pending) {
+            if (!f.raw) continue;
+            await adapter.uploadFile(created.id, {
+              // Total by construction — see deckAttachments.documentKindFor.
+              // `detectDocumentKind(name) || null` here would write NULL for a
+              // PDF whose name matches no heuristic, and the row would then
+              // not be a deck attachment at all: uploaded, listed, and absent
+              // from generation. Measured on `legacy.pdf` by this bundle's
+              // round-trip diff.
+              documentKind: documentKindFor(f.type, f.name, detectDocumentKind),
+              // 🚨 R1, §6 #31 trap (b): CORE, not false. This modal's legacy
+              // writer never set `isCore`, and D.O.G. reads a missing flag as
+              // CORE — so `false` here quietly demoted every file attached at
+              // project creation from "a primary source of truth" to
+              // "supporting reference material only". See
+              // deckAttachments.NEW_ATTACHMENT_IS_CORE.
+              isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
+            }, f.raw);
+          }
+        }
+      }
+      // Only cleared once everything that needed them has succeeded: the
+      // pickers hold the only copy of what the person chose, so clearing them
+      // on failure would make the retry impossible.
+      resetNewProjectModal();
     } catch (err) {
       console.error('[DOG] createProject failed:', err);
+      setStoredFilesError(`Project attachments could not be saved: ${err?.message || err}`);
+      setShowNewProjectModal(false);
     } finally {
-      resetNewProjectModal();
+      setStoredFilesBusy(false);
     }
-  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
+  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter]);
 
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
@@ -2056,7 +2417,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     formal: 'Formal',
     extend: 'Extend',
     shorten: 'Shorten',
-    editor: 'Editor Pass',
+    editor: 'Editor pass',
   };
 
   // Handle right-click on textarea
@@ -2873,6 +3234,11 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     const handler = (e) => {
       // Only handle arrow keys
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // A control that already used the key keeps it: the kit's Tabs (History,
+      // Settings) move focus on Left / Right and mark the key handled, and
+      // this handler used to switch the page behind the dialog as well
+      // (A2 review round 1).
+      if (e.defaultPrevented) return;
       // Don't handle if no tabs are open
       if (openTabs.length === 0) return;
       // Don't handle if user is typing in an input, textarea, or contenteditable
@@ -2920,11 +3286,16 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
   // Global Enter key — triggers generation when outliner is empty and user is not in a text field
   useEffect(() => {
     const handler = (e) => {
-      if (e.key !== 'Enter') return;
+      // Post-overhaul S2a (Audrey's C12: Enter presses whatever has focus):
+      // the key is D.O.G.'s only on D.O.G.'s page, unmodified, not in a text
+      // field, not under a window (a drawer, a dialog, a kit overlay) and not
+      // on a control Enter presses by itself — D.O.G.'s own option toggles
+      // and Full deck switch excepted, as before. Whether another listener
+      // cancelled it first is deliberately NOT asked (review round 2,
+      // B-R2-01). enterGenerates.js says why; its test drives it with real
+      // elements.
+      if (!enterIsDogs(e, { onDogPage: currentPage === 'dog' })) return;
       if (history.length > 0) return; // only when outliner is empty
-      if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
       if (isGenerating || !hasFileContent) return;
 
       e.preventDefault();
@@ -2936,7 +3307,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
+  }, [currentPage, history.length, isGenerating, hasFileContent, fullDeckMode, pagePrompt, selectedLayout, generateFullDeck, generatePageOutline]);
 
   // Save undo checkpoint on textarea change (debounced grouping)
   const handleTextareaChange = useCallback((e) => {
@@ -3696,279 +4067,222 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
   }, [enableThemeGen, generatedThemes, deckVisualDesc, history, generateDeckVisualDesc]);
 
   return (
-    <div className="h-full bg-stone-900 text-stone-300 font-sans flex flex-col overflow-hidden" style={{ flex: 1 }}>
-      {/* Global Scrollbar Styles */}
-      <style>{`
-        /* Custom scrollbar for the entire app */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-          background: #1c1917;
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #57534e;
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #f97316;
-        }
-        /* Firefox scrollbar */
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: #57534e #1c1917;
-        }
-        /* Settings panel specific scrollbar */
-        .settings-scrollbar::-webkit-scrollbar-thumb {
-          background: #78716c;
-        }
-        .settings-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #f97316;
-        }
-      `}</style>
-      
+    <div className="dog-root h-full flex flex-col overflow-hidden" style={{ flex: 1 }}>
+      {/* The scrollbar stylesheet that used to be injected here (a global
+          `::-webkit-scrollbar` plus a universal `* { scrollbar-color }`) now
+          lives in src/index.css as `.wilson-dark-scroll`, applied by App.jsx
+          on its root and on each tool page (UI overhaul F1, review F19). */}
+
       {/* Header and nav strip are now managed by App.jsx container */}
 
+      {/* ── The "Deck outline" bar (post-overhaul S2a; Audrey's C1) ──
+          It was the sidebar Panel's header: 32px tall and 240px wide, the one
+          D.O.G. bar that stopped short of the window's right edge. It now runs
+          the full width under the app's 4px band, at the tab strips' 36px +
+          hairline (not the kit Toolbar's 44), so its gear sits where
+          O.T.T.E.R.'s and R.A.B.B.I.T.'s do: left, "Deck outline" and the four
+          history controls with their handlers unchanged; right, Help then
+          Settings (C7: "settings at the right end"). The history controls are
+          a group named by the visible label; Help and Settings are not part of
+          it. Measured by scripts/tool-strip-probe.mjs; the preview box by
+          scripts/dog-preview-probe.mjs --check (C4), unchanged. */}
+      <div className="dog-outline-bar">
+        <div className="dog-outline-group" role="group" aria-labelledby="dog-outline-label">
+          <span id="dog-outline-label" className="dog-toolbar-label dog-outline-label">Deck outline</span>
+          <IconButton size="sm" icon={Undo2} title="Undo delete" onClick={undoHistoryDelete} disabled={historyUndoStack.length === 0} />
+          <IconButton size="sm" icon={Redo2} title="Redo delete" onClick={redoHistoryDelete} disabled={historyRedoStack.length === 0} />
+          <IconButton size="sm" icon={FolderUp} title="Import/export history" onClick={() => setShowHistoryModal(true)} />
+          <IconButton size="sm" icon={Trash2} title="Clear history" onClick={clearHistory} disabled={history.length === 0} />
+        </div>
+        <div className="dog-outline-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="D.O.G. settings" onClick={() => setShowSettingsMenu(true)} />
+        </div>
+      </div>
+
       <div className="flex-1 flex min-h-0">
-        {/* Left Sidebar - Deck Outline */}
-        <aside className="w-56 flex-shrink-0 bg-stone-800 border-r-2 border-stone-700 flex flex-col min-h-0">
-          <div className="bg-stone-700 text-orange-400 px-2 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <Layers className="w-3 h-3 text-orange-400" />
-              <span className="font-bold uppercase text-xs tracking-wide">Deck Outline</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={undoHistoryDelete}
-                disabled={historyUndoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyUndoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
-                title="Undo delete"
-              >
-                <Undo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={redoHistoryDelete}
-                disabled={historyRedoStack.length === 0}
-                className={`p-0.5 rounded transition-colors ${historyRedoStack.length > 0 ? 'hover:bg-stone-600 text-stone-400' : 'text-stone-600 cursor-not-allowed'}`}
-                title="Redo delete"
-              >
-                <Redo2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setShowHistoryModal(true)}
-                className="p-0.5 hover:bg-stone-600 rounded transition-colors"
-                title="Import/Export History"
-              >
-                <FolderUp className="w-4 h-4 text-stone-400" />
-              </button>
-              {history.length > 0 ? (
-                <button
-                  onClick={clearHistory}
-                  className="p-0.5 hover:bg-stone-600 rounded transition-colors"
-                  title="Clear history"
+        {/* Left Sidebar - Deck Outline — the kit's Panel (its first caller),
+            with no header since S2a: its title and its four controls are the
+            bar above. It keeps md (240) this bundle — the width was chosen to
+            fit that header, which has gone (walkthrough 47, Q64, is Audrey's
+            call) — and the main column's 8px padding with it (C4, dog.css
+            `.dog-main`). Named for a screen reader by the bar's label. */}
+        <Panel
+          width="md"
+          className="dog-sidebar"
+          aria-labelledby="dog-outline-label"
+        >
+          {sortedHistory.length === 0 ? (
+            <EmptyState icon={FileText} title="No pages yet" compact className="dog-sidebar-empty" />
+          ) : (
+            <div className="dog-history">
+              {sortedHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="dog-history-row" data-open={openTabs.some(t => t.id === item.id)}
                 >
-                  <Trash2 className="w-4 h-4 text-stone-400" />
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="p-0.5 rounded transition-colors text-stone-600 cursor-not-allowed"
-                  title="Clear history"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            {sortedHistory.length === 0 ? (
-              <div className="p-2 text-center text-stone-500 text-xs">
-                <div className="w-10 h-10 mx-auto mb-2 bg-stone-700 rounded-full flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-stone-500" />
-                </div>
-                <p>No pages yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-stone-700">
-                {sortedHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`relative group ${openTabs.some(t => t.id === item.id) ? 'bg-stone-700/50' : ''}`}
+                  <button
+                    type="button"
+                    onClick={() => openFromHistory(item)}
+                    className="dog-history-open"
                   >
-                    <button
-                      onClick={() => openFromHistory(item)}
-                      className="w-full p-2 text-left hover:bg-stone-700 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[10px] font-mono text-orange-400 font-bold">#{item.pageNum}</span>
-                        <span className="text-[10px] text-stone-500 group-hover:opacity-0 transition-opacity">{item.timestamp}</span>
-                      </div>
-                      <p className="text-xs font-medium text-stone-300 group-hover:text-orange-400 leading-tight break-words pr-5">
-                        {item.title}
-                      </p>
-                      <p className="text-[10px] text-stone-500 mt-0.5">{item.layout}</p>
-                    </button>
-                    {/* Delete button - appears on hover */}
-                    <button
-                      onClick={(e) => removeHistoryItem(item.id, e)}
-                      className="absolute top-2 right-2 p-1 bg-stone-600 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove from outline"
-                    >
-                      <X className="w-3 h-3 text-stone-300" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
+                    <span className="dog-history-meta">
+                      <span className="dog-history-num">#{item.pageNum}</span>
+                      <span className="dog-history-time">{item.timestamp}</span>
+                    </span>
+                    <span className="dog-history-title">{item.title}</span>
+                    <span className="dog-history-layout">{item.layout}</span>
+                  </button>
+                  {/* Delete — revealed on hover (and now on keyboard focus) */}
+                  <IconButton
+                    size="sm"
+                    icon={X}
+                    title="Remove from outline"
+                    danger
+                    className="dog-history-remove"
+                    onClick={(e) => removeHistoryItem(item.id, e)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
 
         {/* Main Content */}
-        <main className="flex-1 min-h-0 p-4 space-y-4 overflow-y-auto bg-stone-900">
+        <main className="dog-main flex-1 min-h-0 overflow-y-auto">
           {error && (
-            <div className="p-3 bg-red-900/50 border-2 border-red-600 rounded-sm text-red-300 font-medium text-sm">
-              {error}
-            </div>
+            <Banner tone="danger">{error}</Banner>
           )}
 
           {/* Amber, not red: the deck itself survived and the preset colours
               are applied, so this is a partial failure and should not read as
               a dead generation. Dismissable because it is non-blocking. */}
           {themeError && (
-            <div className="p-3 bg-amber-900/50 border-2 border-amber-600 rounded-sm text-amber-200 font-medium text-sm flex items-start justify-between gap-3">
-              <span>{themeError}</span>
-              <button
-                onClick={() => setThemeError('')}
-                className="shrink-0 text-amber-300 hover:text-amber-100"
-                aria-label="Dismiss theme generator message"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <Banner
+              tone="warning"
+              action={<IconButton size="sm" icon={X} title="Dismiss theme generator message" onClick={() => setThemeError('')} />}
+            >
+              {themeError}
+            </Banner>
           )}
 
           {/* Section 1: Document & Context Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div 
-              className="bg-stone-700 text-orange-400 px-3 py-2 border-b-2 border-stone-600 cursor-pointer hover:bg-stone-600 transition-colors"
+          <Card pad={false} className="dog-card">
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible="true"
+              data-collapsed={section1Collapsed}
               onClick={() => setSection1Collapsed(!section1Collapsed)}
             >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white font-mono text-xs">1</span>
-                  Project Documentation & Deck Context
-                </div>
-                {section1Collapsed ? (
-                  <ChevronRight className="w-5 h-5 text-orange-400" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-orange-400" />
-                )}
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
+                <span className="dog-step">1</span>
+                Project documentation & deck context
               </h2>
-            </div>
+              <div className="ui-panel-actions">
+                {section1Collapsed ? (
+                  <ChevronRight className="dog-chevron" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="dog-chevron" aria-hidden="true" />
+                )}
+              </div>
+            </header>
 
             {!section1Collapsed && (
-            <div className="p-4 space-y-3">
+            <div className="dog-card-body">
               {/* Project Selection */}
               <div>
-                <label className="block text-xs font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
+                <label className="ui-field-label dog-field-label">
                   Project
                 </label>
-                <p className="text-[10px] text-stone-500 mb-1.5">Link a project to include its documents and assets in generation</p>
+                <p className="ui-field-hint dog-field-hint">Link a project to include its documents and assets in generation</p>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1" style={{ maxWidth: '360px' }}>
                     <select
                       value={selectedProjectId}
                       onChange={(e) => { setSelectedProjectId(e.target.value); refreshProjects(); }}
                       onFocus={refreshProjects}
-                      className={`w-full px-3 py-1.5 text-xs bg-stone-900 border-2 border-stone-600 rounded-sm focus:outline-none focus:border-orange-500 transition-colors appearance-none cursor-pointer font-medium ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
+                      className="ui-input dog-select dog-project-select" data-size="md" data-surface="dark" data-empty={!selectedProjectId}
                     >
-                      <option value="" className="text-orange-400">No project selected</option>
+                      <option value="">No project selected</option>
                       {projects.map(p => (
-                        <option key={p.id} value={p.id} className="text-stone-300">{p.title}</option>
+                        <option key={p.id} value={p.id}>{p.title}</option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
+                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
-                  <button
-                    onClick={() => setShowNewProjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm text-xs font-medium text-orange-400 hover:border-orange-500 hover:bg-stone-600 transition-all"
-                  >
-                    <Plus className="w-3 h-3" />
-                    New Project
-                  </button>
+                  <Button variant="secondary" onClick={() => setShowNewProjectModal(true)}>
+                    <Plus aria-hidden="true" />
+                    New project
+                  </Button>
                 </div>
                 {selectedProject && (
-                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-sm border border-stone-700">
+                  <div className="dog-project-details">
                     {selectedProject.description && (
-                      <p className="text-[10px] text-stone-400 mb-0.5">{selectedProject.description}</p>
+                      <p className="dog-details-desc">{selectedProject.description}</p>
                     )}
-                    {cloudProjects ? (
-                      <p className="text-[10px] text-stone-500 mb-1.5">
-                        Cloud project — the title and description above feed generation.
-                        File attachments on cloud projects arrive with the storage work;
-                        until then, upload files below to include them.
-                      </p>
-                    ) : (
-                    <p className="text-[10px] text-stone-500 mb-1.5">
-                      {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
-                      {' · '}
-                      {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
+                    {/* C3: one count for one list. Before this, cloud
+                        projects were told their attachments "arrive with the
+                        storage work" and local ones were counted out of the
+                        two legacy arrays — two different sentences for what is
+                        now one store on both backends. */}
+                    <p className="dog-details-note">
+                      {storedFilesBusy
+                        ? 'Reading project attachments…'
+                        : `${projectFiles.length} attachment${projectFiles.length !== 1 ? 's' : ''}` +
+                          (projectFiles.filter(f => f.isCore).length > 0
+                            ? ` · ${projectFiles.filter(f => f.isCore).length} core`
+                            : '')}
                     </p>
+                    {storedFilesNote && (
+                      <p className="dog-details-note">{storedFilesNote}</p>
+                    )}
+                    {storedFilesError && (
+                      <p className="dog-details-note" data-tone="danger" role="alert">
+                        {storedFilesError}
+                      </p>
                     )}
 
                     {/* CORE / REFERENCE classifier — tells the AI which files
                         actually define the project concept vs. which are just
-                        supporting reference. Click a tag to flip it. */}
-                    {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
-                      <div className="border-t border-stone-700 pt-1.5">
-                        <p className="text-[9px] uppercase tracking-wider text-stone-500 mb-1">
+                        supporting reference. Click a tag to flip it.
+                        C3: driven by projectFiles, so a stored row and a legacy
+                        row appear in the same list and each writes back to the
+                        store it came from. */}
+                    {projectFiles.length > 0 && (
+                      <div className="dog-roles">
+                        <p className="ui-field-label dog-roles-label">
                           File roles · click to toggle
                         </p>
                         <div className="space-y-0.5">
-                          {(selectedProject.documents || []).map(doc => {
-                            const isCore = doc.isCore !== false;
+                          {projectFiles.map(entry => {
+                            const isCore = entry.isCore;
+                            const bareName = entry.file.name
+                              .replace(/^\[Project · (CORE|REF)\]\s*/, '');
                             return (
-                              <div key={doc.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleProjectFileCore('documents', doc.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
-                                  style={{
-                                    width: '52px',
-                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
-                                    color: isCore ? '#fff7ed' : '#a8a29e',
-                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
-                                  }}
+                              <div key={entry.id} className="flex items-center gap-1.5">
+                                <Chip
+                                  active={isCore}
+                                  aria-pressed={undefined}
+                                  onClick={() => toggleProjectFileCore(entry)}
+                                  // R1: a stored row's flag can only be written
+                                  // on a backend that supports writes. A legacy
+                                  // row's lives on the project record and
+                                  // follows updateProject's own rules.
+                                  disabled={entry.source === 'stored' && !canStoreFiles}
+                                  className="dog-role-chip"
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
                                 >
                                   {isCore ? 'Core' : 'Ref'}
-                                </button>
-                                <span className="text-[10px] text-stone-400 truncate flex-1">{doc.name}</span>
-                              </div>
-                            );
-                          })}
-                          {(selectedProject.visualAssets || []).map(asset => {
-                            const isCore = asset.isCore !== false;
-                            return (
-                              <div key={asset.id} className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
-                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
-                                  style={{
-                                    width: '52px',
-                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
-                                    color: isCore ? '#fff7ed' : '#a8a29e',
-                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
-                                  }}
-                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
-                                >
-                                  {isCore ? 'Core' : 'Ref'}
-                                </button>
-                                <span className="text-[10px] text-stone-400 truncate flex-1">{asset.name}</span>
+                                </Chip>
+                                <span className="dog-role-name">{bareName}</span>
+                                {entry.source === 'legacy' && (
+                                  <Badge
+                                    className="dog-role-source"
+                                    title={`Stored on the project record. Settings → Storage → "Move deck attachments into project files" moves these into the project's files.`}
+                                  >
+                                    Legacy
+                                  </Badge>
+                                )}
                               </div>
                             );
                           })}
@@ -3983,20 +4297,20 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div className="flex items-start gap-8">
                 {/* File Upload - Multiple files support */}
                 <div className="flex-1">
-                  <label className="block text-xs font-bold text-orange-400 mb-0.5 uppercase tracking-wide">
+                  <label className="ui-field-label dog-field-label">
                     Upload Documents
                   </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Source material for generating slide content (max 20 files)</p>
+                  <p className="ui-field-hint dog-field-hint">Source material for generating slide content (max 20 files)</p>
                   
                   {uploadedFiles.length === 0 ? (
-                    <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-stone-700 border-2 border-stone-600 rounded-sm cursor-pointer hover:border-orange-500 hover:bg-stone-600 transition-all">
+                    <label className="ui-btn dog-upload" data-variant="secondary" data-size="md" data-surface="dark">
                       {isFileLoading ? (
-                        <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />
+                        <Loader2 className="animate-spin" aria-hidden="true" />
                       ) : (
-                        <Upload className="w-4 h-4 text-orange-400" />
+                        <Upload aria-hidden="true" />
                       )}
-                      <span className="text-xs font-medium text-orange-400">Choose file</span>
-                      <span className="text-[10px] text-stone-500">(PDF, MD, TXT, Images)</span>
+                      <span>Choose file</span>
+                      <span className="dog-upload-hint">(PDF, MD, TXT, images)</span>
                       <input
                         type="file"
                         className="hidden"
@@ -4013,27 +4327,22 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                             const globalIndex = colIdx * 5 + index;
                             const isLast = globalIndex === uploadedFiles.length - 1;
                             return (
-                              <div key={fileData.id} className="flex items-center gap-2 px-2 py-1.5 bg-stone-700 rounded-sm border border-stone-600 w-72 h-8">
+                              <div key={fileData.id} className="dog-file-chip">
                                 {fileData.type === 'image' ? (
-                                  <Image className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                                  <Image className="dog-file-icon" aria-hidden="true" />
                                 ) : (
-                                  <FileText className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                                  <FileText className="dog-file-icon" aria-hidden="true" />
                                 )}
-                                <span className="text-xs font-medium text-stone-300 flex-1 truncate">{fileData.file.name}</span>
-                                <span className="text-[10px] text-stone-500 flex-shrink-0">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
-                                <button
-                                  onClick={() => removeFile(fileData.id)}
-                                  className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0"
-                                >
-                                  <X className="w-3 h-3 text-stone-400" />
-                                </button>
+                                <span className="dog-file-name">{fileData.file.name}</span>
+                                <span className="dog-file-size">({(fileData.file.size / 1024).toFixed(1)} KB)</span>
+                                <IconButton size="sm" icon={X} title="Remove file" onClick={() => removeFile(fileData.id)} />
                                 {/* Add button on last file if under limit */}
                                 {isLast && uploadedFiles.length < 20 && (
-                                  <label className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors flex-shrink-0 cursor-pointer">
+                                  <label className="ui-iconbtn" data-size="sm" data-surface="dark" title="Add file">
                                     {isFileLoading ? (
-                                      <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
+                                      <Loader2 className="animate-spin" aria-hidden="true" />
                                     ) : (
-                                      <Plus className="w-3 h-3 text-orange-400" />
+                                      <Plus aria-hidden="true" />
                                     )}
                                     <input
                                       type="file"
@@ -4057,65 +4366,60 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               <div>
                 <div className="flex items-center justify-between mb-0.5">
                   <div className="flex items-center gap-3">
-                    <label className="block text-xs font-bold text-orange-400 uppercase tracking-wide">
+                    <label className="ui-field-label">
                       Deck Context & Guidelines
                     </label>
-                    {/* Theme Generator Checkbox */}
+                    {/* "Theme generator" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setEnableThemeGen(!enableThemeGen)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${enableThemeGen ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className="dog-check" data-checked={enableThemeGen} role="checkbox" aria-checked={enableThemeGen} aria-label="Theme generator"
                       >
-                        {enableThemeGen && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {enableThemeGen && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Theme Generator</span>
+                      <span className="dog-check-label">Theme generator</span>
                     </div>
-                    {/* Use Uploaded Assets Checkbox */}
+                    {/* "Use uploaded assets" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseUploadedAssets(!useUploadedAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useUploadedAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className="dog-check" data-checked={useUploadedAssets} role="checkbox" aria-checked={useUploadedAssets} aria-label="Use uploaded assets"
                       >
-                        {useUploadedAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {useUploadedAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Use Uploaded Assets</span>
+                      <span className="dog-check-label">Use uploaded assets</span>
                     </div>
-                    {/* Use Project Assets Checkbox */}
+                    {/* "Use project assets" checkbox */}
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setUseProjectAssets(!useProjectAssets)}
-                        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center transition-colors ${useProjectAssets ? 'border-orange-500 bg-stone-700' : 'border-stone-500 bg-stone-700'}`}
+                        className="dog-check" data-checked={useProjectAssets} role="checkbox" aria-checked={useProjectAssets} aria-label="Use project assets"
                       >
-                        {useProjectAssets && <Check className="w-2.5 h-2.5 text-orange-400" />}
+                        {useProjectAssets && <Check className="dog-check-glyph" aria-hidden="true" />}
                       </button>
-                      <span className="text-[10px] text-stone-400 uppercase tracking-wide">Use Project Assets</span>
+                      <span className="dog-check-label">Use project assets</span>
                     </div>
                   </div>
-                  {/* Full Deck Toggle */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        const newMode = !fullDeckMode;
-                        setFullDeckMode(newMode);
-                        // Auto-collapse section 2 when enabling full deck, expand when disabling
-                        if (newMode) {
-                          setSection2Collapsed(true);
-                        } else {
-                          setSection2Collapsed(false);
-                        }
-                      }}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${fullDeckMode ? 'bg-orange-500' : 'bg-stone-600'}`}
-                    >
-                      <span 
-                        className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${fullDeckMode ? 'left-6' : 'left-1'}`}
-                      />
-                    </button>
-                    <span className="text-xs font-bold text-orange-400 uppercase tracking-wide">Full Deck</span>
-                  </div>
+                  {/* Full Deck Toggle (`dog-full-deck`: enterGenerates.js
+                      keeps "Enter generates" on it, as before S2a) */}
+                  <Switch
+                    className="dog-full-deck"
+                    checked={fullDeckMode}
+                    label="Full deck"
+                    onChange={(newMode) => {
+                      setFullDeckMode(newMode);
+                      // Auto-collapse section 2 when enabling full deck, expand when disabling
+                      if (newMode) {
+                        setSection2Collapsed(true);
+                      } else {
+                        setSection2Collapsed(false);
+                      }
+                    }}
+                  />
                 </div>
-                <p className="text-[10px] text-stone-500 mb-1.5">
+                <p className="ui-field-hint dog-field-hint">
                   Set the overall tone, style, and objectives for the deck
-                  {fullDeckMode && <span className="text-orange-400"> • Include desired page count</span>}
+                  {fullDeckMode && <span className="dog-hint-emph"> • Include desired page count</span>}
                 </p>
                 <textarea
                   value={systemPrompt}
@@ -4131,81 +4435,84 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     }
                   }}
                   placeholder="Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational..."
-                  className={`w-full px-3 py-2 bg-stone-900 border-2 border-stone-600 rounded-sm text-stone-300 placeholder-stone-500 focus:outline-none focus:border-orange-500 resize-none text-sm transition-all duration-200 ${systemPromptFocused ? 'h-40' : 'h-20'}`}
+                  className="ui-input dog-context-prompt" data-surface="dark" data-focused={systemPromptFocused}
                 />
               </div>
 
               {/* Generate Full Deck Button - Only visible in Full Deck Mode */}
               {fullDeckMode && (
-                <button
+                <Button
+                  variant="primary"
+                  className="dog-generate"
                   onClick={generateFullDeck}
                   disabled={isGenerating || !hasFileContent}
-                  className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-sm"
                 >
                   {isGenerating ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Generating Full Deck...
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                      Generating full deck...
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Full Deck Outline
+                      <Sparkles aria-hidden="true" />
+                      Generate full deck outline
                     </>
                   )}
-                </button>
+                </Button>
               )}
             </div>
             )}
-          </section>
+          </Card>
 
           {/* Section 2: Page Generation */}
-          <section className={`bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] ${fullDeckMode ? 'opacity-50' : ''}`}>
-            <div 
-              className={`bg-stone-700 px-3 py-2 border-b-2 border-stone-600 ${fullDeckMode ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-stone-600'} transition-colors`}
+          <Card pad={false} className="dog-card dog-s2" data-full-deck={fullDeckMode}>
+            <header
+              className="ui-panel-head dog-card-head"
+              data-collapsible={!fullDeckMode}
+              data-collapsed={section2Collapsed || fullDeckMode}
               onClick={() => !fullDeckMode && setSection2Collapsed(!section2Collapsed)}
             >
-              <h2 className="font-bold uppercase tracking-wide flex items-center justify-between text-sm">
-                <div className={`flex items-center gap-2 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-mono text-xs ${fullDeckMode ? 'bg-stone-500' : 'bg-orange-500'}`}>2</span>
-                  Generate Page Outline
-                  {fullDeckMode && <span className="text-[10px] font-normal normal-case ml-2">(Disabled in Full Deck mode)</span>}
-                </div>
-                {(section2Collapsed || fullDeckMode) ? (
-                  <ChevronRight className={`w-5 h-5 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`} />
-                ) : (
-                  <ChevronDown className={`w-5 h-5 ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`} />
-                )}
+              <h2 className="ui-panel-title dog-card-title dog-step-title">
+                <span className="dog-step">2</span>
+                Generate page outline
+                {fullDeckMode && <span className="dog-card-note">(Disabled in full deck mode)</span>}
               </h2>
-            </div>
+              <div className="ui-panel-actions">
+                {(section2Collapsed || fullDeckMode) ? (
+                  <ChevronRight className="dog-chevron" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="dog-chevron" aria-hidden="true" />
+                )}
+              </div>
+            </header>
 
             {!section2Collapsed && !fullDeckMode && (
-            <div className="p-4 space-y-3">
-              <div className="flex gap-4">
+            <div className="dog-card-body">
+              <div className="dog-field-row">
                 {/* Layout Dropdown */}
                 <div>
-                  <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                  <label className="ui-field-label dog-field-label">
                     Slide Layout Type
                   </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Choose how content will be arranged on the slide</p>
-                  <div className="relative w-56">
+                  <p className="ui-field-hint dog-field-hint">Choose how content will be arranged on the slide</p>
+                  <div className="dog-layout-select">
                     <select
                       value={selectedLayout}
                       onChange={(e) => setSelectedLayout(e.target.value)}
                       disabled={fullDeckMode}
-                      className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm focus:outline-none appearance-none font-medium text-sm ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-orange-400 cursor-pointer focus:border-orange-500'}`}
+                      className="ui-input dog-select" data-size="md" data-surface="dark" data-empty={!selectedLayout}
                     >
-                      <option value="" className="text-orange-400">Select layout...</option>
+                      <option value="">Select layout...</option>
                       {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id} className="text-stone-300">
+                        <option key={layout.id} value={layout.id}>
                           {layout.name}
                         </option>
                       ))}
                     </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 pointer-events-none" />
+                    <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                   </div>
                   {selectedLayout && !fullDeckMode && (
-                    <p className="mt-1 text-[10px] text-stone-500 italic">
+                    <p className="ui-field-hint dog-layout-desc">
                       {SLIDE_LAYOUTS.find(l => l.id === selectedLayout)?.description}
                     </p>
                   )}
@@ -4213,27 +4520,27 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
                 {/* Page Number */}
                 <div>
-                  <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                  <label className="ui-field-label dog-field-label">
                     Page #
                   </label>
-                  <p className="text-[10px] text-stone-500 mb-1.5">Single number or range (e.g. 3-7)</p>
+                  <p className="ui-field-hint dog-field-hint">Single number or range (e.g. 3-7)</p>
                   <input
                     type="text"
                     value={pageNumber}
                     onChange={(e) => setPageNumber(e.target.value)}
                     disabled={fullDeckMode}
                     placeholder="5 or 1-10"
-                    className={`w-24 px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 focus:outline-none text-sm ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed' : 'bg-stone-900 text-stone-300 focus:border-orange-500'}`}
+                    className="ui-input dog-page-number" data-size="md" data-surface="dark"
                   />
                 </div>
               </div>
 
               {/* Page Request Prompt - Full Width */}
               <div>
-                <label className={`block text-xs font-bold mb-0.5 uppercase tracking-wide ${fullDeckMode ? 'text-stone-500' : 'text-orange-400'}`}>
+                <label className="ui-field-label dog-field-label">
                   Page Request
                 </label>
-                <p className="text-[10px] text-stone-500 mb-1.5">
+                <p className="ui-field-hint dog-field-hint">
                   Describe the specific content you want on this slide
                 </p>
                 <textarea
@@ -4251,272 +4558,221 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   }}
                   disabled={fullDeckMode}
                   placeholder="Example: I need a page listing all the main characters with summaries for each..."
-                  className={`w-full px-3 py-2 border-2 border-stone-600 rounded-sm placeholder-stone-500 focus:outline-none resize-none text-sm transition-all duration-200 ${fullDeckMode ? 'bg-stone-700 text-stone-500 cursor-not-allowed h-24' : `bg-stone-900 text-stone-300 focus:border-orange-500 ${pagePromptFocused ? 'h-40' : 'h-24'}`}`}
+                  className="ui-input dog-page-request" data-surface="dark" data-focused={pagePromptFocused}
                 />
               </div>
 
               {/* Generate Button */}
-              <button
+              <Button
+                variant="primary"
+                className="dog-generate"
                 onClick={generatePageOutline}
                 disabled={isGenerating || !hasFileContent || !pagePrompt || !selectedLayout || fullDeckMode}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed border-2 border-stone-600 rounded-sm font-bold text-stone-900 uppercase tracking-wide flex items-center justify-center gap-2 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] active:shadow-none disabled:shadow-none disabled:text-stone-400 text-sm"
               >
                 {isGenerating ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="animate-spin" aria-hidden="true" />
                     Generating...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4" />
-                    Generate Page Outline
+                    <Sparkles aria-hidden="true" />
+                    Generate page outline
                   </>
                 )}
-              </button>
+              </Button>
             </div>
             )}
-          </section>
+          </Card>
 
           {/* Output Section - Below Input */}
-          <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
-            <div className="bg-stone-700 text-orange-400 px-3 py-2 flex items-center justify-between border-b-2 border-stone-600">
-              <span className="font-bold uppercase text-xs tracking-wide">Generated Output</span>
+          <Card pad={false} className="dog-card dog-output">
+            <header className="ui-panel-head dog-card-head">
+              <h2 className="ui-panel-title dog-card-title">Generated output</h2>
               {activeTab && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={downloadMarkdown}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-xs font-medium text-white"
-                  >
-                    <Download className="w-3 h-3" />
+                <div className="ui-panel-actions">
+                  <Button variant="secondary" size="sm" onClick={downloadMarkdown}>
+                    <Download aria-hidden="true" />
                     Export .md
-                  </button>
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded-sm transition-colors text-xs font-medium text-white"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={copyToClipboard}>
                     {copied ? (
                       <>
-                        <Check className="w-3 h-3" />
+                        <Check aria-hidden="true" />
                         Copied!
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3 h-3" />
+                        <Copy aria-hidden="true" />
                         Copy
                       </>
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
-            </div>
-            
-            {/* Tabs Bar + View Toggle */}
+            </header>
+
+            {/* Tabs Bar + View Toggle — the kit's tab contract (.ui-tabs /
+                .ui-tab) worn by D.O.G.'s own markup, because each page tab is
+                CLOSABLE and the kit's Tabs has no close control yet (A1 kit
+                request A1-KR-1). The close button is now BESIDE the tab rather
+                than inside it (review D22: a button inside a button). */}
             {openTabs.length > 0 && (
-              <div className="bg-stone-800 px-2 pt-1 flex items-end justify-between border-b-2 border-stone-600">
-                {/* Page Tabs */}
-                <div className="flex items-end gap-1 flex-1 overflow-x-auto overflow-y-hidden">
+              <div className="dog-tabbar">
+                <div role="tablist" aria-label="Open pages" className="ui-tabs dog-page-tabs" data-surface="dark">
                   {[...openTabs].sort((a, b) => {
                     const numA = parseInt(a.pageNum) || 999;
                     const numB = parseInt(b.pageNum) || 999;
                     return numA - numB;
                   }).map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTabId(tab.id)}
-                      className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                        activeTabId === tab.id 
-                          ? 'bg-stone-950 text-orange-400 border-t-2 border-l-2 border-r-2 border-stone-600 border-b-2 border-b-stone-950 rounded-t-sm -mb-[2px] relative z-10' 
-                          : 'bg-stone-700 text-stone-400 hover:text-stone-300 border-2 border-stone-600 border-b-0 rounded-t-sm mb-0'
-                      }`}
-                    >
-                      <span className="font-mono">#{tab.pageNum}</span>
-                      <span className="max-w-[100px] truncate">{tab.title}</span>
+                    <span key={tab.id} className="dog-page-tab" role="presentation" data-active={activeTabId === tab.id}>
                       <button
-                        onClick={(e) => closeTab(tab.id, e)}
-                        className="ml-1 p-0.5 hover:bg-stone-600 rounded"
+                        type="button"
+                        role="tab"
+                        id={`dog-tab-${tab.id}`}
+                        aria-selected={activeTabId === tab.id}
+                        aria-controls="dog-output-panel"
+                        className="ui-tab"
+                        data-active={activeTabId === tab.id ? 'true' : undefined}
+                        data-surface="dark"
+                        onClick={() => setActiveTabId(tab.id)}
                       >
-                        <X className="w-3 h-3" />
+                        <span className="dog-tab-num">#{tab.pageNum}</span>
+                        <span className="dog-tab-title">{tab.title}</span>
                       </button>
-                    </button>
+                      <IconButton
+                        size="sm"
+                        icon={X}
+                        title={`Close page ${tab.pageNum}`}
+                        className="dog-tab-close"
+                        onClick={(e) => closeTab(tab.id, e)}
+                      />
+                    </span>
                   ))}
                 </div>
-                
+
                 {/* View Toggle */}
-                <div className="flex items-center gap-1 ml-2 flex-shrink-0 pb-1">
-                  <button
-                    onClick={() => setViewMode('text')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'text' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
-                    title="Text View"
-                  >
-                    <Code className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('visualizer')}
-                    className={`p-1.5 rounded-sm transition-colors ${viewMode === 'visualizer' ? 'bg-orange-500 text-white' : 'bg-stone-700 text-stone-400 hover:text-stone-300'}`}
-                    title="Layout Visualizer"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
+                <div className="dog-view-toggle">
+                  <IconButton size="sm" icon={Code} title="Text view" active={viewMode === 'text'} onClick={() => setViewMode('text')} />
+                  <IconButton size="sm" icon={Eye} title="Layout visualizer" active={viewMode === 'visualizer'} onClick={() => setViewMode('visualizer')} />
                 </div>
               </div>
             )}
-            
-            {/* Regenerate Bar */}
+
+            {/* Regenerate Bar — the kit's Toolbar (review D16: five controls at
+                three heights; every child is now the 28px sm control). The
+                field wears the kit's Input contract on D.O.G.'s own <input>
+                (the A1 / C3 precedent): the kit Input blurs on Enter and
+                reverts on Escape, and this field submits on Enter (C1). */}
             {activeTab && (
-              <div className="bg-stone-900 px-3 py-2 border-b-2 border-stone-600">
-                <div className="flex items-center gap-2">
-                  {/* Title */}
-                  <span className="text-[10px] text-orange-400 uppercase tracking-wide font-bold flex-shrink-0">Edit Output:</span>
-                  
-                  {/* Revision Prompt Input */}
-                  <input
-                    type="text"
-                    value={revisionPrompt}
-                    onChange={(e) => setRevisionPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
-                        regeneratePage();
-                      }
-                    }}
+              <Toolbar className="dog-toolbar dog-regen-bar">
+                <span className="dog-toolbar-label">Edit Output:</span>
+
+                <input
+                  type="text"
+                  value={revisionPrompt}
+                  onChange={(e) => setRevisionPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isRegenerating && hasFileContent) {
+                      regeneratePage();
+                    }
+                  }}
+                  disabled={isRegenerating}
+                  placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
+                  aria-label="Describe changes"
+                  className="ui-input dog-regen-input" data-size="sm" data-surface="dark"
+                />
+
+                <div className="dog-regen-layout">
+                  <Select
+                    size="sm"
+                    value={regenerateLayout}
+                    onChange={setRegenerateLayout}
                     disabled={isRegenerating}
-                    placeholder="Describe changes (e.g., 'make it more concise' or 'add more detail about pricing')..."
-                    className="flex-1 px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-xs placeholder-stone-500 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    placeholder="Keep layout"
+                    options={SLIDE_LAYOUTS.map((layout) => ({ value: layout.id, label: layout.name }))}
+                    aria-label="Layout for the regenerated page"
+                    className="dog-select dog-regen-select"
                   />
-                  
-                  {/* Layout Dropdown */}
-                  <div className="relative flex-shrink-0">
-                    <select
-                      value={regenerateLayout}
-                      onChange={(e) => setRegenerateLayout(e.target.value)}
-                      disabled={isRegenerating}
-                      className="px-2 py-1.5 bg-stone-950 border border-stone-600 rounded-sm text-stone-300 text-xs focus:outline-none focus:border-orange-500 appearance-none pr-6 cursor-pointer disabled:opacity-50"
-                      style={{ minWidth: '140px' }}
-                    >
-                      <option value="">Keep layout</option>
-                      {SLIDE_LAYOUTS.map((layout) => (
-                        <option key={layout.id} value={layout.id}>
-                          {layout.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-stone-500 pointer-events-none" />
-                  </div>
-                  
-                  {/* Regenerate Button */}
-                  <button
-                    onClick={regeneratePage}
-                    disabled={isRegenerating || !hasFileContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:cursor-not-allowed rounded-sm font-bold text-white text-xs uppercase tracking-wide transition-colors flex-shrink-0"
-                  >
-                    {isRegenerating ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Regenerating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3 h-3" />
-                        Regenerate Page
-                      </>
-                    )}
-                  </button>
-                  
-                  {/* Undo Button */}
-                  <button
-                    onClick={undoRegeneration}
-                    disabled={!(previousContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
-                      previousContent[activeTab.id]?.length > 0
-                        ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
-                        : 'bg-stone-800 text-stone-600 cursor-not-allowed'
-                    }`}
-                    title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
-                  >
-                    <Undo2 className="w-4 h-4" />
-                  </button>
-
-                  {/* Redo Button */}
-                  <button
-                    onClick={redoRegeneration}
-                    disabled={!(redoContent[activeTab.id]?.length > 0)}
-                    className={`p-1.5 rounded-sm transition-colors flex-shrink-0 ${
-                      redoContent[activeTab.id]?.length > 0
-                        ? 'bg-stone-700 hover:bg-stone-600 text-orange-400'
-                        : 'bg-stone-800 text-stone-600 cursor-not-allowed'
-                    }`}
-                    title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
-                  >
-                    <Redo2 className="w-4 h-4" />
-                  </button>
+                  <ChevronDown className="dog-select-chevron" aria-hidden="true" />
                 </div>
-              </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  Icon={RefreshCw}
+                  loading={isRegenerating}
+                  loadingLabel="Regenerating..."
+                  onClick={regeneratePage}
+                  disabled={!hasFileContent}
+                  className="dog-regen-go"
+                >
+                  Regenerate page
+                </Button>
+
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
+                  onClick={undoRegeneration}
+                  disabled={!(previousContent[activeTab.id]?.length > 0)}
+                  title={previousContent[activeTab.id]?.length > 0 ? `Undo regeneration (${previousContent[activeTab.id].length})` : 'No previous version'}
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
+                  onClick={redoRegeneration}
+                  disabled={!(redoContent[activeTab.id]?.length > 0)}
+                  title={redoContent[activeTab.id]?.length > 0 ? `Redo regeneration (${redoContent[activeTab.id].length})` : 'No redo available'}
+                />
+              </Toolbar>
             )}
 
-            {/* Formatting Toolbar */}
+            {/* Formatting Toolbar — the kit's Toolbar and IconButtons (review
+                D16: a 30px row of 22px buttons on its own fill, the icons in
+                the accent). The same five controls, the same two conditions. */}
             {activeTab && (
-              <div className="bg-stone-800 px-3 py-1 border-b border-stone-700 border-l-2 border-r-2 border-l-stone-600 border-r-stone-600 flex items-center gap-1">
-                {/* Undo / Redo */}
-                <button
+              <Toolbar className="dog-toolbar dog-format-bar">
+                <IconButton
+                  size="sm"
+                  Icon={Undo2}
                   onClick={handleTextUndo}
                   disabled={undoRedoCounts.undo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.undo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Undo (text)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                </button>
-                <button
+                />
+                <IconButton
+                  size="sm"
+                  Icon={Redo2}
                   onClick={handleTextRedo}
                   disabled={undoRedoCounts.redo === 0}
-                  className={`p-1 rounded transition-colors ${undoRedoCounts.redo === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30'}`}
                   title="Redo (text)"
-                >
-                  <Redo2 className="w-3.5 h-3.5" />
-                </button>
+                />
 
                 {/* Bold, Bullet, Numbered — only in markdown text view */}
                 {viewMode === 'text' && (
                   <>
-                    <div className="w-px h-4 bg-stone-600 mx-1" />
-
-                    {/* Bold */}
-                    <button
-                      onClick={handleToggleBold}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Bold"
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Bullet List */}
-                    <button
-                      onClick={handleToggleBullet}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Bullet List"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Numbered List */}
-                    <button
-                      onClick={handleToggleNumbered}
-                      className="p-1 rounded transition-colors text-orange-400 hover:bg-orange-500/20 active:bg-orange-500/30"
-                      title="Toggle Numbered List"
-                    >
-                      <ListOrdered className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="dog-toolbar-divider" aria-hidden="true" />
+                    <IconButton size="sm" Icon={Bold} onClick={handleToggleBold} title="Bold" />
+                    <IconButton size="sm" Icon={List} onClick={handleToggleBullet} title="Toggle bullet list" />
+                    <IconButton size="sm" Icon={ListOrdered} onClick={handleToggleNumbered} title="Toggle numbered list" />
                   </>
                 )}
-              </div>
+              </Toolbar>
             )}
 
             {/* Descriptor - shown in text edit mode between edit bar and content */}
             {activeTab && viewMode === 'text' && (
-              <div className="bg-stone-800 border-l-2 border-r-2 border-stone-600 px-4 py-1.5">
-                <p className="text-[10px] text-stone-500 italic">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
+              <div className="dog-caption-row">
+                <p className="dog-caption">Edits here are reflected in the visual preview. Right-click for AI rewrite options.</p>
               </div>
             )}
             
-            <div ref={textareaContainerRef} className={`bg-stone-950 border-l-2 border-r-2 border-b-2 border-stone-600 relative ${openTabs.length === 0 ? 'border-t-2' : ''}`}>
+            <div
+              ref={textareaContainerRef}
+              id="dog-output-panel"
+              role={openTabs.length > 0 ? 'tabpanel' : undefined}
+              aria-labelledby={openTabs.length > 0 && activeTab ? `dog-tab-${activeTab.id}` : undefined}
+              className="dog-output-frame"
+            >
               {activeTab ? (
                 viewMode === 'text' ? (
                   <>
@@ -4526,7 +4782,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       onChange={handleTextareaChange}
                       onContextMenu={handleTextareaContextMenu}
                       onKeyDown={handleTextareaKeyDown}
-                      className="w-full min-h-[780px] p-4 font-mono text-sm whitespace-pre-wrap text-orange-400 bg-stone-950 leading-relaxed border-none outline-none resize-y"
+                      className="dog-editor w-full min-h-[780px] p-4 text-body whitespace-pre-wrap border-none resize-y"
                       style={{ minHeight: '780px' }}
                     />
                   </>
@@ -4546,17 +4802,21 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
                     />
-                    <p className="text-[10px] text-stone-500 italic px-4 py-1.5">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
+                    {/* 🚨 C4: this caption sits INSIDE the preview's wrapper and its
+                        height is the pin's `wrapper.h` (751 + 30.84). Review
+                        D27 asked for roman, the Caption step and a 60ch
+                        measure; only roman is height-neutral. See
+                        `.dog-preview-caption`. */}
+                    <p className="dog-preview-caption">Preview is read-only. Select text and right-click to rewrite with AI, or switch to markdown view to edit directly.</p>
                   </div>
                 )
               ) : (
-                <div className="p-8 text-center text-stone-500 flex flex-col items-center justify-center bg-stone-950 min-h-[780px]">
-                  <div className="w-14 h-14 mb-3 bg-stone-900 rounded-full flex items-center justify-center border-2 border-dashed border-stone-700">
-                    <FileText className="w-7 h-7 text-stone-600" />
-                  </div>
-                  <p className="font-medium text-sm text-stone-500">No output yet</p>
-                  <p className="text-xs mt-1 text-stone-600">Generated page outlines will appear here</p>
-                </div>
+                <EmptyState
+                  icon={FileText}
+                  title="No output yet"
+                  body="Generated page outlines will appear here"
+                  className="dog-output-empty"
+                />
               )}
               {/* Rewrite Preview — floats above both text and visualizer views */}
               {rewritePreview.visible && (() => {
@@ -4565,54 +4825,57 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 const relX = Math.max(8, Math.min(contextMenu.x - rect.left, rect.width - 428));
                 const relY = Math.max(8, Math.min(contextMenu.y - rect.top + 10, rect.height - 320));
                 return (
+                  /* A floating surface (review D5): the kit's float tokens —
+                     paper-raised, the hairline, 6px, the one shadow — at the
+                     same 420 x 310 box and the same anchor arithmetic above.
+                     The kit has no Popover (kit request A2-KR-1). */
                   <div
-                    className="absolute z-[80] bg-stone-800 border-2 border-orange-500/40 rounded-sm shadow-2xl w-[420px] max-h-[310px] flex flex-col"
+                    className="dog-rewrite"
                     style={{ left: relX, top: relY }}
                   >
                     {/* Original text being replaced */}
-                    <div className="px-3 pt-2 pb-1 flex-shrink-0 border-b border-stone-700">
-                      <span className="text-[9px] text-stone-500 uppercase tracking-wide font-bold">Replacing</span>
-                      <div className="mt-1 max-h-[60px] overflow-y-auto">
-                        <p className="text-[11px] text-stone-400 font-mono whitespace-pre-wrap leading-relaxed">{contextMenu.selectedText}</p>
+                    <div className="dog-rewrite-part dog-rewrite-orig">
+                      <span className="dog-rewrite-label">Replacing</span>
+                      <div className="dog-rewrite-orig-scroll">
+                        <p className="dog-rewrite-text" data-role="original">{contextMenu.selectedText}</p>
                       </div>
                     </div>
 
                     {/* Generated rewrite */}
-                    <div className="px-3 pt-2 pb-2 flex-1 min-h-0 overflow-y-auto">
-                      <span className="text-[9px] text-orange-400 uppercase tracking-wide font-bold">Rewritten</span>
-                      <div className="mt-1">
+                    <div className="dog-rewrite-part dog-rewrite-new">
+                      <span className="dog-rewrite-label">Rewritten</span>
+                      <div className="dog-rewrite-body">
                         {rewritePreview.isLoading ? (
-                          <div className="flex items-center gap-2 py-4 justify-center">
-                            <Loader2 className="w-4 h-4 text-orange-400 animate-spin" />
-                            <span className="text-xs text-stone-400">Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
+                          <div className="dog-rewrite-loading">
+                            <Spinner size="md" aria-hidden="true" />
+                            <span>Generating {REWRITE_LABELS[rewritePreview.mode] || ''}...</span>
                           </div>
                         ) : (
-                          <p className="text-[11px] text-orange-400 font-mono whitespace-pre-wrap leading-relaxed">{rewritePreview.text}</p>
+                          <p className="dog-rewrite-text" data-role="rewrite">{rewritePreview.text}</p>
                         )}
                       </div>
                     </div>
 
                     {/* Compact action bar */}
-                    <div className="px-3 py-1.5 border-t border-stone-700 flex items-center justify-end gap-1.5 flex-shrink-0">
-                      <button onClick={handleRewriteCancel} className="p-1.5 hover:bg-stone-700 rounded-sm transition-colors" title="Cancel">
-                        <X className="w-3.5 h-3.5 text-stone-500 hover:text-stone-300" />
-                      </button>
-                      <button onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} className="p-1.5 hover:bg-stone-700 disabled:opacity-50 rounded-sm transition-colors" title="Regenerate">
-                        <RefreshCw className={`w-3.5 h-3.5 ${rewritePreview.isLoading ? 'animate-spin text-orange-400' : 'text-stone-500 hover:text-orange-400'}`} />
-                      </button>
-                      <button
+                    <div className="dog-rewrite-actions">
+                      <IconButton size="sm" Icon={X} onClick={handleRewriteCancel} title="Cancel" />
+                      <IconButton size="sm" onClick={handleRewriteRedo} disabled={rewritePreview.isLoading} title="Regenerate">
+                        <RefreshCw className="dog-rewrite-regen-icon" data-loading={rewritePreview.isLoading} aria-hidden="true" />
+                      </IconButton>
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={handleRewriteReplace}
                         disabled={rewritePreview.isLoading || !rewritePreview.text || rewritePreview.text.startsWith('Error:')}
-                        className="px-3 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-stone-600 disabled:text-stone-400 rounded-sm text-white font-bold text-[11px] transition-colors"
                       >
                         Replace
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 );
               })()}
             </div>
-          </section>
+          </Card>
         </main>
       </div>
       
@@ -4652,359 +4915,338 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
         onExportAll={handleExportAll}
       />
       
-      {/* Settings Slide-Out Panel */}
-      {showSettingsMenu && (
-        <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/50 transition-opacity"
-            onClick={() => setShowSettingsMenu(false)}
-          />
-          {/* Slide-out Panel */}
-          <div
-            className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col animate-slide-in-right"
-            style={{
-              width: '40%',
-              minWidth: '400px',
-              paddingTop: window.electronAPI ? '32px' : '0px',
-              animation: 'slideInRight 0.3s ease-out'
-            }}
-          >
-            {/* Panel Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Settings</span>
-              </div>
-              <button 
-                onClick={() => setShowSettingsMenu(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-            
-            {/* Tabs */}
-            <div className="flex border-b-2 border-stone-600 flex-shrink-0">
-              <button
-                onClick={() => setSettingsTab('prompts')}
-                className={`flex-1 py-2 px-4 text-sm font-medium transition-colors ${
-                  settingsTab === 'prompts' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
-                    : 'bg-stone-700 text-stone-400 hover:text-stone-300'
-                }`}
-              >
-                System Prompts
-              </button>
-              <button
-                onClick={() => setSettingsTab('format')}
-                className={`flex-1 py-2 px-4 text-sm font-medium transition-colors ${
-                  settingsTab === 'format' 
-                    ? 'bg-stone-900 text-orange-400 border-b-2 border-orange-500 -mb-[2px]' 
-                    : 'bg-stone-700 text-stone-400 hover:text-stone-300'
-                }`}
-              >
-                Output Format
-              </button>
-            </div>
+      {/* Settings Slide-Out Panel — the kit's Drawer, its first caller (plan
+          §4; F2's hand-off §8 left it waiting for this one). It was an
+          absolute panel inside its own fixed overlay: a black/50 backdrop,
+          the heaviest shadow, a hand-set 32px paddingTop under Electron's title
+          bar, and its entrance declared three times (review D24: a dead
+          `animate-slide-in-right`, an inline `slideInRight 0.3s` and a
+          third copy of the keyframes injected below it). The Drawer owns
+          the title-bar offset, the one entrance, the backdrop (opt-in; this
+          panel had one, and a click on it still closes) and Escape.
 
-            {/* Lock Switch Bar */}
-            {(
-            <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-2">
-                {settingsTab === 'prompts' ? (
-                  promptsTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                ) : (
-                  formatTabLocked ? (
-                    <Lock className="w-4 h-4 text-stone-500" />
-                  ) : (
-                    <Unlock className="w-4 h-4 text-orange-400" />
-                  )
-                )}
-                <span className={`text-xs font-bold uppercase tracking-wide ${
-                  (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
-                    ? 'text-stone-500'
-                    : 'text-orange-400'
-                }`}>
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] uppercase tracking-wide ${
-                  (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)
-                    ? 'text-stone-500'
-                    : 'text-stone-400'
-                }`}>
-                  {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
-                </span>
-                <button
-                  onClick={() => {
-                    if (settingsTab === 'prompts') {
-                      setPromptsTabLocked(!promptsTabLocked);
-                    } else {
-                      setFormatTabLocked(!formatTabLocked);
-                    }
-                  }}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    (settingsTab === 'prompts' ? !promptsTabLocked : !formatTabLocked)
-                      ? 'bg-orange-500'
-                      : 'bg-stone-600'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${
-                      (settingsTab === 'prompts' ? !promptsTabLocked : !formatTabLocked)
-                        ? 'left-6'
-                        : 'left-1'
-                    }`}
+          Its width is NOT the kit's: 40% of the window, never under 400px,
+          as it was — sixteen prompt editors at the kit's widest (300) is a
+          different panel (C1). Kit request A2-KR-2. The header wears the
+          kit's drawer head with the Settings icon and A1's ink-2 title, one
+          treatment with the other five panel headers (review D4, A1-KR-3). */}
+      <Drawer
+        open={showSettingsMenu}
+        onClose={() => setShowSettingsMenu(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="dog-settings-drawer"
+        title={(
+          <>
+            <Settings className="dog-head-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setShowSettingsMenu(false)} />}
+        footer={(
+          <div className="dog-settings-foot">
+            <p className="dog-settings-foot-note">
+              Changes are applied immediately. Use "Reset to default" to restore original settings.
+            </p>
+            <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          </div>
+        )}
+      >
+            {/* Tabs — the kit's Tabs (review D21: a dark grey fill and a
+                2px orange underline with a -4px overlap). */}
+            <Tabs
+              items={[{ id: 'prompts', label: 'System prompts' }, { id: 'format', label: 'Output format' }]}
+              value={settingsTab}
+              onChange={setSettingsTab}
+              label="Settings sections"
+              panelId="dog-settings-panel"
+              className="dog-settings-tabs"
+            />
+
+            {/* Lock Switch Bar — the kit's Toolbar and Switch (the last
+                hand-rolled switch on the tool: a 44 x 24 pill with a grey
+                knob in both states, review D26). "Editable" is the switch's
+                name and its state is the switch's; the words beside it are
+                unchanged. */}
+            <Toolbar
+              className="dog-toolbar dog-lock-bar"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+              right={(
+                <>
+                  <span className="dog-lock-mode">
+                    {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Read Only' : 'Editable'}
+                  </span>
+                  <Switch
+                    checked={!(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked)}
+                    onChange={() => {
+                      if (settingsTab === 'prompts') {
+                        setPromptsTabLocked(!promptsTabLocked);
+                      } else {
+                        setFormatTabLocked(!formatTabLocked);
+                      }
+                    }}
+                    aria-label="Editable"
                   />
-                </button>
-              </div>
-            </div>
-            )}
-            
-            {/* Tab Content */}
-            <div className={`flex-1 overflow-y-auto settings-scrollbar ${
-              (settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'opacity-50' : ''
-            }`}>
+                </>
+              )}
+            >
+              {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? (
+                <Lock className="dog-lock-icon" aria-hidden="true" />
+              ) : (
+                <Unlock className="dog-lock-icon" aria-hidden="true" />
+              )}
+              <span className="dog-lock-label">
+                {(settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked) ? 'Locked' : 'Unlocked'}
+              </span>
+            </Toolbar>
+
+            {/* Tab Content — the lock is the disabled token now (ink at 52
+                percent, not-allowed), where it was the whole panel at
+                opacity 50% (the walk measured 39 lines of it at 1.77:1). */}
+            <div
+              id="dog-settings-panel"
+              role="tabpanel"
+              className="dog-settings-body wilson-dark-scroll"
+              data-locked={settingsTab === 'prompts' ? promptsTabLocked : formatTabLocked}
+            >
               {settingsTab === 'prompts' ? (
                 <>
                   {/* Page Generation Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Page Generation Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Page Generation Prompts</span>
                   </div>
                   
                   {/* Single Page System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as system message for single page generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_sys: !p.sp_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for single page generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_sys} />
                     </button>
                     {!settingsCollapsed.sp_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
-                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                        <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Single Page Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page - Generation Rules</span>
-                        <p className="text-[10px] text-stone-500">Formatting rules and constraints for single page output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_rules: !p.sp_rules}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for single page output</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_rules ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_rules} />
                     </button>
                     {!settingsCollapsed.sp_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={singlePageInstructions} onChange={(e) => setSinglePageInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as system message for full deck generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_sys: !p.fd_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as system message for full deck generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_sys} />
                     </button>
                     {!settingsCollapsed.fd_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
-                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                        <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Instructions */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck - Generation Rules</span>
-                        <p className="text-[10px] text-stone-500">Formatting rules and constraints for full deck output</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_rules: !p.fd_rules}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck - Generation Rules</span>
+                        <p className="dog-acc-desc">Formatting rules and constraints for full deck output</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_rules ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_rules} />
                     </button>
                     {!settingsCollapsed.fd_rules && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={fullDeckInstructions} onChange={(e) => setFullDeckInstructions(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Assets System Prompt Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Visual Assets System Prompt</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">Visual Assets System Prompt</span>
                   </div>
 
                   {/* Theme Color Generation Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Theme Color Generation</span>
-                        <p className="text-[10px] text-stone-500">System prompt sent to Haiku for AI theme color generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, theme_prompt: !p.theme_prompt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Theme Color Generation</span>
+                        <p className="dog-acc-desc">System prompt sent to Haiku for AI theme color generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.theme_prompt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.theme_prompt} />
                     </button>
                     {!settingsCollapsed.theme_prompt && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
-                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                        <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Shared Image Prompt Rules (All Models) */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Shared Rules (All Models)</span>
-                        <p className="text-[10px] text-stone-500">Common formatting and structure rules applied to all image generation models</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_shared: !p.img_shared}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Shared Rules (All Models)</span>
+                        <p className="dog-acc-desc">Common formatting and structure rules applied to all image generation models</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_shared ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_shared} />
                     </button>
                     {!settingsCollapsed.img_shared && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptSharedSystem} onChange={(e) => setImgPromptSharedSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptSharedSystem(DEFAULT_IMG_PROMPT_SHARED_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Midjourney System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Midjourney Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Midjourney v6</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_midjourney: !p.img_midjourney}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Midjourney Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Midjourney v6</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_midjourney ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_midjourney} />
                     </button>
                     {!settingsCollapsed.img_midjourney && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptMidjourneySystem} onChange={(e) => setImgPromptMidjourneySystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptMidjourneySystem(DEFAULT_IMG_PROMPT_MIDJOURNEY)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Flux System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Flux Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Flux</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_flux: !p.img_flux}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Flux Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Flux</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_flux ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_flux} />
                     </button>
                     {!settingsCollapsed.img_flux && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptFluxSystem} onChange={(e) => setImgPromptFluxSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptFluxSystem(DEFAULT_IMG_PROMPT_FLUX)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Nano Banana System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Nano Banana Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for Nano Banana</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_nanobanana: !p.img_nanobanana}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Nano Banana Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for Nano Banana</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_nanobanana ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_nanobanana} />
                     </button>
                     {!settingsCollapsed.img_nanobanana && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptNanoBananaSystem} onChange={(e) => setImgPromptNanoBananaSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptNanoBananaSystem(DEFAULT_IMG_PROMPT_NANOBANANA)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Chat GPT / DALL-E System Prompt */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Chat GPT / DALL-E Prompt</span>
-                        <p className="text-[10px] text-stone-500">Model-specific rules for ChatGPT / DALL-E 3</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_chatgpt: !p.img_chatgpt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Chat GPT / DALL-E Prompt</span>
+                        <p className="dog-acc-desc">Model-specific rules for ChatGPT / DALL-E 3</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_chatgpt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_chatgpt} />
                     </button>
                     {!settingsCollapsed.img_chatgpt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptChatGPTSystem} onChange={(e) => setImgPromptChatGPTSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-32 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptChatGPTSystem(DEFAULT_IMG_PROMPT_CHATGPT)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt - API System Message */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt - API System Message</span>
-                        <p className="text-[10px] text-stone-500">Core instruction sent as the API system message for image prompt generation</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_api_sys: !p.img_api_sys}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt - API System Message</span>
+                        <p className="dog-acc-desc">Core instruction sent as the API system message for image prompt generation</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_api_sys ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_api_sys} />
                     </button>
                     {!settingsCollapsed.img_api_sys && (
-                      <div className="px-3 pb-3 pt-2">
+                      <div className="dog-acc-body">
                         <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
-                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                        <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className="ui-input dog-acc-textarea h-48 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
 
                   {/* AI Rewrite Prompts Section Title */}
-                  <div className="border-b border-stone-700 px-3 py-2">
-                    <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">AI Rewrite Prompts</span>
+                  <div className="dog-settings-section">
+                    <span className="dog-settings-section-title">AI Rewrite Prompts</span>
                   </div>
                   
                   {Object.entries(REWRITE_LABELS).map(([mode, label]) => {
                     const collapseKey = `rw_${mode}`;
                     return (
-                      <div key={mode} className="border-b border-stone-700 overflow-hidden">
-                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                          <div className="text-left">
-                            <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{label}</span>
-                            <p className="text-[10px] text-stone-500">Rewrite prompt for "{label}" mode</p>
+                      <div key={mode} className="dog-acc">
+                        <button onClick={() => setSettingsCollapsed(p => ({...p, [collapseKey]: !p[collapseKey]}))} className="dog-acc-head">
+                          <div className="dog-acc-text">
+                            <span className="dog-acc-label">{label}</span>
+                            <p className="dog-acc-desc">Rewrite prompt for "{label}" mode</p>
                           </div>
-                          <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed[collapseKey] ? '' : 'rotate-90'}`} />
+                          <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed[collapseKey]} />
                         </button>
                         {!settingsCollapsed[collapseKey] && (
-                          <div className="px-3 pb-3 pt-2">
+                          <div className="dog-acc-body">
                             <textarea
                               value={rewritePrompts[mode]}
                               onChange={(e) => setRewritePrompts(prev => ({ ...prev, [mode]: e.target.value }))}
                               disabled={promptsTabLocked}
-                              className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-y settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`}
+                              className="ui-input dog-acc-textarea h-32 resize-y wilson-dark-scroll" data-surface="dark"
                             />
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setRewritePrompts(prev => ({ ...prev, [mode]: DEFAULT_REWRITE_PROMPTS[mode] }))}
                               disabled={promptsTabLocked}
-                              className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                              className="dog-acc-reset"
                             >
                               Reset to default
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -5014,68 +5256,68 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               ) : (
                 <>
                   {/* Single Page Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Single Page Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for individual slide exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, sp_fmt: !p.sp_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Single Page Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for individual slide exports</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.sp_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.sp_fmt} />
                     </button>
                     {!settingsCollapsed.sp_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={singlePageOutputFormat} onChange={(e) => setSinglePageOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setSinglePageOutputFormat(DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Full Deck Output Format */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Full Deck Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for complete deck exports</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, fd_fmt: !p.fd_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Full Deck Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for complete deck exports</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.fd_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.fd_fmt} />
                     </button>
                     {!settingsCollapsed.fd_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-96 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={fullDeckOutputFormat} onChange={(e) => setFullDeckOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-96 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setFullDeckOutputFormat(DEFAULT_FULL_DECK_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
                   
                   {/* Visual Deck Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Visual Deck Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Extended export format with theme colors and deck summary. This schema is read-only.</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, vis_fmt: !p.vis_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Visual Deck Export Schema</span>
+                        <p className="dog-acc-desc">Extended export format with theme colors and deck summary. This schema is read-only.</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.vis_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.vis_fmt} />
                     </button>
                     {!settingsCollapsed.vis_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-stone-400 text-xs font-mono focus:outline-none resize-none settings-scrollbar cursor-not-allowed" />
+                      <div className="dog-acc-body">
+                        <textarea readOnly value={`DECK SUMMARY\n═══════════════════════════════════════\n▸ DECK TITLE: [Title from Page 1]\n▸ PAGE COUNT: [Total pages]\n▸ SELECTED THEME: [Name] — [#hex1, #hex2, #hex3, #hex4]\n▸ VISUAL DESCRIPTION: [AI-generated mood/texture description]\n═══════════════════════════════════════\n\n[Standard DECKOUTLINE page content]\nSLIDE #1 — [Layout]\n▸ TITLE: ...\n▸ SUBTITLE: ...\n▸ COPY/TEXT CONTENT: ...\n▸ REQUIRED ASSETS: ...\n▸ LAYOUT STRUCTURE: ...\n▸ VISUAL STYLING: ...\n▸ COMPONENT GEOMETRY: { "canvas": {...}, "frames": [...] }\n═══════════════════════════════════════\n[...additional slides...]\n═══════════════════════════════════════\n\nALTERNATE THEME COLORS\n═══════════════════════════════════════\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n• [Theme Name]: #hex1, #hex2, #hex3, #hex4\n═══════════════════════════════════════`} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" data-readonly="true" />
                       </div>
                     )}
                   </div>
 
                   {/* Image Prompt Export Schema */}
-                  <div className="border-b border-stone-700 overflow-hidden">
-                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-                      <div className="text-left">
-                        <span className={`text-xs font-bold uppercase tracking-wide ${formatTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Image Prompt Export Schema</span>
-                        <p className="text-[10px] text-stone-500">Markdown structure for generated image prompts file</p>
+                  <div className="dog-acc">
+                    <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head">
+                      <div className="dog-acc-text">
+                        <span className="dog-acc-label">Image Prompt Export Schema</span>
+                        <p className="dog-acc-desc">Markdown structure for generated image prompts file</p>
                       </div>
-                      <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${settingsCollapsed.img_fmt ? '' : 'rotate-90'}`} />
+                      <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_fmt} />
                     </button>
                     {!settingsCollapsed.img_fmt && (
-                      <div className="px-3 pb-3 pt-2">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className={`w-full h-80 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${formatTabLocked ? 'cursor-not-allowed' : ''}`} />
-                        <button onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className={`mt-1 text-[10px] ${formatTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
+                      <div className="dog-acc-body">
+                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
+                        <Button variant="ghost" size="sm" onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
                       </div>
                     )}
                   </div>
@@ -5083,327 +5325,258 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
               )}
             </div>
             
-            {/* Panel Footer */}
-            <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between">
-              <p className="text-[10px] text-stone-500 flex-1">
-                Changes are applied immediately. Use "Reset to default" to restore original settings.
-              </p>
-              <button
-                onClick={() => setShowHelpModal(true)}
-                className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-sm transition-colors"
-                title="Help & Documentation"
-              >
-                <HelpCircle className="w-4 h-4 text-orange-400" />
-              </button>
-            </div>
-          </div>
-          
-          {/* CSS Animation and Scrollbar Styles */}
-          <style>{`
-            @keyframes slideInRight {
-              from {
-                transform: translateX(100%);
-              }
-              to {
-                transform: translateX(0);
-              }
-            }
-          `}</style>
-        </div>
-      )}
-      
-      {/* Help Modal - Higher z-index to appear above settings panel */}
+      </Drawer>
+
+      {/* Help Modal — the kit's Dialog at the reading width (720). It was
+          850 x 82vh on its own black/70 backdrop at z-100 (review D5), with
+          a prose column about 100 characters wide (D27); at 720 with the
+          200px contents panel the column is about 65 characters, inside
+          D27's 72ch cap. It keeps its fixed height, so changing page does
+          not resize it, and its two columns scroll on their own. A Dialog
+          stacks over the settings Drawer it opens from (70 over 60), and the
+          Drawer stands down on Escape while a Dialog is open. */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/70"
-            onClick={() => setShowHelpModal(false)}
-          />
-          {/* Modal */}
-          <div className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            {/* Modal Header */}
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
-              </div>
-              <button
-                onClick={() => setShowHelpModal(false)}
-                className="p-1 hover:bg-stone-600 rounded transition-colors"
-              >
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="dog-help"
+        >
+          {/* Sidebar — Table of Contents. The active page is F2's selected
+              row: the signal tint and a 2px signal edge drawn inside the row,
+              where it was a 2px left border that pushed every label in. */}
+          <nav className="dog-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="dog-help-list">
+              {DOG_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="dog-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-
-            {/* Modal Body — Sidebar + Content */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Sidebar — Table of Contents */}
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto settings-scrollbar py-2 flex flex-col">
-                <div className="flex-1">
-                {DOG_HELP_SIDEBAR_ITEMS.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setHelpPage(item.id)}
-                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                      helpPage === item.id
-                        ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
-                        : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-xs text-stone-500 font-mono">{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-
-              {/* Content Area */}
-              <div className="flex-1 overflow-y-auto p-5 settings-scrollbar">
-
-              <DogHelpContent helpPage={helpPage} />
+            <div className="dog-help-version">
+              {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v?'}
             </div>
+          </nav>
 
+          {/* Content Area */}
+          <div className="dog-help-content wilson-dark-scroll">
+            <DogHelpContent helpPage={helpPage} />
           </div>
-        </div>
-        </div>
+        </Dialog>
       )}
 
-      {/* Right-Click Context Menu */}
+      {/* Right-Click Context Menu — the kit's Menu (header / divider / item /
+          hint on the one float surface; the kit's hover and viewport clamp).
+          It was a private stylesheet injected on every open: a 3px orange
+          left edge and an orange tint on hover, every item in the accent.
+          Same items, same order, same shortcuts shown. Every item is
+          `keepOpen` because every handler already closes the menu itself —
+          a rewrite with nothing selected returns early and leaves it open,
+          exactly as before — and the click stays inside it (the window
+          listener above closes it on any click that reaches the window). */}
       {contextMenu.visible && (
-        <div
-          className="fixed z-[70] bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+        <Menu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          minWidth={180}
+          onClose={closeContextMenu}
           onClick={(e) => e.stopPropagation()}
-        >
-          <style>{`
-            .ctx-btn { border-left: 3px solid transparent; transition: all 0.1s ease; cursor: pointer; }
-            .ctx-btn:hover:not(:disabled) { border-left-color: #f97316; background: rgba(249,115,22,0.12); }
-            .ctx-btn:disabled { color: #57534e; cursor: default; }
-            .ctx-btn:disabled:hover { border-left-color: transparent; background: transparent; }
-          `}</style>
-          {/* Section 1: Edit — text view only */}
-          {contextMenu.source !== 'visualizer' && (
-            <>
-              <button onClick={() => handleClipboardAction('undo')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Undo2 className="w-3 h-3 flex-shrink-0" /> Undo <span className="ml-auto text-stone-600 text-[10px]">{modKey}Z</span>
-              </button>
-              <button onClick={() => handleClipboardAction('redo')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Redo2 className="w-3 h-3 flex-shrink-0" /> Redo <span className="ml-auto text-stone-600 text-[10px]">{shiftModKey}Z</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-
-              {/* Section 2: Clipboard */}
-              <button onClick={() => handleClipboardAction('cut')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Scissors className="w-3 h-3 flex-shrink-0" /> Cut <span className="ml-auto text-stone-600 text-[10px]">{modKey}X</span>
-              </button>
-              <button onClick={() => handleClipboardAction('copy')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <Copy className="w-3 h-3 flex-shrink-0" /> Copy <span className="ml-auto text-stone-600 text-[10px]">{modKey}C</span>
-              </button>
-              <button onClick={() => handleClipboardAction('paste')} className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2">
-                <ClipboardList className="w-3 h-3 flex-shrink-0" /> Paste <span className="ml-auto text-stone-600 text-[10px]">{modKey}V</span>
-              </button>
-
-              {/* Divider */}
-              <div className="border-t border-stone-600 my-1" />
-            </>
-          )}
-
-          {/* AI Rewrite — shown in both views */}
-          <div className="px-3 py-1">
-            <span className="text-[9px] text-stone-500 uppercase tracking-wide font-bold">AI Rewrite</span>
-          </div>
-          {Object.entries(REWRITE_LABELS).map(([mode, label]) => (
-            <button
-              key={mode}
-              onClick={() => handleRewriteRequest(mode)}
-              className="ctx-btn w-full px-3 py-1.5 text-left text-xs text-orange-400 flex items-center gap-2"
-            >
-              <Sparkles className="w-3 h-3 flex-shrink-0" />
-              {label}
-            </button>
-          ))}
-        </div>
+          className="dog-context-menu"
+          items={[
+            ...(contextMenu.source !== 'visualizer' ? [
+              // Section 1: Edit — text view only
+              { label: 'Undo', Icon: Undo2, hint: `${modKey}Z`, onClick: () => handleClipboardAction('undo'), keepOpen: true },
+              { label: 'Redo', Icon: Redo2, hint: `${shiftModKey}Z`, onClick: () => handleClipboardAction('redo'), keepOpen: true },
+              { divider: true },
+              // Section 2: Clipboard
+              { label: 'Cut', Icon: Scissors, hint: `${modKey}X`, onClick: () => handleClipboardAction('cut'), keepOpen: true },
+              { label: 'Copy', Icon: Copy, hint: `${modKey}C`, onClick: () => handleClipboardAction('copy'), keepOpen: true },
+              { label: 'Paste', Icon: ClipboardList, hint: `${modKey}V`, onClick: () => handleClipboardAction('paste'), keepOpen: true },
+              { divider: true },
+            ] : []),
+            // AI Rewrite — shown in both views
+            { header: 'AI Rewrite' },
+            ...Object.entries(REWRITE_LABELS).map(([mode, label]) => (
+              { label, Icon: Sparkles, onClick: () => handleRewriteRequest(mode), keepOpen: true }
+            )),
+          ]}
+        />
       )}
 
       {/* Footer bar is now managed by App.jsx container */}
 
-      {/* New Project Modal */}
+      {/* New Project Modal — the kit's Dialog (review D20: the one modal on
+          the tool written in inline style objects, with white on the signal at
+          13px (C6), light-orange ink, 2px frames, a focus ring of its own and ✕
+          glyphs). Same fields in the same order, the same validation, the
+          same close paths: Cancel, the backdrop, and now the named Close. */}
       {showNewProjectModal && (
-        <div
-          onClick={resetNewProjectModal}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-xl"
-            style={{ width: '520px', maxHeight: '85vh', padding: '24px', overflowY: 'auto' }}
-          >
-            <h3 className="text-sm font-bold uppercase tracking-widest text-orange-400 mb-4">Create New Project</h3>
-            <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Project Title</label>
-                <input
-                  type="text"
-                  value={newProjectTitle}
-                  onChange={(e) => setNewProjectTitle(e.target.value)}
-                  placeholder="Enter project title..."
-                  autoFocus
-                  className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Description</label>
-                <textarea
-                  value={newProjectDescription}
-                  onChange={(e) => setNewProjectDescription(e.target.value)}
-                  placeholder="Brief description of the project..."
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c' }}
-                />
-              </div>
-
-              {/* Dates */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={newProjectStartDate}
-                    onChange={(e) => setNewProjectStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">End Date</label>
-                  <input
-                    type="date"
-                    value={newProjectEndDate}
-                    onChange={(e) => setNewProjectEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '2px solid #44403c', colorScheme: 'dark' }}
-                  />
-                </div>
-              </div>
-
-              {/* Documents Upload — cloud projects have no attachment home
-                  yet (locked #17 / S14 storage work), so the pickers degrade
-                  to an explanation rather than losing files silently. */}
-              {cloudProjects ? (
-                <p className="text-[10px] text-stone-500 border border-stone-700 rounded-sm px-2 py-2 bg-stone-900/50">
-                  File attachments on cloud projects arrive with the storage
-                  work. Create the project here, then upload files in the
-                  generator panel to include them in generation.
-                </p>
-              ) : (<>
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Documents</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-docs-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-[10px] text-stone-500">Click to upload documents (.pdf, .doc, .txt, .md, .csv)</p>
-                  <input
-                    id="new-proj-docs-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
-                    onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectDocuments.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectDocuments.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
-                        <span className="text-[10px] text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
-                          className="text-[10px] text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Visual Assets Upload */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Visual Assets</label>
-                <div
-                  onClick={() => document.getElementById('new-proj-assets-input')?.click()}
-                  className="border-2 border-dashed border-stone-600 rounded-sm px-3 py-3 text-center cursor-pointer hover:border-orange-500 transition-colors"
-                  style={{ backgroundColor: '#1c1917' }}
-                >
-                  <p className="text-[10px] text-stone-500">Click to upload images or videos</p>
-                  <input
-                    id="new-proj-assets-input"
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-                {newProjectAssets.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {newProjectAssets.map(f => (
-                      <div key={f.id} className="flex items-center justify-between px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
-                        {f.type?.startsWith('image/') && (
-                          <img src={f.content} alt="" className="w-6 h-6 object-cover rounded-sm mr-2 flex-shrink-0" />
-                        )}
-                        <span className="text-[10px] text-stone-400 truncate flex-1 mr-2">{f.name}</span>
-                        <button
-                          onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
-                          className="text-[10px] text-stone-600 hover:text-red-500 transition-colors flex-shrink-0"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              </>)}
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3 mt-5">
-              <button
-                onClick={resetNewProjectModal}
-                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-                style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
-              >
+        <Dialog
+          title="Create new project"
+          onClose={resetNewProjectModal}
+          dismissOnBackdrop
+          width="form"
+          className="dog-np"
+          footer={(
+            <>
+              <Button variant="secondary" onClick={resetNewProjectModal}>
                 Cancel
-              </button>
-              <button
-                onClick={handleCreateProjectFromModal}
-                disabled={!newProjectTitle.trim()}
-                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors disabled:opacity-40"
-                style={{ backgroundColor: '#ea580c', color: '#fff' }}
-              >
-                Create Project
-              </button>
+              </Button>
+              <Button variant="primary" onClick={handleCreateProjectFromModal} disabled={!newProjectTitle.trim()}>
+                Create project
+              </Button>
+            </>
+          )}
+        >
+          <div className="dog-np-body">
+            {/* Title */}
+            <div>
+              <label className="ui-field-label dog-np-label" id="dog-np-title-label">Project Title</label>
+              <input
+                id="dog-np-title"
+                aria-labelledby="dog-np-title-label"
+                type="text"
+                value={newProjectTitle}
+                onChange={(e) => setNewProjectTitle(e.target.value)}
+                placeholder="Enter project title..."
+                autoFocus
+                className="ui-input" data-size="md" data-surface="dark"
+              />
             </div>
+
+            {/* Description */}
+            <div>
+              <label className="ui-field-label dog-np-label" id="dog-np-description-label">Description</label>
+              <textarea
+                id="dog-np-description"
+                aria-labelledby="dog-np-description-label"
+                value={newProjectDescription}
+                onChange={(e) => setNewProjectDescription(e.target.value)}
+                placeholder="Brief description of the project..."
+                rows={3}
+                className="ui-input dog-np-textarea" data-surface="dark"
+              />
+            </div>
+
+            {/* Dates */}
+            <div className="dog-np-dates">
+              <div>
+                <label className="ui-field-label dog-np-label" id="dog-np-start-label">Start Date</label>
+                <input
+                  id="dog-np-start"
+                  aria-labelledby="dog-np-start-label"
+                  type="date"
+                  value={newProjectStartDate}
+                  onChange={(e) => setNewProjectStartDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+              <div>
+                <label className="ui-field-label dog-np-label" id="dog-np-end-label">End Date</label>
+                <input
+                  id="dog-np-end"
+                  aria-labelledby="dog-np-end-label"
+                  type="date"
+                  value={newProjectEndDate}
+                  onChange={(e) => setNewProjectEndDate(e.target.value)}
+                  className="ui-input dog-np-date" data-size="md" data-surface="dark"
+                />
+              </div>
+            </div>
+
+            {/* Documents Upload. C3: the pickers work on every backend with
+                a file store. Only a read-only backend (Drive) still degrades
+                to an explanation, and it degrades because it cannot store
+                anything at all — not because attachments have no home. */}
+            {!canStoreFiles ? (
+              <p className="dog-np-note">
+                This backend is read-only, so files cannot be attached here.
+                Switch to Supabase or Local Server in Settings to attach
+                project files.
+              </p>
+            ) : (<>
+            <div>
+              <span className="ui-field-label dog-np-label">Documents</span>
+              {/* The picker is the kit's secondary Button, as A1's upload is
+                  (review D30: three upload affordances, three looks). It was
+                  a clickable <div> the keyboard could not reach. */}
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-docs-input')?.click()}
+              >
+                <span>Click to upload documents</span>
+                <span className="dog-upload-hint">(.pdf, .doc, .txt, .md, .csv)</span>
+              </Button>
+              <input
+                id="new-proj-docs-input"
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+                onChange={(e) => { handleNewProjectFileUpload('documents', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectDocuments.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectDocuments.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectDocuments(prev => prev.filter(d => d.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Visual Assets Upload */}
+            <div>
+              <span className="ui-field-label dog-np-label">Visual Assets</span>
+              <Button variant="secondary" Icon={Upload} className="dog-np-upload"
+                onClick={() => document.getElementById('new-proj-assets-input')?.click()}
+              >
+                Click to upload images or videos
+              </Button>
+              <input
+                id="new-proj-assets-input"
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                onChange={(e) => { handleNewProjectFileUpload('assets', e.target.files); e.target.value = ''; }}
+                className="hidden"
+              />
+              {newProjectAssets.length > 0 && (
+                <div className="dog-np-files">
+                  {newProjectAssets.map(f => (
+                    <div key={f.id} className="dog-np-file">
+                      {f.type?.startsWith('image/') && (
+                        <img src={f.content} alt="" className="dog-np-thumb" />
+                      )}
+                      <span className="dog-np-file-name">{f.name}</span>
+                      <IconButton
+                        size="sm"
+                        Icon={X}
+                        title={`Remove ${f.name}`}
+                        onClick={() => setNewProjectAssets(prev => prev.filter(a => a.id !== f.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            </>)}
           </div>
-        </div>
+        </Dialog>
       )}
 
     </div>

@@ -1,42 +1,84 @@
 // =============================================================================
-// LogsSection — System (app_events) and Activity (edit_history) streams
-// (Session 9).
+// LogsSection — System (app_events), Activity (edit_history) and, since Track
+// B bundle B2 part 2, Sign-ins (auth_events) streams (Session 9; B2 2026-09-06).
 //
 // UX laws embodied:
-//   Hick's Law — two tabs, two selects, one refresh; nothing else.
+//   Hick's Law — three tabs, one select each, one refresh; nothing else.
 //   Doherty Threshold — refresh spinner + instant client-side filtering
-//     over the fetched 100 rows.
+//     over the fetched rows.
 //   Jakob's Law — same chip-tab + light-table grammar as the rest of the app.
 //
-// RLS: app_events is admin-only, edit_history admin/manager — both queries
-// ride the signed-in client. Missing-table errors ('42P01'/'PGRST205') are
-// a legitimate pre-deploy state, not a failure.
+// RLS: app_events is admin-only, edit_history admin/manager, auth_events
+// (0070) self + admin-of-the-company — every query rides the signed-in
+// client. Missing-table errors ('42P01'/'PGRST205') are a legitimate
+// pre-deploy state, not a failure.
+//
+// Sign-ins (B2): a plain `select … order by created_at desc` — the 0070
+// SELECT policy does the scoping (an admin sees rows tagged with their
+// company and the sign-in server's rows for its members). Names come from
+// the roster the page already holds (workspace_directory()); the sign-in
+// server's rows carry no address and say so in the legend. Unknown-username
+// attempts are NOT here: they never reach GoTrue, live in auth_attempt_log,
+// and that table is operator-readable only (0002) — showing them to a company
+// admin would need a policy decision and a migration, so they stay out.
 // =============================================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, ScrollText, Loader2 } from 'lucide-react'
+import { RefreshCw, ScrollText } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { describeErrorCode } from '../../cloud/errorCodes'
 import {
-  LIGHT_INK, LIGHT_RULE, LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW,
-} from '../lightSurface' // §B — light page
+  describeAuthEvent, sourceLabel, KIND_FILTERS, matchesFilter, ADDRESS_LEGEND, AUTH_EVENT_COLUMNS,
+} from '../../cloud/auth/authEventLabels'
+import Table, { Th, Td, Row } from '../../ui/Table'
+import StatusBadge from '../../ui/StatusBadge'
+import Toolbar from '../../ui/Toolbar'
+import Tabs from '../../ui/Tabs'
+import Button from '../../ui/Button'
+import Select from '../../ui/Select'
+import Badge from '../../ui/Badge'
+import Banner from '../../ui/Banner'
+import StatusDot from '../../ui/StatusDot'
+import SectionTitle from '../../ui/SectionTitle'
+import Loading from '../../ui/Loading'
+import Empty from '../../ui/EmptyState'
 
 const EVENT_TYPES = ['auth', 'admin', 'error', 'system', 'update', 'storage', 'realtime']
 const SEVERITIES = ['info', 'warning', 'error', 'critical']
-const SEVERITY_DOT = {
-  // `info` was stone-400, which measures 1.4:1 against this page — the dot
-  // that means "nothing is wrong" was the one you could not see. A tint of
-  // the ink reads as neutral without disappearing.
-  info: 'rgba(28, 25, 23, 0.45)', warning: '#fbbf24', error: '#dc2626', critical: '#7c2d12',
+// 🚨 SEVERITY IS A TONE, NOT A COLOUR LITERAL (AT-30, and the plan's one
+// source for a status colour). The four hex values this map used to hold were
+// picked against the ORANGE ground — `info` was already a tint of the ink
+// because stone-400 measured 1.4:1 on it — and none of them survives the move
+// to `paper`. `StatusDot` renders the dot AND its accessible label from the
+// tone, which is also the finding: severity was communicated by colour alone,
+// with the word only in a `title`.
+const SEVERITY_TONE = {
+  info: 'neutral', warning: 'warning', error: 'danger', critical: 'danger',
 }
 // PostgREST codes for "relation does not exist" — table not deployed yet.
 const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205'])
 
-const lightSelectStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.55)',
-  color: '#fde8d0',
-  border: 'none',
-}
+const TYPE_OPTIONS = EVENT_TYPES.map(t => ({ value: t, label: t }))
+const SEVERITY_OPTIONS = SEVERITIES.map(s => ({ value: s, label: s }))
+
+// Declared column grids (AT-18). Six for the system stream, four for
+// activity; both measured at 1280 with the nav strip taking its 190px.
+const SYS_COLS = ['13%', '10%', '14%', '13%', '15%', '35%']
+const ACT_COLS = ['16%', '22%', '14%', '48%']
+// B2 part 2 (Track B): six for the sign-ins stream — time, event, person,
+// where, address, factor — on the same declared-grid rule as the other two.
+const SIGNIN_COLS = ['12%', '16%', '20%', '16%', '20%', '16%']
+
+// The sign-in filter vocabulary lives in authEventLabels (shared with the
+// operator console's mirror); the '' entry is the Select's placeholder and
+// the rest are its options, so the two views cannot drift.
+const ALL_KINDS_LABEL = KIND_FILTERS.find(([v]) => v === '')?.[1] ?? 'All events'
+const KIND_OPTIONS = KIND_FILTERS.filter(([v]) => v).map(([value, label]) => ({ value, label }))
+// describeAuthEvent's three tones onto the kit's: a failure is the danger
+// tone, a pass the success tone, an ending neutral. Like SEVERITY_TONE above,
+// a tone rather than a colour literal (AT-30); StatusBadge draws the dot and
+// the word from it.
+const AUTH_TONE = { ok: 'success', bad: 'danger', neutral: 'neutral' }
 
 function fmtAbs(iso) {
   const d = new Date(iso)
@@ -55,8 +97,15 @@ function timeAgo(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export default function LogsSection({ isActive, workspaceId }) {
+export default function LogsSection({ isActive, workspaceId, wm }) {
   const [tab, setTab] = useState('system')
+
+  // Sign-ins stream (B2 part 2, auth_events)
+  const [signIns, setSignIns] = useState([])
+  const [signInsLoading, setSignInsLoading] = useState(false)
+  const [signInsError, setSignInsError] = useState(null)
+  const [signInsMissing, setSignInsMissing] = useState(false)
+  const [signInFilter, setSignInFilter] = useState('')
 
   // System stream
   const [events, setEvents] = useState([])
@@ -148,8 +197,53 @@ export default function LogsSection({ isActive, workspaceId }) {
     }
   }
 
-  // Lazy-load: nothing until the section is opened; the Activity stream
-  // additionally waits for its tab's first activation.
+  const signInsSeqRef = useRef(0)
+  const signInsLoadedRef = useRef(false)
+  async function loadSignIns() {
+    if (!workspaceId) return
+    const seq = ++signInsSeqRef.current
+    setSignInsLoading(true)
+    setSignInsError(null)
+    try {
+      // Not .eq('workspace_id'): the sign-in server's rows carry none, so
+      // the scope is "no company, or this one" — RLS decides which of those
+      // the caller may actually see.
+      //
+      // R2: the filter is SERVER-side. The policy's `user_id = auth.uid()`
+      // arm also returns the admin's OWN rows for their other companies, and
+      // filtering those out after `.limit(200)` spent the budget on rows the
+      // tab then dropped — an admin busy in a second company could lose this
+      // company's older sign-ins off the bottom. The client-side pass below
+      // stays as belt and braces.
+      const { data, error } = await supabase
+        .from('auth_events')
+        .select(AUTH_EVENT_COLUMNS)
+        .or(`workspace_id.is.null,workspace_id.eq.${workspaceId}`)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      if (error) {
+        if (MISSING_TABLE_CODES.has(error.code)) {
+          setSignInsMissing(true)
+          setSignIns([])
+        } else {
+          setSignInsError(error.message || String(error))
+        }
+      } else {
+        setSignInsMissing(false)
+        const rows = Array.isArray(data) ? data : []
+        setSignIns(rows.filter(r => r.workspace_id == null || r.workspace_id === workspaceId))
+      }
+    } catch (err) {
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      setSignInsError(err?.message || String(err))
+    } finally {
+      if (mountedRef.current && seq === signInsSeqRef.current) setSignInsLoading(false)
+    }
+  }
+
+  // Lazy-load: nothing until the section is opened; the Activity and
+  // Sign-ins streams additionally wait for their tab's first activation.
   useEffect(() => {
     if (!isActive || !workspaceId) return
     if (!eventsLoadedRef.current) {
@@ -160,6 +254,10 @@ export default function LogsSection({ isActive, workspaceId }) {
       historyLoadedRef.current = true
       loadHistory()
     }
+    if (tab === 'signins' && !signInsLoadedRef.current) {
+      signInsLoadedRef.current = true
+      loadSignIns()
+    }
     // loadEvents/loadHistory are stable within a render's closure; seq refs
     // make duplicate invocations harmless anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,64 +267,89 @@ export default function LogsSection({ isActive, workspaceId }) {
     .filter(e => !typeFilter || e.event_type === typeFilter)
     .filter(e => !sevFilter || e.severity === sevFilter), [events, typeFilter, sevFilter])
 
-  return (
-    <div className="h-full flex flex-col min-h-0">
-      {/* Tab chips */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="flex items-center gap-1 rounded-sm p-0.5" style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)' }}>
-          {[{ key: 'system', label: 'System' }, { key: 'activity', label: 'Activity' }].map(t => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={tab === t.key
-                ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                : { backgroundColor: 'transparent', color: LIGHT_INK }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+  const visibleSignIns = useMemo(() => signIns.filter(r => matchesFilter(r, signInFilter)), [signIns, signInFilter])
 
+  // user_id → what the roster calls them (workspace_directory()).
+  const memberNames = useMemo(() => {
+    const map = new Map()
+    for (const m of wm?.members ?? []) {
+      if (m?.user_id) map.set(m.user_id, m.display_name || m.username || '')
+    }
+    return map
+  }, [wm?.members])
+
+  const reloadCurrent = () => {
+    if (tab === 'system') return loadEvents()
+    if (tab === 'activity') return loadHistory()
+    return loadSignIns()
+  }
+  const busy = tab === 'system' ? eventsLoading : tab === 'activity' ? historyLoading : signInsLoading
+
+  return (
+    <div className="at-section">
+      <SectionTitle description="Three streams: what the system did, what people changed, and who signed in.">
+        Logs
+      </SectionTitle>
+
+      <Toolbar
+        right={(
+          <Button
+            size="sm"
+            Icon={RefreshCw}
+            onClick={reloadCurrent}
+            disabled={busy}
+            loading={busy}
+            loadingLabel="Refreshing"
+          >
+            Refresh
+          </Button>
+        )}
+      >
+        <Tabs
+          items={[
+            { id: 'system', label: 'System' },
+            { id: 'activity', label: 'Activity' },
+            { id: 'signins', label: 'Sign-ins' },
+          ]}
+          value={tab}
+          onChange={setTab}
+          label="Log stream"
+          panelId="at-logs-panel"
+        />
         {tab === 'system' && (
           <>
-            <select
+            <Select
+              size="sm"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-              style={lightSelectStyle}
-            >
-              <option value="">All types</option>
-              {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select
+              onChange={(v) => setTypeFilter(v ?? '')}
+              options={TYPE_OPTIONS}
+              placeholder="All types"
+              aria-label="Filter by event type"
+            />
+            <Select
+              size="sm"
               value={sevFilter}
-              onChange={(e) => setSevFilter(e.target.value)}
-              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-              style={lightSelectStyle}
-            >
-              <option value="">All severities</option>
-              {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+              onChange={(v) => setSevFilter(v ?? '')}
+              options={SEVERITY_OPTIONS}
+              placeholder="All severities"
+              aria-label="Filter by severity"
+            />
           </>
         )}
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={() => (tab === 'system' ? loadEvents() : loadHistory())}
-          disabled={tab === 'system' ? eventsLoading : historyLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-        >
-          {(tab === 'system' ? eventsLoading : historyLoading)
-            ? <Loader2 className="w-3 h-3 animate-spin" />
-            : <RefreshCw className="w-3 h-3" />}
-          Refresh
-        </button>
-      </div>
+        {tab === 'signins' && (
+          <Select
+            size="sm"
+            value={signInFilter}
+            onChange={(v) => setSignInFilter(v ?? '')}
+            options={KIND_OPTIONS}
+            placeholder={ALL_KINDS_LABEL}
+            aria-label="Filter sign-in events"
+          />
+        )}
+      </Toolbar>
 
-      {tab === 'system' ? (
+      <div id="at-logs-panel" role="tabpanel" className="at-logs-panel">
+      {tab === 'system' && (
         <SystemTable
           events={visibleEvents}
           allCount={events.length}
@@ -236,7 +359,8 @@ export default function LogsSection({ isActive, workspaceId }) {
           expandedId={expandedId}
           onToggleExpand={(id) => setExpandedId(prev => (prev === id ? null : id))}
         />
-      ) : (
+      )}
+      {tab === 'activity' && (
         <ActivityTable
           rows={history}
           loading={historyLoading}
@@ -244,187 +368,213 @@ export default function LogsSection({ isActive, workspaceId }) {
           missing={historyMissing}
         />
       )}
+      {tab === 'signins' && (
+        <SignInsTable
+          rows={visibleSignIns}
+          allCount={signIns.length}
+          loading={signInsLoading}
+          error={signInsError}
+          missing={signInsMissing}
+          memberNames={memberNames}
+        />
+      )}
+      </div>
     </div>
   )
 }
 
 function SystemTable({ events, allCount, loading, error, missing, expandedId, onToggleExpand }) {
-  if (error) {
-    return (
-      <div className="text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
-        {error}
-      </div>
-    )
-  }
+  if (error) return <Banner tone="danger">{error}</Banner>
   if (missing) return <EmptyState text="Log stream not deployed yet." />
-  if (loading && events.length === 0) return <EmptyState text="Loading..." />
+  // 🚨 LOADING IS NOT AN EMPTY STATE (AT-15). This file passed the literal
+  // string "Loading..." to the same component that renders "No events yet",
+  // with the same icon, so a wait and a void were indistinguishable — and the
+  // kit's `EmptyState` now dev-errors on exactly this string.
+  if (loading && events.length === 0) return <Loading rows={10} columns={6} label="Loading events" />
   if (events.length === 0) {
     return <EmptyState text={allCount === 0 ? 'No events yet.' : 'No events match the filters.'} />
   }
   return (
-    <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1', maxHeight: '100%' }}>
-      <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-        <thead>
-          <tr style={LIGHT_TABLE_HEAD_ROW}>
-            <ThLight>Time</ThLight>
-            <ThLight>Sev</ThLight>
-            <ThLight>Type</ThLight>
-            <ThLight>Code</ThLight>
-            <ThLight>Actor</ThLight>
-            <ThLight>Message</ThLight>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map(e => (
-            <SystemRow
-              key={e.id}
-              event={e}
-              expanded={expandedId === e.id}
-              onToggle={() => onToggleExpand(e.id)}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      className="at-log-table"
+      head={(
+        <Row>
+          <Th width={SYS_COLS[0]}>Time</Th>
+          <Th width={SYS_COLS[1]}>Severity</Th>
+          <Th width={SYS_COLS[2]}>Type</Th>
+          <Th width={SYS_COLS[3]}>Code</Th>
+          <Th width={SYS_COLS[4]}>Actor</Th>
+          <Th width={SYS_COLS[5]}>Message</Th>
+        </Row>
+      )}
+    >
+      {events.map(e => (
+        <SystemRow
+          key={e.id}
+          event={e}
+          expanded={expandedId === e.id}
+          onToggle={() => onToggleExpand(e.id)}
+        />
+      ))}
+    </Table>
   )
 }
 
 function SystemRow({ event, expanded, onToggle }) {
   return (
     <>
-      <tr
+      <Row
         onClick={onToggle}
-        className="cursor-pointer transition-colors hover:bg-stone-100"
-        style={{ borderBottom: expanded ? 'none' : '1px solid #e7e5e4' }}
+        interactive
+        className="at-log-row"
+        data-expanded={String(expanded)}
       >
-        <TdLight>
-          <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(event.created_at)}>
+        <Td>
+          <span className="at-mono at-nowrap" title={fmtAbs(event.created_at)}>
             {timeAgo(event.created_at)}
           </span>
-        </TdLight>
-        <TdLight>
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{ backgroundColor: SEVERITY_DOT[event.severity] || 'rgba(28, 25, 23, 0.45)' }}
-            title={event.severity}
-          />
-        </TdLight>
-        <TdLight>
-          <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{event.event_type}</span>
-        </TdLight>
-        <TdLight>
-          {event.code ? (
-            <span
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm"
-              style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#1c1917' }}
-              title={describeErrorCode(event.code)}
-            >
-              {event.code}
-            </span>
-          ) : (
-            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>--</span>
-          )}
-        </TdLight>
-        <TdLight>
-          <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{event.actor_label ?? 'system'}</span>
-        </TdLight>
-        <TdLight>
-          <span className="text-xs font-mono" style={{ color: '#1c1917' }}>{event.message}</span>
-        </TdLight>
-      </tr>
+        </Td>
+        <Td>
+          <StatusDot tone={SEVERITY_TONE[event.severity] || 'neutral'} label={event.severity} />
+        </Td>
+        <Td><span className="at-mono">{event.event_type}</span></Td>
+        <Td>
+          {event.code
+            ? <Badge title={describeErrorCode(event.code)}>{event.code}</Badge>
+            : <span className="at-none">--</span>}
+        </Td>
+        <Td><span className="at-mono">{event.actor_label ?? 'system'}</span></Td>
+        <Td><span className="at-log-message">{event.message}</span></Td>
+      </Row>
       {expanded && (
-        <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-          <td colSpan={6} className="px-3 pb-3">
-            <pre
-              className="text-[11px] font-mono px-3 py-2 rounded-sm overflow-auto wilson-light-scroll"
-              style={{ backgroundColor: 'rgba(0,0,0,0.06)', color: '#1c1917', maxHeight: '200px' }}
-            >
+        <Row className="at-log-context-row">
+          <Td colSpan={6}>
+            <pre className="at-log-context wilson-dark-scroll">
               {JSON.stringify(event.context ?? {}, null, 2)}
             </pre>
-          </td>
-        </tr>
+          </Td>
+        </Row>
       )}
     </>
   )
 }
 
-const ACTION_CHIP = {
-  create: { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#15803d' },
-  update: { backgroundColor: 'rgba(234, 88, 12, 0.12)', color: '#c2410c' },
-  delete: { backgroundColor: 'rgba(220, 38, 38, 0.12)', color: '#dc2626' },
-}
-
+// Three hand-written chip fills in three colours — one of them a green that
+// exists nowhere else on the surface — become one inert `Badge`. The word is
+// the information; it was already there under the colour.
 function ActivityTable({ rows, loading, error, missing }) {
-  if (error) {
-    return (
-      <div className="text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
-        {error}
-      </div>
-    )
-  }
+  if (error) return <Banner tone="danger">{error}</Banner>
   if (missing) return <EmptyState text="Edit history not deployed yet." />
-  if (loading && rows.length === 0) return <EmptyState text="Loading..." />
+  if (loading && rows.length === 0) return <Loading rows={10} columns={4} label="Loading activity" />
   if (rows.length === 0) return <EmptyState text="No activity yet." />
   return (
-    <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1', maxHeight: '100%' }}>
-      <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-        <thead>
-          <tr style={LIGHT_TABLE_HEAD_ROW}>
-            <ThLight>Time</ThLight>
-            <ThLight>Actor</ThLight>
-            <ThLight>Action</ThLight>
-            <ThLight>Entity</ThLight>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.id} style={{ borderBottom: '1px solid #e7e5e4' }}>
-              <TdLight>
-                <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(r.created_at)}>
+    <Table
+      className="at-activity-table"
+      head={(
+        <Row>
+          <Th width={ACT_COLS[0]}>Time</Th>
+          <Th width={ACT_COLS[1]}>Actor</Th>
+          <Th width={ACT_COLS[2]}>Action</Th>
+          <Th width={ACT_COLS[3]}>Entity</Th>
+        </Row>
+      )}
+    >
+      {rows.map(r => (
+        <Row key={r.id}>
+          <Td>
+            <span className="at-mono at-nowrap" title={fmtAbs(r.created_at)}>
+              {timeAgo(r.created_at)}
+            </span>
+          </Td>
+          <Td>{r.actor_label || '--'}</Td>
+          <Td><Badge>{r.action}</Badge></Td>
+          <Td>
+            <span className="at-mono">
+              {r.entity_type} {String(r.entity_id || '').slice(0, 8)}
+            </span>
+          </Td>
+        </Row>
+      ))}
+    </Table>
+  )
+}
+
+// B2 part 2 (Track B): the Sign-ins stream. Six columns and a legend; a
+// failure wears the danger tone, a pass the success tone, an ending neutral —
+// StatusBadge carries the word beside the dot, so a failed sign-in is never
+// told by colour alone. "Person" is the roster name; a row whose user is no
+// longer in the directory (a removed member's old sign-ins) shows the id's
+// first eight characters rather than nothing, because that row still
+// happened. Addresses and factors are data, so they take the mono (Q4).
+function SignInsTable({ rows, allCount, loading, error, missing, memberNames }) {
+  if (error) return <Banner tone="danger">{error}</Banner>
+  if (missing) return <EmptyState text="Sign-in log not deployed yet (migration 0070)." />
+  if (loading && rows.length === 0) return <Loading rows={10} columns={6} label="Loading sign-ins" />
+  if (rows.length === 0) {
+    return <EmptyState text={allCount === 0 ? 'No sign-ins recorded yet.' : 'No sign-ins match the filter.'} />
+  }
+  return (
+    <>
+      <Table
+        className="at-log-table"
+        head={(
+          <Row>
+            <Th width={SIGNIN_COLS[0]}>Time</Th>
+            <Th width={SIGNIN_COLS[1]}>Event</Th>
+            <Th width={SIGNIN_COLS[2]}>Person</Th>
+            <Th width={SIGNIN_COLS[3]}>Where</Th>
+            <Th width={SIGNIN_COLS[4]}>Address</Th>
+            <Th width={SIGNIN_COLS[5]}>Factor</Th>
+          </Row>
+        )}
+      >
+        {rows.map(r => {
+          const { label, tone } = describeAuthEvent(r)
+          const name = memberNames.get(r.user_id)
+          return (
+            <Row key={r.id}>
+              <Td>
+                <span className="at-mono at-nowrap" title={fmtAbs(r.created_at)}>
                   {timeAgo(r.created_at)}
                 </span>
-              </TdLight>
-              <TdLight>
-                <span className="text-xs font-mono" style={{ color: '#1c1917' }}>{r.actor_label || '--'}</span>
-              </TdLight>
-              <TdLight>
-                <span
-                  className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
-                  style={ACTION_CHIP[r.action] || { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }}
-                >
-                  {r.action}
-                </span>
-              </TdLight>
-              <TdLight>
-                <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
-                  {r.entity_type}{' '}
-                  <span style={{ color: LIGHT_INK }}>{String(r.entity_id || '').slice(0, 8)}</span>
-                </span>
-              </TdLight>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </Td>
+              <Td><StatusBadge tone={AUTH_TONE[tone] || 'neutral'} label={label} /></Td>
+              <Td>
+                {name
+                  ? name
+                  : r.user_id
+                    ? <span className="at-mono">{String(r.user_id).slice(0, 8)}</span>
+                    : <span className="at-none">--</span>}
+              </Td>
+              <Td>{sourceLabel(r)}</Td>
+              <Td>
+                {r.ip_address
+                  ? <span className="at-mono">{r.ip_address}</span>
+                  : <span className="at-none">--</span>}
+              </Td>
+              <Td>
+                {r.factor_type
+                  ? <span className="at-mono">{r.factor_type}</span>
+                  : <span className="at-none">--</span>}
+              </Td>
+            </Row>
+          )
+        })}
+      </Table>
+      <p className="at-note">{ADDRESS_LEGEND}</p>
+    </>
   )
 }
 
+/**
+ * The section's own empty state, wrapping the kit's so the four call sites
+ * keep their one-word call shape and the icon stays this section's.
+ *
+ * 🚨 IT IS NEVER PASSED A LOADING STRING ANY MORE — the two call sites that
+ * did now render `Loading` instead (AT-15). The kit dev-errors on a title or
+ * body matching /loading/, so the old spelling could not survive here even if
+ * someone reintroduced it.
+ */
 function EmptyState({ text }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <ScrollText className="w-8 h-8" style={{ color: LIGHT_INK }} />
-      <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>{text}</span>
-    </div>
-  )
-}
-
-function ThLight({ children }) {
-  return (
-    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: LIGHT_INK }}>
-      {children}
-    </th>
-  )
-}
-function TdLight({ children }) {
-  return <td className="px-3 py-2 align-middle">{children}</td>
+  return <Empty Icon={ScrollText} title={text} />
 }

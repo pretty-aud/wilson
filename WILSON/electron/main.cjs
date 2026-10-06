@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, session } = require('electron');
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -7,19 +7,75 @@ const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
-const { resolveContainedFilePath, isPathInside, checkFolderRootShape } = require('./pathContainment.cjs');
+const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
+// Demo sprint (2026-09-10): the local demo folder — one user-chosen folder
+// that holds the whole signed-out demo. See localDemoRoot.cjs.
+const { makeLocalDemoRoot, checkDemoFolderShape, storedRootAllowed } = require('./localDemoRoot.cjs');
+// Bundle B3 (Track B): the per-launch token every /api request must carry, and
+// the CORS allowlist that replaces `cors()`'s `Access-Control-Allow-Origin: *`.
+// The module's header explains both arms and what is deliberately NOT guarded.
+const {
+  TOKEN_COOKIE,
+  mintLaunchToken,
+  applyLocalServerLock,
+  localServerErrorHandler,
+} = require('./localToken.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
 const ffmpeg = require('./ffmpeg.cjs');
+// Post-overhaul S4a (0085): the nine file tags, checked on the two PATCH
+// routes exactly as the cloud's CHECK checks them. See fileTags.cjs.
+const { checkFileTags, checkLegalPatch, checkManagedLegal, isLegalRow, LEGAL_DIR } = require('./fileTags.cjs');
+// Post-overhaul S3a (0084): shot lists, their membership and edits on the
+// Local Server. The routes are mounted inside startLocalServer; the three
+// read-time helpers run in readRabbitBundle (D11's backfill, and the prune of
+// items whose scene or shot is gone) and the cascade runs in the scene / shot
+// DELETE (the desktop's copy of 0040's and 0084's FK actions).
+const {
+  mountRabbitShotLists,
+  ensureShotListKeys,
+  backfillShotListsOnRead,
+  pruneDanglingShotListItems,
+  cascadeSceneOrShotDelete,
+} = require('./rabbitShotLists.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
+
+// ── Single instance (Bundle B3; Audrey's decision 30: "only one copy at a
+// time") ────────────────────────────────────────────────────────────────────
+// Two copies shared one `userData` directory, so two Express servers wrote the
+// same otter-data/ and rabbit-data/ JSON files with last-writer-wins and no
+// lock — the §6 accepted limit this closes. Nostalgia TV learned the same
+// lesson the hard way.
+//
+// ⚠️ Ordering vs the Squirrel guard, stated precisely (R2 corrected an earlier,
+// looser version of this comment): `if (require('electron-squirrel-startup'))
+// app.quit();` does NOT return, so an installer process still reaches this line
+// and still takes — or fails to take — the lock. Ordering only decides who
+// quits first. If a Squirrel process fails to take it, the running app gets a
+// `second-instance` event and raises its window mid-install: cosmetic, and
+// better than the installer racing the running app for the lock, which is why
+// the guard stays first.
+//
+// `app.quit()` starts the shutdown but does NOT stop this module evaluating, so
+// the flag is read again at whenReady rather than trusted to have taken effect.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
 
 // Load env BEFORE anything reads process.env. In dev this reads
 // .env.development from the repo root; packaged builds read
 // userData/env.json so operators can swap envs without a rebuild.
 const REPO_ROOT = path.resolve(__dirname, '..');
+// Demo sprint (2026-09-10): a DEV-ONLY userData override, so a second
+// instance can run against a scratch folder without touching this machine's
+// real app data (the docs say to point a dev instance at a scratch folder —
+// this is how). Ignored in packaged builds: an environment variable must
+// never be able to repoint a shipped app's data.
+if (!app.isPackaged && process.env.WILSON_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.WILSON_USER_DATA));
+}
 loadEnv(app, REPO_ROOT);
 
 // Main-process Sentry — must come after loadEnv so the DSN is present.
@@ -54,10 +110,70 @@ function getSoftwareDir() {
 // ═══════════════════════════════════════════════════════════════════
 //  RABBIT DATA DIRECTORY — separate root from otter-data
 // ═══════════════════════════════════════════════════════════════════
+// Demo sprint (2026-09-10): ROOT-AWARE. While a local demo folder is open
+// (electron/localDemoRoot.cjs) everything that hangs off this directory —
+// project bundles, files-config, the thumbnail cache, rate cards, team
+// members, task templates — resolves under <folder>/.wilson/rabbit-data;
+// with no folder open it is Electron's userData exactly as before. Same
+// name, same signature: the bin session and every route call it unchanged.
 function getRabbitDataDir() {
-  const dir = path.join(app.getPath('userData'), 'rabbit-data');
+  const dir = localDemoDataDir() || path.join(app.getPath('userData'), 'rabbit-data');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+// ── Demo sprint (2026-09-10): the local demo folder ──────────────────────
+// ONE user-chosen folder holds the whole signed-out demo — layout, manifest
+// and the adopt / initialise / ask rule live in electron/localDemoRoot.cjs.
+// Created lazily (app.getPath needs the app object) and loaded once in
+// app.whenReady() BEFORE anything derives a data directory, so the very
+// first request already resolves under the remembered folder.
+let _localDemo = null;
+function localDemo() {
+  if (!_localDemo) {
+    _localDemo = makeLocalDemoRoot({
+      userDataDir: app.getPath('userData'),
+      appVersion: app.getVersion(),
+      log: (line) => console.info(line),
+    });
+  }
+  return _localDemo;
+}
+// null unless a demo folder is open — the three questions the resolvers ask.
+function localDemoRootDir()     { return _localDemo ? _localDemo.rootDir() : null; }
+function localDemoDataDir()     { return _localDemo ? _localDemo.dataDir() : null; }
+function localDemoProjectsDir() { return _localDemo ? _localDemo.projectsDir() : null; }
+
+// Demo 2026-09-11 (cloud rows, local bodies — electron/localMedia.cjs):
+// where a PRIVATE project's media lives on this computer. <demo folder>\media
+// while a folder is open, app data's rabbit-data\local-media otherwise. The
+// row stays in Supabase (Audrey: "all databases need to live in the supabase
+// storage at all times … only file storage is local"). A MISSING demo folder
+// refuses with a sentence rather than falling back to app data — the same
+// rule the missing-folder guard enforces for every other local route.
+function getLocalMediaRoot({ create = true } = {}) {
+  const demoRoot = localDemoRootDir(); // runs the presence check
+  const state = localDemo().getState();
+  if (state.missing) {
+    throw new Error(`the demo folder is not available: ${state.missing} — open Settings → Storage to locate it, forget it, or close it`);
+  }
+  const dir = demoRoot ? path.join(demoRoot, 'media') : path.join(getRabbitDataDir(), 'local-media');
+  if (create && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// (review round 1, M6) While the remembered demo folder is MISSING (drive
+// unplugged), every resolver above would fall through to userData for every
+// writer — the silent fallback the brief forbids, visible only on the
+// Storage card. The local API refuses instead, with a sentence, until the
+// person locates the folder, forgets it or closes it (all IPC, all still
+// working). Mounted once, ahead of the R.A.B.B.I.T. routes.
+function localDemoMissingGuard(req, res, next) {
+  const missing = _localDemo ? _localDemo.missingDir() : null;
+  if (!missing) return next();
+  res.status(503).json({
+    error: `the demo folder is not available: ${missing} — open Settings → Storage to locate it, forget it, or close it`,
+  });
 }
 
 // Folders the USER picked through the OS dialog this session (lowercased
@@ -65,6 +181,17 @@ function getRabbitDataDir() {
 // inside the project's own roots — a body-supplied path is never enough
 // (Session 14; see isUserAuthorizedRelinkDir).
 const userAuthorizedDirs = new Set();
+// (review round 1, M5) A pick made for the per-machine FILES ROOT is not
+// consent to open a folder as the demo root — a pick for purpose A is not
+// consent for purpose B, the S14 scope rule. `local-demo:pick` records here
+// and only `local-demo:open` consults it.
+const demoAuthorizedDirs = new Set();
+// (review round 2, H2) Pictures the person picked THIS session through
+// rabbit:pick-image (lowercased resolved file paths). The thumbnail routes
+// open a bundle's thumbnail_image only if it is one of these or sits under a
+// folder the person chose — the renderer stores the path first and generates
+// the cache second, so the first <img> request can arrive between the two.
+const userAuthorizedImages = new Set();
 
 // Session 34: the workspace storage root (workspace_storage.root_path when
 // mode = 'byos'). Main has no Supabase client, so the signed-in renderer
@@ -74,6 +201,10 @@ const userAuthorizedDirs = new Set();
 // cannot perform. Before the first push (or signed out), every resolver
 // falls through to the per-machine defaultRootDir exactly as before.
 let workspaceRootDir = null;
+
+// Post-overhaul S4a: set inside startLocalServer (it needs the bundle
+// readers that live there) and read by the rabbit:open-path IPC.
+let rabbitFileLocator = null;
 
 function readJSON(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
@@ -101,7 +232,14 @@ function fileSlugify(str) {
 // ── Managed-files config ────────────────────────────────────
 // Stores { defaultRootDir: string|null } at rabbit-data/files-config.json.
 // Individual projects can override with their own folder_root.
-function getFilesConfigPath() { return path.join(getRabbitDataDir(), 'files-config.json'); }
+// (review round 2, M4) PER MACHINE, never under the demo folder: the file
+// travelled with a copied folder, and a shipped {"defaultRootDir":"C:\\Users"}
+// authorised relink anywhere it named. Same path as before this sprint.
+function getFilesConfigPath() {
+  const dir = path.join(app.getPath('userData'), 'rabbit-data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, 'files-config.json');
+}
 function readFilesConfig() { return readJSON(getFilesConfigPath(), { defaultRootDir: null }); }
 function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 
@@ -114,13 +252,23 @@ function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 // retargets its own disk splits the company's storage worse than a visible
 // failure does.
 function resolveConfiguredRootDir() {
+  // Demo sprint (2026-09-10): an open local demo folder outranks everything —
+  // it is an explicit, per-machine choice and the Storage card shows it —
+  // and its projects/ subfolder is the files root, COMPUTED from the folder
+  // rather than stored, so a copied folder still resolves.
+  const demoProjects = localDemoProjectsDir();
+  if (demoProjects) return demoProjects;
   return workspaceRootDir || readFilesConfig().defaultRootDir || null;
 }
 
 // Session 35 (TPN-NET-015): the ONE decision about whether a candidate
 // projects.folder_root may be stored. folder_root arrives in the request body
-// of an UNAUTHENTICATED local API that answers any local origin (cors()), and
-// everything under it is then treated as project content — built by
+// of the local API (UNAUTHENTICATED when this was written; since B3, Track B,
+// every /api route demands the per-launch token and cors() answers the
+// renderer's own origin only — which narrows the caller to the app's own
+// renderer or a token holder and changes nothing below: a body-picked path
+// is never enough, whoever sends it), and everything under it is then
+// treated as project content — built by
 // ensureProjectFolders, written by uploads, read and unlinked by relink. The
 // S14 rule ("a body-picked baseDir would let a drive-by request point a
 // project's files at the user's Documents") applies verbatim; this route
@@ -139,9 +287,30 @@ function resolveConfiguredRootDir() {
 // Cloud mode has the same rule in fn_project_folder_root_guard (0049) —
 // each layer refuses on its own (S34: refusals are enforced in depth).
 function folderRootRefusal(candidate) {
-  const shape = checkFolderRootShape(candidate);
+  // Demo sprint (2026-09-10): inside an open local demo folder the folder IS
+  // the boundary — the same rule as the workspace drive below: a project
+  // folder must sit strictly inside it. (review round 2, N8) Its shape check
+  // is the folder's own: checkFolderRootShape is Windows-only by design (a
+  // NAS root is a UNC or drive path) and refused every project folder on a
+  // Mac laptop, this arm and L8 included.
+  const demoRoot = localDemoRootDir();
+  const shape = demoRoot ? checkDemoFolderShape(candidate) : checkFolderRootShape(candidate);
   if (!shape.ok) return { error: shape.error };
   const resolved = shape.resolved;
+  if (demoRoot) {
+    if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
+      return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
+    }
+    if (!isPathInside(demoRoot, resolved)) {
+      return { error: `the project folder must be inside the local demo folder (${demoRoot})` };
+    }
+    // (review round 1, L8) …and not inside its data folder, where a
+    // `<slug>_DATABASES` mirror would be enumerated as a project id.
+    if (isPathInside(path.join(demoRoot, '.wilson'), resolved)) {
+      return { error: 'the project folder cannot be inside the demo folder’s .wilson data folder' };
+    }
+    return { resolved };
+  }
   if (workspaceRootDir) {
     const rootCanon = workspaceRootDir.toLowerCase();
     if (resolved.toLowerCase() === rootCanon) {
@@ -181,6 +350,35 @@ function getThumbCacheDir() {
   const dir = path.join(getRabbitDataDir(), 'thumbnails');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+// (review round 2, H1/H2) The per-id files under getRabbitDataDir() — rate
+// cards, team members, task templates, the thumbnail cache — joined a
+// client-chosen id RAW; `..%2F` decodes to `../` and walked out of the
+// person's own folder (measured: an arbitrary .json written and unlinked
+// from a browser tab). Contained the way every path is; an id that would
+// leave its directory throws, and the server's tail answers 404.
+function dataFileOrThrow(baseDir, id, ext, what) {
+  const p = dataFilePath(baseDir, id, ext);
+  if (!p) { const err = new Error(`invalid ${what} id`); err.code = 'WILSON_PATH_ESCAPE'; throw err; }
+  return p;
+}
+function entityThumbKind(entityType) {
+  if (!['scene', 'shot', 'level', 'experience'].includes(entityType)) {
+    const err = new Error('invalid entity type'); err.code = 'WILSON_PATH_ESCAPE'; throw err;
+  }
+  return entityType;
+}
+
+// (review round 2, H3) Whether a bundle's stored folder_root (or files_dir)
+// may be RESOLVED: by real path, against the open demo folder — the rule is
+// storedRootAllowed in localDemoRoot.cjs; unchanged when no folder is open.
+function storedRootUsable(root) {
+  const demoRoot = localDemoRootDir();
+  if (!demoRoot) return true;
+  let real = null;
+  try { real = fs.realpathSync.native(root); } catch { real = null; }
+  return storedRootAllowed(demoRoot, real);
 }
 
 // Check if a file extension is an image we can thumbnail
@@ -323,19 +521,109 @@ function defaultPet() {
 function startLocalServer(distPath) {
   return new Promise((resolve, reject) => {
     const expressApp = express();
-    expressApp.use(cors());
+
+    // ── Bundle B3: the lock, ahead of every route ──────────────────────────
+    // One token per launch, one middleware, 94 routes. `applyLocalServerLock`
+    // mounts the narrowed cors() and then the guard; electron/localToken.cjs
+    // documents both arms (header for renderer fetches, httpOnly cookie for
+    // <img>/<video>), why only `/api` is refused, and what the guard leaks
+    // (nothing — a bare 401 with no body).
+    //
+    // 🚨 BEFORE express.json: otherwise an unauthenticated caller makes the
+    // main process buffer up to 50 MB before we refuse it.
+    //
+    // The origin is not known until listen(0) has bound a port, so both the
+    // token and the origin are read through closures rather than passed by
+    // value.
+    const launchToken = mintLaunchToken();
+    let rendererOrigin = null;
+    applyLocalServerLock(expressApp, {
+      cors,
+      getToken: () => launchToken,
+      getOrigin: () => rendererOrigin,
+    });
+
     expressApp.use(express.json({ limit: '50mb' }));
 
     // ── Pet endpoints ──
+    //
+    // 🚨 A3 (2026-09-07): THE CACHE IS KEYED BY ACCOUNT.
+    //
+    // getDataDir() has no user segment, so `pet.json` was one file per INSTALL
+    // and nothing removed it on sign-out. src/lib/userState.js's resolveUserPet
+    // reads that cache to decide whether to ADOPT it into the account, so on a
+    // shared computer person A's pet could be lifted into person B's account
+    // whenever B had no pet row of their own — underneath RLS, through the
+    // filesystem. `?user=<uuid>` names the owner: `pet.<userId>.json`.
+    //
+    // ⚠️ Without the parameter these routes behave exactly as before, on the
+    // historical `pet.json`. That is the signed-out path, and nothing adopts it
+    // into an account any more.
+    //
+    // 🚨 THE UUID IS VALIDATED, NOT SANITISED. The value reaches path.join, so
+    // anything that is not exactly a UUID is REFUSED. A sanitiser is a list of
+    // the traversals somebody happened to think of; a shape check is not.
+    const PET_USER_RE =
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+    // Returns the path to write, or NULL after answering 400 — callers must
+    // check, because returning a fallback path on a bad parameter is how a
+    // rejected request quietly writes to somebody else's file.
+    function petPathFor(req, res) {
+      const user = req.query && req.query.user;
+      if (user === undefined || user === null || user === '') {
+        return path.join(getDataDir(), 'pet.json');
+      }
+      if (typeof user !== 'string' || !PET_USER_RE.test(user)) {
+        res.status(400).json({ error: 'user must be a UUID' });
+        return null;
+      }
+      return path.join(getDataDir(), 'pet.' + user + '.json');
+    }
+
     expressApp.get('/api/pet', (req, res) => {
-      const petPath = path.join(getDataDir(), 'pet.json');
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
       let pet = readJSON(petPath);
-      if (!pet) { pet = defaultPet(); writeJSON(petPath, pet); }
+      if (!pet) {
+        // 🚨 THE ACCOUNT ARM DOES NOT MINT. "This account has never been cached
+        // on this computer" is a real answer and the renderer needs to hear it:
+        // minting an egg here would hand resolveUserPet a pristine pet to
+        // reason about on every first sign-in, and would flash a blank egg on
+        // screen before the account's real pet arrives.
+        if (req.query && req.query.user) {
+          return res.status(404).json({ error: 'no cached pet for this account' });
+        }
+        pet = defaultPet(); writeJSON(petPath, pet);
+      }
       res.json(pet);
     });
 
     expressApp.post('/api/pet', (req, res) => {
-      writeJSON(path.join(getDataDir(), 'pet.json'), req.body);
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      writeJSON(petPath, req.body);
+      res.json({ ok: true });
+    });
+
+    // Sign-out deletes THIS ACCOUNT'S cached copy. Not the same class of action
+    // as deleting the pet: public.user_pets is the authority and is untouched,
+    // so signing back in restores everything.
+    expressApp.delete('/api/pet', (req, res) => {
+      // ⚠️ Refuses to touch the unattributed pet.json. That file is nobody's
+      // account state, nothing reads it into an account any more, and a
+      // sign-out has no business deleting a file it cannot attribute — Audrey's
+      // original Ollie lives in one of them.
+      if (!(req.query && req.query.user)) {
+        return res.status(400).json({ error: 'user is required' });
+      }
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      try {
+        if (fs.existsSync(petPath)) fs.unlinkSync(petPath);
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
       res.json({ ok: true });
     });
 
@@ -615,23 +903,65 @@ function startLocalServer(distPath) {
     });
 
     expressApp.post('/api/software/:slug/hotkeys/merge', (req, res) => {
+      // Post-overhaul S2c (S2b-02): the SAME rules, line for line, as
+      // otterRoutes.js's mergeHotkeys (the cloud and the dev fixtures);
+      // hotkeysMerge.test.js replays both and demands the same document for
+      // every case. The keying is mergeFunctionsDoc's (S2b), above: a sent
+      // category's name is its `category`, else its `name`, else "General" —
+      // a non-empty string, trimmed, invisible characters dropped — and it
+      // joins a stored heading with case and punctuation aside, letters of
+      // any script kept. The a-z0-9 key this replaces made "文字列" and "数学"
+      // one category, joined either to a category with no `category`, and
+      // threw on a name that was not a string, on every later merge.
+      //  - It joins only a category the Hotkeys page and the Search dialog
+      //    draw: a `shortcuts` list headed by its `category` (a non-empty
+      //    string). One they do not draw (a `hotkeys` list alone, no
+      //    `category`) is never joined; what was sent gets its own heading.
+      //  - A shortcut is not added again under the same heading: the same
+      //    action, case and surrounding spaces aside; an action that is not a
+      //    string reads as none. A sent category's shortcuts are its
+      //    `shortcuts`, else its `hotkeys`.
+      //  - Stored categories are kept exactly as stored: only a category a
+      //    shortcut joins is rewritten (a copy, the new ones after its own).
+      //    A new category is written `{ category, shortcuts }` when it brings
+      //    a shortcut or was sent with none.
+      //  - Entries that are not categories are carried over untouched; the
+      //    document's other keys are kept; a stored document that is not a
+      //    library is left exactly as it is.
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_hotkeys.json');
-      const existing = readJSON(filePath, { categories: [] });
-      const incoming = req.body.categories || [];
-      const normalizeCat = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      for (const inCat of incoming) {
-        const catName = inCat.category || inCat.name || 'General';
-        const inShortcuts = inCat.shortcuts || inCat.hotkeys || [];
-        const catNorm = normalizeCat(catName);
-        let existCat = existing.categories.find(c => normalizeCat(c.category) === catNorm);
-        if (!existCat) { existCat = { category: catName, shortcuts: [] }; existing.categories.push(existCat); }
-        for (const hk of inShortcuts) {
-          const actionNorm = (hk.action || '').toLowerCase().trim();
-          if (!existCat.shortcuts.some(h => (h.action || '').toLowerCase().trim() === actionNorm)) existCat.shortcuts.push(hk);
+      const stored = readJSON(filePath, { categories: [] });
+      const incoming = (req.body || {}).categories;
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
+      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
+      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
+      const heading = (c) => (isObj(c) && Array.isArray(c.shortcuts) ? clean(c.category) : '');
+      const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');
+      const doc = stored == null ? {} : stored;
+      let merged = stored;
+      if (isObj(doc) && (doc.categories === undefined || Array.isArray(doc.categories))) {
+        const out = { ...doc, categories: [...(doc.categories || [])] };
+        for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+          if (!isObj(inCat)) continue;
+          const name = catName(inCat);
+          const key = catKey(name);
+          const i = out.categories.findIndex(c => { const h = heading(c); return !!h && catKey(h) === key; });
+          const into = i < 0 ? null : out.categories[i];
+          const have = new Set((into ? into.shortcuts : []).filter(isObj).map(actionKey));
+          const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : [];
+          const add = [];
+          for (const hk of list) {
+            if (!isObj(hk) || have.has(actionKey(hk))) continue;
+            have.add(actionKey(hk));
+            add.push(hk);
+          }
+          if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }); }
+          else if (add.length) out.categories[i] = { ...into, shortcuts: [...into.shortcuts, ...add] };
         }
+        merged = out;
       }
-      writeJSON(filePath, existing);
-      res.json(existing);
+      writeJSON(filePath, merged);
+      res.json(merged);
     });
 
     // ── Functions endpoints ──
@@ -640,19 +970,71 @@ function startLocalServer(distPath) {
       res.json(data);
     });
 
+    // Post-overhaul S2b (C10): the function library's merge — the SAME rules,
+    // line for line, as otterRoutes.js's mergeFunctions (the cloud and the
+    // dev fixtures); functionsMerge.test.js replays both and demands the same
+    // document for every case. The `name` keying this replaces matched every
+    // incoming category (the client posts `category`) to the first nameless
+    // one and collapsed a generated library into one category with no name.
+    //  - A category's name is its `category`, else its `name`, else
+    //    "General" — a non-empty string, trimmed, invisible characters
+    //    dropped; anything else is no name.
+    //  - Categories match on that name with case and punctuation aside —
+    //    letters of any script, digits, '#' and '+' kept ("C" is not "C++").
+    //  - A function is not added again where it already is: under the same
+    //    heading by its exact name, or anywhere in a NAMELESS category (the
+    //    collapsed library the old keying wrote — hers holds 46). Functions
+    //    that differ in case or sit under different headings are different
+    //    (`map` and `Map`, `split` in "String methods" and in "os.path");
+    //    a function with no name is never taken for another.
+    //  - Stored categories are kept exactly as stored: only a category a
+    //    function is added to is rewritten (a copy, with the new functions
+    //    after its own). A new category is written `{ category, functions }`
+    //    when it brings a function or was sent with none, never when every
+    //    function it brought was already there (an empty heading). Entries
+    //    that are not categories (null, a string, `functions` not a list)
+    //    are carried over untouched and never matched. A stored document
+    //    that is not a library (an array, `categories` not a list) is left
+    //    exactly as it is.
+    function mergeFunctionsDoc(stored, incoming) {
+      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
+      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
+      const named = (c) => !!(clean(c.category) || clean(c.name));
+      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
+      const fnKey = (f) => clean(f && f.name);
+      const isCat = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions));
+      const doc = stored == null ? {} : stored;
+      if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return stored;
+      const out = { ...doc, categories: [...(doc.categories || [])] };
+      const unfiled = new Set();
+      for (const c of out.categories) if (isCat(c) && !named(c)) for (const f of (c.functions || [])) if (fnKey(f)) unfiled.add(fnKey(f));
+      for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
+        if (!isObj(inCat)) continue;
+        const name = catName(inCat);
+        const i = out.categories.findIndex(c => isCat(c) && catKey(catName(c)) === catKey(name));
+        const into = i < 0 ? null : out.categories[i];
+        const have = new Set((into ? into.functions || [] : []).map(fnKey).filter(Boolean));
+        const add = [];
+        for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
+          if (!isObj(fn)) continue;
+          const k = fnKey(fn);
+          if (k && (have.has(k) || unfiled.has(k))) continue;
+          if (k) { have.add(k); if (into && !named(into)) unfiled.add(k); }
+          add.push(fn);
+        }
+        const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length);
+        if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }); }
+        else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] };
+      }
+      return out;
+    }
+
     expressApp.post('/api/software/:slug/functions/merge', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
-      const existing = readJSON(filePath, { categories: [] });
-      const incoming = req.body.categories || [];
-      for (const inCat of incoming) {
-        let existCat = existing.categories.find(c => c.name === inCat.name);
-        if (!existCat) { existCat = { name: inCat.name, functions: [] }; existing.categories.push(existCat); }
-        for (const fn of (inCat.functions || [])) {
-          if (!existCat.functions.some(f => f.name === fn.name)) existCat.functions.push(fn);
-        }
-      }
-      writeJSON(filePath, existing);
-      res.json(existing);
+      const merged = mergeFunctionsDoc(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
+      writeJSON(filePath, merged);
+      res.json(merged);
     });
 
     // ── Nodes endpoints ──
@@ -1011,7 +1393,16 @@ function startLocalServer(distPath) {
       return dir;
     }
     function getRabbitProjectDir(projectId) {
-      const dir = path.join(getRabbitProjectsDir(), projectId);
+      // (review round 1) Express 5 DECODES route params, so `..%2F..%2Fx`
+      // arrives as `../../x` and a plain join walks out of projects/ — into
+      // the person's own demo folder now that the root is user-chosen. The
+      // id is contained the way every file path is; a traversal is a
+      // thrown error the readers turn into "not found".
+      const projectsDir = getRabbitProjectsDir();
+      const dir = resolveContainedFilePath(projectsDir, String(projectId || ''));
+      if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) {
+        throw new Error('invalid project id');
+      }
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
@@ -1023,8 +1414,16 @@ function startLocalServer(distPath) {
     function rabbitBundlePath(projectId) {
       return path.join(getRabbitProjectDir(projectId), 'project.json');
     }
+    // Post-overhaul S4b (review round 1, R1-BEH-03/04/05/10): the LEGAL
+    // folder, the stray-label clean-up and the relink rule, in one module
+    // that is run for real in legalFiling.test.js.
+    const legalFiling = require('./legalFiling.cjs').createLegalFiling({
+      fs, path, resolveProjectFolder, resolveProjectFilesDir, getRabbitProjectDir, resolveContainedFilePath,
+    });
     function readRabbitBundle(projectId) {
-      const bundle = readJSON(rabbitBundlePath(projectId), null);
+      let bundleFile;
+      try { bundleFile = rabbitBundlePath(projectId); } catch { return null; }
+      const bundle = readJSON(bundleFile, null);
       if (!bundle) return null;
       // ── Migrate old bundles ──
       let dirty = false;
@@ -1040,8 +1439,96 @@ function startLocalServer(distPath) {
       if (!bundle.experiences)     { bundle.experiences     = []; dirty = true; }
       if (!bundle.fileEvents)      { bundle.fileEvents      = []; dirty = true; }
       if (!bundle.folders)         { bundle.folders         = []; dirty = true; }
+      // Post-overhaul S3a (0084, D11): a bundle that PREDATES shot lists (no
+      // `shotLists` array) gets "Shot list 1 · v1", active, holding every
+      // scene and shot in 0084's backfill order — the desktop's copy of the
+      // cloud's one-time backfill. A bundle that already has the array (even
+      // an empty one: every project created since has it) is never backfilled
+      // again; for those only the two sibling arrays are ensured. Either way
+      // the change is persisted by the dirty write below, so it happens once.
+      // Guarded: the backfill computes before it mutates, so a throw leaves
+      // the bundle as it was and the next read tries again. Its ids are
+      // derived from the project (review R1, addendum H), so if the dirty
+      // write below fails, the next read mints the SAME list and items and a
+      // renderer holding the first answer is not left with a 404.
+      //
+      // Then the prune (addendum H): an item whose scene or shot is gone —
+      // one a build older than S3a left behind, deleting without the rule-8
+      // sweep — is dropped, as the cloud's FK CASCADE would have dropped it.
+      // Left in place it made every membership write to its list fail.
+      // Converges: once nothing dangles it returns 0 and nothing is written.
+      let backfilled = false;
+      try {
+        if (backfillShotListsOnRead(bundle, { newId: uuidv4, now: new Date().toISOString(), projectId })) {
+          backfilled = true;
+          dirty = true;
+        }
+        if (ensureShotListKeys(bundle)) dirty = true;
+        if (pruneDanglingShotListItems(bundle)) dirty = true;
+      } catch (e) { console.error('shot list backfill failed:', e.message); }
+      // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
+      // is stored absolute (the project POST writes <root>/<slug>), so a folder
+      // moved or copied elsewhere would keep pointing at where it USED to be —
+      // and on the same machine that old copy still exists, so the existsSync
+      // fallback in resolveProjectFolder would never fire. While a demo folder
+      // is open, a folder_root outside it is rebased to <folder>/projects/<slug>
+      // on read; the slug is re-slugified for the S40 reason.
+      try {
+        // (review round 1, H3) folder_slug is a PATH SEGMENT that
+        // resolveProjectFolder, ensureProjectFolders, mirrorProjectDatabases
+        // and resolveProjectFilesDir join RAW — S40 hardened only
+        // resolveProjectFolderRoot. A bundle somebody else wrote (a copied
+        // demo folder) can carry `..\..\..` and walk out of the root. Slugify
+        // it ONCE here, where every route reads the bundle, so no join below
+        // can leave the folder; idempotent for every legitimate slug.
+        if (bundle.project && bundle.project.folder_slug != null) {
+          const rawSlug = String(bundle.project.folder_slug);
+          const safeSlug = fileSlugify(rawSlug) || fileSlugify(String(bundle.project.title || '')) || 'Untitled-Project';
+          if (safeSlug !== rawSlug) { bundle.project.folder_slug = safeSlug; dirty = true; }
+        }
+        const demoRoot = localDemoRootDir();
+        const cur = bundle.project?.folder_root;
+        // (review round 1, L9) Rebase only a root that is GONE. A live folder
+        // elsewhere — an adopted bundle whose files stayed put — keeps its
+        // pointer: losing the only pointer to real files is worse than a
+        // same-machine copy resolving to the original. The move is recorded
+        // in the project's own audit stream.
+        if (demoRoot && cur && !isPathInside(demoRoot, cur) && !fs.existsSync(cur)) {
+          const slug = fileSlugify(String(bundle.project.folder_slug || bundle.project.title || 'Untitled-Project')) || 'Untitled-Project';
+          const next = path.join(localDemoProjectsDir(), slug);
+          rabbitLogFileEvent(bundle, {
+            file_id: null, project_id: projectId, file_name: null, storage_provider: 'local_managed',
+            event: 'relinked', old_path: cur, new_path: next,
+            note: 'project folder rebased into the open demo folder (the stored path no longer exists)',
+          });
+          bundle.project.folder_root = next;
+          dirty = true;
+        }
+      } catch { /* leave the stored root alone */ }
       // Ensure sub-folder structure exists on first access
       try { ensureProjectFolders(bundle); } catch {}
+      // S4b: a `legal` LABEL from S4a's period (a managed file, an invoice,
+      // a project file whose body is not in a LEGAL folder) is removed ONCE
+      // per project, as 0088 §2 strips the cloud's once, and the ids are
+      // kept beside the bundle's other one-time migrations (review round 2:
+      // run on every read it could strip a real Legal file). Persisted by the
+      // dirty write below; not settled while the project's folder is offline.
+      if (!bundle.legalLabelsSettled) {
+        try {
+          const settled = legalFiling.settleLegalLabels(bundle, projectId);
+          if (settled.stripped.length > 0) {
+            bundle.legalLabelsStripped = [...(bundle.legalLabelsStripped || []), ...settled.stripped];
+            dirty = true;
+            console.info(`[legal] ${projectId}: removed an S4a-period Legal label from ${settled.stripped.length} file(s)`);
+          }
+          // Settled only when every labelled row was decided — a body found
+          // nowhere (its drive unplugged) is asked about again next read.
+          if (settled.settled) {
+            bundle.legalLabelsSettled = { at: new Date().toISOString(), stripped: bundle.legalLabelsStripped || [] };
+            dirty = true;
+          }
+        } catch { /* next read */ }
+      }
       // Session 26: the tree, reconciled on read so a project that predates
       // 0041 gains its rows without anyone having to migrate anything. It
       // converges — once every planned folder has a row nothing changes, so
@@ -1068,6 +1555,18 @@ function startLocalServer(distPath) {
       } catch (e) { console.error('folder reconcile failed:', e.message); }
       if (dirty) {
         try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
+      }
+      // D21 (review R1 local#4): the persist above is a raw writeJSON — no
+      // mirror — so a legacy project that was only ever READ never got
+      // <slug>_DATABASES/scenes.json. Mirrored here, ONLY when this read ran
+      // the backfill: GET /api/rabbit/projects reads every project's bundle,
+      // and a mirror per project per list would rewrite six files each for
+      // nothing. The backfill runs once per bundle (twice only if the write
+      // above failed, and its ids are the same then). Last, so the mirror
+      // sees the sanitised folder_slug and the rebased folder_root; guarded,
+      // because the mirror makes a directory outside its own try.
+      if (backfilled) {
+        try { mirrorProjectDatabases(projectId, bundle); } catch (e) { console.error('shot list backfill mirror failed:', e.message); }
       }
       return bundle;
     }
@@ -1116,6 +1615,12 @@ function startLocalServer(distPath) {
         // same shape either way.
         folders:         [],
         fileEvents:      [],
+        // Post-overhaul S3a (0084). Present from birth, so a new project is
+        // never backfilled (readRabbitBundle backfills only a bundle with no
+        // `shotLists` array) — parity with the cloud, whose backfill ran once.
+        shotLists:       [],
+        shotListItems:   [],
+        edits:           [],
       };
     }
     function rabbitTouch(row) {
@@ -1148,11 +1653,15 @@ function startLocalServer(distPath) {
     // Every user-visible project folder gets three sub-folders:
     //   ASSETS/                       — asset folders + managed files
     //   {Slug}_DATABASES/             — read-only JSON mirrors of project data
-    //   {Slug}_FILES/                 — uploaded files (receipts, docs, etc.)
+    //   {Slug}_FILES/                 — uploaded files (docs, etc.; NOT
+    //                                   receipts since C4 — see INVOICES/)
 
     function resolveProjectFolder(bundle) {
       const root = bundle?.project?.folder_root;
-      if (root && fs.existsSync(root)) return root;
+      // (review round 2, H3) a stored root is followed only where the person
+      // could have chosen it — inside the open demo folder, or anywhere when
+      // none is open; a copied folder's bundle is somebody else's record.
+      if (root && fs.existsSync(root) && storedRootUsable(root)) return root;
       // Session 34: workspace root (byos) outranks the machine default.
       const rootBase = resolveConfiguredRootDir();
       if (!rootBase) return null;
@@ -1221,7 +1730,8 @@ function startLocalServer(distPath) {
         // 🚨 NOT ported to the folders TABLE, and it must not be. On `main`
         // this was never a files folder, it was the DATASTORE —
         // mirrorProjectDatabases writes project.json, team.json, tasks.json,
-        // timeline.json and budget.json into it. Database information lives
+        // timeline.json, budget.json and (S3a, D21) scenes.json into it.
+        // Database information lives
         // in Supabase. It keeps being created here so existing local projects
         // are untouched, and it is deliberately absent from FOLDER_CATEGORIES
         // so it never becomes a second copy of every project in the cloud.
@@ -1237,6 +1747,11 @@ function startLocalServer(distPath) {
         // replaced. Existing folders on disk are left exactly where they are
         // — this stops making new empty ones, it never deletes.
         path.join(root, 'INVOICES'),
+        // Post-overhaul S4b (Audrey, 2026-10-01): Legal files go in their own
+        // LEGAL folder beside INVOICES, made with the project so it is there
+        // before the first one — and so the NAS can lock it with its own
+        // permissions, which is the only lock this backend has (no roles).
+        path.join(root, LEGAL_DIR),
       ];
       for (const d of dirs) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -1409,23 +1924,33 @@ function startLocalServer(distPath) {
         writeJSON(path.join(dbDir, 'project.json'), bundle.project);
         // team.json — project-scoped team roster
         writeJSON(path.join(dbDir, 'team.json'), bundle.projectTeam || []);
+        // Post-overhaul S5b (0090's twin): rows the open bid version does not
+        // hold are SET ASIDE — kept whole in project.json, hidden from these
+        // readable mirrors as from every screen (with the edges and links on
+        // them). Inline, as this file's other rules are.
+        const isAside = (r) => !!(r && r.set_aside_at && !r.deleted_at);
+        const asideIds = new Set([...(bundle.tasks || []), ...(bundle.phases || [])].filter(isAside).map(r => String(r.id)));
+        const liveTasks = (bundle.tasks || []).filter(t => !isAside(t));
+        const livePhases = (bundle.phases || []).filter(p => !isAside(p));
+        const liveDeps = (bundle.dependencies || []).filter(d => !asideIds.has(String(d.predecessor_id)) && !asideIds.has(String(d.successor_id)));
+        const liveLinks = (bundle.taskLinks || []).filter(l => !asideIds.has(String(l.task_id)));
         // tasks.json — tasks + dependencies + task links
         writeJSON(path.join(dbDir, 'tasks.json'), {
-          tasks:        bundle.tasks        || [],
-          dependencies: bundle.dependencies || [],
-          taskLinks:    bundle.taskLinks    || [],
+          tasks:        liveTasks,
+          dependencies: liveDeps,
+          taskLinks:    liveLinks,
         });
         // timeline.json — phases + scheduling data
         writeJSON(path.join(dbDir, 'timeline.json'), {
-          phases:       bundle.phases       || [],
-          tasks:        (bundle.tasks || []).map(t => ({
+          phases:       livePhases,
+          tasks:        liveTasks.map(t => ({
             id: t.id, name: t.name, asset_id: t.asset_id,
             assigned_role_slug: t.assigned_role_slug,
             status: t.status, bid_days: t.bid_days,
             start_date: t.start_date, end_date: t.end_date,
             sort_order: t.sort_order,
           })),
-          dependencies: bundle.dependencies || [],
+          dependencies: liveDeps,
         });
         // budget.json — budget lines, actuals, versions, expenses
         writeJSON(path.join(dbDir, 'budget.json'), {
@@ -1433,6 +1958,17 @@ function startLocalServer(distPath) {
           budgetActuals:  bundle.budgetActuals  || [],
           budgetVersions: bundle.budgetVersions || [],
           expenses:       bundle.expenses       || [],
+        });
+        // scenes.json — shot lists, their membership, the shared scene and
+        // shot rows, and edits (post-overhaul S3a; Audrey D21: scenes.json
+        // joins the desktop's readable database files). Lists first because a
+        // list is how a person reads them: membership, not copies (D1 + D3).
+        writeJSON(path.join(dbDir, 'scenes.json'), {
+          shotLists:     bundle.shotLists     || [],
+          shotListItems: bundle.shotListItems || [],
+          scenes:        bundle.scenes        || [],
+          shots:         bundle.shots         || [],
+          edits:         bundle.edits         || [],
         });
       } catch (e) {
         console.error('mirrorProjectDatabases failed:', e.message);
@@ -1484,6 +2020,14 @@ function startLocalServer(distPath) {
       return resolveProjectFilesDir(bundle, projectId);
     }
 
+    // Post-overhaul S4b: the LEGAL folder, INVOICES's twin — a sibling of
+    // <slug>_FILES, made on demand. Unlike invoices it NEVER falls back to
+    // the files dir: with no project folder it is the internal project
+    // dir's own LEGAL (review round 1, R1-BEH-04; legalFiling.cjs).
+    function resolveProjectLegalDir(bundle, projectId) {
+      return legalFiling.legalDir(bundle, projectId);
+    }
+
     // Which base a given file row resolves against. storage_path stays a bare
     // filename either way, so the containment guard keeps working unchanged.
     //
@@ -1497,6 +2041,10 @@ function startLocalServer(distPath) {
     // back to wherever the body actually is.
     function resolveFileBaseDir(bundle, projectId, file) {
       const filesDir = resolveProjectFilesDir(bundle, projectId);
+      // S4b: a Legal file's home is a LEGAL folder — the project's, then the
+      // internal one — with the "where the body actually is" fallback
+      // (legalFiling.baseDirFor, run for real in legalFiling.test.js).
+      if (isLegalRow(file)) return legalFiling.baseDirFor(bundle, projectId, file);
       if (!file?.is_financial) return filesDir;
       const invoicesDir = resolveProjectInvoicesDir(bundle, projectId);
       const here = resolveContainedFilePath(invoicesDir, file.storage_path);
@@ -1518,9 +2066,14 @@ function startLocalServer(distPath) {
     // drive/share-root fix — are unit-tested; do not redefine it here.
     //
     // Relink folders must be USER-CHOSEN, not body-supplied (adversarial
-    // review, S14): the Express server answers any local origin (cors()),
-    // so a body-picked baseDir would let a drive-by request point a
-    // project's files at, say, the user's Documents and read/unlink there.
+    // review, S14): the Express server answered any local origin (cors())
+    // when this was written, so a body-picked baseDir would let a drive-by
+    // request point a project's files at, say, the user's Documents and
+    // read/unlink there. Since B3 (Track B) cors() answers the renderer's
+    // own origin only and every /api route needs the per-launch token
+    // (header or httpOnly cookie) — which narrows the caller to the app's
+    // own renderer or a token holder and changes nothing here: a body-picked
+    // path is never enough, whoever sends it.
     // rabbit:pick-directory records every folder the user actually picks
     // in userAuthorizedDirs; anything inside the project's own folders is
     // always fair game.
@@ -1532,15 +2085,24 @@ function startLocalServer(distPath) {
       try { const r = resolveProjectFolder(bundle); if (r) roots.push(r); } catch {}
       try { roots.push(getRabbitDataDir()); } catch {}
       try { const d = readFilesConfig()?.defaultRootDir; if (d) roots.push(d); } catch {}
+      try { const d = localDemoRootDir(); if (d) roots.push(d); } catch {}
       // Session 34: the workspace root is as user-authorized as the machine
       // default — an admin chose it for the whole company. Without this,
       // moving the root to the database makes relink refuse folders inside
       // the configured root (the exact regression the design warned about).
       if (workspaceRootDir) roots.push(workspaceRootDir);
-      if (bundle.project?.files_dir) roots.push(bundle.project.files_dir);
+      const fd = bundle.project?.files_dir; if (fd && storedRootUsable(fd)) roots.push(fd);
       // isPathInside carries the same root-base rule as the containment
       // guard: a drive/share root must contain its own children (S33).
       return roots.some(root => isPathInside(root, resolved));
+    }
+    // (review round 2, H2) May a bundle's thumbnail_image be opened and
+    // transcoded? The picture the person picked this session, or one under
+    // a folder they chose — never any image on the machine a copied bundle
+    // or a drive-by POST happens to name.
+    function thumbnailSourceAllowed(bundle, projectId, srcPath) {
+      if (userAuthorizedImages.has(path.resolve(String(srcPath)).toLowerCase())) return true;
+      return isUserAuthorizedRelinkDir(bundle, projectId, srcPath);
     }
     // Local twin of the cloud file_events stream (migration 0027): the
     // audit drawer reads the same event vocabulary from bundle.fileEvents.
@@ -1595,6 +2157,7 @@ function startLocalServer(distPath) {
     }
 
     // ── Projects ────────────────────────────────────────────
+    expressApp.use('/api/rabbit', localDemoMissingGuard); // demo sprint (2026-09-10): refuse while the demo folder is missing
     expressApp.get('/api/rabbit/projects', (req, res) => {
       const projectsDir = getRabbitProjectsDir();
       const ids = fs.readdirSync(projectsDir).filter(f =>
@@ -1665,6 +2228,14 @@ function startLocalServer(distPath) {
         folder_slug:     fileSlugify(String(req.body.folder_slug || req.body.title || 'Untitled-Project')),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
+        // Post-overhaul S3a (0084): a new project has no shot list, so it can
+        // have no active one. Forced, not taken from the body — a duplicated
+        // project's row would otherwise point at ANOTHER project's list, which
+        // the cloud's same-project FK (projects_active_shot_list_fk) refuses.
+        active_shot_list_id: null,
+        // Post-overhaul S5 (0089): nor any bid version, so none is OPEN — the
+        // same reasoning, for projects_open_budget_version_fk.
+        open_budget_version_id: null,
         created_at:      now,
         updated_at:      now,
       };
@@ -1686,6 +2257,39 @@ function startLocalServer(distPath) {
     expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
+      // Post-overhaul S3a, rule 7 — the desktop's copy of 0084 §7b
+      // (trg_projects_active_shot_list_guard). The active shot list changes
+      // only through POST …/active-shot-list (electron/rabbitShotLists.cjs),
+      // which checks the list exists here and is not archived; this spread
+      // would otherwise accept any id, including one of another project's
+      // lists. Only a CHANGE is refused: the adapters send whole project rows
+      // back, and an unchanged pointer (null and absent count as the same)
+      // must pass, the S35 idiom this route uses for folder_root below.
+      // Refused BEFORE anything else looks at the body, so nothing is written.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'active_shot_list_id')) {
+        const nextActive = req.body.active_shot_list_id || null;
+        const curActive = bundle.project.active_shot_list_id || null;
+        if (String(nextActive) !== String(curActive)) {
+          return res.status(403).json({
+            error: 'the active shot list is changed only by a project manager or a workspace admin, through set_active_shot_list()',
+            code: 'forbidden',
+          });
+        }
+      }
+      // Post-overhaul S5 — the desktop's copy of 0089's same-project FK
+      // (projects_open_budget_version_fk): the OPEN bid version must be one of
+      // THIS project's versions. The desktop has no roles, so 0089's money
+      // guard has no twin here (A9's one line: every gate is open on the Local
+      // Server). Only a CHANGE to a non-null id is checked: an echoed pointer
+      // and a cleared one pass. Refused before anything is written.
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'open_budget_version_id')) {
+        const nextOpen = req.body.open_budget_version_id || null;
+        const curOpen = bundle.project.open_budget_version_id || null;
+        if (nextOpen !== null && String(nextOpen) !== String(curOpen)
+            && !(bundle.budgetVersions || []).some(v => String(v.id) === String(nextOpen))) {
+          return res.status(404).json({ error: 'bid version not found in this project', code: 'not_found' });
+        }
+      }
       // Session 35 (TPN-NET-015): folder_root is the one field this spread
       // must not accept verbatim. Clearing (null/'') is a reset to the
       // configured chain and passes; an UNCHANGED value re-sent by a caller
@@ -1782,7 +2386,11 @@ function startLocalServer(distPath) {
     });
 
     expressApp.delete('/api/rabbit/projects/:id', (req, res) => {
-      const dir = path.join(getRabbitProjectsDir(), req.params.id);
+      // (review round 1) contained like getRabbitProjectDir: a decoded
+      // `../..` id is "not found", never an rmSync outside projects/.
+      const projectsDir = getRabbitProjectsDir();
+      const dir = resolveContainedFilePath(projectsDir, String(req.params.id || ''));
+      if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) return rabbitNotFound(res);
       if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
       res.json({ ok: true });
     });
@@ -1795,13 +2403,71 @@ function startLocalServer(distPath) {
     // Passing it gives every row of that type its own folder on create AND
     // moves the folder when the row is renamed. Entities without it (phases,
     // tasks, comments…) are unaffected — they are not things with folders.
-    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null) {
+    // Track A bundle A2 (2026-09-06): the desktop's equivalent of 0061's
+    // ON DELETE CASCADE. A task or phase delete used to splice only its own
+    // collection, so every dependency edge naming the deleted row stayed in
+    // project.json and was re-mirrored into {Slug}_DATABASES/tasks.json and
+    // timeline.json on every write; RabbitProvider pruned its own copy, which
+    // hid the orphans for the session and brought them back on reload. The
+    // sweep runs in the SAME write that removes the entity, on the bundle the
+    // mirrors are rendered from, so they never see an orphan again. Edges are
+    // task→task or phase→phase and ids are uuids, so matching on id alone
+    // (not kind) is exact — the same rule the provider's deleteTask and
+    // deletePhase use. Replayed with a failing control by
+    // src/tools/rabbit_v0.1.0/desktopDeleteSweep.test.js.
+    function sweepDependencyEdges(bundle, id) {
+      if (!Array.isArray(bundle.dependencies)) return 0;
+      const before = bundle.dependencies.length;
+      bundle.dependencies = bundle.dependencies.filter(
+        d => d.predecessor_id !== id && d.successor_id !== id,
+      );
+      return before - bundle.dependencies.length;
+    }
+    // `opts` is a plain parameter, not `{ sweepDependencies = false } = {}`:
+    // two test files lift functions out of this file by brace matching from
+    // the name, and a brace in the parameter list is the one thing that
+    // breaks them.
+    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null, opts) {
+      const sweepDependencies = !!(opts && opts.sweepDependencies);
+      // A2 session 2, ruling 38: milestones trash instead of vanishing. The
+      // cloud got this from 0014's machinery via 0067; the desktop has no
+      // such machinery, so DELETE stamps deleted_at on the row and a restore
+      // route clears it. The bundle keeps the row either way — that is what
+      // makes "Recently deleted" and Undo work here at all.
+      const softDelete = !!(opts && opts.softDelete);
+      // Post-overhaul S3a, rule 8: `shotListLinks: 'scene' | 'shot'` makes a
+      // hard DELETE run cascadeSceneOrShotDelete (electron/rabbitShotLists.cjs)
+      // in the same write — the row's shot-list items leave every list
+      // (archived ones too) and the tasks pointing at it are unlinked, as
+      // 0084's FKs CASCADE / SET NULL. A SCENE also takes its shots with it
+      // (review R1, addendum C: 0040's shots.scene_id CASCADE, which the
+      // desktop never had), each swept the same way — including a shot only
+      // another list holds, which a screen reading the active list cannot see.
+      // Replayed with failing controls by desktopDeleteSweep.test.js, which
+      // passes the real cascadeSceneOrShotDelete into its lifted copy of this
+      // function (so it stays a plain name here, not an opts callback).
+      const shotListLinks = (opts && opts.shotListLinks) || null;
+      // Post-overhaul S5: `projectPointers: [field, …]` names project fields
+      // that point at a row of this entity. A hard DELETE clears each one that
+      // names the removed row, in the same write — what the cloud's FKs do ON
+      // DELETE SET NULL (budget versions: projects_budget_active_version_id_fkey,
+      // 0037, and projects_open_budget_version_fk, 0089). Inline, not a helper:
+      // two tests lift this function by brace matching with its helpers named.
+      const projectPointers = (opts && opts.projectPointers) || null;
+      // Post-overhaul S5b: `scheduleRow` (tasks, phases, milestones) — the
+      // set_aside_at stamp (0090's twin) is written ONLY by POST …/set-aside.
+      // An upsert MERGES into the stored row, so a stale copy re-sent with
+      // `set_aside_at: null` would otherwise bring a set-aside row back
+      // unasked; the stamp is dropped from every ordinary body here.
+      const scheduleRow = !!(opts && opts.scheduleRow);
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
-        const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
+        const body = { ...req.body };
+        if (scheduleRow) delete body.set_aside_at;
+        const row = rabbitTouch({ ...body, project_id: req.params.projectId });
         const result = rabbitUpsertInto(bundle[bundleKey], row);
         if (folderEntityType) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, result);
@@ -1818,7 +2484,9 @@ function startLocalServer(distPath) {
         const arr = bundle[bundleKey];
         const idx = arr.findIndex(x => x.id === req.params.id);
         if (idx < 0) return rabbitNotFound(res, entityName);
-        arr[idx] = { ...arr[idx], ...req.body, id: req.params.id, updated_at: new Date().toISOString() };
+        const patch = { ...req.body };
+        if (scheduleRow) delete patch.set_aside_at;
+        arr[idx] = { ...arr[idx], ...patch, id: req.params.id, updated_at: new Date().toISOString() };
         if (folderEntityType) {
           // A rename moves the folder ROW here and CREATES the new directory
           // below — the old directory is deliberately left in place with
@@ -1836,21 +2504,77 @@ function startLocalServer(distPath) {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
+        // `?purge=1` is the HARD delete, and it exists for exactly one caller:
+        // the renderer's undo of a CREATE. Undoing a create must leave no row
+        // and no trash entry — otherwise every undone create accumulates in
+        // "Recently deleted" forever, because nothing purges on Local Server.
+        // Deleting a row the user actually made still trashes it.
+        if (softDelete && req.query?.purge !== '1') {
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && !x.deleted_at);
+          // !deleted_at above, matching the read path: deleting an already
+          // trashed row is a 404, not a second stamp that would move its
+          // purge countdown. Same shape as the managed-file soft delete.
+          if (idx < 0) return rabbitNotFound(res, entityName);
+          // A trashed row is never also set aside (0090's rule): the trash
+          // wins, so "Recently deleted" restores it LIVE.
+          const { set_aside_at: _aside, ...kept } = arr[idx];
+          arr[idx] = { ...kept, deleted_at: new Date().toISOString() };
+          writeRabbitBundle(req.params.projectId, bundle);
+          return res.json({ ok: true, swept: 0, softDeleted: true });
+        }
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
+        const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
+        // `unlinked` appears only for an entity registered with shotListLinks,
+        // so every other entity answers exactly as before: { items, tasks }
+        // for a shot, { items, tasks, shots } for a scene (shots = how many
+        // of its shots went with it).
+        const unlinked = shotListLinks ? cascadeSceneOrShotDelete(bundle, shotListLinks, req.params.id) : null;
+        if (projectPointers && bundle.project) {
+          for (const field of projectPointers) {
+            if (bundle.project[field] != null && String(bundle.project[field]) === String(req.params.id)) {
+              bundle.project = { ...bundle.project, [field]: null };
+            }
+          }
+        }
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json({ ok: true });
+        res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });
+      // RESTORE — registered only for soft-delete entities, so a hard-delete
+      // entity has no route that could half-work.
+      if (softDelete) {
+        expressApp.post(`/api/rabbit/projects/:projectId/${entityName}/:id/restore`, (req, res) => {
+          const bundle = readRabbitBundle(req.params.projectId);
+          if (!bundle) return rabbitNotFound(res);
+          if (!bundle[bundleKey]) bundle[bundleKey] = [];
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && x.deleted_at);
+          // A row that is already live answers `restored: false` rather than
+          // 404: the cloud's restore_soft_deleted returns false in exactly
+          // that case (someone else restored it first) and the caller must
+          // read the two backends the same way.
+          if (idx < 0) {
+            const live = arr.some(x => x.id === req.params.id);
+            if (!live) return rabbitNotFound(res, entityName);
+            return res.json({ ok: true, restored: false });
+          }
+          const { deleted_at: _dropped, ...rest } = arr[idx];
+          arr[idx] = rest;
+          writeRabbitBundle(req.params.projectId, bundle);
+          res.json({ ok: true, restored: true });
+        });
+      }
     }
 
-    rabbitSubentityRoutes('phases',         'phases');
+    rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true, scheduleRow: true });
 
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
     // create/rename/soft-delete OS folders when assets change.
     function resolveProjectFolderRoot(bundle) {
       const projectRoot = bundle.project?.folder_root;
-      if (projectRoot && fs.existsSync(projectRoot)) return projectRoot;
+      if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
       // Session 34: workspace root (byos) outranks the machine default.
       const rootBase = resolveConfiguredRootDir();
       if (!rootBase) return null;
@@ -2019,14 +2743,70 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks');
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
     rabbitSubentityRoutes('comments',       'comments');
     rabbitSubentityRoutes('ingestion-runs', 'ingestionRuns');
     rabbitSubentityRoutes('team-assignments', 'teamAssignments');
-    rabbitSubentityRoutes('budget-versions', 'budgetVersions');
+    // Post-overhaul S5: deleting a bid version clears the project's pointers
+    // to it — the LOCKED one (0037's FK) and the OPEN one (0089's).
+    rabbitSubentityRoutes('budget-versions', 'budgetVersions', null, { projectPointers: ['budget_active_version_id', 'open_budget_version_id'] });
+    // Post-overhaul S5 — the desktop's select_budget_version (0089 §4): the
+    // SELECTED bid (budget_versions.is_active, the variance baseline — not the
+    // lock, not the open version) in ONE bundle write, every other version
+    // cleared; a null version_id clears them all (F13: nothing is promoted).
+    // The cloud does it in one UPDATE; before this the client upserted every
+    // version in a loop, which could stop half way with two selected.
+    expressApp.post('/api/rabbit/projects/:projectId/budget-versions/select', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      if (!bundle.budgetVersions) bundle.budgetVersions = [];
+      const target = (req.body && req.body.version_id) || null;
+      if (target !== null && !bundle.budgetVersions.some(v => String(v.id) === String(target))) {
+        return res.status(404).json({ error: 'bid version not found in this project', code: 'not_found' });
+      }
+      const now = new Date().toISOString();
+      bundle.budgetVersions = bundle.budgetVersions.map((v) => {
+        const want = target !== null && String(v.id) === String(target);
+        return (v.is_active === true) === want ? v : { ...v, is_active: want, updated_at: now };
+      });
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ selected: target });
+    });
+    // Post-overhaul S5b — the desktop's set_aside_schedule_rows (0090 §3).
+    // Audrey's ruling (a) of 2026-10-05: each bid version shows exactly its
+    // own schedule, so opening one SETS ASIDE the tasks, phases and key dates
+    // it does not hold and brings back those it holds. A set-aside row stays
+    // whole in project.json (its comments, links, edges, files and logged
+    // days on it); it is never deleted here — the tasks and phases routes
+    // hard-delete, which is exactly what this must not do. One bundle write
+    // for the three kinds; trashed rows and rows already in the asked state
+    // are untouched (an earlier stamp is kept). The Local Server has no
+    // roles, so no money check (F4: every gate is open on the desktop).
+    expressApp.post('/api/rabbit/projects/:projectId/set-aside', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const on = !!(req.body && req.body.on);
+      const at = on ? new Date().toISOString() : null;
+      const counts = { tasks: 0, phases: 0, milestones: 0 };
+      for (const kind of ['tasks', 'phases', 'milestones']) {
+        const ids = new Set(((req.body && req.body[kind]) || []).map(String));
+        if (!ids.size || !Array.isArray(bundle[kind])) continue;
+        bundle[kind] = bundle[kind].map((r) => {
+          if (!r || !ids.has(String(r.id)) || r.deleted_at) return r;
+          if (on && r.set_aside_at) return r;
+          if (!on && !r.set_aside_at) return r;
+          counts[kind] += 1;
+          if (on) return { ...r, set_aside_at: at };
+          const { set_aside_at: _was, ...back } = r;
+          return back;
+        });
+      }
+      if (counts.tasks || counts.phases || counts.milestones) writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ set_aside_at: at, ...counts });
+    });
     rabbitSubentityRoutes('expenses',        'expenses');
     rabbitSubentityRoutes('budget-lines',    'budgetLines');
     rabbitSubentityRoutes('budget-actuals',  'budgetActuals');
@@ -2034,11 +2814,15 @@ function startLocalServer(distPath) {
     // Session 26: the four entity types that get their own folders. Assets
     // are the fifth and have their own routes below (they already had folder
     // side-effects before this session).
-    rabbitSubentityRoutes('scenes',          'scenes',      'scene');
-    rabbitSubentityRoutes('shots',           'shots',       'shot');
+    // Post-overhaul S3a, rule 8: deleting a scene or a shot takes it out of
+    // every shot list and unlinks the tasks that named it (0084's FKs).
+    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene' });
+    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot' });
     rabbitSubentityRoutes('levels',          'levels',      'level');
     rabbitSubentityRoutes('experiences',     'experiences', 'experience');
-    rabbitSubentityRoutes('milestones',      'milestones');
+    // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
+    // Not a dependency endpoint, so no sweep — a milestone has no edges.
+    rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true, scheduleRow: true });
 
     // ── Folder tree routes (Session 26) ───────────────────────────
     //
@@ -2131,7 +2915,8 @@ function startLocalServer(distPath) {
     // recovery and handoff, never an input to normal operation.
     //
     // 🚨 THIS IS NOT `_DATABASES/`. That folder holds project.json, team.json,
-    // tasks.json, timeline.json and budget.json — a full second datastore,
+    // tasks.json, timeline.json, budget.json and scenes.json (S3a) — a full
+    // second datastore,
     // and the reason the mirror rule exists at all. The manifest is ONE file
     // of SETTINGS at the project root, beside ASSETS/ and SCENES/, where a
     // person browsing the folder will actually find it.
@@ -2175,14 +2960,16 @@ function startLocalServer(distPath) {
           project_role:  m.project_role || null,
           project_title: m.project_title || '',
         })),
+        // Post-overhaul S5b: a set-aside phase or task (0090's twin) is not
+        // part of the live schedule, so it is not counted.
         counts: {
           assets:      (bundle.assets      || []).length,
           scenes:      (bundle.scenes      || []).length,
           shots:       (bundle.shots       || []).length,
           levels:      (bundle.levels      || []).length,
           experiences: (bundle.experiences || []).length,
-          phases:      (bundle.phases      || []).length,
-          tasks:       (bundle.tasks       || []).length,
+          phases:      (bundle.phases      || []).filter(r => !(r && r.set_aside_at && !r.deleted_at)).length,
+          tasks:       (bundle.tasks       || []).filter(r => !(r && r.set_aside_at && !r.deleted_at)).length,
         },
       };
     }
@@ -2310,56 +3097,20 @@ function startLocalServer(distPath) {
     // Individual CRUD via sub-entity factory
     rabbitSubentityRoutes('project-team',    'projectTeam');
 
-    // ── Files: upload (base64 JSON payload) + download (binary stream) ──
-    // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
-    // Server decodes and writes to {project_dir}/files/{file_id}-{name}.
-    // Multipart was the original spec but base64 keeps us off a new dep
-    // (multer/formidable) and works fine inside the existing 50mb json limit.
-    expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const { name, mimeType, sizeBytes, base64, scope = {} } = req.body || {};
-      if (!name || !base64) return res.status(400).json({ error: 'name and base64 required' });
+    // ── Files: upload (base64 JSON payload) ──
+    // Moved word for word into electron/projectFileStream.cjs (S4b review
+    // round 1, R1-BEH-05) beside the streamed PUT, mounted below with it, so
+    // the two transports share one scope check and one directory choice and
+    // both are served for real in tests. The download route follows.
 
-      const fileId = uuidv4();
-      const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
-      const diskName = `${fileId}-${safeName}`;
-      const isFinancial = !!scope.financial;
-      const filesDir = isFinancial
-        ? resolveProjectInvoicesDir(bundle, req.params.projectId)
-        : resolveProjectFilesDir(bundle, req.params.projectId);
-      fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
-
-      const row = rabbitTouch({
-        id:               fileId,
-        project_id:       req.params.projectId,
-        phase_id:         scope.phaseId || null,
-        asset_id:         scope.assetId || null,
-        task_id:          scope.taskId  || null,
-        name,
-        mime_type:        mimeType || null,
-        size_bytes:       sizeBytes ?? null,
-        storage_provider: 'local_server',
-        storage_path:     diskName,
-        kind:             scope.kind || 'source',
-        is_core_definer:  !!scope.isCoreDefiner,
-        // Mirrors public.files.is_financial (0038). On Local Server it also
-        // decides which directory the body resolves against.
-        is_financial:     isFinancial,
-        uploaded_at:      new Date().toISOString(),
-      });
-      bundle.files.push(row);
-      rabbitLogFileEvent(bundle, {
-        file_id:          row.id,
-        project_id:       req.params.projectId,
-        file_name:        row.name,
-        storage_provider: row.storage_provider,
-        event:            'uploaded',
-        new_path:         row.storage_path,
-        size_bytes:       row.size_bytes ?? null,
-      });
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(row);
+    // ── Post-overhaul S4a: where a row's bytes are on THIS disk ─────────────
+    // For the rabbit:open-path IPC ("Open in default app", the explorer's
+    // "Show in folder"): the path is resolved here, from the bundle, by the
+    // same contained resolvers the download and stream routes use — never
+    // taken from the page. A row the user deleted (a soft-deleted managed
+    // file) resolves to nothing, as the stream route's does.
+    rabbitFileLocator = require('./openPath.cjs').makeRowLocator({
+      readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir,
     });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
@@ -2403,21 +3154,32 @@ function startLocalServer(distPath) {
       // means guarding whatever outranks it") pointed the other way.
       res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(diskPath);
+      // S4a: `?download=1` makes it an ATTACHMENT under the file's own name
+      // (fileReads.cjs, served for real in fileReads.test.js).
+      require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);
+      // `dotfiles: 'allow'`: under a dot-folder (a demo folder's
+      // `.wilson\rabbit-data`) `send` refused the absolute path and the read
+      // answered "internal error" (S4a review round 2, R2-SEC-05, measured).
+      res.sendFile(diskPath, { dotfiles: 'allow' });
     });
 
-    expressApp.patch('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const idx = bundle.files.findIndex(f => f.id === req.params.id);
-      if (idx < 0) return rabbitNotFound(res, 'file');
-      // Session 14: path fields are NOT patchable here — a crafted
-      // storage_path turned download/delete into arbitrary-path fs calls.
-      // Path changes go through relink-apply, which containment-checks.
-      const { storage_path: _sp, storage_provider: _spr, id: _id, ...patch } = req.body || {};
-      bundle.files[idx] = { ...bundle.files[idx], ...patch, id: req.params.id };
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(bundle.files[idx]);
+    // ── Post-overhaul S4a: stream a project file's bytes, with Range ─────────
+    // The managed-files stream route's twin for `files` rows: the explorer's
+    // inline previews. Same-origin only, one read a minute, probes unlogged,
+    // media types only — fileReads.cjs, served for real in fileReads.test.js.
+    require('./fileReads.cjs').mountFileStreamRead(expressApp, {
+      fs, readRabbitBundle, rabbitNotFound, resolveContainedFilePath, resolveFileBaseDir,
+      rabbitLogFileEvent, writeRabbitBundle, safeMediaContentType, shouldLogManagedRead,
+    });
+
+    // Post-overhaul S4b: the two file PATCH routes (this one and the
+    // managed-files one) live in projectFilePatch.cjs, moved word for word
+    // with the Legal rules added (0088's two CHECKs, fileTags.cjs), so they
+    // are served for real in projectFilePatch.test.js. Mounted HERE, where
+    // the files PATCH always stood.
+    require('./projectFilePatch.cjs').mountProjectFilePatch(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound,
+      checkFileTags, checkLegalPatch, checkManagedLegal,
     });
 
     expressApp.delete('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
@@ -2489,8 +3251,10 @@ function startLocalServer(distPath) {
         // Session 24: invoices live in <project>/INVOICES and are not part of
         // the files home this flow relinks. Including them would report every
         // one as missing — and a relink would then offer to move the
-        // project's financial record somewhere else.
-        if (f.is_financial) continue;
+        // project's financial record somewhere else. S4b: nor Legal files,
+        // which live in <project>/LEGAL for the same reason
+        // (legalFiling.relinkable).
+        if (!legalFiling.relinkable(f)) continue;
         const p = resolveContainedFilePath(filesDir, f.storage_path);
         (p && fs.existsSync(p) ? resolved : missing).push({
           id: f.id, name: f.name, storage_path: f.storage_path,
@@ -2590,6 +3354,12 @@ function startLocalServer(distPath) {
       for (const m of mappings) {
         const file = byId.get(m?.fileId);
         if (!file) return res.status(400).json({ error: `unknown file id: ${m?.fileId}` });
+        // S4b (review round 1, R1-BEH-10): the scan never offers an invoice
+        // or a Legal file, so a mapping for one is refused, not applied — a
+        // crafted one would re-point a Legal body outside LEGAL.
+        if (!legalFiling.relinkable(file)) {
+          return res.status(400).json({ error: `not relinkable: ${file.name || file.id} lives in its own folder`, code: 'not_relinkable' });
+        }
         const abs = resolveContainedFilePath(baseDir, m.newPath);
         if (!abs) return res.status(400).json({ error: `path escapes the picked folder: ${m.newPath}` });
         if (!fs.existsSync(abs)) return res.status(409).json({ error: `not found on disk: ${m.newPath}` });
@@ -2722,27 +3492,7 @@ function startLocalServer(distPath) {
       res.json(row);
     });
 
-    expressApp.patch('/api/rabbit/projects/:projectId/managed-files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      if (!bundle.managedFiles) bundle.managedFiles = [];
-      const idx = bundle.managedFiles.findIndex(f => f.id === req.params.id);
-      if (idx < 0) return rabbitNotFound(res, 'managed-file');
-      // Session 17: path fields are NOT patchable here — the same class the
-      // sibling files PATCH was hardened against in S14 (:1362). A crafted
-      // folder_path/stored_name turned the hard-delete and thumbnail routes
-      // into arbitrary-path fs calls. Path changes are server-derived on
-      // POST, or come from the asset-rename route which rewrites them itself.
-      const { folder_path: _fp, stored_name: _sn, storage_provider: _spr, id: _id, ...patch } = req.body || {};
-      bundle.managedFiles[idx] = {
-        ...bundle.managedFiles[idx],
-        ...patch,
-        id: req.params.id,
-        updated_at: new Date().toISOString(),
-      };
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json(bundle.managedFiles[idx]);
-    });
+    // (PATCH …/managed-files/:id — projectFilePatch.cjs, mounted beside the files PATCH.)
 
     expressApp.delete('/api/rabbit/projects/:projectId/managed-files/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
@@ -2868,15 +3618,21 @@ function startLocalServer(distPath) {
       // http://127.0.0.1:<port> by THIS Express app — so bytes returned as
       // text/html from this route would run as script on WILSON's own origin,
       // with access to that origin's localStorage (the Supabase session) and to
-      // all 94 unauthenticated routes. Echoing a client-settable type was the
-      // whole of it. Found by the pre-push adversarial review.
+      // all 94 routes — B3's launch token is no defence here, because the
+      // httpOnly cookie rides every same-origin request, script's included.
+      // Echoing a client-settable type was the whole of it. Found by the
+      // pre-push adversarial review.
       //
       // An allowlist rather than a denylist: anything that is not obviously
       // media is served as an opaque download, which a <video> ignores and a
       // browser cannot execute.
       res.setHeader('Content-Type', safeMediaContentType(mf.mime_type));
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.sendFile(diskPath, (err) => {
+      // `dotfiles: 'allow'` (post-overhaul S4a review round 2, R2-SEC-05,
+      // measured): `send` refused any absolute path through a dot-folder —
+      // a demo folder's `.wilson\rabbit-data` — and the read answered 500.
+      // Containment is resolveManagedFileDiskPath's, already decided above.
+      res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
         if (!err) return;
         // A cancelled range request is the normal shape of video playback.
         if (res.headersSent || res.writableEnded) return;
@@ -2968,8 +3724,10 @@ function startLocalServer(distPath) {
     // ffmpeg still owns ProRes/DNxHD/MXF, and it is preferred when present
     // because input seeking on local disk beats streaming over HTTP.
     //
-    // 🚨 THIS WRITES TO DISK FROM AN UNAUTHENTICATED LOOPBACK SERVER, so it is
-    // narrowed in four ways rather than trusted: the row must exist and be a
+    // 🚨 THIS WRITES TO DISK FROM THE LOOPBACK SERVER — locked by B3's launch
+    // token since Track B, but a token holder is any script on the renderer's
+    // origin (the cookie rides same-origin), so the caller is still not
+    // trusted and the route is narrowed in four ways: the row must exist and be a
     // video, the destination is contained under the cache dir by mf.id (which
     // is client-chosen on create — #45 family), the body is capped, and the
     // bytes must actually START WITH A JPEG MAGIC NUMBER. Without that last
@@ -3032,8 +3790,9 @@ function startLocalServer(distPath) {
       if (!asset) return rabbitNotFound(res, 'asset');
       if (!asset.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
 
-      const thumbDir = getThumbCacheDir();
-      const thumbPath = path.join(thumbDir, `asset-${asset.id}.jpg`);
+      // (review round 2, H2) the id is client-written (the assets POST spreads
+      // req.body) and was joined raw onto the cache dir: contained now.
+      const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset');
 
       // Serve cached version if it exists and source hasn't changed
       if (fs.existsSync(thumbPath)) {
@@ -3045,6 +3804,10 @@ function startLocalServer(distPath) {
       // Generate from source
       const srcPath = asset.thumbnail_image;
       if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
+      // (review round 2, H2) thumbnail_image is an absolute path the bundle
+      // carries — a copied folder's, or a drive-by POST's; only a picture
+      // under a folder the person chose is opened and transcoded.
+      if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
 
       try {
         await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -3068,8 +3831,7 @@ function startLocalServer(distPath) {
         if (!entity) return rabbitNotFound(res, singular);
         if (!entity.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
 
-        const thumbDir = getThumbCacheDir();
-        const thumbPath = path.join(thumbDir, `${singular}-${entity.id}.jpg`);
+        const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular); // (review 2, H2)
 
         if (fs.existsSync(thumbPath)) {
           res.setHeader('Content-Type', 'image/jpeg');
@@ -3079,6 +3841,7 @@ function startLocalServer(distPath) {
 
         const srcPath = entity.thumbnail_image;
         if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
+        if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
 
         try {
           await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -3196,7 +3959,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function rateCardPath(id) { return path.join(getRateCardsDir(), `${id}.json`); }
+    function rateCardPath(id) { return dataFileOrThrow(getRateCardsDir(), id, '.json', 'rate card'); } // (review 2, H1)
 
     expressApp.get('/api/rabbit/workspaces/:workspaceId/rate-cards', (req, res) => {
       const dir = getRateCardsDir();
@@ -3263,7 +4026,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function teamMemberPath(id) { return path.join(getTeamMembersDir(), `${id}.json`); }
+    function teamMemberPath(id) { return dataFileOrThrow(getTeamMembersDir(), id, '.json', 'team member'); } // (review 2, H1)
 
     expressApp.get('/api/rabbit/workspaces/:workspaceId/team-members', (req, res) => {
       const dir = getTeamMembersDir();
@@ -3297,7 +4060,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function taskTemplatePath(id) { return path.join(getTaskTemplatesDir(), `${id}.json`); }
+    function taskTemplatePath(id) { return dataFileOrThrow(getTaskTemplatesDir(), id, '.json', 'task template'); } // (review 2, H1)
 
     // List global templates for a workspace
     expressApp.get('/api/rabbit/workspaces/:workspaceId/task-templates', (req, res) => {
@@ -3367,15 +4130,72 @@ function startLocalServer(distPath) {
       }
     });
 
-    // ── Static file serving (SPA fallback) ──
-    expressApp.use(express.static(distPath));
-    expressApp.get('/{*splat}', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    // ── The bin system (demo 2026-09-11) — electron/rabbitBins.cjs ────────────
+    // Mounted with its helpers INJECTED: they are closures over this server
+    // (readRabbitBundle reconciles on read, generateVideoThumbOnce dedupes
+    // ffmpeg runs), so passing them is the alternative to copying them.
+    // 🚨 BEFORE the static/SPA fallback below: '/{*splat}' answers every
+    // request that reaches it, so a route mounted after it never runs
+    // (measured: every bins route 404'd with send's NotFoundError).
+    require('./rabbitBins.cjs').mountRabbitBins(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
+      getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
+      userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
     });
+
+    // ── Shot lists, their membership and edits (post-overhaul S3a, 0084) —
+    // electron/rabbitShotLists.cjs. Same placement rule as the bins: after the
+    // /api/rabbit missing-folder guard, BEFORE the static/SPA fallback. Uses
+    // the default-touch writeRabbitBundle so scenes.json is re-mirrored.
+    mountRabbitShotLists(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,
+    });
+
+    // ── Cloud rows, local bodies (demo 2026-09-11) — electron/localMedia.cjs ──
+    // The five routes the renderer's local_server storage provider talks to.
+    // Same placement rule as the bins: after the /api/rabbit missing-folder
+    // guard, BEFORE the static/SPA fallback.
+    require('./localMedia.cjs').mountLocalMedia(expressApp, {
+      getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
+      log: (line) => console.info(line),
+    });
+
+    // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──
+    // Audrey: "[localServer] HTTP 413" adding a file to a project. The
+    // base64-in-JSON POST (…/files, above) is capped by the global 50mb json
+    // limit; this PUT streams the body straight to disk and records the same
+    // row, directory and event. Same placement rule as the bins.
+    require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
+      resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
+      log: (line) => console.info(line),
+    });
+
+    // ── Static file serving (SPA fallback) ──
+    // Root-relative (spaFallback.cjs): an absolute path under a dot-folder
+    // answered every in-app address but `/` with "internal error".
+    expressApp.use(express.static(distPath));
+    expressApp.get('/{*splat}', require('./spaFallback.cjs').sendSpaIndex(distPath));
+
+    // Demo sprint (2026-09-10, review round 2): an id that would leave its
+    // data directory throws from inside a route (dataFileOrThrow); answered
+    // as not-found, never as a stack trace. Registered LAST on purpose.
+    expressApp.use((err, req, res, next) => {
+      if (err && err.code === 'WILSON_PATH_ESCAPE') return rabbitNotFound(res, 'item');
+      next(err);
+    });
+    // LAST, after every route: see localServerErrorHandler. Without it a route
+    // that throws answers a local caller with finalhandler's stack trace, which
+    // in a packaged Electron build is the development-mode one.
+    expressApp.use(localServerErrorHandler);
 
     const server = expressApp.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      resolve({ server, port });
+      // The one origin the renderer will ever have — see localToken.cjs on why
+      // packaged and dev modes share it. Set before resolve(), so the first
+      // request the window makes already has an allowlist to match.
+      rendererOrigin = `http://127.0.0.1:${port}`;
+      resolve({ server, port, token: launchToken, origin: rendererOrigin });
     });
 
     server.on('error', reject);
@@ -3388,11 +4208,91 @@ function startLocalServer(distPath) {
 let mainWindow;
 let localServer;
 
+// Demo sprint (2026-09-10): the ONE definition of "is this request to this
+// app's own loopback server", for the two dev-only cables below. Parsed, not
+// pattern-matched (review round 1, N12): a userinfo trick
+// (`https://127.0.0.1:x@evil.example/`) passed the old regex.
+function isLoopbackRequestUrl(url) {
+  try {
+    const u = new URL(url);
+    return ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
+      || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
+  } catch { return false; }
+}
+// Bundle B3: the launch token, for the preload bridge to hand the renderer.
+// Module-scoped because the IPC channel below is registered once, at load, and
+// must read whatever the current launch minted.
+let localServerToken = null;
+
+// 🚨 SYNCHRONOUS on purpose. The renderer needs the token at its very first
+// fetch, and every alternative (an async getter the callers await, a cached
+// promise) turns "attach a header" into a plumbing change at ~150 call sites.
+// One sendSync during preload — before the page has painted, once per window —
+// is what this channel exists for. The value is minted before the BrowserWindow
+// is constructed, so it is always there by the time preload asks.
+ipcMain.on('wilson:local-server-token', (event) => {
+  event.returnValue = localServerToken;
+});
+
+// Second copy launched: focus the one that already exists. Registered
+// unconditionally — it only ever fires in the process that HOLDS the lock.
+//
+// MEASURED: `setAsDefaultProtocolClient` appears nowhere in electron/, and
+// neither forge nor builder registers a URL scheme, so WILSON has no deep links
+// today and there is nothing to forward. `commandLine` is the argument vector
+// of the second copy; when a scheme is added, this handler is where it lands.
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  // ⚠️ `show()` UNCONDITIONALLY, not only when hidden — R2's finding. The case
+  // Audrey actually tests (walkthrough 12 step 6.2) is a window that is VISIBLE
+  // but behind other windows, and that path used to reach `focus()` alone.
+  // Windows' foreground lock commonly refuses `focus()` from a process that
+  // does not own the foreground and flashes the taskbar button instead;
+  // `show()` raises. Harmless on an already-visible window.
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 async function createWindow() {
   const distPath = path.join(__dirname, '..', 'dist');
 
-  const { server, port } = await startLocalServer(distPath);
+  const { server, port, token, origin } = await startLocalServer(distPath);
   localServer = server;
+  localServerToken = token;
+
+  // ── The cookie arm of the lock (Bundle B3) ────────────────────────────────
+  // This is what carries FileThumbnail's <img src>, VideoPreview's <video src>
+  // and the hidden <video> videoThumbnails.js decodes frames from — element
+  // loads that cannot set a header. Measured in Chromium: an httpOnly cookie
+  // rides on all of those same-origin, and on `crossOrigin="anonymous"` ones
+  // too.
+  //
+  // 🚨 AWAITED, AND BEFORE loadURL. A cookie that lands after the first request
+  // would 401 the app's own boot fetches.
+  //
+  // No expirationDate ⇒ a session cookie, gone when the app quits, which is
+  // exactly "per launch". A stale one from a previous launch carries a token
+  // that no longer matches and fails closed.
+  //
+  // ⚠️ Cookies are scoped by HOST, not by port, so this one is offered to
+  // anything else listening on 127.0.0.1 that this renderer contacts. It
+  // contacts nothing else — Supabase and the Anthropic API are https hosts —
+  // and a rogue local server learns only a token that is useless without our
+  // port. Recorded rather than mitigated.
+  try {
+    await session.defaultSession.cookies.set({
+      url: origin,
+      name: TOKEN_COOKIE,
+      value: token,
+      httpOnly: true,
+      sameSite: 'lax',
+    });
+  } catch (err) {
+    // Not fatal: the header arm still serves every fetch, and the static shell
+    // is not guarded, so the app boots and only element-loaded previews fail.
+    console.error('[wilson] local server cookie failed to set:', err?.message ?? err);
+  }
 
   const iconPath = path.join(__dirname, '..', 'public', 'logo.ico');
   const hasIcon = fs.existsSync(iconPath);
@@ -3414,6 +4314,29 @@ async function createWindow() {
       autoplayPolicy: 'no-user-gesture-required',
     },
   });
+
+  // Demo sprint (2026-09-10): DEV-ONLY "cable pulled" switch. With
+  // WILSON_DEV_OFFLINE=1 every request that is not to this app's own loopback
+  // server is cancelled before it leaves the renderer — how the signed-out
+  // local flow is measured to never wait on the cloud. Ignored in packaged
+  // builds.
+  if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === '1') {
+    mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: !isLoopbackRequestUrl(details.url) });
+    });
+    console.info('[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled');
+  }
+  // …and the WORSE cable: WILSON_DEV_OFFLINE=stall leaves every non-loopback
+  // request PENDING for ever (the callback is simply never called), which is
+  // what a stalled Supabase round trip looks like from the renderer — the
+  // all-orange boot Audrey saw on 2026-09-10 — so a boot ceiling can be
+  // measured rather than assumed. Ignored in packaged builds.
+  if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === 'stall') {
+    mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      if (isLoopbackRequestUrl(details.url)) callback({ cancel: false });
+    });
+    console.info('[wilson] WILSON_DEV_OFFLINE=stall — every non-loopback request is left pending');
+  }
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
@@ -3566,13 +4489,94 @@ ipcMain.handle('rabbit:write-files-config', (_event, cfg) => {
   return { ok: true };
 });
 
+// ── Demo sprint (2026-09-10): the local demo folder ──────────────────────
+// IPC, not Express, for the same reason the workspace root is: the Express
+// server answered any local origin when this was written, and a drive-by
+// page must not be able to repoint where this machine keeps its data. Since
+// B3 (Track B) cors() answers the renderer's own origin only and every /api
+// route needs the per-launch token (header or httpOnly cookie); IPC still
+// stands, because any script on the renderer's origin carries that cookie
+// and an Express route would answer it. `open` accepts only a folder
+// the user picked in the OS dialog THIS session (userAuthorizedDirs — the
+// S14 mechanism) or one this machine already remembers (the recent list);
+// a renderer-supplied path alone is never enough.
+function localDemoState() {
+  // appDataDir is what the Storage card shows while no folder is open.
+  // (An "adopt the projects already in app data" count lived here and had
+  // no reader — removed, review round 1, L10; build the action if wanted.)
+  // Demo 2026-09-11: mediaRoot is where a PRIVATE project's media lands on
+  // this computer (getLocalMediaRoot); null while the demo folder is missing.
+  let mediaRoot = null;
+  try { mediaRoot = getLocalMediaRoot({ create: false }); } catch { mediaRoot = null; }
+  return { ...localDemo().getState(), appDataDir: app.getPath('userData'), mediaRoot };
+}
+ipcMain.handle('local-demo:get-state', () => localDemoState());
+ipcMain.handle('local-demo:pick', async () => {
+  if (!mainWindow) return { ok: false, error: 'no window' };
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Choose the folder that holds this demo',
+    buttonLabel: 'Use this folder',
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+  const picked = result.filePaths[0];
+  // A dialog pick IS the user's authorization (S14) — for a later `open` of
+  // the same folder after a "use it anyway". Recorded in the DEMO set only:
+  // once open, the folder reaches the relink routes through
+  // localDemoRootDir(), and a pick that is never confirmed authorises nothing
+  // else (review round 1, M5).
+  demoAuthorizedDirs.add(path.resolve(picked).toLowerCase());
+  // (review round 2, L7) …and its REAL path: open() reports, and the card
+  // re-opens, the folder by real path (M7), so a folder picked through a
+  // junction or symlink must be recognisable in that form too — or "use it
+  // anyway" dead-ends on "pick the folder through the app".
+  try { demoAuthorizedDirs.add(fs.realpathSync.native(picked).replace(/[\\/]+$/, '').toLowerCase()); } catch { /* the pick still counts by its given path */ }
+  return { ...localDemo().open(picked, { allowForeign: false }), state: localDemoState() };
+});
+ipcMain.handle('local-demo:open', (_event, opts) => {
+  const folder = opts && typeof opts.folder === 'string' ? opts.folder.trim() : '';
+  if (!folder) return { ok: false, error: 'no folder given' };
+  const key = path.resolve(folder).toLowerCase();
+  if (!demoAuthorizedDirs.has(key) && !localDemo().isKnownFolder(folder)) {
+    return { ok: false, error: 'pick the folder through the app before opening it' };
+  }
+  const allowForeign = !!(opts && opts.allowForeign);
+  return { ...localDemo().open(folder, { allowForeign }), state: localDemoState() };
+});
+ipcMain.handle('local-demo:close', () => {
+  localDemo().close();
+  return { ok: true, state: localDemoState() };
+});
+ipcMain.handle('local-demo:forget', (_event, opts) => {
+  const folder = opts && typeof opts.folder === 'string' ? opts.folder : '';
+  const r = localDemo().forget(folder);
+  return { ok: !!r.ok, error: r.error || null, state: localDemoState() };
+});
+// Demo comfort (brief §3.4): empty the open folder's WILSON content —
+// projects/ and .wilson/rabbit-data — and nothing else; never outside it.
+// The renderer confirms with the folder named and reloads afterwards.
+ipcMain.handle('local-demo:reset', () => {
+  const r = localDemo().reset();
+  return { ...r, state: localDemoState() };
+});
+ipcMain.handle('local-demo:open-in-explorer', async () => {
+  const root = localDemoRootDir();
+  if (!root) return { ok: false, error: 'no demo folder is open' };
+  const err = await shell.openPath(root);
+  return err ? { ok: false, error: err } : { ok: true };
+});
+
 // ── Session 34: the workspace storage root ──────────────────────────
 // The renderer pushes workspace_storage.root_path (byos mode) here after
 // sign-in / workspace switch, and null on sign-out. See the workspaceRootDir
 // declaration for why this is memory-only. IPC, not Express, deliberately:
-// the Express server answers any local origin (cors()), and a drive-by page
-// must not be able to repoint the whole machine's resolution (the S14 rule
-// that made relink folders user-chosen applies to roots doubly).
+// the Express server answered any local origin (cors()) when this was
+// written, and a drive-by page must not be able to repoint the whole
+// machine's resolution (the S14 rule that made relink folders user-chosen
+// applies to roots doubly). Since B3 (Track B) cors() answers the renderer's
+// own origin only and every /api route needs the per-launch token (header
+// or httpOnly cookie); IPC still stands, because any script on the
+// renderer's origin carries that cookie and an Express route would answer it.
 ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   const raw = opts && typeof opts.rootPath === 'string' ? opts.rootPath.trim() : null;
   const kind = opts && typeof opts.rootKind === 'string' ? opts.rootKind : null;
@@ -3783,6 +4787,33 @@ ipcMain.handle('rabbit:open-in-explorer', (_event, { filePath }) => {
   return { ok: true };
 });
 
+// ── Post-overhaul S4a (Audrey's E9): "Open in default app", and the Files
+// explorer's "Show in folder", for a row whose bytes are on THIS computer ──
+//
+// The page names the ROW, never a path; electron/openPath.cjs resolves it
+// (the bundle through rabbitFileLocator — the download route's own contained
+// resolvers — or a private project's media key through checkMediaKey and the
+// local-media routes' lexical + real-path containment), requires an existing
+// regular file, and refuses to OPEN a program or a script (their default app
+// runs them; revealing them is fine). Returns { ok, error? }.
+ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
+  // The whole decision is openPath.cjs's openOrReveal, served with a fake
+  // shell in openPath.test.js: reveal never opens; open judges the REAL
+  // target (a link named brief.pdf that leads to an .exe is refused) and
+  // opens exactly what it judged.
+  const { openOrReveal } = require('./openPath.cjs');
+  const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
+  return openOrReveal(req, {
+    fs,
+    shell,
+    locateRow: rabbitFileLocator,
+    mediaRoot: () => getLocalMediaRoot({ create: false }),
+    checkMediaKey,
+    resolveContainedFilePath,
+    insideByRealPath,
+  });
+});
+
 // Pick an image file for asset thumbnail
 ipcMain.handle('rabbit:pick-image', async () => {
   if (!mainWindow) return null;
@@ -3794,6 +4825,8 @@ ipcMain.handle('rabbit:pick-image', async () => {
     ],
   });
   if (result.canceled || !result.filePaths.length) return null;
+  // (review round 2, H2) the pick IS the authorisation to open this picture
+  userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase());
   return result.filePaths[0];
 });
 
@@ -3803,15 +4836,14 @@ ipcMain.handle('rabbit:generate-asset-thumbnail', async (_event, { assetId, sour
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
-  const thumbDir = getThumbCacheDir();
-  const thumbPath = path.join(thumbDir, `asset-${assetId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
   await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
   return { ok: true, thumbPath };
 });
 
 // Clear a cached asset thumbnail
 ipcMain.handle('rabbit:clear-asset-thumbnail', (_event, { assetId }) => {
-  const thumbPath = path.join(getThumbCacheDir(), `asset-${assetId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
   if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
   return { ok: true };
 });
@@ -3821,14 +4853,13 @@ ipcMain.handle('rabbit:generate-entity-thumbnail', async (_event, { entityType, 
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
-  const thumbDir = getThumbCacheDir();
-  const thumbPath = path.join(thumbDir, `${entityType}-${entityId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
   await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
   return { ok: true, thumbPath };
 });
 
 ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId }) => {
-  const thumbPath = path.join(getThumbCacheDir(), `${entityType}-${entityId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
   if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
   return { ok: true };
 });
@@ -3915,6 +4946,14 @@ ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.se
 ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents.getZoomLevel(); return 0; });
 
 app.whenReady().then(() => {
+  // Bundle B3: the second copy quits instead of booting a second Express server
+  // onto the same userData directory. Checked here as well as at the top
+  // because app.quit() only STARTS the shutdown — whenReady can still resolve.
+  if (!hasSingleInstanceLock) return;
+  // Demo sprint (2026-09-10): the remembered local demo folder is re-opened
+  // FIRST, before anything derives a data directory, so the first request
+  // already resolves under it. A missing folder is reported, never replaced.
+  try { localDemo().load(); } catch (err) { console.warn('[local-demo] load failed:', err?.message ?? err); }
   cleanupLegacySupabaseConfig();
   cleanupLegacyAuthFile();
   createWindow();

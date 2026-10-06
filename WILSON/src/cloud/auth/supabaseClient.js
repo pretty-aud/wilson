@@ -17,6 +17,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { saveSession } from './sessionStorage'
+import { connectionWatchdog } from '../connectionWatchdog'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -36,6 +37,18 @@ if (!url || !anon) {
 /* global __WILSON_SURFACE__ */
 const surface = typeof __WILSON_SURFACE__ === 'string' ? __WILSON_SURFACE__ : 'app'
 
+// B2 part 2 (Track B): the ONE fetch supabase-js uses. `global.fetch` reaches
+// GoTrue (token refresh, sign-in, MFA), PostgREST and Storage alike — measured
+// in supabase-js 2.101.1: SupabaseClient passes `settings.global.fetch` to
+// both `fetchWithAuth` and `_initSupabaseAuthClient`. The watchdog wraps it so
+// a request that silently never settles while the browser still says it is
+// online raises the "Connection lost — reload to continue" banner. It watches
+// bounded calls only (auth, PostgREST, storage downloads); uploads, the
+// resumable path and every Edge Function call are outside it by construction.
+// See connectionWatchdog.js for the hang it surfaces and why Reload is the
+// remedy. Bound to globalThis: an unbound `fetch` throws "Illegal invocation".
+const baseFetch = typeof fetch === 'function' ? (input, init) => fetch(input, init) : undefined
+
 export const supabase = createClient(url ?? '', anon ?? '', {
   auth: {
     persistSession: false,
@@ -43,6 +56,7 @@ export const supabase = createClient(url ?? '', anon ?? '', {
     detectSessionInUrl: false,
     storageKey: surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app',
   },
+  global: baseFetch ? { fetch: connectionWatchdog.wrapFetch(baseFetch) } : {},
 })
 
 // Keep the persisted copy current across refresh rotation (Session 12 web

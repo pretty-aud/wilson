@@ -51,6 +51,11 @@
 // judgement call in this file.
 // =============================================================================
 
+// Post-overhaul S2c (S2b-01): a function category's heading is read the way
+// O.T.T.E.R.'s own views read it, so the pet and the page agree. A module
+// with no imports of its own, like this one.
+import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js'
+
 /** Everything the pet may inject, in characters. Comfortably inside Haiku's
  *  window next to a 42-message history, and small enough that a big library
  *  cannot quietly triple the cost of every message. */
@@ -635,16 +640,25 @@ export function rankSubjects(question, index) {
  *   functions { categories: [{ category|name, functions: [{name, description, syntax, returns}] }] }
  *   nodes     { systems:    [{ system, categories: [{ category, nodes: [{name, description}] }] }] }
  * Every field is optional in practice — the generator emits variants and the
- * on-disk data already contains all of them, which is why mergeHotkeys
- * normalises `category|name` and `shortcuts|hotkeys` at all.
+ * on-disk data already contains all of them, which is why mergeHotkeys reads
+ * a SENT category's `category|name` and `shortcuts|hotkeys` at all (it joins
+ * only a stored category the Hotkeys page draws — S2c).
  */
 export function flattenDoc(doc, kind) {
   const rows = []
   if (!doc) return rows
+  // S2c (S2b-05): every level is read only when it is what it should be — a
+  // list a list, an entry an object — and anything else is skipped. ONE null
+  // category in ONE course's document threw here, and the index build with
+  // it: replayed, the pet answered a Blender question "could not be reached".
+  // The merge carries such an entry over untouched (S2b), so it can stay.
+  const list = (v) => (Array.isArray(v) ? v : [])
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
   if (kind === 'hotkeys') {
-    for (const cat of doc.categories || []) {
-      for (const s of (cat.shortcuts || cat.hotkeys || [])) {
-        if (!s) continue
+    for (const cat of list(doc.categories)) {
+      if (!isObj(cat)) continue
+      for (const s of list(cat.shortcuts || cat.hotkeys)) {
+        if (!isObj(s)) continue
         const keys = [s.windows, s.mac].filter(Boolean).join(' / ')
         rows.push({
           label: s.action || '',
@@ -654,21 +668,28 @@ export function flattenDoc(doc, kind) {
       }
     }
   } else if (kind === 'functions') {
-    for (const cat of doc.categories || []) {
-      for (const f of (cat.functions || [])) {
-        if (!f) continue
+    for (const cat of list(doc.categories)) {
+      // The entries the Functions view and the Search dialog read: the ones
+      // that are functions (functionEntries).
+      for (const f of functionEntries(cat)) {
         rows.push({
           label: f.name || '',
           detail: [f.syntax, f.description, f.returns && `returns ${f.returns}`].filter(Boolean).join(' — '),
-          group: cat.category || cat.name || '',
+          // S2c (S2b-01): the heading the Functions view and the Search dialog
+          // show — a category with no name is "General" (her Python library
+          // is one such category of 46), and a name that is not a non-empty
+          // string is no name, never read raw ("[object Object]").
+          group: functionCategoryName(cat),
         })
       }
     }
   } else if (kind === 'nodes') {
-    for (const sys of doc.systems || []) {
-      for (const cat of (sys.categories || [])) {
-        for (const n of (cat.nodes || [])) {
-          if (!n) continue
+    for (const sys of list(doc.systems)) {
+      if (!isObj(sys)) continue
+      for (const cat of list(sys.categories)) {
+        if (!isObj(cat)) continue
+        for (const n of list(cat.nodes)) {
+          if (!isObj(n)) continue
           rows.push({
             label: n.name || '',
             detail: n.description || '',

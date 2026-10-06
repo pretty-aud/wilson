@@ -1,0 +1,2624 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. Assets and files — lane B4's sheet
+   UI overhaul B4, 2026-09-25
+
+   Owns: components/ProjectFilesTable.jsx (drawn by Intake, Summary, the
+   Control Panel's ProjectFilesSection and the Projects page's detail panel —
+   plan §5 item 5; since post-overhaul S4a, 2026-09-30, by Intake and the
+   Projects page only: the Summary's two left with E1), components/FileManager.jsx, FileThumbnail.jsx,
+   VideoPreview.jsx, RelationsPanel.jsx, RelinkDialog.jsx, FileAuditDrawer.jsx,
+   AssetStatusWarningModal.jsx, views/ProjectAssetsView.jsx and
+   EntityListView.jsx (LevelsView.jsx and ExperiencesView.jsx render it).
+   Every class here is `rb-` plus this lane's second word
+   (`files`, `fm`, `asset`, `rel`, `ent`, `vid`, `thumb`, `warn`, `audit`,
+   `relink`): the `rb-` prefix is
+   what B1's scanners (rabbitCssGuards.js) key on; the second word keeps these
+   clear of B1's rabbitShell.css, B2's `rb-task-`, B3's `rb-tl-` and B6's
+   `bn-`.
+
+   Every value is a token. No hex, no colour literal, no size off the scale.
+
+   🚨 THE `@layer` STATEMENT BELOW IS THE FIRST RULE OF THIS FILE, and it has
+   to be (rabbitShell.css's header; D1 hand-off §5 trap 1): this sheet is
+   imported from a component, so the bundler can emit it before index.css, and
+   a layer's position is fixed where it is FIRST named.
+
+   🚨 SPECIFICITY AGAINST THE KIT. This sheet may load before index.css, so an
+   equal-specificity fight with a kit rule is a coin toss (B1 trap 3). A rule
+   here that overrides a kit rule on the same element is written one class
+   heavier (`.rb-files-table .rb-files-icon-cell` (0,2,0) against `.ui-td`
+   (0,1,0)).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ ProjectFilesTable ═══════════════════════════════════════════════════
+     The kit Table in a hairline frame. The fixed columns are declared here,
+     once, and read by the header cells (`<Th width="var(--rb-files-kind)">`);
+     Name and Description share what is left. Each width holds the widest
+     value its column can draw, measured in the browser at the cell's own
+     family and 13px (B4, 2026-09-25), plus the kit's 12px cell padding each
+     side:
+       Kind    "Pitch bible" 62.4 in the cell select, which adds 6px in and
+               16px for its caret and reaches 6px into the padding -> 100
+       Type    "MARKDOWN" 62.4 in the mono                              ->  88
+       Size    "1023.9 KB" 70.2 in the mono (MB above that)             ->  96
+       Created "Sep 19, 2026" 93.6 in the mono                          -> 120
+               (en-*; a wider locale ellipsizes, and the cell's title
+               carries the whole date)
+       Core    the 16px tick                                            ->  40
+       icons   a 28px IconButton in 6px                                 ->  40
+     …and each column also holds its own HEADER: "CORE" is 33.4px in the
+     Label step and "DESCRIPTION" 81 (measured), so Core is 60, not the
+     tick's 40, and Name and Description never go under 105px (the table's
+     min-width is the fixed columns plus 210; a narrower panel scrolls
+     sideways, as the Control Panel's 645px did with the old grid).
+
+     🚨 NARROW (a frame under 740px: Intake's 686px column, the Control
+     Panel's 645px): the kit's 12px cell padding made the table ~60px wider
+     than the grid it replaced, and Intake would have scrolled or cut its own
+     headers. There the cells take 8px — the old grid's padding — and every
+     width is re-measured for it, so Intake holds the table with no scroll
+     and no header cut. A container query, so the table decides from its own
+     width and never from which page drew it. */
+  .rb-files-frame {
+    --rb-files-core: 60px;
+    --rb-files-kind: 100px;
+    --rb-files-type: 88px;
+    --rb-files-size: 96px;
+    --rb-files-date: 120px;
+    --rb-files-icon: 40px;
+    --rb-files-desc-min: 105px;
+    --rb-files-name-min: 105px;
+    container-type: inline-size;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+    background-color: var(--color-paper);
+  }
+  /* In a narrow frame the NAME keeps the room — it is the row's anchor
+     (R4-03): Description holds exactly its header ("DESCRIPTION" 81 + 16)
+     and Name takes the rest, never under 125. At 97 each the Control Panel
+     showed seven characters of a file name. */
+  @container (max-width: 739px) {
+    .rb-files-frame .rb-files-table {
+      --rb-files-core: 52px;
+      --rb-files-kind: 92px;
+      --rb-files-type: 80px;
+      --rb-files-size: 88px;
+      --rb-files-date: 112px;
+      --rb-files-desc: 97px;
+      --rb-files-desc-min: 97px;
+      --rb-files-name-min: 125px;
+    }
+    /* (0,4,0): one class over the kit's dense `.ui-td` rule (0,3,0). */
+    .rb-files-frame .ui-table.rb-files-table .ui-th,
+    .rb-files-frame .ui-table.rb-files-table .ui-td { padding-left: 8px; padding-right: 8px; }
+  }
+  .rb-files-frame[data-audit="true"] { --rb-files-audit: var(--rb-files-icon); }
+  .rb-files-frame[data-delete="true"] { --rb-files-delete: var(--rb-files-icon); }
+  .rb-files-frame .ui-table.rb-files-table {
+    min-width: calc(var(--rb-files-core) + var(--rb-files-kind) + var(--rb-files-type)
+      + var(--rb-files-size) + var(--rb-files-date) + var(--rb-files-audit, 0px)
+      + var(--rb-files-delete, 0px) + var(--rb-files-desc-min) + var(--rb-files-name-min));
+  }
+  /* A caller-given height (220 / 280 / 300 / 380) turns the table into a
+     scroller with the kit's sticky head; `scroll-padding` keeps a focused
+     row clear of it and of the frame (B3d's pattern). */
+  .rb-files-frame[data-scroll="true"] .rb-files-scroll {
+    max-height: var(--rb-files-max);
+    scroll-padding-block: var(--table-head) 4px;
+  }
+  /* A narrow frame scrolls sideways (the Control Panel's): Tab scrolled the
+     next control until it touched the scroller's edge, and the kit ring drawn
+     outside it (3px) fell past that edge — the icon column's right side was
+     cut (B4c review round one, measured). 4px keeps the whole ring in view:
+     the kit Dialog body's answer (A4-KR-9), across. */
+  .rb-files-frame .rb-files-scroll { scroll-padding-inline: 4px; }
+
+  .rb-files-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-files-glyph { width: 14px; height: 14px; flex: none; color: var(--color-ink-3); }
+  .rb-files-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Figures and identifiers: the mono, tabular (plan §3.1). */
+  .rb-files-table .rb-files-mono {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-files-table .rb-files-size { color: var(--color-ink-2); }
+  .rb-files-table .rb-files-size[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* Read-only words (Summary's card): the second ink; an empty value, the
+     third. Never `#78716c`, which is what put this table under 4.5:1. */
+  .rb-files-quiet { color: var(--color-ink-2); }
+  .rb-files-quiet[data-empty="true"] { color: var(--color-ink-3); }
+
+  /* The Core tick. A native checkbox in the signal colour: the kit has no
+     Checkbox yet (B3d-KR-1). A read-only table disables it, and the browser
+     greys it, as before. */
+  .rb-files-core {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    vertical-align: middle;
+    accent-color: var(--color-signal);
+    cursor: pointer;
+  }
+  .rb-files-core:disabled { cursor: default; }
+
+  /* The description editor: the cell's own text until hovered or focused,
+     the same answer as the kit CellSelect beside it. A native field (the kit
+     Input blurs on Enter: B3d-KR-2). */
+  .rb-files-cell-input {
+    display: block;
+    width: calc(100% + 12px);
+    min-width: 0;
+    height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    text-overflow: ellipsis;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-files-cell-input::placeholder { color: var(--color-ink-3); opacity: 1; }
+  .rb-files-cell-input:hover,
+  .rb-files-cell-input:focus { background-color: var(--color-hover); }
+  /* The empty "—" takes the second ink on that fill, hovered or focused: the
+     third is 4.34:1 there (B4c review round two, measured) — the kit
+     CellSelect's empty value does the same beside it. */
+  .rb-files-cell-input:hover::placeholder,
+  .rb-files-cell-input:focus::placeholder { color: var(--color-ink-2); }
+
+  /* The two icon columns: a 28px kit IconButton in a 40px cell. The table is
+     `dense` (32px rows, like the Files page's), so a 28px control gets 2px
+     above and 1px below — the kit's numbers for its CellSelect. Written
+     (0,4,0)+ against the kit's `.ui-table[data-dense="true"] .ui-td` (0,3,0). */
+  .rb-files-frame .rb-files-table .ui-td.rb-files-icon-cell { padding: 2px 6px 1px; }
+  .rb-files-frame .rb-files-table .ui-td.rb-files-desc:has(> .rb-files-cell-input) { padding-top: 2px; padding-bottom: 1px; }
+  /* 🚨 Their focus ring is drawn INSIDE the button. The kit's `.ui-td`
+     clips at its padding box (`overflow: hidden`), and the kit ring — 2px at
+     a 1px offset, 3px outside the control — lost 2px top and bottom in the
+     2px / 1px this cell leaves (B4c review round one, measured). The
+     description field beside them draws its ring inside for the same reason
+     (`outline-offset: -2px`, above); the kit's CellSelect does too.
+     Keyed on `:focus-visible` as the kit writes its own insets (P1): an
+     offset only shows with the ring, and without the state this rule read
+     to `kitFights` as a lane rule fighting the kit's focus treatment for
+     an IconButton in a drawer head, which it never meets. */
+  .rb-files-frame .rb-files-table .rb-files-icon-cell .ui-iconbtn:focus-visible { outline-offset: -2px; }
+
+  /* ═══ FileManager ═════════════════════════════════════════════════════════
+     The asset popup's, the task popup's and the scene popup's file section.
+     Its whole body was 9 and 10px (R4-41); it is the scale now: the section
+     name in the Label role, cells Dense, figures in the mono. The fixed
+     columns hold, measured at 13px plus the kit's 12px padding each side:
+       thumb    the 32px tile                                   ->  56
+       Version  its header, "VERSION" 53.4 in the Label step    ->  80
+       Size     "1023.9 MB" 70.2 in the mono                    ->  96
+       Date     "Sep 19, 2026" 93.6 in the mono                 -> 120
+       Actions  two 28px IconButtons, 4px apart                 ->  84
+     Name takes the rest and never goes under 120px. Under 560px (the task
+     popup's 400px column) the cells take 8px and the widths are re-measured
+     for it, as ProjectFilesTable's are; the table still needs ~500px there
+     and scrolls sideways — every column reachable, where it used to cut the
+     Download column off and wrap the size (B2 §4). */
+  .rb-fm-root {
+    --rb-fm-thumb: 56px;
+    --rb-fm-version: 80px;
+    --rb-fm-size: 96px;
+    --rb-fm-date: 120px;
+    --rb-fm-acts: 84px;
+    --rb-fm-name-min: 120px;
+    container-type: inline-size;
+    min-width: 0;
+  }
+  @container (max-width: 559px) {
+    .rb-fm-root .rb-fm-table {
+      --rb-fm-thumb: 48px;
+      --rb-fm-version: 72px;
+      --rb-fm-size: 88px;
+      --rb-fm-date: 112px;
+      --rb-fm-acts: 76px;
+      --rb-fm-name-min: 100px;
+    }
+    .rb-fm-root .ui-table.rb-fm-table .ui-th,
+    .rb-fm-root .ui-table.rb-fm-table .ui-td { padding-left: 8px; padding-right: 8px; }
+  }
+
+  /* One row of 28px controls on one baseline (R4-08, R4-16). */
+  .rb-fm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    margin-bottom: 8px;
+  }
+  /* The kit's Tabs are 36px (`--control-md`) outside a `.ui-toolbar`, and
+     this head is not one: the two tabs took the row to 36 beside the 28px
+     Add files (B4c review round one, measured). The toolbar's own answer,
+     here: (0,3,0), over the kit's `.ui-tab` (0,1,0) and its
+     `.ui-toolbar .ui-tab` (0,2,0). */
+  .rb-fm-head .ui-tabs .ui-tab { height: var(--control-sm); }
+  .rb-fm-title-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .rb-fm-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    white-space: nowrap;
+  }
+  .rb-fm-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+  .rb-fm-notice { margin-bottom: 8px; }
+  .rb-fm-refused { display: flex; flex-direction: column; gap: 4px; }
+
+  /* The copy bar: one shape for both transports (review "What works"). */
+  .rb-fm-progress { margin-bottom: 8px; }
+  .rb-fm-progress-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .rb-fm-progress-name {
+    min-width: 0;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink-2);
+  }
+  .rb-fm-progress-pct {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .rb-fm-progress-track {
+    height: 3px;
+    overflow: hidden;
+    border-radius: 9999px;
+    background-color: var(--color-rule);
+  }
+  .rb-fm-progress-fill {
+    width: var(--rb-fm-pct, 0%);
+    height: 100%;
+    border-radius: 9999px;
+    background-color: var(--color-signal);
+    transition: width var(--duration-state) ease-out;
+  }
+
+  .rb-fm-panel { min-width: 0; }
+
+  .rb-fm-root .ui-table.rb-fm-table {
+    min-width: calc(var(--rb-fm-thumb) + var(--rb-fm-version) + var(--rb-fm-size)
+      + var(--rb-fm-date) + var(--rb-fm-acts) + var(--rb-fm-name-min));
+  }
+  /* The 32px tile and the 28px buttons keep the 36px row: its border box
+     leaves 35 (2 + 32 + 1; 4 + 28 + 3). (0,4,0) against the kit's `.ui-td`. */
+  .rb-fm-root .rb-fm-table .ui-td.rb-fm-thumb-cell { padding-top: 2px; padding-bottom: 1px; }
+  .rb-fm-root .rb-fm-table .ui-td.rb-fm-acts-cell { padding-top: 4px; padding-bottom: 3px; }
+  .rb-fm-acts { display: flex; align-items: center; gap: 4px; }
+
+  /* The tile is the play control on a video row, inert on any other. Its
+     focus ring is drawn INSIDE it: in the table the kit's `.ui-td` clips at
+     its padding box, and 2px above and 1px below cut the kit ring (3px
+     outside the control) top and bottom (B4c review round one, measured);
+     in the gallery the card clips at the well's top edge, which the tile
+     fills since round two (it hung 10px past it and the ring lost its top). */
+  .rb-fm-play {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    outline-offset: -2px;
+    cursor: default;
+  }
+  .rb-fm-play[data-playable="true"] { cursor: pointer; }
+
+  .rb-fm-name-stack { display: flex; flex-direction: column; min-width: 0; }
+  .rb-fm-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  .rb-fm-row-notice {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-warning);
+  }
+  .rb-fm-notes {
+    display: block;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  /* 🚨 The SECOND ink for the quiet text here, not the third: FileManager is
+     drawn inside other popups, and the scene popup (B5's) still paints
+     `#292524`, where the third ink is 4.37:1 (4.66 on the kit Dialog, 5.04
+     on paper). Measured, B4. */
+  .rb-fm-notes[data-empty="true"] { color: var(--color-ink-2); font-style: italic; }
+  .rb-fm-notes:hover { text-decoration: underline; }
+  .rb-fm-notes-edit { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+  /* A native field (the kit Input blurs on Enter: B3d-KR-2), dressed as the
+     kit's small well. */
+  .rb-fm-notes-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 8px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+
+  /* A figure outside the table (the gallery card's size). In the table the
+     kit's `numeric` cell already sets the mono and the figures; the size
+     only takes the second ink there. */
+  .rb-fm-figure {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-fm-root .rb-fm-table .rb-fm-size { color: var(--color-ink-2); }
+  .rb-fm-root .rb-fm-table .rb-fm-date {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .rb-fm-none { color: var(--color-ink-2); }   /* the second ink: see .rb-fm-notes */
+
+  .rb-fm-gallery {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+  .rb-fm-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-fm-card-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100px;
+    background-color: var(--color-paper);
+  }
+  .rb-fm-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; }
+  .rb-fm-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rb-fm-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .rb-fm-confirm { margin: 0; color: var(--color-ink); }
+
+  /* ═══ ProjectAssetsView ═══════════════════════════════════════════════════
+     The Assets page (B4b). Its toolbar, filter strip, saved-views menu and
+     bulk bar are B2's Tasks page (rabbitTasks.css's first section) re-made in
+     this lane's classes, so the two pages read as one. The table is the kit
+     Table at its 36px row — not `dense`: a 1x thumbnail is a row tall. The
+     fixed columns, measured in the browser at 13px in the sans (B4b,
+     2026-09-25), plus the kit's 12px cell padding each side:
+       check   the 24px box, centred                                     ->  36
+       Type    "environment" 73.9 in the kit CellSelect (its 6px in and its
+               16px caret, less the 6px it reaches into the padding: +34) -> 112
+       Phase   "Post-production" 95.6, the same                          -> 136
+       Status  the 8px dot, 8px, "Needs revisions" 93.9 and the caret's 16
+               (+56); an approved or final row adds its 28px warning 8px
+               on, but "Approved" is 56.7                                 -> 152
+       Start, Due  "08/03/2026" in the date field, whose calendar glyph
+               takes no room until the row is hovered (B2's answer)       -> 124
+       Description  its header, "DESCRIPTION" 81 in the Label step, is 105;
+               180 so a line of it reads (it is read-only here)            -> 180
+       Tasks   its header, "TASKS" 37.6                                   ->  64
+       actions one 28px IconButton in 6px; two with the history one       -> 44 / 72
+     Name, the row's anchor, takes the rest and never goes under 200px: the
+     table scrolls sideways below that, as the Tasks table does. The
+     thumbnail column is ONE width for every row: the size chosen, 1x, 2x or
+     3x the row (R4-04). */
+  .rb-asset-view { background-color: var(--color-paper); color: var(--color-ink); }
+  /* `.rb-asset-unloaded` went with its span (P1-74): no project is the kit
+     EmptyState now. */
+
+  /* The toolbar: the kit's Toolbar with `wrap`; its left slot wraps too, so
+     at Electron's 1024px floor nothing is pushed off the row's end. */
+  .rb-asset-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+  .rb-asset-count {
+    padding: 0 4px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-asset-divider { width: 1px; height: 16px; flex-shrink: 0; background-color: var(--color-rule); }
+  .rb-asset-sort { display: inline-flex; align-items: center; gap: 4px; }
+  /* Filter, Sort and Group while they are doing something: the signal edge,
+     the kit's one active treatment (it was orange text). (0,5,0), over the
+     kit's hover rules (B2's measurement). */
+  .rb-asset-toolbar .ui-toolbar-slot .ui-btn.rb-asset-tool[data-active="true"],
+  .rb-asset-toolbar .ui-toolbar-slot .ui-input.rb-asset-tool[data-active="true"] { border-color: var(--color-signal); }
+  /* A select sized to its content, not the kit's full-width field. */
+  .ui-input.rb-asset-tool { width: auto; }
+
+  /* The thumbnail size: three 28px ghost buttons; the chosen one carries the
+     signal edge. Their square still grows with the size, 10, 13 and 16px. */
+  .rb-asset-sizes { display: inline-flex; align-items: center; gap: 2px; }
+  .rb-asset-sizes .ui-btn.rb-asset-size { width: var(--control-sm); padding: 0; }
+  .rb-asset-sizes .ui-btn.rb-asset-size[data-active="true"] { border-color: var(--color-signal); }
+  .rb-asset-size > .rb-asset-size-glyph[data-thumb="sm"] { width: 10px; height: 10px; }
+  .rb-asset-size > .rb-asset-size-glyph[data-thumb="md"] { width: 13px; height: 13px; }
+  .rb-asset-size > .rb-asset-size-glyph[data-thumb="lg"] { width: var(--icon-md); height: var(--icon-md); }
+
+  /* 140px, as the Tasks search: a wrapping toolbar breaks its line at each
+     slot's max-content width. */
+  .rb-asset-search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 140px;
+    width: 140px;
+    min-width: 120px;
+  }
+  .rb-asset-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  .rb-asset-search > .ui-input.rb-asset-search-input { padding-left: 28px; padding-right: 28px; }
+  .rb-asset-search-clear { position: absolute; right: 0; }
+
+  /* The one region the view Tabs switch: the table scrolls inside itself,
+     under its sticky head; the gallery scrolls here. */
+  .rb-asset-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+
+  /* The filter strip under the toolbar. */
+  .rb-asset-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .rb-asset-filter-row { display: flex; align-items: center; gap: 8px; }
+  .rb-asset-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
+  .ui-input.rb-asset-filter-text { width: 144px; }
+  .ui-input.rb-asset-filter-field { width: 128px; }
+  .ui-input.rb-asset-filter-op { width: 160px; }
+  .rb-asset-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* Saved views, on the kit's floating tokens (the kit Menu has no item with
+     a trailing action; B2's kit request K2). */
+  .rb-asset-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 30;
+    min-width: 224px;
+    max-width: 320px;
+    padding: 4px 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-asset-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
+  .rb-asset-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--control-sm);
+    padding: 0 4px 0 12px;
+    font-size: var(--text-dense);
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-menu-item:hover { background-color: var(--color-hover); }
+  .rb-asset-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-asset-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
+  .rb-asset-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+
+  /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
+  .rb-asset-table-wrap {
+    --rb-asset-check: 36px;
+    --rb-asset-thumb: var(--row);
+    --rb-asset-type: 112px;
+    --rb-asset-phase: 136px;
+    --rb-asset-status: 152px;
+    --rb-asset-date: 124px;
+    --rb-asset-desc: 180px;
+    --rb-asset-tasks: 64px;
+    --rb-asset-acts: 44px;
+    --rb-asset-name-min: 200px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .rb-asset-table-wrap[data-thumb="md"] { --rb-asset-thumb: calc(var(--row) * 2); }
+  .rb-asset-table-wrap[data-thumb="lg"] { --rb-asset-thumb: calc(var(--row) * 3); }
+  .rb-asset-table-wrap[data-history="true"] { --rb-asset-acts: 72px; }
+  /* The scroller insets the table so the checkboxes sit under the toolbar's
+     first control, as the Tasks table's do. */
+  .rb-asset-table-wrap > .ui-table-scroll { padding: 0 12px; }
+  .rb-asset-table-wrap .ui-table.rb-asset-table {
+    min-width: calc(var(--rb-asset-check) + var(--rb-asset-thumb) + var(--rb-asset-type)
+      + var(--rb-asset-phase) + var(--rb-asset-status) + var(--rb-asset-date) * 2
+      + var(--rb-asset-desc) + var(--rb-asset-tasks) + var(--rb-asset-acts)
+      + var(--rb-asset-name-min));
+  }
+
+  /* The bulk bar overlays the head, right of the checkbox column (B2's). */
+  .rb-asset-bulk {
+    position: absolute;
+    top: 0;
+    left: 48px;
+    z-index: 3;
+    height: var(--table-head);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px 0 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-signal);
+    border-radius: var(--radius-control);
+  }
+  .rb-asset-bulk-count {
+    font-size: var(--text-dense);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  /* A denied viewer's GatedAction wrapper keeps the bar's own gap. */
+  .rb-asset-bulk-gate { gap: 12px; align-items: center; }
+  .rb-asset-confirm { margin: 0; color: var(--color-ink); }
+
+  /* The cells. Each rule that meets a kit cell rule is (0,4,0), one class
+     over the kit's. A cell holding a 28px control keeps the 36px row: 4px
+     above, 3px below, the hairline the last pixel (B4's trap 7). */
+  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-ctl-cell { padding-top: 4px; padding-bottom: 3px; }
+  .rb-asset-table-wrap .rb-asset-table .ui-th.rb-asset-check-cell { padding: 0; text-align: center; }
+  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-check-cell { padding: 6px 0 5px; text-align: center; }
+  .rb-asset-table-wrap .rb-asset-table .ui-th.rb-asset-thumb-cell,
+  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-thumb-cell { padding: 0; }
+  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-acts-cell { padding: 4px 6px 3px; }
+  /* The actions' slot as a block (the kit's is inline-flex, and its line box
+     took the row to 36.8px), its buttons at the cell's right edge. */
+  .rb-asset-acts-cell > .ui-hover-actions.rb-asset-acts { display: flex; justify-content: flex-end; }
+  .rb-asset-table-wrap .rb-asset-table .ui-td.rb-asset-group-cell { padding: 0; }
+  /* At 2x and 3x the cells hold to the row's top, so the name, the selects
+     and the dates sit level with a thumbnail's top edge instead of floating
+     in the middle of a 72 or 108px row (R4-21; its two-line row would be a
+     view change, recorded for P1). */
+  .rb-asset-table-wrap[data-thumb="md"] .rb-asset-table .ui-td,
+  .rb-asset-table-wrap[data-thumb="lg"] .rb-asset-table .ui-td { vertical-align: top; }
+
+  /* Hover: (0,3,0), so the kit's selected row (0,4,0) always wins. */
+  .rb-asset-row:hover > .ui-td { background-color: var(--color-hover); }
+  /* A hovered or ticked row lifts its quiet ink: the third measured 4.34:1
+     on the hover fill and 4.17 on the selected tint (B2); the second clears
+     both. A disabled field (a read-only viewer's) keeps the kit's. */
+  .rb-asset-row:hover .rb-asset-desc[data-empty="true"],
+  .rb-asset-row[data-ticked="true"] .rb-asset-desc[data-empty="true"],
+  .rb-asset-row:hover .rb-asset-cell-text[data-empty="true"],
+  .rb-asset-row[data-ticked="true"] .rb-asset-cell-text[data-empty="true"],
+  .rb-asset-row:hover .rb-asset-date[data-empty="true"]:not(:disabled),
+  .rb-asset-row[data-ticked="true"] .rb-asset-date[data-empty="true"]:not(:disabled),
+  .rb-asset-row:hover .ui-cell-select > select[data-empty="true"]:not(:disabled),
+  .rb-asset-row[data-ticked="true"] .ui-cell-select > select[data-empty="true"]:not(:disabled) { color: var(--color-ink-2); }
+
+  /* The checkbox: always in the head; in a row, on hover, on focus, or while
+     ticked (B2's). The column keeps its width at rest (R4-34). A block box,
+     centred by its margins: an inline one sat on a line box that took the
+     row to 36.8px (measured). Its focus ring is drawn INSIDE it: in the head
+     it sits in the kit's `.ui-th-label`, which clips (`overflow: hidden`) at
+     the button's own box, so the kit ring (3px outside) was cut on every
+     side (B4c review round one, measured). */
+  .rb-asset-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0 auto;
+    padding: 0;
+    color: var(--color-ink-3);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-check > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-asset-check:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-asset-check[data-checked="all"],
+  .rb-asset-check[data-checked="some"] { color: var(--color-signal); opacity: 1; }
+  .ui-th .rb-asset-check,
+  .rb-asset-row:hover .rb-asset-check,
+  .rb-asset-row:focus-within .rb-asset-check { opacity: 1; }
+
+  /* The thumbnail fills the column, its height the column's less the row's
+     hairline, so a 1x row stays 36px and a 2x or 3x row grows to its size. */
+  .rb-asset-thumb { position: relative; display: block; cursor: pointer; }
+  .rb-asset-thumb-img { display: block; width: 100%; height: calc(var(--rb-asset-thumb) - 1px); object-fit: cover; }
+  /* Remove, over the picture's corner: on the paper, so it reads on any
+     image. (0,4,0) over the kit's hover (0,3,0), and its own hover over that.
+     B4b: the icon plus 2px a side (18px; it was 16), not the kit's 28px
+     `sm` box — over a 1x thumbnail (36px) that box covered most of the
+     picture, so a click meant to CHANGE the thumbnail would mostly remove
+     it (C1). The kit has no smaller icon button: kit request B4b-KR-1. */
+  .rb-asset-thumb-cell .rb-asset-thumb > .ui-iconbtn.rb-asset-thumb-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: calc(var(--icon-sm) + 4px);
+    height: calc(var(--icon-sm) + 4px);
+    background-color: var(--color-paper);
+  }
+  .rb-asset-thumb-cell .rb-asset-thumb > .ui-iconbtn.rb-asset-thumb-remove:hover { background-color: var(--color-paper-raised); }
+  /* No thumbnail: the 36px placeholder, letterboxed, centred in the column
+     at every size (R4-04). Its glyph shows while the row is hovered, as it
+     did, and on keyboard focus too. It fills its cell (padding 0) and the
+     kit's `.ui-td` clips at that edge, so its focus ring is drawn INSIDE it:
+     the kit ring, 3px outside, was cut on every side (B4c review round one,
+     measured). */
+  .rb-asset-thumb-set {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--row);
+    height: calc(var(--row) - 1px);
+    margin: 0 auto;
+    padding: 0;
+    color: var(--color-ink-3);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-thumb-set:hover { color: var(--color-ink-2); background-color: var(--color-hover); }
+  .rb-asset-thumb-set > svg {
+    width: var(--icon-md);
+    height: var(--icon-md);
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-asset-row:hover .rb-asset-thumb-set > svg,
+  .rb-asset-thumb-set:focus-visible > svg { opacity: 1; }
+
+  /* The name: the row's anchor, Dense at 600 in the full ink (R4-03). Its
+     button pads itself 6px, so the cell pulls it 6px out: the text starts
+     under the header's label. */
+  .rb-asset-name { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: -6px; }
+  .rb-asset-cell-text {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    line-height: var(--control-sm);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  button.rb-asset-cell-text:hover { background-color: var(--color-hover); }
+  .rb-asset-cell-text[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-asset-cell-text[data-static="true"] { cursor: default; }
+  .ui-input.rb-asset-cell-input[data-size="sm"] { flex: 1 1 auto; min-width: 0; padding: 0 6px; font-weight: 600; }
+
+  /* Type and phase: the second ink (R4-03) — unless the kit's disabled or
+     empty state speaks, in the third. */
+  .rb-asset-row .ui-cell-select.rb-asset-quiet-select > select:not(:disabled):not([data-empty="true"]) { color: var(--color-ink-2); }
+
+  /* Status: the kit's StatusDot, then the words in the one ink (R4-05), then
+     the warning. The select gives back its own 6px, so its words sit 8px
+     after the dot. */
+  .rb-asset-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-asset-status > .rb-asset-status-select { margin-left: -6px; }
+
+  /* The dates: borderless like the cell selects, in the second ink, the
+     picker dark (R4-28); the calendar glyph only while the row is hovered or
+     the field focused — hidden, it takes no room, so the column holds the
+     whole date (B2's answer). */
+  .rb-asset-date {
+    display: block;
+    width: calc(100% + 12px);
+    min-width: 0;
+    height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+    color-scheme: dark;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    cursor: text;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-date:hover:not(:disabled) { background-color: var(--color-hover); }
+  .rb-asset-date:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .rb-asset-date[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-asset-date::-webkit-calendar-picker-indicator { display: none; }
+  .rb-asset-row:hover .rb-asset-date:not(:disabled)::-webkit-calendar-picker-indicator,
+  .rb-asset-date:focus::-webkit-calendar-picker-indicator { display: block; }
+
+  /* Read-only words (the description is edited in the detail popup): the
+     second ink, no hover fill, no pointer (R4-44); an empty one the third.
+     The task count is the kit's numeric cell (R4-17), in the second ink. */
+  .rb-asset-desc { color: var(--color-ink-2); }
+  .rb-asset-desc[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-asset-tasks { color: var(--color-ink-2); }
+
+  /* A group: one band on the raised paper, as B2's, the kit's StatusDot when
+     grouped by status (the 3px accent bar and its colour are gone, R4-33),
+     a hover like a row's. The whole band is the one button it always was. */
+  .rb-asset-group-row > .ui-td { background-color: var(--color-paper-raised); }
+  .rb-asset-group-row:hover > .ui-td { background-color: var(--color-hover); }
+  .rb-asset-group-head {
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-group-head:hover { background-color: var(--color-hover); }
+  .rb-asset-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: calc(var(--row) - 1px);
+    padding: 0 12px;
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  /* In the gallery the band starts on the page's gutter, as the cards do. */
+  .rb-asset-group-head > .rb-asset-group-toggle { padding: 0 var(--spacing-gutter); }
+  .rb-asset-group-chevron { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-asset-group-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  /* The count, plain, as the Tasks page shows it. */
+  .rb-asset-group-count {
+    min-width: 24px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-asset-group-row:hover .rb-asset-group-count,
+  .rb-asset-group-head:hover .rb-asset-group-count { color: var(--color-ink-2); }
+
+  /* ── The gallery: the kit's Card ────────────────────────────────────────── */
+  .rb-asset-gallery {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    padding: var(--spacing-gutter);
+  }
+  .rb-asset-card-media {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 144px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-asset-card-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* The initials: the third ink (5.04:1 on the paper; they were 2.29). */
+  .rb-asset-card-initials {
+    font-family: var(--font-mono);
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: 600;
+    color: var(--color-ink-3);
+  }
+  /* The media's buttons sit on the paper, so they read over a picture.
+     (0,4,0) over the kit's hover (0,3,0), and their own hover over that. */
+  .rb-asset-card .rb-asset-card-media > .ui-iconbtn.rb-asset-card-tool {
+    position: absolute;
+    background-color: var(--color-paper);
+    border-color: var(--color-rule);
+  }
+  .rb-asset-card .rb-asset-card-media > .ui-iconbtn.rb-asset-card-tool:hover { background-color: var(--color-paper-raised); }
+  .rb-asset-card-warn { top: 6px; right: 6px; }
+  .rb-asset-card-detail { right: 6px; bottom: 6px; }
+  .rb-asset-card-thumb { left: 6px; bottom: 6px; }
+  /* The kit's StatusBadge, on the paper: its tint reads the same over a
+     picture as on the page. */
+  .rb-asset-card-status {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: flex;
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  .rb-asset-card-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; }
+  .rb-asset-card-name { min-width: 0; font-weight: 600; }
+  .rb-asset-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; color: var(--color-ink-2); }
+  .rb-asset-card-phase { min-width: 0; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-asset-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 0 2px 0 8px;
+    border-top: 1px solid var(--color-rule);
+  }
+  /* The count: Caption, tabular, in the mono. */
+  .rb-asset-card-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+
+  /* ═══ ProjectAssetsView — the popups ═══════════════════════════════════════
+     NewAssetPopup and AssetDetailPopup (B4b, part two): each is the kit's
+     Dialog, portalled into <body> (FileManager's pattern; the kit Dialog does
+     not portal, B4-KR-2). The new-asset form is B2's NewTaskPopup re-made in
+     this lane's classes: the kit Field, two-up where it was two-up, the
+     footer note in the third ink (4.66:1 on the raised paper; it measured
+     1.99). The detail popup keeps its two columns and its four sections
+     (R4-10 is recorded, not restructured: C1); every value in its property
+     grid is the table's own borderless editor — the kit's CellSelect, the
+     lane's date field, a quiet button — under the Label step, so the popup
+     and the row it was opened from read as one. Its task table is the kit's,
+     dense (R4-06), measured in the browser at 13px (B4b, 2026-09-25) plus
+     the kit's 12px cell padding each side:
+       Status    the 8px dot, 8px, "Needs revisions" 93.9 (the widest;
+                 "Waiting to start" is 91.3) and the caret's 16: +56 — the
+                 page's own Status width                                   -> 152
+       Bid       "12.5d" 39 in the mono (up to "100.5d")                   ->  72
+       Assignee, Reviewer  94px of name in the kit CellSelect, where the
+                 old 120px select showed about 88 ("Mara Okonkwo" is 89.3)  -> 128
+     Title takes the rest and never goes under 96px, which the popup's
+     narrowest column (Electron's 1024px floor, relations shown: 577) still
+     holds; under that the table scrolls sideways, as FileManager's does. */
+
+  /* ── New asset ── */
+  /* The footer note keeps its place at the left, opposite the two buttons. */
+  .rb-asset-new-note { margin-right: auto; font-size: var(--text-caption); color: var(--color-ink-3); }
+  /* Two fields side by side. The kit's stacked-field margin stands down in
+     the grid (index.css's note on `+` firing sideways). */
+  .rb-asset-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+  .rb-asset-form-grid > .ui-field + .ui-field { margin-top: 0; }
+  /* An empty value reads in the third ink; a date's native picker is dark
+     (R4-28). */
+  .ui-input.rb-asset-form-field[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-input.rb-asset-form-date { color-scheme: dark; font-variant-numeric: tabular-nums; }
+  /* Status: the kit's dot inside the field, the words in the select. */
+  .rb-asset-form-status { position: relative; display: block; }
+  .rb-asset-form-status > .ui-status-dot { position: absolute; left: 12px; top: 50%; margin-top: -3px; pointer-events: none; }
+  .rb-asset-form-status > .ui-input.rb-asset-form-status-input { padding-left: 28px; }
+  /* The template's tasks: a hairline list, its head in the Label step on the
+     paper (a kit header's language, never the accent). */
+  .rb-asset-preview { overflow: hidden; border: 1px solid var(--color-rule); border-radius: var(--radius-control); }
+  .rb-asset-preview-head {
+    padding: 6px 12px;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-asset-preview-list { max-height: 140px; overflow: auto; }
+  .rb-asset-preview-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--color-rule); }
+  .rb-asset-preview-row:last-child { border-bottom: 0; }
+  .rb-asset-preview-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+  }
+  .rb-asset-preview-days {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+
+  /* ── The asset's popup ── */
+  /* Two columns that scroll on their own, so the dialog's body does not.
+     (0,2,0) against the kit's (0,1,0) body. */
+  .rb-asset-detail .ui-dialog-body { display: flex; padding: 0; overflow: hidden; }
+  /* A long name ellipsizes instead of pushing the close button out. */
+  .rb-asset-detail .ui-dialog-head > div:first-child { min-width: 0; }
+  .rb-asset-detail-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+  /* The relations column: RelationsPanel's sidebar is the kit Panel at its
+     own width (`lg`, 300px) and scrolls itself; this only holds it. */
+  .rb-asset-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
+  /* The properties column is the popup's scroller now, where the kit's body
+     was, so it carries the body's `scroll-padding-block: 4px` (A4-KR-9): Tab
+     scrolled a control to the column's edge and the ring drawn outside it
+     fell past — Add files, Table and Gallery lost 3.4px of it at 1280x700
+     (B4c review round one, measured). */
+  .rb-asset-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; scroll-padding-block: 4px; }
+
+  /* The title: the entity icon and the editable name at the H2 step (R4-09),
+     in the kit title's own 600 and ink. The icon is the second ink; orange
+     is the one active treatment, and a title is not a state. */
+  .rb-asset-detail-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-asset-detail-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-asset-detail-title .rb-asset-inline { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+  .rb-asset-detail-title .ui-input.rb-asset-inline-input[data-size="sm"] {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+  }
+
+  /* The thumbnail block: the picture or the initials in the paper well (the
+     card's own img and initials rules), its two kit Buttons, the file name
+     in the mono in the third ink (4.66:1 here; it was 3.2). */
+  .rb-asset-detail-thumbrow { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 24px; }
+  .rb-asset-detail-thumb {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    height: 120px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-asset-detail-thumbmeta { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 4px; }
+  .rb-asset-detail-thumbacts { display: flex; align-items: center; gap: 8px; }
+  .rb-asset-detail-thumbfile {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink-3);
+  }
+
+  /* The property grid: the Label step (second ink) over each value; a value
+     in the ink, an empty one in the third. Each field is its content's width,
+     so a select's hover fill and caret sit by its words, as the old field's
+     border did. */
+  .rb-asset-prop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin-bottom: 24px; }
+  .rb-asset-prop { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+  .rb-asset-prop-label { color: var(--color-ink-2); }
+  /* A read-only value, one control tall so a row of the grid stays level. */
+  .rb-asset-prop-value { min-height: var(--control-sm); font-size: var(--text-dense); line-height: var(--control-sm); color: var(--color-ink); }
+  .rb-asset-prop-value[data-numeric="true"] {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+  }
+  /* The editors give back their own 6px, so their words start under the
+     label, as a kit cell's do (`.ui-td > .ui-cell-select`); a select does not
+     grow down its column. (0,2,0) against the kit's (0,1,0). */
+  .rb-asset-prop > .ui-cell-select { flex: none; margin-inline: -6px; }
+  /* The dates: the table's borderless field (R4-28's dark picker), at the
+     date's own width with its calendar glyph showing, as it did here (the
+     table hides it until the row is hovered), and a set date in the ink, as
+     every value in the grid. */
+  .rb-asset-prop > .rb-asset-date { width: auto; }
+  .rb-asset-prop > .rb-asset-date:not(:disabled):not([data-empty="true"]) { color: var(--color-ink); }
+  .rb-asset-prop > .rb-asset-date::-webkit-calendar-picker-indicator { display: block; }
+  /* The description: its words as a quiet block that opens the editor (the
+     whole grid's width), the editor the kit's well at the same place. */
+  .rb-asset-prop-text {
+    align-self: stretch;
+    min-height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 4px 6px;
+    overflow-wrap: anywhere;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-asset-prop-text:hover { background-color: var(--color-hover); }
+  .rb-asset-prop-text[data-empty="true"] { color: var(--color-ink-3); }
+  /* (0,3,0) over the kit's textarea padding (0,1,1). */
+  .rb-asset-prop > .ui-input.rb-asset-prop-textarea {
+    width: calc(100% + 12px);
+    margin-inline: -6px;
+    padding: 3px 5px;
+    line-height: var(--text-dense--line-height);
+  }
+  /* The four relation fields are RelationsPanel's RelationBadge (R4-27):
+     its rules are that file's section, below. */
+
+  /* Tasks and Files: a Label-step heading (as FileManager's "Files (N)"),
+     a hairline above the files. */
+  .rb-asset-detail-heading { margin-bottom: 8px; color: var(--color-ink-2); }
+  .ui-table.rb-asset-task-table {
+    --rb-asset-task-status: 152px;
+    --rb-asset-task-bid: 72px;
+    --rb-asset-task-person: 128px;
+    min-width: calc(var(--rb-asset-task-status) + var(--rb-asset-task-bid) + var(--rb-asset-task-person) * 2 + 96px);
+  }
+  /* The status cell holds its 28px select beside the dot: 4 + 28 + 3 keeps
+     the 36px row, as the kit does for a CellSelect alone in its cell. The
+     table is the kit's 36px row, as FileManager's under it (B4c review round
+     two: it was `dense`, 32 over 36 — Q11 keeps 32 for the media tables).
+     (0,4,0) against the kit's `.ui-td` (0,1,0). */
+  .ui-table.rb-asset-task-table .ui-td.rb-asset-task-ctl { padding-top: 4px; padding-bottom: 3px; }
+  /* Both tables here sit on the paper in a hairline frame, as
+     ProjectFilesTable's `.rb-files-frame` does: the kit's header is the
+     raised paper, and on this popup's raised paper its rows were the same
+     ground — the header's band was gone (B4c review round two, measured
+     #232020 over #232020). The header now reads #232020 over rows on
+     #1c1917. Only here: FileManager's other hosts are theirs. */
+  .rb-asset-detail .ui-table-scroll.rb-asset-task-scroll,
+  .rb-asset-detail-files .ui-table-scroll.rb-fm-scroll {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  .rb-asset-task-bid { color: var(--color-ink-2); }
+  .rb-asset-task-bid[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-asset-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
+
+  /* ── InlineText: the asset's name edited in place — the gallery card's
+     (Dense, the card's 600) and the popup's title (H2, above). ── */
+  .rb-asset-inline {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 2px 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  button.rb-asset-inline:hover { background-color: var(--color-hover); }
+  .rb-asset-inline[data-empty="true"] { color: var(--color-ink-3); }
+  /* A native field in the kit's small well (the kit Input's own Enter blurs,
+     B3d-KR-2), at the words' height and place, so nothing jumps when it
+     opens. (0,3,0) over the kit's small well (0,2,0). */
+  .ui-input.rb-asset-inline-input[data-size="sm"] { height: auto; padding: 1px 3px; line-height: var(--text-dense--line-height); }
+
+  /* ═══ RelationsPanel ═══════════════════════════════════════════════════════
+     The relations sidebar and what it opens (B4b, surface 4). RelationsPanel
+     (the Level, Experience and Scene popups' left column) and
+     AssetRelationsSidebar (the asset popup's) are ONE kit Panel, `lg`: 300px
+     where they were 360 and 320 (R4-23), the kit's hairline on the docked
+     edge. The groups lost their boxes, which were chrome: each is a head row
+     — its collapse toggle, then its own buttons, as SIBLINGS (R4-24: the
+     buttons sat inside the toggle) — over rows at the dense 32px. A row's
+     status stays where it was: the kit's StatusDot at its start and, where
+     it printed a word, the kit's words at its end (R4-25's size fix, not its
+     pill). Measured in the browser (B4b, 2026-09-25) in the 300px column:
+     the words are 26px ("Final") to 87 ("Needs revisions") at Caption, so a
+     row's name keeps 128 to 189px beside them and the 28px remove control,
+     a task's 164 to 225, a scene's 150 and a shot's 70 to 131 — where the
+     kit StatusBadge (63 to 137px) left a shot's name 36 to 110 and cut
+     "The boat". Every name carries its whole text in its title. */
+  /* The column paints the paper, as it did: its hosts differ (the asset
+     popup is the kit Dialog's raised paper; the Level, Experience and Scene
+     popups still paint the legacy #292524), and the third ink passes on the
+     paper (5.04:1) where it fails on the legacy ground (4.37). (0,2,0) over
+     the kit's `.ui-panel { background: none }`. It is also the in-panel
+     asset picker's containing block. */
+  .ui-panel.rb-rel-panel { position: relative; background-color: var(--color-paper); }
+  .rb-rel-list { display: flex; flex-direction: column; padding: 4px 8px 12px; }
+
+  /* One hairline between groups stands for the box each group drew. */
+  .rb-rel-section + .rb-rel-section { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
+  /* The head row, at the kit Panel head's 32px: the toggle takes the row and
+     the group's 28px IconButtons follow it. */
+  .rb-rel-head { display: flex; align-items: center; gap: 4px; min-height: var(--panel-header); }
+  .rb-rel-toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 8px 0 4px;
+    text-align: left;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .rb-rel-toggle:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-rel-chevron { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  /* An entity glyph (a group's, a scene's, a shot's) in the second ink: the
+     orange it was is the one active treatment, and a kind is not a state. */
+  .rb-rel-glyph { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+  /* The group's name and count: the Label step (it was 9.5 to 10.5px). */
+  .rb-rel-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+  }
+  .rb-rel-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+
+  /* A row: the name at Dense in the ink (R4-25; it was 11px), a hover fill;
+     a row that opens something (an asset, a task) shows the pointer, as it
+     did. Its remove control is the kit's HoverActions slot (`ui-hover-host`
+     on the row): reserved, and shown on focus as well as on hover. */
+  .rb-rel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--row-dense);
+    padding: 2px 4px;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-rel-row:hover { background-color: var(--color-hover); }
+  .rb-rel-row[data-clickable="true"] { cursor: pointer; }
+  .rb-rel-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  /* A row's status words, at its end where the badge was: the kit's words,
+     Caption, the second ink (7.3:1 under the hover fill), the tone the
+     row's dot (R4-05's language: no status colour on text). */
+  .rb-rel-status {
+    flex: none;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    white-space: nowrap;
+    color: var(--color-ink-2);
+  }
+  /* A task row's two lines: the task, then the asset it is for. */
+  .rb-rel-stack { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .rb-rel-stack > .rb-rel-name { flex: none; }
+  .rb-rel-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A scene's count of its linked shots: Caption, tabular (R4-25; it was
+     8px), the third ink at rest and the second under the row's hover fill,
+     where the third measures 4.34:1. */
+  .rb-rel-count {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-rel-row:hover .rb-rel-count { color: var(--color-ink-2); }
+  /* An orphan shot holds the chevron's 28px, so its glyph sits under the
+     scene rows' glyphs. */
+  .rb-rel-slot { flex: none; width: var(--control-sm); }
+  /* A scene's own shots: the hairline spine under the scene's chevron (the
+     list's 8 + 18 = the chevron's centre, 26px in), their glyph, dot and
+     name under the scene's (48, 70 and 86px in), their names in the second
+     ink as they were. Depth is the indent and the spine, never a smaller
+     size (R4-25: the nested status was 7px). */
+  .rb-rel-nest {
+    display: flex;
+    flex-direction: column;
+    margin-left: 18px;
+    padding-left: 17px;
+    border-left: 1px solid var(--color-rule);
+  }
+  .rb-rel-nest .rb-rel-name { color: var(--color-ink-2); }
+  /* Between a scene's rows and the shots whose scene is not linked. */
+  .rb-rel-rule { height: 1px; margin: 4px 8px; background-color: var(--color-rule); }
+  /* An empty group: one Caption line in sentence case (it was 9.5px
+     capitals; R4-13), in the third ink, 5.04:1 on the column's paper. */
+  .rb-rel-empty {
+    margin: 0;
+    padding: 6px 4px 8px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ── The two pickers: one head, one search field, one row (R4-43) ──
+     RelationPickerPopup is the kit Dialog (the head's frame and the footer
+     are the kit's); AssetPickerOverlay covers the column as it did, with the
+     same title, field, rows and empty state, at the column's 12px gutter
+     where the Dialog's is 24. */
+  .rb-rel-pick {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper);
+  }
+  .rb-rel-pick-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 8px 8px 12px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* The title at the kit Dialog title's step (H2) in the ink — it was 10 to
+     13px in the orange — and the Dialog's count after it, in the mono. */
+  .rb-rel-pick-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-rel-pick-glyph { flex: none; align-self: center; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-rel-pick-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  /* The Dialog's body holds the field over a list that scrolls on its own.
+     (0,2,0) against the kit's (0,1,0) body. */
+  .rb-rel-picker .ui-dialog-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  .rb-rel-pick-search { flex: none; padding: 12px; border-bottom: 1px solid var(--color-rule); }
+  .rb-rel-picker .rb-rel-pick-search { padding: 12px var(--spacing-gutter); }
+  /* Post-overhaul S3c, step 1: a scene or shot picker's "Show all lists"
+     switch, under the search on the same gutter (the active shot list's rows
+     are the default; D10). */
+  .rb-rel-pick-scope { flex: none; display: flex; align-items: center; padding: 8px var(--spacing-gutter); border-bottom: 1px solid var(--color-rule); }
+  .rb-rel-pick-field { position: relative; display: flex; align-items: center; }
+  .rb-rel-pick-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  /* (0,3,0) over the kit's small well's padding (0,2,0). */
+  .rb-rel-pick-field > .ui-input.rb-rel-pick-search-input { padding-left: 28px; }
+  /* 4px a side (the old list's `px-1`): a row filled the scroller's width,
+     and the scroller clips, so the kit ring (3px outside the row) was cut
+     left and right on every row of the in-panel picker (B4c review round
+     one, measured). The kit Dialog picker's list keeps its 12px. And 4px of
+     scroll padding: Tab scrolled the next row flush with the scroller's edge
+     and its ring's bottom (going down) or top (going up) was cut (review
+     round two, measured). */
+  .rb-rel-pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; scroll-padding-block: 4px; }
+  .rb-rel-picker .rb-rel-pick-list { padding: 4px 12px; }
+  /* A row: the sidebar's 32px row, as a button. A linked row carries the
+     kit's selected fill (the signal tint, where the name was orange) and its
+     box the signal; the doubled attribute out-ranks the hover, as the kit
+     Table's selected row does. */
+  .rb-rel-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--row-dense);
+    padding: 2px 12px;
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-rel-pick-row:hover { background-color: var(--color-hover); }
+  .rb-rel-pick-row[data-selected="true"][data-selected="true"] { background-color: var(--color-signal-tint); }
+  .rb-rel-pick-check { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-rel-pick-row[data-selected="true"] .rb-rel-pick-check { color: var(--color-signal); }
+  .rb-rel-pick-add { flex: none; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+
+  /* ── RelationBadge: the asset popup's four relation fields (R4-27) ──
+     The kit Chip's language in this lane's classes (a Chip is a filter and
+     announces itself pressed; this opens a picker): 28px, the control
+     radius, the glyph and the count in the tabular mono. ONE active
+     treatment, the Chip's — the signal as a tint and an edge, the ink
+     unchanged — when anything is linked; nothing linked, the second ink
+     (7.7:1 on the Dialog's raised paper) and the hairline. */
+  .rb-rel-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-sm);
+    padding: 0 10px;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .rb-rel-badge[data-active="false"]:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-rel-badge[data-active="true"] { color: var(--color-ink); background-color: var(--color-signal-tint); border-color: var(--color-signal); }
+  .rb-rel-badge-glyph { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-rel-badge-count {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── NewTaskSidePopup: the task form beside the Level, Experience and
+     Scene popups ──
+     Still the panel its hosts place (C1), on the kit Dialog's surface
+     tokens — the raised paper, the hairline, the float radius and shadow —
+     where it was a 2px orange frame. The head is the Dialog's language (the
+     H2 title, the kit's close), the fields B2's NewTaskPopup's (the kit
+     Field over a native field in the kit's small well), the footer the
+     kit's Buttons. It takes its host's cap (`max-height: inherit`: the
+     Scene popups wrap it at 85vh), so in a short window its body scrolls
+     and its footer stays on screen. In the Level and Experience popup,
+     the kit Dialog since B4c, it is the Dialog's first column instead, its
+     float frame flattened there (`.rb-ent-detail-task`, below). */
+  .rb-rel-task {
+    display: flex;
+    flex-direction: column;
+    width: 400px;
+    height: 100%;
+    max-height: inherit;
+    overflow: hidden;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-rel-task-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 8px 8px 16px;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-rel-task-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rb-rel-task-glyph { flex: none; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-rel-task-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+  /* Two fields side by side (three for the bid and its dates), 12px apart
+     as they were. The kit's stacked-field margin stands down in the grid.
+     The three share their row 3 : 4 : 4, where it was thirds: a date is
+     75px of figures plus the picker's glyph, and at a third (110px with the
+     body's scrollbar, measured) its last digit went under the glyph, as it
+     did before; the bid is a short figure ("12.5", 26px) in its 90. */
+  .rb-rel-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .rb-rel-task-grid[data-cols="3"] { grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 4fr); }
+  .rb-rel-task-grid > .ui-field + .ui-field { margin-top: 0; }
+  /* An empty choice reads in the third ink (4.66:1 in the raised well); a
+     set one in the ink. A disabled field keeps the kit's. */
+  .ui-input.rb-rel-task-field[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
+  .ui-input.rb-rel-task-number {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+  }
+  /* The dates' native picker dark (R4-28), their figures tabular. */
+  .ui-input.rb-rel-task-date { color-scheme: dark; font-variant-numeric: tabular-nums; }
+  /* Status: the kit's dot inside the field, the kit's words in the select. */
+  .rb-rel-task-status { position: relative; display: block; }
+  .rb-rel-task-status > .ui-status-dot { position: absolute; left: 8px; top: 50%; margin-top: -4px; pointer-events: none; }
+  .rb-rel-task-status > .ui-input.rb-rel-task-status-input { padding-left: 24px; }
+  .rb-rel-task-foot {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  /* The create question's words (W9), on the kit Dialog. */
+  .rb-rel-confirm { margin: 0; color: var(--color-ink); }
+
+  /* ═══ FileThumbnail ═══════════════════════════════════════════════════════
+     A file's preview tile at FileManager's two sites: the table's 32px
+     square (`data-size="small"`) and the gallery card's tile (`large`), 120
+     wide and its 100px well's height since review round two, its picture
+     still the 120px square's. The picture when there is one, else the file
+     type's glyph and, at the large size, its extension. R4-35, the part
+     that is purely visual: the tile is the asset previews' own paper ground,
+     one hairline and the control radius. Its geometry is recorded, not
+     applied — one 16:9 ratio would change what a user sees of every picture
+     (C1) — so neither picture changes size (B4c, 2026-09-25). */
+  .rb-thumb-tile {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-thumb-tile[data-size="small"] { width: 32px; height: 32px; }
+  /* The gallery card's tile fills its 100px media well top to bottom (B4c
+     review round two). At 120 it hung 10px past the well at each end: the
+     card cut its top (its hairline and its focus ring with it) and its foot
+     lay over the card's name. Its width is what it was. */
+  .rb-thumb-tile[data-size="large"] { width: 120px; height: 100px; }
+  .rb-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* …and its picture is what it was: the same square (118px inside the
+     hairline), centred, so the well shows the same middle of it at the same
+     scale. The tile crops the 10px at each end that the card cut above and
+     the overhang showed below. */
+  .rb-thumb-tile[data-size="large"] > .rb-thumb-img { flex-shrink: 0; height: auto; aspect-ratio: 1; }
+  /* The glyph in the second ink: the icon step in the small tile, 40px (no
+     step; it was 40) in the large. */
+  .rb-thumb-icon { flex-shrink: 0; color: var(--color-ink-2); }
+  .rb-thumb-tile[data-size="small"] .rb-thumb-icon { width: var(--icon-md); height: var(--icon-md); }
+  .rb-thumb-tile[data-size="large"] .rb-thumb-icon { width: 40px; height: 40px; }
+  /* The extension is a label: the Label step, in the third ink — 5.04:1 on
+     the tile's paper, where the old literal measured 3.65:1 (the gallery's
+     one contrast failure). */
+  .rb-thumb-ext {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ VideoPreview ════════════════════════════════════════════════════════
+     The player (S40, §5d.2) on the kit Dialog (R4-12), portalled into
+     <body>: of its three hosts the scene popup still centres itself with
+     `transform`. The kit brings the one backdrop, surface, radius and
+     shadow, the file's name as the title (as stored, never re-cased), the
+     Close, and Escape on the modal stack (Q17) — so the task popup's and the
+     asset popup's layer guards are gone (B4c, 2026-09-25).
+
+     🚨 THE PLAYER KEEPS ITS OWN SIZE (C1). The hand-rolled panel wrapped its
+     video: a stage of at least 480×270, the video at its own size up to
+     86vw × 72vh, no padding. The kit Dialog is a fixed width, so the player
+     takes the form width, which holds that stage, and grows to its content
+     when a video is wider (`min-width` beats the inline width) — the video
+     is exactly as big as it was and runs to the dialog's edge, as it ran to
+     the panel's. */
+  .ui-dialog.rb-vid-dialog { min-width: fit-content; }
+  .rb-vid-dialog .ui-dialog-body { padding: 0; }
+  /* A long name ellipsizes on its line instead of widening the player or
+     pushing the Close out: the title's box adds nothing to the dialog's
+     width (width 0), then takes the head's free width. */
+  .rb-vid-dialog .ui-dialog-head > div:first-child { flex: 1 1 auto; width: 0; min-width: 0; }
+  .rb-vid-dialog .ui-dialog-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-vid-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 480px;
+    min-height: 270px;
+  }
+  /* Only the video's box: every attribute is the component's, autoplay
+     included. The recessed paper shows until the first frame arrives. */
+  .rb-vid-player {
+    display: block;
+    max-width: 86vw;
+    max-height: 72vh;
+    background-color: var(--color-paper-recessed);
+  }
+  /* Why there is no picture, and the one control that helps when there is
+     one (the kit's primary Button: white on the signal fill, #c2410c,
+     5.17:1 — the kit's own). */
+  .rb-vid-unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 32px;
+    text-align: center;
+  }
+  .rb-vid-detail {
+    max-width: 380px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+
+  /* ═══ EntityListView (Levels, Experiences) ════════════════════════════════
+     The Levels and Experiences pages: one component since B4c's fold (review
+     R4-11), restyled once for both (B4c surface 6, step B). They are the
+     Assets page's twin, so the toolbar, filter strip, saved-views menu,
+     table, bulk bar, group bands and cards below are the ProjectAssetsView
+     rules above re-made in this lane's `rb-ent-` classes. The table is the
+     kit Table at its 36px row, its columns the ones it always had, in the
+     same order. The fixed ones, measured in the browser at 13px in the sans
+     (B4c, 2026-09-25), plus the kit's 12px cell padding each side:
+       check   the 24px box, centred                                     ->  36
+       Status  the 8px dot, 8px, "Needs revisions" 93.9 and the caret's
+               16 (+56), as the Assets page's                             -> 152
+       Assets  its header, "ASSETS" 46.2 in the Label step                ->  72
+       Tasks   its header, "TASKS" 37.6                                   ->  64
+       actions two 28px IconButtons 2px apart, in 6px                     ->  72
+     Name, the row's anchor, and Description share the rest equally, as
+     their two flex-[2] columns did, and neither goes under 160px: below
+     that the table scrolls sideways, as the Assets table does. The detail
+     popup, EntityDetailPopup (step C), is this section's last part. */
+  .rb-ent-view { background-color: var(--color-paper); color: var(--color-ink); }
+  /* `.rb-ent-unloaded` went with its span (P1-74). */
+
+  /* The toolbar: the kit's Toolbar with `wrap`; its left slot wraps too, so
+     at Electron's 1024px floor nothing is pushed off the row's end. */
+  .rb-ent-toolbar > .ui-toolbar-slot { flex-wrap: wrap; row-gap: 8px; }
+  .rb-ent-count {
+    padding: 0 4px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-ent-divider { width: 1px; height: 16px; flex-shrink: 0; background-color: var(--color-rule); }
+  .rb-ent-sort { display: inline-flex; align-items: center; gap: 4px; }
+  /* Filter, Sort and Group while they are doing something: the signal edge,
+     the kit's one active treatment (they were orange text). (0,5,0), over
+     the kit's hover rules, as the Assets toolbar's. */
+  .rb-ent-toolbar .ui-toolbar-slot .ui-btn.rb-ent-tool[data-active="true"],
+  .rb-ent-toolbar .ui-toolbar-slot .ui-input.rb-ent-tool[data-active="true"] { border-color: var(--color-signal); }
+  /* A select sized to its content, not the kit's full-width field. */
+  .ui-input.rb-ent-tool { width: auto; }
+
+  /* The card size (gallery mode): three 28px ghost buttons; the chosen one
+     carries the signal edge (it was a white-on-orange fill, C6). Their
+     square still grows with the size, 10, 13 and 16px. */
+  .rb-ent-sizes { display: inline-flex; align-items: center; gap: 2px; }
+  .rb-ent-sizes .ui-btn.rb-ent-size { width: var(--control-sm); padding: 0; }
+  .rb-ent-sizes .ui-btn.rb-ent-size[data-active="true"] { border-color: var(--color-signal); }
+  .rb-ent-size > .rb-ent-size-glyph[data-card="sm"] { width: 10px; height: 10px; }
+  .rb-ent-size > .rb-ent-size-glyph[data-card="md"] { width: 13px; height: 13px; }
+  .rb-ent-size > .rb-ent-size-glyph[data-card="lg"] { width: var(--icon-md); height: var(--icon-md); }
+
+  /* 140px, as the Assets search: a wrapping toolbar breaks its line at each
+     slot's max-content width. */
+  .rb-ent-search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 140px;
+    width: 140px;
+    min-width: 120px;
+  }
+  .rb-ent-search-icon {
+    position: absolute;
+    left: 8px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    pointer-events: none;
+  }
+  .rb-ent-search > .ui-input.rb-ent-search-input { padding-left: 28px; padding-right: 28px; }
+  .rb-ent-search-clear { position: absolute; right: 0; }
+
+  /* Save current view: the strip under the toolbar is the kit's Toolbar
+     (R4-46's spec); its field keeps its old 192px. */
+  .ui-input.rb-ent-save-input { width: 192px; }
+
+  /* The one region the view Tabs switch: an ungrouped table scrolls inside
+     itself, under its sticky head; grouped tables and the gallery scroll
+     here. A group never shrinks under its rows. */
+  .rb-ent-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+  .rb-ent-group { flex-shrink: 0; }
+
+  /* The filter strip under the toolbar. */
+  .rb-ent-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .rb-ent-filter-row { display: flex; align-items: center; gap: 8px; }
+  .rb-ent-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
+  .ui-input.rb-ent-filter-text { width: 144px; }
+  .ui-input.rb-ent-filter-field { width: 128px; }
+  .ui-input.rb-ent-filter-op { width: 160px; }
+  .rb-ent-filter-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* Saved views, on the kit's floating tokens (the kit Menu has no item with
+     a trailing action; B2's kit request K2). 224px, its old width. */
+  .rb-ent-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 30;
+    min-width: 224px;
+    max-width: 320px;
+    padding: 4px 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rb-ent-menu-empty { padding: 6px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
+  .rb-ent-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--control-sm);
+    padding: 0 4px 0 12px;
+    font-size: var(--text-dense);
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-menu-item:hover { background-color: var(--color-hover); }
+  .rb-ent-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-ent-menu-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--color-rule); }
+  .rb-ent-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
+
+  /* ── The table: the kit's Table, 36px rows ─────────────────────────────── */
+  .rb-ent-table-wrap {
+    --rb-ent-check: 36px;
+    --rb-ent-status: 152px;
+    --rb-ent-assets: 72px;
+    --rb-ent-tasks: 64px;
+    --rb-ent-acts: 72px;
+    --rb-ent-text-min: 160px;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* The scroller insets the table so the checkboxes sit under the toolbar's
+     first control, as the Assets and Tasks tables' do. */
+  .rb-ent-table-wrap > .ui-table-scroll { padding: 0 12px; }
+  .rb-ent-table-wrap .ui-table.rb-ent-table {
+    min-width: calc(var(--rb-ent-check) + var(--rb-ent-status) + var(--rb-ent-assets)
+      + var(--rb-ent-tasks) + var(--rb-ent-acts) + var(--rb-ent-text-min) * 2);
+  }
+
+  /* The bulk bar overlays the head, right of the checkbox column (B2's). */
+  .rb-ent-bulk {
+    position: absolute;
+    top: 0;
+    left: 48px;
+    z-index: 3;
+    height: var(--table-head);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px 0 12px;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-signal);
+    border-radius: var(--radius-control);
+  }
+  .rb-ent-bulk-count {
+    font-size: var(--text-dense);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  /* The question's words in the kit Dialog (the row's, the bulk one). */
+  .rb-ent-confirm { margin: 0; color: var(--color-ink); }
+
+  /* The cells. Each rule that meets a kit cell rule is (0,4,0), one class
+     over the kit's. A cell holding a 28px control keeps the 36px row: 4px
+     above, 3px below, the hairline the last pixel (B4's trap 7). */
+  .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-ctl-cell { padding-top: 4px; padding-bottom: 3px; }
+  .rb-ent-table-wrap .rb-ent-table .ui-th.rb-ent-check-cell { padding: 0; text-align: center; }
+  .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-check-cell { padding: 6px 0 5px; text-align: center; }
+  .rb-ent-table-wrap .rb-ent-table .ui-td.rb-ent-acts-cell { padding: 4px 6px 3px; }
+  /* The actions' slot as a block (the kit's is inline-flex, and its line box
+     took the row to 36.8px), its buttons at the cell's right edge. */
+  .rb-ent-acts-cell > .ui-hover-actions.rb-ent-acts { display: flex; justify-content: flex-end; }
+  /* The two counts: the kit's numeric cell (R4-17), in the second ink. */
+  .rb-ent-num { color: var(--color-ink-2); }
+
+  /* Hover: (0,3,0), so the kit's selected row (0,4,0) always wins. */
+  .rb-ent-row:hover > .ui-td { background-color: var(--color-hover); }
+  /* A hovered or ticked row lifts an empty cell's placeholder from the third
+     ink to the second: the third measured 4.34:1 on the hover fill and 4.17
+     on the selected tint (B2). */
+  .rb-ent-row:hover .rb-ent-cell-text[data-empty="true"],
+  .rb-ent-row[data-ticked="true"] .rb-ent-cell-text[data-empty="true"] { color: var(--color-ink-2); }
+
+  /* The checkbox: always in the head; in a row, on hover, on focus, or while
+     ticked (R4-34, as the Assets page's). The column keeps its width at
+     rest. A block box, centred by its margins. */
+  /* Its focus ring is drawn INSIDE it, as the Assets checkbox's is: in the
+     head the kit's `.ui-th-label` clips at the button's own box, and the kit
+     ring (3px outside) was cut on every side (B4c review round one). */
+  .rb-ent-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0 auto;
+    padding: 0;
+    color: var(--color-ink-3);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--duration-state) ease-out, background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-check > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-ent-check:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-ent-check[data-checked="all"],
+  .rb-ent-check[data-checked="some"] { color: var(--color-signal); opacity: 1; }
+  .ui-th .rb-ent-check,
+  .rb-ent-row:hover .rb-ent-check,
+  .rb-ent-row:focus-within .rb-ent-check { opacity: 1; }
+
+  /* The inline text: the name is the row's anchor, Dense 600 in the full
+     ink (R4-03); the description (`data-quiet`) Dense 400 in the second. Its
+     button pads itself 6px and the cell pulls it 6px out, so the text starts
+     under the header's label. */
+  .rb-ent-cell-text {
+    display: block;
+    width: calc(100% + 12px);
+    min-width: 0;
+    height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    line-height: var(--control-sm);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-cell-text:hover { background-color: var(--color-hover); }
+  .rb-ent-cell-text[data-quiet="true"] { font-weight: 400; color: var(--color-ink-2); }
+  .rb-ent-cell-text[data-empty="true"] { color: var(--color-ink-3); }
+  /* Editing: the kit's small well, where the text was. */
+  .ui-input.rb-ent-cell-input[data-size="sm"] { width: calc(100% + 12px); margin-inline: -6px; padding: 0 6px; font-weight: 600; }
+  .ui-input.rb-ent-cell-input[data-quiet="true"] { font-weight: 400; }
+
+  /* Status: the kit's StatusDot, then the words in the one ink (R4-05). The
+     select gives back its own 6px, so its words sit 8px after the dot. */
+  .rb-ent-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-ent-status > .rb-ent-status-select { margin-left: -6px; }
+
+  /* A group: one band on the raised paper, as the Assets page's, the kit's
+     StatusDot when grouped by status (the 3px accent bar and its colour are
+     gone, R4-33), a hover like a row's. The whole band is the one button it
+     always was, and it starts on the page's gutter. */
+  .rb-ent-group-head {
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-group-head:hover { background-color: var(--color-hover); }
+  .rb-ent-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: calc(var(--row) - 1px);
+    padding: 0 var(--spacing-gutter);
+    text-align: left;
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .rb-ent-group-chevron { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .rb-ent-group-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  /* The count, plain, as the Assets and Tasks pages show it. */
+  .rb-ent-group-count {
+    min-width: 24px;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-caption) * var(--mono-size-adjust));
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-ent-group-head:hover .rb-ent-group-count { color: var(--color-ink-2); }
+
+  /* ── The gallery: the kit's Card ────────────────────────────────────────── */
+  /* The card widths as they were — 160, 220 and 300px, the picture 0.6 of
+     the width (R4-35's one geometry is recorded, not applied: C1) — on the
+     page's gutter, 12px apart. */
+  .rb-ent-gallery {
+    --rb-ent-card: 220px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: var(--spacing-gutter);
+  }
+  .rb-ent-gallery[data-card="sm"] { --rb-ent-card: 160px; }
+  .rb-ent-gallery[data-card="lg"] { --rb-ent-card: 300px; }
+  /* The whole card opens the detail popup, as it did: a pointer, and a
+     hairline that lifts on hover (the orange ring is gone, C6). */
+  .rb-ent-card {
+    width: var(--rb-ent-card);
+    cursor: pointer;
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .rb-ent-card:hover { border-color: var(--color-ink-3); }
+  .rb-ent-card-media {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(var(--rb-ent-card) * 0.6);
+    background-color: var(--color-paper);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  /* The entity's glyph, 32px as it was, in the third ink (5.04:1 on the
+     paper; it was 1.32). */
+  .rb-ent-card-icon { width: 32px; height: 32px; color: var(--color-ink-3); }
+  /* The delete, over the media's corner, shown on hover and on focus. */
+  .rb-ent-card-acts { position: absolute; top: 6px; right: 6px; }
+  .rb-ent-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 12px; }
+  .rb-ent-card-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  /* The kit's StatusBadge at its own width. */
+  .rb-ent-card-status { display: flex; }
+  .rb-ent-card-desc {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+  }
+
+  /* ── New level / New experience: the kit's Dialog at the form width ──── */
+  /* Status: the kit's dot inside the field, the words in the select. */
+  .rb-ent-form-status { position: relative; display: block; }
+  .rb-ent-form-status > .ui-status-dot { position: absolute; left: 12px; top: 50%; margin-top: -3px; pointer-events: none; }
+  .rb-ent-form-status > .ui-input.rb-ent-form-status-input { padding-left: 28px; }
+  /* The description does not resize, as it did not (C1). */
+  .ui-input.rb-ent-form-text { resize: none; }
+  /* The picked files: Add files at its own width, then one row per file on
+     the paper, its name in the second ink and its remove button named. */
+  .ui-btn.rb-ent-files-add { align-self: flex-start; }
+  .rb-ent-files { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .rb-ent-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 0 2px 0 8px;
+    background-color: var(--color-paper);
+    border-radius: var(--radius-control);
+  }
+  .rb-ent-file-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+  }
+
+  /* ── The detail popup: the kit's Dialog, 896px ────────────────────────────
+     EntityDetailPopup (B4c surface 6, step C): the Assets page's detail popup
+     (`.rb-asset-detail`, above) re-made in this lane's classes. Two columns
+     that scroll on their own — RelationsPanel's sidebar, the kit Panel at
+     300px, then the properties — and, while the task form is open, the form
+     as the first of three. Every value in it is a token; every text is on
+     the ink, the second or the third (4.66:1 on the Dialog's raised paper,
+     5.04 on the paper), where the old popup's labels, counts, prompts and
+     Delete measured 2.29 to 4.03 on its grounds. */
+  /* (0,2,0) against the kit's (0,1,0) body. */
+  .rb-ent-detail .ui-dialog-body { display: flex; padding: 0; overflow: hidden; }
+  /* A long name ellipsizes instead of pushing the close button out. */
+  .rb-ent-detail .ui-dialog-head > div:first-child { min-width: 0; }
+  /* The title: the entity's glyph, then its name in the kit title's H2, 600
+     and ink (it was 14px in orange). The glyph in the second ink: orange is
+     the one active treatment, and a title is not a state. */
+  .rb-ent-detail-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-ent-detail-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-ent-detail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Delete keeps the footer's left, opposite Close. */
+  .rb-ent-detail-delete { margin-right: auto; }
+
+  .rb-ent-detail-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+  /* 🚨 The task form, NewTaskSidePopup, as the Dialog's first column: the
+     float frame it wears beside the Scene popups — the hairline box, the
+     float radius and shadow — stands down here, one hairline divides it
+     from the sidebar, and it fills the column's height, its fields
+     scrolling under a footer that stays. Everything inside it is its own
+     section's. (0,2,0) over its own (0,1,0). */
+  .rb-ent-detail-task {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    border-right: 1px solid var(--color-rule);
+  }
+  .rb-ent-detail-task > .rb-rel-task {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  /* The relations column holds the kit Panel, which scrolls itself. */
+  .rb-ent-detail-side { display: flex; flex-shrink: 0; min-height: 0; }
+  /* The properties take what is left: at 94vw with the task form open (a
+     1280px window) they give first, as the old popup did beside the form.
+     The popup's scroller, so the kit body's `scroll-padding-block: 4px`
+     (A4-KR-9), as the Assets popup's column carries it. */
+  .rb-ent-detail-main { flex: 1 1 auto; min-width: 0; padding: 16px var(--spacing-gutter); overflow-x: hidden; overflow-y: auto; scroll-padding-block: 4px; }
+
+  /* The thumbnail beside the name field, as they were. */
+  .rb-ent-detail-top { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+  .rb-ent-detail-field { flex: 1 1 auto; min-width: 0; }
+  /* The thumbnail's well: its old 142 × 80, on the paper. */
+  .rb-ent-thumb {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 142px;
+    height: 80px;
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-ent-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* Change and remove over the picture, on the kit's scrim: the kit's
+     HoverActions shows them on the well's hover, as they were shown, and on
+     keyboard focus now. (0,2,0) over the kit slot's gap (0,1,0). */
+  .ui-hover-actions.rb-ent-thumb-acts {
+    position: absolute;
+    inset: 0;
+    justify-content: center;
+    gap: 4px;
+    background-color: var(--color-backdrop);
+  }
+  /* 🚨 Each button on the raised paper, so its glyph reads on ANY picture:
+     through the scrim over a light one, the kit's transparent button left
+     Change at 2.54:1 and Remove at 2.76:1 (B4c review round one, measured);
+     on the raised paper they are 7.85 and 8.52. The hover is the kit's 6%
+     screen laid OVER that ground as an image (bins.css's tile), so the ground
+     stays. (0,4,0) over the kit's hover (0,3,0); the Assets card's tools
+     over a picture sit on the paper the same way. */
+  .ui-hover-actions.rb-ent-thumb-acts > .ui-iconbtn.rb-ent-thumb-act { background-color: var(--color-paper-raised); }
+  .ui-hover-actions.rb-ent-thumb-acts > .ui-iconbtn.rb-ent-thumb-act:hover {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
+  }
+  /* No picture: the whole well is the one button it was. At rest the
+     entity's glyph, 20px as it was, in the third ink (5.04:1 on the paper;
+     it was the ground's own colour, 1.15); on hover or keyboard focus the
+     glyph gives way to the picture glyph and the words, sentence case at
+     Caption in the second ink (they were 11px capitals at 2.29:1). Its
+     focus ring is drawn inside: the well clips anything outside it. */
+  .rb-ent-thumb-set {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    border: 0;
+    outline-offset: -2px;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-thumb-set:hover { background-color: var(--color-hover); }
+  .rb-ent-thumb-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-ent-thumb-hint-icon { width: var(--icon-md); height: var(--icon-md); }
+  .rb-ent-thumb-glyph {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    color: var(--color-ink-3);
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .rb-ent-thumb-set:hover .rb-ent-thumb-hint,
+  .rb-ent-thumb-set:focus-visible .rb-ent-thumb-hint { opacity: 1; }
+  .rb-ent-thumb-set:hover .rb-ent-thumb-glyph,
+  .rb-ent-thumb-set:focus-visible .rb-ent-thumb-glyph { opacity: 0; }
+
+  /* The Label step over each value (FieldLabel: the kit Field's label
+     class), and the properties two to a row with their old gaps. Each field
+     is its content's width, so a select's hover fill and caret sit by its
+     words. */
+  .rb-ent-label { display: block; margin-bottom: 6px; }
+  .rb-ent-prop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin-bottom: 20px; }
+  .rb-ent-prop { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+  /* The linked counts: a read-only value, one control tall so its row
+     stays level, in the mono and the ink (it was 11px capitals in #78716c,
+     3.16:1 — a value, not a label, so no longer capitals: Q2). */
+  .rb-ent-prop-value {
+    min-height: var(--control-sm);
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--control-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  /* The dates: the Assets popup's borderless field — R4-28's dark picker,
+     the date's own width with its calendar glyph, a set date in the ink and
+     an empty one in the third (the second under the hover fill, where the
+     third measures 3.98:1). No ring of its own: the kit's one focus
+     treatment, drawn inside the field, where R4-11's drift had ring-2 in
+     Levels and ring-1 in Experiences. Never wider than its cell and the
+     6px it bleeds each side: its own width is 133px, and in the 94px cells
+     of Electron's smallest window (1024x700) with the task form open the
+     first field ran under the second and the second past the column's
+     edge, and neither calendar glyph showed (B4c review round one,
+     measured). */
+  .rb-ent-date {
+    display: block;
+    width: auto;
+    min-width: 0;
+    max-width: calc(100% + 12px);
+    height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+    color-scheme: dark;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    outline-offset: -2px;
+    cursor: text;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-date:hover { background-color: var(--color-hover); }
+  .rb-ent-date[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-ent-date[data-empty="true"]:hover { color: var(--color-ink-2); }
+
+  /* The name, the description and the notes: their words as a quiet button
+     that opens the editor (the Assets popup's `.rb-asset-prop-text`) — no
+     box, the hover fill, the column's width, the words under the label; an
+     empty one's prompt in the third ink, the second under the hover fill
+     (the prompts were #57534e, 2.29:1). */
+  .rb-ent-prop-text {
+    display: block;
+    width: calc(100% + 12px);
+    min-height: var(--control-sm);
+    margin-inline: -6px;
+    padding: 4px 6px;
+    overflow-wrap: anywhere;
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-ent-prop-text:hover { background-color: var(--color-hover); }
+  .rb-ent-prop-text[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-ent-prop-text[data-empty="true"]:hover { color: var(--color-ink-2); }
+  /* The name's editor: the kit's small well where the words were, its text
+     where theirs was. (0,3,0) over the kit's small well (0,2,0). */
+  .ui-input.rb-ent-name-input[data-size="sm"] { width: calc(100% + 12px); margin-inline: -6px; padding: 0 5px; }
+  /* The description and the notes, open: the kit's well at the words'
+     place, at least 80 and 60px tall and not resizable, as they were; Save
+     and Cancel the kit's small Buttons under it. (0,3,0) over the kit's
+     textarea (0,1,1). */
+  .rb-ent-detail-text { margin-bottom: 16px; }
+  .rb-ent-detail-text > .ui-input.rb-ent-textarea {
+    width: calc(100% + 12px);
+    margin-inline: -6px;
+    padding: 3px 5px;
+    line-height: var(--text-dense--line-height);
+    resize: none;
+  }
+  .ui-input.rb-ent-textarea[data-field="description"] { min-height: 80px; }
+  .ui-input.rb-ent-textarea[data-field="notes"] { min-height: 60px; }
+  .rb-ent-edit-acts { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* ═══ AssetStatusWarningModal ═════════════════════════════════════════════
+     The status-mismatch question the Assets table's and the gallery's
+     warning open (B4c surface 7, R4-12): the kit Dialog at the confirm width
+     (400; the panel was 448), portalled into <body>. The kit holds the
+     chrome — the one backdrop, the raised paper, the head's hairline (it was
+     a red rule), the H2 title in sentence case, the named Close, the footer
+     and its two Buttons ("Bump to in-progress" the primary: it was white on
+     the signal, 3.35:1). Here: the title's warning glyph in the danger ink,
+     as the "Tasks not yet done" control that opens it draws it; the message
+     in the ink at the Body step, the asset's name at 600 and its status the
+     kit StatusBadge (R4-30: it was a green chip whatever the status was);
+     the pending tasks a well on the paper under one hairline, its header at
+     the Label step in ink-3 (it was orange on a #44403c fill, R4-29), each
+     row a Dense title in the ink beside the kit StatusBadge on the task's
+     own status (the chips were #fb923c on #292524 under #57534e). */
+  .rb-warn-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-warn-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-danger); }
+  .rb-warn-body { display: flex; flex-direction: column; gap: 12px; }
+  .rb-warn-msg { margin: 0; color: var(--color-ink); }
+  .rb-warn-name { font-weight: 600; }
+  .rb-warn-tasks {
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-warn-tasks-head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* The 192px it had, then the list scrolls. Rows are divided by the
+     hairline, not boxed (R4-22). */
+  .rb-warn-list { max-height: 192px; overflow-y: auto; }
+  .rb-warn-task { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+  .rb-warn-task + .rb-warn-task { border-top: 1px solid var(--color-rule); }
+  .rb-warn-task-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  /* Track A's three dialogs on this anatomy, over the overhaul (merge review
+     round 1, A-R1-03): the Phase 7 status warning (DependencyStatusGuard —
+     the kit's dialog classes hand-drawn, because its rulings need the X, the
+     backdrop and Escape to be its own — so its confirm width is the kit's
+     token here rather than the component's inline px), the dependency
+     rewire question and the deleted-key-dates list. The caption under a
+     list, in the third ink on the Caption step; the rewire rows' Old / New
+     tag on the Label step in the third ink, as the list header is, without
+     its box; the deleted key date's diamond in its OWN colour, carried as a
+     custom property the row sets (as the Tasks lane's --rb-ms), on the
+     warning amber the Timeline's key dates fall back to. */
+  .ui-dialog.rb-warn-card { width: var(--dialog-confirm); }
+  .rb-warn-caption {
+    display: block;
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  .rb-warn-tag {
+    flex-shrink: 0;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .rb-warn-glyph {
+    flex-shrink: 0;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--rb-warn-glyph, var(--color-warning));
+  }
+
+  /* ═══ FileAuditDrawer ═════════════════════════════════════════════════════
+     A file's activity stream, from the Control Panel's file table (B4c
+     surface 7, R4-12): the kit Drawer, right, xl (420, its width), with its
+     backdrop — EditHistoryDrawer's anatomy (rabbitTimeline.css, `rb-hist-`),
+     as the component's own Jakob's Law line promises. The kit holds the
+     chrome: the title bar's offset (TL-24: the panel ran under it), the raised
+     paper and its hairline (it was a 2px signal edge), the head and the
+     foot. Here: the file's name under the head in the mono, ink-2; each event
+     a card on the paper under one hairline (it was #292524 under #44403c); in
+     a card the kit Badge in its tone, the actor ink-2, the time the mono in
+     ink-3, an old path ink-3 (struck through when the file moved on from it:
+     it was 70% opacity) and the new one ink-2; the foot's note ink-3. The
+     walk's three failures here were #78716c on #292524 (3.16:1), #78716c on
+     #1c1917 (3.65:1) and #57534e (2.29:1); ink-3 is 5.04:1 on the paper and
+     4.66:1 on the raised paper. */
+  /* Refresh while the stream loads: the icon turns, on the kit's own `ui-spin`
+     keyframes (EditHistoryDrawer's `.rb-hist-spin`). */
+  .rb-audit-spin[data-spinning="true"] { animation: ui-spin 1s linear infinite; }
+  .rb-audit-body { display: flex; flex-direction: column; gap: 8px; }
+  /* 🚨 The file's name was in the drawer's fixed head before the kit; it is
+     the body's first line now, so a long stream scrolled it away (B4c review
+     round one). It sticks to the body's top on the drawer's ground, a
+     hairline under it, the band the full width of the body: the kit Drawer
+     pads its body 12px, which the band takes back and gives its text. Its
+     `top` is that padding, negative, as its margin is: Chromium measures a
+     sticky offset from the scroller's CONTENT edge, so `top: 0` held it 12px
+     down — over the first card by 4px at rest, and with the stream passing
+     through the gap above it once scrolled (measured). rabbitShell.css's
+     picker search does the same against the Dialog body's 16px. */
+  .rb-audit-file {
+    position: sticky;
+    top: -12px;
+    z-index: 1;
+    margin: -12px -12px 0;
+    padding: 8px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .rb-audit-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-audit-entry-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* An event's badge, its word and hairline in one tone — the colour
+     language FILE_EVENT_META names: creation (uploaded, restored) the
+     success ink, a change (moved, relinked) ink-2, destruction (trashed,
+     purged) the danger ink, a read (downloaded) and anything unknown ink-3.
+     It was each event's hex on a 10% tint of it; "change" was orange, which
+     is the signal's alone now (as EditHistoryDrawer's edits are ink-2).
+     (0,2,0) and (0,3,0) over the kit Badge's (0,1,0). */
+  .ui-badge.rb-audit-event { flex-shrink: 0; color: var(--color-ink-3); border-color: var(--color-ink-3); }
+  .ui-badge.rb-audit-event[data-tone="create"] { color: var(--color-success); border-color: var(--color-success); }
+  .ui-badge.rb-audit-event[data-tone="change"] { color: var(--color-ink-2); border-color: var(--color-ink-2); }
+  .ui-badge.rb-audit-event[data-tone="destroy"] { color: var(--color-danger); border-color: var(--color-danger); }
+  .rb-audit-actor {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-audit-when {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .rb-audit-paths {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
+  .rb-audit-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-audit-from { text-decoration: line-through; }
+  .rb-audit-to { color: var(--color-ink-2); }
+  .rb-audit-foot {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* ═══ RelinkDialog ════════════════════════════════════════════════════════
+     Find the files that moved (B4c surface 7, R4-12): the kit Dialog,
+     portalled into <body>, at its own 640 (the tokens either side, 560 and
+     720, are 80 away each). Only Local Server mode can open it, so
+     rabbitOverlaysRender.test.jsx proves it and the walk does not. The kit
+     holds the chrome — the one backdrop, the raised paper (the panel was the
+     paper under a 3px signal edge), the H2 title in sentence case, the named
+     Close, the footer and its Buttons, `busy` while the apply runs — and the
+     error, the base-change disclosure and the success summary are the kit
+     Banner, a confidence the kit StatusBadge, the waits the kit Spinner, an
+     empty group the kit EmptyState. Here: the title's glyph in ink-2 (the
+     lane's dialog titles'); the prose in the dialog's sans at the Body step
+     in ink-2 and a path in it in the mono, the ink (R4-32: prose was set in
+     the mono; only a path is now — the folder searched was orange); the
+     missing files, the three preview groups and their rows on the tokens. */
+  .rb-relink-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-relink-icon { flex-shrink: 0; width: var(--icon-md); height: var(--icon-md); color: var(--color-ink-2); }
+  .rb-relink-body { display: flex; flex-direction: column; gap: 12px; }
+  /* A server's error can be one long path: it wraps anywhere, as it did. */
+  .rb-relink-error { overflow-wrap: anywhere; }
+  .rb-relink-prose { margin: 0; color: var(--color-ink-2); }
+  .rb-relink-path {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  /* The capped walk's caveat, in the warning ink it had (#fbbf24). */
+  .rb-relink-capped { color: var(--color-warning); }
+  /* The files the census could not find, before a folder is chosen: a well
+     on the paper, the 160px it had, each file's name ink-2 and its stored
+     path the mono in ink-3 (they were #78716c and #57534e, 2.29:1). */
+  .rb-relink-missing {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 8px 12px;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  /* 🚨 `flex-shrink: 0`: a row clips (`overflow: hidden`), so its minimum
+     height is 0 and the 160px column SHRANK the rows to fit instead of
+     scrolling — 6.4px each at 14 missing files, nothing at 100 (B4c review
+     round one, measured; the same before the kit). Each keeps its line. */
+  .rb-relink-missing-row {
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-relink-missing-path {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    color: var(--color-ink-3);
+  }
+  /* The walk and the apply: the kit Spinner and what it is doing, Dense in
+     ink-2 (it was the mono at 12px beside an orange Loader2). */
+  .rb-relink-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 4px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  /* A preview group: a well on the paper under one hairline (it was #292524
+     under #44403c at the float radius), its label at the Label step in its
+     tone — will relink the success ink, ambiguous the warning ink, still
+     missing the danger ink (a third red, #f87171, before) — then its rows,
+     divided by the hairline and not boxed (R4-22), in the 224px it had. */
+  .rb-relink-group {
+    overflow: hidden;
+    background-color: var(--color-paper);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rb-relink-group-head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rb-relink-group-head[data-tone="success"] { color: var(--color-success); }
+  .rb-relink-group-head[data-tone="warning"] { color: var(--color-warning); }
+  .rb-relink-group-head[data-tone="danger"] { color: var(--color-danger); }
+  .rb-relink-group-list { max-height: 224px; overflow-y: auto; }
+  .rb-relink-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 12px; }
+  .rb-relink-row + .rb-relink-row { border-top: 1px solid var(--color-rule); }
+  .rb-relink-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rb-relink-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  /* A proposal's two paths, the mono they were in: the old one ink-3 and
+     struck through (it was 70% opacity), the new one ink-2. */
+  .rb-relink-old,
+  .rb-relink-new {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+    line-height: var(--text-dense--line-height);
+  }
+  .rb-relink-old { color: var(--color-ink-3); text-decoration: line-through; }
+  .rb-relink-new { color: var(--color-ink-2); }
+  /* An ambiguous file's note is a sentence, so the sans (it was the mono). */
+  .rb-relink-note { font-size: var(--text-dense); line-height: var(--text-dense--line-height); color: var(--color-ink-3); }
+  .rb-relink-unmatched {
+    padding: 4px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rb-relink-unmatched + .rb-relink-unmatched { border-top: 1px solid var(--color-rule); }
+  /* The count that changed leads the success summary at 600 (it was the
+     green; the Banner's tone and glyph carry that now). */
+  .rb-relink-done { font-weight: 600; }
+
+  /* ═══ Reduced motion (plan §3.4) ═══════════════════════════════════════════
+     Every transition this sheet declares ends instantly, each by its own
+     selector — never a blanket rule (C5: the pet's keyframes must play).
+     LAST in the layer, so each wins its twin above on source order at the
+     same specificity; rabbitFilesCss.test.js fails when a transition is
+     added above without its line here. The audit drawer's Refresh keeps
+     turning, as the kit's Spinner does: an indeterminate wait has no end
+     state to jump to. */
+  @media (prefers-reduced-motion: reduce) {
+    .rb-files-cell-input,
+    .rb-fm-progress-fill,
+    .rb-asset-menu-item,
+    .rb-asset-check,
+    .rb-asset-thumb-set,
+    .rb-asset-thumb-set > svg,
+    .rb-asset-cell-text,
+    .rb-asset-date,
+    .rb-asset-group-head,
+    .rb-asset-prop-text,
+    .rb-asset-inline,
+    .rb-rel-toggle,
+    .rb-rel-row,
+    .rb-rel-pick-row,
+    .rb-rel-badge,
+    .rb-ent-menu-item,
+    .rb-ent-check,
+    .rb-ent-cell-text,
+    .rb-ent-group-head,
+    .rb-ent-card,
+    .rb-ent-thumb-set,
+    .rb-ent-thumb-hint,
+    .rb-ent-thumb-glyph,
+    .rb-ent-date,
+    .rb-ent-prop-text { transition: none; }
+  }
+}

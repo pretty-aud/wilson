@@ -281,10 +281,11 @@ describe('the adapter actually calls the registry (no dead path)', () => {
   })
 
   it('refuses a network workspace with a sentence, never routes it', () => {
-    // The one workspace provider with no cloud-side implementation (S36's
-    // review): 'network' maps to local_server, which the registry never
-    // registers. Without this refusal getStorageProvider throws its generic
-    // message, which names nothing the user can act on.
+    // The one workspace provider with no CLOUD-side implementation (S36's
+    // review): 'network' maps to local_server. Since 2026-09-11 the desktop
+    // registers that provider (localServerProvider.js) for PRIVATE projects,
+    // but a whole workspace on 'network' still has no cloud upload path and
+    // keeps this refusal — the sentence names what the user can do.
     expect(adapter).toContain("activeProvider === WORKSPACE_PROVIDERS.NETWORK")
     expect(adapter).toContain('Local Server mode')
   })
@@ -294,8 +295,16 @@ describe('the adapter actually calls the registry (no dead path)', () => {
     expect(adapter).toContain('FILE_PROVIDERS.S3')
   })
 
+  it('registers the local_server provider too (2026-09-11), so a private project\'s row resolves to a sentence off the desktop', () => {
+    expect(adapter).toContain('createLocalServerStorageProvider()')
+    expect(adapter).toContain('FILE_PROVIDERS.LOCAL_SERVER,')
+  })
+
   it('passes the money flag from the same scope that picks the INVOICES segment', () => {
-    expect(adapter).toContain('financial: !!scope.financial')
+    // S4b (0088): money-gated = an invoice/receipt OR a Legal file, both from
+    // the scope that picks the locked segment.
+    expect(adapter).toContain('const moneyGated = !!scope.financial || legal;')
+    expect(adapter).toContain('financial: moneyGated,')
   })
 
   it('downloads through resolveFileProvider', () => {

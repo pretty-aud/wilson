@@ -34,7 +34,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
-  reporter: [['list']],
+  // B2 part 2 (Track B): in CI, ALSO the `github` reporter. It emits one
+  // `::error` workflow command per failed test (title, file, line, the
+  // assertion), and those land as check-run annotations — the one part of a
+  // failed run the public API serves without a GitHub sign-in. The job log
+  // itself needs admin rights through the API and a sign-in on the web, so a
+  // spawned session (no `gh auth`) could see that the job was red and
+  // nothing else. Locally: the list reporter, as before.
+  reporter: process.env.CI ? [['list'], ['github']] : [['list']],
 
   use: {
     baseURL: BASE_URL,

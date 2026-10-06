@@ -416,22 +416,66 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
   // documents the old number in prose (0057 does, twice) would otherwise satisfy
   // a naive `toContain` — the 0038 trap that has now caught this repo three
   // times.
+  //
+  // 🚨 TRACK C / 0073 FOUND THIS PIN PASSING OFF A COMMENT. `executable()` above
+  // strips JS comments, but a migration is SQL and its comments are `--`; so
+  // "the last migration mentioning file_size_limit" was 0058, whose only
+  // executable mention is a post-condition READ, and the "assignment" this test
+  // found was `file_size_limit = 53687091200` in 0058's HEADER PROSE. 0073 reads
+  // the cap in a post-condition too, documents nothing numeric in prose, and
+  // the pin failed — for the right reason, one migration late. Two repairs:
+  // SQL comments are stripped as well, and a migration counts only if it
+  // ASSIGNS the cap (an executable `file_size_limit = N` or a bucket VALUES
+  // row), never because it merely mentions the column.
+  const executableSql = (src) => executable(src).replace(/--[^\n]*/g, '')
+  // Review rounds 1–2 (2026-09-06): an ASSIGNMENT is `SET … file_size_limit = N`
+  // (an UPDATE, or the DO UPDATE arm of an upsert) or a bucket VALUES row that
+  // names 'rabbit-files'. A bare `file_size_limit = N` also matched the WHERE
+  // comparisons in 0053's and 0057's post-conditions (`AND file_size_limit =
+  // 262144` — another bucket's cap being READ), which made 0053 a candidate
+  // and let 0057's reads ride along in its assigned list. Round 1 tightened
+  // only the VALUES arm and changed nothing measurable; round 2 measured that
+  // and fixed the arm that mattered. A future migration whose post-condition
+  // merely compares a cap can no longer become "the last migration that sets
+  // it".
+  const capAssignments = (sql) =>
+    [...sql.matchAll(/\bSET\s+(?:[^;]*?,\s*)?file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
+      .concat([...sql.matchAll(/VALUES\s*\(\s*'rabbit-files'[^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+
   it('🚨 mirrors the LAST migration that sets rabbit-files file_size_limit', () => {
     const dir = join(REPO, 'supabase', 'migrations')
     const hits = readdirSync(dir)
       .filter(f => f.endsWith('.sql'))
       .sort()
-      .map(f => ({ file: f, sql: executable(readFileSync(join(dir, f), 'utf-8')) }))
-      .filter(({ sql }) => /rabbit-files/.test(sql) && /file_size_limit/.test(sql))
+      .map(f => ({ file: f, sql: executableSql(readFileSync(join(dir, f), 'utf-8')) }))
+      .filter(({ sql }) => /rabbit-files/.test(sql) && capAssignments(sql).length > 0)
 
     expect(hits.length).toBeGreaterThan(0)
 
     const last = hits[hits.length - 1]
     // The assigned value, not merely a number appearing somewhere in the file.
-    const assigned = [...last.sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
-      .concat([...last.sql.matchAll(/VALUES\s*\([^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+    const assigned = capAssignments(last.sql)
     expect(assigned.length).toBeGreaterThan(0)
     expect(assigned).toContain(String(PETAL_MAX_UPLOAD_BYTES))
+  })
+
+  // The repair proven by its own breaker: a migration that only READS the cap in
+  // a post-condition (0058, 0073) must not be the one this pin measures.
+  it('a migration that merely reads the cap is not a candidate', () => {
+    const dir = join(REPO, 'supabase', 'migrations')
+    const readOnly = executableSql(readFileSync(join(dir, '0073_upload_reservations.sql'), 'utf-8'))
+    expect(/file_size_limit/.test(readOnly)).toBe(true)
+    expect(capAssignments(readOnly)).toEqual([])
+    // ...nor is one whose post-condition COMPARES another bucket's cap (0053's
+    // `AND file_size_limit = 262144`) — the round-2 breaker: the bare
+    // `file_size_limit = N` arm admitted it.
+    const compares = executableSql(readFileSync(join(dir, '0053_thumbnails_bucket.sql'), 'utf-8'))
+    expect(/file_size_limit\s*=\s*\d+/.test(compares)).toBe(true)
+    expect(capAssignments(compares)).toEqual([])
+    // ...and the migration that DOES assign it yields exactly its assignment,
+    // never its own post-condition reads.
+    const assigns = executableSql(readFileSync(join(dir, '0057_cloud_multi_gb.sql'), 'utf-8'))
+    expect(capAssignments(assigns)).toEqual(['53687091200'])
   })
 
   // ...and the constant is the 50 GiB Audrey chose, stated once so a typo in the
@@ -1100,7 +1144,13 @@ describe('wiring: generation and playback reach the screen', () => {
     // finding S39's review made about FileManager's signing effect.
     const player = executable(read('components', 'VideoPreview.jsx'))
     expect(player).toMatch(/const signFileUrl = ctx\?\.fileUrl/)
-    expect(player).toMatch(/\}, \[managed, projectId, file, signFileUrl\]\)/)
+    // Narrowed by post-overhaul S4a's review round 1 (R1-UI-04): not the row
+    // object either, which the Files explorer rebuilds on every change — the
+    // body's id and path, with the row read from a ref. FilePreview.test.jsx
+    // proves it in behaviour (a rebuilt row does not re-mint).
+    expect(player).toMatch(/\}, \[managed, projectId, fileId, filePath, signFileUrl\]\)/)
+    expect(player).toMatch(/const fileId = file\?\.id/)
+    expect(player).toMatch(/const filePath = file\?\.storage_path/)
   })
 
   it('🚨 the player is KEYED on the file — a useRef budget must not carry over', () => {
@@ -1305,9 +1355,12 @@ describe('review fixes — S40', () => {
     // ⚠️ The window runs from `managed` to the effect body, because the guard
     // that was wrong sat BETWEEN them. A comment cannot be a slice marker here
     // — executable() has already stripped them.
+    // B3 (Track B): the call is `localFetch` now — `fetch` plus the per-launch
+    // loopback token, which the desktop server requires on every /api route.
+    // The pattern still ends in `fetch(` so it keeps catching a plain one.
     const eff = sliceBetween(manager, 'const managed = ctx?.supportsManagedFiles', 'const parentType =')
     expect(eff).toBeTruthy()
-    expect(eff).toMatch(/fetch\('\/api\/rabbit\/video-support'\)/)
+    expect(eff).toMatch(/localFetch\('\/api\/rabbit\/video-support'\)/)
     expect(eff).not.toMatch(/if \(!managed\) return/)
   })
 
@@ -1321,8 +1374,19 @@ describe('review fixes — S40', () => {
     // Dragging the native <video> scrub bar and releasing outside the panel
     // dispatches the click on the backdrop, so a plain onClick={onClose} shut
     // the player every time someone scrubbed past the edge.
-    expect(player).toMatch(/onMouseDown=\{\(e\) => \{ backdropPress\.current = e\.target === e\.currentTarget \}\}/)
-    expect(player).toMatch(/e\.target === e\.currentTarget && backdropPress\.current/)
+    //
+    // ⚠️ RE-POINTED BY B4c (2026-09-25), the claim unchanged. The player is
+    // the kit Dialog now, and the hand-rolled `backdropPress` ref is gone
+    // with the hand-rolled backdrop: the kit's backdrop (src/ui/Dialog.jsx)
+    // closes only on a press whose target IS the backdrop — a drag that began
+    // on the scrub bar starts inside the surface, so it never closes — and
+    // only for a caller that passes `dismissOnBackdrop`. So the pin is that
+    // prop, plus the kit's own rule it relies on. Proved mounted in
+    // views/rabbitVideoRender.test.jsx.
+    expect(player).toMatch(/<Dialog[\s\S]*?\bdismissOnBackdrop\b/)
+    const kit = executable(readRepo('src', 'ui', 'Dialog.jsx'))
+    expect(kit).toMatch(/onMouseDown=\{\(e\) => \{\s*if \(e\.target !== e\.currentTarget\) return/)
+    expect(kit).toMatch(/if \(!dismissOnBackdrop\) return/)
   })
 
   it('🚨 a successful load refills the re-mint budget', () => {

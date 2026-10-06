@@ -28,7 +28,9 @@
 import { test, expect } from '@playwright/test'
 // Session 43: sign-in lives in authFlow.ts so this spec and web-path.spec.ts
 // cannot drift apart again. USERNAME / PASSWORD / WORKSPACE come from there.
-import { USERNAME, PASSWORD, signIn, gotoForgotPassword } from './authFlow'
+import {
+  USERNAME, PASSWORD, WORKSPACE, WORKSPACE_NAME, signIn, gotoForgotPassword, clearCompanyStep,
+} from './authFlow'
 
 const MAILPIT  = process.env.MAILPIT_URL         ?? 'http://localhost:54324'
 const SKIP_EMAIL = process.env.PLAYWRIGHT_SKIP_EMAIL === '1'
@@ -99,6 +101,11 @@ test('admin invite flow ends in the invitee setting their password', async ({ pa
   await page.getByRole('button', { name: /team members/i }).filter({ has: page.getByRole('img') }).click()
   await page.getByRole('button', { name: /invite user/i }).click()
 
+  // ⚠️ Hazard (d) in src/cloud/auth/authSelectors.test.js: every page stays
+  // mounted behind display:none and Settings' profile inputs (D1) carry the same
+  // labels, so these two are no longer unique in the signed-in app. The fix is a
+  // locator scoped to the invite dialog, which needs that guard to model the
+  // 'dialog' role first (auth lane; plan §5 V1). Left as it was until then.
   await page.getByLabel('Email').fill(inviteeEmail)
   await page.getByLabel('Username').fill(inviteeUsername)
   await page.getByRole('button', { name: /send invite/i }).click()
@@ -167,4 +174,83 @@ test('forgot-password delivers a working reset link', async ({ page }) => {
   await page.getByLabel('Confirm new password').fill(PASSWORD)
   await page.getByRole('button', { name: /set password/i }).click()
   await expect(page.getByText(/password updated/i)).toBeVisible({ timeout: 10_000 })
+})
+
+// ── Scenario 4 (Track B, B1): username enumeration stays closed ───────────
+// RELEASE_TESTING §B `[BLOCKING]`: a wrong password and a username that does
+// not exist must fail with the SAME words. Different wording is a
+// username-enumeration leak, and the generic string in LoginScreen.jsx must
+// never grow a branch that says which of the three inputs was wrong. Timing
+// is measured separately (two timed requests, in the B1 commit); this pins
+// the wording, which is the half a browser can see.
+const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'
+
+test('a wrong password and an unknown username fail with identical wording', async ({ page }) => {
+  await page.goto('/')
+  await clearCompanyStep(page)
+
+  // Real username, wrong password.
+  await page.getByLabel('Username').fill(USERNAME)
+  await page.getByLabel('Password').fill(`not-the-password-${Date.now()}`)
+  await page.getByRole('button', { name: /sign in/i }).click()
+  await expect(page.getByText(GENERIC_ERROR)).toBeVisible({ timeout: 15_000 })
+
+  // Same company, a username nobody has. Submitting clears the error first
+  // (LoginScreen does setError('') before the request), so waiting for it to
+  // vanish proves the second assertion sees a NEW failure, not the old text.
+  await page.getByLabel('Username').fill(`nobody_${Date.now()}`)
+  await page.getByLabel('Password').fill('irrelevant-password-1')
+  await page.getByRole('button', { name: /sign in/i }).click()
+  await expect(page.getByText(GENERIC_ERROR)).toBeHidden({ timeout: 5_000 })
+  await expect(page.getByText(GENERIC_ERROR)).toBeVisible({ timeout: 15_000 })
+
+  // Still on step 2 — neither failure sent the person anywhere.
+  await expect(page.getByLabel('Password')).toBeVisible()
+})
+
+// ── Scenario 5 (B1): the company gate refuses an unknown company ──────────
+// One wording, `COMPANY NOT FOUND.`, for a company that does not exist AND
+// for one that is suspended (soft-deleted) — the server folds both into
+// `exists:false`. CI can only exercise the first; the suspended case is in
+// walkthrough 10_sign_in.md for Audrey's staging pass.
+test('an unknown company is refused at step 1 and never reaches credentials', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
+  await page.getByLabel('Company').fill(`no-such-company-${Date.now()}`)
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Username')).toHaveCount(0)
+
+  // B1 review rounds R1 + R2: a star is not a search. PostgREST reads `*` in
+  // an ilike pattern as `%`, and before the fix `smo*` resolved the smoke
+  // workspace and handed back its slug. The resolver now folds `*` to a
+  // one-character `_` and re-checks the returned names for equality — and
+  // ONLY the re-check stops this input: the display name minus its last
+  // character plus `*` (`Smoke Workspac*`) still matches the row at the
+  // database (`Smoke Workspac_`), so this line goes red the moment the
+  // re-check is removed. A three-letter prefix would not (R2). Same wording
+  // as any other unknown company. Submitting clears the error first, so
+  // waiting for it to vanish proves the second assertion sees a new refusal.
+  await page.getByLabel('Company').fill(`${WORKSPACE_NAME.slice(0, -1)}*`)
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await expect(page.getByText('COMPANY NOT FOUND.')).toBeHidden({ timeout: 5_000 })
+  await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Username')).toHaveCount(0)
+})
+
+// ── Scenario 6 (B1): the company is remembered per device, and deep-linkable ─
+test('the company is remembered on this device and a deep link pre-fills it', async ({ page }) => {
+  await page.goto('/')
+  await clearCompanyStep(page)
+  // A fresh load of the same browser profile starts with the field filled.
+  await page.reload()
+  await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Company')).toHaveValue(WORKSPACE)
+
+  // A deep link wins over the remembered value, and is only a pre-fill — the
+  // Username field must not appear until step 1 has verified it.
+  await page.goto(`/?company=${encodeURIComponent('Deep Link Co')}`)
+  await expect(page.getByText(/^login$/i)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Company')).toHaveValue('Deep Link Co')
+  await expect(page.getByLabel('Username')).toHaveCount(0)
 })

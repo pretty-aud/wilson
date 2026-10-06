@@ -6,17 +6,37 @@
 // Kept in lockstep with the DB helpers in
 // supabase/migrations/0013_project_members.sql — can_write_project(),
 // can_comment_project() and can_manage_project_roster(), built on
-// project_role_for() / project_is_staffed(). Any change here must ship with
-// the matching SQL change (and vice versa); the table COMMENT on
-// project_members points back at this file.
+// project_role_for() / project_is_staffed() — and, since post-overhaul S3a,
+// with supabase/migrations/0084_shot_lists_and_edits.sql:
+//   project.shotlist.write    ↔ can_edit_shot_lists() (the shot_lists,
+//                               shot_list_items and edits write policies)
+//   project.shotlist.activate ↔ the seat check inside set_active_shot_list(),
+//                               archive_shot_list() and archive_edit():
+//                               current_app_role() = 'admin'
+//                               OR project_role_for() = 'manager'
+//   0086 (2026-09-30) adds a MAKER path to archive_shot_list() and
+//   archive_edit(): the row's maker, while project.shotlist.write still
+//   holds for them, may withdraw it (archive it) while it is untouched, and
+//   restore what they withdrew while it is not Saved. That is a rule about ONE ROW, so it is
+//   deliberately NOT an action here: shotListModel's
+//   shotListWithdrawRefusal / editWithdrawRefusal / withdrawnRestoreRefusal
+//   mirror its row tests with the database's sentences, the provider's
+//   canWithdrawShotList / canWithdrawEdit answer them, and the seat stays
+//   project.shotlist.write (S3b asks both).
+// Any change here must ship with the matching SQL change (and vice versa);
+// the table COMMENT on project_members and the function COMMENT on
+// can_edit_shot_lists point back at this file.
 //
 // Roles (project-level, project_members.project_role):
 //   'manager'  — runs the project; edits everything and manages the roster
-//   'reviewer' — reads + comments only
+//   'reviewer' — reads + comments; since 0084 also writes shot lists and
+//                edits (D8) — the only thing a reviewer writes
 //   'member'   — edits project content
 //
 // Gating model (same order the DB evaluates it):
-//   app admin/manager  → true for every action (workspace-wide bypass)
+//   app admin/manager  → true for every action (workspace-wide bypass) —
+//                        EXCEPT project.shotlist.activate, where an app
+//                        MANAGER does not qualify (D8; see canOnProject)
 //   UNSTAFFED project  → entity + comment writes open to every active
 //                        member. Every pre-Session-6 project is unstaffed,
 //                        so local/legacy flows are unaffected until a
@@ -27,10 +47,12 @@
 //                        app admin/manager.
 //
 // Consumers call canOnProject(ctx, action) with
-//   ctx = { appRole, projectRole, isStaffed }
-// (appRole from usePermissions().role; projectRole/isStaffed from the
-// RABBIT provider's project bundle). Like roleMatrix.can(), these checks
-// are presentation-only — RLS is the real gate.
+//   ctx = { appRole, projectRole, isStaffed, ready, noRoles }
+// (appRole/ready from usePermissions(); projectRole/isStaffed from the
+// RABBIT provider's project bundle; noRoles true on the Local Server, which
+// has no roles at all). useProjectAccess() assembles it in one place. Like
+// roleMatrix.can(), these checks are presentation-only — RLS is the real
+// gate.
 //
 // Adding a new action: add a key to PROJECT_ACTIONS below (keep it
 // alphabetised), handle it in canOnProject(), and mirror it in the
@@ -48,6 +70,8 @@ export const PROJECT_ACTIONS = Object.freeze([
   'project.entity.write',
   'project.roster.manage',
   'project.settings.open',
+  'project.shotlist.activate',
+  'project.shotlist.write',
 ])
 
 /**
@@ -57,7 +81,8 @@ export const PROJECT_ACTIONS = Object.freeze([
  * would be wrong if it went through canOnProject():
  *
  *  1. **A workspace `manager` does NOT qualify.** canOnProject bypasses every
- *     gate for `appRole` admin OR manager (`:95`). Audrey's rule is admin OR
+ *     gate for `appRole` admin OR manager (all but project.shotlist.activate,
+ *     which shares this seat rule but fails OPEN). Audrey's rule is admin OR
  *     *project* manager — on staging `derek` is a workspace manager holding
  *     only a project `member` seat, and he must not see money.
  *  2. **There is no unstaffed-project opening.** canOnProject returns true for
@@ -87,6 +112,26 @@ export function canSeeProjectMoney(ctx) {
   const { appRole, projectRole } = ctx || {}
   if (appRole === 'admin') return true
   return projectRole === 'manager'
+}
+
+/**
+ * Post-overhaul S5c, step 7 — whether THIS SCREEN shows money: the Budget
+ * tab (Rabbit.jsx) and the Control Panel's budget variables
+ * (ProjectSummaryView.jsx), one predicate for the two.
+ *
+ * Audrey, F4 (2026-10-05): "open it. im just using this for testing. its only
+ * me on this pc". The desktop's signed-out Local Server has no roles at all —
+ * no session, no seats — so canSeeProjectMoney, which fails closed with no
+ * roles, hid the Budget from the only person who uses that machine. There
+ * every gate is open (the Files tab's `noRoles` already reads it so: Add as
+ * Legal shows there since S4b). Everywhere else — the cloud, the dev fixtures
+ * — the role gate is exactly canSeeProjectMoney. The DATABASE's gates are
+ * untouched: the Local Server has none, the cloud keeps 0037's.
+ * `adapterMode` is the provider's backend kind (`ctx.adapterMode`).
+ */
+export function canSeeMoneyHere({ adapterMode, appRole, projectRole } = {}) {
+  if (adapterMode === 'local_server') return true
+  return canSeeProjectMoney({ appRole, projectRole })
 }
 
 /**
@@ -220,9 +265,13 @@ export function projectActionDeniedReason(ctx, action) {
 
   switch (action) {
     // Denied only when staffed AND (reviewer | no seat).
+    // The reviewer sentence names what a reviewer CAN write since 0084 (D8:
+    // shot lists and edits, project.shotlist.write) — "cannot change
+    // anything" became false the day reviewers could build a list, and a
+    // reason that drifts from the rule teaches the user something false.
     case 'project.entity.write':
       return seated
-        ? 'Reviewers can read and comment, but not change anything. Ask a project manager for a member or manager seat.'
+        ? 'Reviewers can read, comment and build shot lists and edits, but cannot change scenes, shots, tasks, budgets or the project\'s other items. Ask a project manager for a member or manager seat.'
         : 'You have no seat on this project. Only its managers and members can add or change items — ask a project manager to add you.'
 
     // Denied only when staffed AND no seat (any seat may comment).
@@ -240,6 +289,18 @@ export function projectActionDeniedReason(ctx, action) {
         ? 'The project control panel is open to project managers and reviewers. Your seat here is member.'
         : 'You have no seat on this project. Only its managers and reviewers can open the control panel.'
 
+    // 0084 / D8 — denied only when staffed AND no seat (every seat, reviewer
+    // included, writes lists and edits). One sentence serves both shapes
+    // because an unrecognised seat is the only other way here.
+    case 'project.shotlist.write':
+      return 'Only this project\'s managers, members and reviewers can change its shot lists and edits.'
+
+    // 0084 / D8 — denied to everyone but a workspace ADMIN or the project
+    // MANAGER; a workspace manager is told the same, because the rule names
+    // the two seats that work and theirs is not one of them.
+    case 'project.shotlist.activate':
+      return 'Only a project manager or a workspace admin can make a shot list active or archive one.'
+
     default:
       // Unknown action — canOnProject already warned in dev and returned false.
       return 'You do not have permission to do that on this project.'
@@ -253,7 +314,9 @@ export function projectActionDeniedReason(ctx, action) {
  *
  * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
  *           projectRole: 'manager'|'reviewer'|'member'|null|undefined,
- *           isStaffed: boolean|null|undefined }} ctx
+ *           isStaffed: boolean|null|undefined,
+ *           ready: boolean|undefined,
+ *           noRoles: boolean|undefined }} ctx
  * @param {string} action
  * @returns {boolean}
  */
@@ -264,7 +327,7 @@ export function canOnProject(ctx, action) {
     }
     return false
   }
-  const { appRole, projectRole, isStaffed, ready = true } = ctx || {}
+  const { appRole, projectRole, isStaffed, ready = true, noRoles = false } = ctx || {}
 
   // Session 23: "still loading" must never masquerade as "denied".
   //
@@ -288,7 +351,32 @@ export function canOnProject(ctx, action) {
   // Callers that do NOT pass `ready` are unaffected: it defaults to true.
   if (ready === false) return true
 
-  // current_app_role() IN ('admin', 'manager') — bypasses every gate.
+  // ── Post-overhaul S3a (0084): shot lists and edits ──
+  //
+  // The Local Server has no roles (D8: "there both are labels"). Its
+  // rabbitShotLists routes check no seat, so greying these controls there
+  // would refuse something nothing below refuses — the S35 folder-control
+  // regression in a new place. Scoped to the two shot-list actions ON
+  // PURPOSE: the four older actions already resolve on the Local Server
+  // through the unstaffed opening, and roster management is cloud-only, so
+  // widening noRoles to them would change behaviour nobody asked to change.
+  const isShotListAction = action === 'project.shotlist.activate' || action === 'project.shotlist.write'
+  if (noRoles === true && isShotListAction) return true
+
+  // 🚨 project.shotlist.activate MUST be decided BEFORE the admin/manager
+  // short-circuit below. D8 (Audrey, 2026-09-29): set active and archive are
+  // for a workspace ADMIN or the PROJECT manager; a workspace-level MANAGER
+  // does not qualify. The three 0084 RPCs check exactly
+  //   COALESCE(current_app_role() = 'admin' OR project_role_for() = 'manager', false)
+  // — no app-manager leg and no unstaffed opening (the can_access_project_money
+  // shape, 0037). Placed after the short-circuit, an app manager would be
+  // shown a control every RPC refuses with 42501. The suite pins the
+  // ('manager', no seat) row so that ordering mistake fails loudly.
+  if (action === 'project.shotlist.activate') {
+    return appRole === 'admin' || projectRole === 'manager'
+  }
+
+  // current_app_role() IN ('admin', 'manager') — bypasses every gate below.
   if (appRole === 'admin' || appRole === 'manager') return true
   switch (action) {
     // can_write_project(): unstaffed is open; staffed needs manager/member.
@@ -329,6 +417,16 @@ export function canOnProject(ctx, action) {
     // money. That separation is the whole design: an open shell, a closed safe.
     case 'project.settings.open':
       return !isStaffed || projectRole === 'manager' || projectRole === 'reviewer'
+
+    // can_edit_shot_lists() (0084): can_write_project plus the REVIEWER seat.
+    // D8: "Managers, members AND reviewers may create and edit shot lists and
+    // edits." 🚨 Never reuse this for scenes, shots, tasks or budgets — a
+    // reviewer may put an existing shot in a list but may not change the shot
+    // itself (its columns are shared by every list, D3); those stay on
+    // project.entity.write. The unstaffed opening matches the SQL's
+    // NOT project_is_staffed() leg.
+    case 'project.shotlist.write':
+      return !isStaffed || projectRole === 'manager' || projectRole === 'member' || projectRole === 'reviewer'
     default:
       return false
   }

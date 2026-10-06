@@ -2,16 +2,23 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Editor from '@monaco-editor/react';
+/* Monaco takes its size as a NUMBER, and `TYPE.body` IS a number: `tokens.js`
+   builds TYPE with `Number(THEME['text-body'].replace('px',''))`, so this is
+   the scale reaching a third-party API that cannot take a CSS string. T1
+   first allowlisted the hard-coded 14 on the grounds that "a token string
+   would break the editor" — true of a string, and beside the point, because
+   there was a numeric token the whole time. A reviewer found it. */
+import { TYPE } from '../../ui/tokens.js';
+import { Menu, Tabs, Panel, Button, IconButton, EmptyState, Card, SectionTitle, Badge, Banner, Select, Chip, Table, Row, Th, Td, Kbd, Loading, Dialog, Drawer, Toolbar, Switch, Spinner, StatusBadge } from '../../ui';
 import {
   X, Settings, ChevronDown, ChevronRight,
   Plus, Trash2, Download, Upload, Search, BookOpen, GraduationCap,
   Keyboard, Loader2, Check, AlertCircle,
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
-  Lock, Unlock, Library, Braces, FolderOpen, Share2,
-  Link, ExternalLink, ShieldCheck, GitPullRequestArrow
+  Lock, Unlock, Library, Braces, FolderOpen, Share2, Info,
+  Link, ExternalLink, ShieldCheck, GitPullRequestArrow, Minus
 } from 'lucide-react';
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
@@ -21,7 +28,7 @@ import {
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
-import { otterFetch, otterCloudActive } from './adapters';
+import { otterFetch, otterCloudActive, getOtterAdapterMode, setOtterAdapterMode, subscribeOtterAdapterMode } from './adapters';
 import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
 import { pushSettingsToCloud } from '../../lib/userState';
@@ -46,6 +53,7 @@ import ChangeRequestDialog from './components/ChangeRequestDialog.jsx';
 // for managers (0026), and every proposer's own requests + feedback.
 import RequestsView from './components/RequestsView.jsx';
 import TrashPanel, { TrashSidebarList } from './components/TrashPanel.jsx';
+import './otter.css';
 import {
   VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge,
 } from './components/CourseBadges.jsx';
@@ -53,9 +61,34 @@ import {
   courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
   VISIBILITY_META, filtersFor,
 } from './components/otterSharing.js';
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../lib/localServerFetch.js';
+
+// ═══════════════════════════════════════════════════════════════════
+//  THE CODE LOOK — the lesson's code block, the quiz's wells and the
+//  function library's — lives in otterLanguage.js since post-overhaul S2b,
+//  so the one theme (LESSON_CODE_THEME, A3's oneDark with its comments
+//  re-inked) is shared by every code block in the tool, with A3's notes on
+//  why each setting is what it is.
+// ═══════════════════════════════════════════════════════════════════
+import { LESSON_CODE_BLOCK, LESSON_CODE_THEME, LESSON_CODE_TEXT, courseLanguage } from './otterLanguage.js';
+import FunctionCard, { cardText } from './FunctionCard.jsx';
+import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
+//
+//  🚨 Q9 (plan §2, in force): these fifteen colours are ASSUMED to mirror the
+//  host application's own socket colours (Blender's, Unreal's), which makes
+//  them load-bearing DATA rather than decoration — "kept and documented as
+//  an exempt ramp". They are the one set of cool hues on O.T.T.E.R.'s
+//  surface and the only hexes it writes; the visual language's warm-only
+//  rule does not reach them. If Audrey rules the other way (Q9's
+//  alternative: eight from one hue rotation plus "other"), this map is the
+//  one place that changes. The badge itself is the kit's (A3): the Label
+//  step, one hairline and one fill — the socket colour reaches it through
+//  --node-color, as a bin's colour reaches the kit Chip.
 // ═══════════════════════════════════════════════════════════════════
 const NODE_TYPE_COLORS = {
   'Float': '#60a5fa', 'Integer': '#818cf8', 'Vector': '#c084fc',
@@ -66,34 +99,28 @@ const NODE_TYPE_COLORS = {
 };
 
 function NodeTypeBadge({ type }) {
-  const color = NODE_TYPE_COLORS[type] || '#a8a29e';
+  const color = NODE_TYPE_COLORS[type] || NODE_TYPE_COLORS.Any;
   return (
-    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide shrink-0"
-      style={{ background: `${color}20`, color, border: `1px solid ${color}40` }}>
-      {type || 'Any'}
-    </span>
+    <Badge className="otter-node-type" style={{ '--node-color': color }}>
+      <span className="otter-badge-label">{type || 'Any'}</span>
+    </Badge>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
 // ═══════════════════════════════════════════════════════════════════
-export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
+export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // ── Navigation state ──
   const [currentView, setCurrentView] = useState('library');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('prompts');
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [helpPage, setHelpPage] = useState('otter-overview');
-
-  // Open settings when triggered from WILSON nav strip
-  const prevSettingsTrigger = useRef(openSettingsTrigger);
-  useEffect(() => {
-    if (openSettingsTrigger !== prevSettingsTrigger.current) {
-      prevSettingsTrigger.current = openSettingsTrigger;
-      setSettingsOpen(true);
-    }
-  }, [openSettingsTrigger]);
+  // Settings and Help open from the two buttons at the right end of the
+  // tool's strip. The WILSON nav strip's "Tool settings" item, and the
+  // counter it bumped to open the drawer from here, are gone (post-overhaul
+  // S2a, Audrey's C6).
 
   // ── Data state ──
   const [settings, setSettings] = useState(null);
@@ -167,16 +194,20 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showDeleteSubjectConfirm, setShowDeleteSubjectConfirm] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);   // A4: a confirm's busy lock (runConfirm)
   const [showDuplicateModal, setShowDuplicateModal] = useState(null);
   const [importDragOver, setImportDragOver] = useState(false);
+  const importFileRef = useRef(null);
 
   // ── Undo/Redo for subject deletions ──
   const [deletedSubjectsStack, setDeletedSubjectsStack] = useState([]);
   const [redoSubjectsStack, setRedoSubjectsStack] = useState([]);
 
-  // ── Edit menu ──
+  // ── Edit menu ── (the kit Menu since A3: it owns outside-click and Escape)
   const [editMenuOpen, setEditMenuOpen] = useState(false);
-  const editMenuRef = useRef(null);
+  const [editMenuPos, setEditMenuPos] = useState({ x: 0, y: 0 });
+  const editPressWhileOpenRef = useRef(false);
+  const editButtonRef = useRef(null);   // A4: focus returns here from a dialog the Edit menu opened
 
   // ── Software name autocomplete ──
   const [showSoftwareDropdown, setShowSoftwareDropdown] = useState(false);
@@ -195,6 +226,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── Search modal ──
   const [showSearchModal, setShowSearchModal] = useState(false);
+  // A kit Menu floats over every dialog (its layer is 80) and Search is not a
+  // kit Dialog yet, so Space with the Edit menu open would leave the menu over
+  // the search dialog. Before A3 the dropdown sat under the search backdrop and
+  // closed on the first click there; closing it as Search opens keeps that
+  // outcome. (A3 review round 1.)
+  useEffect(() => { if (showSearchModal) setEditMenuOpen(false); }, [showSearchModal]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSearchResult, setSelectedSearchResult] = useState(null);
@@ -244,12 +281,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // Cloud vs local. Read from the ADAPTER, not from usePermissions alone: the
   // Settings mode override can pin local while a session exists, and the
   // sharing controls must appear exactly when the backend behind them works.
+  // ── A4: which library am I looking at? (Audrey's decision 3) ──────────────
+  // The pin lives in a module variable inside the adapters, not in React state,
+  // because `otterFetch` has to route on it SYNCHRONOUSLY at ~90 call sites.
+  // Mirror it into state so this component can re-render when it moves.
+  const [libraryMode, setLibraryMode] = useState(() => getOtterAdapterMode());
+  useEffect(() => subscribeOtterAdapterMode(setLibraryMode), []);
+
+  // Desktop only. The six on-disk courses exist only where there is an in-app
+  // Express server to serve them; on the web there is no local library, so
+  // there is nothing to switch between and the control is not rendered.
+  const hasLocalLibrary = typeof window !== 'undefined' && !!window.electronAPI;
+
   const [cloudMode, setCloudMode] = useState(false);
   useEffect(() => {
     let alive = true;
     otterCloudActive().then(v => { if (alive) setCloudMode(v); }).catch(() => {});
     return () => { alive = false; };
-  }, [perms.ready, perms.workspaceId]);
+  }, [perms.ready, perms.workspaceId, libraryMode]);
 
   // ── Library filter chips (courses; subjects inherit — see CourseFilterChips) ──
   const [courseFilter, setCourseFilter] = useState('all');
@@ -452,10 +501,56 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
   }, []);
 
+  // 🚨 A4: WHICH LIBRARY DID THIS LOAD START AGAINST?
+  // loadSoftwareList is fire-and-forget and fans out seven more requests per
+  // course. Flip the Library switch while one is in flight and the OLD load's
+  // setSoftwareList can land AFTER the new one, putting the other library's
+  // courses on screen, and its detail fetches repopulate softwareCacheRef AFTER
+  // invalidateCache() has run. Bumped by the mode effect below; a load whose
+  // generation is stale installs nothing.
+  //
+  // ⚠️ SCOPE, STATED HONESTLY: this guards THIS FUNCTION ONLY. `selectSoftware`
+  // and `selectSubject` run their own fan-outs and write the same two refs
+  // unguarded, so a course opened just before a flip can still land its detail
+  // fetches afterwards. What closes the reachable path is the return value
+  // below: the four callers that `await` this and then call selectSoftware()
+  // now stop when the load was discarded, so nothing re-selects a slug from the
+  // library you just left. The residual is a same-generation overlap between
+  // two ordinary callers, which is last-writer-wins and predates all of this.
+  //
+  // 🚨 IT RETURNS WHETHER IT INSTALLED. Four callers `await` it and then call
+  // selectSoftware(slug, true) on a slug from the library they were in. Without
+  // a return value a discarded load is indistinguishable from a successful one,
+  // so the switch would leave the NEW library's list on screen with the OLD
+  // library's course selected into it — which looks plausible, and is therefore
+  // less likely to be reported than the wholly wrong screen it replaced.
+  const listGenerationRef = useRef(0);
+
   const loadSoftwareList = useCallback(async () => {
+    const generation = listGenerationRef.current;
+    const current = () => listGenerationRef.current === generation;
     try {
       const res = await otterFetch('/api/software');
-      const data = await res.json();
+      const raw = await res.json();
+      // A denied or failed request answers with an error OBJECT, not a list,
+      // and every consumer below calls .find / .filter / .map on this state:
+      // an un-guarded set threw `softwareList.find is not a function` and
+      // unmounted the whole app (measured in dev tester mode, where every
+      // RLS-gated call is a 401). SettingsPage already guards the same
+      // response this way. And the refusal answers FALSE, as the track's
+      // version did (there the error object threw inside `for…of` and fell
+      // into the catch): the four callers that gate on this result — fork,
+      // generate, the open-course handler and the nomination jump — stop,
+      // instead of selecting a course and announcing success over an empty
+      // library (merge review round 2, A-R2-07). The guard and the discard
+      // are both kept: the list is emptied so no consumer crashes, and the
+      // caller is told the load did not happen.
+      if (!Array.isArray(raw)) {
+        if (current()) setSoftwareList([]);
+        return false;
+      }
+      const data = raw;
+      if (!current()) return false;
       setSoftwareList(data);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
@@ -468,20 +563,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             otterFetch(`/api/software/${sw.slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
             otterFetch(`/api/software/${sw.slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
           ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
+            if (!current()) return;
             softwareCacheRef.current[sw.slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
             for (const sub of subjects) {
               const cacheKey = `${sw.slug}/${sub.slug}`;
               if (!subjectCacheRef.current[cacheKey]) {
                 otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`)
                   .then(r => r.json())
-                  .then(fullSub => { subjectCacheRef.current[cacheKey] = fullSub; })
+                  .then(fullSub => { if (current()) subjectCacheRef.current[cacheKey] = fullSub; })
                   .catch(() => {});
               }
             }
           }).catch(() => {});
         }
       }
+      return true;
     } catch { /* ignore */ }
+    return false;
   }, []);
 
   const selectSoftware = useCallback((slug, forceReload = false) => {
@@ -553,6 +651,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return () => window.removeEventListener('wilson:open-otter-course', onOpenCourse)
   }, [loadSoftwareList, selectSoftware])
 
+  // ── A4: switching library throws away everything keyed by course slug ─────
+  //
+  // 🚨 THE TWO LIBRARIES DO NOT SHARE A SLUG SPACE. On disk a course's slug is
+  // `slugify(name)`; in cloud it is the course UUID (`supabaseOtterAdapter`
+  // maps `slug: row.id`). So every entry in softwareCacheRef/subjectCacheRef is
+  // meaningless after a switch, and the course currently open almost certainly
+  // does not exist on the other side — leaving it selected would render the
+  // previous library's content under the new library's name, which is exactly
+  // the "looks correct, silently wrong" shape this area keeps producing.
+  //
+  // Keyed on the mode rather than done inside the Settings handler so that any
+  // future caller of setOtterAdapterMode gets the reset too.
+  const lastLibraryModeRef = useRef(libraryMode);
+  useEffect(() => {
+    if (lastLibraryModeRef.current === libraryMode) return;
+    lastLibraryModeRef.current = libraryMode;
+    // Bump FIRST: a load already in flight against the old library must not
+    // install its result or repopulate the caches we are about to clear.
+    listGenerationRef.current += 1;
+    invalidateCache();
+    setActiveSubjectSlug(null);
+    setActiveSoftware(null);
+    setActiveSoftwareSlug(null);
+    setCurrentView('library');
+    setCourseFilter('all');        // 'trash' is cloud-only; see the effect above
+    // 🚨 AND RE-LIST, EXPLICITLY. An earlier version of this effect only cleared
+    // activeSoftwareSlug and claimed in a comment that an effect below would
+    // re-list on that change. THERE IS NO SUCH EFFECT — every loadSoftwareList()
+    // call in this file sits inside a handler (handleCourseChanged, deleteSoftware,
+    // fork, generate) or the mount effect. Without this line the switch cleared the
+    // open course and then left the OTHER library's courses on screen, which is the
+    // whole feature appearing not to work.
+    loadSoftwareList();
+  }, [libraryMode, invalidateCache, loadSoftwareList]);
+
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveSubjectSlug(subjectSlug);
     const cacheKey = `${softwareSlug}/${subjectSlug}`;
@@ -609,6 +742,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const visibleCourses = useMemo(
     () => softwareList.filter(sw => courseMatchesFilter(sw, courseFilter)),
     [softwareList, courseFilter],
+  );
+
+  // The course a fork was copied FROM, resolved out of the same index the forks
+  // themselves come from. Both the "Suggest a change…" gate and the change-request
+  // dialog's title need it, so it is one lookup rather than two that can drift.
+  //
+  // ABSENCE MEANS "NOT A STANDARD I CAN PROPOSE AGAINST", and that is sound:
+  // otter_course_index() returns every company_standard course to every member
+  // (0022 — `OR c.visibility IN ('shared','company_standard')`), so a live
+  // standard is always in this list. A source that is missing is therefore
+  // demoted, trashed (the index filters `deleted_at IS NULL`) or in another
+  // workspace — every one of which otter_cr_insert would refuse.
+  //
+  // NO FIRST-PAINT FLICKER. Every CourseRowMenu site renders from softwareList
+  // (the sidebar and library map visibleCourses; the header is guarded by
+  // activeCourseRow, itself a lookup in this list), and loadSoftwareList sets the
+  // whole array in ONE setSoftwareList(data). So a fork and its source arrive
+  // together — there is no paint in which the fork is on screen and its source
+  // has merely not loaded yet.
+  const sourceCourseOf = useCallback(
+    (course) => (course?.source_course_id
+      ? softwareList.find(sw => sw.slug === course.source_course_id) ?? null
+      : null),
+    [softwareList],
   );
 
   const filterCounts = useMemo(() => {
@@ -715,7 +872,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Could not copy this course');
-      await loadSoftwareList();
+      // Only follow up if the list we just loaded is the one on screen; see
+      // loadSoftwareList's header.
+      if (!(await loadSoftwareList())) return;
       selectSoftware(data.slug, true);
       setCourseFilter('all');
       setCurrentView('library');
@@ -759,10 +918,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         // where the local server does.
         if (hasLocalServer()) {
           try {
-            const migRes = await fetch('/api/migration-needed');
+            const migRes = await localFetch('/api/migration-needed');
             const migData = await migRes.json();
             if (migData.needed) {
-              await fetch('/api/migrate', { method: 'POST' });
+              await localFetch('/api/migrate', { method: 'POST' });
             }
           } catch { /* ignore */ }
         }
@@ -955,7 +1114,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       if (!hasLocalServer()) {
         throw new Error('Reference text can only be fetched in the desktop app — the URL is saved without its content.');
       }
-      const res = await fetch('/api/fetch-url', {
+      const res = await localFetch('/api/fetch-url', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: fullUrl })
       });
@@ -1140,7 +1299,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       setSoftwareNameInput('');
       setReferenceUrls([]);
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
     } catch (e) {
@@ -1264,7 +1423,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1392,7 +1551,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions;
         categories = categories.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -1499,7 +1658,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
@@ -1621,7 +1780,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       // Merge functions if present (coding language type)
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -1727,7 +1886,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       try {
         if (swType === 'coding_language') {
           const fnData = softwareFunctions || await otterFetch(`/api/software/${swSlug}/functions`).then(r => r.json());
-          const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
+          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
           const hkData = softwareHotkeys || await otterFetch(`/api/software/${swSlug}/hotkeys`).then(r => r.json());
@@ -1848,7 +2007,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       // Merge functions if present
       if (parsed.functions?.length > 0) {
         let categories = parsed.functions.map(cat => ({
-          category: cat.category || 'General',
+          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
           functions: (cat.functions || []).map(f => ({
             name: f.name || '', syntax: f.syntax || f.name || '',
             parameters: f.parameters || '', returns: f.returns || f.returnType || '',
@@ -2037,7 +2196,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
       return slug;
@@ -2357,17 +2516,6 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showSearchModal, currentPage]);
-
-  // Close edit menu on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (editMenuRef.current && !editMenuRef.current.contains(e.target)) {
-        setEditMenuOpen(false);
-      }
-    };
-    if (editMenuOpen) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [editMenuOpen]);
 
   // ═══════════════════════════════════════════════════════════════
   //  IMPORT / EXPORT
@@ -2721,7 +2869,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Hotkeys',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Keyboard Shortcuts`,
+            lessonTitle: `${sw.name} — Keyboard shortcuts`,
             lessonId: null,
             resultType: 'hotkeys',
             matches: matchCount,
@@ -2732,21 +2880,35 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       // Functions search
-      const funcCategories = (cached.functions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2b review round 2: ONE text per function for the count and the
+      // cards — the count left out parameters and examples, so 838 of 1,975
+      // words taken from her own library found nothing — and a category with
+      // no functions is neither counted nor shown (its heading "found" one
+      // occurrence and drew no card).
+      // S2c (S2b-05): only a category's entries that ARE functions — an
+      // imported library can carry a null or a string in the list, and
+      // `f.name` on a null threw here, every keystroke — each field read as
+      // the card draws it (review round 1: an object read "[object Object]"
+      // here and its JSON on the card and in the Functions view's search).
+      const fnSearchText = (f) => [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].map(cardText).filter(Boolean).join(' ');
+      const funcCategories = (Array.isArray(cached.functions?.categories) ? cached.functions.categories : [])
+        .map(cat => ({ ...cat, functions: functionEntries(cat) })).filter(cat => cat.functions.length > 0);
       if (funcCategories.length > 0) {
+        // S2b (C10): the heading the result shows, never "undefined" — a
+        // nameless category read as the word, so "undefined" matched it.
         const allText = funcCategories.map(cat =>
-          `${cat.category}\n` + cat.functions.map(f => `${f.name || ''} ${f.description || ''} ${f.syntax || ''} ${f.returns || ''}`).join('\n')
+          `${functionCategoryName(cat)}\n` + cat.functions.map(f => fnSearchText(f)).join('\n')
         ).join('\n');
         const lowerAll = allText.toLowerCase();
         let matchCount = 0, idx2 = 0;
         while ((idx2 = lowerAll.indexOf(q, idx2)) !== -1) { matchCount++; idx2 += q.length; }
         if (matchCount > 0) {
-          const matchedFuncCategories = funcCategories.map(cat => ({
+          // S2b review round 1: the heading is in the count above, so a
+          // category found by its heading shows its cards ("general" found
+          // one occurrence in her library and showed none).
+          const matchedFuncCategories = funcCategories.map(cat => functionCategoryName(cat).toLowerCase().includes(q) ? cat : ({
             ...cat,
-            functions: cat.functions.filter(f => {
-              const fText = [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ').toLowerCase();
-              return fText.includes(q);
-            })
+            functions: cat.functions.filter(f => fnSearchText(f).toLowerCase().includes(q))
           })).filter(cat => cat.functions.length > 0);
           results.push({
             softwareName: sw.name,
@@ -2754,7 +2916,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Functions',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Functions Reference`,
+            lessonTitle: `${sw.name} — Functions reference`,
             lessonId: null,
             resultType: 'functions',
             matches: matchCount,
@@ -2801,7 +2963,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             subjectTitle: 'Nodes',
             subjectSlug: null,
             sectionTitle: 'Reference',
-            lessonTitle: `${sw.name} — Node Reference`,
+            lessonTitle: `${sw.name} — Node reference`,
             lessonId: null,
             resultType: 'nodes',
             matches: nodeMatchCount,
@@ -2844,203 +3006,177 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   }, [selectSoftware, selectSubject]);
 
   // ═══════════════════════════════════════════════════════════════
+  //  THE NAV BAR'S VIEWS (A3: the kit's Tabs)
+  // ═══════════════════════════════════════════════════════════════
+  // Which tab is selected — each condition is the one its button used to
+  // carry. Library only with no course open; Hotkeys and Functions share the
+  // hotkeys view and split on the course's type. Anything else (a course, a
+  // lesson, the prompt, Sources) selects no tab, as before.
+  const navView =
+    currentView === 'library' && !activeSoftwareSlug ? 'library'
+      : currentView === 'quiz' ? 'quiz'
+        : currentView === 'hotkeys' ? (activeSoftware?.type === 'coding_language' ? 'functions' : 'hotkeys')
+          : currentView === 'nodes' ? 'nodes'
+            : currentView === 'requests' ? 'requests'
+              : currentView === 'validator' ? 'validator'
+                : null;
+
+  // Each tab does exactly what its button's onClick did.
+  function selectNavView(id) {
+    if (id === 'library') {
+      navigateTo('library', () => {
+        setActiveSoftwareSlug(null);
+        setActiveSoftware(null);
+        setActiveSubjectSlug(null);
+        setActiveSubject(null);
+      });
+    } else if (id === 'quiz') {
+      loadQuizSelectionData(); navigateTo('quiz');
+    } else if (id === 'hotkeys') {
+      if (activeSoftware && activeSoftware.type !== 'coding_language') {
+        navigateTo('hotkeys');
+      } else {
+        const first = softwareList.find(sw => sw.type !== 'coding_language');
+        if (first) selectSoftware(first.slug);
+        navigateTo('hotkeys');
+      }
+    } else if (id === 'nodes') {
+      const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
+      if (nodeCapable.length > 0) {
+        if (!activeSoftware || activeSoftware.type === 'coding_language') {
+          selectSoftware(nodeCapable[0].slug);
+        }
+      }
+      navigateTo('nodes');
+    } else if (id === 'functions') {
+      if (activeSoftware && activeSoftware.type === 'coding_language') {
+        navigateTo('hotkeys');
+      } else {
+        const first = softwareList.find(sw => sw.type === 'coding_language');
+        if (first) selectSoftware(first.slug);
+        navigateTo('hotkeys');
+      }
+    } else if (id === 'requests') {
+      navigateTo('requests');
+    } else if (id === 'validator') {
+      navigateTo('validator');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   //  RENDER — MAIN LAYOUT
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col h-full bg-stone-900">
-      {/* ── NAV BAR ── */}
-      <nav className="bg-stone-800 border-b-2 border-stone-600 flex items-center shrink-0">
-        {/* EDIT dropdown */}
-        <div className="relative" ref={editMenuRef}>
-          <button
-            onClick={() => setEditMenuOpen(prev => !prev)}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              editMenuOpen ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-            }`}
-          >
-            Edit <ChevronDown className="w-3 h-3" />
-          </button>
-          {editMenuOpen && (
-            <div className="absolute left-0 top-full mt-0 bg-stone-700 border-2 border-stone-600 rounded-sm shadow-lg z-50 min-w-[180px]">
-              <button
-                onClick={() => { undoDeleteSubject(); setEditMenuOpen(false); }}
-                disabled={deletedSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
-                  deletedSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
-                }`}
-              >
-                <RotateCcw className="w-3 h-3" /> Undo Delete
-                {deletedSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-xs text-stone-500">({deletedSubjectsStack.length})</span>
-                )}
-              </button>
-              <button
-                onClick={() => { redoDeleteSubject(); setEditMenuOpen(false); }}
-                disabled={redoSubjectsStack.length === 0}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
-                  redoSubjectsStack.length === 0 ? 'text-stone-600 cursor-not-allowed' : 'text-stone-300 hover:bg-stone-600 hover:text-white'
-                }`}
-              >
-                <ArrowRight className="w-3 h-3" /> Redo Delete
-                {redoSubjectsStack.length > 0 && (
-                  <span className="ml-auto text-xs text-stone-500">({redoSubjectsStack.length})</span>
-                )}
-              </button>
-              <div className="border-t border-stone-600 my-1" />
-              <button
-                onClick={() => { setShowImportModal(true); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-300 hover:bg-stone-600 hover:text-white"
-              >
-                <Upload className="w-3 h-3" /> Import Subjects
-              </button>
-              <button
-                onClick={() => { exportAll(); setEditMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-stone-300 hover:bg-stone-600 hover:text-white"
-              >
-                <Download className="w-3 h-3" /> Export All
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Separator */}
-        <div className="w-px h-6 bg-stone-600 mx-1" />
-
-        {/* Search */}
+    <div className="otter-root">
+      {/* ── NAV BAR ──
+          A3: the six views are the kit's Tabs (review O1, O2): one tab
+          treatment, one active state (the 2px signal underline), on the same
+          strip R.A.B.B.I.T.'s ViewTabs draws. Edit (a menu) and Search (a
+          dialog) are not views, so they are not tabs; they wear the tab's
+          class so the strip reads as one language, and keep the underline
+          while their menu or dialog is open, as they always did. */}
+      <nav
+        className="otter-nav"
+        aria-label="O.T.T.E.R."
+        // A tab focused by Tab, the arrow keys or End is scrolled fully into
+        // view when the list is narrower than its tabs (it scrolls past
+        // ~700px of window): focus() alone leaves a half-shown tab half
+        // shown (post-overhaul S2a review round 2, V-R2-01; a kit Tabs
+        // request in the S2a hand-off would make this the kit's).
+        onFocus={(e) => { if (e.target.getAttribute?.('role') === 'tab') e.target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }}
+      >
         <button
-          onClick={() => setShowSearchModal(true)}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            showSearchModal ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-        >
-          <Search className="w-4 h-4" /> Search
-        </button>
-
-        {/* Library */}
-        <button
-          onClick={() => {
-            navigateTo('library', () => {
-              setActiveSoftwareSlug(null);
-              setActiveSoftware(null);
-              setActiveSubjectSlug(null);
-              setActiveSubject(null);
-            });
+          ref={editButtonRef}
+          type="button"
+          className="ui-tab otter-nav-button"
+          aria-expanded={editMenuOpen}
+          data-active={editMenuOpen ? 'true' : undefined}
+          onPointerDown={() => { editPressWhileOpenRef.current = editMenuOpen; }}
+          onKeyDown={() => { editPressWhileOpenRef.current = false; }}
+          onClick={(e) => {
+            // The kit Menu closes on any mousedown outside itself, and the
+            // trigger is outside it: a press that closed the menu must not
+            // reopen it on the click that follows.
+            if (editPressWhileOpenRef.current) { editPressWhileOpenRef.current = false; return; }
+            const r = e.currentTarget.getBoundingClientRect();
+            setEditMenuPos({ x: r.left, y: r.bottom });
+            setEditMenuOpen(prev => !prev);
           }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'library' && !activeSoftwareSlug ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
         >
-          <Library className="w-4 h-4" /> Library
+          Edit <ChevronDown className="otter-nav-icon" aria-hidden="true" />
         </button>
-
-        {/* Quiz */}
-        <button
-          onClick={() => { loadQuizSelectionData(); navigateTo('quiz'); }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'quiz' ? 'text-orange-400 border-orange-500 bg-stone-900' :
-            'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-        >
-          <GraduationCap className="w-4 h-4" /> Quiz
-        </button>
-
-        {/* Hotkeys */}
-        <button
-          onClick={() => {
-            if (activeSoftware && activeSoftware.type !== 'coding_language') {
-              navigateTo('hotkeys');
-            } else {
-              const first = softwareList.find(sw => sw.type !== 'coding_language');
-              if (first) selectSoftware(first.slug);
-              navigateTo('hotkeys');
-            }
-          }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'hotkeys' && activeSoftware?.type !== 'coding_language'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-        >
-          <Keyboard className="w-4 h-4" /> Hotkeys
-        </button>
-
-        {/* Nodes */}
-        <button
-          onClick={() => {
-            const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
-            if (nodeCapable.length > 0) {
-              if (!activeSoftware || activeSoftware.type === 'coding_language') {
-                selectSoftware(nodeCapable[0].slug);
-              }
-            }
-            navigateTo('nodes');
-          }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'nodes'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-        >
-          <Share2 className="w-4 h-4" /> Nodes
-        </button>
-
-        {/* Functions */}
-        <button
-          onClick={() => {
-            if (activeSoftware && activeSoftware.type === 'coding_language') {
-              navigateTo('hotkeys');
-            } else {
-              const first = softwareList.find(sw => sw.type === 'coding_language');
-              if (first) selectSoftware(first.slug);
-              navigateTo('hotkeys');
-            }
-          }}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'hotkeys' && activeSoftware?.type === 'coding_language'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-        >
-          <Braces className="w-4 h-4" /> Functions
-        </button>
-
-        {/* Requests — Session 13 follow-up (Audrey, 2026-07-30). Cloud-only:
-            change requests are meaningless without a workspace (the ops are
-            cloudOnly and would 501 locally). Admins read it as their company-
-            library controls; everyone else as their own requests + feedback. */}
-        {cloudMode && (
-          <button
-            onClick={() => navigateTo('requests')}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              currentView === 'requests'
-                ? 'text-orange-400 border-orange-500 bg-stone-900'
-                : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-            }`}
-            title={appRole === 'admin'
-              ? 'Company library — review and apply suggested changes'
-              : 'Change requests and feedback'}
-          >
-            <GitPullRequestArrow className="w-4 h-4" />
-            {appRole === 'admin' ? 'Admin' : 'Requests'}
-          </button>
+        {editMenuOpen && (
+          <Menu
+            x={editMenuPos.x}
+            y={editMenuPos.y}
+            onClose={() => setEditMenuOpen(false)}
+            items={[
+              {
+                label: 'Undo delete', Icon: RotateCcw, onClick: undoDeleteSubject,
+                disabled: deletedSubjectsStack.length === 0,
+                hint: deletedSubjectsStack.length > 0 ? `(${deletedSubjectsStack.length})` : undefined,
+              },
+              {
+                label: 'Redo delete', Icon: ArrowRight, onClick: redoDeleteSubject,
+                disabled: redoSubjectsStack.length === 0,
+                hint: redoSubjectsStack.length > 0 ? `(${redoSubjectsStack.length})` : undefined,
+              },
+              { divider: true },
+              // The menu item is gone before Import closes, so Import would
+              // hand focus to <body>: it takes it from Edit instead (A4 review).
+              { label: 'Import subjects', Icon: Upload, onClick: () => { editButtonRef.current?.focus({ preventScroll: true }); setShowImportModal(true); } },
+              { label: 'Export all', Icon: Download, onClick: exportAll },
+            ]}
+          />
         )}
-
-        {/* Validate — right-aligned */}
-        <div className="ml-auto" />
+        <span className="ui-tabs-sep" aria-hidden="true" />
         <button
-          onClick={() => navigateTo('validator')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            currentView === 'validator'
-              ? 'text-orange-400 border-orange-500 bg-stone-900'
-              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
-          }`}
-          title="Lesson Validator"
+          type="button"
+          className="ui-tab otter-nav-button"
+          data-active={showSearchModal ? 'true' : undefined}
+          onClick={() => setShowSearchModal(true)}
         >
-          <ShieldCheck className="w-4 h-4" /> Validate
+          <Search className="otter-nav-icon" aria-hidden="true" /> Search
         </button>
-
+        <Tabs
+          items={[
+            { id: 'library', label: <><Library className="otter-nav-icon" aria-hidden="true" />Library</> },
+            { id: 'quiz', label: <><GraduationCap className="otter-nav-icon" aria-hidden="true" />Quiz</> },
+            { id: 'hotkeys', label: <><Keyboard className="otter-nav-icon" aria-hidden="true" />Hotkeys</> },
+            { id: 'nodes', label: <><Share2 className="otter-nav-icon" aria-hidden="true" />Nodes</> },
+            { id: 'functions', label: <><Braces className="otter-nav-icon" aria-hidden="true" />Functions</> },
+            // Requests — Session 13 follow-up (Audrey, 2026-07-30). Cloud-only:
+            // change requests are meaningless without a workspace (the ops are
+            // cloudOnly and would 501 locally). Admins read it as their
+            // company-library controls; everyone else as their own requests.
+            ...(cloudMode ? [{
+              id: 'requests',
+              label: <><GitPullRequestArrow className="otter-nav-icon" aria-hidden="true" />{appRole === 'admin' ? 'Admin' : 'Requests'}</>,
+              title: appRole === 'admin'
+                ? 'Company library — review and apply suggested changes'
+                : 'Change requests and feedback',
+            }] : []),
+            // Validate — right-aligned (otter.css), and always the last tab.
+            { id: 'validator', label: <><ShieldCheck className="otter-nav-icon" aria-hidden="true" />Validate</>, title: 'Lesson Validator' },
+          ]}
+          value={navView}
+          onChange={selectNavView}
+          panelId="otter-view-panel"
+          label="O.T.T.E.R. views"
+          className="otter-nav-tabs"
+        />
+        {/* Help, then Settings at the far right (post-overhaul S2a, Audrey's
+            C1/C7, 2026-09-29: "settings at the right end"): the same pair,
+            order and 28px size as R.A.B.B.I.T.'s `.rb-viewtabs-right`, so the
+            gear sits at one x and one y in all three tools. A SIBLING of the
+            kit Tabs, not an item in it: inside the tablist a button would be
+            a tab and join the arrow keys (the kit Tabs has no actions slot —
+            kit request "Tabs: an actions slot", S2a hand-off). Help opens
+            O.T.T.E.R.'s own Help dialog, as the drawer's footer button does. */}
+        <div className="otter-nav-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={Settings} title="O.T.T.E.R. settings" onClick={() => setSettingsOpen(true)} />
+        </div>
       </nav>
 
       {/* ── BODY — sidebars + content ── */}
@@ -3048,6 +3184,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {renderSoftwareSidebar()}
         {renderLessonSidebar()}
         <main className="flex-1 overflow-hidden relative">
+          {/* The region the nav's tabs switch (kit Tabs: `panelId`). A div, so
+              <main> keeps its landmark role. */}
+          <div id="otter-view-panel" role="tabpanel" className="h-full">
           <div className={currentView === 'library' ? 'h-full' : 'hidden'}>{renderLibrary()}</div>
           <div className={currentView === 'prompt' ? 'h-full' : 'hidden'}>{renderPromptInput()}</div>
           <div className={currentView === 'study' ? 'h-full' : 'hidden'}>{renderStudyView()}</div>
@@ -3071,7 +3210,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   // mount — without this the jump lands on a library that
                   // doesn't show it (same rule as the wilson:open-otter-course
                   // handler above).
-                  await loadSoftwareList();
+                  if (!(await loadSoftwareList())) return;
                   navigateTo('library');
                   selectSoftware(slug, true);
                 }}
@@ -3099,93 +3238,82 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               subjectCacheRef={subjectCacheRef}
             />
           </div>
+          </div>
+          {/* ── GENERATION QUEUE INDICATOR ──
+              A3 (review O15): inside <main>, 24px from its bottom-left corner,
+              so it tracks the sidebars. It was fixed at left 440px — the
+              content edge only while both sidebars were open at their old
+              widths — and hovered 48px up over a bar 8px tall. */}
+          {generatingSubjects.size > 0 && (
+            <div className="otter-queue">
+              <div className="otter-queue-head">
+                <Loader2 className="animate-spin" aria-hidden="true" /> Generating ({generatingSubjects.size})
+              </div>
+              <div className="otter-queue-list">
+                {Array.from(generatingSubjects.entries()).map(([slug, entry]) => (
+                  <div key={slug} className="otter-queue-row">
+                    <div className="otter-queue-text">
+                      <p className="otter-queue-title">{entry.title}</p>
+                      <p className="otter-queue-meta">
+                        {entry.cancelled ? (
+                          <span className="otter-queue-cancelling">Cancelling...</span>
+                        ) : (
+                          <>
+                            <span>{entry.phase}</span>
+                            <span aria-hidden="true">&bull;</span>
+                            <span className="otter-queue-time">{Math.floor((entry.elapsed || 0) / 60)}:{String((entry.elapsed || 0) % 60).padStart(2, '0')}</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    {!entry.cancelled && (
+                      <IconButton size="sm" icon={X} danger title="Cancel generation" onClick={() => cancelGeneration(slug)} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
       </div>
-
-      {/* ── GENERATION QUEUE INDICATOR ── */}
-      {generatingSubjects.size > 0 && (
-        <div className="fixed bottom-12 left-[440px] z-30 w-[280px] bg-stone-800 border-2 border-stone-600 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] overflow-hidden">
-          <div className="bg-stone-700 px-3 py-1.5 flex items-center justify-between">
-            <span className="text-orange-400 text-xs font-bold flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Generating ({generatingSubjects.size})
-            </span>
-          </div>
-          <div className="max-h-[200px] overflow-y-auto">
-            {Array.from(generatingSubjects.entries()).map(([slug, entry]) => (
-              <div key={slug} className="px-3 py-2 border-t border-stone-700 flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-bold truncate">{entry.title}</p>
-                  <p className="text-stone-400 text-[10px] flex items-center gap-1">
-                    {entry.cancelled ? (
-                      <span className="text-red-400">Cancelling...</span>
-                    ) : (
-                      <>
-                        <span>{entry.phase}</span>
-                        <span className="text-stone-600">&bull;</span>
-                        <span className="font-mono">{Math.floor((entry.elapsed || 0) / 60)}:{String((entry.elapsed || 0) % 60).padStart(2, '0')}</span>
-                      </>
-                    )}
-                  </p>
-                </div>
-                {!entry.cancelled && (
-                  <button
-                    onClick={() => cancelGeneration(slug)}
-                    className="p-1 hover:bg-stone-600 rounded-sm text-stone-400 hover:text-red-400 transition-colors shrink-0"
-                    title="Cancel generation"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── SETTINGS PANEL ── */}
       {settingsOpen && renderSettingsPanel()}
 
-      {/* ── HELP MODAL — identical to D.O.G. help modal ── */}
+      {/* ── HELP ──
+          A4: the kit's Dialog (review O27), D.O.G.'s Help rule for rule
+          (A2): the reading width (720; it was 850), its fixed 82vh, the
+          200px contents column, the open page as F2's selected row. Opened
+          over the settings slide-out, its Escape is its own (A2-KR-3). */}
       {showHelpModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setShowHelpModal(false)} />
-          <div className="relative bg-stone-800 border-2 border-stone-600 rounded-sm shadow-2xl flex flex-col" style={{ width: '850px', height: '82vh' }}>
-            <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-orange-400" />
-                <span className="font-bold text-orange-400 uppercase tracking-wide">Help & Documentation</span>
-              </div>
-              <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-stone-600 rounded transition-colors">
-                <X className="w-5 h-5 text-stone-400" />
-              </button>
+        <Dialog
+          title="Help & documentation"
+          onClose={() => setShowHelpModal(false)}
+          dismissOnBackdrop
+          width="reading"
+          className="otter-help"
+        >
+          <nav className="otter-help-side wilson-dark-scroll" aria-label="Help contents">
+            <div className="otter-help-list">
+              {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setHelpPage(item.id)}
+                  className="otter-help-nav"
+                  data-active={helpPage === item.id}
+                  aria-current={helpPage === item.id ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-            <div className="flex-1 flex overflow-hidden">
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto settings-scrollbar py-2 flex flex-col">
-                <div className="flex-1">
-                  {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => setHelpPage(item.id)}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                        helpPage === item.id
-                          ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
-                          : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="px-3 py-2 border-t border-stone-800">
-                  <span className="text-xs text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
-                </div>
-              </nav>
-              <div className="flex-1 overflow-y-auto p-5 settings-scrollbar">
-                <OtterHelpContent helpPage={helpPage} theme="dark" />
-              </div>
-            </div>
+            <div className="otter-help-version">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</div>
+          </nav>
+          <div className="otter-help-content wilson-dark-scroll">
+            <OtterHelpContent helpPage={helpPage} theme="dark" />
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* ── MODALS ── */}
@@ -3217,9 +3345,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {crDialogCourse && (
         <ChangeRequestDialog
           course={crDialogCourse}
-          standardName={
-            softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
-          }
+          standardName={sourceCourseOf(crDialogCourse)?.name ?? null}
+          // RequestsView opens this dialog directly (onOpenDialog below), so
+          // gating the MENU item is not enough on its own — a proposer whose
+          // standard was demoted mid-review can still reach the form from their
+          // queue. The dialog makes its own decision from the same lookup.
+          sourceIsStandard={sourceCourseOf(crDialogCourse)?.visibility === 'company_standard'}
           onClose={() => {
             setCrDialogCourse(null);
             setRequestsRefreshTick(t => t + 1);
@@ -3230,18 +3361,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {/* ── SEARCH MODAL ── */}
       {showSearchModal && renderSearchModal()}
 
-      {/* ── QUIZ LEAVE CONFIRM ── */}
+      {/* ── QUIZ LEAVE CONFIRM ──
+          A4: the kit's Dialog at the confirm width (review O27). Escape is
+          Stay (Q17); there was, and is, no backdrop close. */}
       {showQuizLeaveConfirm && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 max-w-sm w-full mx-4 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)]">
-            <h3 className="text-orange-400 font-bold text-lg mb-2">Leave Quiz?</h3>
-            <p className="text-stone-400 text-sm mb-6">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowQuizLeaveConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm font-bold">Stay</button>
-              <button onClick={confirmLeaveQuiz} className="flex-1 bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-sm font-bold">Leave Quiz</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title="Leave quiz?"
+          width="confirm"
+          onClose={() => setShowQuizLeaveConfirm(null)}
+          footer={(
+            <>
+              <Button onClick={() => setShowQuizLeaveConfirm(null)}>Stay</Button>
+              <Button variant="primary" onClick={confirmLeaveQuiz}>Leave quiz</Button>
+            </>
+          )}
+        >
+          <p className="otter-confirm-text">You have a quiz in progress. Your quiz will be preserved so you can come back to it.</p>
+        </Dialog>
       )}
     </div>
   );
@@ -3252,244 +3388,248 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── SEARCH MODAL ──
   function renderSearchModal() {
+    // A4: the kit's Dialog at the workbench width (review O27; it was 900
+    // wide on its own backdrop with a hard offset shadow). The search field
+    // is still the dialog's header: the Dialog takes it as its title, with
+    // the kit's Close where the old X was, and the dialog is named "Search"
+    // (A4-KR-1). The two panes scroll on their own at a fixed height.
     return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowSearchModal(false)}>
-        <div
-          className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-[8px_8px_0px_0px_rgba(0,0,0,0.3)] w-[900px] max-w-[95vw] h-[600px] max-h-[85vh] flex flex-col"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="px-4 py-3 border-b-2 border-stone-600 shrink-0">
-            <div className="flex items-center gap-3">
-              <Search className="w-5 h-5 text-orange-400 shrink-0" />
-              <input
-                ref={searchInputRef}
-                autoFocus
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
-                onKeyDown={e => {
-                  if (e.key === 'Escape') setShowSearchModal(false);
-                  if (e.key === 'ArrowDown' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
-                  }
-                  if (e.key === 'ArrowUp' && searchResults.length > 0) {
-                    e.preventDefault();
-                    setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
-                  }
-                  if (e.key === 'Enter' && selectedSearchResult !== null) {
-                    const r = searchResults[selectedSearchResult];
-                    if (r) navigateToSearchResult(r);
-                  }
-                }}
-                placeholder="Search lessons, hotkeys, functions, nodes..."
-                className="flex-1 bg-transparent text-white text-lg focus:outline-none placeholder-stone-500"
-              />
-              <span className="text-stone-500 text-xs shrink-0">
-                {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+      <Dialog
+        title={(
+          <div className="otter-search-bar">
+            <Search className="otter-search-bar-icon" aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              autoFocus
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+              onKeyDown={e => {
+                // Escape closes Search here AND is marked handled, so the
+                // Dialog under the same key and any layer under Search (the
+                // settings Drawer, another Dialog) stand down: one press, one
+                // layer. Left to the Dialog alone, the first press was lost
+                // whenever Home's page-wide key handler (P1's) had already
+                // blocked it (A4 review round 2).
+                if (e.key === 'Escape') { e.preventDefault(); setShowSearchModal(false); return; }
+                if (e.key === 'ArrowDown' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.min(prev + 1, searchResults.length - 1) : 0);
+                }
+                if (e.key === 'ArrowUp' && searchResults.length > 0) {
+                  e.preventDefault();
+                  setSelectedSearchResult(prev => prev !== null ? Math.max(prev - 1, 0) : 0);
+                }
+                if (e.key === 'Enter' && selectedSearchResult !== null) {
+                  const r = searchResults[selectedSearchResult];
+                  if (r) navigateToSearchResult(r);
+                }
+              }}
+              placeholder="Search lessons, hotkeys, functions, nodes..."
+              aria-label="Search"
+              className="otter-search-field"
+            />
+            <span className="otter-search-count">
+              {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
+            </span>
+          </div>
+        )}
+        aria-label="Search"
+        width="workbench"
+        dismissOnBackdrop
+        onClose={() => setShowSearchModal(false)}
+        className="otter-search-dialog"
+      >
+        <div className="otter-search-results wilson-dark-scroll">
+          {searchQuery.length < 2 && <p className="otter-search-hint">Type at least 2 characters to search</p>}
+          {searchQuery.length >= 2 && searchResults.length === 0 && <p className="otter-search-hint">No matches found</p>}
+          {searchResults.map((r, i) => (
+            <button
+              key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
+              type="button"
+              onClick={() => setSelectedSearchResult(i)}
+              className="otter-search-result"
+              data-active={selectedSearchResult === i}
+            >
+              <span className="otter-search-result-head">
+                <span className="otter-search-result-title">{r.lessonTitle}</span>
+                {r.resultType && <Badge>{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</Badge>}
               </span>
-              <button onClick={() => setShowSearchModal(false)} className="p-1 hover:bg-stone-700 rounded-sm">
-                <X className="w-4 h-4 text-stone-400" />
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 flex overflow-hidden">
-            <div className="w-[280px] shrink-0 border-r-2 border-stone-600 overflow-y-auto bg-stone-900">
-              {searchQuery.length < 2 && <div className="px-4 py-8 text-center text-stone-600 text-sm">Type at least 2 characters to search</div>}
-              {searchQuery.length >= 2 && searchResults.length === 0 && <div className="px-4 py-8 text-center text-stone-600 text-sm">No matches found</div>}
-              {searchResults.map((r, i) => (
-                <button
-                  key={`${r.softwareSlug}-${r.subjectSlug || r.resultType}-${r.lessonId || r.resultType}`}
-                  onClick={() => setSelectedSearchResult(i)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-stone-700 transition-colors ${selectedSearchResult === i ? 'bg-stone-700' : 'hover:bg-stone-800'}`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-white text-xs font-bold truncate flex-1">{r.lessonTitle}</p>
-                    {r.resultType && <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
-                  </div>
-                  <p className="text-stone-500 text-[10px] truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
-                  <p className="text-orange-400 text-[10px] mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
-                </button>
-              ))}
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 bg-stone-900">
-              {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
-                const r = searchResults[selectedSearchResult];
-                const q = searchQuery.trim();
-                const lowerQ = q.toLowerCase();
-
-                const header = (
-                  <div className="mb-4 pb-3 border-b border-stone-700">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-orange-400 font-bold text-sm">{r.lessonTitle}</h3>
-                        <p className="text-stone-500 text-xs">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
-                      </div>
-                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold border-2 border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
-                        {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : r.resultType === 'nodes' ? 'Go to Nodes' : 'Go to Lesson'}
-                      </button>
-                    </div>
-                    <p className="text-orange-400 text-xs mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
-                  </div>
-                );
-
-                {/* ── Hotkeys: table with all shortcuts, matches highlighted ── */}
-                if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.hotkeyCategories.map((cat, ci) => {
-                        const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
-                        if (!hasMatch) return null;
-                        return (
-                          <div key={ci} className="mb-4">
-                            <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
-                            <div className="bg-stone-800 border border-stone-600 rounded-sm overflow-hidden">
-                              <table className="w-full">
-                                <thead>
-                                  <tr style={{ background: '#44403c' }}>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {cat.shortcuts.map((s, si) => {
-                                    const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
-                                    return (
-                                      <tr key={si} className={`border-b border-stone-700 last:border-0 transition-colors ${isMatch ? 'bg-orange-500/10' : 'opacity-40'}`}>
-                                        <td className="p-2 text-xs" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                                        <td className="p-2 text-[10px]" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                }
-
-                {/* ── Functions: only matching functions in card format ── */}
-                if (r.resultType === 'functions' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((cat, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
-                          <div className="space-y-2">
-                            {cat.functions.map((f, fi) => (
-                              <div key={fi} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
-                                <code className="font-mono font-bold text-xs" style={{ color: '#fb923c' }}>{f.name}</code>
-                                {f.syntax && <pre className="border rounded-sm px-2 py-1.5 mb-2 mt-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                                {f.parameters && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                                {f.returns && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                                {f.description && <p className="text-[10px] mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                                {f.example && <pre className="border rounded-sm px-2 py-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Nodes: only matching nodes in card format ── */}
-                if (r.resultType === 'nodes' && r.matchedCategories) {
-                  return (
-                    <div>
-                      {header}
-                      {r.matchedCategories.map((mc, ci) => (
-                        <div key={ci} className="mb-4">
-                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-1">{mc.category}</h4>
-                          <p className="text-stone-600 text-[10px] mb-2">{mc.system}</p>
-                          <div className="space-y-2">
-                            {mc.nodes.map((node, ni) => (
-                              <div key={ni} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
-                                <div className="font-mono font-bold text-xs mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
-                                <p className="text-[10px] mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
-                                {Array.isArray(node.inputs) && node.inputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Inputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.inputs.filter(Boolean).map((inp, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
-                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
-                                          <NodeTypeBadge type={inp.type} />
-                                          <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {Array.isArray(node.outputs) && node.outputs.length > 0 && (
-                                  <div className="mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Outputs</span>
-                                    <div className="space-y-0.5">
-                                      {node.outputs.filter(Boolean).map((out, k) => (
-                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
-                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
-                                          <NodeTypeBadge type={out.type} />
-                                          <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {node.notes && (
-                                  <div className="border-t border-stone-700 pt-1.5 mt-1.5">
-                                    <span className="text-[10px] italic" style={{ color: '#78716c' }}>{node.notes}</span>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                {/* ── Default: lesson results with highlighted text ── */}
-                const content = r.content;
-                const parts = [];
-                const lowerContent = content.toLowerCase();
-                let lastIdx = 0;
-                let pos = 0;
-                while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
-                  if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
-                  parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
-                  lastIdx = pos + q.length;
-                }
-                if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
-                return (
-                  <div>
-                    {header}
-                    <pre className="text-stone-300 text-xs leading-relaxed whitespace-pre-wrap font-sans">
-                      {parts.map((part, i) =>
-                        part.highlight
-                          ? <mark key={i} className="bg-orange-500/30 text-orange-300 rounded-sm px-0.5">{part.text}</mark>
-                          : <span key={i}>{part.text}</span>
-                      )}
-                    </pre>
-                  </div>
-                );
-              })() : (
-                <div className="flex items-center justify-center h-full text-stone-600 text-sm">
-                  {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
-                </div>
-              )}
-            </div>
-          </div>
+              <span className="otter-search-result-path">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</span>
+              <span className="otter-search-result-count">{r.matches} match{r.matches !== 1 ? 'es' : ''}</span>
+            </button>
+          ))}
         </div>
-      </div>
+        <div className="otter-search-preview wilson-dark-scroll">
+          {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
+            const r = searchResults[selectedSearchResult];
+            const q = searchQuery.trim();
+            const lowerQ = q.toLowerCase();
+
+            const header = (
+              <div className="otter-search-preview-head">
+                <div className="otter-search-preview-row">
+                  <div className="otter-search-preview-titles">
+                    <h3 className="otter-search-preview-title">{r.lessonTitle}</h3>
+                    <p className="otter-search-preview-path">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
+                  </div>
+                  <Button variant="primary" size="sm" onClick={() => navigateToSearchResult(r)}>
+                    {r.resultType === 'hotkeys' ? 'Go to hotkeys' : r.resultType === 'functions' ? 'Go to functions' : r.resultType === 'nodes' ? 'Go to nodes' : 'Go to lesson'}
+                  </Button>
+                </div>
+                <p className="otter-search-preview-count">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
+              </div>
+            );
+
+            {/* ── Hotkeys: the Hotkeys view's own table (the kit's Table and
+                Kbd, A3); a row that does not match takes the kit's inactive
+                row (the third ink — it was opacity 40%) and a row that does
+                takes its highlighted edge (it was an orange wash). ── */}
+            if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.hotkeyCategories.map((cat, ci) => {
+                    const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
+                    if (!hasMatch) return null;
+                    return (
+                      <section key={ci} className="otter-ref-section">
+                        <h4 className="otter-ref-section-title">{cat.category}</h4>
+                        <Card pad={false} className="otter-hk-card otter-search-hk">
+                          <Table
+                            head={
+                              <Row>
+                                <Th width="36%">Action</Th>
+                                <Th width="20%">Windows</Th>
+                                <Th width="20%">Mac</Th>
+                                <Th>Notes</Th>
+                              </Row>
+                            }
+                          >
+                            {cat.shortcuts.map((s, si) => {
+                              const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
+                              return (
+                                <Row key={si} highlighted={isMatch} inactive={!isMatch}>
+                                  <Td>{s.action}</Td>
+                                  <Td><Kbd>{s.windows}</Kbd></Td>
+                                  <Td><Kbd>{s.mac}</Kbd></Td>
+                                  <Td className="otter-hk-notes">{s.notes || '—'}</Td>
+                                </Row>
+                              );
+                            })}
+                          </Table>
+                        </Card>
+                      </section>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            {/* ── Functions: the Functions view's own cards (S2b: the one
+                FunctionCard, coloured in the result's course language) ── */}
+            if (r.resultType === 'functions' && r.matchedCategories) {
+              const resultLanguage = courseLanguage({ name: r.softwareName, slug: r.softwareSlug });
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((cat, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{functionCategoryName(cat)}</h4>
+                      <div className="otter-ref-cards">
+                        {cat.functions.map((f, fi) => <FunctionCard key={fi} fn={f} language={resultLanguage} />)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Nodes: the Nodes view's own cards ── */}
+            if (r.resultType === 'nodes' && r.matchedCategories) {
+              return (
+                <div>
+                  {header}
+                  {r.matchedCategories.map((mc, ci) => (
+                    <section key={ci} className="otter-ref-section">
+                      <h4 className="otter-ref-section-title">{mc.category}</h4>
+                      <p className="otter-search-system">{mc.system}</p>
+                      <div className="otter-ref-cards">
+                        {mc.nodes.map((node, ni) => (
+                          <div key={ni} className="otter-fn-card otter-node-card">
+                            <div className="otter-node-name">{node.name}</div>
+                            <p className="otter-fn-desc">{node.description}</p>
+                            {Array.isArray(node.inputs) && node.inputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Inputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.inputs.filter(Boolean).map((inp, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{inp.name || ''}</span>
+                                      <NodeTypeBadge type={inp.type} />
+                                      <span className="otter-node-port-desc">{inp.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {Array.isArray(node.outputs) && node.outputs.length > 0 && (
+                              <div className="otter-node-ports">
+                                <span className="otter-fn-label">Outputs</span>
+                                <ul className="otter-node-port-list">
+                                  {node.outputs.filter(Boolean).map((out, k) => (
+                                    <li key={k} className="otter-node-port">
+                                      <span className="otter-node-port-name">{out.name || ''}</span>
+                                      <NodeTypeBadge type={out.type} />
+                                      <span className="otter-node-port-desc">{out.description || ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {node.notes && <p className="otter-node-notes">{node.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            {/* ── Default: the lesson's text, the matches marked. Review O28:
+                a <pre> undone by font-sans, 12px with no rhythm; it is the
+                lesson's Body step and second ink now, its line breaks kept
+                and the same marks. ── */}
+            const content = r.content;
+            const parts = [];
+            const lowerContent = content.toLowerCase();
+            let lastIdx = 0;
+            let pos = 0;
+            while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
+              if (pos > lastIdx) parts.push({ text: content.slice(lastIdx, pos), highlight: false });
+              parts.push({ text: content.slice(pos, pos + q.length), highlight: true });
+              lastIdx = pos + q.length;
+            }
+            if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
+            return (
+              <div>
+                {header}
+                <div className="otter-search-text">
+                  {parts.map((part, i) =>
+                    part.highlight
+                      ? <mark key={i} className="otter-search-mark">{part.text}</mark>
+                      : <span key={i}>{part.text}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })() : (
+            <p className="otter-search-placeholder">
+              {searchResults.length > 0 ? 'Select a result to preview' : 'Search results will appear here'}
+            </p>
+          )}
+        </div>
+      </Dialog>
     );
   }
 
@@ -3504,14 +3644,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
 
     return (
-      <aside className="w-[200px] shrink-0 bg-stone-800 border-r-2 border-stone-600 overflow-hidden flex flex-col">
-        <SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />
-        <button
-          onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 border-b-2 border-stone-600 transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" /> New
-        </button>
+      <Panel
+        width="sm"
+        className="otter-courses"
+        title="Courses"
+        actions={<SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />}
+      >
+        <div className="otter-courses-new">
+          <Button
+            variant="primary"
+            size="sm"
+            Icon={Plus}
+            onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
+          >
+            New
+          </Button>
+        </div>
         {/* Tier filters. Cloud only: signed out there is one user, one tier and
             no trash, so a chip strip would be pure noise in local mode. */}
         {cloudMode && (
@@ -3522,7 +3670,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             counts={filterCounts}
           />
         )}
-        <div className="flex-1 overflow-y-auto">
+        <div className="otter-course-list">
           {courseFilter === 'trash' ? (
             <TrashSidebarList
               rows={trashRows}
@@ -3533,22 +3681,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               onRestore={restoreTrashRow}
             />
           ) : softwareList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-              <Plus className="w-8 h-8 text-stone-600 mb-2" />
-              <p className="text-stone-500 text-xs mb-3">No courses yet</p>
-              <p className="text-stone-600 text-[10px]">Click &quot;New&quot; above to create your first course</p>
-            </div>
+            <EmptyState icon={Plus} title="No courses yet" body='Click "New" above to create your first course' compact />
           ) : visibleCourses.length === 0 ? (
             // A filter that silently shows an empty column reads as data loss.
-            <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
-              <p className="text-stone-500 text-xs mb-2">Nothing here yet</p>
-              <button
-                onClick={() => setCourseFilter('all')}
-                className="text-orange-400 hover:text-orange-300 text-[10px] underline"
-              >
-                Show all courses
-              </button>
-            </div>
+            <EmptyState title="Nothing here yet" compact>
+              <Button variant="ghost" size="sm" onClick={() => setCourseFilter('all')}>Show all courses</Button>
+            </EmptyState>
           ) : (
             [...visibleCourses].sort((a, b) => {
               const aIsLang = a.type === 'coding_language' ? 1 : 0;
@@ -3565,11 +3703,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div key={sw.slug}>
                   {/* Was a single full-width <button>; it is now a row so the
-                      actions menu can sit beside the label. Same padding, same
-                      border, same hover — visually unchanged. */}
+                      actions menu can sit beside the label. */}
                   <div
-                    className="group/course w-full flex items-center transition-colors hover:bg-stone-700"
-                    style={{ borderBottom: '1px solid rgba(87,83,78,0.3)' }}
+                    className="otter-course-row"
+                    data-active={isActive ? 'true' : undefined}
+                    data-openable={openable ? undefined : 'false'}
                   >
                     <button
                       onClick={() => {
@@ -3587,19 +3725,17 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       }}
                       disabled={!openable}
                       title={openable ? sw.name : `${sw.name} — private to ${sw.owner_label || 'its owner'}`}
-                      className="flex-1 min-w-0 text-left pl-3 pr-1 py-2.5 flex items-center gap-2 disabled:cursor-default"
+                      className="otter-course-open"
                     >
                       {!openable
-                        ? <span className="w-3 h-3 flex-shrink-0" />
+                        ? <span className="otter-course-chevron" aria-hidden="true" />
                         : isExpanded
-                          ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
-                          : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
+                          ? <ChevronDown className="otter-course-chevron" aria-hidden="true" />
+                          : <ChevronRight className="otter-course-chevron" aria-hidden="true" />
                       }
-                      <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${
-                        !openable ? 'text-stone-600' : isActive ? 'text-orange-400' : 'text-stone-400'
-                      }`}>
-                        {sw.name}
-                      </span>
+                      {/* The course's own name, as its author wrote it (review
+                          O9): Dense, sentence case, never uppercased. */}
+                      <span className="otter-course-name">{sw.name}</span>
                       {cloudMode && <VisibilityBadge course={sw} compact />}
                     </button>
                     {/* PHASE 5: was `opacity-0 group-hover/course:opacity-100`.
@@ -3608,11 +3744,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         company-library model — the literal reason Audrey could
                         not find how to submit a course. Always visible now. */}
                     {cloudMode && (
-                      <span className="pr-1">
+                      <span className="otter-course-menu">
                         <CourseRowMenu
                           course={sw}
                           role={appRole}
                           compact
+                          sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                           onShare={setShareDialogCourse}
                           onSuggestChange={setCrDialogCourse}
                           onFork={(c) => forkCourse(c)}
@@ -3622,20 +3759,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     )}
                   </div>
                   {isExpanded && (
-                    <div style={{ backgroundColor: 'rgba(0,0,0,0.12)' }}>
+                    <div className="otter-subjects">
                       {subjectList.map(sub => {
                         const isSubActive = activeSubjectSlug === sub.slug;
                         const isStub = sub.is_stub;
                         return (
                           <div
                             key={sub.slug}
-                            className={`group/sub flex items-center transition-colors border-l-2 ${
-                              isSubActive
-                                ? 'text-orange-400 font-bold border-orange-500 bg-black/15'
-                                : isStub
-                                  ? 'text-stone-500/50 border-transparent hover:bg-stone-700/50 hover:text-stone-400'
-                                  : 'text-stone-400/80 border-transparent hover:bg-stone-700/50 hover:text-stone-300'
-                            }`}
+                            className="otter-subject-row"
+                            data-active={isSubActive ? 'true' : undefined}
+                            data-stub={isStub ? 'true' : undefined}
                           >
                             <button
                               onClick={() => {
@@ -3643,28 +3776,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                                 if (!isStub) setCurrentView('study');
                                 else setCurrentView('library');
                               }}
-                              className="flex-1 text-left py-1.5 pl-6 pr-1 text-[11px] min-w-0"
+                              className="otter-subject-open"
                             >
-                              <span className="truncate block">
-                                {sub.subject_order != null && <span className="text-orange-500 font-bold text-xs mr-1">{String(sub.subject_order).padStart(2, '0')} ·</span>}
+                              <span className="otter-subject-label">
+                                {sub.subject_order != null && <span className="otter-subject-order">{String(sub.subject_order).padStart(2, '0')} ·</span>}
                                 {sub.title}
-                                {isStub && <span className="text-stone-600 ml-1">[outline]</span>}
+                                {isStub && <span className="otter-subject-outline">[outline]</span>}
                               </span>
                             </button>
                             {/* Session 11 item 7: the adapter now returns a
                                 clean 403 instead of a fabricated success, but
                                 the control should not be here at all. */}
                             {rowCanWrite && (
-                              <button
+                              <IconButton
+                                size="sm"
+                                icon={Trash2}
+                                danger
+                                title="Delete subject"
+                                className="otter-subject-delete"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
                                 }}
-                                className="opacity-0 group-hover/sub:opacity-100 p-1 mr-1 text-stone-600 hover:text-red-400 transition-all shrink-0"
-                                title="Delete subject"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              />
                             )}
                           </div>
                         );
@@ -3672,14 +3806,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       {rowCanWrite ? (
                         <button
                           onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                          className="w-full text-left py-1.5 text-[10px] text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
-                          style={{ paddingLeft: '24px', paddingRight: '8px' }}
+                          className="otter-add-subject"
                         >
-                          <Plus className="w-2.5 h-2.5" /> Add subject
+                          <Plus className="otter-add-subject-icon" aria-hidden="true" /> Add subject
                         </button>
                       ) : (
                         // Answers the question the missing buttons raise.
-                        <p className="py-1.5 text-[10px] text-stone-600 italic" style={{ paddingLeft: '24px', paddingRight: '8px' }}>
+                        <p className="otter-subjects-note">
                           Read only — study it, or make your own copy.
                         </p>
                       )}
@@ -3690,7 +3823,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             })
           )}
         </div>
-      </aside>
+      </Panel>
     );
   }
 
@@ -3714,23 +3847,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const hotkeys = (softwareHotkeys?.categories || []).filter(cat => cat && Array.isArray(cat.shortcuts));
         if (hotkeys.length === 0) return null;
         return (
-          <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-            <div className="p-3 border-b-2 border-stone-700 shrink-0">
-              <h3 className="text-orange-400 font-bold text-xs truncate">Shortcut Groups</h3>
-              <p className="text-stone-500 text-[10px] mt-1">{hotkeys.length} categories</p>
-            </div>
-            <div className="flex-1 overflow-y-auto">
+          <Panel
+            width="md"
+            className="otter-groups"
+            title="Shortcut groups"
+            actions={<span className="otter-panel-count">{hotkeys.length} categories</span>}
+          >
+            <div className="otter-group-list">
               {hotkeys.map((cat, i) => (
-                <button key={i} onClick={() => scrollToCategory(hotkeyScrollRef, `hk-cat-${i}`)}
-                  className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
-                  style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
-                  <Keyboard className="w-3 h-3 text-stone-500 shrink-0" />
-                  <span className="truncate">{cat.category}</span>
-                  <span className="ml-auto text-stone-600 text-[10px]">{cat.shortcuts.length}</span>
+                <button key={i} onClick={() => scrollToCategory(hotkeyScrollRef, `hk-cat-${i}`)} className="otter-group-row">
+                  <Keyboard className="otter-group-icon" aria-hidden="true" />
+                  <span className="otter-group-name">{cat.category}</span>
+                  <span className="otter-group-count">{cat.shortcuts.length}</span>
                 </button>
               ))}
             </div>
-          </aside>
+          </Panel>
         );
       }
     }
@@ -3742,23 +3874,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       const categories = activeSys?.categories || [];
       if (systems.length === 0) return null;
       return (
-        <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-          <div className="p-3 border-b-2 border-stone-700 shrink-0">
-            <h3 className="text-orange-400 font-bold text-xs truncate">Node Groups</h3>
-            <p className="text-stone-500 text-[10px] mt-1">{activeSys?.system || 'No system'}</p>
-          </div>
-          <div className="flex-1 overflow-y-auto">
+        <Panel
+          width="md"
+          className="otter-groups"
+          title="Node groups"
+          actions={<span className="otter-panel-count">{activeSys?.system || 'No system'}</span>}
+        >
+          <div className="otter-group-list">
             {categories.filter(cat => cat && Array.isArray(cat.nodes) && cat.nodes.length > 0).map((cat, i) => (
-              <button key={i} onClick={() => scrollToCategory(nodeScrollRef, `node-cat-${i}`)}
-                className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 hover:text-orange-400 transition-colors"
-                style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}>
-                <Share2 className="w-3 h-3 text-stone-500 shrink-0" />
-                <span className="truncate">{cat.category}</span>
-                <span className="ml-auto text-stone-600 text-[10px]">{cat.nodes.length}</span>
+              <button key={i} onClick={() => scrollToCategory(nodeScrollRef, `node-cat-${i}`)} className="otter-group-row">
+                <Share2 className="otter-group-icon" aria-hidden="true" />
+                <span className="otter-group-name">{cat.category}</span>
+                <span className="otter-group-count">{cat.nodes.length}</span>
               </button>
             ))}
           </div>
-        </aside>
+        </Panel>
       );
     }
 
@@ -3767,27 +3898,36 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const completedList = getCompletedLessons();
     const progress = getCurrentProgressPercent();
     return (
-      <aside className="w-[220px] shrink-0 border-r-2 border-stone-600 overflow-y-auto flex flex-col" style={{ backgroundColor: '#1f1c1a' }}>
-        <div className="p-3 border-b-2 border-stone-700 shrink-0">
-          <h3 className="text-orange-400 font-bold text-xs truncate">{activeSubject.title}</h3>
-          <div className="mt-1.5 bg-stone-700 rounded-sm h-1.5 overflow-hidden">
-            <div className="bg-orange-500 h-full transition-all" style={{ width: `${progress}%` }} />
+      <Panel width="md" className="otter-lessons">
+        {/* The subject is data, so it is not the Panel's Label-step title:
+            it keeps its own casing at the H3 step above its progress. */}
+        <div className="otter-lessons-head">
+          <h3 className="otter-lessons-title">{activeSubject.title}</h3>
+          <div
+            className="otter-progress"
+            role="progressbar"
+            aria-label="Lessons completed"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <div className="otter-progress-fill" style={{ width: `${progress}%` }} />
           </div>
-          <p className="text-stone-500 text-[10px] mt-1">{progress}% complete</p>
+          <p className="otter-lessons-meta">{progress}% complete</p>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="otter-lesson-list">
           {(activeSubject.sections || []).map(section => (
             <div key={section.id}>
               <button
                 onClick={() => setExpandedSubjectSections(prev => ({ ...prev, [section.id]: !prev[section.id] }))}
-                className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 text-stone-300 hover:bg-stone-800 transition-colors font-bold"
-                style={{ borderBottom: '1px solid rgba(87,83,78,0.2)' }}
+                className="otter-section-row"
+                aria-expanded={!!expandedSubjectSections[section.id]}
               >
                 {expandedSubjectSections[section.id]
-                  ? <ChevronDown className="w-3 h-3 text-orange-400 shrink-0" />
-                  : <ChevronRight className="w-3 h-3 text-stone-500 shrink-0" />
+                  ? <ChevronDown className="otter-section-chevron" aria-hidden="true" />
+                  : <ChevronRight className="otter-section-chevron" aria-hidden="true" />
                 }
-                <span className="truncate">{section.title}</span>
+                <span className="otter-section-name">{section.title}</span>
               </button>
               {expandedSubjectSections[section.id] && (section.lessons || []).map(lesson => {
                 const isActive = selectedLessonId === lesson.id;
@@ -3796,17 +3936,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <button
                     key={lesson.id}
                     onClick={() => { setSelectedLessonId(lesson.id); setCurrentView('study'); }}
-                    className={`w-full text-left pl-7 pr-3 py-1.5 text-[11px] flex items-center gap-2 transition-colors ${
-                      isActive
-                        ? 'bg-stone-900 text-orange-400 border-l-2 border-orange-500'
-                        : 'text-stone-400 hover:text-stone-300 hover:bg-stone-800 border-l-2 border-transparent'
-                    }`}
+                    className="otter-lesson-row"
+                    data-active={isActive ? 'true' : undefined}
                   >
+                    {/* Completion is a SHAPE (a filled check or an empty
+                        ring), so it survives greyscale — kept. */}
                     {isComplete
-                      ? <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
-                      : <div className="w-3 h-3 rounded-full border border-stone-600 shrink-0" />
+                      ? <CheckCircle2 className="otter-lesson-mark" aria-hidden="true" />
+                      : <span className="otter-lesson-ring" aria-hidden="true" />
                     }
-                    <span className="truncate">{lesson.title}</span>
+                    <span className="otter-lesson-name">{lesson.title}</span>
                   </button>
                 );
               })}
@@ -3815,17 +3954,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         </div>
         {/* ── Sources button ── */}
         {activeSubject.sources?.length > 0 && (
-          <div className="mt-auto border-t-2 border-stone-700 shrink-0">
-            <button
-              onClick={() => setCurrentView('sources')}
-              className="w-full text-left px-3 py-2.5 text-[11px] flex items-center gap-2 text-stone-400 hover:text-orange-400 hover:bg-stone-800 transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5 shrink-0" />
-              <span>Sources ({activeSubject.sources.length})</span>
-            </button>
-          </div>
+          <button onClick={() => setCurrentView('sources')} className="otter-sources-link">
+            <BookOpen className="otter-group-icon" aria-hidden="true" />
+            <span>Sources ({activeSubject.sources.length})</span>
+          </button>
         )}
-      </aside>
+      </Panel>
     );
   }
 
@@ -3834,31 +3968,69 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // lesson the Session 10 adapter work was built around.
   function renderSharingBanner() {
     if (!sharingNotice && !sharingError) return null;
+    // A3: the kit's Banner — one strip, a tone, the dismiss as its action.
     if (sharingError) {
       return (
-        <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-          <p className="text-red-300 text-sm flex-1">{sharingError}</p>
-          <button onClick={() => setSharingError(null)} className="text-red-400 hover:text-red-200 text-xs font-bold">
-            Dismiss
-          </button>
-        </div>
+        <Banner
+          tone="danger"
+          Icon={AlertCircle}
+          className="otter-banner"
+          action={<Button variant="ghost" size="sm" onClick={() => setSharingError(null)}>Dismiss</Button>}
+        >
+          {sharingError}
+        </Banner>
       );
     }
     return (
-      <div className="mb-4 bg-green-900/25 border-2 border-green-800 rounded-sm p-3 flex items-center gap-2">
-        <Check className="w-4 h-4 text-green-400 shrink-0" />
-        <p className="text-green-300 text-sm flex-1">{sharingNotice}</p>
-        <button onClick={() => setSharingNotice(null)} className="text-green-400 hover:text-green-200 text-xs font-bold">
-          Dismiss
-        </button>
-      </div>
+      <Banner
+        tone="success"
+        Icon={Check}
+        className="otter-banner"
+        action={<Button variant="ghost" size="sm" onClick={() => setSharingNotice(null)}>Dismiss</Button>}
+      >
+        {sharingNotice}
+      </Banner>
     );
   }
-
   // ═══════════════════════════════════════════════════════════════
   //  LIBRARY VIEW
   // ═══════════════════════════════════════════════════════════════
+  // ── A4: say which library this is, when the other one is hidden ───────────
+  //
+  // Audrey's decision 3 asks for a notice "whenever the local library is
+  // hidden". Both directions are covered, because the switch creates the
+  // mirror-image trap the moment it exists: someone pins 'This computer',
+  // forgets, and later reads the missing company courses as data loss. The
+  // notice carries the way back, so the recovery does not depend on finding a
+  // padlocked Settings tab.
+  //
+  // Web build: nothing renders. There is no local library there to hide, and
+  // `usableMode` refuses a 'local' pin on that build for the same reason.
+  function renderLibrarySourceNotice() {
+    if (!hasLocalLibrary) return null;
+    const localHidden   = cloudMode;
+    const companyHidden = !cloudMode && libraryMode === 'local' && !!perms.workspaceId;
+    if (!localHidden && !companyHidden) return null;
+    // On the overhaul's kit: the same Banner the sharing notice above uses,
+    // the way back as the Banner's action, the Settings pointer in the text.
+    return (
+      <Banner
+        tone="info"
+        Icon={Info}
+        className="otter-banner"
+        action={(
+          <Button variant="ghost" size="sm" onClick={() => setOtterAdapterMode(localHidden ? 'local' : 'auto')}>
+            {localHidden ? 'Show the courses on this computer' : 'Show the company library'}
+          </Button>
+        )}
+      >
+        {localHidden
+          ? 'You are signed in, so this is your company library. Courses saved on this computer are hidden.'
+          : 'This is the library on this computer. Your company courses are hidden.'}
+        {' '}You can also change this in Settings under Library.
+      </Banner>
+    );
+  }
   function renderLibrary() {
     // "Recently deleted" is a FILTER STATE on this same pane, not a new view.
     if (courseFilter === 'trash') {
@@ -3876,161 +4048,157 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
     if (activeSoftwareSlug && activeSoftware) {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-6xl mx-auto">
+        <div className="otter-view">
+          <div className="otter-view-page" data-width="data">
             {renderSharingBanner()}
-            <div className="flex items-center justify-between mb-6">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-2xl font-bold text-orange-400">{activeSoftware.name}</h2>
-                  {cloudMode && <VisibilityBadge course={activeCourseRow} />}
-                  {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
-                  {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
-                </div>
-                <p className="text-stone-500 text-sm flex items-center gap-2">
-                  <span>
-                    {subjectList.length} subjects
-                    {activeCanWrite ? ' -- Click to study, hover to manage or remove' : ' -- Click to study'}
-                  </span>
+            {/* One view-title treatment across O.T.T.E.R. (review O3): the
+                kit's SectionTitle, H2 in the one ink, actions on the right. */}
+            <SectionTitle
+              rule={false}
+              className="otter-view-title"
+              description={
+                <span className="otter-view-meta">
+                  <span className="otter-count">{subjectList.length} subjects</span>
+                  {activeCanWrite ? ' — Click to study, hover to manage or remove' : ' — Click to study'}
                   {cloudMode && <OwnerBadge course={activeCourseRow} />}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                {/* activeCourseRow is looked up in softwareList while this pane
-                    branches on activeSoftware, and the two can briefly disagree
-                    (a course removed from the index by another device, an
-                    in-flight reload). Rendering the menu against null would give
-                    every action an undefined course. */}
-                {cloudMode && activeCourseRow && (
-                  <CourseRowMenu
-                    course={activeCourseRow}
-                    role={appRole}
-                    onShare={setShareDialogCourse}
-                    onSuggestChange={setCrDialogCourse}
-                    onFork={(c) => forkCourse(c)}
-                    onTrash={(c) => setShowDeleteConfirm(c.slug)}
-                  />
-                )}
-                {activeCanWrite && subjectList.some(s => s.is_stub) && (
-                  <button
-                    onClick={() => {
-                      const stubs = subjectList.filter(s => s.is_stub && !generatingSubjects.has(s.slug));
-                      for (const stub of stubs) {
-                        if (genQueueCancelledRef.current.has(stub.slug)) continue;
-                        generateSubjectContent(stub.slug, { skipNavigation: true });
-                      }
-                    }}
-                    disabled={subjectList.filter(s => s.is_stub).every(s => generatingSubjects.has(s.slug))}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:opacity-50"
-                  >
-                    {generatingSubjects.size > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-                    Generate All Outlines
-                  </button>
-                )}
-                {activeCanWrite && (
-                  <button
-                    onClick={() => setShowImportModal(true)}
-                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm"
-                  >
-                    <Upload className="w-4 h-4" /> Import
-                  </button>
-                )}
-                {activeCanWrite ? (
-                  <button
-                    onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
-                  >
-                    <Plus className="w-5 h-5" /> Add Subject
-                  </button>
-                ) : activeCanRead && cloudMode && (
-                  // The useful action on a course you cannot edit: take your own
-                  // copy. Turns a dead end into the flow the model intends.
-                  <button
-                    onClick={() => forkCourse(activeCourseRow)}
-                    disabled={forkBusy}
-                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50"
-                  >
-                    {forkBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <FolderOpen className="w-5 h-5" />}
-                    Make my own copy
-                  </button>
-                )}
-              </div>
-            </div>
+                </span>
+              }
+              actions={
+                <>
+                  {/* activeCourseRow is looked up in softwareList while this pane
+                      branches on activeSoftware, and the two can briefly disagree
+                      (a course removed from the index by another device, an
+                      in-flight reload). Rendering the menu against null would give
+                      every action an undefined course. */}
+                  {cloudMode && activeCourseRow && (
+                    <CourseRowMenu
+                      course={activeCourseRow}
+                      role={appRole}
+                      sourceIsStandard={sourceCourseOf(activeCourseRow)?.visibility === 'company_standard'}
+                      onShare={setShareDialogCourse}
+                      onSuggestChange={setCrDialogCourse}
+                      onFork={(c) => forkCourse(c)}
+                      onTrash={(c) => setShowDeleteConfirm(c.slug)}
+                    />
+                  )}
+                  {activeCanWrite && subjectList.some(s => s.is_stub) && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        const stubs = subjectList.filter(s => s.is_stub && !generatingSubjects.has(s.slug));
+                        for (const stub of stubs) {
+                          if (genQueueCancelledRef.current.has(stub.slug)) continue;
+                          generateSubjectContent(stub.slug, { skipNavigation: true });
+                        }
+                      }}
+                      disabled={subjectList.filter(s => s.is_stub).every(s => generatingSubjects.has(s.slug))}
+                    >
+                      {generatingSubjects.size > 0 ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+                      Generate all outlines
+                    </Button>
+                  )}
+                  {activeCanWrite && (
+                    <Button variant="secondary" Icon={Upload} onClick={() => setShowImportModal(true)}>
+                      Import
+                    </Button>
+                  )}
+                  {activeCanWrite ? (
+                    <Button
+                      variant="primary"
+                      Icon={Plus}
+                      onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
+                    >
+                      Add subject
+                    </Button>
+                  ) : activeCanRead && cloudMode && (
+                    // The useful action on a course you cannot edit: take your own
+                    // copy. Turns a dead end into the flow the model intends.
+                    <Button variant="primary" onClick={() => forkCourse(activeCourseRow)} disabled={forkBusy}>
+                      {forkBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+                      Make my own copy
+                    </Button>
+                  )}
+                </>
+              }
+              as="div"
+            >
+              {/* The heading is the name alone (its badges were inside it,
+                  so it read "DaVinci Resolve 19Standard"); SectionTitle's
+                  own element is a div here and carries the H2 look. */}
+              <h2 className="otter-title-text">{activeSoftware.name}</h2>
+              {cloudMode && <VisibilityBadge course={activeCourseRow} />}
+              {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
+              {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
+            </SectionTitle>
             {subjectList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-                <h3 className="text-xl font-bold text-orange-400 mb-2">No subjects yet</h3>
-                <p className="text-stone-500 mb-6">Add a subject to start learning about {activeSoftware.name}.</p>
-              </div>
+              <EmptyState
+                icon={BookOpen}
+                title="No subjects yet"
+                body={`Add a subject to start learning about ${activeSoftware.name}.`}
+              />
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="otter-card-grid">
                 {subjectList.map(sub => (
                   <div
                     key={sub.slug}
-                    className={`bg-stone-800 border-2 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative flex flex-col h-[200px] ${
-                      sub.is_stub ? 'border-dashed border-stone-600' : 'border-stone-600 hover:border-orange-500 cursor-pointer'
-                    }`}
+                    className="otter-subject-card"
+                    data-stub={sub.is_stub ? 'true' : undefined}
                     onClick={() => {
                       if (!sub.is_stub) { selectSubject(activeSoftwareSlug, sub.slug); setCurrentView('study'); }
                     }}
                   >
                     {/* Header bar with number and badges */}
-                    <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-stone-700/50">
-                      <div className="flex items-center gap-2">
-                        {sub.subject_order != null && (
-                          <span className="bg-orange-600/20 text-orange-400 text-sm font-bold font-mono px-2 py-0.5 rounded-sm border border-orange-600/30">{String(sub.subject_order).padStart(2, '0')}</span>
-                        )}
-                        <span className="bg-stone-700 px-2 py-0.5 rounded-sm text-orange-400 uppercase font-bold text-[10px]">{sub.skill_level}</span>
-                        {sub.is_stub && <span className="bg-stone-700 text-stone-400 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm border border-stone-600">Outline</span>}
-                      </div>
+                    <div className="otter-subject-card-head">
+                      {sub.subject_order != null && (
+                        <span className="otter-subject-card-order">{String(sub.subject_order).padStart(2, '0')}</span>
+                      )}
+                      <Badge>{sub.skill_level}</Badge>
+                      {sub.is_stub && <Badge className="otter-outline-badge">Outline</Badge>}
                       {activeCanWrite && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
-                          className="p-1 text-stone-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-sm hover:bg-stone-700"
+                        <IconButton
+                          size="sm"
+                          icon={Trash2}
+                          danger
                           title="Delete subject"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          className="otter-subject-card-delete"
+                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
+                        />
                       )}
                     </div>
                     {/* Body */}
-                    <div className="flex flex-col flex-1 px-4 py-3 min-h-0">
-                      <h3 className={`font-bold text-base leading-tight mb-1.5 line-clamp-2 transition-colors ${sub.is_stub ? 'text-stone-400' : 'text-white group-hover:text-orange-400'}`}>
-                        {sub.title}
-                      </h3>
-                      <p
-                        className="text-stone-500 text-sm line-clamp-2 cursor-default"
-                        title={sub.description}
-                      >{sub.description}</p>
-                      <div className="flex-1" />
+                    <div className="otter-subject-card-body">
+                      <h3 className="otter-subject-card-title">{sub.title}</h3>
+                      <p className="otter-subject-card-desc" title={sub.description}>{sub.description}</p>
+                      <div className="otter-spacer" />
                       {sub.is_stub && !activeCanWrite ? (
                         // An outline you cannot fill in. Saying so beats a
                         // Generate button that the database will refuse.
-                        <p className="mt-2 text-stone-600 text-[11px] italic">
+                        <p className="otter-subject-card-note">
                           Outline only — the owner hasn&apos;t written this yet.
                         </p>
                       ) : sub.is_stub ? (
-                        <div className="mt-2">
+                        <div className="otter-subject-card-generate">
                           {subjectErrors[sub.slug] && !generatingSubjects.has(sub.slug) && (
-                            <p className="text-red-400 text-[10px] mb-1 truncate" title={subjectErrors[sub.slug]}>
+                            <p className="otter-subject-card-error" title={subjectErrors[sub.slug]}>
                               ⚠ {subjectErrors[sub.slug]}
                             </p>
                           )}
-                          <button
+                          <Button
+                            variant="primary"
+                            size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSubjectErrors(prev => { const next = { ...prev }; delete next[sub.slug]; return next; });
                               generateSubjectContent(sub.slug);
                             }}
                             disabled={generatingSubjects.has(sub.slug)}
-                            className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-1.5 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-sm font-bold disabled:opacity-50"
                           >
-                            {generatingSubjects.has(sub.slug) ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
-                            {generatingSubjects.has(sub.slug) ? 'Generating...' : subjectErrors[sub.slug] ? 'Retry' : 'Generate Content'}
-                          </button>
+                            {generatingSubjects.has(sub.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+                            {generatingSubjects.has(sub.slug) ? 'Generating...' : subjectErrors[sub.slug] ? 'Retry' : 'Generate content'}
+                          </Button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
+                        <div className="otter-subject-card-foot">
                           {sub.lessons_count != null && <span>{sub.lessons_count} lessons</span>}
                           {sub.created_at && <span>{new Date(sub.created_at).toLocaleDateString()}</span>}
                         </div>
@@ -4051,56 +4219,60 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-6xl mx-auto">
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="data">
           {renderSharingBanner()}
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-orange-400">Course Library</h2>
-            <div className="flex items-center gap-3">
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-stone-800 text-stone-300 border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm">
-                <option value="date">Sort by Date</option>
-                <option value="name">Sort by Name</option>
-              </select>
-              <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
-                <Upload className="w-4 h-4" /> Import
-              </button>
-              <button
-                onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-                className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
-              >
-                <Plus className="w-5 h-5" /> New Course
-              </button>
-            </div>
-          </div>
+          {renderLibrarySourceNotice()}
+          <SectionTitle
+            rule={false}
+            className="otter-view-title otter-library-title"
+            actions={
+              <>
+                <Select
+                  value={sortBy}
+                  onChange={(v) => setSortBy(v)}
+                  options={[{ value: 'date', label: 'Sort by date' }, { value: 'name', label: 'Sort by name' }]}
+                  aria-label="Sort courses"
+                />
+                <Button variant="secondary" Icon={Upload} onClick={() => setShowImportModal(true)}>
+                  Import
+                </Button>
+                <Button
+                  variant="primary"
+                  Icon={Plus}
+                  onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
+                >
+                  New course
+                </Button>
+              </>
+            }
+          >
+            Course library
+          </SectionTitle>
           {sorted.length === 0 && softwareList.length > 0 ? (
             // Courses exist, this filter just matched none of them. Saying
             // "No courses yet" here would read as data loss.
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-xl font-bold text-orange-400 mb-2">Nothing under this filter</h3>
-              <p className="text-stone-500 mb-6 max-w-md">
-                You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match
-                &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.
-              </p>
-              <button
-                onClick={() => setCourseFilter('all')}
-                className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-4 py-2 rounded-sm hover:bg-stone-600 transition-colors font-bold"
-              >
-                Show all courses
-              </button>
-            </div>
+            <EmptyState
+              icon={BookOpen}
+              title="Nothing under this filter"
+              body={<>You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.</>}
+            >
+              <Button variant="secondary" onClick={() => setCourseFilter('all')}>Show all courses</Button>
+            </EmptyState>
           ) : sorted.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
-              <h3 className="text-xl font-bold text-orange-400 mb-2">No courses yet</h3>
-              <p className="text-stone-500 mb-6 max-w-md">Create your first learning path by telling O.T.T.E.R. what software or language you want to learn.</p>
-              <button
+            <EmptyState
+              icon={BookOpen}
+              title="No courses yet"
+              body="Create your first learning path by telling O.T.T.E.R. what software or language you want to learn."
+            >
+              <Button
+                variant="primary"
+                Icon={Plus}
                 onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
-                className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold text-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
               >
-                <Plus className="w-6 h-6" /> Create Your First Course
-              </button>
-            </div>
+                Create your first course
+              </Button>
+            </EmptyState>
           ) : (() => {
             const languages = sorted.filter(sw => sw.type === 'coding_language');
             const software = sorted.filter(sw => sw.type !== 'coding_language');
@@ -4109,11 +4281,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               return (
                 <div
                   key={sw.slug}
-                  className={`bg-stone-800 border-2 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative ${
-                    openable
-                      ? 'border-stone-600 hover:border-orange-500 cursor-pointer'
-                      : 'border-dashed border-stone-700 cursor-default'
-                  }`}
+                  className="otter-course-card"
+                  data-openable={openable ? undefined : 'false'}
                   onClick={() => { if (openable) { selectSoftware(sw.slug); setCurrentView('library'); } }}
                 >
                   {/* PHASE 5: hover concealment removed here too — see the
@@ -4121,10 +4290,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       when hunting for an action, so this is the one that most
                       needed to be visible at rest. */}
                   {cloudMode && (
-                    <div className="absolute top-2 right-2">
+                    <div className="otter-course-card-menu">
                       <CourseRowMenu
                         course={sw}
                         role={appRole}
+                        sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                         onShare={setShareDialogCourse}
                         onSuggestChange={setCrDialogCourse}
                         onFork={(c) => forkCourse(c)}
@@ -4132,51 +4302,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       />
                     </div>
                   )}
-                  {/* pr-8. The trigger is absolutely positioned at right-2 and
-                      is 30px wide since the PHASE 5 target-size fix, so its
-                      left edge sits 8+30 = 38px from the CARD's padding edge —
-                      but this h3 is a block child of a `p-4` card, so its
-                      content box already starts 16px in. It therefore needs
-                      only 38-16 = 22px of right padding to clear the trigger.
-                      pr-6 (24px) still cleared it, by 2px; pr-8 (32px) restores
-                      the ~10px breathing gap the old 22px trigger had. */}
-                  <h3 className={`font-bold text-lg leading-tight pr-8 transition-colors mb-2 ${
-                    openable ? 'text-white group-hover:text-orange-400' : 'text-stone-500'
-                  }`}>{sw.name}</h3>
+                  {/* The title clears the trigger: otter.css,
+                      .otter-course-card-title, has the arithmetic. */}
+                  <h3 className="otter-course-card-title">{sw.name}</h3>
                   {cloudMode && (
-                    <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                    <div className="otter-course-card-badges">
                       <VisibilityBadge course={sw} />
                       <MetadataOnlyBadge course={sw} />
                       <ReadOnlyBadge course={sw} />
                       <OwnerBadge course={sw} />
                     </div>
                   )}
-                  <div className="flex items-center gap-3 text-xs text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
-                  {sw.created_at && <p className="text-stone-600 text-xs mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
+                  <div className="otter-course-card-meta"><span className="otter-count">{sw.subject_count} subjects</span></div>
+                  {sw.created_at && <p className="otter-course-card-date">{new Date(sw.created_at).toLocaleDateString()}</p>}
                 </div>
               );
             };
             return (
-              <div className="space-y-8">
+              <div className="otter-shelves">
                 {software.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Keyboard className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm">Software</h3>
-                      <span className="text-stone-600 text-xs">({software.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{software.map(renderCard)}</div>
-                  </div>
+                  <section className="otter-shelf">
+                    <h3 className="otter-shelf-title">
+                      <Keyboard className="otter-shelf-icon" aria-hidden="true" />
+                      Software <span className="otter-count">({software.length})</span>
+                    </h3>
+                    <div className="otter-card-grid">{software.map(renderCard)}</div>
+                  </section>
                 )}
                 {languages.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                      <Braces className="w-5 h-5 text-orange-400" />
-                      <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm">Languages</h3>
-                      <span className="text-stone-600 text-xs">({languages.length})</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{languages.map(renderCard)}</div>
-                  </div>
+                  <section className="otter-shelf">
+                    <h3 className="otter-shelf-title">
+                      <Braces className="otter-shelf-icon" aria-hidden="true" />
+                      Languages <span className="otter-count">({languages.length})</span>
+                    </h3>
+                    <div className="otter-card-grid">{languages.map(renderCard)}</div>
+                  </section>
                 )}
               </div>
             );
@@ -4201,38 +4361,46 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const standardMatch = findStandardByName(softwareList, softwareNameInput);
 
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-orange-400 mb-2">
-            {isCourseMode ? (isExistingSoftware ? `Add Subjects to ${exactMatch.name}` : 'New Software Course') : `Add Subject to ${activeSoftware?.name || 'Software'}`}
-          </h2>
-          <p className="text-stone-400 mb-6">
-            {isCourseMode
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            description={isCourseMode
               ? (isExistingSoftware
                 ? `${exactMatch.name} already exists. New subjects will be added to the existing course (basics will be skipped).`
                 : 'Enter the software or language name. O.T.T.E.R. will generate a course outline with 5-10 subject stubs.')
               : 'Describe the topic you want to add. O.T.T.E.R. will generate a focused single-subject lesson.'}
-          </p>
-          <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
+          >
+            {isCourseMode ? (isExistingSoftware ? `Add subjects to ${exactMatch.name}` : 'New software course') : `Add subject to ${activeSoftware?.name || 'Software'}`}
+          </SectionTitle>
+          {/* The form's controls wear the kit's CSS contract (ui-input, the
+              Field label) on their own elements rather than becoming the kit's
+              Input: that component brings Escape-reverts-the-edit, a new
+              behaviour on this form (C1). The labels stay unassociated, as
+              they were — htmlFor would make each one a new click target. */}
+          <div className="otter-form-card">
             {/* Mode selector */}
-            <label className="block text-xs font-bold text-orange-400 mb-2 uppercase tracking-wide">Mode</label>
-            <div className="flex gap-3 mb-5">
+            <label className="ui-field-label otter-form-label">Mode</label>
+            <div className="otter-radio-row">
               <button onClick={() => setPromptMode('course')} disabled={generating}
-                className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
-                <div className="font-bold text-sm">{isCourseMode ? '\u25CF ' : '\u25CB '}New Course</div>
-                <div className="text-xs mt-1 text-stone-400">Generate 5-10 subject outlines for a software/language.</div>
+                className="otter-radio-card"
+                data-selected={isCourseMode ? 'true' : undefined}>
+                <div className="otter-radio-title">{isCourseMode ? '\u25CF ' : '\u25CB '}New course</div>
+                <div className="otter-radio-desc">Generate 5-10 subject outlines for a software/language.</div>
               </button>
               <button onClick={() => setPromptMode('subject')} disabled={generating}
-                className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${!isCourseMode ? 'bg-orange-600/15 border-orange-500 text-white' : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'}`}>
-                <div className="font-bold text-sm">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add Subject</div>
-                <div className="text-xs mt-1 text-stone-400">Focused single-topic lesson added to existing course.</div>
+                className="otter-radio-card"
+                data-selected={!isCourseMode ? 'true' : undefined}>
+                <div className="otter-radio-title">{!isCourseMode ? '\u25CF ' : '\u25CB '}Add subject</div>
+                <div className="otter-radio-desc">Focused single-topic lesson added to existing course.</div>
               </button>
             </div>
 
             {/* Software name input with autocomplete (course mode) */}
             {isCourseMode && (
-              <div className="relative mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language Name</label>
+              <div className="otter-form-field otter-autocomplete">
+                <label className="ui-field-label otter-form-label">Software / Language name</label>
                 <input
                   ref={softwareInputRef} type="text" value={softwareNameInput}
                   onChange={e => { setSoftwareNameInput(e.target.value); setShowSoftwareDropdown(true); }}
@@ -4240,21 +4408,23 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   onBlur={() => setTimeout(() => setShowSoftwareDropdown(false), 200)}
                   placeholder="e.g., Python, Blender, Photoshop..."
                   disabled={generating}
-                  className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600"
+                  className="ui-input"
+                  data-surface="dark"
                 />
                 {showSoftwareDropdown && softwareNameInput.trim() && filteredSoftware.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-stone-700 border-2 border-stone-600 rounded-sm shadow-lg z-50 max-h-[200px] overflow-y-auto">
+                  <div className="otter-autocomplete-list">
                     {filteredSoftware.map(sw => (
                       <button key={sw.slug}
                         onMouseDown={(e) => { e.preventDefault(); setSoftwareNameInput(sw.name); setShowSoftwareDropdown(false); }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-stone-600 transition-colors flex items-center justify-between ${sw.name.toLowerCase() === softwareNameLower ? 'text-orange-400 font-bold' : 'text-stone-300'}`}>
+                        className="otter-sw-option"
+                        data-match={sw.name.toLowerCase() === softwareNameLower ? 'true' : undefined}>
                         <span>{sw.name}</span>
-                        <span className="text-stone-500 text-xs">{sw.subject_count} subjects</span>
+                        <span className="otter-sw-option-count">{sw.subject_count} subjects</span>
                       </button>
                     ))}
                   </div>
                 )}
-                {isExistingSoftware && <p className="text-orange-400/70 text-xs mt-1">Existing course -- new subjects will be added, basics skipped.</p>}
+                {isExistingSoftware && <p className="otter-form-hint">Existing course — new subjects will be added, basics skipped.</p>}
 
                 {/* ── The fork offer ──────────────────────────────────────────
                     Inline in the flow the user is already in, the moment the
@@ -4265,35 +4435,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                     already settled; this is the cheaper and better answer.
                     (Von Restorff: the ONE highlighted block on this screen.) */}
                 {cloudMode && standardMatch && !standardMatch.is_own && (
-                  <div className="mt-3 bg-orange-600/10 border-2 border-orange-600/50 rounded-sm p-3">
-                    <div className="flex items-start gap-2">
-                      <ShieldCheck className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-orange-300 text-xs font-bold mb-0.5">
-                          Your company already has a course for this
-                        </p>
-                        <p className="text-stone-400 text-[11px] mb-2">
-                          &ldquo;{standardMatch.name}&rdquo; is the company standard
-                          ({standardMatch.subject_count} subjects). Start from that instead of
-                          generating a new one — you get your own copy to edit, and you can send
-                          your improvements back.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => forkCourse(standardMatch)}
-                            disabled={forkBusy || generating}
-                            className="flex items-center gap-1.5 bg-orange-600 text-white border-2 border-orange-700 px-3 py-1.5 rounded-sm hover:bg-orange-700 transition-colors text-[11px] font-bold disabled:opacity-50"
-                          >
-                            {forkBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
-                            Use the company standard
-                          </button>
-                          <span className="text-stone-600 text-[10px] self-center">
-                            or carry on below to generate your own
-                          </span>
-                        </div>
-                      </div>
+                  <Banner tone="info" Icon={ShieldCheck} className="otter-fork-offer">
+                    <p className="otter-fork-title">Your company already has a course for this</p>
+                    <p className="otter-fork-body">
+                      &ldquo;{standardMatch.name}&rdquo; is the company standard
+                      ({standardMatch.subject_count} subjects). Start from that instead of
+                      generating a new one — you get your own copy to edit, and you can send
+                      your improvements back.
+                    </p>
+                    <div className="otter-fork-actions">
+                      <Button variant="primary" size="sm" onClick={() => forkCourse(standardMatch)} disabled={forkBusy || generating}>
+                        {forkBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+                        Use the company standard
+                      </Button>
+                      <span className="otter-form-hint">or carry on below to generate your own</span>
                     </div>
-                  </div>
+                  </Banner>
                 )}
               </div>
             )}
@@ -4306,11 +4463,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 afterwards from the course's own menu, by an admin, rather than
                 being a third choice everyone has to reason past here. */}
             {isCourseMode && cloudMode && !isExistingSoftware && (
-              <div className="mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">
+              <div className="otter-form-field">
+                <label className="ui-field-label otter-form-label">
                   Who is this for?
                 </label>
-                <div className="flex gap-3">
+                <div className="otter-radio-row">
                   {['personal', 'shared'].map(tier => {
                     const meta = VISIBILITY_META[tier];
                     const active = newCourseVisibility === tier;
@@ -4319,19 +4476,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                         key={tier}
                         onClick={() => setNewCourseVisibility(tier)}
                         disabled={generating}
-                        className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${
-                          active
-                            ? 'bg-orange-600/15 border-orange-500 text-white'
-                            : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'
-                        }`}
+                        className="otter-radio-card"
+                        data-selected={active ? 'true' : undefined}
                       >
-                        <div className="font-bold text-sm">{active ? '● ' : '○ '}{meta.label}</div>
-                        <div className="text-xs mt-1 text-stone-400">{meta.blurb}</div>
+                        <div className="otter-radio-title">{active ? '● ' : '○ '}{meta.label}</div>
+                        <div className="otter-radio-desc">{meta.blurb}</div>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-stone-600 text-[10px] mt-1">
+                <p className="otter-form-hint">
                   You can change this later from the course&apos;s menu.
                 </p>
               </div>
@@ -4339,13 +4493,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
             {/* Subject mode: software dropdown selector */}
             {!isCourseMode && (
-              <div className="relative mb-4">
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Software / Language</label>
+              <div className="otter-form-field">
+                <label className="ui-field-label otter-form-label">Software / Language</label>
                 {softwareList.length === 0 ? (
-                  <p className="text-stone-500 text-sm">No courses yet. Create a course first.</p>
+                  <p className="otter-form-hint">No courses yet. Create a course first.</p>
                 ) : (
                   <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }} disabled={generating}
-                    className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors">
+                    className="ui-input" data-surface="dark">
                     <option value="" disabled>Select a software/language...</option>
                     {softwareList.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
                   </select>
@@ -4354,104 +4508,98 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             )}
 
             {/* Prompt textarea */}
-            <label className="block text-sm font-bold text-orange-400 mb-2 uppercase tracking-wide">
-              {isCourseMode ? 'Description (optional)' : 'What specific topic?'}
-            </label>
-            <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
-              placeholder={isCourseMode ? "e.g., Focus on game development workflow..." : "e.g., List comprehensions in Python..."}
-              className="w-full h-32 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-4 resize-none focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600"
-              disabled={generating} />
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">
+                {isCourseMode ? 'Description (optional)' : 'What specific topic?'}
+              </label>
+              <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
+                placeholder={isCourseMode ? "e.g., Focus on game development workflow..." : "e.g., List comprehensions in Python..."}
+                className="ui-input otter-prompt-textarea"
+                data-surface="dark"
+                disabled={generating} />
+            </div>
 
             {/* Reference URLs */}
-            <label className="block text-xs font-bold text-orange-400 mt-4 mb-2 uppercase tracking-wide">Reference URLs (optional)</label>
-            <p className="text-stone-500 text-[10px] mb-2">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
-            <div className="flex gap-2 mb-2">
-              <input type="text" value={referenceUrlInput}
-                onChange={e => setReferenceUrlInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
-                placeholder="https://docs.example.com/guide"
-                disabled={generating || fetchingUrl}
-                className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600" />
-              <button onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}
-                className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:opacity-50 flex items-center gap-1">
-                {fetchingUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
-              </button>
-            </div>
-            {referenceUrls.length > 0 && (
-              <div className="space-y-1 mb-3">
-                {referenceUrls.map((ref, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-stone-900 border border-stone-700 rounded-sm px-2 py-1 text-[11px]">
-                    <Link className="w-3 h-3 text-stone-500 shrink-0" />
-                    <span className={`truncate flex-1 ${ref.error ? 'text-red-400' : 'text-stone-300'}`}>{ref.title || ref.url}</span>
-                    {ref.error && <span className="text-red-500 text-[10px]">Failed</span>}
-                    {!ref.error && <Check className="w-3 h-3 text-green-500 shrink-0" />}
-                    <button onClick={() => {
-                        const updated = referenceUrls.filter((_, j) => j !== i);
-                        setReferenceUrls(updated);
-                        saveReferenceUrls(updated);
-                      }}
-                      className="text-stone-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
-                  </div>
-                ))}
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">Reference URLs (optional)</label>
+              <p className="otter-form-hint otter-form-hint-above">Add URLs for O.T.T.E.R. to reference when creating lessons. Reduces web search time.</p>
+              <div className="otter-ref-add">
+                <input type="text" value={referenceUrlInput}
+                  onChange={e => setReferenceUrlInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
+                  placeholder="https://docs.example.com/guide"
+                  disabled={generating || fetchingUrl}
+                  className="ui-input"
+                  data-surface="dark" />
+                <Button variant="secondary" onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}>
+                  {fetchingUrl ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />} Add
+                </Button>
               </div>
-            )}
+              {referenceUrls.length > 0 && (
+                <ul className="otter-refs">
+                  {referenceUrls.map((ref, i) => (
+                    <li key={i} className="otter-ref">
+                      <Link className="otter-ref-icon" aria-hidden="true" />
+                      <span className="otter-ref-title" data-error={ref.error ? 'true' : undefined}>{ref.title || ref.url}</span>
+                      {ref.error && <span className="otter-ref-failed">Failed</span>}
+                      {!ref.error && <Check className="otter-ref-ok" aria-hidden="true" />}
+                      <IconButton
+                        size="sm"
+                        icon={X}
+                        title="Remove this reference"
+                        onClick={() => {
+                          const updated = referenceUrls.filter((_, j) => j !== i);
+                          setReferenceUrls(updated);
+                          saveReferenceUrls(updated);
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             {/* Skill level */}
-            <div className="mt-4 flex items-center gap-4">
-              <div>
-                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">Skill Level</label>
-                <div className="flex gap-2">
-                  {['beginner', 'intermediate', 'advanced'].map(level => (
-                    <button key={level} onClick={() => setSkillLevel(level)} disabled={generating}
-                      className={`px-3 py-1.5 rounded-sm text-sm font-bold uppercase border-2 transition-colors ${skillLevel === level ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
-                      {level}
-                    </button>
-                  ))}
-                </div>
+            <div className="otter-form-field">
+              <label className="ui-field-label otter-form-label">Skill level</label>
+              <div className="otter-levels" role="group" aria-label="Skill level">
+                {['beginner', 'intermediate', 'advanced'].map(level => (
+                  <Chip key={level} active={skillLevel === level} onClick={() => setSkillLevel(level)} disabled={generating}>
+                    {level}
+                  </Chip>
+                ))}
               </div>
             </div>
 
             {genError && (
-              <div className="mt-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-sm">{genError}</p>
+              <Banner tone="danger" Icon={AlertCircle} className="otter-gen-error">{genError}</Banner>
+            )}
+
+            {/* Q22 (Audrey, 2026-09-11): the fabricated percentage is removed —
+                the bar stays, the number goes. The fill used to climb a
+                hard-coded ladder of elapsed seconds (5, 15, 30 … 92 percent)
+                that no generation reports; it now says only "working", and
+                the phase and the timer, the two honest signals, stay. */}
+            {generating && (
+              <div className="otter-gen">
+                <div className="otter-gen-head">
+                  <span className="otter-gen-phase"><Loader2 className="animate-spin" aria-hidden="true" /> {genPhase}</span>
+                  <span className="otter-gen-time">{formatTime(genElapsed)}</span>
+                </div>
+                <div className="otter-gen-bar" aria-hidden="true"><div className="otter-gen-sweep" /></div>
               </div>
             )}
 
-            {generating && (() => {
-              // Time-based progress estimation
-              let pct = 5;
-              if (genElapsed >= 2) pct = 15;
-              if (genElapsed >= 5) pct = 30;
-              if (genElapsed >= 8) pct = 45;
-              if (genElapsed >= 12) pct = 60;
-              if (genElapsed >= 18) pct = 72;
-              if (genElapsed >= 25) pct = 82;
-              if (genElapsed >= 35) pct = 88;
-              if (genElapsed >= 45) pct = 92;
-              return (
-                <div className="mt-6 bg-stone-900 border-2 border-stone-600 rounded-sm p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-sm font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genPhase}</span>
-                    <span className="text-stone-400 text-sm font-mono">{formatTime(genElapsed)}</span>
-                  </div>
-                  <div className="w-full bg-stone-700 rounded-sm h-2 overflow-hidden border border-stone-600">
-                    <div className="h-full bg-orange-500 transition-all duration-1000 ease-out" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })()}
-
             {!generating && (
-              <button onClick={isCourseMode ? generateCourse : generateSingleSubject}
+              <Button
+                variant="primary"
+                className="otter-generate"
+                onClick={isCourseMode ? generateCourse : generateSingleSubject}
                 disabled={isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug)}
-                className={`mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-sm border-2 font-bold text-lg transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] ${
-                  (isCourseMode ? !softwareNameInput.trim() : (!promptText.trim() || !activeSoftwareSlug))
-                    ? 'bg-stone-700 text-stone-500 border-stone-600 cursor-not-allowed' : 'bg-orange-600 text-white border-orange-700 hover:bg-orange-700'
-                }`}>
-                <GraduationCap className="w-5 h-5" />
-                {isCourseMode ? (isExistingSoftware ? 'Add Subjects to Existing Course' : 'Generate Course Outline') : 'Generate Subject'}
-              </button>
+              >
+                <GraduationCap aria-hidden="true" />
+                {isCourseMode ? (isExistingSoftware ? 'Add subjects to existing course' : 'Generate course outline') : 'Generate subject'}
+              </Button>
             )}
           </div>
         </div>
@@ -4465,104 +4613,101 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderSourcesView() {
     if (!activeSubject || !activeSubject.sources?.length) {
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-3xl mx-auto text-center py-20">
-            <BookOpen className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-            <p className="text-stone-500">No sources available for this subject.</p>
-            <button onClick={() => setCurrentView('study')} className="mt-4 text-orange-400 hover:text-orange-300 text-sm">← Back to lessons</button>
-          </div>
-        </div>
+        <EmptyState icon={BookOpen} title="No sources available for this subject.">
+          <Button variant="ghost" Icon={ArrowLeft} onClick={() => setCurrentView('study')}>Back to lessons</Button>
+        </EmptyState>
       );
     }
     return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-orange-400">Works Cited</h2>
-              <p className="text-stone-500 text-sm">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</p>
-            </div>
-            <button onClick={() => setCurrentView('study')}
-              className="flex items-center gap-2 text-stone-400 hover:text-orange-400 transition-colors text-sm">
-              <ArrowLeft className="w-4 h-4" /> Back to lessons
-            </button>
-          </div>
-          <div className="space-y-3">
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            description={<span className="otter-count">{activeSubject.title} — {activeSubject.sources.length} source{activeSubject.sources.length !== 1 ? 's' : ''}</span>}
+            actions={<Button variant="ghost" Icon={ArrowLeft} onClick={() => setCurrentView('study')}>Back to lessons</Button>}
+          >
+            Works cited
+          </SectionTitle>
+          <ul className="otter-sources">
             {activeSubject.sources.map((src, i) => (
-              <a key={i} href={src.url} target="_blank" rel="noopener noreferrer"
-                className="block bg-stone-800 border-2 border-stone-600 rounded-sm p-4 hover:border-orange-500 transition-colors group shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <div className="flex items-start gap-3">
-                  <ExternalLink className="w-4 h-4 text-stone-500 group-hover:text-orange-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-bold text-orange-400 transition-colors">{src.title || 'Untitled Source'}</h3>
-                    <p className="text-xs text-stone-500 truncate mt-1">{src.url}</p>
+              <li key={i}>
+                <a href={src.url} target="_blank" rel="noopener noreferrer" className="otter-source">
+                  <ExternalLink className="otter-source-icon" aria-hidden="true" />
+                  <div className="otter-source-text">
+                    <h3 className="otter-source-title">{src.title || 'Untitled source'}</h3>
+                    <span className="otter-source-url">{src.url}</span>
                   </div>
-                </div>
-              </a>
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </div>
     );
   }
-
   // ═══════════════════════════════════════════════════════════════
   //  STUDY VIEW
   // ═══════════════════════════════════════════════════════════════
   function renderStudyView() {
     if (!activeSubject) {
-      return <div className="flex items-center justify-center h-full text-stone-500"><p>Select a subject from the sidebar to begin studying.</p></div>;
+      return <EmptyState icon={BookOpen} title="Select a subject from the sidebar to begin studying." />;
     }
     if (activeSubject.is_stub) {
+      // S2b (C4, C5): the lesson page's width, and its one-line breadcrumb.
       return (
-        <div className="h-full overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center gap-1.5 text-xs mb-2">
-              <span className="text-orange-400/70 font-bold">{activeSoftware?.name}</span>
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-400">{activeSubject.title}</span>
-              <span className="text-stone-600 ml-1">[outline]</span>
-            </div>
-            <h2 className="text-2xl font-bold text-orange-400 mb-2">{activeSubject.title}</h2>
-            <p className="text-stone-400 mb-6">{activeSubject.description}</p>
-            <div className="bg-stone-800 border-2 border-dashed border-stone-600 rounded-sm p-6 mb-6">
-              <h3 className="text-stone-300 font-bold text-sm uppercase tracking-wide mb-4">Section Outlines</h3>
+        <div className="otter-view">
+          <div className="otter-view-page" data-width="subject">
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject.title].filter(Boolean).join(' › ') + ' [outline]'}>
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
+              <span className="otter-crumb-current" aria-current="page">{activeSubject.title}</span>
+              <span className="otter-crumb-note">[outline]</span>
+            </nav>
+            <SectionTitle rule={false} className="otter-view-title" description={activeSubject.description}>
+              {activeSubject.title}
+            </SectionTitle>
+            <Card title="Section outlines" className="otter-outline-card">
               {activeSubject.section_outlines?.length > 0 ? (
-                <div className="space-y-3">
+                <ul className="otter-outlines">
                   {activeSubject.section_outlines.map((outline, i) => (
-                    <div key={i} className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-                      <h4 className="text-white font-bold text-sm">{outline.title}</h4>
-                      <p className="text-stone-400 text-xs mt-1">{outline.description}</p>
-                      <span className="text-stone-500 text-xs">{outline.lesson_count} lessons planned</span>
-                    </div>
+                    <li key={i} className="otter-outline">
+                      <h4 className="otter-outline-title">{outline.title}</h4>
+                      <p className="otter-outline-desc">{outline.description}</p>
+                      <span className="otter-outline-meta">{outline.lesson_count} lessons planned</span>
+                    </li>
                   ))}
-                </div>
-              ) : <p className="text-stone-500 text-sm">No section outlines available.</p>}
-            </div>
-            <button onClick={() => generateSubjectContent(activeSubject.slug)} disabled={generatingSubjects.has(activeSubject.slug)}
-              className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors text-lg font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50">
-              {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
-              {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate Full Content'}
-            </button>
+                </ul>
+              ) : <p className="otter-outline-desc">No section outlines available.</p>}
+            </Card>
+            <Button
+              variant="primary"
+              className="otter-generate-full"
+              onClick={() => generateSubjectContent(activeSubject.slug)}
+              disabled={generatingSubjects.has(activeSubject.slug)}
+            >
+              {generatingSubjects.has(activeSubject.slug) ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GraduationCap aria-hidden="true" />}
+              {generatingSubjects.has(activeSubject.slug) ? 'Generating...' : 'Generate full content'}
+            </Button>
             {generatingSubjects.has(activeSubject.slug) && (() => {
               const genEntry = generatingSubjects.get(activeSubject.slug);
               return (
-                <div className="mt-4 bg-stone-900 border-2 border-stone-600 rounded-sm p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-orange-400 text-sm font-bold flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {genEntry?.phase || 'Working...'}</span>
-                    <span className="text-stone-400 text-sm font-mono">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
+                // The same progress as the prompt screen's (O16: one idiom,
+                // not three). This bar sat at 100 percent, pulsing, which
+                // read as finished while the work was still running.
+                <div className="otter-gen">
+                  <div className="otter-gen-head">
+                    <span className="otter-gen-phase"><Loader2 className="animate-spin" aria-hidden="true" /> {genEntry?.phase || 'Working...'}</span>
+                    <span className="otter-gen-time">{Math.floor((genEntry?.elapsed || 0) / 60)}:{String((genEntry?.elapsed || 0) % 60).padStart(2, '0')}</span>
                   </div>
-                  <div className="w-full bg-stone-700 rounded-sm h-2 overflow-hidden border border-stone-600">
-                    <div className="h-full bg-orange-500 animate-pulse" style={{ width: '100%', opacity: 0.6 }} />
-                  </div>
+                  <div className="otter-gen-bar" aria-hidden="true"><div className="otter-gen-sweep" /></div>
                 </div>
               );
             })()}
             {genError && (
-              <div className="mt-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                <p className="text-red-300 text-sm">{genError}</p>
-              </div>
+              <Banner tone="danger" Icon={AlertCircle} className="otter-gen-error">{genError}</Banner>
             )}
           </div>
         </div>
@@ -4576,26 +4721,52 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const currentSection = activeSubject?.sections?.find(s => s.lessons?.some(l => l.id === selectedLessonId));
 
     return (
-      <div className="h-full overflow-y-auto bg-stone-900">
+      <div className="otter-study">
         {selectedLesson ? (
-          <div className="p-6 max-w-4xl">
-            <div className="flex items-center gap-1.5 text-xs mb-2 flex-wrap">
-              <span className="text-orange-400/70 font-bold">{activeSoftware?.name}</span>
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-500">{activeSubject?.title}</span>
-              {currentSection && <><ChevronRight className="w-3 h-3 text-stone-600 shrink-0" /><span className="text-stone-500">{currentSection.title}</span></>}
-              <ChevronRight className="w-3 h-3 text-stone-600 shrink-0" />
-              <span className="text-stone-400">{selectedLesson.title}</span>
-            </div>
-            <h2 className="text-2xl font-bold text-orange-400 mb-1">{selectedLesson.title}</h2>
-            <div className="lesson-content mb-8">
+          <div className="otter-study-page">
+            {/* One line (S2b, C5). Giving way, in order: the subject and the
+                section (one run, down to "› …"), then the course, and the
+                lesson only when it alone is longer than the line. The whole
+                path is the title. */}
+            <nav className="otter-crumbs" aria-label="Breadcrumb" title={[activeSoftware?.name, activeSubject?.title, currentSection?.title, selectedLesson.title].filter(Boolean).join(' › ')}>
+              <span className="otter-crumb-trail">
+                <span className="otter-crumb-keep">{activeSoftware?.name}</span>
+                <span className="otter-crumb"><ChevronRight className="otter-crumb-sep" aria-hidden="true" />{activeSubject?.title}{currentSection?.title && <><ChevronRight className="otter-crumb-sep" aria-hidden="true" /><span className="otter-crumb-said"> › </span>{currentSection.title}</>}</span>
+                <ChevronRight className="otter-crumb-sep" aria-hidden="true" />
+              </span>
+              <span className="otter-crumb-current" aria-current="page">{selectedLesson.title}</span>
+            </nav>
+            {/* The reading surface's own title, at the H1 step: the one 20px
+                line on it. The markdown's headings sit one step below (O32),
+                so a stray "# heading" in a lesson can no longer read as the
+                page starting over. */}
+            <h2 className="otter-lesson-title">{selectedLesson.title}</h2>
+            <div className="lesson-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
+                  // A3: oneDark's inline block style is neutralised here
+                  // (LESSON_CODE_BLOCK, above the component) so the <pre>
+                  // react-markdown wraps around this draws the one well. The
+                  // syntax colours inside are data and stay the theme's.
+                  // Inline code carries no style of its own any more:
+                  // .lesson-content styles it.
                   return !inline && match ? (
-                    <SyntaxHighlighter style={oneDark} language={match[1]} PreTag="div" {...props}>{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
-                  ) : (<code {...props} className={className} style={{ background: '#292524', color: '#fb923c', padding: '0.15rem 0.4rem', borderRadius: '2px', fontSize: '0.9em' }}>{children}</code>);
-                }
+                    <SyntaxHighlighter
+                      style={LESSON_CODE_THEME}
+                      language={match[1]}
+                      PreTag="div"
+                      customStyle={LESSON_CODE_BLOCK}
+                      codeTagProps={{ className: `language-${match[1]}`, style: LESSON_CODE_TEXT }}
+                      {...props}
+                    >{String(children).replace(/\n$/, '')}</SyntaxHighlighter>
+                  ) : (<code {...props} className={className}>{children}</code>);
+                },
+                // A table scrolls inside this box when its columns cannot fit
+                // the reading container, not the pane (A3 review round 2).
+                table({ node, ...props }) {
+                  return <div className="lesson-table"><table {...props} /></div>;
+                },
               }}>
                 {(() => {
                   let content = selectedLesson.content || '';
@@ -4609,41 +4780,55 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 })()}
               </ReactMarkdown>
             </div>
+            {/* Key takeaways and the practice exercise are siblings of the
+                prose, so they were the one thing still running the pane's
+                full width beside a measured paragraph (T1's question 2).
+                Both are the kit's Card now, on the same measure. */}
             {selectedLesson.key_takeaways?.length > 0 && (
-              <div className="bg-stone-800 border-2 border-orange-600 rounded-sm p-4 mb-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-orange-400 font-bold text-sm uppercase tracking-wide mb-2 flex items-center gap-2"><Star className="w-4 h-4" /> Key Takeaways</h3>
-                <ul className="space-y-1">
+              <Card
+                className="otter-lesson-card"
+                title={<><Star className="otter-card-icon" aria-hidden="true" /> Key takeaways</>}
+              >
+                <ul className="otter-takeaways">
                   {selectedLesson.key_takeaways.map((t, i) => (
-                    <li key={i} className="text-stone-300 text-sm flex items-start gap-2"><Check className="w-3 h-3 text-orange-500 mt-1 shrink-0" /> {t}</li>
+                    <li key={i}><Check className="otter-takeaway-mark" aria-hidden="true" /> {t}</li>
                   ))}
                 </ul>
-              </div>
+              </Card>
             )}
             {selectedLesson.practice_prompt && (
-              <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <h3 className="text-stone-300 font-bold text-sm uppercase tracking-wide mb-2 flex items-center gap-2"><Lightbulb className="w-4 h-4 text-yellow-500" /> Practice Exercise</h3>
-                <p className="text-stone-400 text-sm">{selectedLesson.practice_prompt}</p>
-              </div>
+              <Card
+                className="otter-lesson-card"
+                title={<><Lightbulb className="otter-card-icon" aria-hidden="true" /> Practice exercise</>}
+              >
+                <p className="otter-practice">{selectedLesson.practice_prompt}</p>
+              </Card>
             )}
-            <div className="flex items-center justify-between border-t-2 border-stone-700 pt-4">
-              <button onClick={() => toggleLessonComplete(selectedLesson.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-sm border-2 font-bold text-sm transition-colors ${completedLessons.includes(selectedLesson.id) ? 'bg-green-800 text-green-200 border-green-700' : 'bg-stone-700 text-stone-300 border-stone-600 hover:bg-stone-600'}`}>
-                <Check className="w-4 h-4" /> {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark Complete'}
-              </button>
-              <div className="flex gap-2">
-                <button disabled={currentIdx <= 0} onClick={() => navigateLesson(-1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
-                  <ArrowLeft className="w-4 h-4" /> Previous
-                </button>
-                <button disabled={currentIdx >= allLessons.length - 1} onClick={() => navigateLesson(1)}
-                  className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
-                  Next <ArrowRight className="w-4 h-4" />
-                </button>
+            <div className="otter-lesson-foot">
+              {/* Done or not is said by the label and the check, not by a
+                  green fill used nowhere else in the tool (O31). */}
+              <Button
+                variant="secondary"
+                Icon={Check}
+                onClick={() => toggleLessonComplete(selectedLesson.id)}
+                aria-pressed={completedLessons.includes(selectedLesson.id)}
+                className="otter-complete"
+                data-complete={completedLessons.includes(selectedLesson.id) ? 'true' : undefined}
+              >
+                {completedLessons.includes(selectedLesson.id) ? 'Completed' : 'Mark complete'}
+              </Button>
+              <div className="otter-lesson-steps">
+                <Button variant="secondary" Icon={ArrowLeft} disabled={currentIdx <= 0} onClick={() => navigateLesson(-1)}>
+                  Previous
+                </Button>
+                <Button variant="primary" disabled={currentIdx >= allLessons.length - 1} onClick={() => navigateLesson(1)}>
+                  Next <ArrowRight aria-hidden="true" />
+                </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-stone-500">Select a lesson from the sidebar.</div>
+          <EmptyState title="Select a lesson from the sidebar." />
         )}
       </div>
     );
@@ -4674,40 +4859,35 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     if (quizActive) {
       const hasMcContent = quizQuestions && quizQuestions.length > 0;
       const hasChallengeContent = challenges && challenges.length > 0;
+      // A4: the three question sets are the kit's Tabs (they were a strip of
+      // their own: orange-400 on stone-900 with a 2px orange edge), on a
+      // Toolbar with "Back to selection" at its right, as it stood.
+      const quizTabs = [
+        hasMcContent && { id: 'mc', label: `Multiple choice (${quizQuestions.filter((_, i) => !quizQuestions[i]?.code_snippet).length})` },
+        hasMcContent && quizQuestions.some(q => q.code_snippet) && { id: 'codeId', label: 'Code identification' },
+        hasChallengeContent && { id: 'codeWrite', label: `Code writing (${challenges.length})` },
+      ].filter(Boolean);
       return (
-        <div className="h-full flex flex-col">
-          <div className="flex items-center border-b-2 border-stone-600 bg-stone-800 shrink-0">
-            {hasMcContent && (
-              <button onClick={() => setQuizTab('mc')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'mc' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Multiple Choice ({quizQuestions.filter((_, i) => !quizQuestions[i]?.code_snippet).length})
-              </button>
+        <div className="otter-quiz">
+          <Toolbar
+            className="otter-quiz-bar"
+            right={(
+              <Button variant="ghost" size="sm" icon={ArrowLeft}
+                onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}>
+                Back to selection
+              </Button>
             )}
-            {hasMcContent && quizQuestions.some(q => q.code_snippet) && (
-              <button onClick={() => setQuizTab('codeId')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'codeId' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Code Identification
-              </button>
+          >
+            {quizTabs.length > 0 && (
+              <Tabs items={quizTabs} value={quizTab} onChange={setQuizTab} panelId="otter-quiz-panel" label="Question sets" className="otter-quiz-tabs" />
             )}
-            {hasChallengeContent && (
-              <button onClick={() => setQuizTab('codeWrite')}
-                className={`px-4 py-2 text-sm font-bold transition-colors border-b-2 ${quizTab === 'codeWrite' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent hover:bg-stone-700'}`}>
-                Code Writing ({challenges.length})
-              </button>
-            )}
-            <div className="ml-auto pr-4">
-              <button onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}
-                className="text-stone-400 hover:text-stone-300 text-xs font-bold flex items-center gap-1">
-                <ArrowLeft className="w-3 h-3" /> Back to Selection
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="max-w-3xl mx-auto">
+          </Toolbar>
+          <div id="otter-quiz-panel" role="tabpanel" className="otter-quiz-body wilson-dark-scroll">
+            <div className="otter-quiz-page">
               {quizLoading && (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <Loader2 className="w-8 h-8 text-orange-500 animate-spin mb-4" />
-                  <p className="text-stone-400">Generating quiz questions...</p>
+                <div className="otter-quiz-loading">
+                  <Spinner size="lg" aria-hidden="true" />
+                  <p>Generating quiz questions...</p>
                 </div>
               )}
               {quizQuestions && !quizComplete && (quizTab === 'mc' || quizTab === 'codeId') && renderQuizQuestion()}
@@ -4719,130 +4899,148 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       );
     }
 
-    // Quiz selection interface
+    // Quiz selection interface — A4: A3's view scaffold and the prompt form's
+    // vocabulary (the form card, its label and hint, the kit's Chip for the
+    // question types, the primary Button). The course and subject pickers
+    // were click targets the keyboard could not reach; they are buttons with
+    // a checkbox role now (A2 made D.O.G.'s pickers Buttons for the same
+    // reason) and the check is drawn in the kit's selected treatment.
     return (
-      <div className="h-full flex flex-col">
-        <div className="flex items-center justify-between px-6 py-3 bg-stone-800 border-b-2 border-stone-600 shrink-0">
-          <div>
-            <h2 className="text-lg font-bold text-orange-400">Quiz Center</h2>
-            <p className="text-stone-500 text-xs">Select software/languages and subjects to quiz yourself on</p>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
-            {softwareList.length === 0 ? (
-              <div className="text-center py-20">
-                <GraduationCap className="w-16 h-16 text-stone-600 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-orange-400 mb-2">No Courses Available</h3>
-                <p className="text-stone-500">Create a course first to start quizzing yourself.</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-4 mb-8">
-                  {softwareList.map(sw => {
-                    const swData = quizSelectionData[sw.slug];
-                    const subjects = (swData?.subjects || []).filter(s => !s.is_stub);
-                    const selected = quizSelections[sw.slug];
-                    const isAllSelected = selected === 'all';
-                    const selectedSubs = selected instanceof Set ? selected : new Set();
-                    const isCoding = sw.type === 'coding_language';
-                    return (
-                      <div key={sw.slug} className="bg-stone-800 border-2 border-stone-600 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                        <div className={`flex items-center justify-between px-4 py-3 transition-colors ${isAllSelected ? 'bg-orange-600/20 border-b border-stone-600' : 'border-b border-stone-700'}`}>
-                          <div className="flex items-center gap-3 cursor-pointer flex-1 min-w-0" onClick={() => {
+      <div className="otter-view">
+        <div className="otter-view-page" data-width="reading">
+          <SectionTitle rule={false} className="otter-view-title" description="Select software/languages and subjects to quiz yourself on">
+            Quiz center
+          </SectionTitle>
+          {softwareList.length === 0 ? (
+            <EmptyState icon={GraduationCap} title="No courses available" body="Create a course first to start quizzing yourself." />
+          ) : (
+            <>
+              <div className="otter-quiz-courses">
+                {softwareList.map(sw => {
+                  const swData = quizSelectionData[sw.slug];
+                  const subjects = (swData?.subjects || []).filter(s => !s.is_stub);
+                  const selected = quizSelections[sw.slug];
+                  const isAllSelected = selected === 'all';
+                  const selectedSubs = selected instanceof Set ? selected : new Set();
+                  const isCoding = sw.type === 'coding_language';
+                  const pickState = isAllSelected ? 'all' : selectedSubs.size > 0 ? 'some' : 'none';
+                  const expanded = quizExpanded[sw.slug] !== false;
+                  return (
+                    <Card key={sw.slug} pad={false} className="otter-quiz-course">
+                      <div className="otter-quiz-course-head" data-selected={isAllSelected}>
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={isAllSelected ? true : selectedSubs.size > 0 ? 'mixed' : false}
+                          className="otter-quiz-pick"
+                          onClick={() => {
                             setQuizSelections(prev => {
                               const next = { ...prev };
                               if (next[sw.slug] === 'all') { delete next[sw.slug]; } else { next[sw.slug] = 'all'; }
                               return next;
                             });
-                          }}>
-                            <div className={`w-5 h-5 rounded-sm border-2 flex items-center justify-center transition-colors shrink-0 ${isAllSelected ? 'bg-orange-500 border-orange-600' : selectedSubs.size > 0 ? 'bg-orange-500/50 border-orange-600' : 'border-stone-500 bg-stone-900'}`}>
-                              {(isAllSelected || selectedSubs.size > 0) && <Check className="w-3 h-3 text-white" />}
-                            </div>
-                            <div>
-                              <h3 className="text-white font-bold text-sm">{sw.name}</h3>
-                              <div className="flex items-center gap-2 text-xs text-stone-500">
-                                <span>{subjects.length} subjects</span>
-                                {isCoding && <span className="bg-stone-700 px-1.5 py-0.5 rounded-sm text-stone-400">coding</span>}
-                              </div>
-                            </div>
-                          </div>
-                          {subjects.length > 0 && (
-                            <button onClick={() => setQuizExpanded(prev => ({ ...prev, [sw.slug]: prev[sw.slug] === false ? true : false }))} className="p-1.5 hover:bg-stone-600 rounded-sm transition-colors shrink-0">
-                              <ChevronDown className={`w-4 h-4 text-stone-400 transition-transform ${quizExpanded[sw.slug] !== false ? 'rotate-180' : ''}`} />
-                            </button>
-                          )}
-                        </div>
-                        {subjects.length > 0 && quizExpanded[sw.slug] !== false && (
-                          <div className="px-4 py-2 space-y-1">
-                            {subjects.map(sub => {
-                              const subSelected = isAllSelected || selectedSubs.has(sub.slug);
-                              return (
-                                <div key={sub.slug} className={`flex items-center gap-3 px-3 py-2 rounded-sm cursor-pointer transition-colors ${subSelected ? 'bg-orange-600/10' : 'hover:bg-stone-700'}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setQuizSelections(prev => {
-                                      const next = { ...prev };
-                                      let subs = next[sw.slug];
-                                      if (subs === 'all') { subs = new Set(subjects.map(s => s.slug)); }
-                                      else if (!(subs instanceof Set)) { subs = new Set(); }
-                                      else { subs = new Set(subs); }
-                                      if (subs.has(sub.slug)) { subs.delete(sub.slug); } else { subs.add(sub.slug); }
-                                      if (subs.size === subjects.length) { next[sw.slug] = 'all'; }
-                                      else if (subs.size === 0) { delete next[sw.slug]; }
-                                      else { next[sw.slug] = subs; }
-                                      return next;
-                                    });
-                                  }}>
-                                  <div className={`w-4 h-4 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors ${subSelected ? 'bg-orange-500 border-orange-600' : 'border-stone-500 bg-stone-900'}`}>
-                                    {subSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                                  </div>
-                                  <span className={`text-sm ${subSelected ? 'text-orange-300' : 'text-stone-400'}`}>{sub.title}</span>
-                                  <span className="text-stone-600 text-xs ml-auto">{sub.skill_level}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          }}
+                        >
+                          <span className="otter-quiz-check" data-state={pickState} aria-hidden="true">
+                            {pickState === 'all' && <Check />}
+                            {pickState === 'some' && <Minus />}
+                          </span>
+                          <span className="otter-quiz-course-text">
+                            <span className="otter-quiz-course-name">{sw.name}</span>
+                            <span className="otter-quiz-course-meta">
+                              <span>{subjects.length} subjects</span>
+                              {isCoding && <Badge>coding</Badge>}
+                            </span>
+                          </span>
+                        </button>
+                        {subjects.length > 0 && (
+                          <IconButton
+                            size="sm"
+                            icon={ChevronDown}
+                            title={expanded ? 'Hide subjects' : 'Show subjects'}
+                            aria-expanded={expanded}
+                            data-open={expanded}
+                            className="otter-quiz-expand"
+                            onClick={() => setQuizExpanded(prev => ({ ...prev, [sw.slug]: prev[sw.slug] === false ? true : false }))}
+                          />
                         )}
-                        {subjects.length === 0 && <div className="px-4 py-3 text-stone-600 text-xs italic">No generated subjects yet.</div>}
                       </div>
-                    );
-                  })}
-                </div>
-                {hasSelections && (
-                  <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                    <h3 className="text-white font-bold text-sm mb-1">Quiz Type</h3>
-                    <p className="text-stone-500 text-xs mb-3">Select one or more question types</p>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {[{ key: 'mc', label: 'Multiple Choice', always: true }, { key: 'codeId', label: 'Code Identification', always: false }, { key: 'codeWrite', label: 'Code Writing', always: false }].map(({ key, label, always }) => {
-                        if (!always && !hasCodingSelected) return null;
-                        const selected = quizTypes.has(key);
-                        return (
-                          <button key={key} onClick={() => { setQuizTypes(prev => { const next = new Set(prev); if (next.has(key)) { next.delete(key); } else { next.add(key); } if (next.size === 0) return prev; return next; }); }}
-                            className={`px-4 py-2 rounded-sm text-sm font-bold border-2 transition-colors flex items-center gap-2 ${selected ? 'bg-orange-600 text-white border-orange-700' : 'bg-stone-700 text-stone-400 border-stone-600 hover:border-stone-500'}`}>
-                            <div className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center ${selected ? 'border-white bg-white/20' : 'border-stone-500'}`}>
-                              {selected && <Check className="w-2.5 h-2.5 text-white" />}
-                            </div>
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {quizError && <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3"><p className="text-red-300 text-sm">{quizError}</p></div>}
-                    <button onClick={() => generateQuiz(quizTypes)} disabled={quizLoading || quizTypes.size === 0}
-                      className="w-full bg-orange-600 text-white py-3 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                      {quizLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GraduationCap className="w-5 h-5" />}
-                      Generate Quiz ({quizTypes.size} type{quizTypes.size !== 1 ? 's' : ''})
-                    </button>
+                      {subjects.length > 0 && expanded && (
+                        <div className="otter-quiz-subs">
+                          {subjects.map(sub => {
+                            const subSelected = isAllSelected || selectedSubs.has(sub.slug);
+                            return (
+                              <button
+                                key={sub.slug}
+                                type="button"
+                                role="checkbox"
+                                aria-checked={subSelected}
+                                className="otter-quiz-sub"
+                                data-selected={subSelected}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setQuizSelections(prev => {
+                                    const next = { ...prev };
+                                    let subs = next[sw.slug];
+                                    if (subs === 'all') { subs = new Set(subjects.map(s => s.slug)); }
+                                    else if (!(subs instanceof Set)) { subs = new Set(); }
+                                    else { subs = new Set(subs); }
+                                    if (subs.has(sub.slug)) { subs.delete(sub.slug); } else { subs.add(sub.slug); }
+                                    if (subs.size === subjects.length) { next[sw.slug] = 'all'; }
+                                    else if (subs.size === 0) { delete next[sw.slug]; }
+                                    else { next[sw.slug] = subs; }
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <span className="otter-quiz-check" data-state={subSelected ? 'all' : 'none'} aria-hidden="true">
+                                  {subSelected && <Check />}
+                                </span>
+                                <span className="otter-quiz-sub-title">{sub.title}</span>
+                                <span className="otter-quiz-sub-level">{sub.skill_level}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {subjects.length === 0 && <p className="otter-quiz-none">No generated subjects yet.</p>}
+                    </Card>
+                  );
+                })}
+              </div>
+              {hasSelections && (
+                <div className="otter-form-card otter-quiz-types">
+                  <span className="ui-field-label otter-form-label">Quiz type</span>
+                  <p className="otter-form-hint otter-form-hint-above">Select one or more question types</p>
+                  <div className="otter-levels">
+                    {[{ key: 'mc', label: 'Multiple choice', always: true }, { key: 'codeId', label: 'Code identification', always: false }, { key: 'codeWrite', label: 'Code writing', always: false }].map(({ key, label, always }) => {
+                      if (!always && !hasCodingSelected) return null;
+                      return (
+                        <Chip key={key} active={quizTypes.has(key)} onClick={() => { setQuizTypes(prev => { const next = new Set(prev); if (next.has(key)) { next.delete(key); } else { next.add(key); } if (next.size === 0) return prev; return next; }); }}>
+                          {label}
+                        </Chip>
+                      );
+                    })}
                   </div>
-                )}
-                {!hasSelections && <div className="text-center py-4"><p className="text-stone-500 text-sm">Select at least one software/language or subject above to start a quiz.</p></div>}
-              </>
-            )}
-          </div>
+                  {quizError && <Banner tone="danger" icon={AlertCircle} className="otter-quiz-error">{quizError}</Banner>}
+                  <Button variant="primary" icon={GraduationCap} onClick={() => generateQuiz(quizTypes)} disabled={quizTypes.size === 0} loading={quizLoading} className="otter-generate">
+                    Generate quiz ({quizTypes.size} type{quizTypes.size !== 1 ? 's' : ''})
+                  </Button>
+                </div>
+              )}
+              {!hasSelections && <p className="otter-quiz-prompt">Select at least one software/language or subject above to start a quiz.</p>}
+            </>
+          )}
         </div>
       </div>
     );
+  }
+
+  // A4: a question's or a challenge's difficulty is the kit's StatusBadge
+  // (O24's scale — easy success, medium warning, hard danger; three pills of
+  // their own before, green / yellow / red on 900 grounds).
+  function difficultyTone(d) {
+    return d === 'easy' ? 'success' : d === 'medium' ? 'warning' : 'danger';
   }
 
   function renderQuizQuestion() {
@@ -4850,37 +5048,45 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     if (!q) return null;
     return (
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-sm">Question {currentQuestion + 1} of {quizQuestions.length}</span>
-          <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${q.difficulty === 'easy' ? 'bg-green-900 text-green-400' : q.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{q.difficulty}</span>
+        <div className="otter-quiz-meta">
+          <span>Question {currentQuestion + 1} of {quizQuestions.length}</span>
+          <StatusBadge tone={difficultyTone(q.difficulty)} label={q.difficulty} />
         </div>
         {q.code_snippet && (
-          <div className="mb-4">
-            <SyntaxHighlighter style={oneDark} language={q.language || 'javascript'} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{q.code_snippet}</SyntaxHighlighter>
+          <div className="otter-code-well otter-quiz-code">
+            <SyntaxHighlighter
+              style={LESSON_CODE_THEME}
+              language={q.language || 'javascript'}
+              PreTag="div"
+              customStyle={LESSON_CODE_BLOCK}
+              codeTagProps={{ className: `language-${q.language || 'javascript'}`, style: LESSON_CODE_TEXT }}
+            >{q.code_snippet}</SyntaxHighlighter>
           </div>
         )}
-        <h3 className="text-white text-lg font-bold mb-4">{q.question}</h3>
-        <div className="space-y-2 mb-6">
+        <h3 className="otter-quiz-question">{q.question}</h3>
+        <div className="otter-quiz-options">
           {q.options.map((opt, i) => {
             const isSelected = selectedAnswer === i;
             const isCorrect = i === q.correct_answer;
-            let cls = 'bg-stone-800 text-stone-300 border-stone-600 hover:border-stone-500';
+            // One state per option (was a class string built in a `let`):
+            // idle, chosen, and — once the answer shows — right or wrong.
+            let state = 'idle';
             if (showExplanation) {
-              if (isCorrect) cls = 'bg-green-900/30 text-green-300 border-green-600';
-              else if (isSelected && !isCorrect) cls = 'bg-red-900/30 text-red-300 border-red-600';
-            } else if (isSelected) { cls = 'bg-orange-600/20 text-orange-300 border-orange-500'; }
+              if (isCorrect) state = 'correct';
+              else if (isSelected && !isCorrect) state = 'wrong';
+            } else if (isSelected) { state = 'selected'; }
             return (
-              <button key={i} onClick={() => handleAnswer(i)} disabled={showExplanation} className={`w-full text-left p-3 rounded-sm border-2 transition-colors ${cls}`}>
-                <span className="font-bold mr-2">{String.fromCharCode(65 + i)}.</span>{opt}
+              <button key={i} type="button" onClick={() => handleAnswer(i)} disabled={showExplanation} className="otter-quiz-option" data-state={state}>
+                <span className="otter-quiz-letter">{String.fromCharCode(65 + i)}.</span>{opt}
               </button>
             );
           })}
         </div>
-        {showExplanation && <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 mb-4"><p className="text-stone-300 text-sm">{q.explanation}</p></div>}
+        {showExplanation && <div className="otter-quiz-explain"><p>{q.explanation}</p></div>}
         {showExplanation && (
-          <button onClick={nextQuestion} className="bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold transition-colors">
-            {currentQuestion + 1 >= quizQuestions.length ? 'See Results' : 'Next Question'}
-          </button>
+          <Button variant="primary" onClick={nextQuestion}>
+            {currentQuestion + 1 >= quizQuestions.length ? 'See results' : 'Next question'}
+          </Button>
         )}
       </div>
     );
@@ -4889,26 +5095,25 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderQuizResults() {
     const pct = Math.round((quizScore / quizQuestions.length) * 100);
     return (
-      <div className="text-center py-8">
-        <div className={`text-6xl font-bold mb-2 ${pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{pct}%</div>
-        <p className="text-stone-400 mb-2">{quizScore} out of {quizQuestions.length} correct</p>
+      <div className="otter-quiz-results">
+        <div className="otter-quiz-score" data-tone={pct >= 70 ? 'success' : pct >= 50 ? 'warning' : 'danger'}>{pct}%</div>
+        <p className="otter-quiz-tally">{quizScore} out of {quizQuestions.length} correct</p>
 
         {/* Session 30: say whether the result was KEPT. "Try Again" below
             zeroes the score, so before this the only copy of a result was the
             number on this screen and the most obvious next click destroyed
             it. */}
-        <div className="mb-6 text-xs h-4">
-          {quizSaveState === 'saving' && <span className="text-stone-500">Saving your result…</span>}
-          {quizSaveState === 'saved' && <span className="text-stone-500">Saved to your quiz history (kept for 30 days).</span>}
+        <div className="otter-quiz-save">
+          {quizSaveState === 'saving' && <span>Saving your result…</span>}
+          {quizSaveState === 'saved' && <span>Saved to your quiz history (kept for 30 days).</span>}
           {quizSaveState?.error && (
-            <span className="text-red-400">Not saved — {quizSaveState.error}</span>
+            <span className="otter-quiz-save-error">Not saved — {quizSaveState.error}</span>
           )}
         </div>
 
-        <button onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizSaveState(null); }}
-          className="bg-orange-600 text-white px-6 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold transition-colors">
-          Try Again
-        </button>
+        <Button variant="primary" onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizSaveState(null); }}>
+          Try again
+        </Button>
       </div>
     );
   }
@@ -4919,71 +5124,77 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const codeLang = activeSoftware?.name?.toLowerCase() || 'javascript';
     return (
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-stone-500 text-sm">Challenge {currentChallenge + 1} of {challenges.length}</span>
-          <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded-sm ${ch.difficulty === 'easy' ? 'bg-green-900 text-green-400' : ch.difficulty === 'medium' ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'}`}>{ch.difficulty}</span>
+        <div className="otter-quiz-meta">
+          <span>Challenge {currentChallenge + 1} of {challenges.length}</span>
+          <StatusBadge tone={difficultyTone(ch.difficulty)} label={ch.difficulty} />
         </div>
-        <h3 className="text-white text-lg font-bold mb-2">{ch.title}</h3>
-        <p className="text-stone-400 mb-4 text-sm">{ch.description}</p>
+        <h3 className="otter-quiz-question otter-quiz-challenge">{ch.title}</h3>
+        <p className="otter-quiz-desc">{ch.description}</p>
         {ch.test_cases?.length > 0 && (
-          <div className="mb-4 bg-stone-800 border-2 border-stone-600 rounded-sm p-3">
-            <h4 className="text-stone-300 text-xs font-bold uppercase tracking-wide mb-2">Test Cases</h4>
+          <div className="otter-quiz-cases">
+            <h4 className="otter-quiz-h4">Test cases</h4>
             {ch.test_cases.map((tc, i) => (
-              <div key={i} className="text-stone-400 text-xs mb-1">
-                <span className="text-stone-500">Input:</span> {tc.input} &rarr; <span className="text-stone-500">Expected:</span> {tc.expected_output}
+              <div key={i} className="otter-quiz-case">
+                <span className="otter-quiz-case-key">Input:</span> {tc.input} &rarr; <span className="otter-quiz-case-key">Expected:</span> {tc.expected_output}
               </div>
             ))}
           </div>
         )}
-        <div className="border-2 border-stone-600 rounded-sm overflow-hidden mb-4" style={{ height: '300px' }}>
+        <div className="otter-quiz-editor">
           <Editor height="300px" defaultLanguage={codeLang} value={userCode} onChange={v => setUserCode(v || '')} theme="vs-dark"
-            options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false, wordWrap: 'on' }} />
+            options={{ minimap: { enabled: false }, fontSize: TYPE.body, scrollBeyondLastLine: false, wordWrap: 'on' }} />
         </div>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="otter-quiz-tools">
           {ch.hints?.length > 0 && hintsShown < ch.hints.length && (
-            <button onClick={() => setHintsShown(h => h + 1)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
-              <HelpCircle className="w-4 h-4" /> Show Hint ({hintsShown}/{ch.hints.length})
-            </button>
+            <Button icon={HelpCircle} onClick={() => setHintsShown(h => h + 1)}>
+              Show hint ({hintsShown}/{ch.hints.length})
+            </Button>
           )}
           {!showSolution && !showSolutionConfirm && (
-            <button onClick={() => setShowSolutionConfirm(true)} className="flex items-center gap-1 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm">
-              <Eye className="w-4 h-4" /> Show Solution
-            </button>
+            <Button icon={Eye} onClick={() => setShowSolutionConfirm(true)}>
+              Show solution
+            </Button>
           )}
         </div>
         {hintsShown > 0 && (
-          <div className="space-y-2 mb-4">
+          <div className="otter-quiz-hints">
             {ch.hints.slice(0, hintsShown).map((hint, i) => (
-              <div key={i} className="bg-stone-800 border-2 border-yellow-700 rounded-sm p-3 text-sm text-stone-300">
-                <span className="text-yellow-500 font-bold">Hint {i + 1}:</span> {hint}
+              <div key={i} className="otter-quiz-hint">
+                <span className="otter-quiz-hint-label">Hint {i + 1}:</span> {hint}
               </div>
             ))}
           </div>
         )}
         {showSolutionConfirm && !showSolution && (
-          <div className="bg-stone-800 border-2 border-orange-600 rounded-sm p-4 mb-4">
-            <p className="text-stone-300 text-sm mb-3">Are you sure? Try a bit more first!</p>
-            <div className="flex gap-2">
-              <button onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }} className="bg-orange-600 text-white px-3 py-1 rounded-sm text-sm border-2 border-orange-700">Show it</button>
-              <button onClick={() => setShowSolutionConfirm(false)} className="bg-stone-700 text-stone-300 px-3 py-1 rounded-sm text-sm border-2 border-stone-600">Keep trying</button>
+          <div className="otter-quiz-confirm">
+            <p>Are you sure? Try a bit more first!</p>
+            <div className="otter-quiz-confirm-actions">
+              <Button variant="primary" size="sm" onClick={() => { setShowSolution(true); setShowSolutionConfirm(false); }}>Show it</Button>
+              <Button size="sm" onClick={() => setShowSolutionConfirm(false)}>Keep trying</Button>
             </div>
           </div>
         )}
         {showSolution && (
-          <div className="mb-4">
-            <h4 className="text-green-400 text-sm font-bold uppercase tracking-wide mb-2">Solution</h4>
-            <SyntaxHighlighter style={oneDark} language={codeLang} customStyle={{ borderRadius: '2px', border: '2px solid #57534e' }}>{ch.solution}</SyntaxHighlighter>
+          <div className="otter-quiz-solution">
+            <h4 className="otter-quiz-h4">Solution</h4>
+            <div className="otter-code-well otter-quiz-code">
+              <SyntaxHighlighter
+                style={LESSON_CODE_THEME}
+                language={codeLang}
+                PreTag="div"
+                customStyle={LESSON_CODE_BLOCK}
+                codeTagProps={{ className: `language-${codeLang}`, style: LESSON_CODE_TEXT }}
+              >{ch.solution}</SyntaxHighlighter>
+            </div>
           </div>
         )}
-        <div className="flex items-center justify-between border-t-2 border-stone-700 pt-4">
-          <button disabled={currentChallenge <= 0} onClick={() => { setCurrentChallenge(c => c - 1); setUserCode(challenges[currentChallenge - 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
-            <ArrowLeft className="w-4 h-4" /> Previous
-          </button>
-          <button disabled={currentChallenge >= challenges.length - 1} onClick={() => { setCurrentChallenge(c => c + 1); setUserCode(challenges[currentChallenge + 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}
-            className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">
-            Next <ArrowRight className="w-4 h-4" />
-          </button>
+        <div className="otter-quiz-nav">
+          <Button icon={ArrowLeft} disabled={currentChallenge <= 0} onClick={() => { setCurrentChallenge(c => c - 1); setUserCode(challenges[currentChallenge - 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}>
+            Previous
+          </Button>
+          <Button variant="primary" disabled={currentChallenge >= challenges.length - 1} onClick={() => { setCurrentChallenge(c => c + 1); setUserCode(challenges[currentChallenge + 1]?.starter_code || ''); setHintsShown(0); setShowSolution(false); setShowSolutionConfirm(false); }}>
+            Next <ArrowRight aria-hidden="true" />
+          </Button>
         </div>
       </div>
     );
@@ -4998,60 +5209,66 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const softwareApps = softwareList.filter(sw => sw.type !== 'coding_language');
 
     if (!activeSoftwareSlug) {
-      return <div className="flex items-center justify-center h-full text-stone-500">Select a software or language from the toolbar to get started.</div>;
+      return <EmptyState icon={Keyboard} title="Select a software or language from the toolbar to get started." />;
     }
 
     if (isCodingLang) {
-      const allFuncs = (softwareFunctions?.categories || []).filter(cat => cat && Array.isArray(cat.functions));
+      // S2c (S2b-05): each category's entries that ARE functions (a null or a
+      // string in the list blanked the window through the card's `fn.name`),
+      // and the search reads a field as the card draws it — a stored value
+      // that is not a string (S2b's card shows `syntax: 42`) threw on the
+      // first letter typed.
+      const allFuncs = (Array.isArray(softwareFunctions?.categories) ? softwareFunctions.categories : [])
+        .filter(cat => cat && Array.isArray(cat.functions)).map(cat => ({ ...cat, functions: functionEntries(cat) }));
+      // S2b (C9): the language the cards colour their code in; unknown is plain.
+      const fnLanguage = courseLanguage(activeSoftware);
       const filtered = functionSearch
         ? allFuncs.map(cat => ({ ...cat, functions: cat.functions.filter(f =>
-            (f.name || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.description || '').toLowerCase().includes(functionSearch.toLowerCase()) ||
-            (f.syntax || '').toLowerCase().includes(functionSearch.toLowerCase())
+            cardText(f.name).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.description).toLowerCase().includes(functionSearch.toLowerCase()) ||
+            cardText(f.syntax).toLowerCase().includes(functionSearch.toLowerCase())
           ) })).filter(cat => cat.functions.length > 0)
         : allFuncs;
 
       return (
-        <div className="h-full overflow-y-auto p-6" ref={functionScrollRef}>
-          <div className="max-w-5xl mx-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-orange-400">Functions Reference</h2>
-              <div className="relative">
-                <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
-                  className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
-              </div>
-            </div>
-            <div className="flex items-center gap-3 mb-6">
-              <Braces className="w-4 h-4 text-stone-500 shrink-0" />
-              <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-                {codingLanguages.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-              </select>
-              <span className="text-stone-500 text-sm">-- Built-in functions, methods & constructs</span>
+        <div className="otter-view" ref={functionScrollRef}>
+          <div className="otter-view-page" data-width="data">
+            <SectionTitle
+              rule={false}
+              className="otter-view-title"
+              actions={
+                <div className="otter-search">
+                  <Search className="otter-search-icon" aria-hidden="true" />
+                  <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
+                    className="ui-input otter-search-input" data-surface="dark" />
+                </div>
+              }
+            >
+              Functions reference
+            </SectionTitle>
+            <div className="otter-ref-picker">
+              <Braces className="otter-ref-picker-icon" aria-hidden="true" />
+              <Select
+                value={activeSoftwareSlug || ''}
+                onChange={(v) => { if (v) selectSoftware(v); }}
+                options={codingLanguages.map(sw => ({ value: sw.slug, label: sw.name }))}
+                aria-label="Language"
+              />
+              <span className="otter-ref-picker-note">— Built-in functions, methods &amp; constructs</span>
             </div>
             {filtered.length === 0 ? (
-              <div className="text-center py-12">
-                <Braces className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-                <p className="text-stone-500">{allFuncs.length === 0 ? 'No functions documented yet. Generate subject content to populate the functions reference.' : 'No functions matching your search.'}</p>
-              </div>
+              allFuncs.length === 0
+                ? <EmptyState icon={Braces} title="No functions documented yet." body="Generate subject content to populate the functions reference." />
+                : <EmptyState icon={Braces} title="No functions matching your search." />
             ) : filtered.map((cat, i) => (
-              <div key={i} className="mb-8" data-cat-id={`func-cat-${i}`}>
-                <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-3">{cat.category}</h3>
-                <div className="space-y-3">
-                  {cat.functions.map((f, j) => (
-                    <div key={j} className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                      <code className="font-mono font-bold text-sm" style={{ color: '#fb923c' }}>{f.name}</code>
-                      {f.syntax && <pre className="border rounded-sm px-3 py-2 mb-3 mt-2 font-mono text-xs overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
-                      {f.parameters && <div className="mb-2"><span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Parameters:</span><span className="text-xs whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
-                      {f.returns && <div className="mb-2"><span className="text-xs font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-xs whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
-                      {f.description && <p className="text-xs mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
-                      {f.example && <pre className="border rounded-sm px-3 py-2 font-mono text-xs overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
-                    </div>
-                  ))}
+              <section key={i} className="otter-ref-section" data-cat-id={`func-cat-${i}`}>
+                {/* S2b (C10): a category the old merge left nameless reads
+                    as "General" rather than an empty heading. */}
+                <h3 className="otter-ref-section-title">{functionCategoryName(cat)}</h3>
+                <div className="otter-ref-cards">
+                  {cat.functions.map((f, j) => <FunctionCard key={j} fn={f} language={fnLanguage} />)}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         </div>
@@ -5059,7 +5276,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
 
     // Software hotkeys
-    if (!softwareHotkeys) return <div className="flex items-center justify-center h-full text-stone-500">Loading hotkeys...</div>;
+    if (!softwareHotkeys) return <div className="otter-center"><Loading label="Loading hotkeys" /></div>;
     const hotkeys = (softwareHotkeys.categories || []).filter(cat => cat && Array.isArray(cat.shortcuts));
     const filteredHk = hotkeySearch
       ? hotkeys.map(cat => ({ ...cat, shortcuts: cat.shortcuts.filter(s =>
@@ -5070,55 +5287,60 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       : hotkeys;
 
     return (
-      <div className="h-full overflow-y-auto p-6" ref={hotkeyScrollRef}>
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-orange-400">Keyboard Shortcuts</h2>
-            <div className="relative">
-              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mb-6">
-            <Keyboard className="w-4 h-4 text-stone-500 shrink-0" />
-            <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-              {softwareApps.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-            </select>
+      <div className="otter-view" ref={hotkeyScrollRef}>
+        <div className="otter-view-page" data-width="data">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            actions={
+              <div className="otter-search">
+                  <Search className="otter-search-icon" aria-hidden="true" />
+                  <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
+                    className="ui-input otter-search-input" data-surface="dark" />
+                </div>
+            }
+          >
+            Keyboard shortcuts
+          </SectionTitle>
+          <div className="otter-ref-picker">
+            <Keyboard className="otter-ref-picker-icon" aria-hidden="true" />
+            <Select
+              value={activeSoftwareSlug || ''}
+              onChange={(v) => { if (v) selectSoftware(v); }}
+              options={softwareApps.map(sw => ({ value: sw.slug, label: sw.name }))}
+              aria-label="Software"
+            />
           </div>
           {filteredHk.length === 0 ? (
-            <div className="text-center py-12">
-              <Keyboard className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">{hotkeys.length === 0 ? 'No keyboard shortcuts available yet.' : 'No shortcuts matching your search.'}</p>
-            </div>
+            <EmptyState icon={Keyboard} title={hotkeys.length === 0 ? 'No keyboard shortcuts available yet.' : 'No shortcuts matching your search.'} />
           ) : filteredHk.map((cat, i) => (
-            <div key={i} className="mb-6" data-cat-id={`hk-cat-${i}`}>
-              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-2">{cat.category}</h3>
-              <div className="bg-stone-800 border-2 border-stone-600 rounded-sm overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-                <table className="w-full">
-                  <thead>
-                    <tr style={{ background: '#44403c' }}>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
-                      <th className="text-left text-xs font-bold uppercase tracking-wide p-3 border-b-2 border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cat.shortcuts.map((s, j) => (
-                      <tr key={j} className="border-b border-stone-700 last:border-0 hover:bg-stone-700/50 transition-colors">
-                        <td className="p-3 text-sm" style={{ color: '#d6d3d1' }}>{s.action}</td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-xs border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
-                        <td className="p-3"><kbd className="px-2 py-0.5 rounded-sm text-xs border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
-                        <td className="p-3 text-xs" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <section key={i} className="otter-ref-section" data-cat-id={`hk-cat-${i}`}>
+              <h3 className="otter-ref-section-title">{cat.category}</h3>
+              {/* The kit's Table: a real <table>, fixed layout, so every
+                  header sits on its column (the walk measured "Windows" and
+                  "Mac" 9px off theirs); keys are the kit's Kbd. */}
+              <Card pad={false} className="otter-hk-card">
+                <Table
+                  head={
+                    <Row>
+                      <Th width="36%">Action</Th>
+                      <Th width="20%">Windows</Th>
+                      <Th width="20%">Mac</Th>
+                      <Th>Notes</Th>
+                    </Row>
+                  }
+                >
+                  {cat.shortcuts.map((s, j) => (
+                    <Row key={j}>
+                      <Td>{s.action}</Td>
+                      <Td><Kbd>{s.windows}</Kbd></Td>
+                      <Td><Kbd>{s.mac}</Kbd></Td>
+                      <Td className="otter-hk-notes">{s.notes || '\u2014'}</Td>
+                    </Row>
+                  ))}
+                </Table>
+              </Card>
+            </section>
           ))}
         </div>
       </div>
@@ -5133,11 +5355,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const nodeCapable = softwareList.filter(sw => sw.type !== 'coding_language');
 
     if (!activeSoftwareSlug) {
-      return (
-        <div className="flex items-center justify-center h-full text-stone-500">
-          Select a software from the dropdown to view its node library.
-        </div>
-      );
+      return <EmptyState icon={Share2} title="Select a software from the dropdown to view its node library." />;
     }
 
     // Systems-based structure: { systems: [{ system: "Geometry Nodes", categories: [...] }] }
@@ -5156,118 +5374,111 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       : allCategories;
 
     return (
-      <div className="h-full overflow-y-auto p-6" ref={nodeScrollRef}>
-        <div className="max-w-5xl mx-auto">
-          {/* Header with title + search */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-orange-400">Nodes Reference</h2>
-            <div className="relative">
-              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
-            </div>
-          </div>
+      <div className="otter-view" ref={nodeScrollRef}>
+        <div className="otter-view-page" data-width="data">
+          <SectionTitle
+            rule={false}
+            className="otter-view-title"
+            actions={
+              <div className="otter-search">
+                <Search className="otter-search-icon" aria-hidden="true" />
+                <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
+                  className="ui-input otter-search-input" data-surface="dark" />
+              </div>
+            }
+          >
+            Nodes reference
+          </SectionTitle>
 
           {/* Software dropdown */}
-          <div className="flex items-center gap-3 mb-4">
-            <Share2 className="w-4 h-4 text-stone-500 shrink-0" />
-            <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) { selectSoftware(e.target.value); setActiveNodeSystem(null); } }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-              {nodeCapable.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
-            </select>
+          <div className="otter-ref-picker">
+            <Share2 className="otter-ref-picker-icon" aria-hidden="true" />
+            <Select
+              value={activeSoftwareSlug || ''}
+              onChange={(v) => { if (v) { selectSoftware(v); setActiveNodeSystem(null); } }}
+              options={nodeCapable.map(sw => ({ value: sw.slug, label: sw.name }))}
+              aria-label="Software"
+            />
           </div>
 
-          {/* Node system tabs (e.g., Geometry Nodes, Shader Nodes) */}
+          {/* Node system tabs (e.g., Geometry Nodes, Shader Nodes) — the kit's
+              Tabs, the fifth of review O1's five treatments made one. */}
           {systems.length > 0 && (
-            <div className="flex items-center gap-1 mb-6 border-b-2 border-stone-700 pb-0">
-              {systems.map((sys) => {
-                const isActive = currentSystem?.system === sys.system;
-                const totalNodes = (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0);
-                return (
-                  <button key={sys.system} onClick={() => setActiveNodeSystem(sys.system)}
-                    className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-[2px] ${
-                      isActive
-                        ? 'text-orange-400 border-orange-500 bg-stone-900'
-                        : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-800'
-                    }`}>
-                    {sys.system} <span className="text-stone-600 text-xs ml-1">({totalNodes})</span>
-                  </button>
-                );
-              })}
-            </div>
+            <Tabs
+              items={systems.map((sys) => ({
+                id: sys.system,
+                label: sys.system,
+                count: (sys.categories || []).reduce((sum, c) => sum + (c.nodes?.length || 0), 0),
+              }))}
+              value={currentSystem?.system}
+              onChange={(id) => setActiveNodeSystem(id)}
+              panelId="otter-node-panel"
+              label="Node systems"
+              className="otter-system-tabs"
+            />
           )}
 
           {/* Node cards by category */}
+          <div id="otter-node-panel" role="tabpanel">
           {systems.length === 0 ? (
-            <div className="text-center py-12">
-              <Share2 className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">No nodes documented yet. Generate subject content to populate the node library.</p>
-            </div>
+            <EmptyState icon={Share2} title="No nodes documented yet." body="Generate subject content to populate the node library." />
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12">
-              <Share2 className="w-12 h-12 text-stone-600 mx-auto mb-3" />
-              <p className="text-stone-500">{searchTerm ? 'No nodes matching your search.' : 'No nodes in this system yet.'}</p>
-            </div>
+            <EmptyState icon={Share2} title={searchTerm ? 'No nodes matching your search.' : 'No nodes in this system yet.'} />
           ) : filtered.map((cat, i) => (
-            <div key={i} className="mb-8" data-cat-id={`node-cat-${i}`}>
-              <h3 className="text-orange-400 font-bold uppercase tracking-wide text-sm mb-3">{cat.category}</h3>
-              <div className="space-y-3">
+            <section key={i} className="otter-ref-section" data-cat-id={`node-cat-${i}`}>
+              <h3 className="otter-ref-section-title">{cat.category}</h3>
+              <div className="otter-ref-cards">
                 {cat.nodes.map((node, j) => (
-                  <div key={j} className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-stone-500 transition-colors">
-                    <div className="font-mono font-bold text-sm mb-2" style={{ color: '#fb923c' }}>{node.name}</div>
-                    <p className="text-xs mb-3 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
+                  <div key={j} className="otter-fn-card otter-node-card">
+                    <div className="otter-node-name">{node.name}</div>
+                    <p className="otter-fn-desc">{node.description}</p>
 
                     {Array.isArray(node.inputs) && node.inputs.length > 0 && (
-                      <div className="mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Inputs</span>
-                        <div className="space-y-1">
-                          {node.inputs.filter(Boolean).map((inp, k) => (
-                            <div key={k} className="flex items-start gap-2 text-xs">
-                              <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
-                              <NodeTypeBadge type={inp.type} />
-                              <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
-                            </div>
+                      <div className="otter-node-ports">
+                        <span className="otter-fn-label">Inputs</span>
+                        <ul className="otter-node-port-list">
+                          {node.inputs.filter(Boolean).map((p, k) => (
+                            <li key={k} className="otter-node-port">
+                              <span className="otter-node-port-name">{p.name || ''}</span>
+                              <NodeTypeBadge type={p.type} />
+                              <span className="otter-node-port-desc">{p.description || ''}</span>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 
                     {Array.isArray(node.outputs) && node.outputs.length > 0 && (
-                      <div className="mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wide block mb-1.5" style={{ color: '#78716c' }}>Outputs</span>
-                        <div className="space-y-1">
-                          {node.outputs.filter(Boolean).map((out, k) => (
-                            <div key={k} className="flex items-start gap-2 text-xs">
-                              <span className="font-mono shrink-0 w-28 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
-                              <NodeTypeBadge type={out.type} />
-                              <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
-                            </div>
+                      <div className="otter-node-ports">
+                        <span className="otter-fn-label">Outputs</span>
+                        <ul className="otter-node-port-list">
+                          {node.outputs.filter(Boolean).map((p, k) => (
+                            <li key={k} className="otter-node-port">
+                              <span className="otter-node-port-name">{p.name || ''}</span>
+                              <NodeTypeBadge type={p.type} />
+                              <span className="otter-node-port-desc">{p.description || ''}</span>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 
                     {node.notes && (
-                      <div className="border-t border-stone-700 pt-2 mt-2">
-                        <span className="text-xs italic" style={{ color: '#78716c' }}>{node.notes}</span>
-                      </div>
+                      <p className="otter-node-notes">{node.notes}</p>
                     )}
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           ))}
+          </div>
         </div>
       </div>
     );
     } catch (err) {
       console.error('renderNodes error:', err);
       return (
-        <div className="flex flex-col items-center justify-center h-full text-stone-500 gap-2">
-          <AlertCircle className="w-8 h-8 text-red-500" />
-          <p>Error rendering nodes: {err?.message || 'Unknown error'}</p>
-        </div>
+        <EmptyState icon={AlertCircle} title={`Error rendering nodes: ${err?.message || 'Unknown error'}`} />
       );
     }
   }
@@ -5277,72 +5488,77 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   function renderSettingsPanel() {
     const isLocked = settingsTab === 'prompts' ? promptsTabLocked : toolsTabLocked;
+    // A4: the kit's Drawer (review O27; A2 did D.O.G.'s the same way). The
+    // title-bar offset is the Drawer's `--titlebar-offset` token — it was a
+    // hand-set `paddingTop` of 32px under Electron (review risk 9) — and the
+    // entrance is the Drawer's own 240ms (the inline `slideInRight` 300ms
+    // animation went with the private chrome). Width: otter.css (A2-KR-2).
     return (
-      <div className="fixed inset-0 z-50">
-        <div className="absolute inset-0 bg-black/50 transition-opacity" onClick={() => setSettingsOpen(false)} />
-        <div className="absolute top-0 right-0 h-full bg-stone-800 border-l-2 border-stone-600 shadow-2xl flex flex-col"
-          style={{ width: '40%', minWidth: '400px', paddingTop: window.electronAPI ? '32px' : '0px', animation: 'slideInRight 0.3s ease-out' }}>
-          {/* Header */}
-          <div className="bg-stone-700 px-4 py-3 flex items-center justify-between border-b-2 border-stone-600 shrink-0">
-            <div className="flex items-center gap-2">
-              <Settings className="w-5 h-5 text-orange-400" />
-              <span className="font-bold text-orange-400 uppercase tracking-wide">Settings</span>
-            </div>
-            <button onClick={() => setSettingsOpen(false)} className="p-1 hover:bg-stone-600 rounded transition-colors">
-              <X className="w-5 h-5 text-stone-400" />
-            </button>
+      <Drawer
+        open
+        onClose={() => setSettingsOpen(false)}
+        backdrop
+        side="right"
+        width="lg"
+        label="Settings"
+        className="otter-settings-drawer"
+        title={(
+          <>
+            <Settings className="otter-drawer-icon" aria-hidden="true" />
+            Settings
+          </>
+        )}
+        actions={<IconButton size="sm" icon={X} title="Close settings" onClick={() => setSettingsOpen(false)} />}
+        footer={(
+          <div className="otter-settings-foot">
+            <p className="otter-settings-foot-note">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
+            <IconButton size="sm" icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           </div>
+        )}
+      >
+        {/* The two halves of the strip are the kit's Tabs, each still half
+            the strip wide (otter.css): the old buttons were `flex-1`. The
+            second is "Storage & data" since post-overhaul S2a (Audrey's C6):
+            it holds the library's storage location and data management, and
+            "Tool settings" had become the name of the gear that opens this
+            drawer. */}
+        <Tabs
+          items={[{ id: 'prompts', label: 'System prompts' }, { id: 'tools', label: 'Storage & data' }]}
+          value={settingsTab}
+          onChange={setSettingsTab}
+          label="Settings sections"
+          panelId="otter-settings-panel"
+          className="otter-settings-tabs"
+        />
 
-          {/* Tabs */}
-          <div className="flex shrink-0">
-            <button onClick={() => setSettingsTab('prompts')}
-              className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${settingsTab === 'prompts' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              System Prompts
-            </button>
-            <button onClick={() => setSettingsTab('tools')}
-              className={`flex-1 px-4 py-2 text-sm font-bold transition-colors border-b-2 ${settingsTab === 'tools' ? 'text-orange-400 border-orange-500 bg-stone-900' : 'text-stone-400 border-transparent bg-stone-700'}`}>
-              Tool Settings
-            </button>
-          </div>
+        {/* The lock bar: the kit's Toolbar and Switch. "Editable" is the
+            switch's name and its state is the switch's; the words beside it
+            are unchanged. `data-locked` is the CURRENT tab's lock. */}
+        <Toolbar
+          className="otter-lock-bar"
+          data-locked={isLocked}
+          right={(
+            <>
+              <span className="otter-lock-mode">{isLocked ? 'Read Only' : 'Editable'}</span>
+              <Switch
+                checked={!isLocked}
+                onChange={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
+                aria-label="Editable"
+              />
+            </>
+          )}
+        >
+          {isLocked
+            ? <Lock className="otter-lock-icon" aria-hidden="true" />
+            : <Unlock className="otter-lock-icon" aria-hidden="true" />}
+          <span className="otter-lock-label">{isLocked ? 'Locked' : 'Unlocked'}</span>
+        </Toolbar>
 
-          {/* Lock Switch Bar */}
-          <div className="bg-stone-900 px-4 py-2 border-b-2 border-stone-600 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
-              {isLocked ? <Lock className="w-4 h-4 text-stone-500" /> : <Unlock className="w-4 h-4 text-orange-400" />}
-              <span className={`text-xs font-bold uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-orange-400'}`}>
-                {isLocked ? 'Locked' : 'Unlocked'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
-                {isLocked ? 'Read Only' : 'Editable'}
-              </span>
-              <button onClick={() => { if (settingsTab === 'prompts') setPromptsTabLocked(!promptsTabLocked); else setToolsTabLocked(!toolsTabLocked); }}
-                className={`relative w-11 h-6 rounded-full transition-colors ${isLocked ? 'bg-stone-600' : 'bg-orange-500'}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-stone-500 rounded-full transition-transform ${isLocked ? 'left-1' : 'left-6'}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {settingsTab === 'prompts' && renderPromptsTab()}
-            {settingsTab === 'tools' && renderToolsTab()}
-          </div>
-
-          {/* Footer */}
-          <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between">
-            <p className="text-[10px] text-stone-500 flex-1">Changes are applied immediately. Use &quot;Reset to default&quot; to restore original settings.</p>
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="ml-3 p-1.5 bg-stone-700 hover:bg-stone-600 rounded-sm transition-colors"
-              title="Help & Documentation"
-            >
-              <HelpCircle className="w-4 h-4 text-orange-400" />
-            </button>
-          </div>
+        <div id="otter-settings-panel" role="tabpanel" className="otter-settings-body wilson-dark-scroll" data-locked={isLocked}>
+          {settingsTab === 'prompts' && renderPromptsTab()}
+          {settingsTab === 'tools' && renderToolsTab()}
         </div>
-      </div>
+      </Drawer>
     );
   }
 
@@ -5356,27 +5572,29 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       { key: 'codeWrite', title: 'Code Writing Challenges', desc: 'Generates coding challenges (Haiku)', defaultVal: CODE_WRITING_PROMPT },
       { key: 'companion', title: 'Companion Chat', desc: 'Prompt for otter companion (Haiku)', defaultVal: COMPANION_PROMPT },
     ];
+    // The lock is the disabled token (§3.1), not the 60% opacity the whole tab
+    // wore: the editors and buttons are `disabled`, the headers stay live.
     return (
-      <div className={promptsTabLocked ? 'opacity-60' : ''}>
+      <div className="otter-accs">
         {sections.map(s => (
-          <div key={s.key} className="border-b border-stone-700 overflow-hidden">
-            <button onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
-              className="flex items-center justify-between w-full px-3 py-2 bg-stone-800 hover:bg-stone-750 transition-colors">
-              <div className="text-left">
-                <span className={`text-xs font-bold uppercase tracking-wide ${promptsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>{s.title}</span>
-                <p className="text-[10px] text-stone-500">{s.desc}</p>
+          <div key={s.key} className="otter-acc">
+            <button type="button" onClick={() => setPromptSections(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
+              className="otter-acc-head" aria-expanded={!!promptSections[s.key]}>
+              <div className="otter-acc-text">
+                <span className="otter-acc-label">{s.title}</span>
+                <p className="otter-acc-desc">{s.desc}</p>
               </div>
-              <ChevronRight className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${promptSections[s.key] ? 'rotate-90' : ''}`} />
+              <ChevronRight className="otter-acc-chevron" aria-hidden="true" data-open={!!promptSections[s.key]} />
             </button>
             {promptSections[s.key] && (
-              <div className="px-3 pb-3 pt-2">
+              <div className="otter-acc-body">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
-                  disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
-                <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
-                  className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
-                <button onClick={savePrompts} disabled={promptsTabLocked}
-                  className={`mt-1 ml-3 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Save</button>
+                  disabled={promptsTabLocked} aria-label={s.title}
+                  className="ui-input otter-acc-textarea wilson-dark-scroll" data-surface="dark" />
+                <div className="otter-acc-actions">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}>Reset to default</Button>
+                  <Button variant="ghost" size="sm" onClick={savePrompts} disabled={promptsTabLocked}>Save</Button>
+                </div>
               </div>
             )}
           </div>
@@ -5386,62 +5604,86 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   }
 
   function renderToolsTab() {
+    // The two positions Audrey asked for (decision 3), each writing through
+    // the adapter seam, each with its description in view under it; the
+    // "showing now" line sits under the pair.
+    const libraryOptions = [
+      { mode: 'auto',  title: 'Company (signed in)', desc: 'Your company library when you are signed in, this computer when you are not.' },
+      { mode: 'local', title: 'This computer',       desc: 'Always the courses saved on this computer, even while signed in.' },
+    ];
     return (
-      <div className={toolsTabLocked ? 'opacity-60' : ''}>
-        {/* Storage Location */}
-        <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-          <label className={`block text-sm font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
-          {/* S30: a refused settings write used to leave the field showing the
-              new value with nothing saved. Now it says so. */}
-          {settingsError && (
-            <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-sm border border-red-800/50 bg-red-950/30">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
-              <span className="text-xs text-red-300 leading-relaxed">
-                <span className="font-bold">Not saved.</span> {settingsError}
-              </span>
+      <div className="otter-settings-cards">
+        {/* S30: a refused settings write used to leave the field showing the
+            new value with nothing saved. Now it says so. A4 hoisted this out of
+            the removed "Storage Location" block — deleting it with the field
+            would have made every failed write on this tab silent again. */}
+        {settingsError && (
+          <Banner tone="danger" icon={AlertCircle} className="otter-settings-error">
+            <span className="otter-settings-error-lead">Not saved.</span> {settingsError}
+          </Banner>
+        )}
+
+        {/* ── Library, A4 / Audrey's decision 3 ─────────────────────────────
+            Replaces "Storage Location", which was removed in the same bundle
+            (decision 28b): that field wrote `settings.storageLocation` and
+            NOTHING has ever read it — courses live at
+            userData/otter-data/software/ regardless. It was listed in
+            RELEASE_TESTING.md "Known not to work" #3.
+
+            This control is the one that does something. Desktop only, because
+            the on-disk library only exists where the in-app Express server
+            does. On the overhaul's kit: a Card, the two positions as kit
+            Buttons that press (aria-pressed, the pressed one filled), each
+            over its own description, and the explanation and the "showing
+            now" line on the sheet's caption step. */}
+        {hasLocalLibrary && (
+          <Card title="Library" className="otter-settings-card">
+            <p className="otter-form-hint otter-form-hint-above">
+              Which courses O.T.T.E.R. shows on this computer. Signing in used to hide the
+              courses saved here with no way back. This choice is remembered for this
+              computer only — it is never carried to your other machines.
+            </p>
+            <div className="otter-settings-actions">
+              {libraryOptions.map(opt => (
+                // Each position with its description IN VIEW (merge review
+                // round 1, A-R1-07): a `title` tooltip is hover-only —
+                // invisible on touch, unreliable from the keyboard — and
+                // someone deciding whether to switch has to be able to read
+                // what "This computer" does before pressing it. The Button is
+                // described by its own line for assistive technology too.
+                <div key={opt.mode} className="otter-settings-option">
+                  <Button
+                    variant={libraryMode === opt.mode ? 'primary' : 'secondary'}
+                    aria-pressed={libraryMode === opt.mode}
+                    aria-describedby={`otter-library-desc-${opt.mode}`}
+                    onClick={() => setOtterAdapterMode(opt.mode)}
+                    disabled={toolsTabLocked}
+                    className="otter-settings-action"
+                  >
+                    {opt.title}
+                  </Button>
+                  <p id={`otter-library-desc-${opt.mode}`} className="otter-form-hint">{opt.desc}</p>
+                </div>
+              ))}
             </div>
-          )}
-          <div className="flex items-center gap-2">
-            <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
-              disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 focus:outline-none transition-colors disabled:cursor-not-allowed" />
-            {/* Session 12: this button used to POST /api/browse-folder, a
-                route that never existed on ANY host — it was dead everywhere
-                (same class as S11's unreachable renderDeleteConfirm). The
-                preload rabbit bridge already ships a directory picker, so use
-                it where it exists and drop the button where it can't work. */}
-            {window.electronAPI?.rabbit?.pickDirectory && (
-              <button disabled={toolsTabLocked} onClick={async () => {
-                try {
-                  const dir = await window.electronAPI.rabbit.pickDirectory();
-                  if (dir) saveSettings({ storageLocation: dir });
-                } catch (e) { console.error('Browse folder failed:', e); }
-              }} className="bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-                <FolderOpen className="w-4 h-4" /><span className="text-xs font-bold">Browse</span>
-              </button>
-            )}
-          </div>
-          <p className="text-stone-600 text-[10px] mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
-        </div>
+            {/* What is ACTUALLY in front of you, which is not always what the
+                setting says: 'Company (signed in)' shows this computer's
+                courses while signed out, and that is worth stating rather than
+                leaving someone to infer it from an empty screen. */}
+            <p className="otter-form-hint">
+              Showing now: {cloudMode ? 'your company library' : 'the courses on this computer'}.
+            </p>
+          </Card>
+        )}
 
         {/* Data management */}
-        <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-          <label className={`block text-sm font-bold mb-3 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Data Management</label>
-          <div className="space-y-2">
-            <button onClick={exportAll} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
-              <Download className="w-4 h-4" /> Export All Data
-            </button>
-            <button onClick={() => setShowImportModal(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
-              <Upload className="w-4 h-4" /> Import Data
-            </button>
-            <button onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked}
-              className="w-full flex items-center gap-2 bg-red-900/30 text-red-400 border-2 border-red-800 px-3 py-2 rounded-sm hover:bg-red-900/50 transition-colors text-sm disabled:cursor-not-allowed disabled:opacity-50">
-              <Trash2 className="w-4 h-4" /> Clear All Data
-            </button>
+        <Card title="Data management" className="otter-settings-card">
+          <div className="otter-settings-actions">
+            <Button icon={Download} onClick={exportAll} disabled={toolsTabLocked} className="otter-settings-action">Export all data</Button>
+            <Button icon={Upload} onClick={() => setShowImportModal(true)} disabled={toolsTabLocked} className="otter-settings-action">Import data</Button>
+            <Button variant="danger" icon={Trash2} onClick={() => setShowClearConfirm(true)} disabled={toolsTabLocked} className="otter-settings-action">Clear all data</Button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -5452,25 +5694,41 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   //  MODALS
   // ═══════════════════════════════════════════════════════════════
   function renderImportModal() {
+    // A4: the kit's Dialog (review O27). It was a 480px box of its own with
+    // a hard offset shadow and a full-width Cancel under the drop zone; the
+    // Cancel is the footer's now, and "Choose file" is a kit Button that
+    // opens the same hidden file input (a <label> around it before, which
+    // the keyboard could not reach — A2 made D.O.G.'s pickers Buttons too).
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowImportModal(false)}>
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[480px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-4">Import Data</h3>
-          <div className={`border-2 border-dashed rounded-sm p-8 text-center transition-colors ${importDragOver ? 'border-orange-500 bg-orange-600/10' : 'border-stone-600'}`}
-            onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
-            onDragLeave={() => setImportDragOver(false)}
-            onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
-            <FileJson className="w-10 h-10 text-stone-500 mx-auto mb-3" />
-            <p className="text-stone-400 mb-3">Drag and drop a .json file here</p>
-            <label className="inline-flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-4 py-2 rounded-sm cursor-pointer hover:bg-stone-600 transition-colors text-sm">
-              <Upload className="w-4 h-4" /> Choose File
-              <input type="file" accept=".json" className="hidden" onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
-            </label>
-          </div>
-          <button onClick={() => setShowImportModal(false)} className="mt-4 w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
+      <Dialog
+        title="Import data"
+        width="form"
+        dismissOnBackdrop
+        onClose={() => setShowImportModal(false)}
+        footer={<Button onClick={() => setShowImportModal(false)}>Cancel</Button>}
+      >
+        <div className="otter-dropzone" data-over={importDragOver}
+          onDragOver={e => { e.preventDefault(); setImportDragOver(true); }}
+          onDragLeave={() => setImportDragOver(false)}
+          onDrop={e => { e.preventDefault(); setImportDragOver(false); if (e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); }}>
+          <FileJson className="otter-dropzone-icon" aria-hidden="true" />
+          <p className="otter-dropzone-text">Drag and drop a .json file here</p>
+          <Button icon={Upload} onClick={() => importFileRef.current?.click()}>Choose file</Button>
+          <input ref={importFileRef} type="file" accept=".json" className="hidden" tabIndex={-1} aria-hidden="true"
+            onChange={e => { if (e.target.files[0]) handleImportFile(e.target.files[0]); }} />
         </div>
-      </div>
+      </Dialog>
     );
+  }
+
+  // A4: the confirms share the kit Dialog's one contract (review O27: three
+  // contracts before, and none of the confirms had Escape). An action that
+  // awaits the server holds the Dialog's busy lock while it runs (Q17), so
+  // Escape, the backdrop and a second click cannot close or repeat it
+  // mid-flight; a failure still leaves the dialog open, as it did.
+  async function runConfirm(action) {
+    setConfirmBusy(true);
+    try { await action(); } finally { setConfirmBusy(false); }
   }
 
   // Session 11: this dialog existed but was UNREACHABLE — nothing ever set
@@ -5482,86 +5740,104 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderDeleteConfirm() {
     const course = softwareList.find(sw => sw.slug === showDeleteConfirm);
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(null)}>
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-2">
-            {cloudMode ? 'Move to trash' : 'Delete course'}
-          </h3>
-          <p className="text-stone-400 text-sm mb-6">
-            {cloudMode ? (
-              <>
-                <span className="text-stone-300 font-bold">{course?.name ?? 'This course'}</span> and
-                its subjects will move to Recently deleted. You can restore it for 30 days, after
-                which it is deleted for good.
-                {course?.visibility === 'company_standard' &&
-                  ' It will also stop being offered as the company standard.'}
-              </>
-            ) : (
-              'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
-            )}
-          </p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">
+      <Dialog
+        title={cloudMode ? 'Move to trash' : 'Delete course'}
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSoftware(showDeleteConfirm))}>
               {cloudMode ? 'Move to trash' : 'Delete'}
-            </button>
-          </div>
-        </div>
-      </div>
+            </Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">
+          {cloudMode ? (
+            <>
+              <span className="otter-confirm-name">{course?.name ?? 'This course'}</span> and
+              its subjects will move to Recently deleted. You can restore it for 30 days, after
+              which it is deleted for good.
+              {course?.visibility === 'company_standard' &&
+                ' It will also stop being offered as the company standard.'}
+            </>
+          ) : (
+            'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
+          )}
+        </p>
+      </Dialog>
     );
   }
 
   function renderDeleteSubjectConfirm() {
     const { softwareSlug, subjectSlug, title } = showDeleteSubjectConfirm;
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteSubjectConfirm(null)}>
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
-          <h3 className="text-white font-bold text-lg mb-2">Delete Subject</h3>
-          <p className="text-stone-400 text-sm mb-2">Are you sure you want to delete:</p>
-          <p className="text-orange-400 font-bold text-sm mb-4 truncate">&quot;{title}&quot;</p>
-          <p className="text-stone-500 text-xs mb-6">This will permanently remove this subject and its lessons. This cannot be undone.</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowDeleteSubjectConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={() => deleteSubject(softwareSlug, subjectSlug)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">Delete Subject</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Delete subject"
+        width="confirm"
+        busy={confirmBusy}
+        dismissOnBackdrop
+        onClose={() => setShowDeleteSubjectConfirm(null)}
+        footer={(
+          <>
+            <Button onClick={() => setShowDeleteSubjectConfirm(null)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(() => deleteSubject(softwareSlug, subjectSlug))}>Delete subject</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">Are you sure you want to delete:</p>
+        <p className="otter-confirm-subject" title={title}>&quot;{title}&quot;</p>
+        <p className="otter-confirm-note">This will permanently remove this subject and its lessons. This cannot be undone.</p>
+      </Dialog>
     );
   }
 
   function renderClearConfirm() {
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-bold text-lg mb-2">Clear All Data</h3>
-          <p className="text-stone-400 text-sm mb-6">This will delete ALL courses, subjects, and progress. Are you sure?</p>
-          <div className="flex gap-2">
-            <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={async () => {
+      <Dialog
+        title="Clear all data"
+        width="confirm"
+        busy={confirmBusy}
+        onClose={() => setShowClearConfirm(false)}
+        footer={(
+          <>
+            <Button onClick={() => setShowClearConfirm(false)} disabled={confirmBusy}>Cancel</Button>
+            <Button variant="danger" loading={confirmBusy} onClick={() => runConfirm(async () => {
               for (const sw of softwareList) { await otterFetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
               setActiveSoftwareSlug(null); setActiveSoftware(null); setSubjectList([]); setActiveSubjectSlug(null); setActiveSubject(null);
               setSoftwareHotkeys(null); setSoftwareFunctions(null); setActiveProgress(null); setReferenceUrls([]);
               invalidateCache(); loadSoftwareList(); setShowClearConfirm(false); setCurrentView('library');
-            }} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">Clear Everything</button>
-          </div>
-        </div>
-      </div>
+            })}>Clear everything</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">This will delete ALL courses, subjects, and progress. Are you sure?</p>
+      </Dialog>
     );
   }
 
   function renderDuplicateModal() {
+    // Unreachable today: nothing sets showDuplicateModal truthy (the import
+    // path never raises it, and handleDuplicateResolve only clears it). A4
+    // restyled it with the other confirms so it is right the day it opens.
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[440px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-bold text-lg mb-2">Duplicate Found</h3>
-          <p className="text-stone-400 text-sm mb-6">A course with this name already exists.</p>
-          <div className="space-y-2">
-            <button onClick={() => handleDuplicateResolve('replace')} className="w-full bg-orange-600 text-white border-2 border-orange-700 py-2 rounded-sm hover:bg-orange-700 transition-colors text-sm font-bold">Replace Existing</button>
-            <button onClick={() => handleDuplicateResolve('keep')} className="w-full bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Keep Both</button>
-            <button onClick={() => handleDuplicateResolve('cancel')} className="w-full bg-stone-700 text-stone-400 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <Dialog
+        title="Duplicate found"
+        width="confirm"
+        onClose={() => handleDuplicateResolve('cancel')}
+        footer={(
+          <>
+            <Button onClick={() => handleDuplicateResolve('cancel')}>Cancel</Button>
+            <Button onClick={() => handleDuplicateResolve('keep')}>Keep both</Button>
+            <Button variant="primary" onClick={() => handleDuplicateResolve('replace')}>Replace existing</Button>
+          </>
+        )}
+      >
+        <p className="otter-confirm-text">A course with this name already exists.</p>
+      </Dialog>
     );
   }
 }

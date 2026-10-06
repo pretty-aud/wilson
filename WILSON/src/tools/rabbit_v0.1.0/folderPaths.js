@@ -102,6 +102,10 @@ const FALLBACK_NAME = {
 //     decision (database authoritative, file a MIRROR) exists to prevent.
 //     electron/main.cjs still creates it for existing local projects; this
 //     session neither extends it nor removes it.
+//     Since post-overhaul S3a (Audrey D21) the Local Server's mirror writes a
+//     SIXTH file there, scenes.json — shot lists, their items, the shared
+//     scene and shot rows, and edits. It is still a mirror, and still not a
+//     folder of the tree: nothing here models it.
 //
 //   <slug>_FILES — the local managed-files directory
 //     (electron/main.cjs:960). Its name embeds the project slug, so it is the

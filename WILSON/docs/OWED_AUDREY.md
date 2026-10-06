@@ -1022,7 +1022,10 @@ through `signInWithPassword`; there is no second way in.
 
 ### Step 2 — Sign in and enrol TOTP
 
-Sign in at `/wilson` with the **username** (not the email) and password.
+Sign in at `/wilson`: the **company** first (`COMPANY` → `Continue`), then the
+**username** (not the email) and password (`Sign in`). Since Track B bundle
+B1 that browser remembers the company for next time, and a link of the form
+`/wilson?company=<name>` pre-fills it.
 
 Because you are an admin with no verified factor, the app meets you with a
 full-screen overlay headed **`SECURE YOUR ADMIN ACCOUNT`** before you reach
@@ -1170,3 +1173,76 @@ browses. That is correct for media storage and it is what keeps the cost down,
 but the UI must never imply "sync my existing Drive folder". If that turns out
 to be what a customer actually wants, it is a different (and much more
 expensive) product.
+
+## 14. 🔐 Turn on the two sign-in logging hooks (Track B bundle B2, 2026-09-06)
+
+Migration 0070 (`auth_events`) is applied on wilson-dev and wilson-staging,
+and suite 74 proves it — but the two Postgres functions that feed it are only
+called if each project's Auth is told to call them, and that switch lives in
+the dashboard, not in a migration (`supabase config push` is banned, so the
+CLI route is closed on purpose). Until you flip it, the server writes nothing
+for sign-ins and MFA challenges; the app's own sign-in, sign-out and timeout
+rows flow regardless (B2 part 2 shipped them).
+
+Per project — wilson-dev first, then wilson-staging; prod when the release
+session applies 0070 there:
+
+1. Dashboard → Authentication → Hooks (Beta) → **Add hook** →
+   *Password verification attempt*. Hook type **Postgres**, schema `public`,
+   function `hook_password_verification_attempt`. Enable.
+2. Same page → **Add hook** → *MFA verification attempt*. Postgres, `public`,
+   `hook_mfa_verification_attempt`. Enable.
+3. Prove it: sign in to that project's app once with a WRONG password, then
+   correctly, then complete two-factor. Then, from `WILSON/` with the CLI
+   linked to that project, run the one-line query in
+   `scripts/probes/auth-events-recent.sql` (`supabase db query --linked
+   --file scripts/probes/auth-events-recent.sql`) — expect a `sign_in /
+   failure`, a `sign_in / success` and an `mfa_verify / success` row with the
+   times you just made. If a row is missing, the hook is not enabled; the
+   function itself was exercised by suite 74 on both projects.
+
+Nothing here can lock anyone out: both functions answer "continue" on every
+path, including when their own insert fails (that failure is a WARNING in
+the Postgres logs, not a refusal).
+
+Also yours, from the same brief (fix plan answer 23): the dashboard's session
+controls — Authentication → Sessions → *time-box user sessions* and
+*inactivity timeout* — are per project and in no migration. B2 part 2
+shipped the client's 25 / 30-minute idle warning and sign-out and a
+**4-hour** cap; set the dashboard figures to match, or looser (a time-box of
+4 hours or more, an inactivity timeout of 30 minutes or more), so the server
+never signs someone out with nothing on screen explaining it.
+
+4. ~~**Apply migration 0071 on wilson-dev**~~ — ✅ **DONE 2026-09-07**, by the
+   Track B close-out session; **nothing is owed here any more.** It narrows
+   the admin read arm on `auth_events` (a shared member's client rows for
+   their OTHER company were readable by this company's admins). Applied and
+   recorded on **staging** by B2 part 2, and now on **dev** as well: the
+   earlier sessions' classifier refused the command against dev, this one
+   allowed it. Verified on dev two ways, not one — `schema_migrations` now
+   carries `0071`, AND the live policy read back from `pg_policies` confines
+   the membership clause to hook rows (`workspace_id IS NULL`), so it is a
+   real change and not just a history row. Commands kept for the record, and
+   for prod when the release session gets there:
+
+   ```
+   supabase db query --linked --file supabase/migrations/0071_auth_events_admin_scope.sql
+   supabase migration repair --status applied 0071 --linked
+   node scripts/tap-all.mjs 74
+   ```
+
+   ⚠️ **The old "expect 35 passed" line was wrong, and is corrected here.**
+   That figure came from a pristine database. Suite 74's last two assertions
+   — #34 (operator sees every row) and #35 (`purge_auth_events`) — each do a
+   global `count(*) FROM public.auth_events` expecting exactly the nine rows
+   the suite seeds, so **any** real accumulated row fails them. On dev, which
+   holds 106 client rows written by CI's Playwright runs, the suite reads
+   **33/35 with those two as the only failures** — that is the assertions'
+   pristine-database assumption, not 0071 and not a fault. The same suite is
+   green in CI, which runs it against a fresh local database. So on dev
+   (and on staging once anyone signs in there) 33/35 is the correct, healthy
+   reading; treat a failure anywhere else in the suite as the real signal.
+
+   Running it on dev is safe: the suite is wrapped `BEGIN … ROLLBACK`, so its
+   nine seeded rows are removed again and #35's purge never touches real
+   ones. Measured 2026-09-07: 106 rows before, 115 during, 106 after.

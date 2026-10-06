@@ -38,6 +38,8 @@
 // Code.gs and Sidebar.html in public/extensions/ are owned by
 // another system and ARE NOT touched here.
 
+import { splitSetAside } from '../state/setAside';
+
 const DRIVE_API   = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLD  = 'https://www.googleapis.com/upload/drive/v3';
 const OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
@@ -199,7 +201,9 @@ export function googleDriveAdapter() {
       const inner = await listChildren(projectId, "name='project.json'");
       if (inner.length === 0) throw new Error(`[gdrive] project.json missing in folder ${projectId}`);
       const bundle = await readDriveJson(inner[0].id);
-      return {
+      // Post-overhaul S5b (0090): a bundle exported with set-aside rows shows
+      // the live schedule only, as every other backend does.
+      return splitSetAside({
         project:       bundle.project,
         phases:        bundle.phases || [],
         assets:        bundle.assets || [],
@@ -220,7 +224,15 @@ export function googleDriveAdapter() {
         // Session 17 (§6 #47): same omission as localServerAdapter — see the
         // comment there. Milestones reverted to [] on every reload.
         milestones:    bundle.milestones || [],
-      };
+        // Post-overhaul S3a (0084): the three shot-list keys every adapter's
+        // bundle carries. A bundle exported before shot lists existed has
+        // none, which reads as [] — "no active list", so every scene and shot
+        // shows (D10). Nothing is backfilled here: Drive is read-only, and
+        // the Local Server's backfill-on-read belongs to the writer.
+        shotLists:     bundle.shotLists || [],
+        shotListItems: bundle.shotListItems || [],
+        edits:         bundle.edits || [],
+      });
     },
 
     async listFiles(projectId) {
@@ -234,6 +246,21 @@ export function googleDriveAdapter() {
     async listFolders(projectId) {
       const bundle = await this.loadProject(projectId);
       return bundle.folders || [];
+    },
+
+    // Post-overhaul S3a (0084). The reads answer from the exported bundle,
+    // for listFolders' reason: a bare `() => []` would give a second answer
+    // to the question loadProject already answers. For every bundle that
+    // predates shot lists — every bundle Drive holds today — that answer is
+    // []. The nine writes are with the other readOnly() stubs below.
+    async listShotLists(projectId) {
+      return (await this.loadProject(projectId)).shotLists;
+    },
+    async listShotListItems(projectId) {
+      return (await this.loadProject(projectId)).shotListItems;
+    },
+    async listEdits(projectId) {
+      return (await this.loadProject(projectId)).edits;
     },
 
     async downloadFile(file) {
@@ -304,6 +331,22 @@ export function googleDriveAdapter() {
     deleteExperience:     readOnly('deleteExperience'),
     upsertMilestone:      readOnly('upsertMilestone'),
     deleteMilestone:      readOnly('deleteMilestone'),
+    // Post-overhaul S3a (0084) — shot lists, membership, edits. Loud, like
+    // every write here: a silent no-op would report a list as created, made
+    // active or archived when nothing changed anywhere.
+    upsertShotList:       readOnly('upsertShotList'),
+    // Post-overhaul S3b: the patch path (Edit details), as loud as the rest.
+    patchShotList:        readOnly('patchShotList'),
+    replaceShotListItems: readOnly('replaceShotListItems'),
+    // S3a review round 1 (addendum A): the membership deltas the provider
+    // writes instead of whole-list replaces; round 2 (R2-2): the reorder.
+    upsertShotListItems:  readOnly('upsertShotListItems'),
+    repositionShotListItems: readOnly('repositionShotListItems'),
+    deleteShotListItems:  readOnly('deleteShotListItems'),
+    upsertEdit:           readOnly('upsertEdit'),
+    setActiveShotList:    readOnly('setActiveShotList'),
+    archiveShotList:      readOnly('archiveShotList'),
+    archiveEdit:          readOnly('archiveEdit'),
     // Session 26 — folders. The READ is implemented above, beside listFiles.
     // These three are writes and stay loud: a silent no-op would report a
     // folder as created when nothing exists anywhere.

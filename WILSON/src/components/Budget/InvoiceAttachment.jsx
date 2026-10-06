@@ -37,8 +37,24 @@
 //                  honestly labelled everywhere else rather than silently
 //                  doing nothing, which is the bug this replaces.
 
+//
+// UI overhaul B5 (2026-09-26): on the kit and lane B5's sheet (`rb-inv-`),
+// since the Crew and Talent period popovers are its only hosts — the Label
+// step over the field (its label was #78716c, 3.37:1 on the popover, the
+// Budget's last contrast failure), the kit Button and IconButtons, and
+// "Invoice file" / "Attach invoice" in sentence case (Q2).
+
 import { useRef, useState } from 'react'
-import { Paperclip, FolderOpen, X, Loader2, AlertCircle } from 'lucide-react'
+import { Paperclip, FolderOpen, X, AlertCircle } from 'lucide-react'
+import { Button, IconButton, Spinner } from '../../ui'
+import { toInlineSafeBlob } from '../../lib/inlineSafeBlob'
+import '../../tools/rabbit_v0.1.0/views/rabbitBudget.css'
+
+// The open button's glyph while it fetches: the kit Spinner at the sm
+// icon's 14px, the size of the folder it stands in for (V2).
+function BusyGlyph({ 'aria-hidden': hidden }) {
+  return <Spinner size="sm" aria-hidden={hidden} />
+}
 
 export const FILE_REF_PREFIX = 'file:'
 
@@ -109,7 +125,10 @@ export default function InvoiceAttachment({
       // as well as "it was deleted" — RLS returns an empty set, not an error.
       // Say something either way rather than appearing to do nothing.
       if (!row) throw new Error('That invoice is no longer available to you.')
-      const blob = await adapter.downloadFile(row)
+      // 🚨 Merge review C-R2-02: the stored type is client-chosen and a blob:
+      // URL runs on this origin, so an invoice uploaded as text/html would run
+      // as script here. Same re-type as BudgetView.openFile, the twin.
+      const blob = toInlineSafeBlob(await adapter.downloadFile(row))
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank', 'noopener')
       // Give the new tab time to take the blob before revoking it.
@@ -122,53 +141,63 @@ export default function InvoiceAttachment({
   }
 
   return (
-    <div className="flex flex-col gap-0.5">
-      <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
-        Invoice File
-      </label>
+    <div className="rb-inv-field">
+      <span className="rb-inv-label">Invoice file</span>
 
-      <input ref={inputRef} type="file" onChange={handlePicked} className="hidden" />
+      <input ref={inputRef} type="file" onChange={handlePicked} className="hidden" aria-label="Invoice file" />
 
       {name ? (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-sm"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-          <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-          <span className="flex-1 text-[10.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{name}</span>
+        <div className="rb-inv-file">
+          <Paperclip className="rb-inv-glyph" aria-hidden="true" />
+          <span className="rb-inv-name" title={name}>{name}</span>
           {(isCloudRef(path) || canOpenLegacy) && (
-            <button type="button" onClick={handleOpen} disabled={busy}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors"
-              title={isCloudRef(path) ? 'Open invoice' : 'Show in explorer'}>
-              {busy
-                ? <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#a8a29e' }} />
-                : <FolderOpen className="w-3 h-3" style={{ color: '#a8a29e' }} />}
-            </button>
+            <IconButton
+              // V2 (B5b §4.2 item 10): busy said so only to a screen
+              // reader; the kit Spinner in the glyph's place says it to
+              // everyone (O.T.T.E.R.'s trash and share editor do the same,
+              // A4-KR-6 until the kit IconButton takes `loading`).
+              Icon={busy ? BusyGlyph : FolderOpen}
+              size="sm"
+              onClick={handleOpen}
+              disabled={busy}
+              aria-busy={busy || undefined}
+              title={isCloudRef(path) ? 'Open invoice' : 'Show in explorer'}
+            />
           )}
-          <button type="button" onClick={() => { setError(null); onChange({ name: '', path: '' }) }}
-            className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Remove attachment">
-            <X className="w-3 h-3" style={{ color: '#ef4444' }} />
-          </button>
+          <IconButton
+            Icon={X}
+            size="sm"
+            danger
+            title="Remove attachment"
+            onClick={() => { setError(null); onChange({ name: '', path: '' }) }}
+          />
         </div>
       ) : (
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy || disabled}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-40"
-          style={{ border: '1px solid #44403c', color: '#a8a29e' }}>
-          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
-          {busy ? 'Uploading…' : 'Attach Invoice'}
-        </button>
+        <Button
+          variant="secondary"
+          size="sm"
+          Icon={Paperclip}
+          loading={busy}
+          loadingLabel="Uploading…"
+          disabled={disabled}
+          onClick={() => inputRef.current?.click()}
+        >
+          Attach invoice
+        </Button>
       )}
 
       {/* A legacy row points at a path on one particular machine. Say so —
           the old code just made the button do nothing. */}
       {desktopOnlyLegacy && !canOpenLegacy && (
-        <span className="text-[9px] font-mono leading-snug" style={{ color: '#78716c' }}>
+        <span className="rb-inv-note">
           Saved by the desktop app to a folder on that computer. Re-attach it here
           to make it available everywhere.
         </span>
       )}
 
       {error && (
-        <span className="flex items-start gap-1 text-[9px] font-mono leading-snug" style={{ color: '#ef4444' }}>
-          <AlertCircle className="w-2.5 h-2.5 mt-px flex-shrink-0" />
+        <span className="rb-inv-error">
+          <AlertCircle className="rb-inv-error-glyph" aria-hidden="true" />
           {error}
         </span>
       )}

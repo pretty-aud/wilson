@@ -1,0 +1,128 @@
+// ============================================================
+// RABBIT — shot takes: assign bin files to shots (milestone 2)
+// ============================================================
+//
+// From a bin file: "Assign to shot… (pick scene → shot, with search; assign
+// several files at once)" (DEMO_BINS_BRIEF §5). The shots are grouped by
+// scene with the scene most of the files are logged to first; omitted shots
+// are hidden and counted (Q6: any shot not marked omitted); several shots may
+// be ticked because one take may serve several shots. A shot that already
+// has some of these files says so, and those pairs are skipped by the server.
+
+import { useMemo, useState } from 'react'
+import { Search, X, Check, Film, Clapperboard } from 'lucide-react'
+import { C, Btn, Modal, Select, StatusBadge, Toggle } from './binUi'
+import BinPoster from './BinPoster'
+import { assignableShotGroups, commonSceneId, matchesShotSearch, TAKE_ROLES, TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
+// Post-overhaul S3c, step 1: the active-list default, and each shot's list.
+import LinkHome from '../scenes/LinkHome'
+import { pickerRows, otherListRows } from '../scenes/linkHomes'
+
+// Post-overhaul S3c, step 1: `scenes` / `shots` are the ACTIVE shot list's
+// (D10) and are what the picker offers by default; "Shot lists: all" offers
+// `allScenes` / `allShots`, every row of the project (a take may belong to a
+// shot only another list holds). `homeOf` names each shot's list.
+export default function AssignToShotDialog({ files, binFiles, scenes, shots, allScenes = null, allShots = null, homeOf = null, shotTakes, thumbUrlFor, onConfirm, onCancel, busy, error = null }) {
+  const fileIds = useMemo(() => new Set((files || []).map(f => f.id)), [files])
+  const liveFiles = useMemo(() => new Set((binFiles || []).map(f => f.id)), [binFiles])
+  const preferSceneId = useMemo(() => commonSceneId(files), [files])
+  const [showAllLists, setShowAllLists] = useState(false)
+  const everyScene = allScenes || scenes
+  const everyShot = allShots || shots
+  const canShowAllLists = otherListRows({ active: shots, all: everyShot })
+  const pickShots = showAllLists ? everyShot : shots
+  const pickScenes = showAllLists ? everyScene : pickerRows({ active: scenes, all: everyScene, showAll: false, keep: (shots || []).map(s => s.scene_id) })
+  const { groups, hiddenOmitted } = useMemo(() => assignableShotGroups(pickShots, pickScenes, { preferSceneId }), [pickShots, pickScenes, preferSceneId])
+  // Counted through the live files, like every other consumer: a take whose
+  // file was just removed is an orphan in state until the next response and
+  // must not be counted (adversarial review).
+  const takesPerShot = useMemo(() => {
+    const out = new Map()
+    for (const t of shotTakes || []) {
+      if (binFiles && !liveFiles.has(t.bin_file_id)) continue
+      if (!out.has(t.shot_id)) out.set(t.shot_id, { total: 0, ofThese: 0 })
+      const o = out.get(t.shot_id); o.total++; if (fileIds.has(t.bin_file_id)) o.ofThese++
+    }
+    return out
+  }, [shotTakes, fileIds, binFiles, liveFiles])
+  const [search, setSearch] = useState('')
+  const [picked, setPicked] = useState(() => new Set())
+  const [role, setRole] = useState('auto')
+  const toggle = (id) => setPicked(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const shown = useMemo(() => groups.map(g => ({ ...g, shots: g.shots.filter(s => matchesShotSearch(s, g.scene, search)) })).filter(g => g.shots.length), [groups, search])
+  const nFiles = (files || []).length
+  const nShots = picked.size
+  const totalShots = groups.reduce((n, g) => n + g.shots.length, 0)
+
+  return (
+    <Modal title={nFiles === 1 ? `Assign "${files[0].display_name || files[0].original_name}" to a shot` : `Assign ${nFiles} files to a shot`} onClose={onCancel} width="reading" busy={busy} error={error}
+      subtitle={`${totalShots} shot${totalShots === 1 ? '' : 's'} across ${groups.filter(g => g.scene).length} scene${groups.filter(g => g.scene).length === 1 ? '' : 's'}${hiddenOmitted ? ` · ${hiddenOmitted} omitted shot${hiddenOmitted === 1 ? '' : 's'} hidden` : ''}`}
+      footer={<>
+        <Select value={role} size="md" className="!w-auto" options={[{ value: 'auto', label: 'Automatic — primary if the shot has none, else alt' }, ...TAKE_ROLES.map(r => ({ value: r, label: `As ${TAKE_ROLE_META[r].label.toLowerCase()}` }))]} onChange={v => setRole(v || 'auto')} />
+        <span className="flex-1" />
+        <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
+        <Btn primary disabled={busy || nShots === 0} onClick={() => onConfirm([...picked], role === 'auto' ? null : role)}>
+          <Check className="w-3 h-3" /> Assign to {nShots || ''} {nShots === 1 ? 'shot' : 'shots'}
+        </Btn>
+      </>}>
+      <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
+        {(files || []).slice(0, 12).map(f => (
+          <span key={f.id} className="flex-shrink-0 inline-flex items-center gap-1.5 pr-2 rounded-control" style={{ backgroundColor: C.panel, border: `1px solid ${C.line}` }} title={f.display_name || f.original_name}>
+            <BinPoster row={f} src={thumbUrlFor?.(f.id)} width={44} height={25} radius={0} style={{ border: 'none' }} />
+            <span className="text-dense font-mono truncate" style={{ color: C.text, maxWidth: 120 }}>{f.display_name || f.original_name}</span>
+          </span>
+        ))}
+        {nFiles > 12 && <span className="text-dense flex-shrink-0" style={{ color: C.dim }}>+{nFiles - 12} more</span>}
+      </div>
+
+      <div className="flex items-center gap-2 mb-2">
+        <div className="relative w-64 flex-shrink-0">
+          <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shots…" title="Search shots by name, number, scene or framing"
+            className="ui-input pl-6 pr-6" data-size="sm" aria-label="Search shots"
+            onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
+          {search && <button type="button" onClick={() => setSearch('')} title="Clear the search" aria-label="Clear the search" className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
+        </div>
+        <span className="flex-1 min-w-0 text-caption" style={{ color: C.dimmer }}>Tick several to use these takes in more than one shot. A shot's first take is always its primary.</span>
+        {canShowAllLists && <Toggle checked={showAllLists} onChange={setShowAllLists} label="All lists" />}
+      </div>
+
+      <div className="rounded-control overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+        <div className="max-h-[48vh] overflow-y-auto">
+          {shown.length === 0 && (
+            <div className="px-3 py-6 text-center text-dense" style={{ color: C.dimmer }}>
+              {totalShots === 0 ? 'No shots to assign to yet. Add shots on the Scenes tab first.' : 'No shot matches.'}
+            </div>
+          )}
+          {shown.map(g => (
+            <div key={g.key}>
+              <div className="bn-group-head flex items-center gap-2 px-3 py-1 text-label tabular-nums uppercase" data-preferred={g.key === preferSceneId ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>
+                <Film className="w-3 h-3" /> {g.scene ? `${g.scene.scene_number != null ? `Sc ${g.scene.scene_number} · ` : ''}${g.scene.name || 'Untitled scene'}` : 'Shots without a scene'}
+                {g.key === preferSceneId && <span className="normal-case tracking-normal" style={{ color: C.dim }}>· where these files are logged</span>}
+              </div>
+              {g.shots.map(shot => {
+                const on = picked.has(shot.id)
+                const t = takesPerShot.get(shot.id)
+                const allIn = t && t.ofThese === nFiles
+                return (
+                  <label key={shot.id} className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !allIn ? 'true' : undefined} data-locked={allIn ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
+                    <input type="checkbox" className="accent-signal" checked={on} disabled={busy || allIn} onChange={() => toggle(shot.id)} />
+                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dimmer }} />
+                    <span className="w-8 text-dense font-mono tabular-nums text-right flex-shrink-0" style={{ color: C.dim }}>#{shot.shot_number ?? '—'}</span>
+                    <span className="flex-1 min-w-0 truncate text-dense" style={{ color: C.bright }}>{shot.name || 'Untitled shot'}</span>
+                    {homeOf && <LinkHome homeOf={homeOf} id={shot.id} name={shot.name || 'Untitled shot'} />}
+                    {shot.framing && <span className="text-label uppercase flex-shrink-0" style={{ color: C.dim }}>{shot.framing}</span>}
+                    <StatusBadge status={shot.status || 'not_started'} className="flex-shrink-0" />
+                    <span className="bn-take-count w-44 text-right text-dense tabular-nums flex-shrink-0" data-assigned={t?.ofThese ? 'true' : undefined}>
+                      {t ? `${t.total} take${t.total === 1 ? '' : 's'}${t.ofThese ? ` · ${allIn ? (nFiles === 1 ? 'already assigned' : 'all of these already') : `${t.ofThese} of these already`}` : ''}` : 'no takes yet'}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
+  )
+}

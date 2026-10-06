@@ -45,14 +45,19 @@ import {
   MoreHorizontal, Share2, Copy, Trash2, MessageSquarePlus,
 } from 'lucide-react'
 import { canManageEditors, selectableVisibilities, canReadCourse } from './otterSharing.js'
+import { IconButton } from '../../../ui'
 
 const MENU_WIDTH = 200
-const MENU_ITEM_H = 27      // one row at text-[11px] + py-1.5
-const MENU_CHROME_H = 12    // py-0.5 + 2px borders + the separator rule
+// The kit menu's geometry (index.css `.ui-menu`, `.ui-menu-item`,
+// `.ui-menu-divider`), so place() flips at the height the menu will draw.
+const MENU_ITEM_H = 28      // `.ui-menu-item` min-height: --control-sm
+const MENU_CHROME_H = 10    // 4px padding top and bottom, 1px edges
+const MENU_DIVIDER_H = 9    // `.ui-menu-divider`: 1px, 4px either side — drawn only between items and trash
 const VIEWPORT_PAD = 8
 
 export default function CourseRowMenu({
   course, role, onShare, onSuggestChange, onFork, onTrash, compact = false,
+  sourceIsStandard = false,
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
@@ -66,7 +71,18 @@ export default function CourseRowMenu({
   const isAdmin    = role === 'admin'
   const mayShare   = selectableVisibilities(course, role).length > 0 || canManageEditors(course, role)
   const mayFork    = canReadCourse(course)
-  const maySuggest = !!course?.source_course_id && canReadCourse(course)
+  // `source_course_id` says this course is a FORK. It does not say the thing it
+  // was forked FROM is still the standard, and only a standard can be the target
+  // of a change request (otter_cr_insert, 0025: the WITH CHECK requires
+  // otter_course_visibility(target_course_id) = 'company_standard'). An admin
+  // demoting a standard — the confirmDrop path in ShareCourseDialog, and since
+  // 0064 the automatic consequence of approving ANY nomination — used to leave
+  // every existing fork still offering this item: the dialog opened, the user
+  // wrote a summary, and only the POST failed, at RLS. `sourceIsStandard` is
+  // resolved by the caller against softwareList (CourseRowMenu sees one course
+  // and cannot look the source up itself) and defaults FALSE, so a render site
+  // that forgets it loses the item rather than restoring the dead end.
+  const maySuggest = !!course?.source_course_id && sourceIsStandard && canReadCourse(course)
   // Mirrors fn_otter_trash_authz's course arm: owner or admin. Granted editors
   // may edit content but never bin someone else's course.
   const mayTrash   = isOwn || isAdmin
@@ -82,6 +98,7 @@ export default function CourseRowMenu({
   ].filter(Boolean)
 
   const menuHeight = (items.length + (mayTrash ? 1 : 0)) * MENU_ITEM_H + MENU_CHROME_H
+    + (mayTrash && items.length > 0 ? MENU_DIVIDER_H : 0)
 
   // The trigger's label must name the actions that are ACTUALLY in the menu.
   // A fixed "share, submit, copy or trash" was wrong for most rows: on a
@@ -146,57 +163,67 @@ export default function CourseRowMenu({
 
   return (
     <>
-      <button
+      {/* PHASE 5 — CONTRAST AND TARGET SIZE, restated for A3.
+            The glyph was stone-600 at 1.35:1 on a hovered sidebar row, 1.99:1
+            on a library card and 2.29:1 on the course header; WCAG 1.4.11
+            wants 3:1 for a UI component, and this is the ONLY route to the
+            sharing model. It is now the kit's IconButton: ink-2 at rest
+            (8.49:1 on paper), and its own square for a hit box — 28x28
+            compact (the sidebar) and 36x36 — clearing WCAG 2.2 2.5.8, where
+            icon-plus-padding gave 24x24 and 30x30 (16x16 / 22x22 before
+            PHASE 5). The open branch, dead until A3 (see otter.css), holds
+            the kit's hover while the menu is open. */}
+      <IconButton
         ref={btnRef}
-        type="button"
+        size={compact ? 'sm' : 'md'}
+        icon={MoreHorizontal}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Actions for ${course?.name ?? 'course'} — ${verbList}`}
         title={verbList.charAt(0).toUpperCase() + verbList.slice(1)}
-        // PHASE 5 — CONTRAST AND TARGET SIZE.
-        //   text-stone-600 put the revealed glyph at 1.35:1 on a hovered sidebar
-        //   row (stone-600 on stone-700), 1.99:1 on a library card and 2.29:1 on
-        //   the course header. WCAG 1.4.11 wants 3:1 for a UI component, and
-        //   this is the ONLY route to the sharing model. stone-400 measures
-        //   4.08:1 on stone-700 and better on the darker two.
-        //   Padding takes the hit box to 24x24 (compact: 12px icon + p-1.5) and
-        //   30x30 (14px icon + p-2), clearing WCAG 2.2 2.5.8. It was 16x16/22x22.
-        className={`shrink-0 rounded-sm text-stone-400 hover:text-orange-400 hover:bg-stone-700 transition-all ${
-          compact ? 'p-1.5' : 'p-2'
-        } ${open ? 'text-orange-400' : ''}`}
-      >
-        <MoreHorizontal className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-      </button>
+        className="otter-row-menu-trigger"
+        data-open={open ? 'true' : undefined}
+      />
 
+      {/* The kit Menu's surface and items (its classes), on this component's
+          own element: the kit Menu has no menu roles yet and this one does,
+          and its placement (flip above near the bottom edge, close on any
+          scroll) is this component's. */}
       {open && pos && (
         <div
           ref={menuRef}
           role="menu"
           onClick={e => e.stopPropagation()}
-          className="fixed z-[60] bg-stone-700 border-2 border-stone-600 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.35)] py-0.5"
+          className="ui-menu otter-row-menu"
+          data-surface="dark"
           style={{ left: pos.left, top: pos.top, width: MENU_WIDTH }}
         >
           {items.map(item => (
             <button
               key={item.key}
+              type="button"
               role="menuitem"
-              onClick={() => { setOpen(false); item.run?.(course) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-stone-300 hover:bg-stone-600 hover:text-white transition-colors text-left"
+              onClick={() => { setOpen(false); btnRef.current?.focus({ preventScroll: true }); item.run?.(course) }}
+              className="ui-menu-item"
             >
-              <item.Icon className="w-3 h-3 shrink-0" /> {item.label}
+              <item.Icon aria-hidden="true" />
+              <span className="ui-menu-item-label">{item.label}</span>
             </button>
           ))}
 
           {mayTrash && (
             <>
-              {items.length > 0 && <div className="border-t border-stone-600 my-0.5" />}
+              {items.length > 0 && <div className="ui-menu-divider" />}
               <button
+                type="button"
                 role="menuitem"
-                onClick={() => { setOpen(false); onTrash?.(course) }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-stone-300 hover:bg-red-900/40 hover:text-red-300 transition-colors text-left"
+                onClick={() => { setOpen(false); btnRef.current?.focus({ preventScroll: true }); onTrash?.(course) }}
+                className="ui-menu-item"
+                data-danger="true"
               >
-                <Trash2 className="w-3 h-3 shrink-0" /> Move to trash
+                <Trash2 aria-hidden="true" />
+                <span className="ui-menu-item-label">Move to trash</span>
               </button>
             </>
           )}

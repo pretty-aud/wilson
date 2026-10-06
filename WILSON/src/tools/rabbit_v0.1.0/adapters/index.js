@@ -18,6 +18,7 @@
 import { supabaseAdapter }    from './supabaseAdapter';
 import { localServerAdapter } from './localServerAdapter';
 import { googleDriveAdapter } from './googleDriveAdapter';
+import { devFixtures } from '../../../dev/devFixtures';
 
 /**
  * @typedef {Object} ProjectIndexEntry
@@ -55,6 +56,12 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  * @property {string=} taskId
  * @property {('source'|'reference'|'deliverable'|'export'|'other')=} kind
  * @property {boolean=} isCoreDefiner
+ * @property {boolean=} financial  An invoice or receipt: the INVOICES locked
+ *   folder, files.is_financial, and the body pinned to Supabase (0038/0050).
+ * @property {boolean=} legal  Post-overhaul S4b: a Legal file — the LEGAL
+ *   locked folder and the legal tag, written together at upload and never
+ *   changed after; seen by workspace admins and the project's managers only
+ *   (0088). Never combined with `financial`.
  */
 
 /**
@@ -205,7 +212,124 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  *   `rabbit:workspace:{id}` carrying projects / workspace_members /
  *   assigned-task events for index + Dashboard liveness. Same event
  *   shape and opts contract as subscribeProjectChanges.
+ *
+ * @property {(projectId: string) => Promise<object[]>}             listShotLists
+ * @property {(list: object) => Promise<object>}                    upsertShotList
+ * @property {(projectId: string) => Promise<object[]>}             listShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} replaceShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id?: string, scene_id?: string|null, shot_id?: string|null, position?: number}>) => Promise<object[]>} upsertShotListItems
+ * @property {(projectId: string, listId: string, items: Array<{id: string, position: number}>) => Promise<object[]>} repositionShotListItems
+ * @property {(projectId: string, listId: string, itemIds: string[]) => Promise<{deleted: string[]}>} deleteShotListItems
+ * @property {(projectId: string) => Promise<object[]>}             listEdits
+ * @property {(edit: object) => Promise<object>}                    upsertEdit
+ * @property {(projectId: string, listId: string|null) => Promise<string|null>} setActiveShotList
+ * @property {(projectId: string, listId: string, archived?: boolean) => Promise<object>} archiveShotList
+ * @property {(projectId: string, editId: string, archived?: boolean) => Promise<object>} archiveEdit
+ *   Shot lists, their membership and edits (migration 0084, post-overhaul
+ *   S3a; the rulings are D1–D22 in docs/design/POST_OVERHAUL_PLAN.md §0.1).
+ *   Same names, signatures and row shapes on supabase, local_server and the
+ *   dev fixtures; google_drive answers the three reads from its exported
+ *   bundle ([] when it has none) and throws readOnly() on the nine writes.
+ *   loadProject carries the same three collections as `shotLists` /
+ *   `shotListItems` / `edits` — lists and edits ordered created_at, id;
+ *   items position, id.
+ *   - A list is MEMBERSHIP (D1 + D3): scene and shot rows are shared by
+ *     every list; only item rows and their positions are per list. Scene
+ *     items order a list's scenes; shot items order shots within their
+ *     scene (restarting at 0 per scene and for the unlinked bucket).
+ *   - upsertShotList / upsertEdit need `project_id` on the row and return
+ *     the stored row (the cloud sends neither the audit columns nor
+ *     archived_at / archived_by — the database stamps the first four and
+ *     only the archive RPCs change the last two).
+ *   - Membership is written as DELTAS (S3a review round 1): items are not
+ *     broadcast, so a whole-list write from one client's view would delete
+ *     what a collaborator added since it loaded.
+ *     upsertShotListItems writes ONLY the named rows ([{ id?, scene_id |
+ *     shot_id, position? }], a missing position = its index): new ids are
+ *     inserted, ids of THIS list updated, an id of ANOTHER list skipped;
+ *     nothing is deleted; it returns the rows written.
+ *     repositionShotListItems (S3a review round 2) is the REORDER and its
+ *     undo / redo: [{ id, position }], it sets `position` on rows that EXIST
+ *     in THIS list and changes nothing else — an id that names no row (one
+ *     a collaborator removed since this client loaded) or another list's
+ *     row is skipped, NEVER inserted; it returns the rows updated. Refused
+ *     (code invalid): not an array, an item without an id, a position that
+ *     is not a whole number ≥ 0, an id named twice. deleteShotListItems
+ *     deletes exactly the named ids of THIS list (others are ignored) and
+ *     returns { deleted: [ids actually deleted] }; when a named row is still
+ *     in the list afterwards the caller lacked the right to change it
+ *     (supabase: 42501 "you cannot change this shot list" — RLS filters a
+ *     DELETE instead of refusing it). replaceShotListItems replaces the
+ *     WHOLE membership of that one list — for tooling and bulk restores —
+ *     and returns that list's rows, ordered.
+ *   - An ARCHIVED list's membership is NOT frozen (round 2 reverted round
+ *     1's freeze): every item write is allowed on it, so the undo of a scene
+ *     delete can put the scene back in archived lists too. The provider
+ *     refuses UI verbs on an archived list. Deleting a scene or shot removes
+ *     its items from every list, archived ones included.
+ *   - setActiveShotList(projectId, null) clears the pointer; it returns the
+ *     new active id. archive* with archived = false restores; they return
+ *     the row. Lists and edits are archived, never deleted (D4 / D18): no
+ *     adapter has a delete for either.
+ *   - Set-active and archive are workspace-admin / PROJECT-manager decisions
+ *     (D8), enforced by the SECURITY DEFINER RPCs on supabase; the Local
+ *     Server has no roles, so there they are labels.
+ *   - Refusals carry `code`: supabase keeps the Postgres / PostgREST code
+ *     (42501, P0001, P0002, 23505, …) on the thrown Error; local_server and
+ *     the fixtures answer invalid / conflict / forbidden / not_found. The
+ *     collision rules read the same everywhere: supabase words a 23505 on
+ *     the one-root / one-child chain indexes, the two "Title · vN" keys and
+ *     the two once-per-list item keys as the contract's sentences (the two
+ *     title ones without the title: "There is already a shot list with this
+ *     title and version." / "This shot list already has an edit with this
+ *     title and version."). A supabase database without 0084 answers [] to
+ *     the reads and code `shot_lists_unavailable` to every write.
  */
+
+// --- bins ---
+//
+// The bin system (demo 2026-09-11, docs/BINS_DESIGN.md §4). LOCAL SERVER
+// ONLY, and feature-detected: the provider checks `typeof adapter.listBins ===
+// 'function'` and exposes `supportsBins`; the Supabase and Drive adapters
+// define none of these, and the Bins tab shows an honest empty state there.
+// Bin files are REFERENCES to paths on this machine (never copied); the OS
+// dialogs open in the main process; the bytes and posters are served by the
+// loopback server. Every method takes projectId first.
+//
+//   listBins(projectId)                          → { bins, binFiles (with `online`), binRoots, shotTakes, orphanTakes, ffmpeg }
+//   createBin(projectId, bin) / updateBin(projectId, id, patch)
+//   deleteBin(projectId, id, { mode: 'move'|'remove', target })
+//                                                → { removedBins, movedFiles, removedFiles }
+//   reorderBins(projectId, [{ id, parent_bin_id, sort_order }])
+//   pickBinFiles(projectId) → { paths, canceled } ; pickBinFolder(projectId, title) → { path, canceled }
+//   prepareBinFiles(projectId, paths)            → { items, folders, truncated, roots } (the add dialog's plan)
+//   addBinFiles(projectId, binId, items, createSubBins, roots) → { created, bins, results }
+//   updateBinFile(projectId, id, patch) ; bulkUpdateBinFiles(projectId, ids, patch) → { updated }
+//   moveBinFiles / copyBinFiles(projectId, ids, binId) ; removeBinFiles(projectId, ids) → { removed }
+//   restoreBinFiles(projectId, rows) → { restored, skipped: [{ id, reason }], affectedShotIds, shotTakes, orphanTakes }
+//   probeBinFile(projectId, id)                  → the row with its technical columns filled
+//   binFileThumbnailUrl(projectId, id, rev) / binFileStreamUrl(projectId, id, { probe })  (URLs, not fetches)
+//   postBinFileThumbnail(projectId, id, base64)  (the renderer decoded a frame; no ffmpeg)
+//   binRelinkScan(projectId, folderPath?) → { offline, candidates, truncated } ; binRelinkApply(projectId, mappings)
+//   removeBinRoot(projectId, id)                 (roots are recorded by the pick and add routes)
+//
+// Every failure throws an Error carrying `status` and, where the route sends
+// one, `code` (offline, cross_origin, unauthorized_folder, bad_ids, …) —
+// branch on those, never on the sentence.
+//
+// Shot takes (milestone 2): bin files assigned to shots, many-to-many, ordered,
+// with a role (primary | part | alt) and notes; `bundle.shotTakes`. Every
+// mutation answers { affectedShotIds, shotTakes, orphanTakes } — the full row
+// set of the shots it touched — because siblings are re-roled and renumbered.
+// The rows arrive with listBins: `shotTakes` are the LIVE rows (shot and file
+// both exist) presented with positions 0..n-1 and exactly one primary per
+// shot; `orphanTakes` are the rows whose shot or file is gone, verbatim, so
+// state keeps them for the undo that brings the shot or file back.
+//   assignShotTakes(projectId, [{ shot_id, bin_file_id, role?, notes? }]) → { created, skipped, … }
+//   updateShotTake(projectId, id, { role?, notes?, position? }) → { take, … }
+//   removeShotTakes(projectId, ids)                → { removed, … }
+//   reorderShotTakes(projectId, shotId, ids)
+//   replaceShotTakes(projectId, shotIds, rows)     (the undo primitive: those shots' rows become exactly `rows`)
 
 /** @type {Record<string, () => RabbitAdapter>} */
 const ADAPTERS = {
@@ -224,6 +348,14 @@ const ADAPTERS = {
  * @returns {RabbitAdapter}
  */
 export function selectAdapter(mode) {
+  // Dev fixtures (2026-09-11, dev builds only): with VITE_DEV_FIXTURES=1 the
+  // cloud slot is served by the in-memory fixtures adapter (src/dev/fixtures),
+  // so `adapterMode` stays 'supabase' and every `=== 'supabase'` gate in the
+  // provider, the Dashboard, the Projects page and the drawers opens onto
+  // fake data. `import.meta.env.DEV` is a build-time constant: `vite build`
+  // has no such branch (src/dev/devFixtures.test.js pins the shape).
+  const fx = import.meta.env.DEV && mode === 'supabase' ? devFixtures() : null;
+  if (fx?.rabbitAdapter) return fx.rabbitAdapter();
   const factory = ADAPTERS[mode];
   if (!factory) {
     throw new Error(
@@ -243,5 +375,6 @@ export const ADAPTER_MODES = Object.keys(ADAPTERS);
  * mutator UI when running against a read-only backend.
  */
 export function adapterSupportsWrites(mode) {
-  return mode === 'supabase' || mode === 'local_server';
+  return mode === 'supabase' || mode === 'local_server'
+    || (import.meta.env.DEV && mode === 'fixtures'); // the dev fixtures adapter reports mode 'fixtures'
 }

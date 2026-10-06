@@ -2,8 +2,11 @@
 // LoginScreen — terminal-aesthetic sign-in, built on AuthShell.
 //
 // Four stages:
-//   1. 'company'   — ONE input: the company. Shape-checked and remembered;
-//                    see "Why the company step does not phone home" below.
+//   1. 'company'   — ONE input: the company (display name or slug). Verified
+//                    against resolve-login (contract v2), which answers with
+//                    the canonical slug step 2 is scoped to. Remembered per
+//                    DEVICE for next time; a `?company=` deep link pre-fills
+//                    it (Track B, bundle B1).
 //   2. 'auth'      — USERNAME + PASSWORD for that company. On submit:
 //                      a. POST /functions/v1/resolve-login with the username
 //                         AND the workspace slug → { exists, email }. Server
@@ -60,6 +63,38 @@
 //   - The same generic error is used for every failure mode below rate-limiting.
 //   - Response-body shape + timing are uniform across found / not-found /
 //     rate-limited (the Edge Function's job; we just mirror that here).
+//
+// ── UI overhaul, session D2 ──────────────────────────────────────────────────
+// AUTH-09  Every gap was a hand-typed 18px, so the title sat exactly as far
+//          from the first field as the fields sat from each other and spacing
+//          carried no grouping information. Now the three named tokens do it:
+//          24 between blocks, 16 between field groups, 8 within one.
+// AUTH-11  Every message here SHOUTED while the two sibling wizards spoke
+//          theirs. All of them are sentence case now; the words are untouched,
+//          because the genericness of GENERIC_ERROR is a security property.
+//          The three repeated strings are constants rather than five literals.
+//          ⚠️ ONE shouted string survives, `'COMPANY NOT FOUND.'` inside the
+//          dev auto sign-in effect below. Be exact about why, because the
+//          first version of this note was not: devAutoLogin.test.js reads
+//          this file as TEXT and pins the SHAPE of that effect — the guard
+//          order, an occurrence count, three patterns that must never appear
+//          — so the block is not reflowed by a restyle. The literal itself is
+//          not pinned. It stays shouted by decision, not by necessity, and it
+//          is dev builds only, so nobody who uses WILSON ever reads it.
+// AUTH-05  The MFA instruction is a sentence, so it takes AUTH_PROSE_STYLE.
+//   /-12  AUTH_HINT_STYLE keeps only the label-like fragments: the company
+//          echo, the "·" separator and the "Select workspace" caption.
+// AUTH-24  The code field keeps its 0.35em tracking — that is what makes six
+//          digits read as six digits — and gains a matching `textIndent`, so
+//          the trailing letter-space stops pulling the run ~3px left of centre.
+// AUTH-25  The workspace slug is an identifier, so it keeps the mono (Q4).
+//          WorkspaceSwitcher.jsx made the same call for the same value; the
+//          two screens now agree by decision rather than by accident.
+// AUTH-07  The "↑ ↓ TO MOVE · ENTER TO SELECT" caps line is gone. Q10: no
+//          shortcut bar anywhere, so its replacement is nothing. The arrow-key
+//          handler is untouched — only the decoration went.
+// Q2       The page title is `Login`, not `LOGIN`. Uppercase survives in two
+//          roles app-wide and a page heading is neither of them.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -69,14 +104,21 @@ import AuthShell, {
   AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
+  AUTH_CODE_FIELD_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
   AUTH_LINK_STYLE,
+  AUTH_LINK_BUSY_STYLE,
   AUTH_HINT_STYLE,
+  AUTH_PROSE_STYLE,
   AUTH_ERROR_STYLE,
+  AUTH_GAP_WITHIN_FIELD,
   AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_GAP_BETWEEN_BLOCKS,
   AuthField,
   AuthPasswordInput,
 } from './AuthShell'
+import { TYPE, FONT_MONO } from '../../ui/tokens'
 import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 
@@ -88,7 +130,55 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 // with a mistyped company round a loop that cannot succeed. This is the
 // generic error — it stays generic, and it must never grow a branch that
 // says WHICH of the three was wrong.
-const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'
+//
+// AUTH-11 (UI overhaul D2): sentence case. Every message on this screen was
+// SHOUTED while its two sibling wizards spoke theirs, so the auth family had
+// two voices for one role. An all-caps error reads as the system blaming the
+// user. Only the case and the terminal punctuation changed — the WORDS are
+// untouched, because this string's genericness is a security property.
+const GENERIC_ERROR = 'Sign-in failed. Check company, username and password.'
+
+// One timeout voice, likewise. A stalled network is not a wrong credential,
+// and saying so is what stops the user retrying a thing that cannot succeed.
+const TIMEOUT_ERROR = 'The server did not respond. Check your connection and try again.'
+const MFA_REJECTED_ERROR = 'Code rejected. Try again.'
+
+// B1: resolve-login now answers 429 from a DURABLE per-IP limiter. That status
+// depends only on this address's own request count in the last minute, never
+// on whether a company or a username exists, so naming it costs nothing and
+// stops a throttled person from re-typing a password that was right.
+// Sentence case like every other message here (AUTH-11); the words are B1's.
+const RATE_LIMITED_ERROR = 'Too many attempts. Wait a minute and try again.'
+// ONE wording for "no such company" and "company exists but is suspended"
+// (B1; the server folds both into `exists:false`). A constant like the two
+// above so authSelectors.test.js can pin auth.spec.ts's selector to this
+// file; the dev auto sign-in effect keeps its own shouted literal by
+// decision (see AUTH-11 in the header).
+const COMPANY_NOT_FOUND = 'Company not found.'
+
+// B1: the last company that cleared step 1 on THIS DEVICE, so the next
+// sign-in starts with the field filled. Per device, never per account —
+// Audrey tests two accounts in two browsers, and each browser remembers
+// whatever was typed in it last. It is a display name, not a credential, so
+// plain localStorage on both hosts is fine (sessionStorage.js keeps the
+// session itself in safeStorage on the desktop; this key is not that).
+const LAST_COMPANY_KEY = 'wilson.lastCompany'
+function readLastCompany() {
+  try { return localStorage.getItem(LAST_COMPANY_KEY) ?? '' } catch { return '' }
+}
+function saveLastCompany(name) {
+  try { localStorage.setItem(LAST_COMPANY_KEY, name) } catch { /* private mode, quota */ }
+}
+// A deep link may pre-fill the company: `?company=<name or slug>` in the
+// query. Query only — the hash belongs to recovery links (recoveryLink.js).
+// It is still verified like anything typed; a link cannot skip step 1.
+export function companyFromDeepLink(search) {
+  try {
+    return (new URLSearchParams(search).get('company') ?? '').trim().slice(0, 80)
+  } catch {
+    return ''
+  }
+}
 
 async function resolveLogin({ username, workspaceSlug }) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
@@ -102,6 +192,7 @@ async function resolveLogin({ username, workspaceSlug }) {
       ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
     }),
   })
+  if (res.status === 429) return { limited: true, exists: false, email: null }
   if (!res.ok) return { exists: false, email: null }
   return res.json()
 }
@@ -123,6 +214,10 @@ async function verifyCompany(company) {
       headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON },
       body: JSON.stringify({ company }),
     })
+    // 429 is a refusal from a deployment that DOES understand the contract —
+    // it must not read as "not deployed", or a throttled caller would be
+    // waved through step 1 on a derived slug with the gate off.
+    if (res.status === 429) return { unavailable: false, limited: true, exists: false, slug: null }
     if (!res.ok) return { unavailable: true }
     const data = await res.json()
     if (data?.v !== 2) return { unavailable: true }
@@ -157,7 +252,12 @@ async function fetchUserWorkspaces() {
   return data ?? []
 }
 
-export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
+// `notice` (B2 part 2): one line above the form saying WHY the person is
+// looking at it again — the idle sign-out or the 4-hour cap. Set by App.jsx
+// from the expiry reason and cleared by the next sign-in. A sentence in the
+// prose role (AUTH-05/-12), like the reset wizard's "You will be signed out
+// on every device." line.
+export default function LoginScreen({ onAuthenticated, onForgotPassword, notice = '' }) {
   // ── Shell phase gate ───────────────────────────────────────────────────
   const [ready, setReady]         = useState(false)
   const [revealing, setRevealing] = useState(false)
@@ -165,8 +265,13 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   // ── Auth flow state ───────────────────────────────────────────────────
   const [stage, setStage]                   = useState('company')
   // Raw as typed, so the field does not fight the user mid-word. Slugified
-  // on submit only.
-  const [company, setCompany]               = useState('')
+  // on submit only. Starts from the deep link if there is one, else from what
+  // this device last signed in to (B1) — either way it is only a pre-fill,
+  // and step 1 still verifies it.
+  const [company, setCompany]               = useState(() => (
+    companyFromDeepLink(typeof window === 'undefined' ? '' : window.location.search)
+    || readLastCompany()
+  ))
   const [companySlug, setCompanySlug]       = useState('')
   const [username, setUsername]             = useState('')
   const [password, setPassword]             = useState('')
@@ -229,8 +334,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // over a screen AuthShell has already torn down (it returns null once
       // its phase reaches 'done'), which renders as a bare orange window.
       // The animation is 1s; 4s of grace, then complete it ourselves.
-      // onAuthenticated is idempotent in App.jsx (it sets state), so a double
-      // call is harmless — a stranded session is not.
+      // 🚨 B2 part 2: `completedRef` is what makes this safe, NOT idempotence.
+      // It used to be true that a double `onAuthenticated` merely set state
+      // twice; App.jsx's `handleAuth` now also writes a `sign_in` row to
+      // auth_events, so a second call would be a second row. Exactly one of
+      // the two paths below completes, and the ref is the reason.
       if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current)
       revealFallbackRef.current = setTimeout(() => {
         if (!completedRef.current) {
@@ -241,9 +349,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       }, 4000)
     } catch (err) {
       console.warn('[wilson] completeSignIn failed:', err?.message ?? err)
-      setError(err?.name === 'TimeoutError'
-        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
-        : GENERIC_ERROR)
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
       setBusy(false)
     }
   }, [onAuthenticated])
@@ -255,13 +361,18 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     if (busy) return
     const typed = company.trim()
     if (typed.length < 2 || typed.length > 80) {
-      setError('ENTER YOUR COMPANY.')
+      setError('Enter your company.')
       return
     }
     setBusy(true)
     setError('')
     try {
       const result = await verifyCompany(typed)
+
+      if (result.limited) {
+        setError(RATE_LIMITED_ERROR)
+        return
+      }
 
       // Not deployed yet → degrade to the derived slug rather than refusing a
       // company that is perfectly real. Loud in the console, because in this
@@ -277,10 +388,14 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         return
       }
 
+      // ONE wording for "no such company" and "company exists but is
+      // suspended": the server folds both into `exists:false`, so this step
+      // reveals existence only, never status. Do not add a branch here.
       if (!result.exists || !SLUG_RE.test(result.slug ?? '')) {
-        setError('COMPANY NOT FOUND.')
+        setError(COMPANY_NOT_FOUND)
         return
       }
+      saveLastCompany(typed)
       setCompanySlug(result.slug)
       setStage('auth')
     } finally {
@@ -315,16 +430,29 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // every real company (measured: four of four workspaces on wilson-dev
       // have a slug no derivation of their name produces — "Petal Studios" is
       // `petal`). If step 1 ever stops verifying, this line locks everyone out.
-      const { exists, email: resolved } = await resolveLogin({
+      const { exists, email: resolved, limited } = await resolveLogin({
         username: u,
         workspaceSlug: companySlug,
       })
+      // Throttled: say so and stop. This is the one failure on this step that
+      // is worded differently, and it is safe because it is decided by this
+      // address's request count alone — a wrong username and a wrong password
+      // are still the same words at the same speed below.
+      if (limited) {
+        setError(RATE_LIMITED_ERROR)
+        setBusy(false)
+        return
+      }
       // If resolver says "not found", sign in with an unreachable email so the
       // request timing still looks like a real attempt (prevents username
       // enumeration via response time).
       const email = exists ? resolved : `__miss+${crypto.randomUUID()}@invalid.local`
 
-      const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+      // B2 part 2: bounded like every other await on this screen (the S17
+      // rule). This was the one unbounded call left on the sign-in path; a
+      // silently hung password check read "Signing in…" forever.
+      const { data, error: signInErr } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }), AUTH_TIMEOUT_MS, 'sign-in')
       if (signInErr || !data.session) {
         setError(GENERIC_ERROR)
         setBusy(false)
@@ -359,11 +487,100 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       } else {
         await completeSignIn(data.session, null)
       }
-    } catch {
-      setError(GENERIC_ERROR)
+    } catch (err) {
+      // A stalled network is not a wrong password; the words differ because
+      // the cause is this address's connection, not the credentials. The one
+      // timeout voice (B2's branch came over SHOUTED in the merge — the
+      // header's AUTH-11 count of one is a rule; review round 1, B-R1-01).
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
       setBusy(false)
     }
   }, [busy, username, password, companySlug, completeSignIn])
+
+  // ── Dev auto sign-in ──────────────────────────────────────────────────
+  // Audrey, 2026-09-11 (UI overhaul F1): "i cant login for testing, can you
+  // just make dev tool to bypass the login … a defaulted account called
+  // tester. that way you can bypass needing a password."
+  //
+  // 🚨 DEV BUILDS ONLY. `import.meta.env.DEV` is a compile-time constant, so
+  // `vite build` (the installer, the beta, Vercel) drops this whole effect;
+  // there is no runtime switch that can turn it on in a shipped build. The
+  // credentials live in the gitignored .env.local and nowhere else:
+  //
+  //   VITE_DEV_AUTOLOGIN=1
+  //   VITE_DEV_AUTOLOGIN_COMPANY=smoke          # the seeded workspace on wilson-dev
+  //   VITE_DEV_AUTOLOGIN_USERNAME=smoke_admin   # or any test user in it
+  //   VITE_DEV_AUTOLOGIN_PASSWORD=…
+  //
+  // It walks the SAME two steps a person does — company verified, username
+  // resolved, signInWithPassword — so the company gate is not bypassed, only
+  // the typing is; a session without a real sign-in would see nothing (every
+  // row is behind RLS). An MFA-enrolled account stops at the TOTP step like
+  // anyone else. Any failure leaves the normal screen up with the fields
+  // prefilled and the generic error, and says why in the console.
+  const autoLoginRan = useRef(false)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (import.meta.env.VITE_DEV_AUTOLOGIN !== '1') return
+    if (!ready || autoLoginRan.current) return
+    const co = String(import.meta.env.VITE_DEV_AUTOLOGIN_COMPANY || '').trim()
+    const u = String(import.meta.env.VITE_DEV_AUTOLOGIN_USERNAME || '').trim().toLowerCase()
+    const pw = String(import.meta.env.VITE_DEV_AUTOLOGIN_PASSWORD || '')
+    if (!co || !u || !pw) {
+      console.warn('[wilson] VITE_DEV_AUTOLOGIN=1 but COMPANY / USERNAME / PASSWORD are not all set in .env.local')
+      return
+    }
+    autoLoginRan.current = true
+    console.warn(`[wilson] DEV auto sign-in as ${u} @ ${co} (VITE_DEV_AUTOLOGIN; dev builds only)`)
+    setCompany(co)
+    setUsername(u)
+    // The password is used from the local `pw` only — never set into state:
+    // a controlled <input type="password"> reflects its value into the DOM
+    // attribute, readable in the Elements panel (review round 2).
+    setBusy(true)
+    setError('')
+    ;(async () => {
+      try {
+        // The two handlers' shapes, mirrored (merge review round 2, B-R2-05):
+        // a throttle is RATE_LIMITED_ERROR at either step — a 429 from
+        // verifyCompany is `limited`, not "no such company" — and the
+        // password call is bounded like every other await on this screen.
+        const v = await verifyCompany(co)
+        if (v.limited) { setError(RATE_LIMITED_ERROR); setBusy(false); return }
+        const slug = v.unavailable
+          ? slugifyWorkspace(co)
+          : (v.exists && SLUG_RE.test(v.slug ?? '') ? v.slug : null)
+        if (!slug) { setError('COMPANY NOT FOUND.'); setBusy(false); return }
+        setCompanySlug(slug)
+        setStage('auth')
+        const { exists, email, limited } = await resolveLogin({ username: u, workspaceSlug: slug })
+        if (limited) { setError(RATE_LIMITED_ERROR); setBusy(false); return }
+        if (!exists) { setError(GENERIC_ERROR); setBusy(false); return }
+        const { data, error: signInErr } = await withTimeout(
+          supabase.auth.signInWithPassword({ email, password: pw }), AUTH_TIMEOUT_MS, 'sign-in')
+        if (signInErr || !data.session) { setError(GENERIC_ERROR); setBusy(false); return }
+        setPendingSession(data.session)
+        try {
+          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            const { data: factors } = await supabase.auth.mfa.listFactors()
+            const totp = (factors?.totp ?? []).find(f => f.status === 'verified')
+            if (totp) { setMfaFactorId(totp.id); setMfaCode(''); setStage('mfa'); setBusy(false); return }
+          }
+        } catch { /* unenrolled (or MFA API unavailable) → proceed as aal1 */ }
+        const ws = await fetchUserWorkspaces()
+        const match = ws.find(w => w.slug === slug)
+        if (ws.length > 1 && !match) {
+          setWorkspaces(ws); setWorkspaceIndex(0); setStage('workspace'); setBusy(false); return
+        }
+        await completeSignIn(data.session, ws.length > 1 && match ? match.id : null)
+      } catch (err) {
+        console.warn('[wilson] DEV auto sign-in failed:', err?.message ?? err)
+        setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : GENERIC_ERROR)
+        setBusy(false)
+      }
+    })()
+  }, [ready, completeSignIn])
 
   // TOTP verify → the SDK swaps in an aal2 session; continue exactly where
   // the password path left off (chooser vs reveal).
@@ -372,7 +589,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     if (busy || !mfaFactorId) return
     const code = mfaCode.replace(/\s+/g, '')
     if (!/^[0-9]{6}$/.test(code)) {
-      setError('CODE REJECTED. TRY AGAIN.')
+      setError(MFA_REJECTED_ERROR)
       return
     }
     setBusy(true)
@@ -390,7 +607,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code }),
         AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
-        setError('CODE REJECTED. TRY AGAIN.')
+        setError(MFA_REJECTED_ERROR)
         setMfaCode('')
         setBusy(false)
         return
@@ -431,9 +648,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // A timeout is NOT a rejected code, and telling the user their code was
       // wrong when the network stalled sends them round a loop that cannot
       // succeed. Distinguish them.
-      setError(err?.name === 'TimeoutError'
-        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
-        : 'CODE REJECTED. TRY AGAIN.')
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : MFA_REJECTED_ERROR)
       setMfaCode('')
       setBusy(false)
     }
@@ -480,17 +695,46 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     gap: AUTH_GAP_BETWEEN_FIELDS,
   }
+  // No transition at all, and that is the correction rather than a shorter
+  // one. It used to read `opacity 150ms`, left from when busy WAS an opacity;
+  // the first pass at this rewrote the property list to the fill, the ink and
+  // the edge — but busy now changes exactly one property, the cursor, and a
+  // cursor does not tween, so every property that list named was static and
+  // the tween animated nothing. (150 was not one of the three durations
+  // either.) When this becomes a kit Button, `.ui-btn`'s own
+  // `--duration-state` rule arrives with it — which is the right place for
+  // it, not here.
+  //
+  // 🚨 R2 corrects two sentences round 1 wrote here. The first said "nothing
+  // else on this button moves between states": PRESS_CLASS below IS a
+  // transform on this very element, so something does move — the press is
+  // instant BY CHOICE (see the AUTH-21 note), not because there is nothing to
+  // animate. The second, in AuthShell's busy block, said the native `disabled`
+  // attribute is "what the global `:disabled` rule styles": the only global
+  // `:disabled` declaration is the cursor, and `.ui-btn:disabled` never
+  // reaches these raw <button>s. Said plainly, then: a busy auth primary is
+  // pixel-identical to an idle one apart from its label and its cursor. That
+  // is a deliberate divergence from §3.1's disabled token — the alternative
+  // was a 1.51:1 edge appearing mid sign-in — and it stands until kit request
+  // K1/K3 gives the filled primary a light-surface disabled treatment.
   const submitStyle = {
     ...AUTH_BUTTON_STYLE,
-    cursor: busy ? 'default' : 'pointer',
-    opacity: busy ? 0.55 : 1,
-    transition: `opacity 150ms ease-out, transform 100ms ease-out`,
+    ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
   }
-  const press = {
-    onMouseDown: (e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)'),
-    onMouseUp:   (e) => (e.currentTarget.style.transform = 'scale(1)'),
-    onMouseLeave:(e) => (e.currentTarget.style.transform = 'scale(1)'),
-  }
+  // AUTH-21. The press effect used to be three handlers writing
+  // `transform: scale(0.98)` straight onto the DOM node. Nothing survives
+  // that: a class-based Button cannot carry it forward, and the node keeps
+  // whatever the last handler wrote even after React re-renders.
+  //
+  // `active:scale-[0.98]` is the same 2 percent, in CSS, on the element's own
+  // :active — so it needs no handler, cannot be left stuck at 0.98 by a
+  // mouse-up the element never received, and survives the restyle. The
+  // 100ms transform tween left with the handlers; an instant press reads
+  // crisper and has no state to unwind.
+  //
+  // Its permanent home is `.ui-btn:active` in the kit (hand-off kit request
+  // K1); this is the one-utility stand-in until that lands app-wide.
+  const PRESS_CLASS = 'active:scale-[0.98]'
 
   return (
     <AuthShell
@@ -505,14 +749,35 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       showLogoIntro
       playStartupSound={true}
     >
+      {/* AUTH-09. Every gap on this screen was a hand-typed 18px — the title
+          sat exactly as far from the first field as the fields sat from each
+          other, so spacing carried no grouping information at all. The three
+          named gaps now do the grouping: BLOCKS here (title → form), FIELDS
+          inside the step, WITHIN_FIELD inside AuthField. No literal px gap. */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: AUTH_GAP_BETWEEN_BLOCKS, minWidth: '320px',
       }}>
         {/* Static title — and it must stay OUTSIDE the keyed block below, or
             it animates on every step change. That is exactly what the first
-            attempt at this did. In reveal, the parent fades the whole block. */}
-        <div style={AUTH_TITLE_STYLE}>LOGIN</div>
+            attempt at this did. In reveal, the parent fades the whole block.
+
+            Sentence case (Q2): this is a page heading at the H1 step, not the
+            page-transition title, and the transition title is one of only two
+            roles app-wide that keep uppercase. */}
+        <div style={AUTH_TITLE_STYLE}>Login</div>
+
+        {/* B2 part 2: why you are here again (idle sign-out, 4-hour cap).
+            Outside the keyed block below so it does not re-animate per step.
+            A sentence, so the prose role (AUTH-05 / AUTH-12: the hint role
+            keeps only label-like fragments; AUTH-10: centred prose is wrong)
+            — it came over in the hint role, centred, and review round 1 of
+            the merge moved it (B-R1-05). */}
+        {notice && (
+          <div role="status" style={AUTH_PROSE_STYLE}>
+            {notice}
+          </div>
+        )}
 
         {/* The step swap. `key={stage}` remounts on every change so the CSS
             entrance in .auth-step (index.css) re-runs; the outgoing step is
@@ -521,7 +786,12 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         <div
           key={stage}
           className="auth-step"
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px' }}
+          style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            // The step's form and the error line under it are two groups, not
+            // two blocks — the error is about the form directly above it.
+            gap: AUTH_GAP_BETWEEN_FIELDS,
+          }}
         >
 
         {/* ── Step 1: COMPANY ── one input, one action ────────────────── */}
@@ -539,7 +809,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Checking…' : 'Continue'}
             </button>
           </form>
@@ -580,7 +850,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
 
@@ -591,12 +861,19 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 mid-sign-in, "Change company" walked the user back to step 1
                 while an auth request was still in flight, and its completion
                 then landed on a screen that had moved on. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* AUTH-09: the form-to-tertiary-row boundary is a BLOCK gap, and
+                the form's own gap is already the FIELDS one, so the margin is
+                the difference between the two named tokens rather than a
+                fourth hand-typed number. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
+              marginTop: `calc(${AUTH_GAP_BETWEEN_BLOCKS} - ${AUTH_GAP_BETWEEN_FIELDS})`,
+            }}>
               <button
                 type="button"
                 onClick={handleChangeCompany}
                 disabled={busy}
-                style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+                style={{ ...AUTH_LINK_STYLE, ...(busy ? AUTH_LINK_BUSY_STYLE : null) }}
               >
                 Change company
               </button>
@@ -607,7 +884,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                     type="button"
                     onClick={onForgotPassword}
                     disabled={busy}
-                    style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+                    style={{ ...AUTH_LINK_STYLE, ...(busy ? AUTH_LINK_BUSY_STYLE : null) }}
                   >
                     Forgot password?
                   </button>
@@ -629,63 +906,131 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9\s]/g, ''))}
                 disabled={busy}
-                style={{ ...AUTH_INPUT_STYLE, letterSpacing: '0.35em', textAlign: 'center' }}
+                // AUTH-24. The tracking here is functional — it is what keeps
+                // six digits readable as six digits — so it stays, and it is
+                // the one letterSpacing on this screen that is not a Label.
+                //
+                // But CSS lays tracking after the FINAL glyph as well as
+                // between glyphs, so a centred tracked string is always offset
+                // left by half the tracking, ~3px at this size. `textIndent`
+                // equal to the tracking pushes the run back by the width of
+                // that phantom trailing space and restores optical centre.
+                // MfaSection.jsx carries the same field and now carries the
+                // same two properties. The operator console under src/admin/
+                // has a third copy of the field, and Q14 puts it out of scope
+                // — so it is an open item in the hand-off, not a to-do here
+                // with no owner.
+                style={{
+                  ...AUTH_CODE_FIELD_STYLE,
+                  textAlign: 'center',
+                }}
                 aria-label="Authenticator code"
               />
             </AuthField>
-            <div style={AUTH_HINT_STYLE}>
-              ENTER THE 6-DIGIT CODE FROM YOUR AUTHENTICATOR APP
+            {/* AUTH-05 / AUTH-12: a sentence takes the prose role, not the
+                hint role. AUTH_HINT_STYLE is the Caption step and belongs to
+                label-like fragments; an instruction shouted in caption caps
+                was the least readable text on the surface. */}
+            <div style={AUTH_PROSE_STYLE}>
+              Enter the 6-digit code from your authenticator app.
             </div>
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Verifying…' : 'Verify'}
             </button>
           </form>
         )}
 
         {stage === 'workspace' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <div style={AUTH_HINT_STYLE}>SELECT WORKSPACE</div>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            gap: AUTH_GAP_WITHIN_FIELD,
+          }}>
+            {/* AUTH-11 names this one of the shouted hints. It is a short
+                caption over the list, not a field label, so it keeps the
+                Caption step and loses the case. */}
+            <div style={AUTH_HINT_STYLE}>Select workspace</div>
             <ul style={{
               listStyle: 'none', padding: 0, margin: 0,
-              display: 'flex', flexDirection: 'column', gap: '4px',
+              display: 'flex', flexDirection: 'column',
+              // Row-to-row rhythm inside one group, so it is tighter than the
+              // within-field gap rather than a fourth hand-typed number.
+              gap: `calc(${AUTH_GAP_WITHIN_FIELD} / 2)`,
               minWidth: '280px',
             }}>
               {workspaces.map((ws, i) => {
                 const selected = i === workspaceIndex
                 return (
                   <li key={ws.id}>
+                    {/* 🚨 R2: the pointer is a CLASS, and it has to be. These
+                        rows have no fill, no edge and no hover background, so
+                        the cursor is most of what says they are clickable —
+                        and Tailwind v4's preflight, unlike v3's, gives a
+                        <button> no cursor at all — but round 1 wrote it as an
+                        unconditional INLINE `cursor: 'pointer'` on a row that
+                        is `disabled={busy}`, and claimed the global
+                        `:disabled { cursor: not-allowed }` in index.css would
+                        still answer the busy half. It would not: an inline
+                        declaration outranks every author rule short of
+                        `!important`, so the rows advertised themselves as
+                        clickable while they were inert. That is the same
+                        cascade fact AUTH_BUTTON_BUSY_STYLE exists to work
+                        around — it can only beat AUTH_BUTTON_STYLE's inline
+                        pointer by being inline itself.
+                        As utilities the pair resolves by specificity, in the
+                        right direction: `.disabled\:cursor-not-allowed:disabled`
+                        is (0,2,0) against `.cursor-pointer`'s (0,1,0), and both
+                        sit in Tailwind's utilities layer above base. Do not
+                        move either one back into the style object. */}
                     <button
                       type="button"
                       onMouseEnter={() => setWorkspaceIndex(i)}
                       onClick={() => handleWorkspaceChoose(ws.id)}
                       disabled={busy}
+                      className="cursor-pointer disabled:cursor-not-allowed"
                       style={{
+                        // 15px was off the scale entirely — a sixth size for
+                        // one row. AUTH_TEXT_STYLE is the Body step and is
+                        // what the row wanted; the override just goes.
                         ...AUTH_TEXT_STYLE,
-                        fontSize: '15px',
                         background: 'transparent',
                         border: 'none',
-                        cursor: busy ? 'default' : 'pointer',
                         width: '100%',
                         textAlign: 'left',
                         padding: '4px 8px',
-                        display: 'flex', alignItems: 'center', gap: '10px',
+                        display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
                         // Selection reads as weight, not as a lighter ink —
                         // a dimmed row on light orange is the grey-on-orange
-                        // defect this session exists to remove.
-                        fontWeight: selected ? 700 : 400,
+                        // defect this session exists to remove. 600, not 700:
+                        // the variable face is declared `400 600`, so 700 was
+                        // already rendering as 600 and the source was the only
+                        // thing claiming otherwise.
+                        fontWeight: selected ? 600 : 400,
                       }}
                     >
                       <span style={{ width: '12px' }}>{selected ? '>' : ' '}</span>
                       <span>{ws.name}</span>
-                      <span style={{ fontSize: '11px', fontWeight: 400 }}>{ws.slug}</span>
+                      {/* AUTH-25: a slug is an identifier, which is one of the
+                          things mono keeps (Q4). WorkspaceSwitcher.jsx made
+                          the same call for the same value — `text-caption
+                          font-mono` — so the two screens now agree by decision
+                          rather than by accident. */}
+                      <span style={{
+                        fontSize: `${TYPE.caption}px`,
+                        fontFamily: FONT_MONO,
+                        fontWeight: 400,
+                      }}>{ws.slug}</span>
                     </button>
                   </li>
                 )
               })}
             </ul>
-            <div style={{ ...AUTH_HINT_STYLE, marginTop: '8px' }}>
-              ↑ ↓ TO MOVE · ENTER TO SELECT
-            </div>
+            {/* AUTH-07: the hand-drawn "↑ ↓ TO MOVE · ENTER TO SELECT" caps
+                line that used to sit here is gone. It was arrow glyphs set in
+                running caption text — one of three different ways three
+                screens showed their shortcuts. Q10 ruled there is no shortcut
+                bar anywhere ("i prefer it being cleaner"), so the replacement
+                is nothing, not a component. The arrow-key handler above is
+                untouched; only the decoration went. Do not re-draw it here. */}
           </div>
         )}
 

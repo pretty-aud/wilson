@@ -28,6 +28,16 @@
 // provider executes (refetches, roster refresh, project teardown).
 // =============================================================================
 
+import { byMilestoneDate } from './milestoneOrder'
+import { splitSetAside, joinSetAside, hasSetAside } from './setAside'
+
+// Post-overhaul S5b (0090): the tables whose rows can be SET ASIDE by the open
+// bid version, or hang off one that is (the edges). An event on one of them
+// is applied over EVERY row — the live and the set-aside — and the bundle is
+// split again after, so a row another window set aside leaves this one's
+// live schedule (with its edges), and one it brought back returns.
+const SET_ASIDE_TABLES = new Set(['tasks', 'phases', 'milestones', 'task_dependencies', 'phase_dependencies'])
+
 // Bundle collection per broadcast table. project_members and projects are
 // handled specially (roster slice / index + bundle.project).
 export const TABLE_TO_COLLECTION = {
@@ -41,6 +51,15 @@ export const TABLE_TO_COLLECTION = {
   phase_dependencies: 'dependencies',
   task_links:         'taskLinks',
   asset_versions:     'assetVersions',
+  // 0077: key dates, and KEY DATES ONLY. Audrey ruled on 2026-09-07 that
+  // milestones live-sync between windows the way tasks do, and that scenes,
+  // shots, levels and experiences deliberately KEEP the reload limit — a
+  // conscious difference, not an oversight, recorded as one in
+  // SYSTEMS_HANDBOOK §4.5 and §13.3. Adding any of those four here without
+  // its arm in the broadcast trigger would be worse than the limit it
+  // replaced: the merge would stand ready for events the database never
+  // sends, and nothing would ever say so.
+  milestones:         'milestones',
 }
 
 // 0061: `kind` is not a column on either edge table — it is implied by WHICH
@@ -63,17 +82,40 @@ export function stampKindFromTable(table, row) {
   return kind && row ? { ...row, kind } : row
 }
 
-// Collections whose render order comes from sort_order at load time
-// (adapter list* calls ORDER BY sort_order) — keep that invariant after
-// live inserts/updates.
-const SORTED_COLLECTIONS = new Set(['phases', 'assets'])
+// Collections whose render order is an invariant of the LOAD, each with the
+// comparator that produces it — so a live insert or update lands where a
+// reload would have put it.
+//
+// 🚨 This was a Set of names and one hardcoded sort_order comparator until
+// 0077. Key dates order by DATE, not by sort_order (they carry the column and
+// ignore it), so adding 'milestones' to the old Set would have re-sorted every
+// live key date into the wrong place — a defect visible only on the OTHER
+// window, and only until its next reload. ProjectTasksView renders milestone
+// rows in array order, so this is a real position on a real screen.
+const bySortOrder = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+
+const COLLECTION_ORDER = {
+  phases:     bySortOrder,
+  assets:     bySortOrder,
+  milestones: byMilestoneDate,
+}
+
+// Collections whose rows can hide NOTHING when they are trashed, so a remote
+// RESTORE of one needs no refetch. MEASURED, not assumed: on 2026-09-07
+// `pg_constraint` on dev reported no foreign key anywhere in the schema whose
+// confrelid is public.milestones, so a key date has no children to bring back.
+//
+// Only milestones are listed. Files, comments and the link tables are probably
+// leaves too, but "probably" is not a measurement and the refetch they get is
+// pre-existing behaviour this change has no business altering. R1 raised the
+// cost: without this, pressing Restore in the trash panel reloads the WHOLE
+// project in every open window — twice in the window that pressed it, since
+// restoreMilestone already re-lists — on a routine gesture that the live-sync
+// work exists to make cheap.
+const LEAF_COLLECTIONS = new Set(['milestones'])
 
 function isTrashed(row) {
   return row != null && row.deleted_at != null
-}
-
-function sortByOrder(rows) {
-  return rows.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 }
 
 /**
@@ -107,7 +149,7 @@ export function mergeRow(current, incoming, pendingFields) {
   return next
 }
 
-function upsertInto(rows, incoming, pendingFields, sorted) {
+function upsertInto(rows, incoming, pendingFields, compare) {
   const idx = rows.findIndex(r => r.id === incoming.id)
   let next
   if (idx === -1) {
@@ -118,7 +160,9 @@ function upsertInto(rows, incoming, pendingFields, sorted) {
     next = rows.slice()
     next[idx] = merged
   }
-  return sorted ? sortByOrder(next) : next
+  // An UPDATE re-sorts as well as an INSERT: moving a key date's date, or a
+  // phase's sort_order, moves its row.
+  return compare ? next.slice().sort(compare) : next
 }
 
 /**
@@ -176,9 +220,29 @@ function removeWithMirror(bundle, table, id) {
  *   { type: 'project-trashed', id }           — project soft/hard deleted
  *   { type: 'refetch' }                       — container restored; children
  *                                               must be refetched (debounced)
+ *   { type: 'versions-refetch' }              — another window moved the OPEN
+ *                                               bid version (S5b): bid versions
+ *                                               are not broadcast (S5-02), so
+ *                                               this window re-reads them
  */
 export function applyRealtimeEvent(bundle, evt, opts = {}) {
-  const noop = { bundle, effects: [] }
+  if (evt && SET_ASIDE_TABLES.has(evt.table)) {
+    const stamped = (r) => r != null && r.set_aside_at != null
+    if (hasSetAside(bundle) || stamped(evt.record) || stamped(evt.oldRecord)) {
+      const res = applyEventCore(joinSetAside(bundle), evt, opts)
+      if (res.bundle === null) return { bundle, effects: res.effects }
+      return { bundle: splitSetAside(res.bundle), effects: res.effects }
+    }
+  }
+  const res = applyEventCore(bundle, evt, opts)
+  return res.bundle === null ? { bundle, effects: res.effects } : res
+}
+
+// The event logic itself, unaware of set-aside rows (applyRealtimeEvent above
+// hands it every row and splits after). Answers bundle: null for "nothing
+// changed", so the caller keeps its own identities.
+function applyEventCore(bundle, evt, opts = {}) {
+  const noop = { bundle: null, effects: [] }
   if (!evt || !evt.table || !evt.op) return noop
   const { table, op } = evt
   // 0061: stamp the dependency `kind` from the source table before anything
@@ -209,6 +273,15 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
     }
     const effects = [{ type: 'project-patch', record }]
     if (bundle.project?.id === id) {
+      // S5b: another window opened (or closed) a bid version. Its rows
+      // arrive here one by one, but the versions themselves are not
+      // broadcast, so this window re-reads them — or it would measure
+      // "unsaved changes" against a version that is no longer the open one.
+      // This window's own write echoes back with the pointer it already
+      // holds, and asks for nothing.
+      if ((record?.open_budget_version_id ?? null) !== (bundle.project.open_budget_version_id ?? null)) {
+        effects.push({ type: 'versions-refetch' })
+      }
       const merged = mergeRow(bundle.project, record, pending('projects', id))
       if (merged !== bundle.project) {
         return { bundle: { ...bundle, project: merged }, effects }
@@ -219,12 +292,12 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
 
   const col = TABLE_TO_COLLECTION[table]
   if (!col) return noop
-  const sorted = SORTED_COLLECTIONS.has(col)
+  const compare = COLLECTION_ORDER[col] || null
   const rows = bundle[col] || []
 
   if (op === 'INSERT') {
     if (!record?.id || isTrashed(record)) return noop
-    return { bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), sorted) }, effects: [] }
+    return { bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) }, effects: [] }
   }
 
   if (op === 'DELETE') {
@@ -244,13 +317,15 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
     if (wasTrashed) {
       // Restore: the row returns; hidden children (tasks under a restored
       // asset, dependency edges under a restored task) need a refetch —
-      // they were never trashed in the DB, only hidden transitively.
+      // they were never trashed in the DB, only hidden transitively. A leaf
+      // has none, so it takes the row back and nothing else (see
+      // LEAF_COLLECTIONS).
       return {
-        bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), sorted) },
-        effects: [{ type: 'refetch' }],
+        bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) },
+        effects: LEAF_COLLECTIONS.has(col) ? [] : [{ type: 'refetch' }],
       }
     }
-    const next = upsertInto(rows, record, pending(table, record.id), sorted)
+    const next = upsertInto(rows, record, pending(table, record.id), compare)
     if (next === rows) return noop
     return { bundle: { ...bundle, [col]: next }, effects: [] }
   }

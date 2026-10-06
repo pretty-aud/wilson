@@ -120,6 +120,73 @@ RETURNS text LANGUAGE sql AS $tapx$
     $4, NULL);
 $tapx$;
 
+-- Track A (A1, 2026-09-06): the three column-shape probes suite 67 calls.
+-- Until now the shim had none of them, so 67_member_full_time.sql aborted the
+-- hosted run on every environment ("function col_type_is(...) does not
+-- exist") while CI's real pgTAP passed it — the standing rule is to extend the
+-- shim rather than weaken the suite (43 and 49 had rewritten the same probes
+-- over information_schema to dodge exactly this). Same comparisons real pgTAP
+-- makes: the DISPLAYED type (format_type), attnotnull, and the default's
+-- deparsed expression. The detail carries what was actually found.
+CREATE OR REPLACE FUNCTION public.col_type_is(name, name, name, text, text)
+RETURNS text LANGUAGE sql AS $tapx$
+  SELECT tapx.record(
+    (SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text
+        AND a.attnum > 0 AND NOT a.attisdropped) = $4,
+    $5,
+    'have: ' || COALESCE((SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text
+        AND a.attnum > 0 AND NOT a.attisdropped), '(no such column)') || '  want: ' || $4);
+$tapx$;
+
+CREATE OR REPLACE FUNCTION public.col_not_null(name, name, name, text)
+RETURNS text LANGUAGE sql AS $tapx$
+  SELECT tapx.record(
+    COALESCE((SELECT a.attnotnull FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text
+        AND a.attnum > 0 AND NOT a.attisdropped), false),
+    $4, NULL);
+$tapx$;
+
+-- S3a (2026-09-30): the twin of col_not_null. Suite 81 already called it, so
+-- under this shim it aborted the hosted run ("function col_is_null(...) does not
+-- exist") while CI's real pgTAP passed it; the 0084 suites call it too. A
+-- MISSING column must come out false, never true — hence the COALESCE on the
+-- whole NOT, the same direction col_not_null fails in.
+CREATE OR REPLACE FUNCTION public.col_is_null(name, name, name, text)
+RETURNS text LANGUAGE sql AS $tapx$
+  SELECT tapx.record(
+    COALESCE((SELECT NOT a.attnotnull FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text
+        AND a.attnum > 0 AND NOT a.attisdropped), false),
+    $4, NULL);
+$tapx$;
+
+CREATE OR REPLACE FUNCTION public.col_default_is(name, name, name, text, text)
+RETURNS text LANGUAGE sql AS $tapx$
+  SELECT tapx.record(
+    (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+       JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text) = $4,
+    $5,
+    'have: ' || COALESCE((SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+       JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1::text AND c.relname = $2::text AND a.attname = $3::text), '(no default)') || '  want: ' || $4);
+$tapx$;
+
 CREATE OR REPLACE FUNCTION public.has_function(text, text, text)
 RETURNS text LANGUAGE sql AS $tapx$
   SELECT tapx.record(
