@@ -55,6 +55,8 @@ Two things to know either way: the desktop app, for remote people, works over th
 
 My pick: **(a), built after the first three sessions, with (c) as what the browser shows until then.** (b) stays available for a company that cannot install anything on its server.
 
+**Your answer (2026-10-06, in chat, after asking which of the three costs real money): "okay lets go with option a."** So: the gateway is the plan — the browser shows the catalogue only until it exists; the admin's switch (B5a) is part of it; preview copies (b) are not built unless a company that cannot install anything on its server asks.
+
 **B5a. The remote-viewing switch.** Per company, set by the admin, off by default: "Allow files to be viewed from outside the office network." When off, the gateway answers only inside the network. My pick: **yes, exactly that.**
 
 **B6. Who may do what.**
@@ -108,6 +110,8 @@ My pick: **yes, in that order, starting after the budget-versions session.**
 > 1. *"the footage would live in the server. so the user is going to just pull the path in the server not the actual files themselves and save them locally. but in a Locally accessed network."*
 > 2. *"people working remotely and people who prefer to view the project as a webapp instead of the local app. to confirm the company admin should have the ability to choose if people can view files remotely or not."*
 > 3. *"yes play and scrub"*
+>
+> And, after asking *"do any of the three versions cost real money compared to others"* (answer: only the cloud previews carry a monthly bill; the gateway and the catalogue-only route cost build time, not fees): *"okay lets go with option a"* — **B5 is answered: the gateway.**
 
 What is already true: the desktop app never copies footage — a bin records where the file is and streams it from there; only a small poster image per clip is kept on the computer. What is not yet true: Bins while signed in to a company (B1–B13), and any playback in a browser (B5).
 
@@ -129,7 +133,7 @@ b1 the footage stays where it is. only the lists and the logging go to the cloud
 b2 yes. a location is saved as its network address with a name. a computer is asked where it is only when it can see it as a drive letter.
 b3 yes. a clip my computer cannot reach still shows with its picture and details, marked not on this computer, and i can still log it, flag it and assign it to a shot.
 b4 yes. one small picture per clip is uploaded. no video.
-b5 build the small WILSON service on the company server so the web app can play and scrub clips that stay on the server, after the first three sessions. until then the browser shows the catalogue only. preview copies in the cloud stay as the option for a company that cannot install anything on its server.
+b5 answered in chat 2026-10-06: option a, the small WILSON service on the company server, built after the first three sessions; the browser shows the catalogue only until then.
 b5a yes. the admin's switch, per company, off by default: allow files to be viewed from outside the office network.
 b6 yes. managers and members do everything. reviewers can flag, colour, circle, write notes and assign takes, but cannot add or remove clips or bins.
 b7 yes
