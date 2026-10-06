@@ -30,6 +30,9 @@ function builder(result) {
     select: () => b,
     eq: () => b,
     order: () => b,
+    // S4c: scenes and shots are read page by page (readAllPages); one page
+    // of fewer than 1,000 rows is the whole list here.
+    range: () => b,
     single: () => b,
     then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
   }
@@ -559,7 +562,7 @@ function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
         select: (cols) => { if (entry?.op === 'delete') entry.select = cols; else if (!entry) query.select = cols; return b },
         eq: (col, v) => { if (entry?.op === 'delete') entry.filters.push(['eq', col, v]); else if (!entry) query.filters.push(['eq', col, v]); return b },
         in: (col, vs) => { if (entry?.op === 'delete') entry.filters.push(['in', col, vs]); else if (!entry) query.filters.push(['in', col, vs]); return b },
-        order: () => b, single: () => b,
+        order: () => b, single: () => b, range: () => b,
         upsert: record('upsert'), update: record('update'), insert: record('insert'),
         delete: () => { written = {}; entry = { table, op: 'delete', filters: [] }; writes.push(entry); return b },
         then: (resolve, reject) => {
@@ -1526,7 +1529,7 @@ describe('patchShotList (post-overhaul S3b): an UPDATE of the named columns, not
           upsert: (row) => { entry.op = 'upsert'; entry.row = row; sent.push(entry); return b },
           eq: (col, v) => { entry.filters.push([col, v]); return b },
           select: (cols) => { entry.select = cols ?? '*'; return b },
-          single: () => b, order: () => b, in: () => b,
+          single: () => b, order: () => b, in: () => b, range: () => b,
           then: (resolve, reject) => Promise.resolve(typeof result === 'function' ? result(entry) : result).then(resolve, reject),
         }
         return b

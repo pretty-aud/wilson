@@ -65,6 +65,18 @@ describe('buildFileTree', () => {
     expect(t.fileCount).toBe(6)
     expect([...t.byId.keys()]).not.toContain('f:f4')
   })
+  it('a managed record whose folder_path names no row is placed by its entity (a renamed scene on the Local Server moves the rows, not the records — S4c review round 2, item 3); with no link it stays at the root', () => {
+    const shotRow = { id: 'sh1', kind: 'entity', path: 'SCENES/sc01/sh01', parent_id: 's1', shot_id: 'shot-1', slug: 'sh01' }
+    const byLink = { id: 'm3', file_name: 'plate.exr', folder_path: 'SCENES/old-name/sh01/', shot_id: 'shot-1', size_bytes: 1 }
+    const noLink = { id: 'm4', file_name: 'stray.exr', folder_path: 'SCENES/old-name/sh01/', size_bytes: 1 }
+    const t2 = buildFileTree({ folders: [...folders, shotRow], managedFiles: [byLink, noLink] })
+    expect(t2.byId.get('sh1').children.map(c => c.name)).toEqual(['plate.exr'])
+    expect(t2.root.children.filter(c => c.kind === 'file').map(c => c.name)).toEqual(['stray.exr'])
+    // CONTROL: a record whose folder_path DOES name a row goes there, link or not.
+    const t3 = buildFileTree({ folders: [...folders, shotRow], managedFiles: [{ ...byLink, folder_path: 'SCENES/sc01/', shot_id: 'shot-1' }] })
+    expect(t3.byId.get('s1').children.filter(c => c.kind === 'file').map(c => c.name)).toEqual(['plate.exr'])
+    expect(t3.byId.get('sh1').children).toEqual([])
+  })
   it('carries the facts the details panel prints', () => {
     const clip = t.byId.get('f:f1')
     expect(clip.meta).toMatchObject({ type: 'Video · MOV', kind: 'video', sizeBytes: 1000, createdAt: '2026-09-11T01:00:00Z', durationSec: 12.5, provider: 'local_server', source: 'files' })

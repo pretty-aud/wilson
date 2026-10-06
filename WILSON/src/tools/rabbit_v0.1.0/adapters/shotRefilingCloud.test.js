@@ -53,11 +53,18 @@ function likeToRegExp(pattern) {
  * way back); failDelete(table, hits) → 'filtered' removes nothing and
  * answers no row; dropLanding(bucket, from, to) → true loses the object in
  * the move; onMove(bucket, from, to) runs after each move (something a
- * teammate does mid-run).
+ * teammate does mid-run); failRead(table) → a message makes a SELECT answer
+ * `{ data: null, error }` (a lost connection); failList(bucket, dir) → a
+ * message makes a bucket list answer an error; `hidden` (a Set of ids) and
+ * a `deleted_at` on a files row are what RLS hides from a SELECT
+ * (files_select, 0014) — an update or delete still reaches them, as the
+ * database's own USING does not read deleted_at. A ranged SELECT with no
+ * ORDER answers in a different rotation each call, as Postgres may.
  */
-function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {} } = {}) {
+function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {}, failRead = () => null, failList = () => null, hidden = new Set() } = {}) {
   const log = []
   let seq = 0
+  let rotateSeq = 0
   const table = (name) => {
     const state = { op: 'select', filters: [], payload: null, single: false, maybe: false, count: null, head: false, returning: false, order: null, range: null }
     const b = {
@@ -92,8 +99,11 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
         const oneOrAll = (hits) => (state.single || state.maybe ? (hits[0] ? { ...hits[0] } : null) : hits.map(h => ({ ...h })))
         let result
         if (state.op === 'select') {
-          let hits = rows.filter(match).map(r => ({ ...r }))
+          const refusedRead = failRead(name)
+          if (refusedRead) return Promise.resolve({ data: null, error: { message: refusedRead } }).then(resolve, reject)
+          let hits = rows.filter(match).filter(r => !(name === 'files' && (r.deleted_at || hidden.has(r.id)))).map(r => ({ ...r }))
           if (state.order) hits.sort((a, c) => String(a[state.order]).localeCompare(String(c[state.order])))
+          else if (state.range && hits.length > 1) { const k = (rotateSeq++) % hits.length; hits = [...hits.slice(k), ...hits.slice(0, k)] }
           if (state.count) result = { data: state.head ? null : hits, count: hits.length, error: null }
           else {
             if (state.range) hits = hits.slice(state.range[0], state.range[1] + 1)
@@ -135,6 +145,8 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
     from: (bucket) => ({
       list: async (dir, opts) => {
         log.push(['list', bucket, dir, opts?.search])
+        const refused = failList(bucket, dir)
+        if (refused) return { data: null, error: { message: refused } }
         const keys = [...(objects[bucket] || [])]
           .filter(k => k.startsWith(`${dir}/`))
           .map(k => k.slice(dir.length + 1))
@@ -457,9 +469,16 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
   })
 
-  it('an update that reaches NO ROW (the row trashed meanwhile is invisible to it) puts the object back and leaves the shot with the reason', async () => {
+  it('an update that reaches NO ROW (the row trashed meanwhile is invisible to it, and to the read after) puts the object back and leaves the shot with the reason', async () => {
     const { tables, objects } = fixture()
-    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'filtered' : null) })
+    const hidden = new Set()
+    const client = makeClient({
+      tables, objects, hidden,
+      failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'filtered' : null),
+      // Trashed the moment its body has moved: the update reaches no row,
+      // and the row read again is not there either (`!now`).
+      onMove: (bucket, from) => { if (from.endsWith('1-board.png')) hidden.add('f3') },
+    })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
     expect(res.left[0].reason).toContain('not visible to this account')
@@ -467,6 +486,82 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
     expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(`projects/${PID}/shots/sh2/1-board.png`)
     expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+  })
+
+  it('an update refused and a read that fails too: nothing is known, so nothing is moved back — the object stays at its new key, the shot says "run it again", and the next run counts it landed (round 2, item 4)', async () => {
+    const { tables, objects } = fixture()
+    let readsFail = false
+    let refuseOnce = true
+    const client = makeClient({
+      tables, objects,
+      failUpdate: (name, patch) => { if (refuseOnce && name === 'files' && patch.storage_path === NEW.board) { refuseOnce = false; readsFail = true; return 'fetch timed out' } return null },
+      failRead: (name) => (readsFail && name === 'files' ? 'fetch timed out' : null),
+    })
+    const res = await run(client)
+    const lamp = res.left.find(l => l.name === 'The-Cold-Lamp')
+    expect(lamp.reason).toContain('could not be read back')
+    expect(lamp.reason).toContain('run it again')
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh2/1-board.png`)).toBe(false)
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(`projects/${PID}/shots/sh2/1-board.png`)
+    expect(client.log.filter(e => e[0] === 'move' && e[2] === NEW.board)).toHaveLength(0)
+    // The link back: the row still names the old key, the object is at the
+    // new one — landed earlier — and the row is rewritten this time.
+    readsFail = false
+    const again = await run(client)
+    expect(again.left).toEqual([])
+    // The door was left too on the first run (its rows could not be read);
+    // both finish now.
+    expect(again.moved.map(m => [m.name, m.files])).toEqual([['The-Cold-Lamp', 1], ['The-Door', 1]])
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
+  })
+
+  it('a bucket that cannot be listed is a fault, not an absence: the shot is left with it, and no thumbnail is cleared', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, failList: (bucket) => (bucket === 'rabbit-thumbnails' ? 'bucket unavailable' : null) })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.left[0].reason).toContain('storage list failed: bucket unavailable')
+    const f1 = tables.files.find(f => f.id === 'f1')
+    expect([f1.storage_path, f1.thumbnail_url]).toEqual([`projects/${PID}/shots/sh1/1-plate.exr`, `projects/${PID}/shots/sh1/1-plate.exr.jpg`])
+    expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh1/'))).toBe(false)
+  })
+
+  it('a thumbnail at BOTH keys refuses the shot before any object moves, like a body at both', async () => {
+    const { tables, objects } = fixture()
+    objects['rabbit-thumbnails'].add(NEW.plateThumb)
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.left[0].reason).toContain('exists at both its old and its new place in rabbit-thumbnails')
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh1/1-plate.exr`)).toBe(true)
+    expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh1/'))).toBe(false)
+  })
+
+  it('a folder update that reaches no row leaves the shot with the reason, its rows true; the next run finishes it', async () => {
+    const { tables, objects } = fixture()
+    let filtered = true
+    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (filtered && name === 'folders' && patch.parent_id ? 'filtered' : null) })
+    const res = await run(client)
+    expect(res.left.map(l => l.name).sort()).toEqual(['The-Cold-Lamp', 'The-Door'])
+    expect(res.left[0].reason).toContain('reached no row')
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+    filtered = false
+    const again = await run(client)
+    expect(again.left).toEqual([])
+    expect(again.moved.map(m => [m.name, m.files])).toEqual([['The-Cold-Lamp', 0], ['The-Door', 0]])
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SCENES/Lighthouse-Dawn/The-Cold-Lamp')
+  })
+
+  it('CONTROL: another project\'s folder under SHOTS does not keep this project\'s SHOTS', async () => {
+    const { tables, objects } = fixture()
+    tables.folders.push(folder('other-shots', 'entity', 'SHOTS/Other', 'other-c', { project_id: 'other-project', shot_id: 'shX' }))
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.removedShotsCategory).toBe(true)
+    expect(tables.folders.find(f => f.id === 'other-shots').path).toBe('SHOTS/Other')
   })
 
   it('a row that lands under the old prefix mid-run keeps the folder where it is (the rows moved say where their files are); the next run takes it', async () => {
@@ -527,6 +622,17 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(tables.folders.length).toBeGreaterThan(1000)
     // The pages were asked for: two for the files, two for the folders.
     expect(client.log.some(e => e[0] === 'move' && e[3].endsWith('1-frame-1000.exr'))).toBe(true)
+  })
+
+  it('loadProject reads the shots and scenes whole too (the offer counts them): 1,001 shots are all in the bundle (round 2, item 8)', async () => {
+    const { tables, objects } = fixture()
+    for (let i = 0; i < 998; i++) tables.shots.push({ id: `s${String(i).padStart(4, '0')}`, name: `Shot ${i}`, scene_id: 'sc1', project_id: PID, sort_order: i })
+    expect(tables.shots.length).toBe(1001)
+    const client = makeClient({ tables, objects })
+    globalThis.__testSupabase = client
+    const bundle = await supabaseAdapter().loadProject(PID)
+    expect(bundle.shots).toHaveLength(1001)
+    expect(bundle.scenes).toHaveLength(2)
   })
 
   it('the SHOTS category is said to be gone only when the delete answers the row (an RLS-filtered delete does not), and never while the database still counts a folder under it', async () => {
@@ -631,6 +737,24 @@ describe('ensureEntityFolder on this adapter (S4c)', () => {
     expect(updates).toEqual(['f-sc1', 'f-sh1', 'plates'])
     // CONTROL: the other scene's rows, and SHOTS', are untouched.
     expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+  })
+
+  it('the rows under a folder are walked by parent_id, not by a path prefix: a stale child of ANOTHER row is left alone, and a pass that stopped is finished on the next ensure, renaming or not (round 2, item 6)', async () => {
+    const { tables, objects } = fixture()
+    // The scene was renamed by an older build that re-pathed nothing: its
+    // row says the new name, its shot row still the old.
+    const sc = tables.folders.find(f => f.id === 'f-sc1'); sc.path = 'SCENES/Lighthouse-Dusk'; sc.slug = 'Lighthouse-Dusk'
+    const door = tables.folders.find(f => f.id === 'f-sh1'); door.path = 'SCENES/Lighthouse-Dawn/The-Door'; door.parent_id = 'f-sc1'
+    // A stale row of another scene that happens to carry the old prefix.
+    tables.folders.push(folder('f-sc2', 'entity', 'SCENES/Cliff-Path', 'c-scenes', { entity_type: 'scene', scene_id: 'sc2' }))
+    tables.folders.push(folder('stray', 'custom', 'SCENES/Lighthouse-Dawn/Not-Mine', 'f-sc2'))
+    const client = makeClient({ tables, objects })
+    globalThis.__testSupabase = client
+    const scene = await supabaseAdapter().ensureEntityFolder(PID, project, 'scene', { id: 'sc1', name: 'Lighthouse, dusk' })
+    expect(scene.path).toBe('SCENES/Lighthouse-Dusk')
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dusk/The-Door')
+    expect(tables.folders.find(f => f.id === 'stray').path).toBe('SCENES/Lighthouse-Dawn/Not-Mine')
+    expect(client.log.filter(e => e[0] === 'update' && e[1] === 'folders').map(e => e[2][0])).toEqual(['f-sh1'])
   })
 })
 

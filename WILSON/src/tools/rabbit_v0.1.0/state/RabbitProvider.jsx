@@ -1262,9 +1262,24 @@ export function RabbitProvider({ children }) {
     const projectId = activeProjectIdRef.current;
     if (!adapter || !projectId || typeof adapter.ensureEntityFolder !== 'function') return null;
     try {
+      const fk = `${entityType}_id`;
+      const had = (bundleRef.current?.folders || []).find(f => f && f[fk] && String(f[fk]) === String(entity?.id));
       const row = await adapter.ensureEntityFolder(
         projectId, bundleRef.current?.project, entityType, entity,
       );
+      // A RENAME re-paths the rows under the folder too (a scene's shot
+      // folders since S4c), and the adapter answers only the folder's own
+      // row: read the tree again so the shots' Folder lines and the Files
+      // tab say the new path at once (round 2, item 6). A new row, or a
+      // name unchanged, merges as before.
+      if (row && had && had.path !== row.path && typeof adapter.listFolders === 'function') {
+        let folders = null;
+        try { folders = await adapter.listFolders(projectId); } catch { folders = null; }
+        if (Array.isArray(folders) && activeProjectIdRef.current === projectId) {
+          setBundle(prev => ({ ...prev, folders }));
+          return row;
+        }
+      }
       mergeFolder(row);
       return row;
     } catch (err) {

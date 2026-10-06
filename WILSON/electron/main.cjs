@@ -1929,23 +1929,32 @@ function startLocalServer(distPath) {
         const parentRow = mine.parent_id ? bundle.folders.find(f => f.id === mine.parent_id) : null;
         const keptPath = parentRow ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}` : planned.folder.path;
         if (mine.path !== keptPath) {
-          const oldPrefix = `${mine.path}/`;
           mine.slug = planned.folder.slug;
           mine.path = keptPath;
           mine.label = planned.folder.label;
           mine.updated_at = new Date().toISOString();
-          // The rows under it follow — a scene's shot folders since S4c
-          // (review round 1, item 7): each re-pathed under the new path, so
-          // no row says a path its parent no longer has. The directory on
-          // disk is left where it is, as a rename always has here (the
-          // PATCH route's note), and a managed record stays with its file.
-          for (const f of bundle.folders) {
-            if (f.id !== mine.id && typeof f.path === 'string' && f.path.startsWith(oldPrefix)) {
-              f.path = `${keptPath}/${f.path.slice(oldPrefix.length)}`;
-              f.updated_at = mine.updated_at;
-            }
-          }
           changed = true;
+        }
+        // The rows under it follow — a scene's shot folders since S4c
+        // (review round 1, item 7): each re-pathed under its PARENT's path,
+        // walked by parent_id (never by a path prefix, which would sweep up
+        // another row's stale child), on EVERY pass — so a pass that
+        // stopped, or an older build's rename that moved nothing, is
+        // finished the next time the row is ensured (round 2, item 6). The
+        // directory on disk is left where it is, as a rename always has
+        // here (the PATCH route's note), and a managed record stays with
+        // its file: the Files tab places such a record by its entity
+        // (fileTree.js).
+        const queue = [mine.id];
+        while (queue.length > 0) {
+          const parentId = queue.shift();
+          const parent = bundle.folders.find(f => f.id === parentId);
+          for (const f of bundle.folders) {
+            if (f.parent_id !== parentId || f.id === mine.id) continue;
+            const want = `${parent.path}/${f.slug}`;
+            if (f.path !== want) { f.path = want; f.updated_at = new Date().toISOString(); changed = true; }
+            queue.push(f.id);
+          }
         }
         return { row: mine, changed };
       }
@@ -2969,6 +2978,18 @@ function startLocalServer(distPath) {
     // shot at a time, and never by surprise (the Files tab offers it to
     // someone who can write the project).
     //
+    // Two directories, the same place? By real path where both exist, by
+    // the resolved string where one does not; case-blind on Windows.
+    function sameDir(a, b) {
+      if (!a || !b) return false;
+      const norm = (d) => {
+        let real = path.resolve(String(d));
+        try { real = fs.realpathSync.native(real); } catch { /* not there: the resolved string stands */ }
+        return process.platform === 'win32' ? real.toLowerCase() : real;
+      };
+      return norm(a) === norm(b);
+    }
+
     // The rule for WHAT is pending is the renderer's
     // shotRefiling.pendingShotRefiling, copied here (folderParity.test.js
     // pins the two): a folder row under SHOTS/ whose shot exists and has a
@@ -3012,6 +3033,17 @@ function startLocalServer(distPath) {
     // earlier run moved the directory and never got to write the bundle) is
     // counted done. With no project folder recorded and none resolving, the
     // rows alone move — only for a shot with no record under its folder.
+    //
+    // 🚨 A ROOT THAT RESOLVES IS NOT YET THE PROJECT'S FOLDER (round 2, item
+    // 1). resolveProjectFolder falls back to <root base>/<slug> when the
+    // recorded folder_root cannot be reached, and that fallback exists
+    // whenever an asset was once made offline (ensureAssetFolder) or the
+    // project was later relinked — a folder with none of the shot's files
+    // in it. There, the shot's directory is absent and not one of its
+    // records is found at the old place or the new: the shot is refused
+    // with the recorded folder named, never counted "missing" and moved.
+    // The demo-folder fallback (a copied project inside the open demo
+    // folder) still works: its directories and files ARE there.
     function refileOneShotRow(bundle, projectId, root, p, opts = {}) {
       const now = new Date().toISOString();
       const sceneEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', p.scene);
@@ -3058,6 +3090,25 @@ function startLocalServer(distPath) {
           };
         });
         const landed = (pl) => { if (!pl.mf.folder_path.startsWith(prefixTo)) retarget(pl.mf); };
+        // An EMPTY directory is "no directory" here: materializeFolderDirs
+        // (run after each moved shot) makes a directory for every row, this
+        // shot's still-pending one among them, so its mere existence says
+        // nothing about where the files are.
+        const dirHolds = fs.existsSync(fromDir) && fs.readdirSync(fromDir).length > 0;
+        if (!dirHolds && !places.some(pl => pl.atOld || pl.atNew)) {
+          // Nothing of this shot is here: neither its directory's contents
+          // nor one of its files, at the old place or the new. Either the
+          // project's folder is somewhere this computer cannot reach (the
+          // recorded one, with this root a fallback), or every file is
+          // gone; in neither case may the rows say the files moved.
+          const elsewhere = opts.recordedRoot && !sameDir(root, opts.recordedRoot);
+          if (elsewhere) {
+            throw new Error(`the project folder (${opts.recordedRoot}) cannot be reached from this computer, and ${root} holds nothing of ${fromPath}; nothing was moved`);
+          }
+          if (mine.length > 0) {
+            throw new Error(`none of the ${mine.length} file${mine.length === 1 ? '' : 's'} recorded under ${fromPath} can be found in ${root} (at the old place or the new); nothing was moved`);
+          }
+        }
         if (fs.existsSync(fromDir)) {
           fs.mkdirSync(path.dirname(toDir), { recursive: true });
           if (fs.existsSync(toDir)) {
@@ -3109,13 +3160,16 @@ function startLocalServer(distPath) {
       // reach — a NAS offline, an unplugged drive, a root outside the open
       // demo folder — is not "no folder": the files are somewhere, and rows
       // moved without them would describe a file nowhere. Each shot is
-      // refused with that reason (refileOneShotRow); nothing moves.
-      const folderRecorded = root ? null : ((bundle.project && bundle.project.folder_root) || null);
+      // refused with that reason (refileOneShotRow): with no root at all,
+      // outright; with a FALLBACK root (round 2, item 1), when nothing of
+      // the shot is found in it. Nothing moves.
+      const recordedRoot = (bundle.project && bundle.project.folder_root) || null;
+      const folderRecorded = root ? null : recordedRoot;
       const moved = [];
       const left = [];
       for (const p of pendingShotRefilingFor(bundle)) {
         try {
-          const result = refileOneShotRow(bundle, projectId, root, p, { folderRecorded });
+          const result = refileOneShotRow(bundle, projectId, root, p, { folderRecorded, recordedRoot });
           materializeFolderDirs(bundle);
           writeRabbitBundle(projectId, bundle);
           moved.push(result);

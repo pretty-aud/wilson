@@ -189,7 +189,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               and a shot's do, where files are added and seen.
             </p>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Move shot folders into their scenes…</span> — A project made before this change keeps its shot folders beside the scenes, under SHOTS, until someone who can edit the project runs this once from the Files tab. The notice says how many and which; the question lists where each goes. Every folder moves with every file in it; no file is deleted, and a file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved and you can run it again for the rest. The empty SHOTS folder goes once nothing is left in it.</li>
+              <li>• <span className={T.listBold}>Move shot folders into their scenes…</span> — A project made before this change keeps its shot folders beside the scenes, under SHOTS, until someone who can edit the project runs this once from the Files tab. The notice says how many and which; the question lists where each goes. Every folder moves with every file in it; no file is deleted. On the cloud a file in Recently deleted keeps its place and still restores; on the Local Server it moves with its folder. If it stops part way, what has moved stays moved and you can run it again for the rest. The empty SHOTS folder goes once nothing is left in it.</li>
               <li>• <span className={T.listBold}>A shot with no scene</span> — Keeps a folder under SHOTS, since there is no scene folder to sit in.</li>
             </ul>
           </div>

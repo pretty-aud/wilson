@@ -86,10 +86,14 @@ describe('the "Files" help page (E13)', () => {
     // "no file is deleted" since review round 1 (the empty SHOTS folder IS
     // removed, and a trashed file keeps its place): the help and the
     // explorer's question say the same thing.
-    expect(text).toContain('no file is deleted, and a file in Recently deleted keeps its place and still restores')
+    expect(text).toContain('no file is deleted. On the cloud a file in Recently deleted keeps its place and still restores; on the Local Server it moves with its folder.')
     expect(text).toContain('you can run it again for the rest')
     expect(text).not.toContain('nothing is deleted. If it stops')
-    expect(explorer).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores.')
+    // The explorer's question says the one that is true of the store it is on
+    // (round 2, item 12): both sentences are in the source, chosen by
+    // supportsManagedFiles.
+    expect(explorer).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end.')
+    expect(explorer).toContain("ctx?.supportsManagedFiles ? ' A file in Recently deleted moves with its folder.' : ' A file in Recently deleted keeps its place and still restores.'")
     expect(explorer).toContain('you can run it again for the rest')
     expect(explorer).not.toContain('nothing is deleted')
     expect(text).toContain('The empty SHOTS folder goes once nothing is left in it.')

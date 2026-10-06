@@ -105,20 +105,44 @@ describe('the orphan scan asks before it deletes', () => {
     expect(stripComments('a // b\n/* c */ d').replace(/\s+/g, ' ').trim()).toBe('a d')
   })
 
-  it('storage-gc imports the predicate, asks it of each unreferenced object BEFORE the reserved check and the remove, and counts what it kept', () => {
+  it('storage-gc imports the predicate, asks it of each unreferenced object that is old enough to delete — after the reserved and age checks, before the remove — within the object\'s project, and counts what it kept', () => {
     expect(GC).toMatch(/import \{ shotKeyTwinPattern \} from '\.\.\/_shared\/shotKeys\.ts'/)
+    const reserved = GC.indexOf('isReservedProjectObject(obj.path)')
+    const age = GC.indexOf('olderThanWindow(obj.created_at)')
     const ask = GC.indexOf('shotKeyTwinPattern(obj.path)')
     const kept = GC.indexOf('counts.skipped_twin++')
-    const reserved = GC.indexOf('isReservedProjectObject(obj.path)')
     const remove = GC.indexOf('.remove([obj.path])')
-    for (const i of [ask, kept, reserved, remove]) expect(i).toBeGreaterThan(-1)
+    for (const i of [reserved, age, ask, kept, remove]) expect(i).toBeGreaterThan(-1)
+    // Round 2 (item 2): asked only of what would otherwise be deleted now —
+    // one query per such object, never per object.
+    expect(reserved).toBeLessThan(age)
+    expect(age).toBeLessThan(ask)
     expect(ask).toBeLessThan(kept)
-    expect(kept).toBeLessThan(reserved)
-    expect(reserved).toBeLessThan(remove)
+    expect(kept).toBeLessThan(remove)
     // The question is answered by the files table, live or trashed rows
-    // alike (the admin client), by the pattern, with one row enough.
-    expect(GC).toMatch(/from\('files'\)\.select\('id'\)\.like\('storage_path', pattern\)\.limit\(1\)/)
+    // alike (the admin client), by the pattern, within the project (the
+    // indexed column), with one row enough; and ONLY by an answer.
+    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, projectId, twin\)/)
+    expect(GC).toMatch(/if \(named\) \{ counts\.skipped_twin\+\+; continue \}/)
+    expect(GC).toMatch(/from\('files'\)\.select\('id'\)\.eq\('project_id', projectId\)\.like\('storage_path', pattern\)\.limit\(1\)/)
+    expect(GC).toMatch(/return \(data \?\? \[\]\)\.length > 0/)
     expect(GC).toMatch(/skipped_twin: number/)
     expect(GC).toMatch(/skipped_twin: 0/)
+  })
+
+  it('FAILS CLOSED: a files read that errors — the referenced-path lookup or the twin question — throws and ends that project\'s scan with nothing removed, counted; the lookup is chunked by encoded length', () => {
+    // Both readers destructure `error` and throw on it (round 2, item 2: a
+    // failed read answered as "no row" made a whole chunk deletable).
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('storage_path'\)\.in\('storage_path', chunk\)\s*if \(error\) throw new Error/)
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.eq\('project_id', projectId\)\.like\('storage_path', pattern\)\.limit\(1\)\s*if \(error\) throw new Error/)
+    // The orphan loop catches each, counts it, and goes on to the next project.
+    expect(GC).toMatch(/referenced = await referencedPaths\(ctx, objects\.map\(o => o\.path\)\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
+    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, projectId, twin\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
+    expect(GC).toMatch(/scan_failed: number/)
+    expect(GC).toMatch(/scan_failed: 0/)
+    // The `.in()` chunks are cut by what the URL will carry, not by count.
+    expect(GC).toMatch(/for \(const chunk of chunkByEncodedLength\(paths\)\)/)
+    expect(GC).toMatch(/encodeURIComponent\(p\)\.length/)
+    expect(GC).not.toMatch(/paths\.slice\(i, i \+ 100\)/)
   })
 })

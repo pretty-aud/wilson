@@ -147,6 +147,16 @@ export function buildFileTree({ folders = [], files = [], managedFiles = [] } = 
       // row whose path ends the same way is the same folder
       parent = folderNodes.find(n => !n.isRoot && (n.path === fp || n.path.endsWith(`/${fp}`) || fp.endsWith(`/${n.path}`)))
     }
+    if (!parent) {
+      // S4c review round 2 (item 3): a record whose folder_path names no row
+      // — its entity's folder was renamed, and on the Local Server a rename
+      // moves the rows and leaves the directory and the records where they
+      // are — belongs to its entity's folder, as a cloud row does. Without
+      // this, renaming a scene dropped every shot's files to the root here.
+      for (const fk of ENTITY_FKS) {
+        if (row[fk]) { parent = findByFk(fk, row[fk]); if (parent) break }
+      }
+    }
     place({ id: `m:${row.id}`, kind: 'file', name: row.file_name || row.original_name || row.stored_name || 'file', row, meta: fileMeta(row, 'managed'), children: [] }, parent || root)
     fileCount += 1
   }

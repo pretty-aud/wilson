@@ -1986,17 +1986,28 @@ and its files row rewritten AT ONCE, then its thumbnail in
 `rabbit-thumbnails` and the row again (so no object is left moved with a row
 saying the old key for longer than one round trip — `storage-gc` deletes an
 object no row names after 24h, and since S4c keeps one whose twin key a row
-names, `_shared/shotKeys.ts`); a refused row update, or one that reaches no
-row, moves the object back only after the row is read again and still names
-the old key; an object at both keys left alone and reported; one already
-landed on an earlier run counted done; the old prefix read again before the
-folder row is re-parented. The Local Server refuses the whole run while the
-project folder is recorded but unreachable, moves the directory (entry by
-entry, in name order, into a destination that exists, never over a file),
-retargets every record the moment its entry has moved, verifies each managed
-file at its new place, rewrites the row, and writes the bundle after each
-shot. The empty SHOTS category row (and its empty directory) goes last,
-counted in the database. Idempotent and resumable; no file is ever deleted.
+names, `_shared/shotKeys.ts` — and fails CLOSED: a files read that errors
+ends that project's scan with nothing removed); a refused row update, or one
+that reaches no row, moves the object back only after the row is read
+again, successfully, and still names the old key — a read that fails too
+leaves the object where it landed, with "run it again"; an object at both
+keys left alone and reported; one already landed on an earlier run counted
+done; the old prefix read again before the folder row is re-parented. The
+Local Server refuses every shot while the project folder is recorded but
+unreachable — with no root at all, outright; with a fallback root
+(`<root base>/<slug>`, which an asset made offline leaves behind), when
+nothing of the shot is found in it — and a shot whose files are all gone
+from the project's own folder (none found); otherwise it moves the directory
+(entry by entry, in name order, into a destination that exists, never over
+a file), retargets every record the moment its entry has moved, verifies
+each managed file at its new place (a file missing before the move is
+counted and said), rewrites the row, and writes the bundle after each shot.
+The empty SHOTS category row (and its empty directory) goes last, counted
+in the database. Idempotent and resumable; no file is ever deleted. A
+renamed folder's descendants are re-pathed on every ensure, walked by
+`parent_id` (on the Local Server the directory stays; the Files tab places a
+record whose `folder_path` names no row by its entity). Two runs at once are
+not locked against each other (OUTSTANDING S4c-12).
 A body in the customer's own bucket (s3) or on another computer (a private
 project's, off the desktop) leaves its shot where it is, with the reason.
 Rehearsed on wilson-dev in a rolled-back

@@ -1146,25 +1146,39 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
     const keptPath = parentRow
       ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}`
       : planned.folder.path;
-    if (mine.path === keptPath) return mine;
-    const renamed = unwrap(await client.from('folders')
-      .update({
-        slug:  planned.folder.slug,
-        path:  keptPath,
-        label: planned.folder.label,
-      })
-      .eq('id', mine.id).select().single());
+    let renamed = mine;
+    if (mine.path !== keptPath) {
+      renamed = unwrap(await client.from('folders')
+        .update({
+          slug:  planned.folder.slug,
+          path:  keptPath,
+          label: planned.folder.label,
+        })
+        .eq('id', mine.id).select().single());
+    }
     // The rows under it follow — a scene's shot folders since S4c (review
-    // round 1, item 7): each re-pathed under the new path, the parent first
-    // so the unique path index never sees a child before its parent's new
-    // name. Without this a renamed scene left its shot folders saying a
-    // path their parent no longer had.
-    const oldPrefix = `${mine.path}/`;
-    for (const child of rows) {
-      if (child.id === mine.id || typeof child.path !== 'string' || !child.path.startsWith(oldPrefix)) continue;
-      unwrap(await client.from('folders')
-        .update({ path: `${keptPath}/${child.path.slice(oldPrefix.length)}` })
-        .eq('id', child.id).select('id').maybeSingle());
+    // round 1, item 7): each re-pathed under its PARENT's path, walked by
+    // parent_id (never by a path prefix, which would sweep up another
+    // row's stale child), the parent before its children so the unique
+    // path index never sees a child before its parent's new name — and on
+    // EVERY pass, not only the renaming one, so a pass that stopped part
+    // way, or an older build's rename that moved nothing, is finished the
+    // next time the row is ensured (round 2, item 6).
+    const byId = new Map(rows.map(f => [f.id, f]));
+    byId.set(mine.id, { ...mine, path: keptPath, slug: planned.folder.slug });
+    const queue = [mine.id];
+    while (queue.length > 0) {
+      const parentId = queue.shift();
+      const parent = byId.get(parentId);
+      for (const child of rows) {
+        if (child.parent_id !== parentId || child.id === mine.id) continue;
+        const want = `${parent.path}/${child.slug}`;
+        if (child.path !== want) {
+          unwrap(await client.from('folders').update({ path: want }).eq('id', child.id).select('id').maybeSingle());
+          byId.set(child.id, { ...child, path: want });
+        }
+        queue.push(child.id);
+      }
     }
     return renamed;
   }
@@ -1220,14 +1234,15 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 //      twin key a row names, _shared/shotKeys.ts). A row update that answers
 //      an error, or no row — a row a teammate trashed meanwhile is invisible
 //      to the update (files_select, 0014) — puts the object back, but only
-//      after RE-READING the row and only while it still names the old key:
-//      an update that committed and lost its answer is left as it
-//      committed. An object already at its new key with nothing at the old
-//      one is a move that landed on an earlier run and is counted done; an
-//      object at BOTH keys is left alone and reported (a move never
-//      overwrites and nothing here deletes). A thumbnail at neither key is
-//      a derived picture: the row stops naming it rather than the shot
-//      being held back;
+//      after RE-READING the row, successfully, and only while it still
+//      names the old key: an update that committed and lost its answer is
+//      left as it committed, and when the read fails too nothing is moved
+//      (round 2, item 4). An object already at its new key with nothing at
+//      the old one is a move that landed on an earlier run and is counted
+//      done; an object at BOTH keys is left alone and reported (a move
+//      never overwrites and nothing here deletes). A thumbnail at neither
+//      key is a derived picture: the row stops naming it rather than the
+//      shot being held back;
 //   4. the old prefix is read again: a live row still under it (an upload
 //      that landed meanwhile) leaves the folder where it is, to be run
 //      again; then, and only then, the folder row is re-parented, and the
@@ -1239,14 +1254,17 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 // folder row sits under it, COUNTED in the database (never in a list that
 // may be cut short), and "gone" is said only when the delete answers the row.
 const BUCKET_FILES = 'rabbit-files';
-const REFILE_FILE_COLUMNS = 'id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id, deleted_at';
+const REFILE_FILE_COLUMNS = 'id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id';
 const refilingNow = new Set();
 
 /**
  * Every files row this account can see whose body OR thumbnail still sits
  * under `prefix`, whole. The thumbnail too: a run that stopped between a
  * body's move and its thumbnail's leaves a row whose body is nested and
- * whose picture is not, and the next run must find it.
+ * whose picture is not, and the next run must find it. A row in Recently
+ * deleted is NOT seen (files_select, 0014: `deleted_at IS NULL`), so a
+ * trashed file's body keeps its old key — which still works after a
+ * restore, since nothing gates the `shots` segment either.
  */
 function filesUnderPrefix(client, projectId, prefix) {
   const like = `${prefix}%`;
@@ -1310,19 +1328,29 @@ async function moveObjectVerified(where, from, to, name) {
   return 'moved';
 }
 
-/** The row read again: what it names NOW, or null when this account cannot see it. */
+/**
+ * The row read again: `{ ok: true, row }` with what it names NOW (`row`
+ * null when this account cannot see it), or `{ ok: false, error }` when
+ * the read itself failed — which is NOT "not visible" (round 2, item 4:
+ * postgrest-js answers a lost connection as `{ data: null, error }`).
+ */
 async function rereadFileRow(client, id) {
-  const { data } = await client.from('files').select('id, storage_path, thumbnail_url').eq('id', id).maybeSingle();
-  return data && data.id ? data : null;
+  const { data, error } = await client.from('files').select('id, storage_path, thumbnail_url').eq('id', id).maybeSingle();
+  if (error) return { ok: false, error: error.message || String(error) };
+  return { ok: true, row: data && data.id ? data : null };
 }
 
 /**
  * The row rewritten to say where its object now is. An error, or no row
  * answered (the update reached nothing this account can see), puts the
- * object back — but only after the row is read again and still names the
- * old key (or cannot be seen at all): an update that committed and lost
- * its answer stays as it committed, and a row someone else changed
- * meanwhile is left to them.
+ * object back — but only after the row has been READ AGAIN, successfully,
+ * and still names the old key (or cannot be seen at all): an update that
+ * committed and lost its answer stays as it committed; a row someone else
+ * changed meanwhile is left to them; and when the read fails too, nothing
+ * is known, so nothing is moved — the object stays at its new key, the
+ * shot is left with "run it again", and the next run finds it (the row
+ * still old: landed earlier; the row new: done) while storage-gc keeps it
+ * (its twin key is named either way).
  */
 async function rewriteFileRow(client, row, column, from, to, putBack) {
   const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
@@ -1330,7 +1358,11 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
     ? up.error.message
     : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
   if (!failed) return;
-  const now = await rereadFileRow(client, row.id);
+  const again = await rereadFileRow(client, row.id);
+  if (!again.ok) {
+    throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and could not be read back (${again.error}); run it again`);
+  }
+  const now = again.row;
   if (now && now[column] === to) return;
   if (!now || now[column] === from) {
     try {
@@ -1358,7 +1390,6 @@ async function refileShotPreflight(client, projectId, p, rows, folders, toPath) 
     if (local && !hasLocalServer()) {
       throw new Error(`“${row.name}” lives on the computer that holds this private project's media: run this from the desktop app there`);
     }
-    if (row.deleted_at) continue; // a trashed row's body may be purged (0014's 30 days): nothing to check
     if (to) {
       const store = storeFor({ client, local, bucketName: BUCKET_FILES });
       const [atFrom, atTo] = await Promise.all([store.exists(row.storage_path), store.exists(to)]);
@@ -1388,14 +1419,7 @@ async function refileOneObject(client, projectId, p, row) {
   // and whose picture is not — a run that stopped between the two — skips
   // to the picture.)
   if (to) {
-    try {
-      await moveObjectVerified(where, row.storage_path, to, row.name);
-    } catch (err) {
-      // A trashed row's body may already have been purged (0014's 30 days):
-      // nothing to move, and nothing to say.
-      if (row.deleted_at && /is missing from/.test(err?.message || '')) return 'gone';
-      throw err;
-    }
+    await moveObjectVerified(where, row.storage_path, to, row.name);
     await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
       () => moveObjectVerified(where, to, row.storage_path, row.name));
     did = 'moved';
@@ -1408,8 +1432,10 @@ async function refileOneObject(client, projectId, p, row) {
       await moveObjectVerified(thumbWhere, row.thumbnail_url, thumbTo, row.name);
     } catch (err) {
       if (/is missing from/.test(err?.message || '')) {
-        // A derived picture at neither key (S44 regenerates one on demand):
-        // the row stops naming it rather than the shot being held back.
+        // A derived picture at neither key: the row stops naming it rather
+        // than the shot being held back. (The file shows no picture from
+        // then on — nothing regenerates a cloud thumbnail from its source
+        // today, thumbnails.js — but the file itself is whole and moved.)
         await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
         return 'moved';
       }
@@ -1434,10 +1460,10 @@ async function refileOneShot(client, projectId, project, p) {
     const did = await refileOneObject(client, projectId, p, row);
     if (did === 'moved') files += 1;
   }
-  // Read again before the folder is re-parented: a live row that landed
-  // under the old prefix meanwhile keeps the folder where it is — this
-  // run can be run again for it, and the offer stays until it is.
-  const still = (await filesUnderPrefix(client, projectId, legacyPrefix)).filter(r => !r.deleted_at);
+  // Read again before the folder is re-parented: a row that landed under
+  // the old prefix meanwhile keeps the folder where it is — this run can
+  // be run again for it, and the offer stays until it is.
+  const still = await filesUnderPrefix(client, projectId, legacyPrefix);
   if (still.length > 0) {
     throw new Error(`${still.length} file${still.length === 1 ? ' is' : 's are'} still under the old prefix after the move (“${still[0].name}”); run it again`);
   }
@@ -1910,10 +1936,14 @@ export function supabaseAdapter() {
           // Ordered by sort_order to match the local bundle, which is an
           // array and therefore ordered by construction. Without this the two
           // adapters would disagree on row order for the same project.
-          client.from('scenes').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('shots').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
+          // Paged (S4c review round 2, item 8): the re-filing's offer counts
+          // the bundle's shots and scenes, so a feature-sized project must
+          // not be cut at PostgREST's 1,000 rows. `sort_order, id` is a
+          // total order, so no row straddles two pages.
+          readAllPages(() => client.from('scenes').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id')),
+          readAllPages(() => client.from('shots').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id')),
           client.from('levels').select('*').eq('project_id', projectId)
             .order('sort_order').then(unwrapOptionalTable),
           client.from('experiences').select('*').eq('project_id', projectId)

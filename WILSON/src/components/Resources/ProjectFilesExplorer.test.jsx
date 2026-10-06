@@ -1296,14 +1296,16 @@ describe('the Table as an explorer (S4c)', () => {
     expect(buttons().map(b => b.tabIndex)).toEqual([-1, -1, 0])
   })
 
-  it('a pointer click on a row within the settle window after a move is dropped (the second half of a double-click); a later one acts', async () => {
+  it('the second click of a double-click (detail 2) on the new folder\'s row is dropped; a FRESH click (detail 1) and a keyboard click (detail 0) right after a move are never held back', async () => {
     await mountTable()
     fireEvent.click(rowNamed('ASSETS'), { detail: 1 })
     expect(crumbOf()).toEqual(['Project', 'ASSETS'])
     // The second click of the double-click lands on the new folder's first row.
     fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
     expect(crumbOf(), 'held back').toEqual(['Project', 'ASSETS'])
-    await new Promise(r => setTimeout(r, 380))
+    // A fresh click is a new gesture (round 2, item 5: holding every click
+    // for a fixed time was both too short for a slow double-click and a
+    // needless wait for a quick person).
     fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
     expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
     // CONTROL: a keyboard click (detail 0) right after a move is never held back.
@@ -1313,7 +1315,7 @@ describe('the Table as an explorer (S4c)', () => {
     expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
   })
 
-  it('the settle window holds a pointer click whatever its count (detail 1 too), by the clock: 100 ms and 349 ms after a move it is held, at 350 ms it acts', async () => {
+  it('the window is by the clock and longer than any OS double-click time: a detail-2 click 100 ms and 999 ms after a move is held, at 1,000 ms it acts; the name button the same', async () => {
     await mountTable()
     const now = vi.spyOn(Date, 'now')
     try {
@@ -1321,34 +1323,41 @@ describe('the Table as an explorer (S4c)', () => {
       fireEvent.click(rowNamed('ASSETS'), { detail: 1 })
       expect(crumbOf()).toEqual(['Project', 'ASSETS'])
       now.mockReturnValue(1_000_100)
-      fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
+      fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
       expect(crumbOf(), 'held back at 100 ms').toEqual(['Project', 'ASSETS'])
       // The name button's own click too (it stops the row's).
-      fireEvent.click(rowNamed('hero-shot').querySelector('[data-node-id]'), { detail: 1 })
+      fireEvent.click(rowNamed('hero-shot').querySelector('[data-node-id]'), { detail: 2 })
       expect(crumbOf(), 'the name button is held back too').toEqual(['Project', 'ASSETS'])
-      now.mockReturnValue(1_000_349)
-      fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
-      expect(crumbOf(), 'held back at 349 ms').toEqual(['Project', 'ASSETS'])
-      now.mockReturnValue(1_000_350)
-      fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
+      now.mockReturnValue(1_000_999)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 3 })
+      expect(crumbOf(), 'held back at 999 ms').toEqual(['Project', 'ASSETS'])
+      now.mockReturnValue(1_001_000)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
       expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
     } finally { now.mockRestore() }
   })
 
   it('a double-click on a folder opens it ONCE: the dblclick that lands on the new folder\'s row within the window previews nothing; past it, a double-click previews (review round 1, item 5)', async () => {
     await mountTable()
-    fireEvent.click(rowNamed('ASSETS'), { detail: 1 })
-    await new Promise(r => setTimeout(r, 380))
-    // The double-click: its first click opens the folder, its second (detail
-    // 2) is held, and the dblclick fires on the file now under the pointer.
-    fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
-    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
-    fireEvent.click(rowNamed('hero_v3.mov'), { detail: 2 })
-    fireEvent.doubleClick(rowNamed('hero_v3.mov'))
-    expect(document.querySelector('[data-file-preview]'), 'no preview of a file nobody chose').toBeNull()
-    await new Promise(r => setTimeout(r, 380))
-    fireEvent.doubleClick(rowNamed('hero_v3.mov'))
-    expect(document.querySelector('[data-file-preview]')).toBeTruthy()
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(2_000_000)
+      enter('ASSETS')
+      // The double-click, 480 ms apart (slower than round 1's window, within
+      // Windows' default 500 ms): its first click opens the folder, its
+      // second (detail 2) is held, and the dblclick fires on the file now
+      // under the pointer.
+      now.mockReturnValue(2_002_000)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
+      expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+      now.mockReturnValue(2_002_480)
+      fireEvent.click(rowNamed('hero_v3.mov'), { detail: 2 })
+      fireEvent.doubleClick(rowNamed('hero_v3.mov'))
+      expect(document.querySelector('[data-file-preview]'), 'no preview of a file nobody chose').toBeNull()
+      now.mockReturnValue(2_003_000)
+      fireEvent.doubleClick(rowNamed('hero_v3.mov'))
+      expect(document.querySelector('[data-file-preview]')).toBeTruthy()
+    } finally { now.mockRestore() }
   })
 
   it('the keys stand down in a text field inside the table area — by the element, whatever the case of its tag name', async () => {
@@ -1502,8 +1511,8 @@ describe('the Table as an explorer (S4c)', () => {
       expect(lines).toEqual(['SHOTS/The-Door → SCENES/Dawn/The-Door', 'SHOTS/The-Lamp → SCENES/Dawn/The-Lamp'])
       // "no file is deleted" since review round 1: the empty SHOTS folder IS
       // removed at the end, and the sentence says so — and a trashed file,
-      // which the app cannot see, keeps its place.
-      expect(dialog.textContent).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores.')
+      // which the cloud cannot see, keeps its place.
+      expect(dialog.textContent).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way')
       fireEvent.click(within(dialog).getByRole('button', { name: 'Move shot folders' }))
       expect(ctx.refileShotFolders).toHaveBeenCalledTimes(1)
       await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
@@ -1526,6 +1535,73 @@ describe('the Table as an explorer (S4c)', () => {
       expect(offer()).toBeTruthy()
       fireEvent.click(within(result).getByRole('button', { name: 'Dismiss' }))
       expect(document.querySelector('[data-shot-refile-result]')).toBeNull()
+    })
+
+    it('while it runs, the line names the shot it is on; a backend that answers in one go gets "shot folders"; what was not found on disk is said with the result (round 2, items 1 and 10)', async () => {
+      legacy()
+      let release
+      ctx.refileShotFolders = vi.fn((opts) => new Promise((resolve) => {
+        opts.onProgress({ name: 'The-Door', done: 0, total: 2 })
+        release = () => resolve({ moved: [{ shotId: 'sh1', name: 'The-Door', files: 2, missing: 1 }, { shotId: 'sh2', name: 'The-Lamp', files: 0, missing: 0 }], left: [], removedShotsCategory: true })
+      }))
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-progress]').textContent).toContain('Moving The-Door (1 of 2)…')
+      expect(offer(), 'no offer while it runs').toBeNull()
+      release()
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-result]').textContent).toBe('Moved 2 shot folders into their scenes. The empty SHOTS folder is gone. 1 file was not found on this computer; its record moved with the folder, and the relink census finds it.')
+      cleanup()
+      // One answer, no progress: the line names the shot folders.
+      legacy()
+      let release2
+      ctx.refileShotFolders = vi.fn(() => new Promise((resolve) => { release2 = () => resolve({ moved: [], left: [], removedShotsCategory: false }) }))
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-progress]').textContent).toContain('Moving shot folders (1 of 2)…')
+      release2()
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeNull())
+    })
+
+    it('a run still going for the last project is not shown on the next: the line goes, and its offer is read afresh (round 2, item 10)', async () => {
+      legacy()
+      ctx.refileShotFolders = vi.fn((opts) => new Promise(() => { opts.onProgress({ name: 'The-Door', done: 0, total: 2 }) }))
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async (id) => (id === 'p1' ? LEGACY_FOLDERS : FOLDERS) })
+      const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      ctx.activeProjectId = 'p2'
+      rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeNull())
+      expect(offer()).toBeNull()
+      ctx.activeProjectId = 'p1'
+    })
+
+    it('the question\'s words on a trashed file follow the store: the cloud cannot see one (it keeps its place), the Local Server moves it with its folder (round 2, item 12)', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      expect(screen.getByRole('dialog').textContent).toContain('A file in Recently deleted keeps its place and still restores.')
+      cleanup()
+      legacy()
+      ctx.supportsManagedFiles = true
+      try {
+        await mountTable({ projectId: 'p1', showPicker: false })
+        await waitFor(() => expect(offer()).toBeTruthy())
+        fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+        expect(screen.getByRole('dialog').textContent).toContain('A file in Recently deleted moves with its folder.')
+        expect(screen.getByRole('dialog').textContent).not.toContain('keeps its place')
+      } finally { delete ctx.supportsManagedFiles }
     })
 
     it('the move keeps the folder you were in (the rows are read again; the place is not lost)', async () => {

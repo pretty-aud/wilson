@@ -86,6 +86,10 @@ type Counts = {
   // object's key (_shared/shotKeys.ts) — declined for the same reason as
   // skipped_reserved, and counted apart for the same reason.
   skipped_twin: number
+  // Projects whose orphan scan ended early because a files read errored
+  // (round 2, item 2): nothing of theirs was removed. A run that reads
+  // non-zero here deleted less than it could, never more.
+  scan_failed: number
   // Queue rows whose body lives at the workspace's OWN bucket (S37): drained
   // by signed DELETE against provider_config, not storage.remove. Counted
   // apart for the same reason as skipped_reserved — the counter is the
@@ -151,21 +155,45 @@ async function collectObjects(
 // Batched referenced-path lookup: one .in() per 100 paths instead of one
 // round trip per object (adversarial review — sequential per-object reads
 // could blow the 150s deadline).
+//
+// 🚨 FAILS CLOSED (S4c review round 2, item 2). A read that errors answers
+// NOTHING, not "no row": the old code took `{ data: null, error }` for an
+// empty answer, so one failed chunk made every path in it unreferenced and
+// deletable. The error is thrown; the project's scan stops; nothing is
+// removed. The chunks are cut by ENCODED LENGTH, not count: a nested shot
+// key (S4c) is one UUID longer, and a hundred of them in one `.in()` is a
+// query string a gateway may refuse whole.
+const IN_CHUNK_CHARS = 6000
+function chunkByEncodedLength(paths: string[]): string[][] {
+  const chunks: string[][] = []
+  let cur: string[] = []
+  let len = 0
+  for (const p of paths) {
+    const n = encodeURIComponent(p).length + 3
+    if (cur.length > 0 && len + n > IN_CHUNK_CHARS) { chunks.push(cur); cur = []; len = 0 }
+    cur.push(p); len += n
+  }
+  if (cur.length > 0) chunks.push(cur)
+  return chunks
+}
 async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<string>> {
   const out = new Set<string>()
-  for (let i = 0; i < paths.length; i += 100) {
-    const chunk = paths.slice(i, i + 100)
-    const { data } = await ctx.admin.from('files').select('storage_path').in('storage_path', chunk)
+  for (const chunk of chunkByEncodedLength(paths)) {
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_path', chunk)
+    if (error) throw new Error(`files read failed (referenced paths): ${error.message}`)
     for (const r of data ?? []) out.add(r.storage_path as string)
   }
   return out
 }
 
 // S4c: does any files row (live OR trashed — the admin client sees both)
-// name the other shape of a shot object's key? One query per UNREFERENCED
-// object only, so a clean bucket costs nothing extra.
-async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
-  const { data } = await ctx.admin.from('files').select('id').like('storage_path', pattern).limit(1)
+// name the other shape of a shot object's key? One query per unreferenced
+// object OLD ENOUGH TO DELETE only, within the object's own project (the
+// files_project index does the work; storage_path has none), so a clean
+// bucket costs nothing extra. A failed read throws: it is not "no twin".
+async function rowNamesTwin(ctx: AdminContext, projectId: string, pattern: string): Promise<boolean> {
+  const { data, error } = await ctx.admin.from('files').select('id').eq('project_id', projectId).like('storage_path', pattern).limit(1)
+  if (error) throw new Error(`files read failed (twin key): ${error.message}`)
   return (data ?? []).length > 0
 }
 
@@ -192,7 +220,7 @@ Deno.serve(async (req) => {
   const counts: Counts = {
     queue_deleted: 0, queue_missing: 0, queue_failed: 0,
     orphans_deleted: 0, avatar_orphans_deleted: 0,
-    skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0, skipped_twin: 0,
+    skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0, skipped_twin: 0, scan_failed: 0,
     queue_s3_drained: 0,
     // 🚨 true until the sweep answers — see the Counts comment.
     reservations_abandoned: 0, reservations_completed: 0, reservation_sweep_failed: true,
@@ -443,17 +471,20 @@ Deno.serve(async (req) => {
 
       const objects: Array<{ path: string; created_at?: string }> = []
       counts.truncated = (await collectObjects(ctx, RABBIT_BUCKET, `projects/${projectId}`, objects, scanBudget)) || counts.truncated
-      const referenced = await referencedPaths(ctx, objects.map(o => o.path))
+      // 🚨 FAIL CLOSED PER PROJECT (S4c review round 2, item 2): a files read
+      // that errors (referencedPaths, rowNamesTwin) throws, and this
+      // project's scan ends with nothing removed; the next project is still
+      // scanned, and the run's line says how many projects were skipped.
+      let referenced: Set<string>
+      try {
+        referenced = await referencedPaths(ctx, objects.map(o => o.path))
+      } catch (err) {
+        counts.scan_failed++
+        console.error(`[storage-gc] orphan scan skipped for project ${projectId}: ${(err as Error).message}`)
+        continue
+      }
       for (const obj of objects) {
         if (referenced.has(obj.path)) continue // referenced (live OR trashed)
-        // 🚨 S4c: A SHOT OBJECT MID-MOVE IS NOT GARBAGE. The re-filing moves
-        // an object to its nested key and rewrites its row at once, but a
-        // run that stops between the two leaves an object no row names —
-        // which this scan would otherwise delete 24h later. A row naming
-        // the OTHER shape of the key (_shared/shotKeys.ts) keeps it; the
-        // next re-filing run counts it landed and rewrites the row.
-        const twin = shotKeyTwinPattern(obj.path)
-        if (twin && await rowNamesTwin(ctx, twin)) { counts.skipped_twin++; continue }
         // 🚨 THE ROW IS NOT THE ONLY THING THAT MAKES AN OBJECT WANTED.
         // PROJECT.json and FINANCE/RATES.json are written straight to the
         // bucket and deliberately have no files row, so every check above
@@ -463,6 +494,27 @@ Deno.serve(async (req) => {
         // manifest younger than 24h was only ever surviving by accident.
         if (isReservedProjectObject(obj.path)) { counts.skipped_reserved++; continue }
         if (!olderThanWindow(obj.created_at)) { counts.skipped_recent++; continue }
+        // 🚨 S4c: A SHOT OBJECT MID-MOVE IS NOT GARBAGE. The re-filing moves
+        // an object to its nested key and rewrites its row at once, but a
+        // run that stops between the two leaves an object no row names —
+        // which this scan would otherwise delete now. A row naming the
+        // OTHER shape of the key (_shared/shotKeys.ts) keeps it; the next
+        // re-filing run counts it landed and rewrites the row. Asked only
+        // of an object old enough to delete (one query each), within its
+        // own project; a failed read ends this project's scan, not the
+        // object.
+        const twin = shotKeyTwinPattern(obj.path)
+        if (twin) {
+          let named = false
+          try {
+            named = await rowNamesTwin(ctx, projectId, twin)
+          } catch (err) {
+            counts.scan_failed++
+            console.error(`[storage-gc] orphan scan stopped for project ${projectId}: ${(err as Error).message}`)
+            break
+          }
+          if (named) { counts.skipped_twin++; continue }
+        }
         const { error: rmErr } = await ctx.admin.storage.from(RABBIT_BUCKET).remove([obj.path])
         if (!rmErr) {
           counts.orphans_deleted++

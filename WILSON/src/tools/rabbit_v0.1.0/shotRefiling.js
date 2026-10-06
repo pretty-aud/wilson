@@ -36,10 +36,12 @@ export const SHOTS_PREFIX = 'SHOTS/'
  *
  * @returns {{ folder: object, shot: object, scene: object, sceneFolder: object|null, toPath: string }[]}
  *   in folder-path order, `sceneFolder` the scene's existing row when it has
- *   one, `toPath` the path the shot folder will have: under the scene's row
- *   AS IT IS when the scene has one (a row can lag its scene's name — the
- *   backends write `<scene row path>/<shot slug>`, so the question shows the
- *   same words), else the planned SCENES/<scene>/<shot>.
+ *   one, `toPath` the path the shot folder will have — exactly what the
+ *   backends write: the scene's PLANNED path (each backend ensures the
+ *   scene's row first, which renames a row that lags its scene's name to
+ *   the planned slug under SCENES) and the shot folder's OWN slug (the move
+ *   re-parents the folder; it never renames it, so a folder whose slug lags
+ *   its shot's name keeps it). Review round 2, item 11.
  */
 export function pendingShotRefiling({ folders = [], shots = [], scenes = [] } = {}) {
   const shotById = new Map((shots || []).filter(Boolean).map(s => [String(s.id), s]))
@@ -53,9 +55,7 @@ export function pendingShotRefiling({ folders = [], shots = [], scenes = [] } = 
     const scene = sceneById.get(String(shot.scene_id))
     if (!scene) continue
     const sceneFolder = (folders || []).find(f => f && f.scene_id && String(f.scene_id) === String(scene.id)) || null
-    const toPath = sceneFolder && typeof sceneFolder.path === 'string' && sceneFolder.path
-      ? `${sceneFolder.path}/${folder.slug || entityFolderSlug('shot', shot)}`
-      : entityFolderPath('shot', shot, scene)
+    const toPath = `${entityFolderPath('scene', scene)}/${folder.slug || entityFolderSlug('shot', shot)}`
     out.push({ folder, shot, scene, sceneFolder, toPath })
   }
   return out.sort((a, b) => String(a.folder.path).localeCompare(String(b.folder.path)))

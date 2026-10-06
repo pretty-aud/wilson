@@ -37,8 +37,10 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: W, height: H } });
   // 🚨 No fixed clock here (the S5 shots script pins one): the explorer drops
-  // a pointer click within 350 ms of the last move by Date.now(), and a page
-  // whose Date.now() never advances would drop every click after the first.
+  // the second click of a double-click within a second of the last move by
+  // Date.now(), and a page whose Date.now() never advances would hold a
+  // double-click for ever (a single click, which Playwright sends, is never
+  // held since review round 2 — the rule is kept so the script stays true).
   page.on('pageerror', (e) => console.error(`  pageerror: ${e.message}`));
   const quiet = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
   const sleep = (ms) => page.waitForTimeout(ms);
@@ -61,9 +63,10 @@ try {
   const click = async (loc, what) => { await (await must(loc, what)).click(); };
   const tab = (name) => page.getByRole('tab', { name, exact: true }).first();
   const folderName = (name) => page.locator('[data-files-table] button[data-folder-name]', { hasText: name }).first();
-  // A folder opens on ONE click, so a pointer click within 350 ms of the
-  // last move is dropped as the second half of a double-click (the explorer's
-  // settle guard): the walk waits that out before the next folder.
+  // A folder opens on ONE click. Playwright's click is a single click, which
+  // the explorer never holds (since review round 2 only a second-or-later
+  // click within a second of a move is dropped); the pause is for the rows
+  // to settle before the next shot, not for the guard.
   const enter = async (name, what) => { await sleep(420); await click(folderName(name), what); await sleep(200); };
   const filterBox = () => page.getByRole('searchbox', { name: 'Filter', exact: true });
   const crumbs = async () => (await page.locator('[data-files-crumbs] [data-crumb]').allTextContents()).join(' › ');

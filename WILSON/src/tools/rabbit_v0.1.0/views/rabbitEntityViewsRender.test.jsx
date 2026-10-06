@@ -176,7 +176,8 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
   it('Confirm & create is ONE press: a second press, Escape and Cancel do nothing while it runs; a file that was not added is said, the dialog staying open with Close (S4c review round 1, item 8)', async () => {
     let release
     const add = vi.fn(() => new Promise(r => { release = r }))
-    const uploadFile = vi.fn(async () => { throw new Error('quota reached') })
+    let failUpload
+    const uploadFile = vi.fn(() => new Promise((_resolve, reject) => { failUpload = reject }))
     mount(p.View, { [p.add]: add, uploadFile })
     fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
     const dialog = screen.getByRole('dialog', { name: `New ${p.noun}` })
@@ -195,6 +196,11 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(screen.getByRole('dialog', { name: `New ${p.noun}` })).toBeTruthy()
     release({ id: 'new-row', name: `${p.Noun} 3` })
     await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1))
+    // While a file is added the button names it and a line says the dialog
+    // closes when they are all added (round 2, item 9: minutes of "Creating…").
+    await within(dialog).findByRole('button', { name: 'Adding ref.png (1 of 1)…' })
+    expect(within(dialog).getByText('Adding 1 of 1 file; this closes when they are all added.')).toBeTruthy()
+    failUpload(new Error('quota reached'))
     await within(dialog).findByText(`${p.Noun} created. One file was not added: ref.png: quota reached`)
     expect(add).toHaveBeenCalledTimes(1)
     expect(within(dialog).queryByRole('button', { name: 'Confirm & create' })).toBeNull()

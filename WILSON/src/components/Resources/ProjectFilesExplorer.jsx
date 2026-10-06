@@ -176,7 +176,12 @@ import './resources.css'
 // click of a habitual double-click would land on whatever row the new folder
 // put under the pointer — opening a sub-folder or selecting a file nobody
 // chose. Keys are never held back; only pointer clicks on rows are.
-const NAV_SETTLE_MS = 350
+// The second click of a double-click, and the dblclick itself, are held for
+// this long after a folder opens on the first click — longer than any OS
+// double-click time (Windows defaults to 500 ms; round 2, item 5: a window
+// shorter than that let a slow double-click's second half through). A FRESH
+// click (detail 1) is never held: it is a new gesture.
+const DOUBLE_CLICK_WINDOW_MS = 1000
 
 function isTextField(t) {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
@@ -433,9 +438,9 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     navigatedAtRef.current = Date.now()
     focusAfterRef.current = { first: true }
   }, [])
-  // The settle guard (NAV_SETTLE_MS): a pointer click on a row right after a
+  // The settle guard (DOUBLE_CLICK_WINDOW_MS): a second click on a row right after a
   // move is the second half of a double-click, and is dropped.
-  const rowClickSettled = useCallback(() => Date.now() - navigatedAtRef.current >= NAV_SETTLE_MS, [])
+  const rowClickSettled = useCallback(() => Date.now() - navigatedAtRef.current >= DOUBLE_CLICK_WINDOW_MS, [])
 
   // "Show in Files" from another tab (state/rabbitNavigate.js): the target is
   // wired here, on the R.A.B.B.I.T. host; nothing calls it yet. A payload for
@@ -647,7 +652,10 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const [refiling, setRefiling] = useState(null) // { name, done, total } while it runs
   const [refileResult, setRefileResult] = useState(null) // { moved, left, removedShotsCategory }
   const [refileError, setRefileError] = useState('')
-  useEffect(() => { setRefileAsk(false); setRefileResult(null); setRefileError('') }, [projectId])
+  // Another project: none of the move's state is its (the progress line
+  // too — round 2, item 10: a run still going for the last project showed
+  // frozen on the next one and hid its offer).
+  useEffect(() => { setRefileAsk(false); setRefileResult(null); setRefileError(''); setRefiling(null) }, [projectId])
   const runRefile = useCallback(async () => {
     const forProject = projectId
     const total = pendingRefile.length
@@ -673,9 +681,17 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     const left = refileResult.left || []
     const total = moved + left.length
     const gone = refileResult.removedShotsCategory ? ' The empty SHOTS folder is gone.' : ''
-    if (left.length === 0) return `Moved ${moved} shot folder${moved === 1 ? '' : 's'} into ${moved === 1 ? 'its scene' : 'their scenes'}.${gone}`
+    // The Local Server counts a record whose file was not on disk before
+    // the move (`missing`): its record moved with the folder, and the
+    // relink census is where the file is found again. Said, not hidden
+    // (round 2, item 1).
+    const missing = (refileResult.moved || []).reduce((n, m) => n + (Number(m?.missing) || 0), 0)
+    const notFound = missing > 0
+      ? ` ${missing} file${missing === 1 ? ' was' : 's were'} not found on this computer; ${missing === 1 ? 'its record' : 'their records'} moved with the folder, and the relink census finds ${missing === 1 ? 'it' : 'them'}.`
+      : ''
+    if (left.length === 0) return `Moved ${moved} shot folder${moved === 1 ? '' : 's'} into ${moved === 1 ? 'its scene' : 'their scenes'}.${gone}${notFound}`
     const names = left.map((l) => `${l.name} (${l.reason})`).join('; ')
-    return `Moved ${moved} of ${total}. Left where ${left.length === 1 ? 'it was' : 'they were'}: ${names}.`
+    return `Moved ${moved} of ${total}. Left where ${left.length === 1 ? 'it was' : 'they were'}: ${names}.${notFound}`
   }, [refileResult])
 
   // ── E10: the file window — the Details panel is the editor now ───────────
@@ -1273,7 +1289,13 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             {pendingRefile.length > 8 && <li className="fx-refile-more">and {pendingRefile.length - 8} more</li>}
           </ul>
           <p className="fx-refile-note">
-            Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved, and you can run it again for the rest.
+            Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end.
+            {/* The two stores differ here (round 2, item 12): the cloud cannot
+                see a trashed row, so its body keeps the old key and still
+                restores; the Local Server's records move with their folder,
+                trashed or not, since the file is in the directory. */}
+            {ctx?.supportsManagedFiles ? ' A file in Recently deleted moves with its folder.' : ' A file in Recently deleted keeps its place and still restores.'}
+            {' '}If it stops part way, what has moved stays moved, and you can run it again for the rest.
           </p>
         </Dialog>
       )}
@@ -1448,12 +1470,13 @@ function TableView({ rows, mode, sortKey, sortDir, onSort, onPick, onOpen, onEnt
         {rows.map(({ node }) => {
             const isFolder = node.kind === 'folder'
             const m = node.meta || {}
-            // A POINTER click on a row within the settle window after a move
-            // is the second half of a double-click (NAV_SETTLE_MS). `detail`
+            // A second-or-later click (detail 2+) on a row within the window
+            // after a move is the second half of a double-click
+            // (DOUBLE_CLICK_WINDOW_MS); a fresh click is never held. `detail`
             // is the click count: 0 for a synthetic or keyboard click, which
             // is never held back.
             const onRowClick = (e) => {
-              if (e.detail > 0 && !settled()) return
+              if (e.detail >= 2 && !settled()) return
               if (isFolder) onEnterFolder(node)
               else onPick(node)
             }
@@ -1485,7 +1508,7 @@ function TableView({ rows, mode, sortKey, sortDir, onSort, onPick, onOpen, onEnt
                       // handler; a keyboard "click" (Enter, Space) has no
                       // pointer and is never held back.
                       e.stopPropagation()
-                      if (e.detail > 0 && !settled()) return
+                      if (e.detail >= 2 && !settled()) return
                       if (isFolder) onEnterFolder(node)
                       else onPick(node)
                     }}

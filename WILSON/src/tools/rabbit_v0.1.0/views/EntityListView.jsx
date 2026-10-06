@@ -1245,6 +1245,10 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
   // backdrop), whose closure may be a render old.
   const [busy, setBusy] = useState(false)
   const [madeWithFailures, setMadeWithFailures] = useState(false)
+  // Which file is being added (round 2, item 9: a long copy showed
+  // "Creating…" for minutes with nothing said). The button names it, and a
+  // line under the list says the dialog closes when they are all added.
+  const [adding, setAdding] = useState(null) // { index, total, name }
   const busyRef = useRef(false)
   const closeUnlessBusy = () => { if (!busyRef.current) onClose() }
 
@@ -1264,9 +1268,10 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
     let failed = []
     if (row?.id && files.length > 0) {
       try {
-        ({ failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files }))
+        ({ failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files, onProgress: setAdding }))
       } catch (err) { failed = [err?.message || String(err)] }
     }
+    setAdding(null)
     busyRef.current = false
     setBusy(false)
     if (failed.length > 0) {
@@ -1307,7 +1312,7 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
         <>
           <Button onClick={onClose} disabled={busy}>Cancel</Button>
           <Button variant="primary" onClick={handleConfirm} disabled={!name.trim() || busy}>
-            {busy ? 'Creating…' : 'Confirm & create'}
+            {busy ? (adding ? `Adding ${adding.name} (${adding.index} of ${adding.total})…` : 'Creating…') : 'Confirm & create'}
           </Button>
         </>
       )}
@@ -1341,7 +1346,11 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
           <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={pickFiles} title={`Added to the ${entity.noun}'s own folder once it is created`}>
             Add files
           </Button>
-          {fileNote && <span className="rb-ent-files-note">{fileNote}</span>}
+          {(fileNote || adding) && (
+            <span className="rb-ent-files-note">
+              {adding ? `Adding ${adding.index} of ${adding.total} file${adding.total === 1 ? '' : 's'}; this closes when they are all added.` : fileNote}
+            </span>
+          )}
           {files.length > 0 && (
             <div className="rb-ent-files">
               {files.map((f, i) => (

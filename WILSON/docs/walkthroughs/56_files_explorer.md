@@ -47,13 +47,13 @@ Nothing moves until someone presses the button.
 | 6 | Type *board* in the filter box | The table switches to a **search across the whole project**: every file and folder whose name, path or tag matches, with a **Location** column saying where each one is, and a line above the rows — *N matches for “board” across the project* — with **Clear**. |
 | 7 | Click **Clear** (or empty the box) | Back in the folder you were in, exactly where you left it. A search that matches nothing says *No files match “…” in this project*. |
 | 8 | Click **Columns**, then **Table** again | The Columns view opens on the same folder you were in, and the Table comes back to it: the two views keep one place. A selected file's **Location** in the file window matches the path above the table. |
-| 9 | At the top of the Files tab, read the blue notice and click **Move shot folders into their scenes…** | The notice says *16 shot folders still sit under SHOTS: Father-At-The-Tiller, Her-Side, His-Side and 13 more. From now on a shot's folder lives inside its scene's.* The question lists every folder and where it goes (**SHOTS/The-Door → SCENES/Lighthouse-Dawn/The-Door** …), the first eight then *and N more*, and says: *Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved, and you can run it again for the rest.* |
+| 9 | At the top of the Files tab, read the blue notice and click **Move shot folders into their scenes…** | The notice says *16 shot folders still sit under SHOTS: Father-At-The-Tiller, Her-Side, His-Side and 13 more. From now on a shot's folder lives inside its scene's.* The question lists every folder and where it goes (**SHOTS/The-Door → SCENES/Lighthouse-Dawn/The-Door** …), the first eight then *and N more*, and says: *Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved, and you can run it again for the rest.* (On the Local Server the middle sentence reads *A file in Recently deleted moves with its folder.*) |
 | 10 | Click **Move shot folders** | A line *Moving Father-At-The-Tiller (1 of 16)…* while it runs, one shot after another in the order the notice names them (on the Local Server, which answers in one go, the line reads *Moving shot folders (1 of 16)…*), then a green notice: *Moved 16 shot folders into their scenes. The empty SHOTS folder is gone.* The offer is gone. Open SCENES › Lighthouse-Dawn: its shot folders are inside it now, with their files. |
-| 11 | Open the **Scenes** tab, a scene's popup, then one of its shots' | The scene's **Folder** line reads *SCENES/Lighthouse-Dawn/*; the shot's reads *SCENES/Lighthouse-Dawn/The-Door/*. Before the move the shot's read *SHOTS/The-Door/*: the line says where the folder *is*. |
+| 11 | Open the **Scenes** tab, a scene's popup, then one of its shots' | The scene's **Folder** line reads *SCENES/Lighthouse-Dawn/*; the shot's reads *SCENES/Lighthouse-Dawn/The-Door/*. Before the move the shot's read *SHOTS/The-Door/*: the line says where the folder *is*. Rename the scene: its shot folders' lines follow at once (on the Local Server the directory on disk keeps the old name, as a rename always has there; the Files tab still shows each file in its shot's folder). |
 | 12 | Switch the test data to the game variant (add `?fixtures=game` to the address) and open **Levels**, then a level's **View details** | Under Notes, a **Files (1)** section — the same one the scene and shot popups have — with **Add files**, Table and Gallery, the file's download and delete. **Linked counts** now reads *… / 1 file*. |
 | 13 | Open **Experiences**, then an experience's **View details** | The same Files section, with its own file. |
 | 14 | Click **Add files** in a level's popup and pick a file (on the cloud); on the Local Server the desktop's picker opens | The file appears in the list, and in the Files tab under **LEVELS › the level**. An experience's goes under **EXPERIENCES › the experience**. |
-| 15 | Click **New level**, add a file in the form, and **Confirm & create** | The level is created, then its file is added to its own folder (before this, a file picked in the form went nowhere). |
+| 15 | Click **New level**, add a file in the form, and **Confirm & create** | The level is created, then its file is added to its own folder (before this, a file picked in the form went nowhere). While that runs the button reads *Creating…*, then *Adding <file> (1 of N)…*, a line says the dialog closes when they are all added, and Cancel, Escape and the backdrop wait; a file that could not be added is named, and the dialog stays open with **Close**. |
 | 16 | Open the Files tab's **Help (?)** | *Files* now has *Getting around the table* and *Folders*: the keys, the path, where a shot's folder lives, and the one-time move. *Scenes and shot lists* has a *Folders* line. |
 
 **What the words mean.** The **path** above the table (Project › SCENES ›
@@ -71,16 +71,20 @@ buckets on the cloud (a file's body in `rabbit-files` and its preview in
 `rabbit-thumbnails`), and on disk on the Local Server, and the rows that say
 so — each file's row rewritten the moment its object has been seen at its
 new place, so no file is ever left moved with its row saying the old place
-for longer than one step. Before a shot's first file moves, the whole shot
-is checked (a file missing from storage, a file at both places, a folder
-already at the destination: the shot is left where it is, with the reason,
-and nothing of it moves). No file is deleted, nothing is copied twice: a
-file that is already at its new place from an earlier run is counted done,
-and a file that is at both places is left alone and named. A file in
-**Recently deleted** keeps its old place (the app cannot see trashed rows)
-and still restores. On the cloud the move is refused by the database for
-anyone who cannot edit the project (a reviewer, a person with no seat) —
-rehearsed on the development database and rolled back.
+for longer than one step. On the cloud, before a shot's first file moves,
+the whole shot is checked (a file missing from storage, a file at both
+places, a folder already at the destination: the shot is left where it is,
+with the reason, and nothing of it moves); if a file's row cannot be
+rewritten and cannot even be read back, the file is left where it landed
+and the shot says *run it again* — the next run finds it. No file is
+deleted, nothing is copied twice: a file that is already at its new place
+from an earlier run is counted done, and a file that is at both places is
+left alone and named. A file in **Recently deleted** keeps its old place on
+the cloud (the app cannot see trashed rows) and still restores; on the Local
+Server it moves with its folder, as its file does. On the cloud the move is
+refused by the database for anyone who cannot edit the project (a reviewer,
+a person with no seat) — rehearsed on the development database and rolled
+back.
 
 **Who can do what.** The offer is shown only to someone who can edit the
 project (a manager or member — see §5, question 6; on the Local Server,
@@ -89,20 +93,33 @@ section on a level or an experience follows the same rule as a scene's.
 
 **Limits, stated.**
 - A folder opens on **one click**. The second click of a habitual
-  double-click, and the double-click itself, are ignored for a third of a
-  second so neither can land on the new folder's rows (a file nobody chose
-  would otherwise open in the preview and be logged as read). (Windows
-  Explorer opens on a double-click; this follows your "press into a folder".
-  Say if you want double-click.)
+  double-click, and the double-click itself, are ignored for a second after
+  the folder opened — longer than any double-click speed the system allows
+  — so neither can land on the new folder's rows (a file nobody chose would
+  otherwise open in the preview and be logged as read). A fresh click is
+  never held. (Windows Explorer opens on a double-click; this follows your
+  "press into a folder". Say if you want double-click.)
+- On the **Local Server** a shot is checked only as far as the disk allows:
+  a file already missing before the move is counted (the result says how
+  many) and its record moves with the folder; a clash with a file already at
+  the destination is found as the folder is merged, entry by entry in name
+  order, and what moved before it stays moved. The cloud checks the whole
+  shot before its first file moves.
 - The move is **refused on the Local Server while the project folder is
   recorded but cannot be reached** from this computer (a NAS offline, a
   drive unplugged): rows moved without their files would describe a file
-  nowhere. With no folder recorded and none resolving, only a shot with no
-  file records moves (its rows alone).
-- Two people (or two tabs) running the move at once are not locked out of
-  each other; each file's checks make the second run find the first's work
-  done, and the result names anything the two disagreed on. One tab runs
-  one move per project at a time.
+  nowhere. That holds even when a folder of the project's name exists under
+  this computer's files root (one is made whenever an asset is added
+  offline): a shot none of whose files are found there is refused with the
+  recorded folder named. A shot whose files are all gone from the project's
+  own folder is refused too (none found), never counted missing and moved.
+  With no folder recorded and none resolving, only a shot with no file
+  records moves (its rows alone).
+- Two people (or two tabs) running the move at once are **not locked out of
+  each other**. One tab runs one move per project at a time; two tabs, or
+  two people, can in a narrow window undo each other's step on one file,
+  and only one result would say so. Run it from one place (OUTSTANDING
+  S4c-12 names the lock that would close this).
 - A shot's file in **your own bucket** (an S3 workspace) is not moved yet:
   its shot folder stays under SHOTS and the result names it. No such
   workspace exists on any environment today.

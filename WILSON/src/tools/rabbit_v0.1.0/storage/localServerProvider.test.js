@@ -76,15 +76,18 @@ describe('on the desktop, the five verbs hit the five routes', () => {
     expect(await blob.text()).toBe('bytes')
     await expect(p.get('projects/p1/assets/a1/missing.mov')).rejects.toThrow('media not found')
   })
-  it('exists is a HEAD; del tolerates 404 and throws on anything else', async () => {
+  it('exists is a HEAD: 200 is there, 404 is not, anything else is a FAULT (never "not there"); del tolerates 404 and throws on anything else', async () => {
     const f = fakeFetch((url, init) => {
-      if (init.method === 'HEAD') return { status: url.endsWith('gone.mov') ? 404 : 200 }
+      if (init.method === 'HEAD') return { status: url.endsWith('gone.mov') ? 404 : url.endsWith('down.mov') ? 503 : 200 }
       if (init.method === 'DELETE') return { status: url.endsWith('gone.mov') ? 404 : url.endsWith('locked.mov') ? 500 : 204 }
       return {}
     })
     const p = createLocalServerStorageProvider({ available: () => true, fetchImpl: f, xhr: null })
     expect(await p.exists(KEY)).toBe(true)
     expect(await p.exists('projects/p1/assets/a1/gone.mov')).toBe(false)
+    // S4c review round 2 (item 12): the re-filing clears a thumbnail it finds
+    // at neither key; a 503 read as "missing" would clear one that is there.
+    await expect(p.exists('projects/p1/assets/a1/down.mov')).rejects.toThrow('media check failed')
     await expect(p.del(KEY)).resolves.toBeUndefined()
     await expect(p.del('projects/p1/assets/a1/gone.mov')).resolves.toBeUndefined()
     await expect(p.del('projects/p1/assets/a1/locked.mov')).rejects.toThrow('media delete failed')

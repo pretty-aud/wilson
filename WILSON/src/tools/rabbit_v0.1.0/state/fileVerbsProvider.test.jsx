@@ -170,6 +170,53 @@ describe('the re-filing re-reads the rows and rewrites the manifest (S4c)', () =
   })
 })
 
+// S4c review round 2 (item 6): a RENAME re-paths the rows under the folder
+// (a scene's shot folders), and the adapter answers only the folder's own
+// row — so the provider reads the tree again, and the shots' Folder lines and
+// the Files tab say the new path at once. A new row, or an unchanged name,
+// merges the one row as before.
+describe('the folder tree is read again after a rename (S4c)', () => {
+  it('renaming an asset (updateAsset → the entity folder): the adapter answers one row; the provider reads listFolders and the rows under the folder say the new path too; CONTROL: the same name again merges the row alone', async () => {
+    const base = holder.adapter.loadProject
+    holder.adapter.loadProject = async (id) => ({
+      ...(await base(id)),
+      assets: [{ id: 'a1', name: 'Hero', project_id: 'p1' }],
+      folders: [
+        { id: 'r', path: '', kind: 'root', parent_id: null },
+        { id: 'ca', path: 'ASSETS', kind: 'category', parent_id: 'r' },
+        { id: 'fa', path: 'ASSETS/Hero', kind: 'entity', parent_id: 'ca', asset_id: 'a1', slug: 'Hero' },
+        { id: 'sub', path: 'ASSETS/Hero/plates', kind: 'custom', parent_id: 'fa', slug: 'plates' },
+      ],
+    })
+    const renamed = [
+      { id: 'r', path: '', kind: 'root', parent_id: null },
+      { id: 'ca', path: 'ASSETS', kind: 'category', parent_id: 'r' },
+      { id: 'fa', path: 'ASSETS/Hero-Two', kind: 'entity', parent_id: 'ca', asset_id: 'a1', slug: 'Hero-Two' },
+      { id: 'sub', path: 'ASSETS/Hero-Two/plates', kind: 'custom', parent_id: 'fa', slug: 'plates' },
+    ]
+    Object.assign(holder.adapter, {
+      patchAsset: vi.fn(async (id, patch) => ({ id, ...patch })),
+      ensureEntityFolder: vi.fn(async (_pid, _project, type, entity) => (type === 'asset'
+        ? { id: 'fa', path: entity.name === 'Hero two' ? 'ASSETS/Hero-Two' : 'ASSETS/Hero', kind: 'entity', parent_id: 'ca', asset_id: 'a1', slug: entity.name === 'Hero two' ? 'Hero-Two' : 'Hero' }
+        : null)),
+      listFolders: vi.fn(async () => renamed),
+    })
+    await mount()
+    await waitFor(() => expect(ctxRef.folders.map(f => f.path)).toEqual(['', 'ASSETS', 'ASSETS/Hero', 'ASSETS/Hero/plates']))
+    await act(async () => { await ctxRef.updateAsset('a1', { name: 'Hero two' }) })
+    await waitFor(() => expect(ctxRef.folders.map(f => f.path)).toEqual(['', 'ASSETS', 'ASSETS/Hero-Two', 'ASSETS/Hero-Two/plates']))
+    expect(holder.adapter.listFolders).toHaveBeenCalledWith('p1')
+    // CONTROL: the same name again — the row's path is unchanged, so one
+    // row is merged and the tree is not read.
+    holder.adapter.listFolders.mockClear()
+    await act(async () => { await ctxRef.updateAsset('a1', { name: 'Hero two' }) })
+    await waitFor(() => expect(holder.adapter.ensureEntityFolder).toHaveBeenCalledTimes(2))
+    await new Promise(r => setTimeout(r, 20))
+    expect(holder.adapter.listFolders).not.toHaveBeenCalled()
+    expect(ctxRef.folders.map(f => f.path)).toEqual(['', 'ASSETS', 'ASSETS/Hero-Two', 'ASSETS/Hero-Two/plates'])
+  })
+})
+
 // Review round 2 (R2-UI-01, measured in a browser with two hosts): the
 // optimistic write kept the row's OLD updated_at, so an explorer whose own copy
 // carried the server's newer one kept it — the other host showed the note from

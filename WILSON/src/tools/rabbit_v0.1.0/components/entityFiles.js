@@ -62,15 +62,18 @@ function managedLink(entityType, entityId) {
  * @param {object} args.entity     the created row (id, name)
  * @param {{ name: string, file?: File, path?: string }[]} args.picked
  * @param {object} [args.api]      the desktop bridge (window.electronAPI.rabbit)
+ * @param {(p: { index: number, total: number, name: string }) => void} [args.onProgress]
+ *   before each file (1-based `index`), so a form can say which file it is on
  * @returns {Promise<{ added: number, failed: string[] }>}
  */
-export async function addFilesToEntity({ ctx, entityType, entity, picked = [], api = globalThis.window?.electronAPI?.rabbit } = {}) {
+export async function addFilesToEntity({ ctx, entityType, entity, picked = [], api = globalThis.window?.electronAPI?.rabbit, onProgress } = {}) {
   const failed = []
   let added = 0
   if (!ctx || !entity?.id || picked.length === 0) return { added, failed }
   const managed = ctx.supportsManagedFiles === true
   const scope = entityScope(entityType, entity.id)
-  for (const p of picked) {
+  for (const [i, p] of picked.entries()) {
+    if (typeof onProgress === 'function') onProgress({ index: i + 1, total: picked.length, name: p?.name || 'a file' })
     try {
       if (!managed) {
         if (!p.file) throw new Error('no file bytes to upload')

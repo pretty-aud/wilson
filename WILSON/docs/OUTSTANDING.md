@@ -2817,9 +2817,15 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   one step and every record is retargeted at once, but the bundle is
   written after the shot, so a crash in between leaves records saying the
   old place until the next run (which finds each file at its new place and
-  counts it done). A journal written before the move would close both
-  windows for good. Owner: a future session, if a stopped move ever shows
-  in the beta.
+  counts it done) — unless the shot was RENAMED in between: the next run
+  then looks under the shot's new slug, finds no record there, re-parents
+  the row, and the records still say `SHOTS/<old>/`, a folder that no
+  longer exists; the files are at `SCENES/<scene>/<old>/`, where the relink
+  census finds them (review round 2). On the cloud, a row that could not be
+  rewritten and could not be read back is left where it landed, said with
+  "run it again", and the next run counts it landed. A journal written
+  before the move would close every window for good. Owner: a future
+  session, if a stopped move ever shows in the beta.
 - **S4c-10 · `storage-gc` must be deployed for the twin-key guard to hold.**
   The Edge Function's orphan scan deleted any `rabbit-files` object no row
   named once it was 24h old — exactly what a stopped move leaves. The code
@@ -2832,17 +2838,45 @@ column lives only in a search now. Questions for Audrey are in walkthrough
 - **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
   directory.** As before S4c for every entity (the PATCH route's note: the
   old directory is left with whatever is in it, and a managed record stays
-  with its file). Since S4c a renamed scene re-paths its shot folders' rows
-  with it, so no row says a path its parent no longer has — but the
-  directories and the records keep the old scene's name on disk, as they
-  always did, and the Files tab lists a record by its own `folder_path`.
-  Moving the directory and the records on a rename (as the asset route
-  does) is one change on each backend. Owner: a session that takes renames.
-- **S4c-12 · Two runs of the move at once are not locked out of each
-  other.** One tab runs one move per project at a time
-  (`refilingNow` in the adapter); another tab's or another person's run
-  meets the same checks per object (an object already at its new key is
-  counted landed; a row that answers no row puts the object back only after
-  the row is read again), so two runs end in the same state as one, with
-  anything they disagreed on named in both results. A lock row in the
-  database would be the fuller answer. Owner: none unless it shows.
+  with its file). Since S4c a renamed scene re-paths the rows under it
+  (walked by `parent_id`, finished on any later ensure if a pass stopped),
+  so no row says a path its parent no longer has — but the directories and
+  the records keep the old scene's name on disk, as they always did. The
+  Files tab places such a record by its ENTITY when its `folder_path` names
+  no row (`fileTree.js`, review round 2: before that fix a renamed scene's
+  shot files fell to the project root), and the stream route and Show in
+  folder read the record's own path, so everything still opens; a new
+  upload to the shot lands in the NEW directory, so one shot's files can sit
+  in two directories until someone moves them by hand. Moving the directory
+  and the records on a rename (as the asset route does) is one change on
+  each backend. Owner: a session that takes renames.
+- **S4c-12 · Two runs of the move at once are NOT safe against each other.**
+  One tab runs one move per project at a time (`refilingNow` in the
+  adapter), and a second tab or a second person meets the same checks per
+  object — but in one narrow window they can undo each other's step on one
+  file (review round 2: A's row update fails without committing; B counts
+  the object landed and sends its own update; A reads the row before B's
+  commit, sees the old key, and moves the object back; B's update then
+  commits the new key — a row naming a key the object is not at, which only
+  A's result mentions, as an update error). A lock row in the database, or a
+  `pg_advisory_xact_lock` in a function that does the row writes, is the
+  answer; until one exists, run the move from ONE place (walkthrough 56
+  says so). Owner: a session that takes the lock, before a team of two
+  runs it.
+- **S4c-13 · The create form holds while its files are added.** A level or
+  experience made with files picked in the form is created, then its files
+  are added one by one with the button naming each (*Adding <file> (i of
+  n)…*) and a line saying the dialog closes when they are all added; Cancel,
+  Escape and the backdrop wait. A multi-gigabyte copy on the Local Server is
+  minutes of that with no way out but to wait (review round 2). The fuller
+  answer is to close the form once the row exists and hand the files to the
+  entity's FileManager, which has per-file progress. Owner: a session on
+  the entity popups.
+- **S4c-14 · A build from before S4c, still open during a deploy, can put a
+  moved shot's row back under a SHOTS path.** Its `ensureEntityFolderWith`
+  wrote `path: SHOTS/<slug>` on a shot rename (its planner knew no nesting)
+  without touching `parent_id`, and kept uploading under `shots/<id>/`.
+  Since review round 2 the next ensure by a current build walks the scene's
+  rows by `parent_id` and puts the path right; the upload's old prefix is
+  what the offer is for, and the offer returns. Owner: none (deploy windows
+  only).

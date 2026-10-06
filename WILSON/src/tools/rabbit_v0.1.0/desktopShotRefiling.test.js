@@ -106,6 +106,7 @@ function harness(bundle, root, fsImpl = fs) {
      ${extractFunction(MAIN_CJS, 'materializeFolderDirs')}
      ${extractFunction(MAIN_CJS, 'ensureProjectFolderRows')}
      ${extractFunction(MAIN_CJS, 'ensureEntityFolderRow')}
+     ${extractFunction(MAIN_CJS, 'sameDir')}
      ${extractFunction(MAIN_CJS, 'pendingShotRefilingFor')}
      ${extractFunction(MAIN_CJS, 'refileOneShotRow')}
      ${extractRoute(MAIN_CJS, ROUTE)}
@@ -210,6 +211,28 @@ describe('ensureEntityFolderRow (S4c)', () => {
     expect(bundle.folders.find(x => x.id === 'sub').path).toBe('SCENES/Lighthouse-Dusk/The-Cold-Lamp/plates')
     expect(bundle.folders.find(x => x.id === 'f-sh1').path).toBe('SHOTS/The-Door')
     // CONTROL: the same name again changes nothing.
+    expect(h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0]).changed).toBe(false)
+  })
+  it('walked by parent_id, not by a path prefix: a stale child of another row is left alone; a pass that stopped is finished on the next ensure, renaming or not (round 2, item 6)', () => {
+    const bundle = fixture()
+    const h = harness(bundle, null)
+    // The project's category rows settled first, so the only change the
+    // next ensure can report is the one under test.
+    h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0])
+    expect(h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0]).changed).toBe(false)
+    // An older build renamed the scene and re-pathed nothing: its row says
+    // the new name, its shot's row still the old.
+    const sc = bundle.folders.find(x => x.id === 'f-sc1'); sc.path = 'SCENES/Lighthouse-Dusk'; sc.slug = 'Lighthouse-Dusk'
+    const f = bundle.folders.find(x => x.id === 'f-sh2'); f.parent_id = 'f-sc1'; f.path = 'SCENES/Lighthouse-Dawn/The-Cold-Lamp'
+    bundle.folders.push(folder('f-sc2', 'custom', 'SCENES/Cliff-Path', 'c-scenes', { entity_type: 'scene', scene_id: 'sc2' }))
+    bundle.folders.push(folder('stray', 'custom', 'SCENES/Lighthouse-Dawn/Not-Mine', 'f-sc2'))
+    bundle.scenes[0].name = 'Lighthouse, dusk'
+    // No rename here (the row already says Dusk): the walk alone changes the bundle.
+    const { changed } = h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0])
+    expect(changed).toBe(true)
+    expect(bundle.folders.find(x => x.id === 'f-sc1').path).toBe('SCENES/Lighthouse-Dusk')
+    expect(bundle.folders.find(x => x.id === 'f-sh2').path).toBe('SCENES/Lighthouse-Dusk/The-Cold-Lamp')
+    expect(bundle.folders.find(x => x.id === 'stray').path).toBe('SCENES/Lighthouse-Dawn/Not-Mine')
     expect(h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0]).changed).toBe(false)
   })
 })
@@ -363,6 +386,50 @@ describe('POST …/folders/refile-shots on a temp root', () => {
     expect(bundle.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
     expect(bundle.managedFiles.map(m => m.folder_path)).toEqual(['SHOTS/The-Door/', 'SHOTS/The-Door/', 'SHOTS/Loose/'])
     expect(res.body.removedShotsCategory).toBe(false)
+  })
+
+  it('a FALLBACK root (the recorded folder unreachable, <root base>/<slug> standing in) holds nothing of the shot: refused with the recorded folder named, records or not, nothing moved (round 2, item 1)', () => {
+    const bundle = fixture()
+    bundle.project.folder_root = 'Z:\\gone\\Fixture'
+    // The fallback: a folder of that slug under the root base, as an asset
+    // made offline leaves one — with none of the shot's directories in it.
+    const fallback = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-fallback-'))
+    try {
+      fs.mkdirSync(path.join(fallback, 'ASSETS'), { recursive: true })
+      const h = harness(bundle, fallback)
+      const res = h.post()
+      expect(res.body.moved).toEqual([])
+      expect(res.body.left.map(l => l.name)).toEqual(['The-Cold-Lamp', 'The-Door'])
+      for (const l of res.body.left) expect(l.reason).toContain('the project folder (Z:\\gone\\Fixture) cannot be reached from this computer, and')
+      expect(bundle.managedFiles.map(m => m.folder_path)).toEqual(['SHOTS/The-Door/', 'SHOTS/The-Door/', 'SHOTS/Loose/'])
+      expect(bundle.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+      expect(fs.existsSync(path.join(fallback, 'SCENES'))).toBe(false)
+      expect(res.body.removedShotsCategory).toBe(false)
+    } finally { fs.rmSync(fallback, { recursive: true, force: true }) }
+  })
+
+  it('in the project\'s own folder, a shot whose directory and every file are gone is refused (none found), not counted missing and moved', () => {
+    const bundle = fixture()
+    layOut(bundle)
+    fs.rmSync(at(root, 'SHOTS/The-Door'), { recursive: true, force: true })
+    const h = harness(bundle, root)
+    const res = h.post()
+    // (The-Cold-Lamp moved first, and materializeFolderDirs then made an
+    // EMPTY SHOTS/The-Door again — an empty directory is no evidence.)
+    expect(res.body.moved.map(m => m.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.body.left.map(l => [l.name, l.reason])).toEqual([['The-Door', `none of the 2 files recorded under SHOTS/The-Door can be found in ${root} (at the old place or the new); nothing was moved`]])
+    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SHOTS/The-Door/')
+    expect(bundle.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+  })
+
+  it('the scene\'s directory need not exist yet: the move makes it on the way', () => {
+    const bundle = fixture()
+    layOut(bundle)
+    fs.rmdirSync(at(root, 'SCENES/Lighthouse-Dawn'))
+    const h = harness(bundle, root)
+    const res = h.post()
+    expect(res.body.left).toEqual([])
+    expect(exists(root, 'SCENES/Lighthouse-Dawn/The-Door/Fixture_plate_v001.exr')).toBe(true)
   })
 
   it('a file that was on disk and is not at its new place after the move is reported, every record that DID arrive already saying so; the next run finishes the folder', () => {
