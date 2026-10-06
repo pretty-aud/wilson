@@ -27,10 +27,10 @@ Raw footage is huge, so this is the big one.
 
 My pick: **(a) now, (c) later.** It matches how Bins already work and how editors work off a shared NAS.
 
-**B2. The same drive has a different address on every computer.**
-The NAS might be `Z:\Footage` on your PC and something else on an editor's. My proposal: every footage location gets a **name** ("Footage NAS", "Shoot drive 2"). The first time someone opens the project on a computer, WILSON asks once: "Where is 'Footage NAS' on this computer?" They point at the folder, WILSON remembers it for that computer, and every clip under it is found from then on.
+**B2. How a footage location is written down.**
+*(Revised 2026-10-06 after your answer that the footage lives on the server, on the local network.)* A location on the server is saved as its **network address** (`\\server\footage`), which is the same from every computer on the network — never as a drive letter like `Z:`, which means something different on each machine (the storage design refused drive letters for that reason). Each location also gets a **name** ("Footage NAS"). Only when a computer can see the location just as a drive letter does WILSON ask, once, where it is on that computer.
 
-My pick: **yes.**
+My pick: **yes** — network addresses, names for people, the per-computer question only as the fallback.
 
 **B3. What does a teammate see for a clip their computer cannot reach?**
 Their drive is unplugged, or they are working from home. My proposal: the clip still shows in the bin with its picture, name, notes, flags and length, marked "not on this computer". They can still log it, flag it and assign it to a shot. They cannot play it.
@@ -42,10 +42,20 @@ For B3 to work, WILSON uploads one small still picture of each clip (a few kilob
 
 My pick: **yes.**
 
-**B5. In a web browser.**
-A browser cannot read files on your drives at all. My proposal: in the browser the Bins tab shows every bin and clip and lets people log, flag and assign takes to shots — but adding files and playing them needs the desktop app, and the page says so plainly.
+**B5. In a web browser — and for people working remotely.**
+*(Revised 2026-10-06 after your answers: remote people and people who prefer the web app must be able to play and scrub, the footage stays on the server, and the company admin decides whether files may be viewed remotely.)*
 
-My pick: **yes.**
+A browser cannot read a file on the server by itself, so for a browser to play a clip that stays on the server, **something on the server's side has to send it over the web**. The honest choices:
+
+- (a) **A small WILSON service installed on the company's server** (the "file gateway" the storage design describes). It checks who is asking (their WILSON sign-in), reads the clip from the server, sends it to the browser in pieces so it can scrub, and logs every read. On the office network it just works; **for remote people it works only when the company admin turns remote viewing on** — that switch is the admin's choice you asked for, it is off by default, and it says at the switch what turning it on means for a studio that needs TPN certification (remote access to content then runs outside the TPN-prescribed VPN model). This is the real answer to your requirement; it is also a real piece of software — roughly three to five sessions, installed and updated on the company's server.
+- (b) **Small preview copies uploaded to the cloud** for the clips remote people need. Nothing on the server is exposed, but it is a copy, and it costs storage.
+- (c) **The browser shows the catalogue only** (everything but playback), and playing stays in the desktop app — the earlier draft of this question.
+
+Two things to know either way: the desktop app, for remote people, works over the company's VPN or the NAS's own remote access with no WILSON work; and scrubbing multi-GB footage over a home internet link is slow by physics, whichever route carries it — a note for the setup guide, not a defect.
+
+My pick: **(a), built after the first three sessions, with (c) as what the browser shows until then.** (b) stays available for a company that cannot install anything on its server.
+
+**B5a. The remote-viewing switch.** Per company, set by the admin, off by default: "Allow files to be viewed from outside the office network." When off, the gateway answers only inside the network. My pick: **yes, exactly that.**
 
 **B6. Who may do what.**
 My proposal, matching your shot-list ruling (reviewers may make and edit shot lists and edits):
@@ -91,6 +101,16 @@ My pick: **yes, in that order, starting after the budget-versions session.**
 
 ---
 
+## What you told me on 2026-10-06, in chat (recorded verbatim; it shapes B1, B2, B5 and B5a)
+
+> *"one thing i want to confirm, for bins. if i have them in a local server. i need to be able to view them and access them in the local app and if possible in the webapp. at the very least i need to view them for the local server WITHOUT having to download them to the local pc drive. i need to access and view them without needing to download to my local drive. for context for editing and animation, i am accessing the files where they are, im not downloading them and making a local copy."*
+>
+> 1. *"the footage would live in the server. so the user is going to just pull the path in the server not the actual files themselves and save them locally. but in a Locally accessed network."*
+> 2. *"people working remotely and people who prefer to view the project as a webapp instead of the local app. to confirm the company admin should have the ability to choose if people can view files remotely or not."*
+> 3. *"yes play and scrub"*
+
+What is already true: the desktop app never copies footage — a bin records where the file is and streams it from there; only a small poster image per clip is kept on the computer. What is not yet true: Bins while signed in to a company (B1–B13), and any playback in a browser (B5).
+
 ## Things I decided without asking (say if any is wrong)
 
 - "Assemblies" (the idea from the demo plan) stays dropped: edits replaced it in your D6 answer.
@@ -106,10 +126,11 @@ My pick: **yes, in that order, starting after the budget-versions session.**
 
 ```
 b1 the footage stays where it is. only the lists and the logging go to the cloud. an optional small preview upload for chosen clips can come later.
-b2 yes. every footage location gets a name, and each computer is asked once where that location is.
+b2 yes. a location is saved as its network address with a name. a computer is asked where it is only when it can see it as a drive letter.
 b3 yes. a clip my computer cannot reach still shows with its picture and details, marked not on this computer, and i can still log it, flag it and assign it to a shot.
 b4 yes. one small picture per clip is uploaded. no video.
-b5 yes. in the browser i can see, log, flag and assign takes. adding and playing files needs the desktop app.
+b5 build the small WILSON service on the company server so the web app can play and scrub clips that stay on the server, after the first three sessions. until then the browser shows the catalogue only. preview copies in the cloud stay as the option for a company that cannot install anything on its server.
+b5a yes. the admin's switch, per company, off by default: allow files to be viewed from outside the office network.
 b6 yes. managers and members do everything. reviewers can flag, colour, circle, write notes and assign takes, but cannot add or remove clips or bins.
 b7 yes
 b8 yes
