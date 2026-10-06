@@ -1957,6 +1957,44 @@ every settings change; read only for portability, recovery and handoff. It
 **excludes per-member rate overrides** — those are manager-only while the
 manifest's path is readable by any project member. See §17.
 
+**2026-10-06, post-overhaul S4c (Audrey, 2026-10-05: "shot folders should be
+in the scene folders … since inheritably shots have to be a part of a
+scene").** A shot's folder is `SCENES/<scene>/<shot>`, inside its scene's row
+(`parent_id` the scene's folder). `entityFolderPath('shot', shot, scene)` /
+`planEntityFolder(project, 'shot', shot, scene)` take the scene — the planner
+stays pure; each backend finds the scene row its own way — and
+`electron/main.cjs` carries the same line for line (`folderParity.test.js`).
+SHOTS is `lazy` in both category lists: never planned for a project, made only
+for a shot with no scene (`shots.scene_id` is nullable), which keeps
+`SHOTS/<shot>`. An EXISTING folder row keeps its parent on a rename, on every
+backend: only the one-time re-filing moves a shot folder into its scene. On
+the cloud a shot's objects sit inside its scene's PREFIX by ids —
+`projects/<pid>/scenes/<sceneId>/<shotId>/<leaf>` (`shotRefiling.
+shotObjectPrefix`) — so the third segment is `scenes`, which no gate locks;
+`uploadFile` keeps the old `shots/<shotId>` prefix while the shot's folder row
+still sits under SHOTS, so objects and folder move together. **The re-filing**
+(`shotRefiling.js` decides what is pending; `supabaseAdapter.refileShotFolders`
+on the cloud, `POST …/folders/refile-shots` on the Local Server, the fixtures
+adapter in memory) is OFFERED on the Files tab to whoever can write the open
+project, never run unasked: one shot folder at a time, each object moved in
+`rabbit-files` (its thumbnail in `rabbit-thumbnails`) and SEEN at its new key
+before the files row is rewritten, the folder row re-parented only after
+every file, a refused row update moving the object back, an object at both
+keys left alone and reported, one already landed on an earlier run counted
+done; the Local Server moves the directory (entry by entry into a destination
+that exists, never over a file), verifies each managed file at its new place,
+rewrites `folder_path` and the row, and writes the bundle after each shot. The
+empty SHOTS category row (and its empty directory) goes last. Idempotent and
+resumable; nothing is ever deleted. A body in the customer's own bucket (s3)
+or on another computer (a private project's, off the desktop) leaves its shot
+where it is, with the reason. Rehearsed on wilson-dev in a rolled-back
+transaction as Northwind's manager under the live policies (a reviewer and a
+person with no seat got zero rows; a member one). Levels and experiences have
+their Files section in their popups now; the managed-files POST answers a
+record's `folder_path` from the entity's folder row for scenes, shots, levels
+and experiences (`LEVELS/<slug>/`, `EXPERIENCES/<slug>/`), and FileManager
+copies where the record says.
+
 ### 12.7 The workspace drive, the NAS, and remote access (S34/S35)
 
 This is the section to hand a customer who asks "how does my team reach the

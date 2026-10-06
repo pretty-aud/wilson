@@ -2726,3 +2726,75 @@ project's budget amount and currency are shown to every member on the
 Projects page); S5b-04 (once a version is opened, every client of that
 project must be S5b or later). S5-03, S5-04, S5b-02, S5b-03, S5b-05, S5b-07,
 S5b-08, S5c-04, S5c-05 and S5d-01 – 07 stand as written.
+
+## Post-overhaul S4c (`po/s4c-files-explorer`) — left open (2026-10-06)
+
+S4c built Audrey's first beta report on the Files tab (walkthrough 56): the
+Table as an explorer (one folder at a time, a crumb bar, Backspace goes up,
+the search box reaches the whole tree), shot folders inside their scene's
+folder with a one-time, offered re-filing on every backend, and files on
+levels and experiences. The overhaul review's flat list (F-R12, the long
+note that was above `TableView`) is superseded at her word; the Location
+column lives only in a search now. Questions for Audrey are in walkthrough
+56 §5, not here.
+
+- **S4c-01 · A shot folder is never re-filed for a body in the customer's
+  own bucket (s3).** The cloud move needs copy-then-delete through presigned
+  URLs, which the s3 provider does not have (S44 left its display for its
+  own session too); `refileShotFolders` leaves such a shot where it is and
+  names it ("… is in your own bucket, which cannot be moved from here yet").
+  No s3 workspace exists on any environment to build or verify it against.
+  Owner: the s3 session, when one is scoped.
+- **S4c-02 · A private project's shot bodies move only from the desktop
+  that holds them.** Their bodies live under the desktop's local media root
+  (storage_provider `local_server`); the cloud adapter moves them through
+  the desktop's new `POST /api/rabbit/local-media/move` and, off the desktop,
+  leaves the shot with the reason ("… run this from the desktop app there").
+  By design (A9's private-project rule), recorded so the beta's words are
+  expected. Owner: none.
+- **S4c-03 · A live file whose object is missing from storage holds its shot
+  folder back.** The re-filing refuses to re-parent a folder while one of
+  its files is "missing from rabbit-files": the rows would then describe a
+  file nowhere. A trashed row whose object was purged is skipped. The way
+  out is to delete the dead row. Owner: Audrey, if it ever shows; the
+  sentence names the file.
+- **S4c-04 · A shot moved to another scene keeps its folder where it is.**
+  Nothing in the Scenes tab changes a shot's scene today (measured: no
+  writer of `scene_id` on a shot), so there is no surface for it; if one
+  comes, its folder should move with the same verified move primitive the
+  re-filing uses (`refileOneShot` / `refileOneShotRow`), never a bare row
+  update. `ensureEntityFolder` deliberately keeps an existing folder's
+  parent on every backend. Owner: the session that adds the control.
+- **S4c-05 · The cloud rehearsal was the database half only.** The spawned
+  session has no signed-in cloud session (`VITE_DEV_AUTOLOGIN=tester` skips
+  sign-in with no session; the credentialed variant needs a test account's
+  password this machine does not hold), so the Storage API's `move` itself
+  was not called against wilson-dev. What was proven there, in a rolled-back
+  transaction as Northwind's manager: the policies admit every step (the
+  scene's folder row, both buckets' object rows renamed to the nested key,
+  the files row, the folder row), and refuse a reviewer and a person with
+  no seat. The API's move is that UPDATE plus a copy in the store, under the
+  same policies (S4b-10 measured the same UPDATE for a money-cleared
+  person). Owner: Audrey — the first run on staging's one project is the
+  first real move (walkthrough 56 §2 says what to look for); S5 lists the
+  four shots.
+- **S4c-06 · The Local Server re-filing was not run in Electron.** It is
+  replayed on a real temp directory with the shipped functions lifted out of
+  `main.cjs` (`desktopShotRefiling.test.js`: the directory move, the
+  entry-by-entry merge, the never-overwrite refusal, the verify-then-rewrite
+  order, the empty SHOTS tidy, the rows-only path). Not opened on Audrey's
+  screen. Owner: Audrey's next desktop run (walkthrough 56 §2, the Local
+  Server steps).
+- **S4c-07 · `FileManager` re-rendered without end when mounted with no
+  files** (`files = []` as a default and `ctx?.files || []` each made a new
+  array per render; the signing effect depends on it and sets state). Fixed
+  in S4c with one shared empty array; the asset, scene and shot popups never
+  hit it because they always passed the provider's list. Recorded because
+  the shape (a default-argument array in a memo chain) exists elsewhere.
+  Owner: none; a sweep for the pattern is a cheap future task.
+- **S4c-08 · The fixtures' default dataset stands for a project from before
+  S4c.** Its sixteen shot folders sit under SHOTS and two shot files with
+  them, so the offer shows on first open and the walkthrough's move has
+  something to move; the fixtures adapter re-files them in memory. A test
+  that wants the nested layout re-files first (`shotRefiling.fixtures.test.js`
+  shows how). Owner: none.

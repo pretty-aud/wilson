@@ -164,10 +164,35 @@ export function RabbitHelpContent({ helpPage, theme }) {
         <p className={`${T.bodyText} mb-4`}>
           The Files tab holds the open project's files. It is the same
           explorer as Files on the Resources page, without the project
-          picker: Table lists every file and Columns walks the folders. In
-          Table, the filter matches a file's name, its path or its tags.
+          picker. Table shows one folder at a time, like Windows Explorer:
+          click a folder to open it, and the path above the rows (Project ›
+          SCENES › …) says where you are. Columns walks the same folders
+          Finder-style, and keeps your place when you switch.
         </p>
         <div className="space-y-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Getting around the table</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Open a folder</span> — Click its row, or press <Kbd surface={surface}>Enter</Kbd> on its name. Folders come first, then files, each sorted by the column you chose.</li>
+              <li>• <span className={T.listBold}>Go up</span> — The arrow at the start of the path, a crumb in the path, or <Kbd surface={surface}>Backspace</Kbd> (also <Kbd surface={surface}>Alt</Kbd>+<Kbd surface={surface}>←</Kbd>) with a row focused. <Kbd surface={surface}>↑</Kbd> <Kbd surface={surface}>↓</Kbd> <Kbd surface={surface}>Home</Kbd> <Kbd surface={surface}>End</Kbd> move between rows.</li>
+              <li>• <span className={T.listBold}>Find a file anywhere</span> — Type in the filter: the Table shows every match from the whole project, with its folder in the Location column, and says how many. Clear it to return to the folder you were in. The filter matches a file's name, its path or its tags.</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Folders</h4>
+            <p className={`${T.listItem} mb-2`}>
+              Every asset, scene, shot, level and experience has its own
+              folder, on the cloud and on this computer alike. A shot's
+              folder lives inside its scene's: SCENES, the scene, then the
+              shot. A level's is under LEVELS and an experience's under
+              EXPERIENCES; their popups have a Files section, as a scene's
+              and a shot's do, where files are added and seen.
+            </p>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Move shot folders into their scenes…</span> — A project made before this change keeps its shot folders beside the scenes, under SHOTS, until someone who can edit the project runs this once from the Files tab. The notice says how many and which; the question lists where each goes. Every folder moves with every file in it; nothing is deleted. If it stops part way, what has moved stays moved and you can run it again for the rest. The empty SHOTS folder goes once nothing is left in it.</li>
+              <li>• <span className={T.listBold}>A shot with no scene</span> — Keeps a folder under SHOTS, since there is no scene folder to sit in.</li>
+            </ul>
+          </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>The toolbar</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
@@ -285,6 +310,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <li>• <span className={T.listBold}>Viewing and active</span> — The Scenes tab shows the list you are viewing, which can differ from the project's active list. The Timeline, Budget, Tasks, Assets, Bins and every other tab show only the active list's scenes and shots.</li>
           <li>• <span className={T.listBold}>Tasks stay</span> — Clearing a list, making another one active, or taking a scene or shot out of the active list never deletes a task, a phase or anything on the Budget. A task on a scene or shot the active list does not hold reads as not assigned to it on the Timeline and the Budget (under "No scene in the active list" or "No shot in the active list"), and its tooltip there and the task's own window say what it points at. The task keeps its link: when the scene is in the active list again, so is the task.</li>
           <li>• <span className={T.listBold}>Who can do what</span> — Reviewers can make and change shot lists, but cannot add, rename or delete a scene or shot. Making a list active and archiving one are for project managers and workspace admins, except that whoever made a new list can withdraw it while nobody has saved it or saved an edit of it. On the Local Server there are no roles, so everything is open.</li>
+          <li>• <span className={T.listBold}>Folders</span> — A scene has its own folder under SCENES, and its shots' folders sit inside it. Each popup's Folder line says where the folder is; its Files section adds and shows the files in it. A project from before this change keeps its shot folders under SHOTS until the Files tab's one-time move puts them into their scenes.</li>
         </ul>
         <div className="space-y-3">
           <div className={T.card}>

@@ -1452,6 +1452,19 @@ describe('the Table as an explorer (S4c)', () => {
       expect(document.querySelector('[data-shot-refile-result]')).toBeNull()
     })
 
+    it('the move keeps the folder you were in (the rows are read again; the place is not lost)', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      enter('ASSETS')
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      await new Promise(r => setTimeout(r, 30))
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    })
+
     it('a refusal from the backend is read on screen; Cancel on the question moves nothing', async () => {
       legacy()
       ctx.refileShotFolders = vi.fn(async () => { throw new Error('permission denied for table folders') })

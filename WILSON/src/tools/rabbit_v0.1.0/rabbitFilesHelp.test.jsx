@@ -64,6 +64,38 @@ describe('the "Files" help page (E13)', () => {
     expect(explorer).toContain('Relink…')
   })
 
+  // Post-overhaul S4c: the explorer's navigation, where shot folders live
+  // now, and the one-time move — in the explorer's own words.
+  it('says how the Table navigates, where a shot\'s folder lives, and names the one-time move by the explorer\'s own label (S4c)', () => {
+    const text = page()
+    const explorer = read('../../components/Resources/ProjectFilesExplorer.jsx')
+    expect(text).toContain('Table shows one folder at a time, like Windows Explorer')
+    expect(text).toContain('Project › SCENES')
+    for (const key of ['Backspace', 'Alt', 'Enter', 'Home', 'End']) expect(text, key).toContain(key)
+    expect(text).toContain('every match from the whole project, with its folder in the Location column')
+    expect(text).toContain('Clear it to return to the folder you were in')
+    expect(explorer).toContain('(Backspace)')
+    expect(explorer).toContain('across the project')
+    // The folders: a shot's inside its scene's; levels and experiences have theirs.
+    expect(text).toContain('A shot\'s folder lives inside its scene\'s: SCENES, the scene, then the shot.')
+    expect(text).toContain('A level\'s is under LEVELS and an experience\'s under EXPERIENCES')
+    expect(text).toContain('A shot with no scene')
+    // The move, by the button's label, and the two facts the question states.
+    expect(text).toContain('Move shot folders into their scenes…')
+    expect(explorer).toMatch(/>\s*Move shot folders into their scenes…\s*</)
+    expect(text).toContain('nothing is deleted')
+    expect(text).toContain('you can run it again for the rest')
+    expect(explorer).toContain('nothing is deleted')
+    expect(explorer).toContain('you can run it again for the rest')
+    expect(text).toContain('The empty SHOTS folder goes once nothing is left in it.')
+    // The old flat-list sentence is gone.
+    expect(text).not.toContain('Table lists every file')
+    // The Scenes page says it too, once.
+    const scenes = render(<RabbitHelpContent helpPage="rabbit-scenes" theme="dark" />).container.textContent
+    expect(scenes).toContain('its shots\' folders sit inside it')
+    expect(scenes).toContain('the Files tab\'s one-time move')
+  })
+
   it('draws on both surfaces (the Help page is light, the tool\'s dialog dark)', () => {
     expect(page('light')).toBe(page('dark'))
     expect(page('light').length).toBeGreaterThan(1500)
