@@ -1,0 +1,389 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. — Bins: the surface's own state, on the tokens
+   UI overhaul B6, 2026-09-23
+
+   Three commits wrote this file, in the order plan §5 requires.
+
+   1. THE STATE EXTRACTION (a2ccf0a). Every hover / selected / active /
+      current / drag-over / offline / disabled branch on the Bins tab moved
+      out of an inline `style` ternary into a `data-*` attribute resolved
+      here, values transcribed unchanged. An inline style beats every class
+      written beside it, so a restyle next to a surviving ternary drops the
+      state silently (plan §1, risk 4). That commit fixed the review's B01:
+      no Bins button had ever hovered, because each declared a hover class
+      and set its fill inline.
+   2. THE SWAP (d380631). Btn, IconBtn, Chip, Toggle, Field, Menu and the
+      inspector's marks became the kit's components, whose states live in
+      src/index.css; their transitional rules left this file.
+   3. THE RESTYLE. Every value is a token from `@theme`; no hex
+      is written here (C8). And three review findings close:
+        B02  every row the cursor can land on has one hover fill, the kit's
+             `--color-hover` (a 6% screen of the ink): tree rows, list rows,
+             frame tiles, the two pick lists.
+        B04  the five-ink ladder is the kit's three (binUi's `C`): the two
+             failing inks (#57534e 2.29:1, #78716c 3.64:1) are ink-3, 5.04:1.
+        B13  selection is ONE tint (`--color-signal-tint`, 16%) everywhere a
+             thing is selected, active or picked; a drop target is the one
+             stronger mix (28%). Six alphas were in use.
+   4. THE KIT TABLE (B4c surface 8, 2026-09-25). The list view is the kit's
+      real <table> (it was a 16-column CSS grid); its section below says
+      what stays Bins' own.
+
+   🚨 THE LIFT. ink-3 and the signal pass on the three grounds at rest
+   (5.04 / 4.66 / 5.70 and 4.91 / 4.54 / 5.55) and FAIL on the hover and
+   selection grounds laid over them: ink-3 3.85–4.33, the signal 3.75–4.22
+   (measured with src/ui/contrast.js). So binUi's `C.dim` / `C.dimmer` /
+   `C.accentText` are custom properties with the token as their fallback —
+   `var(--bn-ink-3, var(--color-ink-3))` — and every row state below lifts
+   them one step for its own descendants: ink-3 → ink-2, the signal → ink.
+   A custom property inherits, so this works through INLINE styles, which a
+   class could never override.
+
+   🚨 THE DIM (review round 1). Offline, locked (already assigned) and missing
+   rows were faded with `opacity` (0.5–0.8), which took their text to
+   2.35–3.47:1. A dimmed row now takes the kit's disabled ink instead —
+   every ink custom property (`--bn-ink`, `--bn-ink-2`, `--bn-ink-3`,
+   `--bn-signal-ink`) set to ink-3, 5.04:1 on the paper — and a dimmed row
+   that is ALSO hovered or selected takes ink-2, because ink-3 fails there.
+   binUi's `C.bright` / `C.text` / `C.muted` are custom properties too, for
+   exactly this; data colours (a media type's hue, a mark's colour) never dim.
+
+   🚨 SELECTORS KEY ON THE VALUE, `[data-x="true"]`, NEVER ON PRESENCE, and
+   the JSX emits `x ? 'true' : undefined` (C3b's trap; src/ui/dataState.test.jsx).
+   binsCss.test.js fails on a presence selector here.
+
+   `@layer components`, exactly as src/ui's rules are. 🚨 The layer statement
+   is the FIRST rule: this sheet is imported from a component and the bundler
+   may emit it before index.css, and a layer's cascade position is fixed where
+   it is first NAMED (settings.css and dashboardCss.test.js carry the story).
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ── The lift: a hovered, selected, active or picked row ────────────── */
+  .bn-tree-row:hover,
+  .bn-tree-row[data-active="true"],
+  .bn-tree-row[data-drag-over="true"],
+  .bn-trow:hover,
+  .bn-trow[data-selected="true"],
+  .bn-tile:hover,
+  .bn-tile[data-selected="true"],
+  .bn-pick-row:hover,
+  .bn-pick-row[data-picked="true"],
+  .bn-take-add:hover {
+    --bn-ink-3: var(--color-ink-2);
+    --bn-signal-ink: var(--color-ink);
+  }
+
+  /* ── The dim: offline, locked, missing (after the lift: same specificity,
+     so on a plain dimmed row the dim wins) ─────────────────────────────── */
+  .bn-trow[data-offline="true"],
+  .bn-tile[data-offline="true"],
+  .bn-pick-row[data-offline="true"],
+  .bn-pick-row[data-locked="true"],
+  .bn-add-row[data-disabled="true"] {
+    --bn-ink: var(--color-ink-3);
+    --bn-ink-2: var(--color-ink-3);
+    --bn-ink-3: var(--color-ink-3);
+    --bn-signal-ink: var(--color-ink-3);
+  }
+  /* …and a dimmed row on a hover or selection ground takes ink-2 (ink-3
+     measures 3.85–4.33 there). */
+  .bn-trow[data-offline="true"]:hover,
+  .bn-trow[data-offline="true"][data-selected="true"],
+  .bn-tile[data-offline="true"]:hover,
+  .bn-tile[data-offline="true"][data-selected="true"],
+  .bn-pick-row[data-offline="true"]:hover,
+  .bn-pick-row[data-offline="true"][data-picked="true"],
+  .bn-pick-row[data-locked="true"]:hover {
+    --bn-ink: var(--color-ink-2);
+    --bn-ink-2: var(--color-ink-2);
+    --bn-ink-3: var(--color-ink-2);
+    --bn-signal-ink: var(--color-ink-2);
+  }
+
+  /* ── Focus rings the scroll containers would clip (review round 1) ──── */
+  /* The global ring sits 1px OUTSIDE the element; inside an overflow box
+     its outer edge is cut. These draw it 2px inside instead. */
+  .bn-section-head:focus-visible,
+  .bn-th .ui-th-btn:focus-visible { outline-offset: -2px; }
+  /* The files pane is a tab stop (the Bins keys act on it) whose children — the
+     scrolling grid and list, the sticky header, a positioned body — paint over
+     any outline of its own: round 2 measured an inset ring that showed only
+     across the top. So its ring is an overlay drawn ABOVE them (the drop
+     target is 20, the rename bar 30), and it never takes a click. */
+  .bn-pane { position: relative; }
+  .bn-pane:focus-visible { outline: none; }
+  .bn-pane:focus-visible::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+  }
+
+  /* ── binUi's data components (the kit has no counterpart) ───────────── */
+  .bn-swatch { border: 1px solid transparent; }
+  .bn-swatch[data-selected="true"] { border-color: var(--color-ink); }
+
+  /* `--dot-color` is the label colour (data). */
+  .bn-dot {
+    background-color: var(--dot-color);
+    border: 1.5px solid var(--dot-color);
+  }
+  .bn-dot[data-hollow="true"] { background-color: transparent; }
+  .bn-dot[data-empty="true"] {
+    background-color: transparent;
+    border: 1px dashed var(--color-ink-3);
+  }
+
+  .bn-flags[data-muted="true"] svg { color: var(--color-ink-3); }
+
+  /* The media-type tag. `--tag-hue` is the type's colour (data). The ground is
+     OPAQUE — the hue at 16% over the recessed paper — so the tag reads the
+     same over a poster frame, a row, a hover or a selection: 4.77–8.54:1
+     (the low end is "other", which takes ink-3; round 2 corrected round one's
+     "5.86"). Round one measured the old translucent tag at 2.49–3.96 over
+     posters. Always the sans: in a list cell it used to
+     inherit the cell's mono. */
+  .bn-tag {
+    font-family: var(--font-sans);
+    color: var(--tag-hue);
+    background-color: color-mix(in srgb, var(--tag-hue) 16%, var(--color-paper-recessed));
+    border: 1px solid color-mix(in srgb, var(--tag-hue) 35%, transparent);
+  }
+
+  /* 🚨 Fields side by side in a GRID. The kit's `.ui-field + .ui-field`
+     margin is a vertical-stack rule written as a sibling rule, so it fires
+     sideways too: measured, the inspector's Take sat 16px below Slate beside
+     it and Slate stretched 16px to cover the gap. The kit resets it for a
+     flex row (`.ui-field-row`) and a stack (`.ui-field-stack`) but has no
+     grid container; this is that reset, and a kit request in the B6 hand-off.
+     The grid's own gap does the spacing. */
+  .bn-field-grid > .ui-field + .ui-field { margin-top: 0; }
+
+  /* A dark scrim under a label laid over a poster frame. */
+  .bn-scrim { background-color: color-mix(in srgb, var(--color-paper-recessed) 75%, transparent); }
+
+  /* ── The bin tree ───────────────────────────────────────────────────── */
+  /* The selected edge is an inset shadow, not a 2px border (V1-12: one
+     border, the 1px hairline); it takes no width, so text never shifts. */
+  .bn-tree-row {
+    min-height: var(--row-dense);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .bn-tree-row:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .bn-tree-row[data-active="true"] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 var(--color-signal);
+  }
+  /* After the active rule: the old ternary tested `dragOver` first. */
+  .bn-tree-row[data-drag-over="true"] { background-color: color-mix(in srgb, var(--color-signal) 28%, transparent); }
+  .bn-tree-icon { color: var(--color-ink-3); }
+  .bn-tree-row:hover .bn-tree-icon { color: var(--color-ink-2); }
+  .bn-tree-row[data-active="true"] .bn-tree-icon { color: var(--color-signal); }
+
+  /* ── The list view: the kit Table (B4c surface 8) ───────────────────── */
+  /* The kit draws the table: the real <table>, the sticky raised header in
+     the Label step, the hairlines, the numeric cells (right, tabular, the
+     mono). What stays Bins' own is here, and each rule keeps what the grid
+     had:
+       · the row's states on the <tr>, and through them the lift and the dim
+         above (every cell's ink reads the `--bn-*` properties);
+       · the grid's geometry: 8px cells (every width was measured for them;
+         the kit's 12 would take 8px from each value), its 8px left gutter
+         (now the first cell's padding) and 4px above and below the
+         two-line row, which measures 44px;
+       · the mono on data, the sans on names and words (`data-sans`). */
+  .bn-list {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper);
+  }
+  /* The shown columns' sum from TABLE_COLUMNS (the Name floor plus every px
+     width), plus the gutter: a pane narrower than that scrolls sideways, as
+     the grid's `max-content` did, and Name never goes under its floor. */
+  .bn-list .ui-table.bn-table { min-width: calc(var(--bn-list-cols) + 8px); }
+  .bn-table .ui-th { padding: 0 8px; }
+  .bn-table .ui-td { padding: 4px 8px; }
+  .bn-table .ui-th:first-child,
+  .bn-table .ui-td:first-child { padding-left: 16px; }
+
+  /* The header. The sorted column is the kit's treatment, as the Files page
+     draws it: its label in the full ink over the others' second, its arrow
+     in the header's own ink (B4c review round two: label and arrow were the
+     signal, which is kept for an edge or an underline; no label moves). A
+     sortable label takes the ink on hover, and the ring is drawn
+     inside (above). And no label is cut, since C1 keeps every width: the
+     kit clips a label to an ellipsis where it outgrows the room beside its
+     sort slot, and three do (MARKS 42px in 34, CAM 27 in 18, DURATION 61 in
+     42, measured), so here a label overruns its padding, as the grid's did. */
+  .bn-th[data-sorted="true"] .ui-th-label { color: var(--color-ink); }
+  .bn-th .ui-th-btn { transition: color var(--duration-state) ease-out; }
+  .bn-th:not([data-sorted="true"]) .ui-th-btn:hover { color: var(--color-ink); }
+  .bn-th .ui-th-label { min-width: auto; max-width: none; overflow: visible; }
+  /* A sortable header's button is its whole cell (B4c review round one): the
+     kit's fills only the room inside the cell's padding, so a click within
+     8px of a column's edge landed on the cell and did not sort — the grid's
+     button spanned its column. The padding is taken back and handed to the
+     button, so every label keeps its x. */
+  .bn-table .bn-th .ui-th-btn {
+    width: calc(100% + 16px);
+    margin: 0 -8px;
+    padding: 0 8px;
+  }
+  .bn-table .bn-th:first-child .ui-th-btn {
+    width: calc(100% + 24px);
+    margin-left: -16px;
+    padding-left: 16px;
+  }
+  /* On a right-aligned column the slot is the cell's right padding, after
+     the label: the label keeps its place on its figures' edge, sorted or
+     not, and the arrow stays in its own column. Before the label it was
+     drawn in the column to the left — DURATION is 61px of label and 14 of
+     gap and slot in a 72px cell — reading "USED IN ↑ DURATION". The slot
+     is 8px, the padding it fills; the arrow's ink is 8px too, so it starts
+     at the slot's edge and sets no tracking of its own (the Label step's
+     trailing 0.66px, or centring, would carry it past the cell). */
+  .bn-table .bn-th[data-align="right"] .ui-th-btn { padding-right: 0; gap: 0; }
+  .bn-table .bn-th[data-align="right"] .ui-th-btn > .ui-th-sort { flex-basis: 8px; width: 8px; letter-spacing: 0; text-align: left; }
+
+  /* The row's states, on the <tr> as they were on the grid's row. The kit
+     Row's own selected look, keyed on the same attribute, is a cell fill
+     plus a 2px edge on EVERY selected row; in Bins the selection is the tint
+     and the edge marks the one current row, so the kit's is turned off on
+     this table's cells, (0,5,0) over its (0,4,0). */
+  .bn-trow {
+    cursor: default;
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .bn-trow:hover { background-color: var(--color-hover); }
+  .bn-trow[data-selected="true"] { background-color: var(--color-signal-tint); }
+  .bn-trow[data-current="true"] { box-shadow: inset 2px 0 0 var(--color-signal); }
+  .bn-list .bn-table .bn-trow[data-selected="true"] > .ui-td { background-color: transparent; box-shadow: none; }
+
+  /* Every cell's ink reads the row's properties, so the lift and the dim
+     reach it: values ink-2, the name the ink, the quiet words ink-3, a
+     take's modifier and "used in" the signal. */
+  .bn-trow > .ui-td {
+    font-family: var(--font-mono);
+    color: var(--bn-ink-2, var(--color-ink-2));
+  }
+  .bn-trow > .ui-td[data-sans="true"] { font-family: var(--font-sans); }
+  .bn-trow-name { color: var(--bn-ink, var(--color-ink)); }
+  .bn-trow-sub,
+  .bn-trow-none { color: var(--bn-ink-3, var(--color-ink-3)); }
+  .bn-trow-accent { color: var(--bn-signal-ink, var(--color-signal)); }
+  /* The marks toggle keeps the small control's height. */
+  .bn-trow-marks { min-height: var(--control-sm); }
+
+  /* "Nothing matches" lies over the empty body, under the sticky header, so
+     the scroller keeps its height and its sideways bar where they were. It
+     takes no pointer: a drop or a scroll goes through it. (0,3,0) over the
+     kit's `.ui-empty` height. */
+  .bn-list .ui-empty.bn-list-empty {
+    position: absolute;
+    inset: var(--table-head) 0 0;
+    height: auto;
+    pointer-events: none;
+  }
+
+  /* ── The frame view ─────────────────────────────────────────────────── */
+  /* The hover is the same 6% screen, laid OVER the raised fill as an image so
+     the tile keeps its own ground underneath. */
+  .bn-tile {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .bn-tile:hover {
+    background-image: linear-gradient(var(--color-hover), var(--color-hover));
+    border-color: color-mix(in srgb, var(--color-ink) 28%, transparent);
+  }
+  .bn-tile[data-selected="true"] {
+    background-color: var(--color-paper);
+    background-image: linear-gradient(var(--color-signal-tint), var(--color-signal-tint));
+    border-color: var(--color-signal);
+  }
+  .bn-tile[data-current="true"] { box-shadow: 0 0 0 1px var(--color-signal); }
+
+  /* ── The poster (Bins, and Scenes through ShotTakeChips / ShotTakesPanel) ── */
+  .bn-poster {
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+  }
+  .bn-poster[data-primary="true"] {
+    border-color: var(--color-signal);
+    box-shadow: 0 0 0 1px var(--color-signal);
+  }
+  /* `--poster-icon` is the media type's colour (data). */
+  .bn-poster-icon { color: var(--poster-icon); opacity: 0.9; }
+  .bn-poster[data-offline="true"] .bn-poster-icon { color: var(--color-ink-3); opacity: 0.6; }
+
+  /* ── Pick lists: assign to shot, the take picker ────────────────────── */
+  .bn-pick-row {
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .bn-pick-row:hover { background-color: var(--color-hover); }
+  .bn-pick-row[data-picked="true"] { background-color: var(--color-signal-tint); }
+  .bn-group-head { color: var(--color-ink-3); }
+  .bn-group-head[data-preferred="true"] { color: var(--color-signal); }
+  .bn-take-count { color: var(--bn-ink-3, var(--color-ink-3)); }
+  .bn-take-count[data-assigned="true"] { color: var(--bn-signal-ink, var(--color-signal)); }
+
+  /* ── The inspector's section headers: the panel header height ──────── */
+  .bn-section-head { min-height: var(--panel-header); }
+
+  /* ── A shot's takes ─────────────────────────────────────────────────── */
+  .bn-take-row { background-color: var(--color-paper); }
+  /* The divider between takes, not under the last (was an index ternary). */
+  .bn-take-row:not(:last-child) { border-bottom: 1px solid var(--color-rule); }
+  .bn-take-row[data-primary="true"] { background-color: color-mix(in srgb, var(--color-signal) 6%, var(--color-paper)); }
+
+  /* ── Add files ──────────────────────────────────────────────────────── */
+  /* A row that will not be added (unticked) keeps its fields editable and
+     shows it in their ink; a missing row is dimmed above. */
+  .bn-add-row:not([data-included="true"]) .ui-input { color: var(--color-ink-3); }
+  .bn-add-meta { color: var(--color-ink-3); }
+  .bn-add-meta[data-duplicate="true"] { color: var(--color-warning); }
+  .bn-add-sug { color: var(--color-ink-3); }
+  .bn-add-sug[data-apply="true"] { color: var(--color-signal); }
+
+  /* ── Delete a bin ───────────────────────────────────────────────────── */
+  .bn-del-move { color: var(--color-ink-2); }
+  .bn-del-move[data-disabled="true"] { color: var(--color-ink-3); }
+
+  /* ── Relink: an offline file with no match yet is amber; one matched is quiet ── */
+  .bn-relink-state { color: var(--color-warning); }
+  .bn-relink-state[data-matched="true"] { color: var(--color-ink-3); }
+
+  /* ── The files pane's drop target ───────────────────────────────────── */
+  .bn-drop {
+    background-color: var(--color-signal-tint);
+    border: 1px dashed var(--color-signal);
+  }
+
+  /* ── Reduced motion (plan §3.4) ─────────────────────────────────────
+     The list header's colour change (B4c's) ends instantly, by its own
+     selector — never a blanket rule (C5: the pet's keyframes must play) —
+     LAST in the layer, so it wins its twin above on source order at the same
+     specificity; binsCss.test.js pins it as rabbitFilesCss.test.js pins that
+     sheet's. B6's four row and tile fades above predated the bundle; V2
+     (2026-09-27, B4c §4.2 item 14) stops them here too. */
+  @media (prefers-reduced-motion: reduce) {
+    .bn-th .ui-th-btn { transition: none; }
+    .bn-tree-row, .bn-trow, .bn-tile, .bn-pick-row { transition: none; }
+  }
+}

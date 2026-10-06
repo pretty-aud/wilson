@@ -1,0 +1,557 @@
+// =============================================================================
+// realtimeMerge.test.js — the pure realtime event-application layer
+// (Session 7). Bundle in, event in, bundle + effects out; no React.
+// =============================================================================
+
+import { describe, it, expect } from 'vitest'
+import {
+  applyRealtimeEvent,
+  normalizeBroadcastPayload,
+  mergeRow,
+  isStaleIncoming,
+  TABLE_TO_COLLECTION,
+  stampKindFromTable,
+} from './realtimeMerge'
+
+const T0 = '2026-07-28T10:00:00.000Z'
+const T1 = '2026-07-28T10:00:01.000Z'
+const T2 = '2026-07-28T10:00:02.000Z'
+
+function makeBundle(over = {}) {
+  return {
+    project: { id: 'p1', title: 'Project', updated_at: T0 },
+    phases: [],
+    assets: [
+      { id: 'a1', project_id: 'p1', name: 'Asset 1', status: 'not_started', sort_order: 0, updated_at: T0 },
+      { id: 'a2', project_id: 'p1', name: 'Asset 2', status: 'not_started', sort_order: 1, updated_at: T0 },
+    ],
+    tasks: [
+      { id: 't1', asset_id: 'a1', project_id: 'p1', title: 'Task 1', updated_at: T0 },
+      { id: 't2', asset_id: 'a2', project_id: 'p1', title: 'Task 2', updated_at: T0 },
+    ],
+    dependencies: [
+      { id: 'd1', predecessor_id: 't1', successor_id: 't2', type: 'FS' },
+    ],
+    taskLinks: [{ id: 'l1', task_id: 't1', url: 'https://x.test' }],
+    files: [{ id: 'f1', project_id: 'p1', name: 'ref.png' }],
+    comments: [],
+    assetVersions: [],
+    ...over,
+  }
+}
+
+const noPending = () => null
+
+describe('normalizeBroadcastPayload', () => {
+  it('maps the broadcast_changes payload shape', () => {
+    const evt = normalizeBroadcastPayload({
+      operation: 'UPDATE', table: 'assets', schema: 'public',
+      record: { id: 'a1' }, old_record: { id: 'a1', name: 'old' },
+    })
+    expect(evt).toEqual({
+      table: 'assets', op: 'UPDATE',
+      record: { id: 'a1' }, oldRecord: { id: 'a1', name: 'old' },
+    })
+  })
+  it('returns null for malformed payloads', () => {
+    expect(normalizeBroadcastPayload(null)).toBeNull()
+    expect(normalizeBroadcastPayload({})).toBeNull()
+    expect(normalizeBroadcastPayload({ table: 'assets' })).toBeNull()
+  })
+})
+
+describe('isStaleIncoming / mergeRow (LWW per field)', () => {
+  it('drops rows older than the local copy', () => {
+    expect(isStaleIncoming({ updated_at: T1 }, { updated_at: T0 })).toBe(true)
+    expect(isStaleIncoming({ updated_at: T0 }, { updated_at: T1 })).toBe(false)
+    expect(isStaleIncoming({ updated_at: T0 }, { updated_at: T0 })).toBe(false)
+  })
+  it('never trips without timestamps (files, comments, link tables)', () => {
+    expect(isStaleIncoming({ id: 'f1' }, { id: 'f1' })).toBe(false)
+    expect(isStaleIncoming({ updated_at: 'garbage' }, { updated_at: T1 })).toBe(false)
+  })
+  it('takes every incoming field when nothing is pending', () => {
+    const current = { id: 'a1', name: 'local', status: 'blocked', updated_at: T0 }
+    const incoming = { id: 'a1', name: 'remote', status: 'done', updated_at: T1 }
+    expect(mergeRow(current, incoming, null)).toEqual(incoming)
+  })
+  it('keeps ONLY pending fields local — the per-field LWW contract', () => {
+    const current = { id: 'a1', name: 'typing…', status: 'blocked', updated_at: T0 }
+    const incoming = { id: 'a1', name: 'remote', status: 'done', updated_at: T1 }
+    const merged = mergeRow(current, incoming, new Set(['name']))
+    expect(merged.name).toBe('typing…')   // my in-flight write wins locally
+    expect(merged.status).toBe('done')    // their field lands
+    expect(merged.updated_at).toBe(T1)
+  })
+  it('returns the current reference for stale incoming rows', () => {
+    const current = { id: 'a1', name: 'newer', updated_at: T2 }
+    expect(mergeRow(current, { id: 'a1', name: 'older', updated_at: T1 }, null)).toBe(current)
+  })
+})
+
+describe('applyRealtimeEvent — INSERT', () => {
+  it('adds a new row and keeps sort_order ordering for assets', () => {
+    const bundle = makeBundle()
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'INSERT',
+      record: { id: 'a0', project_id: 'p1', name: 'First', sort_order: -1, updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(effects).toEqual([])
+    expect(next.assets.map(a => a.id)).toEqual(['a0', 'a1', 'a2'])
+  })
+  it('dedupes an echo of a row this client already added', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'INSERT',
+      record: { ...bundle.assets[0], updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(next.assets).toHaveLength(2)
+  })
+  it('ignores inserts of already-trashed rows', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'INSERT',
+      record: { id: 'a9', deleted_at: T1 },
+    }, { pendingFields: noPending })
+    expect(next).toBe(bundle)
+  })
+})
+
+describe('applyRealtimeEvent — UPDATE (plain)', () => {
+  it('merges an incoming edit into the row', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'UPDATE',
+      record: { id: 't1', asset_id: 'a1', project_id: 'p1', title: 'Renamed', updated_at: T1 },
+      oldRecord: { id: 't1', title: 'Task 1', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next.tasks.find(t => t.id === 't1').title).toBe('Renamed')
+  })
+  it('preserves in-flight local fields (pending) while taking the rest', () => {
+    const bundle = makeBundle()
+    const pending = (table, id) => (table === 'tasks' && id === 't1' ? new Set(['title']) : null)
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'UPDATE',
+      record: { id: 't1', title: 'Their title', status: 'in_progress', updated_at: T1 },
+      oldRecord: { id: 't1', title: 'Task 1', updated_at: T0 },
+    }, { pendingFields: pending })
+    const t1 = next.tasks.find(t => t.id === 't1')
+    expect(t1.title).toBe('Task 1')            // pending field stays local
+    expect(t1.status).toBe('in_progress')      // their field lands
+  })
+  it('drops out-of-order (stale) updates without touching state', () => {
+    const bundle = makeBundle({
+      tasks: [{ id: 't1', title: 'Newest', updated_at: T2 }],
+    })
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'UPDATE',
+      record: { id: 't1', title: 'Stale', updated_at: T1 },
+      oldRecord: { id: 't1', title: 'Task 1', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next).toBe(bundle)
+  })
+  it('upserts an UPDATE for a row this client never saw (insert-or-merge)', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'UPDATE',
+      record: { id: 't9', asset_id: 'a1', title: 'Late joiner', updated_at: T1 },
+      oldRecord: { id: 't9', title: 'x', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next.tasks.some(t => t.id === 't9')).toBe(true)
+  })
+})
+
+describe('applyRealtimeEvent — soft delete / restore', () => {
+  it('remote asset soft-delete removes the asset AND mirrors the local task cascade', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'UPDATE',
+      record: { id: 'a1', deleted_at: T1, updated_at: T1 },
+      oldRecord: { id: 'a1', deleted_at: null, updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next.assets.map(a => a.id)).toEqual(['a2'])
+    expect(next.tasks.map(t => t.id)).toEqual(['t2']) // t1 hidden with its asset
+  })
+  it('remote task soft-delete also drops its dependency edges', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'UPDATE',
+      record: { id: 't1', deleted_at: T1, updated_at: T1 },
+      oldRecord: { id: 't1', deleted_at: null, updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next.tasks.map(t => t.id)).toEqual(['t2'])
+    expect(next.dependencies).toEqual([])
+  })
+  it('remote restore reinstates the row and requests a refetch for hidden children', () => {
+    const bundle = makeBundle({ assets: [makeBundle().assets[1]], tasks: [makeBundle().tasks[1]] })
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'UPDATE',
+      record: { id: 'a1', project_id: 'p1', name: 'Asset 1', deleted_at: null, sort_order: 0, updated_at: T2 },
+      oldRecord: { id: 'a1', deleted_at: T1, updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(next.assets.map(a => a.id)).toEqual(['a1', 'a2'])
+    expect(effects).toEqual([{ type: 'refetch' }])
+  })
+  it('trashed → still trashed (purge stamp churn) is a no-op', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'assets', op: 'UPDATE',
+      record: { id: 'a1', deleted_at: T2, updated_at: T2 },
+      oldRecord: { id: 'a1', deleted_at: T1, updated_at: T1 },
+    }, { pendingFields: noPending })
+    // a1 is still visible locally only because this client hasn't processed
+    // the original trash event in this synthetic sequence — the event must
+    // not resurrect or duplicate anything.
+    expect(next).toBe(bundle)
+  })
+})
+
+describe('applyRealtimeEvent — hard DELETE', () => {
+  it('removes link-table rows by id (old_record only carries the row)', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'task_links', op: 'DELETE',
+      record: null,
+      oldRecord: { id: 'l1', task_id: 't1' },
+    }, { pendingFields: noPending })
+    expect(next.taskLinks).toEqual([])
+  })
+  it('mirrors cascades for hard-deleted tasks too', () => {
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'tasks', op: 'DELETE',
+      record: null,
+      oldRecord: { id: 't1' },
+    }, { pendingFields: noPending })
+    expect(next.tasks.map(t => t.id)).toEqual(['t2'])
+    expect(next.dependencies).toEqual([])
+  })
+})
+
+describe('applyRealtimeEvent — projects & roster', () => {
+  it('project rename patches bundle.project and emits an index patch', () => {
+    const bundle = makeBundle()
+    const record = { id: 'p1', title: 'Renamed', updated_at: T1 }
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'projects', op: 'UPDATE',
+      record, oldRecord: { id: 'p1', title: 'Project', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(next.project.title).toBe('Renamed')
+    expect(effects).toEqual([{ type: 'project-patch', record }])
+  })
+  it('project soft-delete emits project-trashed and leaves the bundle to the provider', () => {
+    const bundle = makeBundle()
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'projects', op: 'UPDATE',
+      record: { id: 'p1', deleted_at: T1 },
+      oldRecord: { id: 'p1', deleted_at: null },
+    }, { pendingFields: noPending })
+    expect(next).toBe(bundle)
+    expect(effects).toEqual([{ type: 'project-trashed', id: 'p1' }])
+  })
+  it('project_members events only signal a roster refresh', () => {
+    const bundle = makeBundle()
+    const { bundle: next, effects } = applyRealtimeEvent(bundle, {
+      table: 'project_members', op: 'INSERT',
+      record: { project_id: 'p1', user_id: 'u1', project_role: 'member' },
+    }, { pendingFields: noPending })
+    expect(next).toBe(bundle)
+    expect(effects).toEqual([{ type: 'roster' }])
+  })
+})
+
+describe('applyRealtimeEvent — robustness', () => {
+  it('ignores unknown tables and malformed events', () => {
+    const bundle = makeBundle()
+    expect(applyRealtimeEvent(bundle, { table: 'ingestion_runs', op: 'INSERT', record: { id: 'x' } }, {}).bundle).toBe(bundle)
+    expect(applyRealtimeEvent(bundle, null, {}).bundle).toBe(bundle)
+    expect(applyRealtimeEvent(bundle, { table: 'assets' }, {}).bundle).toBe(bundle)
+    expect(applyRealtimeEvent(bundle, { table: 'assets', op: 'UPDATE', record: null }, {}).bundle).toBe(bundle)
+  })
+  it('covers every broadcast table with a collection or special-case', () => {
+    // 0016 broadcast 10 tables; 0061 added phase_dependencies as an 11th and
+    // 0077 milestones as a 12th. projects + project_members are handled
+    // specially, the other 10 map through TABLE_TO_COLLECTION.
+    //
+    // 🚨 AN EXACT LIST, AND IT IS THE RULING'S OTHER HALF. Audrey chose live
+    // sync for KEY DATES ONLY on 2026-09-07: scenes, shots, levels and
+    // experiences keep the reload limit on purpose. Adding one of them here
+    // is not a small widening — it is a client standing ready for events the
+    // trigger in 0016/0077 never sends, which reads as live sync and is not.
+    // Whoever adds one has to change this list, the trigger and the handbook
+    // together.
+    expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
+      'asset_versions', 'assets', 'comments', 'files', 'milestones',
+      'phase_dependencies', 'phases', 'task_dependencies', 'task_links', 'tasks',
+    ])
+  })
+})
+
+// ── 0077: key dates live-sync between windows ───────────────────────────────
+//
+// Audrey, 2026-09-07: key dates get live sync like tasks; scenes, shots,
+// levels and experiences keep the reload limit. Migration 0077 adds the
+// `milestones` arm to fn_realtime_broadcast and attaches the trigger; suite 72
+// pins the database half. This block is the client half.
+describe('key-date live sync (0077)', () => {
+  const MS = (over = {}) => ({
+    id: 'm2', project_id: 'p1', title: 'Delivery',
+    date: '2026-06-15', updated_at: T1, deleted_at: null, ...over,
+  })
+
+  // Two key dates already on screen, in the order both adapters load them
+  // (ORDER BY date, then id).
+  const withMilestones = () => makeBundle({
+    milestones: [
+      { id: 'm1', project_id: 'p1', title: 'Kickoff', date: '2026-01-10', updated_at: T0 },
+      { id: 'm3', project_id: 'p1', title: 'Wrap',    date: '2026-12-01', updated_at: T0 },
+    ],
+  })
+
+  it('🚨 an INSERT lands IN DATE ORDER, not at the end', () => {
+    // The whole point of the sort work in this change. Appending would put a
+    // collaborator's new key date at the bottom of the Tasks tab's milestone
+    // block until that window reloaded, and then it would jump.
+    const { bundle } = applyRealtimeEvent(
+      withMilestones(), { table: 'milestones', op: 'INSERT', record: MS() },
+      { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1', 'm2', 'm3'])
+  })
+
+  it('ties on the same date break on id, as both adapters do', () => {
+    const { bundle } = applyRealtimeEvent(
+      makeBundle({ milestones: [{ id: 'm-b', date: '2026-05-01', updated_at: T0 }] }),
+      { table: 'milestones', op: 'INSERT', record: MS({ id: 'm-a', date: '2026-05-01' }) },
+      { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m-a', 'm-b'])
+  })
+
+  it('moving a key date to a new date moves its row', () => {
+    // An UPDATE re-sorts too: a date is not a name.
+    const start = makeBundle({ milestones: [
+      { id: 'm1', date: '2026-01-10', title: 'Kickoff', updated_at: T0 },
+      { id: 'm3', date: '2026-12-01', title: 'Wrap',    updated_at: T0 },
+    ] })
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'UPDATE',
+      record: { id: 'm1', date: '2026-12-31', title: 'Kickoff', updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', title: 'Kickoff', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m3', 'm1'])
+  })
+
+  it('a soft delete in another window removes it here', () => {
+    const { bundle, effects } = applyRealtimeEvent(withMilestones(), {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', deleted_at: T2, updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', deleted_at: null, updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m3'])
+    expect(effects).toEqual([])
+  })
+
+  it('a restore brings it back in its place, and asks for NO refetch', () => {
+    // 🚨 THIS EXPECTATION IS THE REVERSE OF THE ONE FIRST COMMITTED, and R1 is
+    // why. The generic restore contract asks for a refetch because a restored
+    // parent's children were never trashed in the database, only hidden
+    // transitively — a restored asset brings back tasks, a restored task
+    // brings back edges. A key date has no children: measured on dev on
+    // 2026-09-07, `pg_constraint` reports NO foreign key anywhere whose
+    // confrelid is public.milestones. So the refetch brought back nothing and
+    // cost a whole-project reload in every open window — twice in the window
+    // that pressed Restore, since restoreMilestone already re-lists — on a
+    // routine gesture that this whole change exists to make cheap.
+    //
+    // The first version of this test asserted the refetch and CALLED IT belt
+    // and braces, which is how a cost gets waved through: a reasoned-about
+    // cost is still a cost.
+    const trashed = makeBundle({ milestones: [
+      { id: 'm3', date: '2026-12-01', updated_at: T0 },
+    ] })
+    const { bundle, effects } = applyRealtimeEvent(trashed, {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', deleted_at: null, updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', deleted_at: T1,   updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1', 'm3'])
+    expect(effects).toEqual([])
+  })
+
+  it('...while a restored ASSET still refetches, because it has children', () => {
+    // The failing control for the test above. If LEAF_COLLECTIONS ever grew to
+    // swallow the non-leaf tables, the assertion above would still pass and
+    // every remote restore in the product would silently stop bringing back
+    // the rows it hides.
+    const start = makeBundle()
+    const { effects } = applyRealtimeEvent(start, {
+      table: 'assets', op: 'UPDATE',
+      record:    { id: 'a3', project_id: 'p1', name: 'Back', sort_order: 2, deleted_at: null, updated_at: T2 },
+      oldRecord: { id: 'a3', project_id: 'p1', name: 'Back', sort_order: 2, deleted_at: T1,   updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(effects).toEqual([{ type: 'refetch' }])
+  })
+
+  it('a hard DELETE removes it and touches nothing else', () => {
+    const start = withMilestones()
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'DELETE',
+      oldRecord: { id: 'm3', date: '2026-12-01' },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1'])
+    // FAILING CONTROL: no other collection may move. removeWithMirror has
+    // per-table arms for assets, tasks and phases; milestones must fall to the
+    // default arm and prune only themselves.
+    expect(bundle.tasks).toBe(start.tasks)
+    expect(bundle.assets).toBe(start.assets)
+    expect(bundle.dependencies).toBe(start.dependencies)
+  })
+
+  it('an in-flight local edit of a field survives the incoming row', () => {
+    // LWW per field, the same contract every other table gets: my half-typed
+    // title is not overwritten by the broadcast of someone else's date change.
+    const { bundle } = applyRealtimeEvent(withMilestones(), {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', title: 'Theirs', date: '2026-01-10', updated_at: T2 },
+      oldRecord: { id: 'm1', title: 'Kickoff', date: '2026-01-10', updated_at: T0 },
+    }, { pendingFields: (table, id) => (table === 'milestones' && id === 'm1' ? new Set(['title']) : null) })
+    expect(bundle.milestones.find(m => m.id === 'm1').title).toBe('Kickoff')
+  })
+
+  it('an out-of-order event older than the local row is dropped', () => {
+    const start = makeBundle({ milestones: [
+      { id: 'm1', date: '2026-01-10', title: 'Newer', updated_at: T2 },
+    ] })
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', title: 'Older', updated_at: T0 },
+      oldRecord: { id: 'm1', date: '2026-01-10', title: 'Older', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle).toBe(start)
+  })
+
+  it('an event for a table outside the map changes nothing', () => {
+    // ⚠️ WHAT THIS DOES AND DOES NOT PROVE. R1 was right that the first
+    // version of this overclaimed: it was titled "the four 0040 entities are
+    // NOT live-synced, on purpose" and presented as Audrey's ruling asserted
+    // in code, but applyRealtimeEvent returns the identity for ANY table
+    // absent from TABLE_TO_COLLECTION, so it passed identically for
+    // 'nonsense_table' and was fully subsumed by the exact-key-list assertion
+    // above. It is a test of the MECHANISM, and the nonsense table is included
+    // to say so out loud.
+    //
+    // The ruling's real machine-check is in the database, where the thing that
+    // could actually be lost lives: 72_milestone_realtime.sql probes 11-14
+    // assert that scenes, shots, levels and experiences carry no trigger
+    // running fn_realtime_broadcast — matched by FUNCTION, not by name.
+    const start = makeBundle({ scenes: [], shots: [], levels: [], experiences: [] })
+    for (const table of ['scenes', 'shots', 'levels', 'experiences', 'nonsense_table']) {
+      const { bundle, effects } = applyRealtimeEvent(
+        start, { table, op: 'INSERT', record: { id: 'x1', project_id: 'p1' } },
+        { pendingFields: noPending })
+      expect(bundle, table + ' is not in the map, so nothing may merge').toBe(start)
+      expect(effects).toEqual([])
+    }
+  })
+})
+
+// ── 0061: two edge tables, one collection ───────────────────────────────────
+describe('dependency kind stamping (0061)', () => {
+  it('stamps kind from the source table, because the DB has no such column', () => {
+    // `kind` is not a column on either edge table — it is implied by WHICH
+    // TABLE the row came from. A broadcast payload comes straight from the
+    // trigger, so it arrives with no kind at all.
+    expect(stampKindFromTable('phase_dependencies', { id: 'd1' })).toEqual({ id: 'd1', kind: 'phase' })
+    expect(stampKindFromTable('task_dependencies',  { id: 'd2' })).toEqual({ id: 'd2', kind: 'task' })
+  })
+
+  it('leaves non-dependency tables and null rows untouched', () => {
+    const row = { id: 't1', title: 'x' }
+    expect(stampKindFromTable('tasks', row)).toBe(row)
+    expect(stampKindFromTable('phase_dependencies', null)).toBe(null)
+  })
+
+  it('a phase edge arriving over the wire lands in dependencies WITH its kind', () => {
+    // 🚨 THE REGRESSION THIS GUARDS. Without the stamp the row lands with
+    // kind undefined; DetailPane reads `d.kind || 'task'`, looks the endpoints
+    // up in rowIndexByTaskId, misses, and draws nothing. The edge would be in
+    // local state and invisible on screen — then appear correctly after a
+    // reload, because the LOADER stamps kind. Worst possible bug shape.
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'phase_dependencies',
+      op: 'INSERT',
+      record: { id: 'pd1', predecessor_id: 'ph1', successor_id: 'ph2' },
+    }, {})
+    const added = next.dependencies.find(d => d.id === 'pd1')
+    expect(added).toBeTruthy()
+    expect(added.kind).toBe('phase')
+  })
+
+  it('deleting a phase drops its edges, mirroring the DB cascade', () => {
+    // Before 0061 a phase edge could not exist in cloud, so removeWithMirror
+    // had no 'phases' case and nothing pruned them. deleteTask has always done
+    // this; the phase side is new.
+    const bundle = {
+      ...makeBundle(),
+      phases: [{ id: 'ph1' }, { id: 'ph2' }],
+      dependencies: [
+        { id: 'pd1', kind: 'phase', predecessor_id: 'ph1', successor_id: 'ph2' },
+        { id: 'td1', kind: 'task',  predecessor_id: 't1',  successor_id: 't2'  },
+      ],
+    }
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'phases', op: 'DELETE', oldRecord: { id: 'ph1' },
+    }, {})
+    expect(next.dependencies.map(d => d.id)).toEqual(['td1'])
+    expect(next.phases.map(p => p.id)).toEqual(['ph2'])
+  })
+})
+
+// Post-overhaul S5b (0090): another window opens a bid version and sets rows
+// aside / brings them back. Those UPDATEs arrive one row at a time, and the
+// row must leave (or rejoin) THIS window's live schedule with its edges — the
+// merge alone would keep a set-aside task on screen with its stamp on it.
+describe('set-aside rows arriving from another window (S5b)', () => {
+  const AT = '2026-10-05T10:00:00Z'
+  const base = () => ({
+    project: { id: 'p1', open_budget_version_id: 'v2' },
+    tasks: [{ id: 't1', updated_at: '2026-10-05T09:00:00Z' }, { id: 't2', title: 'Extra', updated_at: '2026-10-05T09:00:00Z' }],
+    phases: [], milestones: [],
+    dependencies: [{ id: 'd1', kind: 'task', predecessor_id: 't1', successor_id: 't2' }],
+    setAsideTasks: [], setAsidePhases: [], setAsideMilestones: [], setAsideDependencies: [],
+  })
+  const upd = (table, record, oldRecord) => ({ table, op: 'UPDATE', record, oldRecord })
+
+  it('a task set aside elsewhere leaves the live schedule, its edge with it — kept, not dropped', () => {
+    const { bundle } = applyRealtimeEvent(base(), upd('tasks', { id: 't2', title: 'Extra', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2', set_aside_at: null }))
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks.map(t => t.id)).toEqual(['t2'])
+    expect(bundle.dependencies).toEqual([])
+    expect(bundle.setAsideDependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('brought back elsewhere, it returns — the same row — with its edge', () => {
+    const aside = applyRealtimeEvent(base(), upd('tasks', { id: 't2', title: 'Extra', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2' })).bundle
+    const { bundle } = applyRealtimeEvent(aside, upd('tasks', { id: 't2', title: 'Extra', set_aside_at: null, updated_at: '2026-10-05T11:00:00Z' }, { id: 't2', set_aside_at: AT }))
+    expect(bundle.tasks.map(t => t.id).sort()).toEqual(['t1', 't2'])
+    expect(bundle.setAsideTasks).toEqual([])
+    expect(bundle.dependencies.map(d => d.id)).toEqual(['d1'])
+  })
+  it('an edit to a row while it is set aside stays out of sight', () => {
+    const aside = applyRealtimeEvent(base(), upd('tasks', { id: 't2', set_aside_at: AT, updated_at: '2026-10-05T10:00:00Z' }, { id: 't2' })).bundle
+    const { bundle } = applyRealtimeEvent(aside, upd('tasks', { id: 't2', title: 'Renamed', set_aside_at: AT, updated_at: '2026-10-05T12:00:00Z' }, { id: 't2', set_aside_at: AT }))
+    expect(bundle.tasks.map(t => t.id)).toEqual(['t1'])
+    expect(bundle.setAsideTasks[0].title).toBe('Renamed')
+  })
+  it('CONTROL: an event with no stamp anywhere leaves the arrays as they were (identity kept)', () => {
+    const b = base()
+    const { bundle } = applyRealtimeEvent(b, upd('tasks', { id: 't1', title: 'T1!', updated_at: '2026-10-05T10:00:00Z' }, { id: 't1' }))
+    expect(bundle.tasks[0].title).toBe('T1!')
+    expect(bundle.dependencies).toBe(b.dependencies)
+  })
+  it('the open version moved elsewhere → re-read the versions; this window\'s own echo asks for nothing', () => {
+    const moved = applyRealtimeEvent(base(), upd('projects', { id: 'p1', open_budget_version_id: 'v3' }, { id: 'p1' }))
+    expect(moved.effects.map(e => e.type)).toContain('versions-refetch')
+    const echo = applyRealtimeEvent(base(), upd('projects', { id: 'p1', open_budget_version_id: 'v2', title: 'x' }, { id: 'p1' }))
+    expect(echo.effects.map(e => e.type)).not.toContain('versions-refetch')
+  })
+})

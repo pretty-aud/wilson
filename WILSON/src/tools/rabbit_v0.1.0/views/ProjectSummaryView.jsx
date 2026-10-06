@@ -14,20 +14,75 @@
 // not mutate the bundle — clicking through to a different tab
 // is how the user takes action on what they see here.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ListChecks, AlertTriangle, Clock, DollarSign,
-  Layers, Boxes, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid,
-  FolderOpen, Settings, LayoutDashboard, Calendar, Tag, Building2,
-  Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus,
+  AlertTriangle, Clock, DollarSign, Layers, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid, FolderOpen, Settings, LayoutDashboard, Film, Sparkles, Gamepad2, Plus, FolderSearch,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import '../rabbitShell.css'
+import { Switch } from '../../../ui/Switch'
+import { StatusDot, statusMeta } from '../../../ui/StatusDot'
+import { Button } from '../../../ui/Button'
+import { EmptyState } from '../../../ui/EmptyState'
+import { Card as KitCard } from '../../../ui/Card'
+import { Stat } from '../../../ui/Stat'
+import { StatusBadge } from '../../../ui/StatusBadge'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canSeeMoneyHere, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction from '../../../permissions/GatedAction'
+import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
-import ProjectFilesTable from '../components/ProjectFilesTable'
+import { formatMoney } from '../components/CurrencyDisplay'
+// ProjectFilesTable, RelinkDialog and FileAuditDrawer left this view with the
+// two file sections (post-overhaul S4a, E1): the Files tab draws them now.
 
 const PRIORITY_RANK = { crit: 4, critical: 4, high: 3, med: 2, medium: 2, low: 1 }
 const RISK_STATES = new Set(['blocked', 'on_hold'])
+
+// Session 35: the ONE pick-and-set flow behind both "Change" folder buttons
+// (the summary header's and the Control Panel's Files & Storage field —
+// they diverged only by accident before). Desktop-only: it needs the OS
+// directory picker, which is why both call sites render the button only when
+// the bridge is present (design §5f — folder management is a desktop feature).
+//
+// 🚨 WRITE FIRST, then create the directory (S35 review). The authoritative
+// refusal is the write itself — folderRootRefusal on the local Express route,
+// or fn_project_folder_root_guard (0049) in cloud, which can refuse on the
+// SEAT or on "no byos drive" for reasons the local IPC preflight cannot see.
+// Creating the folder before the write left a stray empty directory whenever
+// the local rule and the cloud rule diverged. So: write, and only on success
+// materialise the directory (ensureProjectFolder re-runs the containment in
+// depth and is idempotent). Returns { ok, cancelled?, error? }.
+async function pickAndSetProjectFolder(ctx, project) {
+  const api = window.electronAPI?.rabbit
+  if (!api?.pickDirectory) return { ok: true, cancelled: true }
+  const dir = await api.pickDirectory()
+  if (!dir) return { ok: true, cancelled: true }
+  const projectSlug = project?.folder_slug
+    || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-')
+    || 'Untitled'
+  // Strip any trailing separator on the picked dir before joining — a drive
+  // root ('E:\') would otherwise produce 'E:\\Slug', a doubled separator the
+  // 0049 canonical-form check refuses.
+  const folderRoot = String(dir).replace(/[\\/]+$/, '') + '\\' + projectSlug
+  try {
+    // Authoritative write. The local route re-canonicalises and stores; the
+    // cloud guard refuses on seat / containment / no-drive. A refusal rejects
+    // here and NOTHING is created on disk.
+    await ctx?.updateProject?.(project.id, { folder_root: folderRoot })
+    // The write landed → create the directory. Same refusal again (depth),
+    // idempotent, and its non-throwing { ok:false } is surfaced too.
+    const ensured = await api.ensureProjectFolder?.({ rootDir: dir, projectSlug })
+    if (ensured && ensured.ok === false) return { ok: false, error: ensured.error }
+    return { ok: true }
+  } catch (err) {
+    // The refusal sentence from the Express 400 (local) or the 0049 guard
+    // (cloud) arrives here — surfacing it is the point. A swallowed refusal
+    // is the S30 green-tick-over-a-write-that-never-happened shape.
+    return { ok: false, error: err?.message || String(err) }
+  }
+}
 
 export default function ProjectSummaryView() {
   const ctx = useRabbit()
@@ -41,8 +96,72 @@ export default function ProjectSummaryView() {
   const setActiveProject = ctx?.setActiveProject
   const createProject    = ctx?.createProject
   const tm = useTeamMembers()
+  const perms = usePermissions()
   const [showSettings, setShowSettings] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  // Session 25. Audrey, 2026-08-04: "the producer manager should be the only
+  // one to see the budget section. the rest is fine." So the Project Control
+  // Panel stays reachable by everyone who can open the project, and only the
+  // Budget Variables block inside it is gated.
+  //
+  // Same predicate as the Budget TAB (Rabbit.jsx:78) and the same one that
+  // mirrors can_access_project_money() in SQL, so the client and the database
+  // agree about who money belongs to. It fails CLOSED: the block appears a
+  // beat late for a manager rather than being shown to a member and snatched
+  // back. RLS is still the authority — this only stops showing a control that
+  // would write a value the database will refuse.
+  // Post-overhaul S5c, step 7: still the Budget tab's predicate — open on the
+  // desktop's Local Server (no roles there; Audrey's F4), canSeeProjectMoney
+  // everywhere else.
+  const canSeeMoney = canSeeMoneyHere({
+    adapterMode: ctx?.adapterMode,
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+  })
+
+  // Session 25. Audrey, 2026-08-04: "managers and reviewers should be able to
+  // see and press the button and open the control panel … basic team members
+  // do not need access to the panel at all."
+  //
+  // Gated in TWO places below, not one: the button that opens it AND the
+  // branch that renders it. She asked for no ACCESS, not a missing link — and
+  // `setShowSettings(true)` has a second caller (handleNewProject, :124), so
+  // gating only the button would still let the panel open by another route.
+  //
+  // `ready` is passed so a session still resolving reads as "not yet known"
+  // rather than "denied" — otherwise a manager whose getSession() hangs loses
+  // the control panel permanently, which is the exact failure shape behind the
+  // vanishing-create-button investigation.
+  const canOpenControlPanel = canOnProject({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: perms?.ready,
+  }, 'project.settings.open')
+
+  // A panel that is open when access is lost must not stay open — the same
+  // rule Rabbit.jsx:96-98 applies to hidden tabs. Without this, someone
+  // already inside the panel when their seat resolves keeps the whole screen
+  // mounted with only the button gone.
+  useEffect(() => {
+    if (!canOpenControlPanel && showSettings) setShowSettings(false)
+  }, [canOpenControlPanel, showSettings])
+
+  // Session 35 — Audrey's folder half: "managers can set folders within set
+  // drive." In CLOUD mode, workspace admin/manager only (the 0049 seat); in
+  // local/solo mode (no workspaceId) the route contains and the seat does not
+  // apply. Greyed-with-reason, never hidden (S29 rule), and the handler
+  // refuses independently of the rendering. The Change button itself renders
+  // only on desktop (the OS picker is desktop-only, §5f).
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  // A refusal names the project whose pick was rejected — clear it on switch,
+  // or it renders under a different project's folder row (S35 review).
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
 
   const allProjects = useMemo(() => {
     return Object.values(projectsIndex).sort((a, b) => {
@@ -107,8 +226,8 @@ export default function ProjectSummaryView() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <span className="text-label uppercase" style={{ color: 'var(--color-ink-2)' }}>
           Loading project…
         </span>
       </div>
@@ -117,17 +236,16 @@ export default function ProjectSummaryView() {
 
   if (!project) {
     return (
-      <div className="h-full overflow-auto" style={{ backgroundColor: '#1c1917' }}>
+      <div className="h-full overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
         <div className="p-6 flex flex-col gap-4">
           <Card title="All projects" icon={LayoutGrid}>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+              <span className="text-label font-mono uppercase" style={{ color: 'var(--color-ink-3)' }}>
                 {allProjects.length} project{allProjects.length !== 1 ? 's' : ''}
               </span>
               <button type="button" onClick={handleNewProject} disabled={creating}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-                <Plus className="w-3.5 h-3.5" />
+                className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
+                <Plus aria-hidden="true" />
                 {creating ? 'Creating…' : 'New project'}
               </button>
             </div>
@@ -152,79 +270,74 @@ export default function ProjectSummaryView() {
   }
 
   return (
-    <div className="h-full overflow-auto" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
       <div className="p-6 flex flex-col gap-4">
 
-        {showSettings ? (<>
+        {showSettings && canOpenControlPanel ? (<>
           {/* ── Back to dashboard bar ── */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4" style={{ color: '#fb923c' }} />
-              <span className="text-[13px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
+              <Settings className="w-4 h-4" style={{ color: 'var(--color-ink)' }} />
+              <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>
                 Project Control Panel
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings(false)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110"
-              style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              <LayoutDashboard className="w-3 h-3" /> Dashboard
-            </button>
+            {/* V2 (2026-09-27): the kit's secondary Button (C8). It was a
+                hand-drawn one — inline ground, ink and edge, a brightness
+                hover, a 12px glyph off the icon scale — that sat 32px tall
+                and in the regular weight beside the header row's kit
+                buttons. */}
+            <Button variant="secondary" size="sm" Icon={LayoutDashboard} onClick={() => setShowSettings(false)}>
+              Dashboard
+            </Button>
           </div>
-          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} />
+          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} canSeeMoney={canSeeMoney} />
         </>) : (<>
 
         {/* ── All projects gallery strip ── */}
         {/* UX: Hick's Law (scannable cards, minimal choices), Fitts's Law (large click targets), */}
         {/* Miller's Law (key info only — title, client, status, budget), Jakob's Law (familiar card grid) */}
-        <div className="rounded-sm px-5 py-3.5" style={{ backgroundColor: '#0c0a09', border: '1px solid #292524' }}>
+        <div className="rounded-control px-5 py-3.5" style={{ backgroundColor: 'var(--color-paper-recessed)', border: '1px solid var(--color-rule)' }}>
           <div className="flex items-center gap-2.5 mb-3">
-            <LayoutGrid className="w-4 h-4" style={{ color: '#a8a29e' }} />
-            <span className="text-[13px] font-mono uppercase tracking-widest font-bold" style={{ color: '#a8a29e' }}>
+            <LayoutGrid className="w-4 h-4" style={{ color: 'var(--color-ink-2)' }} />
+            <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-2)' }}>
               Projects
             </span>
-            <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>
+            <span className="text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
               {allProjects.length}
             </span>
           </div>
           {allProjects.length === 0 ? (
-            <span className="text-[11px] font-mono italic" style={{ color: '#57534e' }}>No projects yet.</span>
+            <span className="text-dense italic" style={{ color: 'var(--color-ink-3)' }}>No projects yet.</span>
           ) : (
-            <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#44403c #0c0a09' }}>
+            <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--color-scroll-thumb) transparent' }}>
               {allProjects.map(p => {
                 const isActive = p.id === activeProjectId
                 const st = p.status || 'draft'
-                const stColor = st === 'active' ? '#15803d' : st === 'archived' ? '#57534e' : st === 'wrapped' ? '#3b82f6' : st === 'on_hold' ? '#f59e0b' : '#ea580c'
                 const pType = p.type ? p.type.replace(/_/g, ' ') : null
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => setActiveProject?.(p.id)}
-                    className="flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-sm transition-all hover:brightness-110"
-                    style={{
-                      width: 180,
-                      backgroundColor: isActive ? '#292524' : '#1c1917',
-                      border: `1px solid ${isActive ? '#ea580c' : '#333'}`,
-                      boxShadow: isActive ? '0 0 0 1px #ea580c' : 'none',
-                    }}
+                    className="rb-gallery-card flex-shrink-0 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-control transition-[filter] hover:brightness-110"
+                    data-active={isActive ? 'true' : undefined}
+                    style={{ width: 180 }}
                   >
                     {/* Title */}
                     <div className="flex items-center gap-2 w-full">
-                      <span className="flex-1 text-xs font-mono font-bold truncate text-left" style={{ color: isActive ? '#fb923c' : '#d6d3d1' }}>
+                      <span className="rb-gallery-title flex-1 text-dense font-semibold truncate text-left">
                         {p.title || 'Untitled'}
                       </span>
-                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: stColor }} />
+                      <StatusDot status={st} />
                     </div>
                     {/* Client + type */}
                     <div className="flex items-center justify-between w-full">
-                      <span className="text-[10px] font-mono truncate" style={{ color: '#78716c' }}>
+                      <span className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
                         {p.client_name || '—'}
                       </span>
                       {pType && (
-                        <span className="text-[9px] font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#57534e' }}>
+                        <span className="text-label uppercase flex-shrink-0" style={{ color: 'var(--color-ink-3)' }}>
                           {pType}
                         </span>
                       )}
@@ -240,14 +353,14 @@ export default function ProjectSummaryView() {
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+              <div className="text-label uppercase" style={{ color: 'var(--color-ink)' }}>
                 Project
               </div>
-              <h1 className="text-2xl font-mono font-bold" style={{ color: '#d6d3d1' }}>
+              <h1 className="text-h1 font-semibold" style={{ color: 'var(--color-ink)' }}>
                 {project.title}
               </h1>
               {project.description && (
-                <p className="text-xs font-mono mt-1.5 leading-relaxed" style={{ color: '#a8a29e' }}>
+                <p className="text-dense mt-1.5" style={{ color: 'var(--color-ink-2)' }}>
                   {project.description}
                 </p>
               )}
@@ -255,15 +368,15 @@ export default function ProjectSummaryView() {
               <div className="flex items-center gap-3 mt-2.5">
                 <StatusDropdown status={project.status} onChange={v => ctx?.updateProject?.(project.id, { status: v })} />
                 {project.start_date && (
-                  <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>
                     {new Date(project.start_date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
                 {project.start_date && project.end_date && (
-                  <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>—</span>
+                  <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>—</span>
                 )}
                 {project.end_date && (
-                  <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>
                     {new Date(project.end_date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
@@ -275,9 +388,9 @@ export default function ProjectSummaryView() {
                     const d = (tm.members || []).find(m => m.id === project.director_id)
                     return (
                       <div className="flex items-center gap-1.5">
-                        <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>Director</span>
-                        <span className="text-[11px] font-mono" style={{ color: '#d6d3d1' }}>{d?.name || '—'}</span>
+                        <Film className="w-3 h-3" style={{ color: 'var(--color-ink)' }} />
+                        <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)' }}>Director</span>
+                        <span className="text-dense" style={{ color: 'var(--color-ink)' }}>{d?.name || '—'}</span>
                       </div>
                     )
                   })()}
@@ -285,39 +398,40 @@ export default function ProjectSummaryView() {
                     const p = (tm.members || []).find(m => m.id === project.producer_id)
                     return (
                       <div className="flex items-center gap-1.5">
-                        <Sparkles className="w-3 h-3" style={{ color: '#fb923c' }} />
-                        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>Producer</span>
-                        <span className="text-[11px] font-mono" style={{ color: '#d6d3d1' }}>{p?.name || '—'}</span>
+                        <Sparkles className="w-3 h-3" style={{ color: 'var(--color-ink)' }} />
+                        <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)' }}>Producer</span>
+                        <span className="text-dense" style={{ color: 'var(--color-ink)' }}>{p?.name || '—'}</span>
                       </div>
                     )
                   })()}
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
-              style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              <Settings className="w-3 h-3" /> Control Panel
-            </button>
+            {/* V2 review round one: the kit's secondary Button, as its other
+                end ("Dashboard") is (C8). P1-52: sentence case (Q2), and the
+                walk's @proj / rabbit-control-panel steps, the probe and the
+                shot drivers key on "Control panel" with it. */}
+            {canOpenControlPanel && (
+              <Button variant="secondary" size="sm" Icon={Settings} onClick={() => setShowSettings(true)} className="shrink-0">
+                Control panel
+              </Button>
+            )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
-            <Stat icon={Layers} label="Phases" value={phases.length} />
-            <Stat icon={Boxes}  label="Assets" value={assets.length} />
-            <Stat icon={ListChecks} label="Tasks" value={tasks.length} />
-            <Stat icon={DollarSign} label="Budget" value={fmtMoney(budget.total, budget.currency)} />
+            <Stat className="rb-stat-tile" label="Phases" value={phases.length} />
+            <Stat className="rb-stat-tile" label="Assets" value={assets.length} />
+            <Stat className="rb-stat-tile" label="Tasks" value={tasks.length} />
+            <Stat className="rb-stat-tile" label="Budget" value={moneyOrDash(budget.total, budget.currency)} />
           </div>
           {/* Project folder path */}
-          <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-            <FolderOpen className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-            <span className="text-[11px] font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#78716c' }}>
+          <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--color-rule)' }}>
+            <FolderOpen className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
+            <span className="text-label uppercase flex-shrink-0" style={{ color: 'var(--color-ink-3)' }}>
               Folder:
             </span>
             {project.folder_root ? (
               <>
-                <span className="text-[11px] font-mono truncate" style={{ color: '#a8a29e' }}>
+                <span className="text-dense font-mono truncate" style={{ color: 'var(--color-ink-2)' }}>
                   {project.folder_root}
                 </span>
                 <button
@@ -325,47 +439,46 @@ export default function ProjectSummaryView() {
                   onClick={() => {
                     window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })
                   }}
-                  className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
-                  style={{ color: '#fb923c', border: '1px solid #44403c' }}
+                  className="text-dense px-2 py-0.5 rounded-control hover:bg-hover flex-shrink-0"
+                  style={{ color: 'var(--color-ink)', border: '1px solid var(--color-rule)' }}
                 >
                   Open
                 </button>
               </>
             ) : (
-              <span className="text-[11px] font-mono italic" style={{ color: '#57534e' }}>
+              <span className="text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
                 Using default location
               </span>
             )}
-            <button
-              type="button"
-              onClick={async () => {
-                const api = window.electronAPI?.rabbit
-                if (!api?.pickDirectory) return
-                const dir = await api.pickDirectory()
-                if (!dir) return
-                const projectSlug = project.folder_slug || project.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-                const folderRoot = dir + '\\' + projectSlug
-                await api.ensureProjectFolder({ rootDir: dir, projectSlug })
-                ctx?.updateProject?.(project.id, { folder_root: folderRoot })
-              }}
-              className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              Change
-            </button>
+            {canPickFolder && (
+              <GatedAction allowed={canSetFolder} reason={folderReason}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!canSetFolder) return
+                    setFolderMsg(null)
+                    const res = await pickAndSetProjectFolder(ctx, project)
+                    if (!res.ok && res.error) setFolderMsg(res.error)
+                  }}
+                  className="text-dense px-2 py-0.5 rounded-control hover:bg-hover flex-shrink-0"
+                  style={{ color: 'var(--color-ink-2)', border: '1px solid var(--color-rule)' }}
+                >
+                  Change
+                </button>
+              </GatedAction>
+            )}
           </div>
+          {folderMsg && (
+            <p className="text-dense mt-1.5" style={{ color: 'var(--color-danger)' }}>
+              {folderMsg}
+            </p>
+          )}
         </Card>
 
-        {/* ── Project files ── */}
-        {(() => {
-          const allProjFiles = [...(ctx?.files || []), ...(ctx?.managedFiles || [])]
-          if (allProjFiles.length === 0) return null
-          return (
-            <Card title="Project Files" icon={FileText}>
-              <ProjectFilesTable files={allProjFiles} readOnly maxHeight={220} />
-            </Card>
-          )
-        })()}
+        {/* The read-only "Project files" card that stood here is gone
+            (post-overhaul S4a, Audrey's E1): the project's files are the
+            Files tab now, where they can be edited, previewed and
+            downloaded. */}
 
         {/* ── Phase strip ── */}
         <Card title="Phases" icon={Layers}>
@@ -379,30 +492,30 @@ export default function ProjectSummaryView() {
                 .map((p, i) => (
                   <div
                     key={p.id}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-control"
                     style={{
-                      backgroundColor: '#1c1917',
-                      border: '1px solid #44403c',
+                      backgroundColor: 'var(--color-paper)',
+                      border: '1px solid var(--color-rule)',
                     }}
                   >
-                    <span className="text-[11px] font-mono font-bold" style={{ color: '#ea580c' }}>
+                    <span className="text-dense font-mono font-semibold" style={{ color: 'var(--color-ink)' }}>
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <span className="text-[13px] font-mono" style={{ color: '#d6d3d1' }}>{p.name}</span>
-                    <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>
+                    <span className="text-dense" style={{ color: 'var(--color-ink)' }}>{p.name}</span>
+                    <span className="text-dense font-mono" style={{ color: 'var(--color-ink-2)' }}>
                       · {phaseAssetCounts[p.id] || 0} asset{phaseAssetCounts[p.id] === 1 ? '' : 's'}
                     </span>
                   </div>
                 ))}
               {phaseAssetCounts['__unphased__'] > 0 && (
                 <div
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-control"
                   style={{
-                    backgroundColor: '#1c1917',
-                    border: '1px dashed #57534e',
+                    backgroundColor: 'var(--color-paper)',
+                    border: '1px dashed var(--color-rule)',
                   }}
                 >
-                  <span className="text-[13px] font-mono italic" style={{ color: '#a8a29e' }}>
+                  <span className="text-dense italic" style={{ color: 'var(--color-ink-2)' }}>
                     Unphased · {phaseAssetCounts['__unphased__']} asset
                     {phaseAssetCounts['__unphased__'] === 1 ? '' : 's'}
                   </span>
@@ -472,7 +585,7 @@ export default function ProjectSummaryView() {
           </div>
           {Object.keys(budget.byRole).length > 0 && (
             <div className="mt-4 flex flex-col gap-1">
-              <div className="text-[11px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+              <div className="text-label uppercase" style={{ color: 'var(--color-ink)' }}>
                 By role
               </div>
               {Object.values(budget.byRole)
@@ -481,12 +594,12 @@ export default function ProjectSummaryView() {
                 .map(row => (
                   <div
                     key={row.role}
-                    className="flex items-center justify-between text-xs font-mono px-2.5 py-1.5 rounded-sm"
-                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+                    className="flex items-center justify-between text-dense font-mono tabular-nums px-2.5 py-1.5 rounded-control"
+                    style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}
                   >
-                    <span style={{ color: '#d6d3d1' }}>{row.role}</span>
-                    <span style={{ color: '#a8a29e' }}>
-                      {row.days} d · {fmtMoney(row.cost, budget.currency)}
+                    <span style={{ color: 'var(--color-ink)' }}>{row.role}</span>
+                    <span style={{ color: 'var(--color-ink-2)' }}>
+                      {row.days} d · {moneyOrDash(row.cost, budget.currency)}
                     </span>
                   </div>
                 ))}
@@ -515,9 +628,8 @@ const TIER_OPTIONS    = ['micro', 'small', 'mid', 'large', 'enterprise']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'NZD']
 const ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']
 
-const SECTION_ACCENT = '#fb923c'
 
-function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
+function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = false }) {
   const update = useCallback((field, value) => {
     ctx?.updateProject?.(project.id, { [field]: value })
   }, [ctx, project?.id])
@@ -537,32 +649,28 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
     ctx?.updateProject?.(project.id, patch)
   }, [ctx, project?.id])
 
-  const files = ctx?.files || []
-  const managedFiles = ctx?.managedFiles || []
-  const statusColor = { draft: '#78716c', active: '#22c55e', on_hold: '#f59e0b', wrapped: '#3b82f6', archived: '#57534e' }[project.status] || '#78716c'
-
   return (
     <div className="flex flex-col gap-6">
 
       {/* ── Project header + classification + dates ── */}
-      <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #44403c' }}>
-        <div className="px-6 py-5" style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}>
+      <div className="rounded-control overflow-hidden" style={{ border: '1px solid var(--color-rule)' }}>
+        <div className="px-6 py-5" style={{ backgroundColor: 'var(--color-paper-raised)', borderBottom: '1px solid var(--color-rule)' }}>
           <div className="flex items-center gap-3 mb-1">
-            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor, boxShadow: `0 0 8px ${statusColor}60` }} />
-            <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>
+            <StatusDot status={project.status || 'draft'} />
+            <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)' }}>
               {project.status || 'draft'} / {project.project_type?.replace(/_/g, ' ') || 'untyped'} / {project.project_tier || 'untiered'}
             </span>
           </div>
-          <h2 className="text-xl font-mono font-bold mt-3" style={{ color: '#f5f5f4' }}>
+          <h2 className="text-h1 font-semibold mt-3" style={{ color: 'var(--color-ink)' }}>
             {project.title || 'Untitled Project'}
           </h2>
           {project.description && (
-            <p className="text-xs font-mono mt-1.5 leading-relaxed" style={{ color: '#a8a29e' }}>
+            <p className="text-dense mt-1.5" style={{ color: 'var(--color-ink-2)' }}>
               {project.description}
             </p>
           )}
         </div>
-        <div className="px-6 py-4 flex flex-col gap-4" style={{ backgroundColor: '#1c1917' }}>
+        <div className="px-6 py-4 flex flex-col gap-4" style={{ backgroundColor: 'var(--color-paper)' }}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <SettingsField label="Project name">
               <SettingsInput value={project.title || ''} onChange={v => update('title', v)} placeholder="Project title" size="lg" />
@@ -597,7 +705,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
               />
             </SettingsField>
           </div>
-          <div className="pt-3 mt-1" style={{ borderTop: '1px solid #44403c' }}>
+          <div className="pt-3 mt-1" style={{ borderTop: '1px solid var(--color-rule)' }}>
             <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
               <SettingsField label="Project code">
                 <SettingsInput value={project.project_code || ''} onChange={v => update('project_code', v)} placeholder="PROJ" />
@@ -619,9 +727,9 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
               </SettingsField>
             </div>
             {/* ── Real-time engine toggle (linked with Levels) ── */}
-            <div className="flex items-center justify-between px-3 py-2.5 mt-3 rounded-md" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-              <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>Uses real-time engine</span>
-              <SettingsToggle checked={project.uses_realtime_engine} onChange={v => {
+            <div className="flex items-center justify-between px-3 py-2.5 mt-3 rounded-control" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+              <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Uses real-time engine</span>
+              <SettingsToggle label="Realtime engine" checked={project.uses_realtime_engine} onChange={v => {
                 update('uses_realtime_engine', v)
                 // Sync: realtime engine on → levels on, realtime engine off → levels off
                 update('levels_enabled', v)
@@ -631,11 +739,16 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
         </div>
       </div>
 
-      {/* ── Two-column grid: Budget + Files & Storage ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Budget + Files & Storage ──
+          Session 25: the Budget block is manager/admin only. When it is
+          hidden the grid collapses to one column rather than leaving a blank
+          half — an empty column reads as a broken layout, which is how a
+          permission boundary gets reported as a bug. */}
+      <div className={canSeeMoney ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6'}>
 
-        {/* LEFT: Budget */}
-        <SettingsSection title="Budget Variables" icon={DollarSign} accent={SECTION_ACCENT}>
+        {/* LEFT: Budget — money is manager-only (Audrey, 2026-08-04) */}
+        {canSeeMoney && (
+        <SettingsSection title="Budget variables" icon={DollarSign}>
           <div className="grid grid-cols-2 gap-3">
             <SettingsField label="Currency">
               <SettingsSelect value={project.budget_currency || 'USD'} options={CURRENCY_OPTIONS} onChange={v => update('budget_currency', v)} />
@@ -655,12 +768,12 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
               <SettingsNumberInput value={project.budget_agency_pct ?? ''} onChange={v => update('budget_agency_pct', v === '' ? 0 : Number(v))} placeholder="20" />
             </SettingsField>
           </div>
-          <div className="flex items-center justify-between px-3 py-2.5 rounded-md" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>Agency fee</span>
-            <SettingsToggle checked={project.budget_agency_enabled} onChange={v => update('budget_agency_enabled', v)} />
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-control" style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+            <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>Agency fee</span>
+            <SettingsToggle label="Agency fees" checked={project.budget_agency_enabled} onChange={v => update('budget_agency_enabled', v)} />
           </div>
           {/* ── Actuals columns ── */}
-          <div style={{ borderTop: '1px solid #44403c' }} />
+          <div style={{ borderTop: '1px solid var(--color-rule)' }} />
           <div className="grid grid-cols-2 gap-3">
             <SettingsField label="Actuals column mode">
               <SettingsSelect
@@ -681,31 +794,31 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
             </SettingsField>
           </div>
         </SettingsSection>
+        )}
 
         {/* RIGHT: Files & Storage */}
-        <ProjectFilesSection files={files} managedFiles={managedFiles} ctx={ctx} project={project} update={update} />
+        <ProjectFilesSection ctx={ctx} project={project} update={update} />
       </div>
 
       {/* ── Toggleable database modules (row of 3) ── */}
       <div className="grid grid-cols-3 gap-4">
 
-        {/* Scenes & Shots */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.scenes_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.scenes_enabled ? 1 : 0.7,
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.scenes_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.scenes_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Film className="w-3.5 h-3.5" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-[11px] font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.scenes_enabled ? SECTION_ACCENT : '#57534e' }}>
+        {/* Scenes & Shots. V2 (B4c §4.2 item 14): the three cards carried an
+            inline `opacity 150ms, border-color 150ms` transition that ran
+            under reduced motion, off the three durations, animating two
+            properties the card no longer changes (R22: off reads through
+            the Switch and the title's ink). It is gone, not moved. */}
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.scenes_enabled ? 'true' : undefined}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Film className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Scenes & Shots
             </span>
-            <SettingsToggle checked={project.scenes_enabled} onChange={v => update('scenes_enabled', v)} />
+            <SettingsToggle label="Scenes and shots" checked={project.scenes_enabled} onChange={v => update('scenes_enabled', v)} />
           </div>
           {project.scenes_enabled && (
             <div className="flex flex-col gap-3 p-4">
-              <span className="text-[9px] font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Naming conventions</span>
+              <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)' }}>Naming conventions</span>
               <div className="grid grid-cols-2 gap-3">
                 <SettingsField label="Scene digits">
                   <SettingsNumberInput value={project.scene_digits ?? 3} onChange={v => { const n = parseInt(v, 10); if (Number.isFinite(n) && n >= 1 && n <= 5) update('scene_digits', n) }} placeholder="3" min={1} max={5} />
@@ -721,20 +834,25 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
                 </SettingsField>
               </div>
               {/* Naming preview */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
-                <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Preview:</span>
-                <span className="text-[11px] font-mono font-bold tracking-wide" style={{ color: '#fb923c' }}>
-                  {(project.project_code || 'PROJ')
-                    + (project.scene_separator || '_')
-                    + 'SC' + String(project.scene_start_number ?? 1).padStart(project.scene_digits ?? 3, '0')
-                    + (project.scene_separator || '_')
-                    + 'SH' + String(project.scene_start_number ?? 1).padStart(project.shot_digits ?? 4, '0')}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-control" style={{ backgroundColor: 'var(--color-paper-recessed)', border: '1px solid var(--color-rule)' }}>
+                <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)' }}>Preview:</span>
+                <span className="text-dense font-mono font-semibold" style={{ color: 'var(--color-ink)' }}>
+                  {/* Session 25: built by the SAME function the Scenes view
+                      names with (../entityNaming), so the preview cannot
+                      drift from what the New Shot button actually produces.
+                      It previews the first shot of the first scene, hence
+                      the start number in both positions. */}
+                  {formatShotCode(
+                    project,
+                    project.scene_start_number ?? 1,
+                    project.scene_start_number ?? 1,
+                  )}
                 </span>
               </div>
 
-              <div style={{ height: 1, backgroundColor: '#44403c', margin: '4px 0' }} />
+              <div style={{ height: 1, backgroundColor: 'var(--color-rule)', margin: '4px 0' }} />
 
-              <span className="text-[9px] font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Timing</span>
+              <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)' }}>Timing</span>
               <div className="grid grid-cols-2 gap-3">
                 <SettingsField label="Frames per second">
                   <SettingsSelect
@@ -750,18 +868,13 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
         </div>
 
         {/* Levels */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.levels_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.levels_enabled ? 1 : 0.7,
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.levels_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.levels_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Gamepad2 className="w-3.5 h-3.5" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-[11px] font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.levels_enabled ? SECTION_ACCENT : '#57534e' }}>
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.levels_enabled ? 'true' : undefined}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Gamepad2 className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Levels
             </span>
-            <SettingsToggle checked={project.levels_enabled} onChange={v => {
+            <SettingsToggle label="Levels" checked={project.levels_enabled} onChange={v => {
               update('levels_enabled', v)
               // Sync: levels on → realtime engine on, levels off → realtime engine off
               update('uses_realtime_engine', v)
@@ -812,22 +925,17 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
         </div>
 
         {/* Experiences */}
-        <div className="rounded-lg overflow-hidden flex flex-col" style={{
-          backgroundColor: '#292524',
-          border: `1px solid ${project.experiences_enabled ? '#44403c' : '#33302e'}`,
-          opacity: project.experiences_enabled ? 1 : 0.7,
-          transition: 'opacity 150ms ease, border-color 150ms ease',
-        }}>
-          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: project.experiences_enabled ? '1px solid #44403c' : 'none', borderLeft: `3px solid ${project.experiences_enabled ? SECTION_ACCENT : '#57534e'}` }}>
-            <Sparkles className="w-3.5 h-3.5" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }} />
-            <span className="text-[11px] font-mono uppercase tracking-widest font-bold flex-1" style={{ color: project.experiences_enabled ? SECTION_ACCENT : '#57534e' }}>
+        <div className="rb-module rounded-control overflow-hidden flex flex-col" data-enabled={project.experiences_enabled ? 'true' : undefined}>
+          <div className="rb-module-head flex items-center gap-2 px-4 py-3">
+            <Sparkles className="rb-module-accent w-3.5 h-3.5" />
+            <span className="rb-module-accent text-label uppercase font-semibold flex-1">
               Experiences
             </span>
-            <SettingsToggle checked={project.experiences_enabled} onChange={v => update('experiences_enabled', v)} />
+            <SettingsToggle label="Experiences" checked={project.experiences_enabled} onChange={v => update('experiences_enabled', v)} />
           </div>
           {project.experiences_enabled && (
             <div className="p-4">
-              <p className="text-[11px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
+              <p className="text-dense" style={{ color: 'var(--color-ink-2)' }}>
                 For physical activations, events, immersive experiences, etc.
               </p>
             </div>
@@ -839,169 +947,139 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
   )
 }
 
-function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
-  const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef(null)
-
-  async function handleUpload(e) {
-    const picked = Array.from(e.target.files || [])
-    if (picked.length === 0) return
-    setUploading(true)
-    try {
-      for (const file of picked) {
-        await ctx?.uploadFile?.(file, { type: 'project' })
-      }
-    } catch (err) { console.error('Upload failed', err) }
-    finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  async function handleDelete(f) {
-    try {
-      await ctx?.deleteFile?.(f.id)
-    } catch (err) { console.error('Delete failed', err) }
-  }
-
-  const allFiles = [...(files || []), ...(managedFiles || [])]
+// Post-overhaul S4a (Audrey's E1, 2026-09-29: "both go; those three controls
+// move to the Files tab; the project-folder controls stay in the Control
+// Panel"). This section kept the project folder and the relink's files folder
+// with its reset; the file LIST, Add files, the missing-files Relink banner
+// (with RelinkDialog) and File activity (FileAuditDrawer) moved to the Files
+// tab's toolbar (ProjectFilesExplorer). Uploads still file to the project
+// root, `{ type: 'project' }`, exactly as they did here.
+function ProjectFilesSection({ ctx, project, update }) {
+  // Session 35: same seat as the summary header's Change button — the two
+  // writers must not diverge (they are one column, one flow).
+  const perms = usePermissions()
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
 
   return (
-    <SettingsSection title="Files & Storage" icon={FolderOpen} accent={SECTION_ACCENT}>
+    <SettingsSection title="Files & storage" icon={FolderOpen}>
       {/* ── Folder ── */}
       <SettingsField label="Project folder">
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md min-w-0"
-            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            <Folder className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-            <span className="text-[10px] font-mono truncate" style={{ color: project?.folder_root ? '#a8a29e' : '#57534e' }}>
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-control min-w-0"
+            style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+            <Folder className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />
+            <span className="rb-folder-path text-dense font-mono truncate" data-empty={project?.folder_root ? undefined : 'true'}>
               {project?.folder_root || 'Using default location'}
             </span>
           </div>
           {project?.folder_root && (
-            <button type="button"
-              onClick={() => window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })}
-              className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
-              style={{ color: SECTION_ACCENT, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+            <Button size="sm" onClick={() => window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })}>
               Open
-            </button>
+            </Button>
           )}
-          <button type="button"
-            onClick={async () => {
-              const api = window.electronAPI?.rabbit
-              if (!api?.pickDirectory) return
-              const dir = await api.pickDirectory()
-              if (!dir) return
-              const slug = project?.folder_slug || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-              const folderRoot = dir + '\\' + slug
-              await api.ensureProjectFolder?.({ rootDir: dir, projectSlug: slug })
-              update?.('folder_root', folderRoot)
-            }}
-            className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
-            style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            Change
-          </button>
+          {canPickFolder && (
+            <GatedAction allowed={canSetFolder} reason={folderReason}>
+              <button type="button"
+                onClick={async () => {
+                  if (!canSetFolder) return
+                  setFolderMsg(null)
+                  const res = await pickAndSetProjectFolder(ctx, project)
+                  if (!res.ok && res.error) setFolderMsg(res.error)
+                }}
+                className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
+                style={{ color: 'var(--color-ink-2)', backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+                Change
+              </button>
+            </GatedAction>
+          )}
         </div>
+        {folderMsg && (
+          <p className="text-dense mt-1.5" style={{ color: 'var(--color-danger)' }}>
+            {folderMsg}
+          </p>
+        )}
       </SettingsField>
 
-      {/* ── Divider ── */}
-      <div style={{ borderTop: '1px solid #44403c' }} />
-
-      {/* ── Files ── */}
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Project files</span>
-        <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="hidden" />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all hover:brightness-125"
-            style={{ backgroundColor: SECTION_ACCENT, color: '#1c1917' }}
-          >
-            <Upload className="w-3 h-3" />
-            {uploading ? 'Uploading...' : 'Add Files'}
-          </button>
-        </div>
-      </div>
-
-      {allFiles.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 rounded-md"
-          style={{ border: `2px dashed ${SECTION_ACCENT}30`, backgroundColor: '#1c191780' }}>
-          <FileText className="w-5 h-5 mb-1.5" style={{ color: '#44403c' }} />
-          <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>No files attached</span>
-        </div>
-      ) : (
-        <ProjectFilesTable
-          files={allFiles}
-          onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
-          onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
-          maxHeight={300}
-        />
+      {/* Session 14: a relink can move the files home off folder_root —
+          surface it (nothing else shows files_dir) with a reset control,
+          so a mis-picked folder is recoverable from the app. */}
+      {project?.files_dir && (
+        <SettingsField label="Files folder (set by relink)">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-control min-w-0"
+              style={{ backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+              <FolderSearch className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />
+              <span className="text-dense font-mono truncate" style={{ color: 'var(--color-ink-2)' }} title={project.files_dir}>
+                {project.files_dir}
+              </span>
+            </div>
+            {/* The missing-files count that this reset used to refresh lives
+                on the Files tab now (S4a), which reads it again on arrival. */}
+            <button type="button"
+              onClick={() => { update?.('files_dir', null) }}
+              title="Files resolve from the project folder again; relink afterwards if they moved"
+              className="text-dense px-2.5 py-2 rounded-control hover:brightness-125 flex-shrink-0 transition-[filter]"
+              style={{ color: 'var(--color-ink-2)', backgroundColor: 'var(--color-paper)', border: '1px solid var(--color-rule)' }}>
+              Reset
+            </button>
+          </div>
+        </SettingsField>
       )}
+
+      {/* Where the files went (E1): one sentence, no link — the brief keeps
+          the "files" navigation target callerless this bundle. */}
+      <p className="rb-folder-note text-dense" data-files-moved>
+        The project&rsquo;s files are in the Files tab: add files, relink missing ones and see each file&rsquo;s activity there.
+      </p>
     </SettingsSection>
   )
 }
 
 // ─── Settings sub-components ───
-function SettingsSection({ title, icon: Icon, accent, children }) {
-  const color = accent || '#fb923c'
+// The kit's Card (B1): one surface, one hairline, the title at H3 in ink.
+// The orange title and the 3px orange left accent go (review R22).
+function SettingsSection({ title, icon: Icon, children }) {
   return (
-    <div className="rounded-lg overflow-hidden" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-      <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${color}` }}>
-        {Icon && <Icon className="w-4 h-4" style={{ color }} />}
-        <h3 className="text-xs font-mono uppercase tracking-widest font-bold" style={{ color }}>
-          {title}
-        </h3>
-      </div>
-      <div className="flex flex-col gap-3 p-4">{children}</div>
-    </div>
+    <KitCard title={<span className="rb-card-title">{Icon && <Icon className="rb-card-icon" aria-hidden="true" />}{title}</span>}>
+      <div className="flex flex-col gap-3">{children}</div>
+    </KitCard>
   )
 }
 
 function SettingsField({ label, hint, children }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[9px] font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>{label}</span>
+      <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)' }}>{label}</span>
       {children}
-      {hint && <span className="text-[9px] font-mono" style={{ color: '#57534e' }}>{hint}</span>}
+      {hint && <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>{hint}</span>}
     </div>
   )
 }
 
-function SettingsToggle({ checked, onChange }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className="relative flex-shrink-0 transition-colors focus:outline-none"
-      style={{
-        width: 36, height: 20, borderRadius: 10,
-        backgroundColor: checked ? '#ea580c' : '#44403c',
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute', top: 3, left: 3,
-          width: 14, height: 14, borderRadius: '50%',
-          backgroundColor: '#fff7ed',
-          transition: 'transform 150ms ease',
-          transform: checked ? 'translateX(16px)' : 'translateX(0)',
-        }}
-      />
-    </button>
-  )
+// The kit's Switch (plan §4; review R34 keeps the pill as the one switch
+// shape). Same click, same onChange(!checked); it now has a name, which the
+// hand-rolled one never did (V1-05 counted it among the unnamed controls).
+function SettingsToggle({ checked, onChange, label }) {
+  return <Switch checked={checked} onChange={onChange} aria-label={label} title={label} />
 }
 
+/* One size (B1 restyle). The `lg` variant set the project title at Body 600
+   inside the input, and the Control Panel's three field heights read
+   43 / 37 / 37 (V1-17): an input is Dense 400 at the kit's md height.
+   `size` is still accepted so no caller changes. */
+// eslint-disable-next-line no-unused-vars
 function SettingsInput({ value, onChange, placeholder, size }) {
-  const lg = size === 'lg'
   return (
     <input
       type="text" value={value} onChange={e => onChange(e.target.value)}
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
-      className={`w-full font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-sm font-semibold' : 'px-3 py-2 text-xs'}`}
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
+      className="ui-input" data-size="md" data-surface="dark"
     />
   )
 }
@@ -1013,8 +1091,7 @@ function SettingsTextarea({ value, onChange, placeholder }) {
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
       rows={2}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
+      className="ui-input resize-y" data-size="md" data-surface="dark"
     />
   )
 }
@@ -1023,8 +1100,7 @@ function SettingsSelect({ value, options, labels, onChange, allowEmpty }) {
   return (
     <select
       value={value} onChange={e => onChange(e.target.value)}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
+      className="ui-input" data-size="md" data-surface="dark"
     >
       {allowEmpty && <option value="">{allowEmpty}</option>}
       {options.map((o, i) => <option key={o} value={o}>{labels?.[i] ?? o.replace(/_/g, ' ')}</option>)}
@@ -1037,8 +1113,7 @@ function SettingsDateInput({ value, onChange }) {
   return (
     <input
       type="date" value={display} onChange={e => onChange(e.target.value ? new Date(e.target.value).toISOString() : null)}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1', colorScheme: 'dark' }}
+      className="ui-input" data-size="md" data-surface="dark" style={{ colorScheme: 'dark' }}
     />
   )
 }
@@ -1048,8 +1123,7 @@ function SettingsNumberInput({ value, onChange, placeholder, min, max }) {
     <input
       type="number" value={value} onChange={e => onChange(e.target.value)}
       placeholder={placeholder} min={min} max={max}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
+      className="ui-input" data-size="md" data-surface="dark"
     />
   )
 }
@@ -1057,47 +1131,26 @@ function SettingsNumberInput({ value, onChange, placeholder, min, max }) {
 // ─── Project mini card (used by the gallery section) ───
 function ProjectMiniCard({ project, active, onClick }) {
   const status = project.status || 'draft'
-  const statusColor =
-    status === 'active'   ? '#15803d' :
-    status === 'archived' ? '#57534e' :
-    status === 'wrapped'  ? '#15803d' :
-    '#ea580c'
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-left flex flex-col gap-2 p-3 rounded-sm transition-all hover:scale-[1.02]"
-      style={{
-        backgroundColor: '#1c1917',
-        border: `1px solid ${active ? '#ea580c' : '#44403c'}`,
-        boxShadow: active ? '0 0 0 1px #ea580c' : 'none',
-      }}
+      className="rb-minicard text-left flex flex-col gap-2 p-3 rounded-control transition-transform hover:scale-[1.02]"
+      data-active={active ? 'true' : undefined}
     >
       <div className="flex items-start gap-2">
         {active
-          ? <Check className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#fb923c' }} />
-          : <Folder className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#78716c' }} />}
-        <span
-          className="flex-1 text-[11px] font-mono font-bold truncate"
-          style={{ color: active ? '#fb923c' : '#d6d3d1' }}
-        >
+          ? <Check className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
+          : <Folder className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />}
+        <span className="rb-minicard-title flex-1 text-dense font-semibold truncate">
           {project.title || 'Untitled'}
         </span>
-        <span
-          className="px-1 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
-          style={{
-            color: '#fff7ed',
-            backgroundColor: statusColor,
-            border: `1px solid ${statusColor}`,
-          }}
-        >
-          {status}
-        </span>
+        <StatusBadge status={status} />
       </div>
       {project.description && (
         <p
-          className="text-[9px] font-mono leading-relaxed line-clamp-2"
-          style={{ color: '#a8a29e' }}
+          className="text-dense line-clamp-2"
+          style={{ color: 'var(--color-ink-2)' }}
         >
           {project.description}
         </p>
@@ -1107,138 +1160,82 @@ function ProjectMiniCard({ project, active, onClick }) {
 }
 
 // ─── Sub-components ───
+// ─── Card ───
+// A thin adapter over the kit's Card (imported as KitCard): the seven callers
+// keep their { title, icon } call, and the surface, hairline, radius and H3
+// title all come from the kit (R22: one card treatment on this surface).
 function Card({ title, icon: Icon, children }) {
   return (
-    <div className="rounded-sm p-5" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
-      {title && (
-        <div className="flex items-center gap-2 mb-3">
-          {Icon && <Icon className="w-4 h-4" style={{ color: '#fb923c' }} />}
-          <h3 className="text-[13px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
-            {title}
-          </h3>
-        </div>
-      )}
+    <KitCard title={title ? <span className="rb-card-title">{Icon && <Icon className="rb-card-icon" aria-hidden="true" />}{title}</span> : null}>
       {children}
-    </div>
+    </KitCard>
   )
 }
 
-function StatusPill({ status }) {
-  const color = status === 'active' ? '#15803d' : status === 'archived' ? '#57534e' : '#ea580c'
-  return (
-    <span
-      className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
-      style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
-    >
-      {status || 'draft'}
-    </span>
-  )
-}
-
-const STATUS_COLORS = { draft: '#ea580c', active: '#15803d', on_hold: '#f59e0b', wrapped: '#3b82f6', archived: '#57534e' }
+// StatusPill was deleted here in B1's state extraction: it had no caller (review R36).
 
 function StatusDropdown({ status, onChange }) {
   const current = status || 'draft'
-  const color = STATUS_COLORS[current] || '#ea580c'
   return (
-    <div className="relative inline-flex items-center">
+    <div className="rb-status-select-wrap">
+      <StatusDot status={current} />
       <select
         value={current}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-[11px] font-mono uppercase tracking-wider rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-        style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
+        className="ui-input rb-status-select appearance-none cursor-pointer" data-size="sm" data-surface="dark"
+        data-status={current}
       >
-        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{statusMeta(s).label}</option>)}
       </select>
-      <ChevronDown className="absolute right-1.5 w-3 h-3 pointer-events-none" style={{ color: '#fff7ed' }} />
+      <ChevronDown className="absolute right-2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--color-ink-2)' }} />
     </div>
   )
 }
 
-function Stat({ icon: Icon, label, value }) {
-  return (
-    <div
-      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-    >
-      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-      <div className="flex flex-col leading-tight min-w-0">
-        <span className="text-sm font-mono font-bold truncate" style={{ color: '#d6d3d1' }}>{value}</span>
-        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{label}</span>
-      </div>
-    </div>
-  )
-}
+// The local Stat that lived here was deleted when the Summary band moved to
+// the kit's Stat (B1) — the kit's first caller, F2 §8.
 
 function ListRow({ title, tag, hint, danger }) {
   return (
     <div
-      className="flex items-center gap-2.5 px-2.5 py-2"
-      style={{ borderBottom: '1px solid #1c1917' }}
+      className="rb-listrow flex items-center gap-2.5 px-2.5 py-2"
+      data-danger={danger ? 'true' : undefined}
     >
-      <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: danger ? '#fca5a5' : '#a8a29e' }} />
-      <span className="flex-1 text-[13px] font-mono truncate" style={{ color: '#d6d3d1' }}>{title}</span>
+      <ChevronRight className="rb-listrow-chevron w-3.5 h-3.5 flex-shrink-0" />
+      <span className="flex-1 text-dense truncate" style={{ color: 'var(--color-ink)' }}>{title}</span>
       {hint && (
-        <span className="text-[11px] font-mono italic truncate max-w-[140px]" style={{ color: '#78716c' }}>
+        <span className="text-dense italic truncate max-w-[140px]" style={{ color: 'var(--color-ink-3)' }}>
           {hint}
         </span>
       )}
-      {tag && (
-        <span
-          className="px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
-          style={{
-            color: danger ? '#fff7ed' : '#fb923c',
-            backgroundColor: danger ? '#7f1d1d' : '#1c1917',
-            border: `1px solid ${danger ? '#991b1b' : '#57534e'}`,
-          }}
-        >
-          {tag}
-        </span>
-      )}
+      {tag && <StatusBadge tone={danger ? 'danger' : 'neutral'} label={tag} />}
     </div>
   )
 }
 
+// The kit's Stat (R19: one metric tile, one orientation). Its hint is the
+// Stat's delta line, and the good / danger tone rides on that line — the one
+// place the kit lets a tone speak — instead of on the tile's border.
+const BUDGET_TONE = { good: 'success', danger: 'danger', neutral: 'neutral' }
 function BudgetTile({ label, value, hint, tone = 'neutral' }) {
-  const colors = {
-    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac' },
-    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5' },
-    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1' },
-  }[tone]
-  return (
-    <div
-      className="flex flex-col px-3.5 py-2.5 rounded-sm"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
-    >
-      <span className="text-[11px] font-mono uppercase tracking-widest" style={{ color: '#a8a29e' }}>
-        {label}
-      </span>
-      <span className="text-xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
-      {hint && (
-        <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>{hint}</span>
-      )}
-    </div>
-  )
+  return <Stat className="rb-stat-tile" label={label} value={value} delta={hint} deltaTone={BUDGET_TONE[tone] || 'neutral'} />
 }
 
+// The kit's EmptyState (R21: one empty state on this surface).
 function Empty({ children }) {
-  return (
-    <div className="flex items-center gap-2 text-xs font-mono italic" style={{ color: '#78716c' }}>
-      <FileText className="w-3.5 h-3.5" />
-      {children}
-    </div>
-  )
+  return <EmptyState compact Icon={FileText} title={children} />
 }
 
-function fmtMoney(n, currency) {
-  if (n == null || isNaN(n)) return '—'
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency: currency || 'USD',
-      maximumFractionDigits: 0,
-    }).format(n)
-  } catch {
-    return `${currency || ''} ${Math.round(n)}`
-  }
+// (B4, 2026-09-25) `withDisplaySize` is gone: ProjectFilesTable reads
+// `size_bytes`, the `files` column these rows already carry, so the mapper
+// B1 wrote at the two call sites above has nothing left to do. KIND stays "—"
+// for cloud rows on purpose — a data gap, recorded in ProjectFilesTable.
+
+// V2 (2026-09-27), B5b §4.2 item 3: this file kept its own formatter in the
+// VIEWER's locale while every Budget amount went through CurrencyDisplay's
+// `formatMoney` in one locale (R3-01), so the Summary's Budget tile could
+// print one amount two ways from the Budget tab. It is the one formatter now;
+// a missing amount keeps the dash this file always printed for it.
+function moneyOrDash(n, currency) {
+  return n == null || Number.isNaN(Number(n)) ? '—' : formatMoney(n, currency)
 }

@@ -14,21 +14,30 @@
 //
 // Only members assigned to this project can be selected as
 // task assignees or reviewers in the Timeline and Assets views.
+//
+// Session 6: in supabase mode this view manages the project_members roster
+// (migration 0013) via ProjectMembersPanel below — project-level
+// manager / reviewer / member seats with projectRoleMatrix-parity gating.
+// The legacy team_assignments UI is untouched and still drives the
+// local_server / google_drive modes.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Users, UserPlus, UserMinus, X, Plus,
-  Filter, Search, ArrowUpDown, Layers, Save,
-  BookmarkPlus, ChevronDown, ChevronRight,
+  Users, UserPlus, UserMinus, X, Plus, Filter, Search, ArrowUpDown, Save, BookmarkPlus, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspaceMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject } from '../../../permissions/projectRoleMatrix'
+import '../rabbitShell.css'
+import { Dialog } from '../../../ui/Dialog'
+import { Button } from '../../../ui/Button'
+import { EmptyState } from '../../../ui/EmptyState'
 
-const ROLE_COLORS = {
-  member:   { fg: '#d6d3d1', bg: '#1c1917', border: '#44403c' },
-  manager:  { fg: '#fbbf24', bg: '#1c1917', border: '#78350f' },
-  reviewer: { fg: '#a78bfa', bg: '#1c1917', border: '#4c1d95' },
-}
+// ROLE_COLORS went in B1: the extraction moved it onto `.rb-role[data-role]`,
+// and the restyle drew every role in the same ink (a role is a category, not
+// a status, and the violet/amber pair were hues the chrome does not carry).
 
 const TEAM_ROLES = ['member', 'manager', 'reviewer']
 const EMPLOYMENT_TYPES = ['full_time', 'freelancer']
@@ -98,6 +107,7 @@ export default function TeamView() {
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
   const project = ctx?.project
+  const cloudMode = ctx?.adapterMode === 'supabase'
   const teamAssignments = ctx?.teamAssignments || []
   const tasks = ctx?.tasks || []
 
@@ -306,46 +316,40 @@ export default function TeamView() {
 
   function renderMemberRow(r) {
     const member = r.member
-    const roleColor = ROLE_COLORS[r.role] || ROLE_COLORS.member
     return (
-      <tr key={r.id} className="hover:!bg-stone-800 transition-colors" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+      <tr key={r.id} className="rb-team-row transition-colors">
         <Td>
           <div className="flex items-center gap-2">
-            <MemberAvatar member={member} size={24} />
-            <span className="text-xs font-mono" style={{ color: '#d6d3d1' }}>
+            <MemberAvatar member={member} size={28} />
+            <span className="text-dense" style={{ color: 'var(--color-ink)' }}>
               {member.name || 'Unnamed'}
             </span>
           </div>
         </Td>
         <Td>
-          <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>
+          <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>
             {member.title || '--'}
           </span>
         </Td>
         <Td>
-          <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>
-            {member.department || '--'}
+          <span className="text-dense" style={{ color: 'var(--color-ink-2)' }}>
+            {member.department || '—'}
           </span>
         </Td>
         <Td>
-          <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded-sm" style={{
-            color: member.employment_type === 'freelancer' ? '#fbbf24' : '#86efac',
-            backgroundColor: member.employment_type === 'freelancer' ? '#1c1917' : '#1c1917',
-            border: `1px solid ${member.employment_type === 'freelancer' ? '#78350f' : '#14532d'}`,
-          }}>
-            {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-Time'}
+          {/* P1 §7 audit: a kind of contract is a word, not data — the sans
+              in sentence case (Q2, Q4); it was the mono and "Full-Time". */}
+          <span className="rb-employment text-dense px-1.5 py-0.5 rounded-control"
+            data-kind={member.employment_type === 'freelancer' ? 'freelancer' : 'full_time'}>
+            {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-time'}
           </span>
         </Td>
         <Td>
           <select
             value={r.role || 'member'}
             onChange={(e) => handleRoleChange(r.id, e.target.value)}
-            className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-            style={{
-              backgroundColor: roleColor.bg,
-              color: roleColor.fg,
-              border: `1px solid ${roleColor.border}`,
-            }}
+            className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
+            data-role={r.role || 'member'}
           >
             <option value="member">Member</option>
             <option value="manager">Manager</option>
@@ -353,7 +357,7 @@ export default function TeamView() {
           </select>
         </Td>
         <Td>
-          <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>
+          <span className="text-dense font-mono tabular-nums" style={{ color: 'var(--color-ink-2)' }}>
             {r.taskCount}
           </span>
         </Td>
@@ -362,13 +366,8 @@ export default function TeamView() {
             type="date"
             value={r.start_date || ''}
             onChange={(e) => handleDateChange(r.id, 'start_date', e.target.value)}
-            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{
-              backgroundColor: '#1c1917',
-              color: r.start_date ? '#a8a29e' : '#57534e',
-              border: '1px solid #44403c',
-              colorScheme: 'dark',
-            }}
+            className="ui-input rb-team-date" data-size="sm" data-surface="dark"
+            data-empty={r.start_date ? undefined : 'true'} style={{ colorScheme: 'dark' }}
           />
         </Td>
         <Td>
@@ -376,17 +375,12 @@ export default function TeamView() {
             type="date"
             value={r.end_date || ''}
             onChange={(e) => handleDateChange(r.id, 'end_date', e.target.value)}
-            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{
-              backgroundColor: '#1c1917',
-              color: r.end_date ? '#a8a29e' : '#57534e',
-              border: '1px solid #44403c',
-              colorScheme: 'dark',
-            }}
+            className="ui-input rb-team-date" data-size="sm" data-surface="dark"
+            data-empty={r.end_date ? undefined : 'true'} style={{ colorScheme: 'dark' }}
           />
         </Td>
         <Td>
-          <span className="text-[11.5px] font-mono" style={{ color: '#78716c' }}>
+          <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
             {member.email || '--'}
           </span>
         </Td>
@@ -398,9 +392,9 @@ export default function TeamView() {
                 handleRemove(r.id)
               }
             }}
-            className="p-1 rounded-sm hover:bg-stone-700 transition-colors"
+            className="p-1 rounded-control hover:bg-hover transition-colors"
             title="Remove from project"
-            style={{ color: '#fca5a5' }}
+            style={{ color: 'var(--color-danger)' }}
           >
             <UserMinus className="w-3.5 h-3.5" />
           </button>
@@ -409,24 +403,33 @@ export default function TeamView() {
     )
   }
 
+  // P1-74: the kit EmptyState in sentence case, as every R.A.B.B.I.T. view
+  // draws it; it was an inline-styled capitalised span.
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
-          No project loaded
-        </span>
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <EmptyState Icon={Users} title="No project loaded" />
       </div>
     )
   }
 
+  // ── Cloud branch (Session 6) ──
+  // Supabase mode staffs projects through project_members (0013), not the
+  // legacy team_assignments JSON. Everything below this return is the
+  // local/drive UI, kept exactly as it was.
+  if (cloudMode) {
+    return <ProjectMembersPanel ctx={ctx} />
+  }
+
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-paper)' }}>
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
+      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid var(--color-rule)' }}>
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="rb-tool-toggle flex items-center gap-1.5 px-2 py-1.5 text-dense rounded-control hover:bg-hover transition-colors"
+          data-active={filters.length > 0 ? 'true' : undefined}
+          style={{ border: '1px solid var(--color-rule)' }}>
           <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
@@ -434,45 +437,44 @@ export default function TeamView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+            className="ui-input rb-tool-toggle cursor-pointer" data-size="sm" data-surface="dark"
+            data-active={sortField ? 'true' : undefined}>
             <option value="">Sort…</option>
             {TEAM_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           {sortField && (
             <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
-              style={{ color: '#fb923c' }}>
+              className="p-1.5 rounded-control hover:bg-hover transition-colors"
+              style={{ color: 'var(--color-ink)' }}>
               <ArrowUpDown className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Group */}
         <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
-          style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          className="ui-input rb-tool-toggle cursor-pointer" data-size="sm" data-surface="dark"
+          data-active={groupBy ? 'true' : undefined}>
           {TEAM_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Saved views */}
         <TeamSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSaveRequest={() => setShowSaveDialog(true)} />
 
-        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
         {/* Search */}
-        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
-          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
+        <div className="rb-field-wrap flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper-raised)' }}>
+          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: 'var(--color-ink-3)' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search members…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
-            style={{ color: '#d6d3d1' }} />
+            className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense" style={{ color: 'var(--color-ink)' }} />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
+            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-hover rounded-control transition-colors" style={{ color: 'var(--color-ink-3)' }}>
               <X className="w-3 h-3" />
             </button>
           )}
@@ -480,13 +482,12 @@ export default function TeamView() {
 
         {/* Right: count + assign button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+          <span className="text-label font-mono uppercase" style={{ color: 'var(--color-ink-2)' }}>
             {processed.length}/{teamAssignments.length} member{teamAssignments.length === 1 ? '' : 's'}
           </span>
           <button type="button" onClick={openPicker}
-            className="flex items-center gap-1 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <UserPlus className="w-3 h-3" /> Assign Members
+            className="ui-btn" data-variant="primary" data-size="sm" data-surface="dark">
+            <UserPlus aria-hidden="true" /> Assign members
           </button>
         </div>
       </div>
@@ -500,15 +501,15 @@ export default function TeamView() {
       <div className="flex-1 overflow-auto">
         {teamAssignments.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3">
-            <Users className="w-8 h-8" style={{ color: '#57534e' }} />
-            <span className="text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>
+            <Users className="w-8 h-8" style={{ color: 'var(--color-ink-3)' }} />
+            <span className="text-caption italic" style={{ color: 'var(--color-ink-3)' }}>
               No team members assigned to this project yet.
             </span>
           </div>
         ) : (
           <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: '0 2px' }}>
             <thead className="sticky top-0 z-10">
-              <tr style={{ borderBottom: '1px solid #44403c' }}>
+              <tr style={{ borderBottom: '1px solid var(--color-rule)' }}>
                 <Th>Name</Th>
                 <Th>Title</Th>
                 <Th>Department</Th>
@@ -527,12 +528,12 @@ export default function TeamView() {
                   <React.Fragment key={g.key}>
                     <tr>
                       <td colSpan={10}>
-                        <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-stone-800/30 transition-colors"
+                        <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-hover transition-colors"
                           onClick={() => toggleGroup(g.key)}
-                          style={{ borderBottom: '1px solid #292524' }}>
-                          {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: '#78716c' }} /> : <ChevronDown className="w-3 h-3" style={{ color: '#78716c' }} />}
-                          <span className="text-[11.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{g.label}</span>
-                          <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>{g.members.length}</span>
+                          style={{ borderBottom: '1px solid var(--color-rule)' }}>
+                          {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} /> : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
+                          <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{g.label}</span>
+                          <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{g.members.length}</span>
                         </div>
                       </td>
                     </tr>
@@ -549,25 +550,26 @@ export default function TeamView() {
 
       {/* ── Save view dialog ── */}
       {showSaveDialog && (
-        <>
-          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 rounded-sm overflow-hidden" style={{ transform: 'translate(-50%, -50%)', backgroundColor: '#292524', border: '1px solid #44403c', padding: 24, minWidth: 300 }}>
-            <div className="text-[11.5px] font-mono uppercase tracking-wider mb-3" style={{ color: '#fb923c' }}>Save current view</div>
-            <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              placeholder="View name…"
-              className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mb-3"
-              style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-                style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
-              <button type="button" onClick={saveCurrentView}
-                className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
-            </div>
-          </div>
-        </>
+        /* The kit's Dialog at its confirm width (R11). The backdrop still
+           closes it, Enter in the name field still saves; the title reads
+           as a title (Dialog's H2, sentence case), not a Label-step shout. */
+        <Dialog
+          title="Save current view"
+          width="confirm"
+          onClose={() => setShowSaveDialog(false)}
+          dismissOnBackdrop
+          footer={(
+            <>
+              <Button onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button variant="primary" onClick={saveCurrentView}>Save</Button>
+            </>
+          )}
+        >
+          <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
+            placeholder="View name…"
+            className="ui-input" data-size="md" data-surface="dark" />
+        </Dialog>
       )}
 
       {/* ── Member picker modal ── */}
@@ -579,6 +581,259 @@ export default function TeamView() {
           onClose={() => setShowPicker(false)}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Cloud roster panel (Supabase project_members, Session 6) ───
+//
+// One card = the whole roster (common region). The add-member picker sits
+// first in the card (serial position), each row groups avatar + name +
+// username + title tight on the left (proximity), the role select carries
+// a one-line description of the selected role (exactly 3 choices, default
+// 'member'), and remove is a subdued icon at the far right, well away from
+// the select (Fitts). Mutations go through the provider's optimistic
+// project-member API; the DB (0013 RLS) is the real gate — canOnProject()
+// here is presentation only. Non-managers get the read-only list.
+
+const PROJECT_ROLE_OPTIONS = [
+  { value: 'member',   label: 'Member',   desc: 'Edits project content' },
+  { value: 'manager',  label: 'Manager',  desc: 'Edits everything and manages this roster' },
+  { value: 'reviewer', label: 'Reviewer', desc: 'Read-only, can comment' },
+]
+const PROJECT_ROLE_RANK = { manager: 0, member: 1, reviewer: 2 }
+
+function ProjectMembersPanel({ ctx }) {
+  const perms = usePermissions()
+  const dir = useWorkspaceMembers()
+  const [search, setSearch] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef(null)
+
+  const projectMembers = ctx?.projectMembers || []
+  // 🚨 Session 29 added `ready`. `project.roster.manage` has no unstaffed
+  // opening and admits ONLY a project manager, so without it this panel drops
+  // to the read-only list for a real manager until their session resolves —
+  // and permanently if getSession() hangs. Same omission as
+  // DashboardTasksView and TaskDetailPopup; all three were found by
+  // writeGate.test.js rather than by anyone hitting them.
+  const canManage = canOnProject({
+    appRole:     perms.role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed:   ctx?.projectIsStaffed,
+    ready:       perms.ready,
+  }, 'project.roster.manage')
+
+  // user_id → directory row (display_name / username / title / avatar)
+  const dirById = useMemo(() => {
+    const map = {}
+    for (const m of dir.members) map[m.user_id] = m
+    return map
+  }, [dir.members])
+
+  const seatedIds = useMemo(
+    () => new Set(projectMembers.map(pm => pm.user_id)),
+    [projectMembers],
+  )
+
+  // Active directory members without a seat yet, narrowed by the search box.
+  const available = useMemo(() => {
+    const s = search.trim().toLowerCase()
+    return dir.members.filter(m => {
+      if (seatedIds.has(m.user_id) || m.is_active === false) return false
+      if (!s) return true
+      return (m.display_name || '').toLowerCase().includes(s)
+        || (m.username || '').toLowerCase().includes(s)
+        || (m.title || '').toLowerCase().includes(s)
+    })
+  }, [dir.members, seatedIds, search])
+
+  // Managers first, then members, then reviewers; name within each.
+  const seated = useMemo(() => {
+    return [...projectMembers].sort((a, b) => {
+      const ra = PROJECT_ROLE_RANK[a.project_role] ?? 9
+      const rb = PROJECT_ROLE_RANK[b.project_role] ?? 9
+      if (ra !== rb) return ra - rb
+      const na = (dirById[a.user_id]?.display_name || dirById[a.user_id]?.username || '').toLowerCase()
+      const nb = (dirById[b.user_id]?.display_name || dirById[b.user_id]?.username || '').toLowerCase()
+      return na.localeCompare(nb)
+    })
+  }, [projectMembers, dirById])
+
+  // Close the picker dropdown on outside click (same pattern as the saved
+  // views dropdown below).
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handleClick(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [pickerOpen])
+
+  async function handleAdd(userId) {
+    if (!ctx?.addProjectMember) return
+    setSearch('')
+    setPickerOpen(false)
+    try {
+      await ctx.addProjectMember(userId, 'member')
+    } catch (err) {
+      console.error('[TeamView] add project member failed:', err)
+    }
+  }
+
+  async function handleSeatRoleChange(userId, role) {
+    if (!ctx?.updateProjectMemberRole) return
+    try {
+      await ctx.updateProjectMemberRole(userId, role)
+    } catch (err) {
+      console.error('[TeamView] project role change failed:', err)
+    }
+  }
+
+  async function handleSeatRemove(userId, name) {
+    if (!ctx?.removeProjectMember) return
+    if (!window.confirm(`Remove "${name}" from this project's roster?`)) return
+    try {
+      await ctx.removeProjectMember(userId)
+    } catch (err) {
+      console.error('[TeamView] remove project member failed:', err)
+    }
+  }
+
+  return (
+    <div className="h-full overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
+      <div className="max-w-2xl mx-auto px-6 py-6">
+        {/* ── Roster card ── */}
+        <div className="rounded-control" style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}>
+          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+            <Users className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
+            <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>
+              Project Roster
+            </span>
+            <span className="ml-auto text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
+              {seated.length} seat{seated.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {/* Add-member picker — first thing in the card */}
+          {canManage && (
+            <div ref={pickerRef} className="relative px-4 py-3" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+              <div className="rb-field-wrap flex items-center gap-2 px-2 rounded-control" style={{ border: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)' }}>
+                <UserPlus className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-ink)' }} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setPickerOpen(true) }}
+                  onFocus={() => setPickerOpen(true)}
+                  placeholder="Add member — search the workspace directory…"
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-transparent text-dense" style={{ color: 'var(--color-ink)' }}
+                />
+              </div>
+              {pickerOpen && (
+                <div className="absolute left-4 right-4 mt-1 z-40 rounded-float shadow-float overflow-y-auto"
+                  style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)', maxHeight: 220 }}>
+                  {dir.loading ? (
+                    <div className="px-3 py-2 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
+                      Loading directory…
+                    </div>
+                  ) : available.length === 0 ? (
+                    <div className="px-3 py-2 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
+                      {search.trim() ? 'No matches.' : 'Every active workspace member is already on the roster.'}
+                    </div>
+                  ) : (
+                    available.map(m => (
+                      <button
+                        key={m.user_id}
+                        type="button"
+                        onClick={() => handleAdd(m.user_id)}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-left hover:bg-hover transition-colors"
+                        style={{ borderBottom: '1px solid var(--color-rule)' }}
+                      >
+                        <MemberAvatar member={{ name: m.display_name || m.username }} size={28} />
+                        <div className="flex-1 min-w-0">
+                          {/* A person's name is not data: the sans (P1 §7 audit, Q4). */}
+                          <div className="text-dense" style={{ color: 'var(--color-ink)' }}>
+                            {m.display_name || m.username || 'Unnamed'}
+                          </div>
+                          <div className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
+                            {[m.username ? `@${m.username}` : null, m.title].filter(Boolean).join(' — ') || '—'}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Seats (or the unstaffed explainer) */}
+          {seated.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              <Users className="w-6 h-6" style={{ color: 'var(--color-ink-3)' }} />
+              <span className="text-caption italic" style={{ color: 'var(--color-ink-3)' }}>
+                No roster yet — everyone in the workspace can edit this project. Add members to restrict it.
+              </span>
+            </div>
+          ) : (
+            seated.map(pm => {
+              const m = dirById[pm.user_id]
+              const name = m?.display_name || m?.username || 'Unknown member'
+              const role = pm.project_role || 'member'
+              const roleDef = PROJECT_ROLE_OPTIONS.find(o => o.value === role) || PROJECT_ROLE_OPTIONS[0]
+              return (
+                <div key={pm.user_id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--color-rule)' }}>
+                  {/* identity cluster */}
+                  <MemberAvatar member={{ name }} size={28} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-dense" style={{ color: 'var(--color-ink)' }}>{name}</div>
+                    <div className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
+                      {[m?.username ? `@${m.username}` : null, m?.title].filter(Boolean).join(' — ') || '--'}
+                    </div>
+                  </div>
+                  {/* role control (read-only badge for non-managers) */}
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {canManage ? (
+                      <select
+                        value={role}
+                        onChange={e => handleSeatRoleChange(pm.user_id, e.target.value)}
+                        className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
+                        data-role={role}
+                      >
+                        {PROJECT_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    ) : (
+                      <span className="rb-role px-1.5 py-0.5 text-dense rounded-control" data-role={role}>
+                        {roleDef.label}
+                      </span>
+                    )}
+                    <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>{roleDef.desc}</span>
+                  </div>
+                  {/* remove — far right, clear of the role select */}
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => handleSeatRemove(pm.user_id, name)}
+                      className="p-1 ml-3 rounded-control hover:bg-hover transition-colors flex-shrink-0"
+                      title="Remove from roster"
+                      style={{ color: 'var(--color-ink-3)' }}
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {dir.error && (
+          <div className="mt-2 text-caption" style={{ color: 'var(--color-danger)' }}>
+            Directory unavailable: {dir.error}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -628,51 +883,45 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
     }
   }
 
+  // The kit's Dialog (R11; Q17). Search, list, selection and confirm are
+  // unchanged; the backdrop click still closes it (dismissOnBackdrop). The
+  // title reads as a title — sentence case at the Dialog's H2, not a
+  // Label-step shout — and the count sits in the footer with the actions.
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50"
-        style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-        onClick={onClose}
-      />
-      {/* Modal */}
-      <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-md rounded-sm overflow-hidden flex flex-col"
-        style={{
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: '#292524',
-          border: '1px solid #44403c',
-          maxHeight: '70vh',
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
-          <span className="text-xs font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
-            Assign Team Members
+    <Dialog
+      title="Assign team members"
+      onClose={onClose}
+      dismissOnBackdrop
+      busy={assigning}
+      footer={(
+        <>
+          <span className="text-caption font-mono tabular-nums" style={{ color: 'var(--color-ink-2)', marginRight: 'auto' }}>
+            {selected.size} selected
           </span>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm" style={{ color: '#a8a29e' }}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={selected.size === 0 || assigning}>
+            {assigning ? 'Adding…' : `Add ${selected.size || ''} member${selected.size === 1 ? '' : 's'}`}
+          </Button>
+        </>
+      )}
+    >
+        <div className="rb-picker">
         {/* Search */}
-        <div className="px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c' }}>
+        <div className="rb-picker-search px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--color-rule)' }}>
           <input
             autoFocus
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, email, or department..."
-            className="flex-1 px-2 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+            className="ui-input flex-1" data-size="sm" data-surface="dark"
           />
           {filtered.length > 0 && (
             <button
               type="button"
               onClick={selected.size === filtered.length ? selectNone : selectAll}
-              className="text-[10.5px] font-mono uppercase tracking-wider px-2 py-1 rounded-sm hover:bg-stone-700 transition-colors whitespace-nowrap"
-              style={{ color: '#a8a29e' }}
+              className="text-dense px-2 py-1 rounded-control hover:bg-hover transition-colors whitespace-nowrap"
+              style={{ color: 'var(--color-ink-2)' }}
             >
               {selected.size === filtered.length ? 'None' : 'All'}
             </button>
@@ -683,12 +932,13 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
         <div className="flex-1 overflow-auto">
           {loading ? (
             <div className="flex items-center justify-center py-10">
-              <span className="text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>Loading members...</span>
+              <span className="text-dense italic" style={{ color: 'var(--color-ink-3)' }}>Loading members...</span>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2">
-              <Users className="w-6 h-6" style={{ color: '#57534e' }} />
-              <span className="text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>
+              <Users className="w-6 h-6" style={{ color: 'var(--color-ink-3)' }} />
+              {/* A sentence, not data: the sans, upright (P1 §7 audit, Q4). */}
+              <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>
                 {members.length === 0 ? 'All members are already assigned, or none exist in the database.' : 'No matches.'}
               </span>
             </div>
@@ -698,73 +948,36 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
               return (
                 <label
                   key={m.id}
-                  className="flex items-center gap-3 w-full px-4 py-2.5 cursor-pointer transition-colors"
-                  style={{
-                    borderBottom: '1px solid #1c1917',
-                    backgroundColor: checked ? 'rgba(234, 88, 12, 0.12)' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => { if (!checked) e.currentTarget.style.backgroundColor = '#44403c' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = checked ? 'rgba(234, 88, 12, 0.12)' : 'transparent' }}
+                  className="rb-picker-row flex items-center gap-3 w-full px-4 py-2.5 cursor-pointer transition-colors"
+                  data-checked={checked ? 'true' : undefined}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleMember(m.id)}
-                    className="accent-orange-600 w-4 h-4 flex-shrink-0 cursor-pointer"
+                    className="accent-signal w-4 h-4 flex-shrink-0 cursor-pointer"
                   />
                   <MemberAvatar member={m} size={28} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-mono" style={{ color: '#d6d3d1' }}>{m.name || 'Unnamed'}</div>
-                    <div className="text-[10.5px] font-mono truncate" style={{ color: '#78716c' }}>
+                    <div className="text-dense" style={{ color: 'var(--color-ink)' }}>{m.name || 'Unnamed'}</div>
+                    <div className="text-dense truncate" style={{ color: 'var(--color-ink-3)' }}>
                       {[m.title, m.department].filter(Boolean).join(' \u2014 ') || '--'}
                     </div>
                   </div>
-                  <span className="text-[10.5px] font-mono flex-shrink-0" style={{ color: '#78716c' }}>{m.email || ''}</span>
+                  <span className="text-dense flex-shrink-0" style={{ color: 'var(--color-ink-3)' }}>{m.email || ''}</span>
                 </label>
               )
             })
           )}
         </div>
 
-        {/* Footer with confirm button */}
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
-        >
-          <span className="text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
-            {selected.size} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={selected.size === 0 || assigning}
-              className="px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                color: '#fff7ed',
-                backgroundColor: '#ea580c',
-                border: '1px solid #c2410c',
-              }}
-            >
-              {assigning ? 'Adding...' : `Add ${selected.size || ''} Member${selected.size === 1 ? '' : 's'}`}
-            </button>
-          </div>
         </div>
-      </div>
-    </>
+    </Dialog>
   )
 }
 
 // ─── Member avatar (initials circle) ───
-function MemberAvatar({ member, size = 24 }) {
+function MemberAvatar({ member, size = 28 }) {
   const initials = (member?.name || '?')
     .split(/\s+/)
     .filter(Boolean)
@@ -772,16 +985,53 @@ function MemberAvatar({ member, size = 24 }) {
     .map(w => w[0]?.toUpperCase() || '')
     .join('')
   return (
+    /* T2: the size was `Math.max(8, size * 0.38)`, and MemberAvatar is called
+       at 24 and 28 and nothing else — so it rendered at 9.12px and 10.64px,
+       both BELOW §3.1's 11px floor and neither of them on the scale. A
+       computed size cannot be on a seven-step scale by accident, and this one
+       was not.
+
+       🚨 CAPTION, NOT DENSE, AND THE CIRCLE IS WHY. The map's answer for a
+       plain <div> under 12.5px on a surface its Dense-file list does not name
+       is Dense — but the map reasons about a role, not about a 24px box with
+       no `overflow`. Measured in the browser, two capitals at each step,
+       against a 24px circle:
+
+         text-dense  (13/600)   WW 25.64   MW 24.31   MM 23.25   ← two overflow
+         text-caption(12/600)   WW 23.67   MW 22.44   MM 21.47   ← all fit
+         text-label  (11/600)   WW 23.02   MW 21.89   MM 21.00
+
+       At Dense the glyphs render OUTSIDE the circle, and nothing in the repo
+       would have caught it: `scrollWidth === clientWidth` on a fixed-width
+       flex box with visible overflow, so neither the page check's
+       document-level overflow test nor a per-cell `scrollWidth` test can go
+       red. A reviewer measured it with `Range.getBoundingClientRect`.
+
+       Caption is one step down and still 2.9px up from where this started.
+       Sans because `classifyMono` finds no data evidence — initials are a NAME
+       compressed, not an identifier — and 600 because a two-letter chip has no
+       other way to hold its own.
+
+       📌 FOR B1, which owns Team (plan §5): no step on the scale clears the
+       circle's INSCRIBED width at 24px. 12px caps are ~8.6px tall, so at the
+       cap line a 24px circle offers about 22.4px, and WW is 23.67 at Caption
+       and 23.02 even at Label. The chip wants to be 28px, not the type to be
+       smaller. Two of the four call sites already are 28 — `:805` and `:988`
+       — and it is `:324` and `:770` that pass 24.
+
+       B1 (2026-09-23) took the call: every call site passes 28 and the
+       default is 28, so the Caption initials sit inside the circle at every
+       width T2 measured (WW 23.67 against about 26.4px of room at 28). */
     <div
-      className="flex items-center justify-center rounded-full flex-shrink-0"
+      className="flex items-center justify-center rounded-full flex-shrink-0 text-caption font-semibold"
       style={{
         width: size,
         height: size,
-        backgroundColor: '#44403c',
-        color: '#d6d3d1',
-        fontSize: Math.max(8, size * 0.38),
-        fontFamily: 'monospace',
-        fontWeight: 'bold',
+        // paper with a hairline: the chip sits on the raised roster panel, where
+        // the raised paper it was mapped to drew no circle at all (B1 R1).
+        backgroundColor: 'var(--color-paper)',
+        border: '1px solid var(--color-rule)',
+        color: 'var(--color-ink)',
       }}
     >
       {initials}
@@ -792,13 +1042,16 @@ function MemberAvatar({ member, size = 24 }) {
 // ─── Table atoms (dark theme) ───
 function Th({ children }) {
   return (
-    <th className="px-4 py-2.5 text-[10.5px] font-mono uppercase tracking-widest text-left" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
+    /* R06: the head is sticky, and with no ground of its own the rows
+       scrolled through its text. The raised paper is the kit Table's head
+       token; the cells take the kit's 8px 12px (§3.3). */
+    <th className="px-3 py-2 text-label uppercase text-left" style={{ color: 'var(--color-ink-3)', backgroundColor: 'var(--color-paper-raised)', borderBottom: '1px solid var(--color-rule)' }}>
       {children}
     </th>
   )
 }
 function Td({ children }) {
-  return <td className="px-4 py-2.5 align-middle">{children}</td>
+  return <td className="px-3 py-2 align-middle">{children}</td>
 }
 
 // ─── Filter panel ───
@@ -812,43 +1065,39 @@ function TeamFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
     return TEAM_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text'
   }
   return (
-    <div className="px-4 py-2.5 flex flex-col gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+    <div className="px-4 py-2.5 flex flex-col gap-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)' }}>
       {filters.map((f, i) => {
         const type = getType(f)
         const ops = FILTER_OPS[type] || FILTER_OPS.text
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[9.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink-3)', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              className="ui-input" data-size="sm" data-surface="dark">
               {TEAM_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              className="ui-input" data-size="sm" data-surface="dark">
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+                  className="ui-input" data-size="sm" data-surface="dark">
                   <option value="">Select…</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-32"
-                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}
+                  className="ui-input w-32" data-size="sm" data-surface="dark"
                   placeholder="value…" />
               )
             )}
             <button type="button" onClick={() => onRemove(i)}
-              className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              className="p-1 rounded-control hover:bg-hover transition-colors" style={{ color: 'var(--color-ink-3)' }}>
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -856,13 +1105,13 @@ function TeamFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
       })}
       <div className="flex items-center gap-2">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: '#fb923c', border: '1px solid #44403c' }}>
+          className="flex items-center gap-1 px-2.5 py-1 text-dense rounded-control hover:bg-hover transition-colors"
+          style={{ color: 'var(--color-ink)', border: '1px solid var(--color-rule)' }}>
           <Plus className="w-3 h-3" /> Add filter
         </button>
         <button type="button" onClick={onClose}
-          className="px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
-          style={{ color: '#78716c', border: '1px solid #44403c' }}>
+          className="px-2.5 py-1 text-dense rounded-control hover:bg-hover transition-colors"
+          style={{ color: 'var(--color-ink-3)', border: '1px solid var(--color-rule)' }}>
           Done
         </button>
       </div>
@@ -887,30 +1136,30 @@ function TeamSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
-        style={{ color: views.length > 0 ? '#fb923c' : '#57534e' }}
+        className="rb-saved-views p-1.5 rounded-control hover:bg-hover transition-colors"
+        data-active={views.length > 0 ? 'true' : undefined}
         title="Saved views">
         <BookmarkPlus className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
-          style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 180, maxHeight: 240 }}>
+        <div className="absolute right-0 mt-1 z-40 rounded-float shadow-float overflow-hidden"
+          style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)', minWidth: 180, maxHeight: 240 }}>
           <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
             {views.length === 0 ? (
-              <div className="px-3 py-2 text-[10.5px] font-mono italic" style={{ color: '#57534e' }}>
+              <div className="px-3 py-2 text-dense italic" style={{ color: 'var(--color-ink-3)' }}>
                 No saved views yet
               </div>
             ) : (
               views.map(v => (
                 <div key={v.id}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-stone-700 transition-colors cursor-pointer"
-                  style={{ borderBottom: '1px solid #1c1917' }}>
-                  <span className="flex-1 text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-hover transition-colors cursor-pointer"
+                  style={{ borderBottom: '1px solid var(--color-rule)' }}>
+                  <span className="flex-1 text-dense truncate" style={{ color: 'var(--color-ink)' }}
                     onClick={() => { onLoad(v); setOpen(false) }}>
                     {v.name}
                   </span>
                   <button type="button" onClick={() => onDelete(v.id)}
-                    className="p-0.5 rounded-sm hover:bg-stone-600 transition-colors" style={{ color: '#78716c' }}>
+                    className="p-0.5 rounded-control hover:bg-hover transition-colors" style={{ color: 'var(--color-ink-3)' }}>
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -918,8 +1167,8 @@ function TeamSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
             )}
           </div>
           <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
-            className="w-full px-3 py-2 text-[10.5px] font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors text-left"
-            style={{ color: '#fb923c', borderTop: '1px solid #44403c' }}>
+            className="w-full px-3 py-2 text-dense hover:bg-hover transition-colors text-left"
+            style={{ color: 'var(--color-ink)', borderTop: '1px solid var(--color-rule)' }}>
             <Save className="w-3 h-3 inline-block mr-1.5" /> Save current view
           </button>
         </div>
