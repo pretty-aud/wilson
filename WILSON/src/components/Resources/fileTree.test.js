@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, ROOT_ID, LEGAL_FOLDER_ID } from './fileTree.js'
+import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, crumbsFor, folderPathIds, folderRows, ROOT_ID, LEGAL_FOLDER_ID } from './fileTree.js'
 
 const folders = [
   { id: 'r', kind: 'root', path: '', parent_id: null },
@@ -98,9 +98,11 @@ describe('flattenTree / filterFlat / sortRows', () => {
     expect(clip.depth).toBe(2)
     expect(flat.indexOf(assets)).toBeLessThan(flat.indexOf(clip))
   })
-  it('filters by name or path and keeps the ancestors so the path reads', () => {
+  it('filters by name or path: the matches only, since S4c (the Table shows a search with a Location column)', () => {
     const rows = filterFlat(flat, 'CLIP')
-    expect(rows.map(r => r.node.id)).toEqual(['a', 'a1', 'f:f1'])
+    expect(rows.map(r => r.node.id)).toEqual(['f:f1'])
+    // A folder matches by its own name or path, not because something inside it does.
+    expect(filterFlat(flat, 'hero').map(r => r.node.id)).toEqual(['a1', 'f:f2', 'f:f1', 'm:m1'])
     expect(filterFlat(flat, '')).toBe(flat)
   })
   it('sorts by size, duration and created, folders first on ties', () => {
@@ -110,6 +112,34 @@ describe('flattenTree / filterFlat / sortRows', () => {
     expect(byDur.slice(0, 2)).toEqual([12.5, 4])
     const byCreated = sortRows(flat.filter(r => r.node.kind === 'file' && r.node.meta.createdAt), 'created', 'asc').map(r => r.node.name)
     expect(byCreated[0]).toBe('notes.txt')
+  })
+})
+
+// ── Post-overhaul S4c: the Table shows one folder at a time ──────────────────
+describe('crumbsFor / folderPathIds / folderRows (S4c)', () => {
+  const t = buildFileTree({ folders, files, managedFiles })
+  it('the crumb runs from the root to the folder; the walk is the crumb without the root', () => {
+    const hero = t.byId.get('a1')
+    expect(crumbsFor(hero).map(n => n.id)).toEqual(['r', 'a', 'a1'])
+    expect(folderPathIds(hero)).toEqual(['a', 'a1'])
+    expect(crumbsFor(t.root).map(n => n.id)).toEqual(['r'])
+    expect(folderPathIds(t.root)).toEqual([])
+    expect(folderPathIds(null)).toEqual([])
+    // The walk opens exactly that folder through columnsFor.
+    const cols = columnsFor(t.root, folderPathIds(hero))
+    expect(cols[cols.length - 1].folder.id).toBe('a1')
+  })
+  it('lists a folder\'s own children: folders first, then files, each group sorted by the key', () => {
+    const names = (rows) => rows.map(r => r.node.name)
+    expect(names(folderRows(t.root, 'name', 'asc'))).toEqual(['ASSETS', 'SCENES', 'sh01', 'loose.png', 'notes.txt'])
+    expect(names(folderRows(t.root, 'name', 'desc'))).toEqual(['sh01', 'SCENES', 'ASSETS', 'notes.txt', 'loose.png'])
+    // By size: the folders (no size) stay first, in name order among themselves.
+    expect(names(folderRows(t.root, 'size', 'desc'))).toEqual(['ASSETS', 'SCENES', 'sh01', 'notes.txt', 'loose.png'])
+    expect(names(folderRows(t.byId.get('a1'), 'size', 'desc'))).toEqual(['Hero_v001.mov', 'clip.mov', 'board.png'])
+    // Never a grandchild, never the folder itself.
+    expect(folderRows(t.byId.get('a'), 'name').map(r => r.node.id)).toEqual(['a1'])
+    expect(folderRows(null, 'name')).toEqual([])
+    for (const r of folderRows(t.root, 'name')) expect(r.depth).toBe(0)
   })
 })
 

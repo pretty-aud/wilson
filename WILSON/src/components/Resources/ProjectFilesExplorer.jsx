@@ -103,10 +103,43 @@
 // so switching between them is a change of arrangement rather than a change of
 // application. The exact values are listed in this session's hand-off, because
 // lane B converges FileManager, BinFileTable and ProjectFilesTable on them.
+//
+// ── Post-overhaul S4c (2026-10-05): the Table is an explorer ─────────────────
+//
+// Audrey, after testing the beta: "in the files table view. everything seems
+// to be in the same level. similar to windows explorer. i should be able to
+// press into a folder and the table should show the files/folders in that
+// folder. … at the top i should see the breadcrumb path of where the folder
+// is in etc. think how the table view works in windows explorer". Her word
+// supersedes the overhaul review's flat list (F-R12, kept under C1 as E7): the
+// Table shows ONE folder at a time — its folders, then its files, each group
+// sorted by the chosen column (fileTree.folderRows) — with a crumb bar above
+// it (Project › SCENES › Proj-Sc01), each crumb a button, an Up button at its
+// start, Backspace or Alt+← to go up, Enter on a folder's name to open it,
+// ↑ ↓ Home End between the rows. The Columns view keeps the SAME place
+// (`selected` is the one "where you are" for both views, as fileTree.js
+// explains), so switching views never loses the folder, and the file window's
+// Location crumb agrees with the bar.
+//
+// The search box keeps today's reach: while a query is typed the Table shows
+// the matches from the WHOLE tree with their folder in the Location column
+// (filterFlat over flattenTree, sorted as before); clearing it returns to the
+// folder you were in. The Location column exists only there — in a folder the
+// crumb says where every row is, so the column would say it a second time.
+// The indent-by-depth code and the three-attempt note above TableView are
+// gone with the flat list: there is no indent, and the parent is the crumb.
+//
+// Keys: the handler sits on the table area itself (React's onKeyDown), so it
+// can only fire with focus inside this explorer — never from another page
+// (every page stays mounted, but a hidden page cannot hold focus), never from
+// the search box (it is in the toolbar, outside the table area), never from a
+// text field at all (checked), never under a kit dialog or menu (overlayOpen),
+// and only while this host's page is on screen (`pageActive`, from Rabbit.jsx
+// as the Bins keys take it). A bare Shift is left alone: it is the pet's.
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye, Lock } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, Upload, FileClock, FolderSearch, Download, ExternalLink, X, Eye, Lock, ArrowUp } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigate'
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
@@ -133,8 +166,20 @@ import {
 // constraint that says not to (C1), so the native one stays.
 import { formatBytes } from '../../cloud/workspaceStorage'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
-import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows } from './fileTree'
+import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows, crumbsFor, folderPathIds, folderRows } from './fileTree'
+import { overlayOpen } from '../../ui/overlay'
 import './resources.css'
+
+// S4c: a row clicked within this many ms of entering a folder is ignored. A
+// folder opens on ONE click (Audrey: "press into a folder"), so the second
+// click of a habitual double-click would land on whatever row the new folder
+// put under the pointer — opening a sub-folder or selecting a file nobody
+// chose. Keys are never held back; only pointer clicks on rows are.
+const NAV_SETTLE_MS = 350
+
+function isTextField(t) {
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
+}
 
 const VIEW_PANEL_ID = 'fx-view-panel'
 
@@ -226,7 +271,11 @@ function applyOverlay(rows, overlay) {
   return rows.map(r => (overlay.has(r.id) ? { ...r, ...overlay.get(r.id) } : r))
 }
 
-export default function ProjectFilesExplorer({ projectId: hostProjectId = null, showPicker = true } = {}) {
+// `pageActive` (S4c): whether this host's page is the one on screen. R.A.B.B.I.T.
+// passes `currentPage === 'rabbit'` (its page stays mounted while hidden); the
+// Resources page mounts the explorer only while it is shown, so its default
+// is true. The table's keys stand down while it is false.
+export default function ProjectFilesExplorer({ projectId: hostProjectId = null, showPicker = true, pageActive = true } = {}) {
   const ctx = useRabbit()
   const projects = useMemo(
     () => Object.values(ctx?.projectsIndex || {}).sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' })),
@@ -319,8 +368,19 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const selectedFile = (selectedFileId && tree?.byId.get(selectedFileId)) || null
 
   const flat = useMemo(() => (tree ? flattenTree(tree.root) : []), [tree])
-  const tableRows = useMemo(() => sortRows(filterFlat(flat, query), sortKey, sortDir), [flat, query, sortKey, sortDir])
   const cols = useMemo(() => (tree ? columnsFor(tree.root, selected) : []), [tree, selected])
+  // ── S4c: where you are, for BOTH views ──────────────────────────────────
+  // `selected` is the walk from the root; columnsFor stops it at the first id
+  // that is no longer a folder in the tree (a folder removed under you, say),
+  // so the current folder is always one that exists, and the crumb names it.
+  const currentFolder = cols.length ? cols[cols.length - 1].folder : null
+  const searching = query.trim() !== ''
+  // In a folder: that folder's rows, folders first. While a query is typed:
+  // the matches from the whole tree, sorted as the flat list always was.
+  const tableRows = useMemo(() => (searching
+    ? sortRows(filterFlat(flat, query), sortKey, sortDir)
+    : folderRows(currentFolder, sortKey, sortDir)),
+  [searching, flat, query, currentFolder, sortKey, sortDir])
 
   const onSort = useCallback((key) => {
     setSortDir(d => (sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'asc'))
@@ -336,14 +396,53 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
     setSelectedFileId(node.id)
   }, [])
 
+  // ── S4c: entering, going up, the crumb ──────────────────────────────────
+  // Every move sets the WHOLE walk from the root (folderPathIds), never pushes
+  // onto `selected`: a folder reached through a search is deeper than the
+  // folder you were in, and a walk that stopped early (see currentFolder) has
+  // ids past its end that a push would sit behind. Focus follows the move
+  // (`focusAfterRef`, below): the first row of a folder entered, the folder
+  // you left when going up — Explorer's own hand-back.
+  const focusAfterRef = useRef(null)
+  const navigatedAtRef = useRef(0)
+  const enterFolder = useCallback((node) => {
+    if (!node || node.kind !== 'folder') return
+    setSelected(folderPathIds(node))
+    setSelectedFileId(null)
+    setQuery('')
+    navigatedAtRef.current = Date.now()
+    focusAfterRef.current = { first: true }
+  }, [])
+  const goUp = useCallback(() => {
+    const from = currentFolder
+    if (!from || from.isRoot || !from.parent) return
+    setSelected(folderPathIds(from.parent))
+    setSelectedFileId(null)
+    navigatedAtRef.current = Date.now()
+    focusAfterRef.current = { id: from.id }
+  }, [currentFolder])
+  const goToCrumb = useCallback((folder) => {
+    if (!folder) return
+    setSelected(folderPathIds(folder))
+    setSelectedFileId(null)
+    navigatedAtRef.current = Date.now()
+    focusAfterRef.current = { first: true }
+  }, [])
+  // The settle guard (NAV_SETTLE_MS): a pointer click on a row right after a
+  // move is the second half of a double-click, and is dropped.
+  const rowClickSettled = useCallback(() => Date.now() - navigatedAtRef.current >= NAV_SETTLE_MS, [])
+
   // "Show in Files" from another tab (state/rabbitNavigate.js): the target is
   // wired here, on the R.A.B.B.I.T. host; nothing calls it yet. A payload for
-  // a file the tree has not loaded yet is declined and stays pending.
+  // a file the tree has not loaded yet is declined and stays pending. S4c: it
+  // lands in the file's FOLDER with the file selected, in either view.
   const showFileTarget = useCallback((p) => {
     if (!p?.fileId) return true
     if (!tree) return false
     const id = tree.byId.has(`f:${p.fileId}`) ? `f:${p.fileId}` : (tree.byId.has(`m:${p.fileId}`) ? `m:${p.fileId}` : null)
     if (!id) return true
+    const node = tree.byId.get(id)
+    setSelected(folderPathIds(node?.parent))
     setSelectedFileId(id)
     return true
   }, [tree])
@@ -690,6 +789,53 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
       el?.focus?.()
     }, 0)
   }, [])
+
+  // ── S4c: the table's keys, and focus after a move ───────────────────────
+  // The name buttons in the Table (`[data-node-id]`, both kinds now) carry a
+  // roving tab stop: one of them is in the tab order (the selected file's,
+  // else the first row's) and the arrows walk the rest. The handler is on
+  // the table area, so see the header: only with focus in here, never in a
+  // text field, never under a dialog or menu, only while the page is shown.
+  const tableButtons = useCallback(() => [...(rootRef.current?.querySelectorAll('[data-files-table] [data-node-id]') || [])], [])
+  const onTableKeyDown = useCallback((e) => {
+    if (!pageActive || overlayOpen()) return
+    if (isTextField(e.target) || e.ctrlKey || e.metaKey) return
+    const current = typeof e.target?.closest === 'function' ? e.target.closest('[data-node-id]') : null
+    const stepTo = (pick) => {
+      const list = tableButtons()
+      if (list.length === 0) return
+      const i = current ? list.indexOf(current) : -1
+      const el = list[Math.max(0, Math.min(list.length - 1, pick(i, list.length)))]
+      if (el) { e.preventDefault(); el.focus() }
+    }
+    switch (e.key) {
+      case 'ArrowDown': return stepTo((i) => i + 1)
+      case 'ArrowUp': return stepTo((i) => (i < 0 ? 0 : i - 1))
+      case 'Home': return stepTo(() => 0)
+      case 'End': return stepTo((_i, n) => n - 1)
+      case 'Backspace':
+        if (e.altKey || e.shiftKey || searching) return
+        if (currentFolder && !currentFolder.isRoot) { e.preventDefault(); goUp() }
+        return
+      case 'ArrowLeft':
+        if (!e.altKey || searching) return
+        if (currentFolder && !currentFolder.isRoot) { e.preventDefault(); goUp() }
+        return
+      default:
+    }
+  }, [pageActive, searching, currentFolder, goUp, tableButtons])
+  // After a move the table re-renders with the new folder's rows; focus goes
+  // to the first row (entering) or to the folder just left (going up). Only
+  // in the Table — the Columns view keeps its own buttons' focus.
+  useEffect(() => {
+    const want = focusAfterRef.current
+    if (!want || view !== 'table') return
+    focusAfterRef.current = null
+    const list = tableButtons()
+    const el = want.id ? list.find((b) => b.getAttribute('data-node-id') === want.id) : list[0]
+    const fallback = rootRef.current?.querySelector('[data-folder-up]')
+    ;(el || fallback)?.focus?.()
+  }, [tableRows, view, tableButtons])
   // The file's actions, in the file window's footer and the preview's bar.
   // The on-disk pair is ONE unit: the footer is too narrow for Preview and
   // both, so the pair wraps whole instead of stranding the icon on a line
@@ -881,10 +1027,46 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           // ways, so they get one frame, one gutter and one set of tokens.
           <Card pad={false} className="fx-card">
             <div className="fx-split">
-              <div className="fx-main">
-                {view === 'table'
-                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFileId(node.id)} onOpen={openPreview} selectedId={selectedFile?.id || null} />
-                  : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} onOpenFile={openPreview} />}
+              {/* S4c: the table area owns the keys (the header says why it is
+                  here and nowhere wider); the crumb bar sits above the rows,
+                  at the table head's height, so "where am I" and "what is
+                  here" are one column of reading (Proximity). */}
+              <div className="fx-main" onKeyDown={view === 'table' ? onTableKeyDown : undefined} data-files-main={view}>
+                {view === 'table' ? (
+                  <>
+                    <CrumbBar
+                      folder={currentFolder}
+                      searching={searching}
+                      query={query}
+                      matches={tableRows.length}
+                      onUp={goUp}
+                      onCrumb={goToCrumb}
+                      onClear={() => setQuery('')}
+                    />
+                    {tableRows.length === 0 ? (
+                      searching ? (
+                        <EmptyState compact Icon={Search} title={`No files match “${query.trim()}” in this project`} body="Nothing here has that in its name, its path or its tags." data-files-empty="search" />
+                      ) : (
+                        <EmptyState compact Icon={Folder} title="Empty folder" body="Nothing is filed in here." data-files-empty="folder" />
+                      )
+                    ) : (
+                      <TableView
+                        rows={tableRows}
+                        mode={searching ? 'search' : 'folder'}
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                        onPick={(node) => setSelectedFileId(node.id)}
+                        onOpen={openPreview}
+                        onEnterFolder={enterFolder}
+                        settled={rowClickSettled}
+                        selectedId={selectedFile?.id || null}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} onOpenFile={openPreview} />
+                )}
               </div>
               <DetailsPanel
                 node={selectedFile}
@@ -989,14 +1171,15 @@ const PREVIEW_READS_LOGGED = new Set()
 /** Tests only (overlay.js's `_resetOverlaysForTests` pattern): one session per test. */
 export function _resetPreviewReadsForTests() { PREVIEW_READS_LOGGED.clear() }
 
-// The seven columns, their widths, their alignment and their type, declared
-// once. `table-layout: fixed` reads the header row, so these ARE the grid
-// rather than an emergent property of whichever cell happened to be longest.
+// The columns, their widths, their alignment and their type, declared once.
+// `table-layout: fixed` reads the header row, so these ARE the grid rather
+// than an emergent property of whichever cell happened to be longest.
 //
-// 🚨 They sum to exactly 100. A percentage table that over-sums is not a
-// declared table at all: the browser reconciles the excess and every column
+// 🚨 Each list sums to exactly 100. A percentage table that over-sums is not
+// a declared table at all: the browser reconciles the excess and every column
 // lands somewhere other than where it was written (F2 hit this twice building
-// Team Members). 30 + 10 + 8 + 14 + 14 + 8 + 16 = 100.
+// Team Members). In a folder: 42 + 10 + 10 + 14 + 14 + 10 = 100. In a search:
+// 26 + 10 + 10 + 14 + 14 + 10 + 16 = 100.
 //
 // `numeric` is the kit's one switch for "this is a figure": right alignment,
 // the mono, and tabular figures, together. Declaring it here rather than per
@@ -1009,10 +1192,20 @@ export function _resetPreviewReadsForTests() { PREVIEW_READS_LOGGED.clear() }
 // than no file size at all. The Duration HEADER did not fit its own label
 // either, at 1280 or at 1440.
 //
-// Name gives up the four points, because it is the column with slack: it
-// ellipsises a NAME, whose tail the Location column and the details panel both
-// still carry.
-const HEADERS = [
+// S4c: in a FOLDER there is no Location column — the crumb above the table
+// names the parent of every row — and Name takes its sixteen points, which
+// is where a long shot name was being cut. In a SEARCH the matches come from
+// the whole tree, so Location comes back with its sixteen points (truncated
+// from the left, F-R32) and Name gives them up again, as before.
+const FOLDER_HEADERS = [
+  ['name', 'Name', { width: '42%' }],
+  ['type', 'Type', { width: '10%' }],
+  ['size', 'Size', { width: '10%', numeric: true }],
+  ['created', 'Created', { width: '14%', numeric: true }],
+  ['modified', 'Modified', { width: '14%', numeric: true }],
+  ['duration', 'Duration', { width: '10%', numeric: true }],
+]
+const SEARCH_HEADERS = [
   ['name', 'Name', { width: '26%' }],
   ['type', 'Type', { width: '10%' }],
   ['size', 'Size', { width: '10%', numeric: true }],
@@ -1022,40 +1215,83 @@ const HEADERS = [
   ['path', 'Location', { width: '16%' }],
 ]
 
-// 🚨 THE TABLE VIEW DOES NOT INDENT, AND THIS TOOK THREE GOES TO GET RIGHT.
-//
-// F-R12: `sortRows` re-sorts the FLATTENED list globally, so a file three
-// levels deep lands wherever its name or its size puts it while keeping the
-// indent it had in the tree — claiming a parent it does not have. What the
-// review did not say, and what turned out to matter, is that `sortRows` runs
-// for EVERY key INCLUDING name-ascending, which is the default. So the page
-// opened in a lying state and there was never an arrangement where the indent
-// was true.
-//
-// The second attempt made the default case skip `sortRows`, so tree order WAS
-// the default. That fixed the indent and broke two other things: the Name
-// header still rendered `aria-sort="ascending"` and an up arrow over rows that
-// were not in name order, and a flat A-to-Z listing stopped being reachable at
-// all, because clicking Name then cycled tree-order against flat-Z-to-A. It
-// traded a lying indent for a lying header, and lost a state the user had.
-//
-// So the ordering is exactly what it always was — every sort state reachable,
-// every arrow honest, nothing about the view changed — and the INDENT is what
-// goes, because the indent is the part that was never true.
-//
-// Parentage is not lost with it. The Location column carries the full path on
-// every row, which is what the review itself prescribes for the flattened case
-// ("show the path in the Location column rather than silently removing
-// indentation"), and the Columns view beside it is the actual tree.
-function TableView({ rows, sortKey, sortDir, onSort, onPick, onOpen, selectedId }) {
+// ── S4c: the crumb bar ───────────────────────────────────────────────────────
+// Explorer's address bar, read left to right: Up, then Project › SCENES ›
+// Proj-Sc01. Every crumb but the last is a button (Jakob: that is what a
+// crumb does everywhere); the last is where you are, in the full ink, marked
+// aria-current. The Up button is the one pointer target for "back out", at
+// the start where the eye begins the line and at the row's own height
+// (Fitts); its title says what Backspace does, so the key is discoverable
+// without reading Help (Paradox of the Active User). While a query is typed
+// the bar says what the rows are — matches across the project — with the one
+// action that fits that state, Clear (Von Restorff).
+function CrumbBar({ folder, searching, query, matches, onUp, onCrumb, onClear }) {
+  const crumbs = crumbsFor(folder)
+  const atRoot = !folder || folder.isRoot || !folder.parent
+  const parentName = atRoot ? '' : (folder.parent.isRoot ? 'Project' : folder.parent.name)
+  return (
+    <div className="fx-crumbs" data-files-crumbs={searching ? 'search' : 'folder'}>
+      {searching ? (
+        <>
+          <Search className="fx-crumb-glyph" aria-hidden="true" />
+          <span className="fx-crumb-note" data-search-note>
+            {matches} match{matches === 1 ? '' : 'es'} for “{query.trim()}” across the project
+          </span>
+          <Button size="sm" variant="ghost" onClick={onClear} data-search-clear>Clear</Button>
+        </>
+      ) : (
+        <>
+          <IconButton
+            size="sm"
+            icon={ArrowUp}
+            title={atRoot ? 'This is the project folder' : `Up to ${parentName} (Backspace)`}
+            disabled={atRoot}
+            onClick={onUp}
+            data-folder-up
+          />
+          <nav aria-label="Folder path" className="fx-crumb-nav">
+            <ol className="fx-crumb-list">
+              {crumbs.map((c, i) => (
+                <li key={c.id} className="fx-crumb">
+                  {i > 0 && <span className="fx-crumb-sep" aria-hidden="true">›</span>}
+                  {i < crumbs.length - 1 ? (
+                    <button type="button" className="fx-crumb-btn" onClick={() => onCrumb(c)} title={`Open ${c.isRoot ? 'the project folder' : c.name}`} data-crumb={c.id}>
+                      {c.isRoot ? 'Project' : c.name}
+                    </button>
+                  ) : (
+                    <span className="fx-crumb-here" aria-current="location" data-crumb={c.id}>{c.isRoot ? 'Project' : c.name}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </nav>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── The Table (S4c: one folder at a time; a search across the tree) ─────────
+// Both kinds of row are interactive now: a folder row OPENS on a click (or
+// Enter on its name), a file row selects (a double-click or Enter previews,
+// E10). The name cell is a <button> for both kinds — the keyboard reaches a
+// folder the same way it reaches a file, and the explorer's hand-back after a
+// move or a closed window finds either by `data-node-id` — and the row stays
+// a plain <tr>. The buttons carry the roving tab stop: `focusId` names the
+// one in the tab order (the selected file's row, else the first row); the
+// arrows, handled by the table area, walk the rest.
+function TableView({ rows, mode, sortKey, sortDir, onSort, onPick, onOpen, onEnterFolder, settled, selectedId }) {
+  const headers = mode === 'search' ? SEARCH_HEADERS : FOLDER_HEADERS
+  const focusId = rows.some(r => r.node.id === selectedId) ? selectedId : rows[0]?.node.id
   return (
     <Table
         aria-label="Project folders and files"
         dense
         data-files-table
+        data-mode={mode}
         head={(
           <Row>
-            {HEADERS.map(([key, label, opts]) => (
+            {headers.map(([key, label, opts]) => (
               <Th
                 key={key}
                 width={opts.width}
@@ -1072,61 +1308,73 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, onOpen, selectedId 
         {rows.map(({ node }) => {
             const isFolder = node.kind === 'folder'
             const m = node.meta || {}
+            // A POINTER click on a row within the settle window after a move
+            // is the second half of a double-click (NAV_SETTLE_MS). `detail`
+            // is the click count: 0 for a synthetic or keyboard click, which
+            // is never held back.
+            const onRowClick = (e) => {
+              if (e.detail > 0 && !settled()) return
+              if (isFolder) onEnterFolder(node)
+              else onPick(node)
+            }
             return (
               <Row
                 key={node.id}
                 className="fx-row"
-                onClick={() => { if (!isFolder) onPick(node) }}
-                // E10: a double-click previews (single click selects).
+                onClick={onRowClick}
+                // E10: a double-click previews a file (single click selects).
                 onDoubleClick={() => { if (!isFolder) onOpen?.(node) }}
                 data-node-kind={node.kind}
-                interactive={!isFolder}
+                interactive
                 selected={node.id === selectedId}
               >
                 <Td>
                   {/* The icon slot is a declared width, so the name text has
-                      one x origin at every depth and for both kinds. The
-                      indent is on the SLOT, not on the text, so the two move
-                      together and the column keeps one inset per depth (F11).
-                      Post-overhaul S4a (E10): a FILE's name is a <button> —
-                      the row stays a plain <tr> (no role, no tab stop), and
-                      the keyboard reaches the file through its name. Same
-                      slot, same origin: `.fx-name` is on the button. */}
-                  {isFolder ? (
-                    <span className="fx-name">
-                      <Folder className="fx-name-icon" aria-hidden="true" />
-                      <span className="fx-name-text">{node.name}</span>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="fx-name fx-name-btn"
-                      onClick={() => onPick(node)}
-                      // E10: Enter previews; Space still selects (the
-                      // button's own click). Enter presses the focused
-                      // control app-wide since S2a, so this is the button's
-                      // own key, not a global hook.
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); onOpen?.(node) } }}
-                      title={node.name}
-                      data-file-name
-                      data-node-id={node.id}
-                    >
-                      <FileIcon className="fx-name-icon" aria-hidden="true" />
-                      <span className="fx-name-text">{node.name}</span>
-                    </button>
-                  )}
+                      one x origin for both kinds (F11): `.fx-name` is on the
+                      button, which sheds every UA button style. */}
+                  <button
+                    type="button"
+                    className="fx-name fx-name-btn"
+                    onClick={(e) => {
+                      // The button's own click already bubbles to the row's
+                      // handler; a keyboard "click" (Enter, Space) has no
+                      // pointer and is never held back.
+                      e.stopPropagation()
+                      if (e.detail > 0 && !settled()) return
+                      if (isFolder) onEnterFolder(node)
+                      else onPick(node)
+                    }}
+                    // E10: Enter on a FILE previews; Space still selects (the
+                    // button's own click). Enter on a folder is the button's
+                    // click, which opens it. Enter presses the focused control
+                    // app-wide since S2a, so this is the button's own key, not
+                    // a global hook.
+                    onKeyDown={(e) => { if (!isFolder && e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); onOpen?.(node) } }}
+                    title={isFolder ? `Open ${node.name}` : node.name}
+                    tabIndex={node.id === focusId ? 0 : -1}
+                    data-file-name={isFolder ? undefined : ''}
+                    data-folder-name={isFolder ? '' : undefined}
+                    data-node-id={node.id}
+                  >
+                    {isFolder
+                      ? <Folder className="fx-name-icon" aria-hidden="true" />
+                      : <FileIcon className="fx-name-icon" aria-hidden="true" />}
+                    <span className="fx-name-text">{node.name}</span>
+                  </button>
                 </Td>
                 <Td>{isFolder ? 'Folder' : m.type}</Td>
                 <Td numeric>{isFolder ? '' : formatBytes(m.sizeBytes)}</Td>
                 <Td numeric title={isFolder ? undefined : dateTitle(m.createdAt)}>{isFolder ? '' : fmtDay(m.createdAt)}</Td>
                 <Td numeric title={isFolder ? undefined : dateTitle(m.modifiedAt)}>{isFolder ? '' : fmtDay(m.modifiedAt)}</Td>
                 <Td numeric>{isFolder ? '' : formatDuration(m.durationSec)}</Td>
-                <Td>
-                  {/* Truncated from the LEFT, which is what Finder does: the
-                      leaf folder is the part that identifies a path, and an
-                      end-ellipsis eats exactly that part (F-R32). */}
-                  <span className="fx-path"><bdi>{isFolder ? node.path : (node.parent && !node.parent.isRoot ? node.parent.path : '')}</bdi></span>
-                </Td>
+                {mode === 'search' && (
+                  <Td>
+                    {/* Truncated from the LEFT, which is what Finder does: the
+                        leaf folder is the part that identifies a path, and an
+                        end-ellipsis eats exactly that part (F-R32). */}
+                    <span className="fx-path"><bdi>{isFolder ? node.path : (node.parent && !node.parent.isRoot ? node.parent.path : '')}</bdi></span>
+                  </Td>
+                )}
               </Row>
             )
         })}

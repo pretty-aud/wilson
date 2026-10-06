@@ -93,7 +93,16 @@ async function mount({ host = 'tab', projectId = 'p1' } = {}) {
   fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
   return utils
 }
-const nameButton = (name) => screen.getByRole('button', { name })
+// S4c: the Table shows one folder at a time, so a file in a sub-folder (the
+// managed file in ASSETS › hero-shot, a Legal file under LEGAL) is reached
+// through the search box, which lists matches from the whole tree. The file
+// window is the same window either way.
+const nameButton = (name) => {
+  const found = screen.queryByRole('button', { name })
+  if (found) return found
+  fireEvent.change(screen.getByLabelText('Filter'), { target: { value: name } })
+  return screen.getByRole('button', { name })
+}
 const panel = () => document.querySelector('[data-file-details]')
 
 describe('the file window: collapsed at rest, opened by a file (E10, Q60)', () => {
@@ -128,14 +137,18 @@ describe('the file window: collapsed at rest, opened by a file (E10, Q60)', () =
     expect(document.activeElement.classList.contains('fx-col-item')).toBe(true)
   })
 
-  it('the Name cell of a FILE is a button (the keyboard reaches it); a folder\'s is not; the row stays a plain <tr>', async () => {
+  it('the Name cell of a FILE is a button (the keyboard reaches it); since S4c a folder\'s is one too, and opens it; the row stays a plain <tr>', async () => {
     await mount()
     const btn = nameButton('treatment.pdf')
     expect(btn.tagName).toBe('BUTTON')
     expect(btn.closest('tr').hasAttribute('role')).toBe(false)
     expect(btn.closest('tr').hasAttribute('tabindex')).toBe(false)
     const folderRow = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')].find(r => r.getAttribute('data-node-kind') === 'folder')
-    expect(folderRow.querySelector('button.fx-name-btn')).toBeNull()
+    const folderBtn = folderRow.querySelector('button.fx-name-btn')
+    expect(folderBtn.hasAttribute('data-folder-name')).toBe(true)
+    expect(folderRow.hasAttribute('role')).toBe(false)
+    fireEvent.click(folderBtn)
+    expect([...document.querySelectorAll('[data-files-crumbs] [data-crumb]')].map(c => c.textContent)).toEqual(['Project', folderBtn.textContent])
   })
 })
 

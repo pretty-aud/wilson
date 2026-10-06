@@ -184,6 +184,84 @@
   .fx-col-item[data-node-kind="folder"] .fx-name-icon { color: var(--color-ink-2); }
   .fx-row[data-node-kind="folder"] .fx-name-text { font-weight: 600; }
 
+  /* ── Post-overhaul S4c: the crumb bar over the Table ─────────────────────
+     Explorer's address bar at the table head's height, on the raised paper
+     the head sits on, with the head's hairline under it: Up, then the crumbs.
+     The crumbs are the Dense step like the cells they lead to; the one you
+     are in takes the full ink and the folder weight (600), the others the
+     second ink, so the line reads as a path ending where the rows begin. It
+     never wraps: a deep path ellipsises its longest crumbs (`min-width: 0`)
+     before the bar grows a second line, which would move every row. */
+  .fx-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--table-head);
+    flex-shrink: 0;
+    padding: 0 var(--cell-pad-x);
+    border-bottom: 1px solid var(--color-rule);
+    background-color: var(--color-paper-raised);
+    overflow: hidden;
+  }
+  .fx-crumb-nav { flex: 1; min-width: 0; }
+  .fx-crumb-list {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .fx-crumb { display: flex; align-items: center; min-width: 0; }
+  .fx-crumb-sep {
+    flex-shrink: 0;
+    padding: 0 6px;
+    color: var(--color-ink-3);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+  }
+  .fx-crumb-btn,
+  .fx-crumb-here {
+    display: block;
+    min-width: 0;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+  }
+  /* A crumb is a real <button> in the tab order, shed of the UA button
+     styles; its focus ring is the kit's global `:focus-visible`. */
+  .fx-crumb-btn {
+    margin: 0;
+    padding: 0 2px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    font: inherit;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    cursor: pointer;
+    transition: color var(--duration-state) ease-out;
+  }
+  .fx-crumb-btn:hover { color: var(--color-ink); }
+  .fx-crumb-here { padding: 0 2px; color: var(--color-ink); font-weight: 600; }
+  /* While a query is typed: the glyph, the count sentence, and Clear. */
+  .fx-crumb-glyph { flex: 0 0 var(--icon-sm); width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
+  .fx-crumb-note {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+
   /* The path truncates from the LEFT: the leaf folder identifies a path and an
      end-ellipsis eats exactly that. `direction: rtl` moves the ellipsis to the
      start; the <bdi> around the value keeps the path's own characters in

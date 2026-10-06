@@ -263,7 +263,10 @@ export default function Rabbit({ currentPage } = {}) {
           <div className="h-full">
             {activeView === 'intake'   && <IntakeWizardView   />}
             {activeView === 'summary'  && <ProjectSummaryView />}
-            {activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} />}
+            {/* pageActive (post-overhaul S4c): the Files tab's Backspace and
+                arrows stand down while R.A.B.B.I.T. is not the page on
+                screen, as the Bins and Scenes keys do. */}
+            {activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} pageActive={currentPage === 'rabbit'} />}
             {activeView === 'assets'   && <ProjectAssetsView  />}
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}
