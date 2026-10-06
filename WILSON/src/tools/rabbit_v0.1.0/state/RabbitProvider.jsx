@@ -1303,9 +1303,12 @@ export function RabbitProvider({ children }) {
         ...(Array.isArray(files) ? { files } : {}),
         ...(Array.isArray(managedFiles) ? { managedFiles } : {}),
       }));
+      // The manifest mirrors the folder tree (projectManifest.js): rewritten
+      // for the tree the move just changed (review round 1, item 13).
+      writeManifestSoon(projectId);
     }
     return result;
-  }, []);
+  }, [writeManifestSoon]);
 
   // ── Backfill the tree for a project that predates 0041 (Session 27) ────
   //

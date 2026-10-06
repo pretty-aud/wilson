@@ -30,17 +30,55 @@ const { registerStorageProvider, FILE_PROVIDERS } = await import('../storage')
 const PID = 'aaaa1111-0000-0000-0000-000000000001'
 const project = { id: PID, title: 'Fixture', scenes_enabled: true }
 
-/** Tables and two buckets in memory; `log` records every call in order. */
-function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, dropLanding = () => false } = {}) {
+/** A LIKE pattern as a RegExp: `%` any run, `_` any one character, backslash escapes. */
+function likeToRegExp(pattern) {
+  const esc = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  let out = '^'
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]
+    if (c === '\\' && i + 1 < pattern.length) { out += esc(pattern[++i]); continue }
+    if (c === '%') { out += '.*'; continue }
+    if (c === '_') { out += '.'; continue }
+    out += esc(c)
+  }
+  return new RegExp(out + '$')
+}
+
+/**
+ * Tables and two buckets in memory; `log` records every call in order.
+ * Hooks: failMove(bucket, from, to) → a message refuses the move;
+ * failUpdate(table, patch, hits) → a message refuses the update, 'filtered'
+ * applies nothing and answers NO ROW (an RLS-filtered update), and
+ * 'committed:<msg>' applies it and answers the error (an answer lost on the
+ * way back); failDelete(table, hits) → 'filtered' removes nothing and
+ * answers no row; dropLanding(bucket, from, to) → true loses the object in
+ * the move; onMove(bucket, from, to) runs after each move (something a
+ * teammate does mid-run).
+ */
+function makeClient({ tables, objects, failMove = () => null, failUpdate = () => null, failDelete = () => null, dropLanding = () => false, onMove = () => {} } = {}) {
   const log = []
   let seq = 0
   const table = (name) => {
-    const state = { op: 'select', filters: [], payload: null, single: false, maybe: false }
+    const state = { op: 'select', filters: [], payload: null, single: false, maybe: false, count: null, head: false, returning: false, order: null, range: null }
     const b = {
-      select() { return b },
-      order() { return b },
+      select(cols, opts) {
+        if (state.op !== 'select') state.returning = true
+        if (opts && opts.count) { state.count = opts.count; state.head = !!opts.head }
+        return b
+      },
+      order(col) { state.order = col; return b },
       limit() { return b },
+      range(from, to) { state.range = [from, to]; return b },
       eq(col, v) { state.filters.push(r => String(r[col]) === String(v)); return b },
+      is(col, v) { state.filters.push(r => r[col] === v); return b },
+      like(col, pattern) { const re = likeToRegExp(pattern); state.filters.push(r => typeof r[col] === 'string' && re.test(r[col])); return b },
+      // PostgREST's `or=(a.like.x,b.like.y)` as supabase-js sends it; only
+      // `like` is read here, which is all the adapter uses.
+      or(expr) {
+        const parts = expr.split(',').map(s => { const [col, op, ...rest] = s.trim().split('.'); return { col, op, re: likeToRegExp(rest.join('.')) } })
+        state.filters.push(r => parts.some(p => p.op === 'like' && typeof r[p.col] === 'string' && p.re.test(r[p.col])))
+        return b
+      },
       not(col, op, v) { if (op === 'is' && v === null) state.filters.push(r => r[col] != null); return b },
       single() { state.single = true; return b },
       maybeSingle() { state.maybe = true; return b },
@@ -51,12 +89,18 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
         if (!tables[name]) tables[name] = []
         const rows = tables[name]
         const match = (r) => state.filters.every(f => f(r))
+        const oneOrAll = (hits) => (state.single || state.maybe ? (hits[0] ? { ...hits[0] } : null) : hits.map(h => ({ ...h })))
         let result
         if (state.op === 'select') {
-          const hits = rows.filter(match).map(r => ({ ...r }))
-          if (state.single) result = hits[0] ? { data: hits[0], error: null } : { data: null, error: { message: 'no rows' } }
-          else if (state.maybe) result = { data: hits[0] || null, error: null }
-          else result = { data: hits, error: null }
+          let hits = rows.filter(match).map(r => ({ ...r }))
+          if (state.order) hits.sort((a, c) => String(a[state.order]).localeCompare(String(c[state.order])))
+          if (state.count) result = { data: state.head ? null : hits, count: hits.length, error: null }
+          else {
+            if (state.range) hits = hits.slice(state.range[0], state.range[1] + 1)
+            if (state.single) result = hits[0] ? { data: hits[0], error: null } : { data: null, error: { message: 'no rows' } }
+            else if (state.maybe) result = { data: hits[0] || null, error: null }
+            else result = { data: hits, error: null }
+          }
         } else if (state.op === 'insert') {
           const row = { id: `new-${++seq}`, ...state.payload }
           rows.push(row)
@@ -65,17 +109,22 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
         } else if (state.op === 'update') {
           const hits = rows.filter(match)
           const refused = failUpdate(name, state.payload, hits)
-          if (refused) { log.push(['update-refused', name, hits.map(h => h.id)]); result = { data: null, error: { message: refused } } }
-          else {
-            for (const r of hits) Object.assign(r, state.payload)
-            log.push(['update', name, hits.map(h => h.id), { ...state.payload }])
-            result = { data: state.single ? (hits[0] ? { ...hits[0] } : null) : hits.map(h => ({ ...h })), error: state.single && !hits[0] ? { message: 'no rows' } : null }
+          if (refused === 'filtered') {
+            log.push(['update-refused', name, hits.map(h => h.id)])
+            result = { data: state.single || state.maybe ? null : [], error: null }
+          } else {
+            const committed = !refused || String(refused).startsWith('committed:')
+            if (committed) for (const r of hits) Object.assign(r, state.payload)
+            log.push([refused ? 'update-refused' : 'update', name, hits.map(h => h.id), { ...state.payload }])
+            const err = refused ? { message: String(refused).replace(/^committed:/, '') } : (state.single && !hits[0] ? { message: 'no rows' } : null)
+            result = err ? { data: null, error: err } : { data: oneOrAll(hits), error: null }
           }
         } else if (state.op === 'delete') {
           const hits = rows.filter(match)
-          for (const h of hits) rows.splice(rows.indexOf(h), 1)
-          log.push(['delete', name, hits.map(h => h.id)])
-          result = { data: null, error: null }
+          const filtered = failDelete(name, hits) === 'filtered'
+          if (!filtered) for (const h of hits) rows.splice(rows.indexOf(h), 1)
+          log.push(['delete', name, filtered ? [] : hits.map(h => h.id)])
+          result = { data: state.returning ? (filtered ? [] : hits.map(h => ({ id: h.id }))) : null, error: null }
         }
         return Promise.resolve(result).then(resolve, reject)
       },
@@ -99,6 +148,7 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
         if (!objects[bucket].has(from)) return { data: null, error: { message: 'Object not found' } }
         objects[bucket].delete(from)
         if (!dropLanding(bucket, from, to)) objects[bucket].add(to)
+        onMove(bucket, from, to)
         return { data: { message: 'Successfully moved' }, error: null }
       },
     }),
@@ -197,23 +247,39 @@ describe('refileShotFolders: the happy path and its order', () => {
     expect([door.path, door.parent_id]).toEqual(['SCENES/Lighthouse-Dawn/The-Door', 'f-sc1'])
     expect(tables.folders.some(f => f.path === 'SHOTS')).toBe(false)
     expect(tables.folders.some(f => f.path.startsWith('SHOTS/'))).toBe(false)
-    // THE ORDER, for the door's plate: move body → see it → move thumb → see it → update the row → update the folder.
+    // THE ORDER, for the door's plate (review round 1: the row follows EACH
+    // object at once, so no object is left moved with its row saying the
+    // old key for longer than one round trip): move body → see it → update
+    // the row's storage_path → move thumb → see it → update the row's
+    // thumbnail_url → update the folder → delete the category.
     const log = client.log
     const moveBody = indexOf(log, e => e[0] === 'move' && e[1] === 'rabbit-files' && e[3] === NEW.plate)
     const seeBody = indexOf(log, e => e[0] === 'list' && e[1] === 'rabbit-files' && e[2] === `projects/${PID}/scenes/sc1/sh1` && e[3] === '1-plate.exr' && log.indexOf(e) > moveBody)
+    const rowBody = indexOf(log, e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f1') && e[3].storage_path === NEW.plate)
     const moveThumb = indexOf(log, e => e[0] === 'move' && e[1] === 'rabbit-thumbnails')
     const seeThumb = indexOf(log, e => e[0] === 'list' && e[1] === 'rabbit-thumbnails' && e[3] === '1-plate.exr.jpg' && log.indexOf(e) > moveThumb)
-    const rowUpdate = indexOf(log, e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f1'))
+    const rowThumb = indexOf(log, e => e[0] === 'update' && e[1] === 'files' && e[2].includes('f1') && e[3].thumbnail_url === NEW.plateThumb)
     const folderUpdate = indexOf(log, e => e[0] === 'update' && e[1] === 'folders' && e[2].includes('f-sh1'))
     const categoryDelete = indexOf(log, e => e[0] === 'delete' && e[1] === 'folders' && e[2].includes('c-shots'))
-    for (const i of [moveBody, seeBody, moveThumb, seeThumb, rowUpdate, folderUpdate, categoryDelete]) expect(i).toBeGreaterThanOrEqual(0)
+    for (const i of [moveBody, seeBody, rowBody, moveThumb, seeThumb, rowThumb, folderUpdate, categoryDelete]) expect(i).toBeGreaterThanOrEqual(0)
     expect(moveBody).toBeLessThan(seeBody)
-    expect(seeBody).toBeLessThan(moveThumb)
+    expect(seeBody).toBeLessThan(rowBody)
+    expect(rowBody).toBeLessThan(moveThumb)
     expect(moveThumb).toBeLessThan(seeThumb)
-    expect(seeThumb).toBeLessThan(rowUpdate)
-    expect(rowUpdate).toBeLessThan(folderUpdate)
+    expect(seeThumb).toBeLessThan(rowThumb)
+    expect(rowThumb).toBeLessThan(folderUpdate)
     expect(folderUpdate).toBeLessThan(categoryDelete)
-    expect(log.filter(e => e[0] === 'update' && e[1] === 'files').map(e => e[2][0]).sort()).toEqual(['f1', 'f3'])
+    // The body's row is never written with the thumbnail's key, nor the
+    // other way round: one column per update, each after its own object.
+    expect(log.filter(e => e[0] === 'update' && e[1] === 'files').map(e => [e[2][0], Object.keys(e[3]).join()])).toEqual([
+      ['f3', 'storage_path'], ['f1', 'storage_path'], ['f1', 'thumbnail_url'],
+    ])
+    // Nothing of the shot moved before the shot was checked whole: the
+    // door's PICTURE was looked for at its new key before the door's BODY
+    // moved (the pre-flight; the move's own look comes after).
+    const thumbChecked = indexOf(log, e => e[0] === 'list' && e[1] === 'rabbit-thumbnails' && e[2] === `projects/${PID}/scenes/sc1/sh1` && e[3] === '1-plate.exr.jpg')
+    expect(thumbChecked).toBeGreaterThanOrEqual(0)
+    expect(thumbChecked).toBeLessThan(moveBody)
   })
 
   it('is idempotent: a second run moves nothing, touches no object, and the category is already gone', async () => {
@@ -281,14 +347,44 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(res.moved.map(m => m.name)).toEqual(['The-Cold-Lamp'])
   })
 
-  it('a thumbnail that cannot follow its body puts the body back', async () => {
+  it('a thumbnail that cannot follow its body leaves the body MOVED with its row saying so (nothing is put back), the shot left with the reason; the next run moves the picture alone and finishes the shot', async () => {
     const { tables, objects } = fixture()
-    const client = makeClient({ tables, objects, failMove: (bucket) => (bucket === 'rabbit-thumbnails' ? 'thumbnails bucket down' : null) })
+    let down = true
+    const client = makeClient({ tables, objects, failMove: (bucket) => (bucket === 'rabbit-thumbnails' && down ? 'thumbnails bucket down' : null) })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Door'])
     expect(res.left[0].reason).toContain('thumbnails bucket down')
-    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh1/1-plate.exr`)).toBe(true)
-    expect(tables.files.find(f => f.id === 'f1').storage_path).toBe(`projects/${PID}/shots/sh1/1-plate.exr`)
+    // Round 1 (item 1): the old code moved the body back after its row had
+    // been... no — its row had NOT been written yet, and a stop between the
+    // two left an object no row named. Now the row follows the body at
+    // once, and the body stays where its row says.
+    expect(objects['rabbit-files'].has(NEW.plate)).toBe(true)
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh1/1-plate.exr`)).toBe(false)
+    const f1 = tables.files.find(f => f.id === 'f1')
+    expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, `projects/${PID}/shots/sh1/1-plate.exr.jpg`])
+    expect(objects['rabbit-thumbnails'].has(`projects/${PID}/shots/sh1/1-plate.exr.jpg`)).toBe(true)
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+    // The next run: the row is found by its PICTURE's key (the body is
+    // nested already), the picture moves, the row says so, the folder goes.
+    down = false
+    client.log.length = 0
+    const again = await run(client)
+    expect(again.left).toEqual([])
+    expect(again.moved.map(m => [m.name, m.files])).toEqual([['The-Door', 1]])
+    expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, NEW.plateThumb])
+    expect(client.log.filter(e => e[0] === 'move').map(e => e[1])).toEqual(['rabbit-thumbnails'])
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
+  })
+
+  it('a thumbnail at NEITHER key is a derived picture: the row stops naming it and the shot still moves', async () => {
+    const { tables, objects } = fixture()
+    objects['rabbit-thumbnails'].clear()
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    const f1 = tables.files.find(f => f.id === 'f1')
+    expect([f1.storage_path, f1.thumbnail_url]).toEqual([NEW.plate, null])
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
   })
 
   it('resumes: an object already at its new key with none at the old (a move that landed on an earlier run) is counted done and its row is rewritten', async () => {
@@ -303,16 +399,170 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     expect(client.log.some(e => e[0] === 'move' && e[3] === NEW.board)).toBe(false)
   })
 
-  it('an object at BOTH keys is left alone (nothing is ever overwritten or deleted), and its shot with it', async () => {
+  it('an object at BOTH keys is left alone (nothing is ever overwritten or deleted), and its shot with it — found BEFORE any object of the shot moves', async () => {
     const { tables, objects } = fixture()
     objects['rabbit-files'].add(NEW.board)
+    // A second file on the same shot, listed first: it must not move either.
+    tables.files.push(fileRow('f0', 'a-first.png', 'sh2', 'f-sh2'))
+    objects['rabbit-files'].add(`projects/${PID}/shots/sh2/1-a-first.png`)
     const client = makeClient({ tables, objects })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
     expect(res.left[0].reason).toContain('exists at both')
     expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
     expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh2/1-board.png`)).toBe(true)
-    expect(client.log.some(e => e[0] === 'move' && e[2].endsWith('1-board.png'))).toBe(false)
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh2/1-a-first.png`)).toBe(true)
+    expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh2/'))).toBe(false)
+    expect(tables.files.find(f => f.id === 'f0').storage_path).toBe(`projects/${PID}/shots/sh2/1-a-first.png`)
+  })
+
+  // ── Review round 1: what the first version got wrong ──────────────────
+  it('a LIVE row whose body is at neither key refuses the whole shot before any object moves, naming the file (S4c-03); a decoy leaf next to it is not the file', async () => {
+    const { tables, objects } = fixture()
+    // The door gains a live row with no body — and a neighbour whose name
+    // CONTAINS the missing leaf (round 1's mutant: a `search` is a substring
+    // match, and `length > 0` would have taken the neighbour for the file).
+    tables.files.push(fileRow('f4', 'lost.mov', 'sh1', 'f-sh1'))
+    objects['rabbit-files'].add(`projects/${PID}/shots/sh1/1-lost.mov.bak`)
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.moved.map(m => m.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.left[0].reason).toContain('“lost.mov” is missing from rabbit-files')
+    // Nothing of the door moved — the plate is where it was, its row too.
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh1/1-plate.exr`)).toBe(true)
+    expect(tables.files.find(f => f.id === 'f1').storage_path).toBe(`projects/${PID}/shots/sh1/1-plate.exr`)
+    expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh1/'))).toBe(false)
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+  })
+
+  it('a folder row already at the destination refuses the shot before any object moves', async () => {
+    const { tables, objects } = fixture()
+    tables.folders.push(folder('custom', 'custom', 'SCENES/Lighthouse-Dawn/The-Door', 'f-sc1'))
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left.map(l => [l.name, l.reason])).toEqual([['The-Door', 'a folder already sits at SCENES/Lighthouse-Dawn/The-Door']])
+    expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh1/'))).toBe(false)
+    expect(res.moved.map(m => m.name)).toEqual(['The-Cold-Lamp'])
+  })
+
+  it('an update that COMMITTED but lost its answer is left as it committed: the row is read again, the object is NOT moved back', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'committed:fetch timed out' : null) })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.moved.map(m => [m.name, m.files])).toEqual([['The-Cold-Lamp', 1], ['The-Door', 1]])
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(true)
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
+    expect(client.log.filter(e => e[0] === 'move' && e[3].endsWith('1-board.png'))).toHaveLength(1)
+  })
+
+  it('an update that reaches NO ROW (the row trashed meanwhile is invisible to it) puts the object back and leaves the shot with the reason', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects, failUpdate: (name, patch) => (name === 'files' && patch.storage_path === NEW.board ? 'filtered' : null) })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.left[0].reason).toContain('not visible to this account')
+    expect(objects['rabbit-files'].has(`projects/${PID}/shots/sh2/1-board.png`)).toBe(true)
+    expect(objects['rabbit-files'].has(NEW.board)).toBe(false)
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(`projects/${PID}/shots/sh2/1-board.png`)
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+  })
+
+  it('a row that lands under the old prefix mid-run keeps the folder where it is (the rows moved say where their files are); the next run takes it', async () => {
+    const { tables, objects } = fixture()
+    let landed = false
+    const client = makeClient({
+      tables, objects,
+      onMove: (bucket, from) => {
+        if (landed || !from.endsWith('1-board.png')) return
+        landed = true
+        tables.files.push(fileRow('f5', 'late.png', 'sh2', 'f-sh2'))
+        objects['rabbit-files'].add(`projects/${PID}/shots/sh2/1-late.png`)
+      },
+    })
+    const res = await run(client)
+    expect(res.left.map(l => l.name)).toEqual(['The-Cold-Lamp'])
+    expect(res.left[0].reason).toContain('still under the old prefix')
+    expect(tables.files.find(f => f.id === 'f3').storage_path).toBe(NEW.board)
+    expect(tables.files.find(f => f.id === 'f5').storage_path).toBe(`projects/${PID}/shots/sh2/1-late.png`)
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+    const again = await run(client)
+    expect(again.left).toEqual([])
+    expect(again.moved.map(m => [m.name, m.files])).toEqual([['The-Cold-Lamp', 1]])
+    expect(tables.files.find(f => f.id === 'f5').storage_path).toBe(`projects/${PID}/scenes/sc1/sh2/1-late.png`)
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SCENES/Lighthouse-Dawn/The-Cold-Lamp')
+  })
+
+  it('a row is taken by its KEY, not its links: a row with only folder_id, and one with no link at all, move with the shot', async () => {
+    const { tables, objects } = fixture()
+    tables.files.push({ ...fileRow('f6', 'by-folder.png', null, 'f-sh2'), storage_path: `projects/${PID}/shots/sh2/1-by-folder.png` })
+    tables.files.push({ ...fileRow('f7', 'no-link.png', null, null), storage_path: `projects/${PID}/shots/sh2/1-no-link.png` })
+    objects['rabbit-files'].add(`projects/${PID}/shots/sh2/1-by-folder.png`)
+    objects['rabbit-files'].add(`projects/${PID}/shots/sh2/1-no-link.png`)
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.moved.find(m => m.name === 'The-Cold-Lamp').files).toBe(3)
+    expect(tables.files.find(f => f.id === 'f6').storage_path).toBe(`projects/${PID}/scenes/sc1/sh2/1-by-folder.png`)
+    expect(tables.files.find(f => f.id === 'f7').storage_path).toBe(`projects/${PID}/scenes/sc1/sh2/1-no-link.png`)
+    // CONTROL: another shot's key under the same scene is not this shot's.
+    expect(tables.files.find(f => f.id === 'f1').storage_path).toBe(NEW.plate)
+  })
+
+  it('reads whole, not the first page: 1,002 files on one shot all move, and 1,003 folder rows are all listed', async () => {
+    const { tables, objects } = fixture()
+    for (let i = 0; i < 1001; i++) {
+      tables.files.push(fileRow(`m${i}`, `frame-${String(i).padStart(4, '0')}.exr`, 'sh2', 'f-sh2'))
+      objects['rabbit-files'].add(`projects/${PID}/shots/sh2/1-frame-${String(i).padStart(4, '0')}.exr`)
+    }
+    for (let i = 0; i < 997; i++) tables.folders.push(folder(`x${i}`, 'custom', `ASSETS/x${String(i).padStart(4, '0')}`, 'r'))
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.moved.find(m => m.name === 'The-Cold-Lamp').files).toBe(1002)
+    expect(tables.files.filter(f => f.storage_path.startsWith(`projects/${PID}/shots/sh2/`))).toHaveLength(0)
+    globalThis.__testSupabase = client
+    expect(await supabaseAdapter().listFolders(PID)).toHaveLength(tables.folders.length)
+    expect(tables.folders.length).toBeGreaterThan(1000)
+    // The pages were asked for: two for the files, two for the folders.
+    expect(client.log.some(e => e[0] === 'move' && e[3].endsWith('1-frame-1000.exr'))).toBe(true)
+  })
+
+  it('the SHOTS category is said to be gone only when the delete answers the row (an RLS-filtered delete does not), and never while the database still counts a folder under it', async () => {
+    const { tables, objects } = fixture()
+    let client = makeClient({ tables, objects, failDelete: (name) => (name === 'folders' ? 'filtered' : null) })
+    const res = await run(client)
+    expect(res.left).toEqual([])
+    expect(res.removedShotsCategory).toBe(false)
+    expect(tables.folders.some(f => f.path === 'SHOTS')).toBe(true)
+    // A folder under SHOTS that the first list did not carry (a row another
+    // tab inserted after the list was read): the count sees it, the delete
+    // is not even tried.
+    const fx2 = fixture()
+    tables.folders.length = 0; tables.folders.push(...fx2.tables.folders)
+    objects['rabbit-files'] = fx2.objects['rabbit-files']; objects['rabbit-thumbnails'] = fx2.objects['rabbit-thumbnails']
+    tables.files.length = 0; tables.files.push(...fx2.tables.files)
+    client = makeClient({
+      tables, objects,
+      onMove: (bucket, from) => { if (from.endsWith('1-plate.exr') && !tables.folders.some(f => f.id === 'f-sh8')) tables.folders.push(folder('f-sh8', 'entity', 'SHOTS/Late', 'c-shots', { entity_type: 'shot', shot_id: 'sh8' })) },
+    })
+    const res2 = await run(client)
+    expect(res2.removedShotsCategory).toBe(false)
+    expect(client.log.some(e => e[0] === 'delete' && e[1] === 'folders')).toBe(false)
+    expect(tables.folders.some(f => f.path === 'SHOTS')).toBe(true)
+  })
+
+  it('one run per project at a time in this tab: a second call while one runs is refused, and the lock is released after', async () => {
+    const { tables, objects } = fixture()
+    const client = makeClient({ tables, objects })
+    globalThis.__testSupabase = client
+    const a = supabaseAdapter()
+    const first = a.refileShotFolders(PID, project)
+    await expect(a.refileShotFolders(PID, project)).rejects.toThrow('already running')
+    await first
+    const again = await a.refileShotFolders(PID, project)
+    expect(again).toEqual({ moved: [], left: [], removedShotsCategory: false })
   })
 
   it('a body in the customer\'s own bucket, or on another computer, leaves its shot where it is with the reason', async () => {
@@ -365,6 +615,22 @@ describe('ensureEntityFolder on this adapter (S4c)', () => {
     const loose = await a.ensureEntityFolder(PID, project, 'shot', { id: 'sh3', name: 'Loose', scene_id: null })
     expect(loose.path).toBe('SHOTS/Loose')
     expect(tables.folders.filter(f => f.shot_id === 'sh9')).toHaveLength(1)
+  })
+
+  it('a renamed SCENE takes the rows under it along (its shot folders since S4c): each re-pathed, the scene first (review round 1, item 7)', async () => {
+    const { tables, objects } = fixture()
+    const door = tables.folders.find(f => f.id === 'f-sh1'); door.path = 'SCENES/Lighthouse-Dawn/The-Door'; door.parent_id = 'f-sc1'
+    tables.folders.push(folder('plates', 'custom', 'SCENES/Lighthouse-Dawn/The-Door/plates', 'f-sh1'))
+    const client = makeClient({ tables, objects })
+    globalThis.__testSupabase = client
+    const scene = await supabaseAdapter().ensureEntityFolder(PID, project, 'scene', { id: 'sc1', name: 'Lighthouse, dusk' })
+    expect([scene.id, scene.path]).toEqual(['f-sc1', 'SCENES/Lighthouse-Dusk'])
+    expect(tables.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dusk/The-Door')
+    expect(tables.folders.find(f => f.id === 'plates').path).toBe('SCENES/Lighthouse-Dusk/The-Door/plates')
+    const updates = client.log.filter(e => e[0] === 'update' && e[1] === 'folders').map(e => e[2][0])
+    expect(updates).toEqual(['f-sc1', 'f-sh1', 'plates'])
+    // CONTROL: the other scene's rows, and SHOTS', are untouched.
+    expect(tables.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
   })
 })
 

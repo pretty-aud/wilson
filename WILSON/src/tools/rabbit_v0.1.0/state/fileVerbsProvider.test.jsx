@@ -137,6 +137,39 @@ describe('the file verbs take the file\'s project (S4a)', () => {
   })
 })
 
+// Post-overhaul S4c (review round 1, item 13): the manifest mirrors the folder
+// tree, so the one-time re-filing — which changes the tree — rewrites it, the
+// way every settings change does (writeManifestSoon, 1.5 s after the last).
+describe('the re-filing re-reads the rows and rewrites the manifest (S4c)', () => {
+  it('after the adapter has moved: folders, files and managed files read again into the bundle, then the manifest written with the new tree', async () => {
+    const moved = [{ id: 'r', path: '', kind: 'root', parent_id: null }, { id: 'sc', path: 'SCENES/Dawn', kind: 'entity', parent_id: 'r' }]
+    const manifests = []
+    Object.assign(holder.adapter, {
+      refileShotFolders: vi.fn(async () => ({ moved: [{ shotId: 's1', name: 'The-Door' }], left: [], removedShotsCategory: true })),
+      listFolders: vi.fn(async () => moved),
+      listFiles: vi.fn(async () => [{ id: 'f1', project_id: 'p1', name: 'a.pdf', storage_path: 'projects/p1/scenes/sc/s1/1-a.pdf', tags: [] }]),
+      listManagedFiles: vi.fn(async () => []),
+      writeProjectManifest: vi.fn(async (id, manifest) => { manifests.push([id, manifest]) }),
+    })
+    await mount()
+    vi.useFakeTimers()
+    try {
+      let result
+      await act(async () => { result = await ctxRef.refileShotFolders({ onProgress: () => {} }) })
+      expect(result.moved).toHaveLength(1)
+      expect(holder.adapter.refileShotFolders).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'p1' }), expect.objectContaining({ onProgress: expect.any(Function) }))
+      expect(ctxRef.folders.map(f => f.path)).toEqual(['', 'SCENES/Dawn'])
+      expect(ctxRef.files[0].storage_path).toBe('projects/p1/scenes/sc/s1/1-a.pdf')
+      // Not yet: the write is debounced like every settings change.
+      expect(manifests).toEqual([])
+      await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+      expect(manifests).toHaveLength(1)
+      expect(manifests[0][0]).toBe('p1')
+      expect(manifests[0][1].folders.map(f => f.path)).toEqual(['', 'SCENES/Dawn'])
+    } finally { vi.useRealTimers() }
+  })
+})
+
 // Review round 2 (R2-UI-01, measured in a browser with two hosts): the
 // optimistic write kept the row's OLD updated_at, so an explorer whose own copy
 // carried the server's newer one kept it — the other host showed the note from

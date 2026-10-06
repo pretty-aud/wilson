@@ -53,7 +53,7 @@ import {
 // Post-overhaul S4c: a shot's folder sits in its scene's, and the one-time
 // re-filing of a project's older shot folders (the pure rule lives there).
 import {
-  pendingShotRefiling, shotsCategoryRow, shotsCategoryEmpty, shotObjectPrefix, nestedShotKey,
+  pendingShotRefiling, shotsCategoryRow, shotObjectPrefix, nestedShotKey,
 } from '../shotRefiling';
 import { THUMBNAIL_BUCKET } from '../storage/thumbnails';
 import { hasLocalServer } from '../../../lib/localData';
@@ -1014,12 +1014,28 @@ async function listDependenciesWith(client, projectId) {
 // `this` — one destructured `const { listFolders } = adapter` would break
 // every method that leaned on it, silently and only at runtime.
 
+// S4c review round 1: PostgREST answers at most `max_rows` rows a call
+// (1,000 on Supabase) and says nothing about the rest. A list that has to
+// be WHOLE — the folder tree, the files a move must take — is read page by
+// page until a short page. The query is built afresh per page (a builder
+// is single-use) and must carry a total order, so no row straddles two.
+const READ_PAGE = 1000;
+async function readAllPages(makeQuery) {
+  const out = [];
+  for (let from = 0; ; from += READ_PAGE) {
+    const page = unwrapOptionalTable(await makeQuery().range(from, from + READ_PAGE - 1));
+    out.push(...page);
+    if (page.length < READ_PAGE) return out;
+  }
+}
+
 function listFoldersWith(client, projectId) {
   // unwrapOptionalTable: a client deployed ahead of 0041 shows no folders
   // rather than failing every project load. Same treatment 0040's tables got,
-  // and for the same reason — the web build ships continuously.
-  return client.from('folders').select('*')
-    .eq('project_id', projectId).order('path').then(unwrapOptionalTable);
+  // and for the same reason — the web build ships continuously. Paged (S4c
+  // review round 1): `path` is unique per project, so it orders the pages.
+  return readAllPages(() => client.from('folders').select('*')
+    .eq('project_id', projectId).order('path'));
 }
 
 async function foldersByPath(client, projectId) {
@@ -1131,13 +1147,26 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
       ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}`
       : planned.folder.path;
     if (mine.path === keptPath) return mine;
-    return unwrap(await client.from('folders')
+    const renamed = unwrap(await client.from('folders')
       .update({
         slug:  planned.folder.slug,
         path:  keptPath,
         label: planned.folder.label,
       })
       .eq('id', mine.id).select().single());
+    // The rows under it follow — a scene's shot folders since S4c (review
+    // round 1, item 7): each re-pathed under the new path, the parent first
+    // so the unique path index never sees a child before its parent's new
+    // name. Without this a renamed scene left its shot folders saying a
+    // path their parent no longer had.
+    const oldPrefix = `${mine.path}/`;
+    for (const child of rows) {
+      if (child.id === mine.id || typeof child.path !== 'string' || !child.path.startsWith(oldPrefix)) continue;
+      unwrap(await client.from('folders')
+        .update({ path: `${keptPath}/${child.path.slice(oldPrefix.length)}` })
+        .eq('id', child.id).select('id').maybeSingle());
+    }
+    return renamed;
   }
 
   // The root has to exist before a category can point at it, and a
@@ -1165,123 +1194,260 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 // ── S4c: the one-time re-filing, cloud half ──────────────────────────────
 //
 // For each shot folder still under SHOTS whose shot has a scene
-// (shotRefiling.pendingShotRefiling): the scene's folder row is ensured;
-// then EVERY object of the shot is moved in its bucket — the body in
-// rabbit-files, its thumbnail in rabbit-thumbnails (a thumbnail lives where
-// its source lives, S44) — each VERIFIED at its new key before the files
-// row is rewritten to say so; then, and only then, the folder row is
-// re-parented. The order is the whole design: a stop anywhere leaves rows
-// that say where every file IS. An object that is already at its new key
-// with nothing at the old one is a move that landed on an earlier run and
-// is counted done; an object at BOTH keys is left alone and reported (a
-// move never overwrites and nothing here deletes). A files row whose
-// record could not be rewritten after a verified move is moved back, so
-// the row stays true. A body on this computer (a private project's,
-// storage_provider local_server) moves through the desktop's local media
-// route and is refused off the desktop; a body in the customer's own
-// bucket (s3) is refused — there is no move for it yet — and its shot is
-// left where it is, with the reason. The SHOTS category row goes only once
-// no folder row sits under it.
+// (shotRefiling.pendingShotRefiling), in this order — and the order is the
+// whole design: a stop anywhere leaves rows that say where every file this
+// account can see IS, within one round trip of where it is:
+//
+//   1. the scene's folder row is ensured (no object moves for that);
+//   2. the shot's rows are read WHOLE by the old key shape, paged
+//      (filesUnderPrefix: PostgREST stops at 1,000 rows and says nothing),
+//      and the shot is CHECKED before anything moves (refileShotPreflight):
+//      a body in the customer's own bucket (s3 — there is no move for it
+//      yet), a body on another computer (a private project's, off the
+//      desktop), a live row whose body is at neither key, a folder row
+//      already at the destination — any of these leaves the shot where it
+//      is, with the reason, and not one object of it moved (review round 1,
+//      item 6: a refusal found mid-shot split a shot across two prefixes
+//      for good);
+//   3. EVERY object is moved in its bucket and SEEN at its new key, and its
+//      files row is rewritten AT ONCE (refileOneObject): the body first
+//      (rabbit-files), then the row's storage_path; then its thumbnail
+//      (rabbit-thumbnails — a thumbnail lives where its source lives, S44),
+//      then the row's thumbnail_url. storage-gc's orphan scan deletes an
+//      object no row names once it is 24h old, so no object is ever left
+//      moved with its row still saying the old key for longer than one
+//      round trip (round 1, item 1; the scan now also keeps an object whose
+//      twin key a row names, _shared/shotKeys.ts). A row update that answers
+//      an error, or no row — a row a teammate trashed meanwhile is invisible
+//      to the update (files_select, 0014) — puts the object back, but only
+//      after RE-READING the row and only while it still names the old key:
+//      an update that committed and lost its answer is left as it
+//      committed. An object already at its new key with nothing at the old
+//      one is a move that landed on an earlier run and is counted done; an
+//      object at BOTH keys is left alone and reported (a move never
+//      overwrites and nothing here deletes). A thumbnail at neither key is
+//      a derived picture: the row stops naming it rather than the shot
+//      being held back;
+//   4. the old prefix is read again: a live row still under it (an upload
+//      that landed meanwhile) leaves the folder where it is, to be run
+//      again; then, and only then, the folder row is re-parented, and the
+//      update must answer the row.
+//
+// One run per project at a time in this tab (refilingNow); another tab's or
+// another person's run meets the same checks per object, which is what makes
+// two runs safe rather than a lock. The SHOTS category row goes only once no
+// folder row sits under it, COUNTED in the database (never in a list that
+// may be cut short), and "gone" is said only when the delete answers the row.
+const BUCKET_FILES = 'rabbit-files';
+const REFILE_FILE_COLUMNS = 'id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id, deleted_at';
+const refilingNow = new Set();
+
+/**
+ * Every files row this account can see whose body OR thumbnail still sits
+ * under `prefix`, whole. The thumbnail too: a run that stopped between a
+ * body's move and its thumbnail's leaves a row whose body is nested and
+ * whose picture is not, and the next run must find it.
+ */
+function filesUnderPrefix(client, projectId, prefix) {
+  const like = `${prefix}%`;
+  return readAllPages(() => client.from('files')
+    .select(REFILE_FILE_COLUMNS)
+    .eq('project_id', projectId)
+    .or(`storage_path.like.${like},thumbnail_url.like.${like}`)
+    .order('id'));
+}
+
 async function objectExistsIn(bucket, key) {
   const slash = key.lastIndexOf('/');
   const dir = slash === -1 ? '' : key.slice(0, slash);
   const leaf = slash === -1 ? key : key.slice(slash + 1);
   const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
   if (error) throw new Error(`storage list failed: ${error.message}`);
+  // `search` is a substring match: the leaf itself, not a neighbour that
+  // contains it (round 1's mutant: `length > 0` saw “plate.exr.bak” as the
+  // plate).
   return (data || []).some(o => o.name === leaf);
 }
 
-async function moveObjectVerified({ client, bucketName, local }, from, to, name) {
+/** The store an object lives in: a bucket, or this computer's media root. */
+function storeFor({ client, local, bucketName }) {
   if (local) {
     const provider = getStorageProvider(FILE_PROVIDERS.LOCAL_SERVER);
-    if (typeof provider.move !== 'function') throw new Error(`“${name}” lives on this computer and its storage cannot move it`);
-    const [atTo, atFrom] = await Promise.all([provider.exists(to), provider.exists(from)]);
-    if (atTo) {
-      if (!atFrom) return 'landed-earlier';
-      throw new Error(`“${name}” exists at both its old and its new place on this computer; both were left`);
-    }
-    if (!atFrom) throw new Error(`“${name}” is missing from this computer (${from})`);
-    await provider.move(from, to);
-    if (!(await provider.exists(to))) throw new Error(`“${name}” did not arrive at ${to}`);
-    return 'moved';
+    return {
+      name: 'this computer',
+      exists: (key) => provider.exists(key),
+      move: async (from, to) => {
+        if (typeof provider.move !== 'function') throw new Error('its storage cannot move it');
+        await provider.move(from, to);
+      },
+    };
   }
   const bucket = client.storage.from(bucketName);
-  const [atTo, atFrom] = await Promise.all([objectExistsIn(bucket, to), objectExistsIn(bucket, from)]);
+  return {
+    name: bucketName,
+    exists: (key) => objectExistsIn(bucket, key),
+    move: async (from, to) => {
+      const { error } = await bucket.move(from, to);
+      if (error) throw new Error(error.message);
+    },
+  };
+}
+
+async function moveObjectVerified(where, from, to, name) {
+  const store = storeFor(where);
+  const [atTo, atFrom] = await Promise.all([store.exists(to), store.exists(from)]);
   if (atTo) {
     if (!atFrom) return 'landed-earlier';
-    throw new Error(`“${name}” exists at both its old and its new place in ${bucketName}; both were left`);
+    throw new Error(`“${name}” exists at both its old and its new place in ${store.name}; both were left`);
   }
-  if (!atFrom) throw new Error(`“${name}” is missing from ${bucketName} (${from})`);
-  const { error } = await bucket.move(from, to);
-  if (error) throw new Error(`“${name}” could not be moved in ${bucketName}: ${error.message}`);
-  if (!(await objectExistsIn(bucket, to))) throw new Error(`“${name}” did not arrive at ${to} in ${bucketName}`);
+  if (!atFrom) throw new Error(`“${name}” is missing from ${store.name} (${from})`);
+  try {
+    await store.move(from, to);
+  } catch (err) {
+    throw new Error(`“${name}” could not be moved in ${store.name}: ${err?.message || err}`);
+  }
+  if (!(await store.exists(to))) throw new Error(`“${name}” did not arrive at ${to} in ${store.name}`);
   return 'moved';
+}
+
+/** The row read again: what it names NOW, or null when this account cannot see it. */
+async function rereadFileRow(client, id) {
+  const { data } = await client.from('files').select('id, storage_path, thumbnail_url').eq('id', id).maybeSingle();
+  return data && data.id ? data : null;
+}
+
+/**
+ * The row rewritten to say where its object now is. An error, or no row
+ * answered (the update reached nothing this account can see), puts the
+ * object back — but only after the row is read again and still names the
+ * old key (or cannot be seen at all): an update that committed and lost
+ * its answer stays as it committed, and a row someone else changed
+ * meanwhile is left to them.
+ */
+async function rewriteFileRow(client, row, column, from, to, putBack) {
+  const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
+  const failed = up.error
+    ? up.error.message
+    : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
+  if (!failed) return;
+  const now = await rereadFileRow(client, row.id);
+  if (now && now[column] === to) return;
+  if (!now || now[column] === from) {
+    try {
+      await putBack();
+    } catch (back) {
+      throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
+    }
+  }
+  throw new Error(`“${row.name}” could not be re-filed: ${failed}`);
+}
+
+/** Everything that would stop a shot, found BEFORE its first object moves. */
+async function refileShotPreflight(client, projectId, p, rows, folders, toPath) {
+  const taken = folders.find(f => f && f.id !== p.folder.id && f.path === toPath);
+  if (taken) throw new Error(`a folder already sits at ${toPath}`);
+  const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
+  for (const row of rows) {
+    const to = nestedShotKey(row.storage_path, ctx);
+    const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
+    if (!to && !thumbTo) continue;
+    if (row.storage_provider === FILE_PROVIDERS.S3) {
+      throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
+    }
+    const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
+    if (local && !hasLocalServer()) {
+      throw new Error(`“${row.name}” lives on the computer that holds this private project's media: run this from the desktop app there`);
+    }
+    if (row.deleted_at) continue; // a trashed row's body may be purged (0014's 30 days): nothing to check
+    if (to) {
+      const store = storeFor({ client, local, bucketName: BUCKET_FILES });
+      const [atFrom, atTo] = await Promise.all([store.exists(row.storage_path), store.exists(to)]);
+      if (!atFrom && !atTo) throw new Error(`“${row.name}” is missing from ${store.name} (${row.storage_path})`);
+      if (atFrom && atTo) throw new Error(`“${row.name}” exists at both its old and its new place in ${store.name}; both were left`);
+    }
+    if (thumbTo) {
+      // A picture at neither key is cleared later, not refused; one at both
+      // keys is the same refusal as a body at both.
+      const store = storeFor({ client, local, bucketName: THUMBNAIL_BUCKET });
+      const [atFrom, atTo] = await Promise.all([store.exists(row.thumbnail_url), store.exists(thumbTo)]);
+      if (atFrom && atTo) throw new Error(`“${row.name}” exists at both its old and its new place in ${store.name}; both were left`);
+    }
+  }
 }
 
 async function refileOneObject(client, projectId, p, row) {
   const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
   const to = nestedShotKey(row.storage_path, ctx);
-  if (!to) return 'untouched'; // already nested, or not this shot's key shape
-  if (row.storage_provider === FILE_PROVIDERS.S3) {
-    throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
-  }
-  const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
-  if (local && !hasLocalServer()) {
-    throw new Error(`“${row.name}” lives on the computer that holds this private project's media: run this from the desktop app there`);
-  }
-  const where = { client, local, bucketName: BUCKET_FILES };
   const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
-  try {
-    await moveObjectVerified(where, row.storage_path, to, row.name);
-  } catch (err) {
-    // A trashed row's body may already have been purged (0014's 30 days):
-    // nothing to move, and nothing to say.
-    if (row.deleted_at && /is missing from/.test(err?.message || '')) return 'gone';
-    throw err;
-  }
-  if (thumbTo) {
+  // Already nested (body and picture), or not this shot's key shape.
+  if (!to && !thumbTo) return 'untouched';
+  const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
+  const where = { client, local, bucketName: BUCKET_FILES };
+  let did = 'untouched';
+  // 1. The body, then its row — at once. (A row whose body is nested already
+  // and whose picture is not — a run that stopped between the two — skips
+  // to the picture.)
+  if (to) {
     try {
-      await moveObjectVerified({ ...where, bucketName: THUMBNAIL_BUCKET }, row.thumbnail_url, thumbTo, row.name);
+      await moveObjectVerified(where, row.storage_path, to, row.name);
     } catch (err) {
-      // The body has moved and its row has not: put the body back so the
-      // row stays true, then report the thumbnail's refusal.
-      try { await moveObjectVerified(where, to, row.storage_path, row.name); } catch (back) {
-        throw new Error(`“${row.name}” was moved to ${to} but its thumbnail could not follow (${err?.message || err}) and the body could not be moved back (${back?.message || back}); its record still says ${row.storage_path}`);
+      // A trashed row's body may already have been purged (0014's 30 days):
+      // nothing to move, and nothing to say.
+      if (row.deleted_at && /is missing from/.test(err?.message || '')) return 'gone';
+      throw err;
+    }
+    await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
+      () => moveObjectVerified(where, to, row.storage_path, row.name));
+    did = 'moved';
+  }
+  // 2. Its thumbnail, then its row — at once. The body is moved and its row
+  // says so: whatever happens here, nothing above is put back.
+  if (thumbTo) {
+    const thumbWhere = { ...where, bucketName: THUMBNAIL_BUCKET };
+    try {
+      await moveObjectVerified(thumbWhere, row.thumbnail_url, thumbTo, row.name);
+    } catch (err) {
+      if (/is missing from/.test(err?.message || '')) {
+        // A derived picture at neither key (S44 regenerates one on demand):
+        // the row stops naming it rather than the shot being held back.
+        await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
+        return 'moved';
       }
       throw err;
     }
+    await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, thumbTo,
+      () => moveObjectVerified(thumbWhere, thumbTo, row.thumbnail_url, row.name));
+    did = 'moved';
   }
-  const patch = { storage_path: to, ...(thumbTo ? { thumbnail_url: thumbTo } : {}) };
-  const up = await client.from('files').update(patch).eq('id', row.id);
-  if (up.error) {
-    try {
-      await moveObjectVerified(where, to, row.storage_path, row.name);
-      if (thumbTo) await moveObjectVerified({ ...where, bucketName: THUMBNAIL_BUCKET }, thumbTo, row.thumbnail_url, row.name);
-    } catch (back) {
-      throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${up.error.message}) and it could not be moved back (${back?.message || back}); its record still says ${row.storage_path}`);
-    }
-    throw new Error(`“${row.name}” could not be re-filed: ${up.error.message}`);
-  }
-  return 'moved';
+  return did;
 }
 
-async function refileOneShot(client, projectId, project, p, rows) {
+async function refileOneShot(client, projectId, project, p) {
   const sceneFolder = await ensureEntityFolderWith(client, projectId, project, 'scene', p.scene);
   if (!sceneFolder) throw new Error('the scene has no folder row');
+  const toPath = `${sceneFolder.path}/${p.folder.slug}`;
+  const legacyPrefix = `${shotObjectPrefix(projectId, null, p.shot.id)}/`;
+  const rows = await filesUnderPrefix(client, projectId, legacyPrefix);
+  await refileShotPreflight(client, projectId, p, rows, await listFoldersWith(client, projectId), toPath);
   let files = 0;
   for (const row of rows) {
     const did = await refileOneObject(client, projectId, p, row);
-    if (did === 'moved' || did === 'landed-earlier') files += 1;
+    if (did === 'moved') files += 1;
   }
-  const toPath = `${sceneFolder.path}/${p.folder.slug}`;
+  // Read again before the folder is re-parented: a live row that landed
+  // under the old prefix meanwhile keeps the folder where it is — this
+  // run can be run again for it, and the offer stays until it is.
+  const still = (await filesUnderPrefix(client, projectId, legacyPrefix)).filter(r => !r.deleted_at);
+  if (still.length > 0) {
+    throw new Error(`${still.length} file${still.length === 1 ? ' is' : 's are'} still under the old prefix after the move (“${still[0].name}”); run it again`);
+  }
   const up = await client.from('folders')
     .update({ parent_id: sceneFolder.id, path: toPath })
-    .eq('id', p.folder.id).select().single();
+    .eq('id', p.folder.id).select('id').maybeSingle();
   if (up.error) throw new Error(`the folder row could not be moved: ${up.error.message}`);
+  if (!up.data || !up.data.id) throw new Error('the folder row could not be moved: the update reached no row');
   return { files, toPath };
 }
-
-const BUCKET_FILES = 'rabbit-files';
 
 // ── Shot lists, items and edits (0084) — module-level helpers ────────────
 //
@@ -3360,46 +3526,54 @@ export function supabaseAdapter() {
 
     // ── S4c: the one-time re-filing of a project's shot folders ─────────
     // What is pending is read from the rows (shotRefiling.pendingShotRefiling);
-    // each shot is moved whole (refileOneShot: objects verified, rows
-    // rewritten, the folder re-parented, in that order) and a failure in
-    // one shot leaves it where it is, named with its reason, while the
-    // others go on. `onProgress({ shot, done, total })` before each shot.
+    // each shot is moved whole (refileOneShot: checked first, each object
+    // moved, seen and its row rewritten at once, the folder re-parented
+    // last) and a failure in one shot leaves it where it is, named with its
+    // reason, while the others go on. `onProgress({ shot, done, total })`
+    // before each shot. One run per project at a time in this tab.
     // The database refuses this for anyone who cannot write the project:
     // folders_update and files_update (0041, 0083) and the storage UPDATE
     // policies (0042, 0053) all demand can_write_project.
     async refileShotFolders(projectId, project, opts = {}) {
-      const client = await requireClient();
-      const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
-      const folders = await listFoldersWith(client, projectId);
-      const shots = unwrapOptionalTable(await client.from('shots').select('id, name, scene_id').eq('project_id', projectId));
-      const scenes = unwrapOptionalTable(await client.from('scenes').select('id, name').eq('project_id', projectId));
-      const pending = pendingShotRefiling({ folders, shots, scenes });
-      const moved = [];
-      const left = [];
-      if (pending.length > 0) {
-        const files = unwrapOptionalTable(await client.from('files')
-          .select('id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id, deleted_at')
-          .eq('project_id', projectId)) || [];
+      if (refilingNow.has(projectId)) throw new Error('The move is already running for this project.');
+      refilingNow.add(projectId);
+      try {
+        const client = await requireClient();
+        const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
+        const folders = await listFoldersWith(client, projectId);
+        const shots = await readAllPages(() => client.from('shots').select('id, name, scene_id').eq('project_id', projectId).order('id'));
+        const scenes = await readAllPages(() => client.from('scenes').select('id, name').eq('project_id', projectId).order('id'));
+        const pending = pendingShotRefiling({ folders, shots, scenes });
+        const moved = [];
+        const left = [];
         for (const p of pending) {
           progress({ shot: p.shot, name: p.folder.slug, done: moved.length + left.length, total: pending.length });
-          const rows = files.filter(f => (f.shot_id && String(f.shot_id) === String(p.shot.id)) || (f.folder_id && String(f.folder_id) === String(p.folder.id)));
           try {
-            const { files: n, toPath } = await refileOneShot(client, projectId, project, p, rows);
-            moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files: n });
+            const { files, toPath } = await refileOneShot(client, projectId, project, p);
+            moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files });
           } catch (err) {
             left.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, reason: err?.message || String(err) });
           }
         }
+        // The empty SHOTS category goes only once nothing is left under it:
+        // counted in the database, and said to be gone only when the delete
+        // answers the row (an RLS-filtered delete answers none).
+        let removedShotsCategory = false;
+        const category = shotsCategoryRow(folders);
+        if (category) {
+          const under = await client.from('folders')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId)
+            .like('path', 'SHOTS/%');
+          if (!under.error && under.count === 0) {
+            const del = await client.from('folders').delete().eq('id', category.id).select('id');
+            removedShotsCategory = !del.error && Array.isArray(del.data) && del.data.length > 0;
+          }
+        }
+        return { moved, left, removedShotsCategory };
+      } finally {
+        refilingNow.delete(projectId);
       }
-      // The empty SHOTS category goes only once nothing is left under it.
-      let removedShotsCategory = false;
-      const after = pending.length > 0 ? await listFoldersWith(client, projectId) : folders;
-      const category = shotsCategoryRow(after);
-      if (category && shotsCategoryEmpty(after)) {
-        const del = await client.from('folders').delete().eq('id', category.id);
-        if (!del.error) removedShotsCategory = true;
-      }
-      return { moved, left, removedShotsCategory };
     },
 
     // The project manifest — a generated MIRROR of the project's settings,

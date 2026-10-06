@@ -29,9 +29,9 @@ and experiences (0043) were already there, waiting for a writer.
 a project from *before* this change: its sixteen shot folders sit under SHOTS,
 so the first thing the Files tab shows is the offer. On the cloud, your one
 staging project is the same (its four shots are under SHOTS today) — the
-offer appears there too, for a project manager, the first time the Files tab
-is opened after the beta has this branch. Nothing moves until someone presses
-the button.
+offer appears there too, for a project manager (or member, §5 question 6),
+the first time the Files tab is opened after the beta has this branch.
+Nothing moves until someone presses the button.
 
 ---
 
@@ -47,10 +47,10 @@ the button.
 | 6 | Type *board* in the filter box | The table switches to a **search across the whole project**: every file and folder whose name, path or tag matches, with a **Location** column saying where each one is, and a line above the rows — *N matches for “board” across the project* — with **Clear**. |
 | 7 | Click **Clear** (or empty the box) | Back in the folder you were in, exactly where you left it. A search that matches nothing says *No files match “…” in this project*. |
 | 8 | Click **Columns**, then **Table** again | The Columns view opens on the same folder you were in, and the Table comes back to it: the two views keep one place. A selected file's **Location** in the file window matches the path above the table. |
-| 9 | At the top of the Files tab, read the blue notice and click **Move shot folders into their scenes…** | The notice says *16 shot folders still sit under SHOTS: Father-At-The-Tiller, Her-Side, His-Side and 13 more. From now on a shot's folder lives inside its scene's.* The question lists every folder and where it goes (**SHOTS/The-Door → SCENES/Lighthouse-Dawn/The-Door** …), the first eight then *and N more*, and says: *Each folder moves with every file in it; nothing is deleted. If it stops part way, what has moved stays moved, and you can run it again for the rest.* |
-| 10 | Click **Move shot folders** | A line *Moving The-Door (1 of 16)…* while it runs, then a green notice: *Moved 16 shot folders into their scenes. The empty SHOTS folder is gone.* The offer is gone. Open SCENES › Lighthouse-Dawn: its shot folders are inside it now, with their files. |
+| 9 | At the top of the Files tab, read the blue notice and click **Move shot folders into their scenes…** | The notice says *16 shot folders still sit under SHOTS: Father-At-The-Tiller, Her-Side, His-Side and 13 more. From now on a shot's folder lives inside its scene's.* The question lists every folder and where it goes (**SHOTS/The-Door → SCENES/Lighthouse-Dawn/The-Door** …), the first eight then *and N more*, and says: *Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved, and you can run it again for the rest.* |
+| 10 | Click **Move shot folders** | A line *Moving Father-At-The-Tiller (1 of 16)…* while it runs, one shot after another in the order the notice names them (on the Local Server, which answers in one go, the line reads *Moving shot folders (1 of 16)…*), then a green notice: *Moved 16 shot folders into their scenes. The empty SHOTS folder is gone.* The offer is gone. Open SCENES › Lighthouse-Dawn: its shot folders are inside it now, with their files. |
 | 11 | Open the **Scenes** tab, a scene's popup, then one of its shots' | The scene's **Folder** line reads *SCENES/Lighthouse-Dawn/*; the shot's reads *SCENES/Lighthouse-Dawn/The-Door/*. Before the move the shot's read *SHOTS/The-Door/*: the line says where the folder *is*. |
-| 12 | Switch the test data to the game variant (add `?fixtures=game` to the address) and open **Levels**, then a level's **View details** | Under Notes, a **Files (1)** section — the same one the scene and shot popups have — with **Add files**, Table and Gallery, the file's download and delete. **Linked counts** now reads *… / 1 files*. |
+| 12 | Switch the test data to the game variant (add `?fixtures=game` to the address) and open **Levels**, then a level's **View details** | Under Notes, a **Files (1)** section — the same one the scene and shot popups have — with **Add files**, Table and Gallery, the file's download and delete. **Linked counts** now reads *… / 1 file*. |
 | 13 | Open **Experiences**, then an experience's **View details** | The same Files section, with its own file. |
 | 14 | Click **Add files** in a level's popup and pick a file (on the cloud); on the Local Server the desktop's picker opens | The file appears in the list, and in the Files tab under **LEVELS › the level**. An experience's goes under **EXPERIENCES › the experience**. |
 | 15 | Click **New level**, add a file in the form, and **Confirm & create** | The level is created, then its file is added to its own folder (before this, a file picked in the form went nowhere). |
@@ -68,23 +68,41 @@ never across to another.
 
 **What gets recorded.** The move changes where the objects are, on both
 buckets on the cloud (a file's body in `rabbit-files` and its preview in
-`rabbit-thumbnails`), and on disk on the Local Server, and then the rows that
-say so. Nothing is deleted, nothing is copied twice: a file that is already
-at its new place from an earlier run is counted done, and a file that is at
-both places is left alone and named. On the cloud the move is refused by the
-database for anyone who cannot edit the project (a reviewer, a person with no
-seat) — rehearsed on the development database and rolled back.
+`rabbit-thumbnails`), and on disk on the Local Server, and the rows that say
+so — each file's row rewritten the moment its object has been seen at its
+new place, so no file is ever left moved with its row saying the old place
+for longer than one step. Before a shot's first file moves, the whole shot
+is checked (a file missing from storage, a file at both places, a folder
+already at the destination: the shot is left where it is, with the reason,
+and nothing of it moves). No file is deleted, nothing is copied twice: a
+file that is already at its new place from an earlier run is counted done,
+and a file that is at both places is left alone and named. A file in
+**Recently deleted** keeps its old place (the app cannot see trashed rows)
+and still restores. On the cloud the move is refused by the database for
+anyone who cannot edit the project (a reviewer, a person with no seat) —
+rehearsed on the development database and rolled back.
 
 **Who can do what.** The offer is shown only to someone who can edit the
-project (a manager or member; on the Local Server, everyone), and the
-database refuses the move for anyone else. The Files section on a level or
-an experience follows the same rule as a scene's.
+project (a manager or member — see §5, question 6; on the Local Server,
+everyone), and the database refuses the move for anyone else. The Files
+section on a level or an experience follows the same rule as a scene's.
 
 **Limits, stated.**
 - A folder opens on **one click**. The second click of a habitual
-  double-click is ignored for a third of a second so it cannot land on the
-  new folder's rows. (Windows Explorer opens on a double-click; this follows
-  your "press into a folder". Say if you want double-click.)
+  double-click, and the double-click itself, are ignored for a third of a
+  second so neither can land on the new folder's rows (a file nobody chose
+  would otherwise open in the preview and be logged as read). (Windows
+  Explorer opens on a double-click; this follows your "press into a folder".
+  Say if you want double-click.)
+- The move is **refused on the Local Server while the project folder is
+  recorded but cannot be reached** from this computer (a NAS offline, a
+  drive unplugged): rows moved without their files would describe a file
+  nowhere. With no folder recorded and none resolving, only a shot with no
+  file records moves (its rows alone).
+- Two people (or two tabs) running the move at once are not locked out of
+  each other; each file's checks make the second run find the first's work
+  done, and the result names anything the two disagreed on. One tab runs
+  one move per project at a time.
 - A shot's file in **your own bucket** (an S3 workspace) is not moved yet:
   its shot folder stays under SHOTS and the result names it. No such
   workspace exists on any environment today.
@@ -106,7 +124,8 @@ an experience follows the same rule as a scene's.
 Do each step at a large window and again at 1280 by 700. Steps 9 and 10 on
 the test data move sixteen folders in memory and come back on reload. On the
 cloud, run them on the staging project once the beta has this branch: the
-offer names its four shot folders; after **Move shot folders**, the result
+offer names three of its four shot folders and *and 1 more*; the question
+lists all four; after **Move shot folders**, the result
 should read *Moved 4 shot folders into their scenes. The empty SHOTS folder is
 gone.*, the two files you can add to a shot before running it should open
 and preview afterwards, and the Files tab's SCENES › each scene should hold
@@ -156,6 +175,12 @@ lands in `LEVELS\<level>\`.
 - **The Duration header is cut** ("DURATI…") at 1280 (P1-60).
 - A shot's file in your own bucket is not moved (S4c-01); the Local Server
   move was replayed on a temp folder, not opened in Electron (S4c-06).
+- The storage garbage collector (`storage-gc`) learned to keep a shot's file
+  mid-move (its row names the other shape of the key); the Edge Function
+  needs deploying for that to hold on staging and prod (S4c-10). Until it
+  is, a move that stops between a file's move and its row is a file the
+  collector may delete a day later — run the move with the app open and
+  the network up, and run it again at once if it stops.
 
 ---
 
@@ -175,6 +200,13 @@ lands in `LEVELS\<level>\`.
    or should a manager be asked once on first open?
 5. **A shot with no scene.** Its folder stays under SHOTS. Should the app
    stop allowing a shot with no scene, so SHOTS can go for good?
+6. **Who may run the move?** The brief said a manager past the project's
+   write gate and nobody else. Every policy the move relies on (the folder
+   rows, the file rows, both buckets' objects) is `can_write_project`,
+   which admits a project **member** too, and the offer follows the same
+   gate; a reviewer and a person with no seat are refused. Keep members, or
+   restrict it to managers (a gate in the Files tab, and a policy of its own
+   for the move)?
 
 ---
 

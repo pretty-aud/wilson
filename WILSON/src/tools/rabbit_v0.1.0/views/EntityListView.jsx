@@ -1236,17 +1236,44 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
   const [fileNote, setFileNote] = useState('')
   const fileInputRef = useRef(null)
   const managed = ctx?.supportsManagedFiles === true
+  // One create per press (S4c review round 1, item 8): the buttons are
+  // disabled (React drops a click on a disabled button, whatever the DOM
+  // says) and the dialog cannot be dismissed while the row and its files
+  // are written, and a file that was not added is SAID — the row exists by
+  // then, so the dialog stays open with the sentence and one button, Close.
+  // The ref mirrors `busy` for the Dialog's own close (Escape, the
+  // backdrop), whose closure may be a render old.
+  const [busy, setBusy] = useState(false)
+  const [madeWithFailures, setMadeWithFailures] = useState(false)
+  const busyRef = useRef(false)
+  const closeUnlessBusy = () => { if (!busyRef.current) onClose() }
 
   async function handleConfirm() {
+    busyRef.current = true
+    setBusy(true)
     let row = null
     try {
       row = await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description })
-    } catch (err) { console.error(`Failed to create ${entity.noun}:`, err) }
+    } catch (err) {
+      console.error(`Failed to create ${entity.noun}:`, err)
+      busyRef.current = false
+      setBusy(false)
+      setFileNote(`The ${entity.noun} was not created: ${err?.message || err}`)
+      return
+    }
+    let failed = []
     if (row?.id && files.length > 0) {
       try {
-        const { failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files })
-        if (failed.length) console.error(`${entity.Noun} created; ${failed.length} file(s) were not added:`, failed.join('; '))
-      } catch (err) { console.error(`${entity.Noun} created; its files were not added:`, err) }
+        ({ failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files }))
+      } catch (err) { failed = [err?.message || String(err)] }
+    }
+    busyRef.current = false
+    setBusy(false)
+    if (failed.length > 0) {
+      console.error(`${entity.Noun} created; ${failed.length} file(s) were not added:`, failed.join('; '))
+      setMadeWithFailures(true)
+      setFileNote(`${entity.Noun} created. ${failed.length === 1 ? 'One file was' : `${failed.length} files were`} not added: ${failed.join('; ')}`)
+      return
     }
     onClose()
   }
@@ -1271,14 +1298,16 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
       width="form"
       title={`New ${entity.noun}`}
       // The backdrop closed it before and still does; Escape closes it too
-      // (Q17).
-      dismissOnBackdrop
-      onClose={onClose}
-      footer={(
+      // (Q17) — neither while the row is being written.
+      dismissOnBackdrop={!busy}
+      onClose={closeUnlessBusy}
+      footer={madeWithFailures ? (
+        <Button variant="primary" onClick={onClose}>Close</Button>
+      ) : (
         <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleConfirm} disabled={!name.trim()}>
-            Confirm & create
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={!name.trim() || busy}>
+            {busy ? 'Creating…' : 'Confirm & create'}
           </Button>
         </>
       )}

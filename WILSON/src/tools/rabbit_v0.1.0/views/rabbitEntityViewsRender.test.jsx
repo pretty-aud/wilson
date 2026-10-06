@@ -173,6 +173,36 @@ describe.each(PAGES)('$page — EntityListView with its own config', (p) => {
     expect(ctx[p.add].mock.invocationCallOrder[0]).toBeLessThan(uploadFile.mock.invocationCallOrder[0])
   })
 
+  it('Confirm & create is ONE press: a second press, Escape and Cancel do nothing while it runs; a file that was not added is said, the dialog staying open with Close (S4c review round 1, item 8)', async () => {
+    let release
+    const add = vi.fn(() => new Promise(r => { release = r }))
+    const uploadFile = vi.fn(async () => { throw new Error('quota reached') })
+    mount(p.View, { [p.add]: add, uploadFile })
+    fireEvent.click(screen.getByRole('button', { name: `New ${p.noun}` }))
+    const dialog = screen.getByRole('dialog', { name: `New ${p.noun}` })
+    const input = dialog.querySelector('input[type="file"]')
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'ref.png', { type: 'image/png' })] })
+    fireEvent.change(input)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm & create' }))
+    const creating = await within(dialog).findByRole('button', { name: 'Creating…' })
+    expect(creating.disabled).toBe(true)
+    expect(within(dialog).getByRole('button', { name: 'Cancel' }).disabled).toBe(true)
+    // A second press lands on a disabled button (React drops it); Escape
+    // meets the dialog's close, which stands down while busy: one create.
+    fireEvent.click(creating)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog', { name: `New ${p.noun}` })).toBeTruthy()
+    release({ id: 'new-row', name: `${p.Noun} 3` })
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1))
+    await within(dialog).findByText(`${p.Noun} created. One file was not added: ref.png: quota reached`)
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(within(dialog).queryByRole('button', { name: 'Confirm & create' })).toBeNull()
+    // The footer's Close (the kit Dialog's own ✕ is named Close too, first in the DOM).
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Close' }).at(-1))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: `New ${p.noun}` })).toBeNull())
+  })
+
   it('CONTROL: a create that answers no row uploads nothing; a form with no files uploads nothing', async () => {
     const uploadFile = vi.fn(async () => ({}))
     mount(p.View, { [p.add]: vi.fn(async () => undefined), uploadFile })

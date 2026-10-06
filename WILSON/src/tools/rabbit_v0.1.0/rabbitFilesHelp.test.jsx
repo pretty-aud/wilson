@@ -83,10 +83,15 @@ describe('the "Files" help page (E13)', () => {
     // The move, by the button's label, and the two facts the question states.
     expect(text).toContain('Move shot folders into their scenes…')
     expect(explorer).toMatch(/>\s*Move shot folders into their scenes…\s*</)
-    expect(text).toContain('nothing is deleted')
+    // "no file is deleted" since review round 1 (the empty SHOTS folder IS
+    // removed, and a trashed file keeps its place): the help and the
+    // explorer's question say the same thing.
+    expect(text).toContain('no file is deleted, and a file in Recently deleted keeps its place and still restores')
     expect(text).toContain('you can run it again for the rest')
-    expect(explorer).toContain('nothing is deleted')
+    expect(text).not.toContain('nothing is deleted. If it stops')
+    expect(explorer).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores.')
     expect(explorer).toContain('you can run it again for the rest')
+    expect(explorer).not.toContain('nothing is deleted')
     expect(text).toContain('The empty SHOTS folder goes once nothing is left in it.')
     // The old flat-list sentence is gone.
     expect(text).not.toContain('Table lists every file')

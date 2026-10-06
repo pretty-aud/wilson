@@ -45,6 +45,7 @@ import {
   corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent, type AdminContext,
 } from '../_shared/adminGuard.ts'
 import { isReservedProjectObject } from '../_shared/reservedObjects.ts'
+import { shotKeyTwinPattern } from '../_shared/shotKeys.ts'
 import { decryptStorageSecret } from '../_shared/storageSecretCrypto.ts'
 import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
 
@@ -81,6 +82,10 @@ type Counts = {
   // that the guard was reachable and fired, and a run over a workspace with
   // projects that reads 0 here means the manifests are already gone.
   skipped_reserved: number
+  // S4c: shot objects mid-move — a files row names the OTHER shape of the
+  // object's key (_shared/shotKeys.ts) — declined for the same reason as
+  // skipped_reserved, and counted apart for the same reason.
+  skipped_twin: number
   // Queue rows whose body lives at the workspace's OWN bucket (S37): drained
   // by signed DELETE against provider_config, not storage.remove. Counted
   // apart for the same reason as skipped_reserved — the counter is the
@@ -156,6 +161,14 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
   return out
 }
 
+// S4c: does any files row (live OR trashed — the admin client sees both)
+// name the other shape of a shot object's key? One query per UNREFERENCED
+// object only, so a clean bucket costs nothing extra.
+async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
+  const { data } = await ctx.admin.from('files').select('id').like('storage_path', pattern).limit(1)
+  return (data ?? []).length > 0
+}
+
 async function certify(
   ctx: AdminContext, counts: Counts, bucket: string, path: string, reason: string, status: string, detail: string,
 ) {
@@ -179,7 +192,7 @@ Deno.serve(async (req) => {
   const counts: Counts = {
     queue_deleted: 0, queue_missing: 0, queue_failed: 0,
     orphans_deleted: 0, avatar_orphans_deleted: 0,
-    skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0,
+    skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0, skipped_twin: 0,
     queue_s3_drained: 0,
     // 🚨 true until the sweep answers — see the Counts comment.
     reservations_abandoned: 0, reservations_completed: 0, reservation_sweep_failed: true,
@@ -433,6 +446,14 @@ Deno.serve(async (req) => {
       const referenced = await referencedPaths(ctx, objects.map(o => o.path))
       for (const obj of objects) {
         if (referenced.has(obj.path)) continue // referenced (live OR trashed)
+        // 🚨 S4c: A SHOT OBJECT MID-MOVE IS NOT GARBAGE. The re-filing moves
+        // an object to its nested key and rewrites its row at once, but a
+        // run that stops between the two leaves an object no row names —
+        // which this scan would otherwise delete 24h later. A row naming
+        // the OTHER shape of the key (_shared/shotKeys.ts) keeps it; the
+        // next re-filing run counts it landed and rewrites the row.
+        const twin = shotKeyTwinPattern(obj.path)
+        if (twin && await rowNamesTwin(ctx, twin)) { counts.skipped_twin++; continue }
         // 🚨 THE ROW IS NOT THE ONLY THING THAT MAKES AN OBJECT WANTED.
         // PROJECT.json and FINANCE/RATES.json are written straight to the
         // bucket and deliberately have no files row, so every check above

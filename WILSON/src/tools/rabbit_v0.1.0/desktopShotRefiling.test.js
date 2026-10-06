@@ -77,8 +77,11 @@ function extractObjectLiteral(source, name) {
 
 const ROUTE = '/api/rabbit/projects/:projectId/folders/refile-shots'
 
-/** The shipped functions over a bundle in memory and a root on disk. */
-function harness(bundle, root) {
+/**
+ * The shipped functions over a bundle in memory and a root on disk. `fsImpl`
+ * stands in for `fs` (a test can make a rename lose a file).
+ */
+function harness(bundle, root, fsImpl = fs) {
   const routes = new Map()
   const writes = []
   const expressApp = { post: (pattern, h) => routes.set(pattern, h) }
@@ -108,7 +111,7 @@ function harness(bundle, root) {
      ${extractRoute(MAIN_CJS, ROUTE)}
      return { ensureEntityFolderRow, pendingShotRefilingFor, refileOneShotRow, materializeFolderDirs };`,
   )
-  const fns = build(fs, path, uuidv4, resolveContainedFilePath, resolveProjectFolder, readRabbitBundle, writeRabbitBundle, rabbitNotFound, expressApp)
+  const fns = build(fsImpl, path, uuidv4, resolveContainedFilePath, resolveProjectFolder, readRabbitBundle, writeRabbitBundle, rabbitNotFound, expressApp)
   const post = () => {
     const handler = routes.get(ROUTE)
     const res = { code: 200, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b; return this } }
@@ -194,6 +197,20 @@ describe('ensureEntityFolderRow (S4c)', () => {
     expect(moved.path).toBe('SCENES/Lighthouse-Dawn/The-Warm-Lamp')
     expect(moved.parent_id).toBe('f-sc1')
     expect(bundle.folders.filter(x => x.shot_id === 'sh2')).toHaveLength(1)
+  })
+  it('a renamed SCENE takes the rows under it along (its shot folders since S4c): each re-pathed; a shot still under SHOTS is not its descendant (review round 1, item 7)', () => {
+    const bundle = fixture()
+    const f = bundle.folders.find(x => x.id === 'f-sh2'); f.parent_id = 'f-sc1'; f.path = 'SCENES/Lighthouse-Dawn/The-Cold-Lamp'
+    bundle.folders.push(folder('sub', 'custom', 'SCENES/Lighthouse-Dawn/The-Cold-Lamp/plates', 'f-sh2'))
+    const h = harness(bundle, null)
+    bundle.scenes[0].name = 'Lighthouse, dusk'
+    const { row, changed } = h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0])
+    expect([row.id, row.path, changed]).toEqual(['f-sc1', 'SCENES/Lighthouse-Dusk', true])
+    expect(bundle.folders.find(x => x.id === 'f-sh2').path).toBe('SCENES/Lighthouse-Dusk/The-Cold-Lamp')
+    expect(bundle.folders.find(x => x.id === 'sub').path).toBe('SCENES/Lighthouse-Dusk/The-Cold-Lamp/plates')
+    expect(bundle.folders.find(x => x.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+    // CONTROL: the same name again changes nothing.
+    expect(h.ensureEntityFolderRow(bundle, 'p1', 'scene', bundle.scenes[0]).changed).toBe(false)
   })
 })
 
@@ -307,26 +324,126 @@ describe('POST …/folders/refile-shots on a temp root', () => {
     expect(bundle.managedFiles.find(m => m.id === 'm2').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/')
   })
 
-  it('with no project folder on disk the rows alone move, and a scene with no folder row gets one', () => {
+  it('with no project folder RECORDED and none resolving, the rows alone move — only for a shot with no record under its folder; a shot with records is left with the reason (review round 1, item 2); a scene with no folder row gets one', () => {
     const bundle = fixture()
     bundle.folders = bundle.folders.filter(f => f.id !== 'f-sc1')
     const h = harness(bundle, null)
     const res = h.post()
-    expect(res.body.moved.map(m => m.to)).toEqual(['SCENES/Lighthouse-Dawn/The-Cold-Lamp', 'SCENES/Lighthouse-Dawn/The-Door'])
+    expect(res.body.moved.map(m => m.to)).toEqual(['SCENES/Lighthouse-Dawn/The-Cold-Lamp'])
+    expect(res.body.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.body.left[0].reason).toBe('2 file records sit under SHOTS/The-Door and no project folder resolves on this computer; nothing was moved')
     const scene = bundle.folders.find(f => f.scene_id === 'sc1')
     expect(scene.path).toBe('SCENES/Lighthouse-Dawn')
-    expect(bundle.folders.find(f => f.id === 'f-sh1').parent_id).toBe(scene.id)
-    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/')
+    expect(bundle.folders.find(f => f.id === 'f-sh2').parent_id).toBe(scene.id)
+    // The door's records and row are exactly as they were.
+    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SHOTS/The-Door/')
+    expect(bundle.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
     // With no directory to look at, the ROWS alone decide whether SHOTS may
-    // go: Loose (no scene) still sits under it, so it stays.
+    // go: Loose (no scene) and The-Door still sit under it, so it stays.
     expect(res.body.removedShotsCategory).toBe(false)
     expect(bundle.folders.some(f => f.kind === 'category' && f.path === 'SHOTS')).toBe(true)
     // …and once nothing is under it, the row goes, with no disk involved.
-    bundle.shots = bundle.shots.filter(s => s.id !== 'sh3')
-    bundle.folders = bundle.folders.filter(f => f.id !== 'f-sh3')
+    bundle.shots = bundle.shots.filter(s => s.id === 'sh2')
+    bundle.folders = bundle.folders.filter(f => !['f-sh1', 'f-sh3'].includes(f.id))
+    bundle.managedFiles = []
     const again = harness(bundle, null).post()
     expect(again.body.removedShotsCategory).toBe(true)
     expect(bundle.folders.some(f => f.path === 'SHOTS')).toBe(false)
+  })
+
+  it('a project folder RECORDED (folder_root) that this computer cannot reach refuses every shot, records or not: nothing moves', () => {
+    const bundle = fixture()
+    bundle.project.folder_root = 'Z:\\gone\\Fixture'
+    // resolveProjectFolder answers null here: the root does not exist on this machine.
+    const h = harness(bundle, null)
+    const res = h.post()
+    expect(res.body.moved).toEqual([])
+    expect(res.body.left.map(l => l.name)).toEqual(['The-Cold-Lamp', 'The-Door'])
+    for (const l of res.body.left) expect(l.reason).toBe('the project folder (Z:\\gone\\Fixture) cannot be reached from this computer; nothing was moved')
+    expect(bundle.folders.find(f => f.id === 'f-sh2').path).toBe('SHOTS/The-Cold-Lamp')
+    expect(bundle.managedFiles.map(m => m.folder_path)).toEqual(['SHOTS/The-Door/', 'SHOTS/The-Door/', 'SHOTS/Loose/'])
+    expect(res.body.removedShotsCategory).toBe(false)
+  })
+
+  it('a file that was on disk and is not at its new place after the move is reported, every record that DID arrive already saying so; the next run finishes the folder', () => {
+    const bundle = fixture()
+    layOut(bundle)
+    // A rename that loses the board on the way (the directory moved whole).
+    const fsBroken = { ...fs, renameSync: (s, d) => { fs.renameSync(s, d); if (d.endsWith('The-Door')) fs.unlinkSync(path.join(d, 'Fixture_board_v001.png')) } }
+    const h = harness(bundle, root, fsBroken)
+    const res = h.post()
+    expect(res.body.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.body.left[0].reason).toBe('“Fixture_board_v001.png” did not arrive at SCENES/Lighthouse-Dawn/The-Door (its record was moved)')
+    // The plate arrived and its record says so — retargeted the moment the
+    // directory moved, not after a verification that never came.
+    expect(exists(root, 'SCENES/Lighthouse-Dawn/The-Door/Fixture_plate_v001.exr')).toBe(true)
+    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/')
+    expect(bundle.folders.find(f => f.id === 'f-sh1').path).toBe('SHOTS/The-Door')
+    expect(h.writes.length).toBeGreaterThanOrEqual(2)
+    // The next run: the directory is already there, nothing is under the old
+    // path, the folder row goes under the scene.
+    const res2 = harness(bundle, root).post()
+    expect(res2.body.left).toEqual([])
+    expect(res2.body.moved.map(m => [m.name, m.files, m.missing])).toEqual([['The-Door', 0, 0]])
+    expect(bundle.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
+  })
+
+  it('a folder row already at the destination refuses the shot before anything moves', () => {
+    const bundle = fixture()
+    layOut(bundle)
+    bundle.folders.push(folder('custom', 'custom', 'SCENES/Lighthouse-Dawn/The-Door', 'f-sc1'))
+    const h = harness(bundle, root)
+    const res = h.post()
+    expect(res.body.left.map(l => [l.name, l.reason])).toEqual([['The-Door', 'a folder already sits at SCENES/Lighthouse-Dawn/The-Door']])
+    expect(exists(root, 'SHOTS/The-Door/Fixture_plate_v001.exr')).toBe(true)
+    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SHOTS/The-Door/')
+    expect(res.body.moved.map(m => m.name)).toEqual(['The-Cold-Lamp'])
+  })
+
+  it('rows under the shot folder follow it; in a merge, a record under a moved sub-directory says its new place before a later clash', () => {
+    const bundle = fixture()
+    bundle.folders.push(folder('sub', 'custom', 'SHOTS/The-Door/plates', 'f-sh1'))
+    bundle.managedFiles.push(managed('m4', 'sh1', 'SHOTS/The-Door/plates/', 'Fixture_plate_v002.exr'))
+    bundle.managedFiles.push(managed('m5', 'sh1', 'SHOTS/The-Door/', 'zz_last.txt'))
+    layOut(bundle)
+    // The destination exists (a merge, entry by entry in name order), and the LAST entry clashes.
+    write(root, 'SCENES/Lighthouse-Dawn/The-Door/zz_last.txt', 'someone else')
+    const h = harness(bundle, root)
+    const res = h.post()
+    expect(res.body.left.map(l => l.name)).toEqual(['The-Door'])
+    expect(res.body.left[0].reason).toContain('“zz_last.txt” exists at both')
+    // Moved before the clash: the two files and the sub-directory — and the
+    // record UNDER the sub-directory says so (round 1, item 12: only direct
+    // children were retargeted in the loop).
+    expect(exists(root, 'SCENES/Lighthouse-Dawn/The-Door/plates/Fixture_plate_v002.exr')).toBe(true)
+    expect(bundle.managedFiles.find(m => m.id === 'm4').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/plates/')
+    expect(bundle.managedFiles.find(m => m.id === 'm1').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/')
+    expect(bundle.managedFiles.find(m => m.id === 'm5').folder_path).toBe('SHOTS/The-Door/')
+    expect(exists(root, 'SHOTS/The-Door/zz_last.txt')).toBe(true)
+    // The folder rows move only when the folder's own row does.
+    expect(bundle.folders.find(f => f.id === 'sub').path).toBe('SHOTS/The-Door/plates')
+    // The clash removed: the next run finishes — the row under the folder re-pathed with it.
+    fs.unlinkSync(at(root, 'SCENES/Lighthouse-Dawn/The-Door/zz_last.txt'))
+    const res2 = harness(bundle, root).post()
+    expect(res2.body.left).toEqual([])
+    expect(bundle.folders.find(f => f.id === 'sub').path).toBe('SCENES/Lighthouse-Dawn/The-Door/plates')
+    expect(bundle.managedFiles.find(m => m.id === 'm5').folder_path).toBe('SCENES/Lighthouse-Dawn/The-Door/')
+    expect(fs.readFileSync(at(root, 'SCENES/Lighthouse-Dawn/The-Door/zz_last.txt'), 'utf8')).toBe('zz_last.txt')
+    expect(exists(root, 'SHOTS/The-Door')).toBe(false)
+  })
+
+  it('a directory already at its new place with records still saying the old (an earlier run that never wrote the bundle) is counted done; nothing moves', () => {
+    const bundle = fixture()
+    layOut(bundle)
+    fs.renameSync(at(root, 'SHOTS/The-Door'), at(root, 'SCENES/Lighthouse-Dawn/The-Door'))
+    const h = harness(bundle, root)
+    const res = h.post()
+    expect(res.body.left).toEqual([])
+    const door = res.body.moved.find(m => m.name === 'The-Door')
+    expect([door.files, door.missing]).toEqual([2, 0])
+    expect(bundle.managedFiles.filter(m => m.shot_id === 'sh1').map(m => m.folder_path)).toEqual(['SCENES/Lighthouse-Dawn/The-Door/', 'SCENES/Lighthouse-Dawn/The-Door/'])
+    expect(bundle.folders.find(f => f.id === 'f-sh1').path).toBe('SCENES/Lighthouse-Dawn/The-Door')
+    expect(exists(root, 'SCENES/Lighthouse-Dawn/The-Door/Fixture_plate_v001.exr')).toBe(true)
   })
 
   it('CONTROL: a project with nothing under SHOTS answers an empty move and writes nothing', () => {

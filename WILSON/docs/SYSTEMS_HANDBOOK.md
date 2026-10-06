@@ -1976,18 +1976,30 @@ still sits under SHOTS, so objects and folder move together. **The re-filing**
 (`shotRefiling.js` decides what is pending; `supabaseAdapter.refileShotFolders`
 on the cloud, `POST …/folders/refile-shots` on the Local Server, the fixtures
 adapter in memory) is OFFERED on the Files tab to whoever can write the open
-project, never run unasked: one shot folder at a time, each object moved in
-`rabbit-files` (its thumbnail in `rabbit-thumbnails`) and SEEN at its new key
-before the files row is rewritten, the folder row re-parented only after
-every file, a refused row update moving the object back, an object at both
-keys left alone and reported, one already landed on an earlier run counted
-done; the Local Server moves the directory (entry by entry into a destination
-that exists, never over a file), verifies each managed file at its new place,
-rewrites `folder_path` and the row, and writes the bundle after each shot. The
-empty SHOTS category row (and its empty directory) goes last. Idempotent and
-resumable; nothing is ever deleted. A body in the customer's own bucket (s3)
-or on another computer (a private project's, off the desktop) leaves its shot
-where it is, with the reason. Rehearsed on wilson-dev in a rolled-back
+project, never run unasked: one shot folder at a time, the shot CHECKED whole
+before its first object moves (a body in the customer's own bucket, s3; a
+body on another computer; a live row whose body is at neither key; a folder
+row already at the destination — the shot is left with the reason, nothing of
+it moved), its rows read whole by the old key shape (paged: PostgREST stops
+at 1,000 rows), each object moved in `rabbit-files` and SEEN at its new key
+and its files row rewritten AT ONCE, then its thumbnail in
+`rabbit-thumbnails` and the row again (so no object is left moved with a row
+saying the old key for longer than one round trip — `storage-gc` deletes an
+object no row names after 24h, and since S4c keeps one whose twin key a row
+names, `_shared/shotKeys.ts`); a refused row update, or one that reaches no
+row, moves the object back only after the row is read again and still names
+the old key; an object at both keys left alone and reported; one already
+landed on an earlier run counted done; the old prefix read again before the
+folder row is re-parented. The Local Server refuses the whole run while the
+project folder is recorded but unreachable, moves the directory (entry by
+entry, in name order, into a destination that exists, never over a file),
+retargets every record the moment its entry has moved, verifies each managed
+file at its new place, rewrites the row, and writes the bundle after each
+shot. The empty SHOTS category row (and its empty directory) goes last,
+counted in the database. Idempotent and resumable; no file is ever deleted.
+A body in the customer's own bucket (s3) or on another computer (a private
+project's, off the desktop) leaves its shot where it is, with the reason.
+Rehearsed on wilson-dev in a rolled-back
 transaction as Northwind's manager under the live policies (a reviewer and a
 person with no seat got zero rows; a member one). Levels and experiences have
 their Files section in their popups now; the managed-files POST answers a

@@ -22,6 +22,7 @@
 // =============================================================================
 
 import { fileSlugify } from '../entityNaming'
+import { guessMimeType } from './mimeTypes'
 
 const EXT_RE = /\.[^./\\]+$/
 
@@ -90,7 +91,7 @@ export async function addFilesToEntity({ ctx, entityType, entity, picked = [], a
         file_name:     baseName,
         original_name: originalName,
         extension:     ext,
-        mime_type:     null,
+        mime_type:     guessMimeType(ext),
         size_bytes:    stats.size,
         notes:         '',
       })

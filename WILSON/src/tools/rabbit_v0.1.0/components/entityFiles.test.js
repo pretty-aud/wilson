@@ -62,7 +62,8 @@ describe('the managed store (the desktop in Local Server mode)', () => {
     const ctx = { supportsManagedFiles: true, addManagedFile, uploadFile: vi.fn(), project: { id: 'p1', title: 'Salt Hours', folder_root: 'D:\\Projects\\Salt-Hours' } }
     const out = await addFilesToEntity({ ctx, entityType: 'level', entity: { id: 'l1', name: 'Lamp Room' }, picked: [{ name: 'blockout.png', path: 'C:\\in\\blockout.png' }], api })
     expect(out).toEqual({ added: 1, failed: [] })
-    expect(addManagedFile).toHaveBeenCalledWith(expect.objectContaining({ level_id: 'l1', file_name: 'blockout', original_name: 'blockout.png', extension: '.png', size_bytes: 10 }))
+    // Typed as FileManager types a file (mimeTypes.js), not `null` (review round 1, item 8).
+    expect(addManagedFile).toHaveBeenCalledWith(expect.objectContaining({ level_id: 'l1', file_name: 'blockout', original_name: 'blockout.png', extension: '.png', mime_type: 'image/png', size_bytes: 10 }))
     expect(api.copyFile).toHaveBeenCalledWith({ sourcePath: 'C:\\in\\blockout.png', destDir: 'D:\\Projects\\Salt-Hours\\LEVELS\\Lamp-Room', destFileName: 'Salt_blockout_v001.png' })
     expect(ctx.uploadFile).not.toHaveBeenCalled()
   })

@@ -1929,10 +1929,22 @@ function startLocalServer(distPath) {
         const parentRow = mine.parent_id ? bundle.folders.find(f => f.id === mine.parent_id) : null;
         const keptPath = parentRow ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}` : planned.folder.path;
         if (mine.path !== keptPath) {
+          const oldPrefix = `${mine.path}/`;
           mine.slug = planned.folder.slug;
           mine.path = keptPath;
           mine.label = planned.folder.label;
           mine.updated_at = new Date().toISOString();
+          // The rows under it follow — a scene's shot folders since S4c
+          // (review round 1, item 7): each re-pathed under the new path, so
+          // no row says a path its parent no longer has. The directory on
+          // disk is left where it is, as a rename always has here (the
+          // PATCH route's note), and a managed record stays with its file.
+          for (const f of bundle.folders) {
+            if (f.id !== mine.id && typeof f.path === 'string' && f.path.startsWith(oldPrefix)) {
+              f.path = `${keptPath}/${f.path.slice(oldPrefix.length)}`;
+              f.updated_at = mine.updated_at;
+            }
+          }
           changed = true;
         }
         return { row: mine, changed };
@@ -2980,17 +2992,27 @@ function startLocalServer(distPath) {
     }
 
     // One shot folder: the scene's folder row (and directory) first; the
-    // directory moved — whole when nothing sits at the destination, entry
-    // by entry into a destination that already exists, never over a file
-    // that is there (both are left and the shot is reported); every managed
-    // file that was on disk VERIFIED at its new place; then, and only then,
-    // the managed-file paths and the folder row rewritten. The bundle is
-    // written by the caller after each shot, so a stop part way leaves rows
-    // that say where every file is. A managed file already missing from
-    // disk before the move is counted as missing, not moved, and does not
-    // hold the folder back — the relink census is where it is found again.
-    // With no project folder on disk (no root resolves) the rows alone move.
-    function refileOneShotRow(bundle, projectId, root, p) {
+    // shot CHECKED before anything moves — a folder row already at the
+    // destination; no project folder reachable while the project RECORDS
+    // one, or while a managed record sits under the folder (rows moved
+    // without their files would describe a file nowhere: review round 1,
+    // item 2); then the directory moved — whole when nothing sits at the
+    // destination, entry by entry into a destination that already exists,
+    // never over a file that is there (both are left and the shot is
+    // reported); every record retargeted THE MOMENT its entry has moved
+    // (all of them after the one rename, each entry — and everything under
+    // a moved sub-directory — in the merge), so a stop on the next step
+    // leaves no record pointing at a file that has gone; every managed file
+    // that was on disk VERIFIED at its new place; then, and only then, the
+    // folder row rewritten. The bundle is written by the caller after each
+    // shot, so a stop part way leaves rows that say where every file is. A
+    // managed file already missing from disk before the move is counted as
+    // missing, not moved, and does not hold the folder back — the relink
+    // census is where it is found again; one already at its new place (an
+    // earlier run moved the directory and never got to write the bundle) is
+    // counted done. With no project folder recorded and none resolving, the
+    // rows alone move — only for a shot with no record under its folder.
+    function refileOneShotRow(bundle, projectId, root, p, opts = {}) {
       const now = new Date().toISOString();
       const sceneEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', p.scene);
       const sceneRow = sceneEnsured.row;
@@ -3006,45 +3028,71 @@ function startLocalServer(distPath) {
       const mine = (bundle.managedFiles || []).filter(mf => mf && typeof mf.folder_path === 'string' && mf.folder_path.startsWith(prefixFrom));
       let files = 0;
       let missing = 0;
-      if (root) {
+      if (!root) {
+        if (opts.folderRecorded) {
+          throw new Error(`the project folder (${opts.folderRecorded}) cannot be reached from this computer; nothing was moved`);
+        }
+        if (mine.length > 0) {
+          throw new Error(`${mine.length} file record${mine.length === 1 ? ' sits' : 's sit'} under ${fromPath} and no project folder resolves on this computer; nothing was moved`);
+        }
+      } else {
         const fromDir = resolveContainedFilePath(root, fromPath);
         const toDir = resolveContainedFilePath(root, toPath);
         if (!fromDir || !toDir) throw new Error('the folder path could not be resolved inside the project');
-        // Each record's place BEFORE anything moves: whether its file is on
-        // disk, and its sub-path under the folder (the merge below rewrites
-        // a record the moment its entry has moved, so the check after the
-        // move must not read the record's path again).
-        const onDisk = new Map(mine.map(mf => {
-          const at = resolveContainedFilePath(root, path.join(...mf.folder_path.split('/').filter(Boolean), mf.stored_name || ''));
-          return [mf, { was: !!(mf.stored_name && at && fs.existsSync(at)), rel: mf.folder_path.slice(prefixFrom.length).split('/').filter(Boolean) }];
-        }));
+        // Each record's place BEFORE anything moves: whether its file is at
+        // the old place, already at the new one, and which entry of the
+        // folder carries it (the file itself at the top, or the first
+        // sub-directory of its sub-path). The moves below rewrite a record
+        // the moment its entry has moved, so nothing after this reads a
+        // record's path again.
+        const places = mine.map(mf => {
+          const rel = mf.folder_path.slice(prefixFrom.length).split('/').filter(Boolean);
+          const oldAt = mf.stored_name ? resolveContainedFilePath(root, path.join(...fromPath.split('/'), ...rel, mf.stored_name)) : null;
+          const newAt = mf.stored_name ? resolveContainedFilePath(root, path.join(...toPath.split('/'), ...rel, mf.stored_name)) : null;
+          return {
+            mf,
+            entry: rel.length > 0 ? rel[0] : (mf.stored_name || null),
+            atOld: !!(oldAt && fs.existsSync(oldAt)),
+            atNew: !!(newAt && fs.existsSync(newAt)),
+            newAt,
+          };
+        });
+        const landed = (pl) => { if (!pl.mf.folder_path.startsWith(prefixTo)) retarget(pl.mf); };
         if (fs.existsSync(fromDir)) {
           fs.mkdirSync(path.dirname(toDir), { recursive: true });
           if (fs.existsSync(toDir)) {
-            for (const entry of fs.readdirSync(fromDir)) {
+            // In name order on every platform (readdir's own order is the
+            // file system's), so what has moved before a clash is predictable.
+            for (const entry of fs.readdirSync(fromDir).sort()) {
               const s = path.join(fromDir, entry);
               const d = path.join(toDir, entry);
               if (fs.existsSync(d)) throw new Error(`“${entry}” exists at both ${fromPath} and ${toPath}; both were left`);
               fs.renameSync(s, d);
-              // The rows of what just moved, at once, so a stop on the next
-              // entry leaves no row pointing at a file that has gone.
-              for (const mf of mine) if (mf.stored_name === entry && mf.folder_path === prefixFrom) { retarget(mf); files += 1; }
+              // The rows of what just moved — the file at the top, or every
+              // record under a moved sub-directory — at once, so a stop on
+              // the next entry leaves no row pointing at a file that has gone.
+              for (const pl of places) if (pl.atOld && pl.entry === entry) landed(pl);
             }
             try { fs.rmdirSync(fromDir); } catch { /* something unknown is still in it; left */ }
           } else {
             fs.renameSync(fromDir, toDir);
+            // One step moved everything: every record that was on disk says so now.
+            for (const pl of places) if (pl.atOld) landed(pl);
           }
         }
-        for (const [mf, { was, rel }] of onDisk) {
-          if (!was) { missing += 1; continue; }
-          const at = resolveContainedFilePath(root, path.join(...toPath.split('/'), ...rel, mf.stored_name));
-          if (!at || !fs.existsSync(at)) {
-            const where = mf.folder_path.startsWith(prefixTo) ? 'its record was moved' : 'its record still says where it was';
-            throw new Error(`“${mf.file_name || mf.stored_name}” did not arrive at ${toPath} (${where})`);
+        for (const pl of places) {
+          if (!pl.atOld) {
+            if (pl.atNew) { landed(pl); continue; }
+            missing += 1;
+            continue;
+          }
+          if (!pl.newAt || !fs.existsSync(pl.newAt)) {
+            const where = pl.mf.folder_path.startsWith(prefixTo) ? 'its record was moved' : 'its record still says where it was';
+            throw new Error(`“${pl.mf.file_name || pl.mf.stored_name}” did not arrive at ${toPath} (${where})`);
           }
         }
       }
-      for (const mf of mine) { if (mf.folder_path.startsWith(prefixFrom)) { retarget(mf); files += 1; } }
+      for (const mf of mine) { if (mf.folder_path.startsWith(prefixFrom)) retarget(mf); files += 1; }
       for (const f of bundle.folders) {
         if (f.id === p.folder.id) { f.parent_id = sceneRow.id; f.path = toPath; f.updated_at = now; }
         else if (typeof f.path === 'string' && f.path.startsWith(prefixFrom)) { f.path = prefixTo + f.path.slice(prefixFrom.length); f.updated_at = now; }
@@ -3057,11 +3105,17 @@ function startLocalServer(distPath) {
       const bundle = readRabbitBundle(projectId);
       if (!bundle) return rabbitNotFound(res);
       const root = resolveProjectFolder(bundle);
+      // A folder the project RECORDS (folder_root) that this computer cannot
+      // reach — a NAS offline, an unplugged drive, a root outside the open
+      // demo folder — is not "no folder": the files are somewhere, and rows
+      // moved without them would describe a file nowhere. Each shot is
+      // refused with that reason (refileOneShotRow); nothing moves.
+      const folderRecorded = root ? null : ((bundle.project && bundle.project.folder_root) || null);
       const moved = [];
       const left = [];
       for (const p of pendingShotRefilingFor(bundle)) {
         try {
-          const result = refileOneShotRow(bundle, projectId, root, p);
+          const result = refileOneShotRow(bundle, projectId, root, p, { folderRecorded });
           materializeFolderDirs(bundle);
           writeRabbitBundle(projectId, bundle);
           moved.push(result);

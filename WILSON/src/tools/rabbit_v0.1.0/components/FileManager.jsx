@@ -38,6 +38,7 @@ import FileThumbnail, { extensionOf } from './FileThumbnail'
 import VideoPreview from './VideoPreview'
 import { fileSlugify } from '../entityNaming'
 import { isLegalFile } from '../fileTags'
+import { guessMimeType } from './mimeTypes'
 // Session 40 (§5f). Provider-keyed, because 50 MB is `rabbit-files`'s own limit
 // and applies to PETAL workspaces only — an s3 workspace takes ~5 GB from the
 // same browser, so a blanket "too large, use the desktop app" is a false
@@ -1215,22 +1216,5 @@ export default function FileManager({
   )
 }
 
-// ── MIME type guesser ──
-function guessMimeType(ext) {
-  const map = {
-    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-    '.gif': 'image/gif', '.webp': 'image/webp', '.tiff': 'image/tiff',
-    '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
-    '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
-    '.mkv': 'video/x-matroska', '.webm': 'video/webm',
-    '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.flac': 'audio/flac',
-    '.pdf': 'application/pdf', '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.psd': 'image/vnd.adobe.photoshop', '.ai': 'application/postscript',
-    '.zip': 'application/zip', '.rar': 'application/x-rar-compressed',
-    '.fbx': 'application/octet-stream', '.usd': 'application/octet-stream',
-    '.ma': 'application/octet-stream', '.blend': 'application/octet-stream',
-    '.exr': 'image/x-exr',
-  }
-  return map[(ext || '').toLowerCase()] || 'application/octet-stream'
-}
+// The MIME type guesser lives in mimeTypes.js since S4c (the create forms'
+// files are typed by the same map).

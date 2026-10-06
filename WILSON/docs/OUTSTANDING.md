@@ -2267,9 +2267,12 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   passes `rabbit_files_money_update`'s USING, the new one `rabbit_files_update`'s
   WITH CHECK — so `UPDATE storage.objects SET name = …/project/…` moves the
   body (and its thumbnail) where every member can list and read it. The
-  `files` row stays Legal (`trg_files_legal_fixed`). No client calls
-  storage move or copy, and the same person can always download and re-add
-  the file, so nobody gains what they could not already give away. The
+  `files` row stays Legal (`trg_files_legal_fixed`). Since S4c one client
+  path calls storage move — the shot-folder re-filing, on keys whose third
+  segment is `shots` or `scenes`, never LEGAL — so the restrictive policy
+  below would not refuse it; before S4c no client did, and the same person
+  can always download and re-add the file, so nobody gains what they could
+  not already give away. The
   validated fix is a RESTRICTIVE `FOR UPDATE` policy on both buckets,
   `NOT rabbit_legal_segment((storage.foldername(name))[3])` in USING and
   WITH CHECK — but it may refuse Supabase Storage's OWN updates of a Legal
@@ -2753,11 +2756,14 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   By design (A9's private-project rule), recorded so the beta's words are
   expected. Owner: none.
 - **S4c-03 · A live file whose object is missing from storage holds its shot
-  folder back.** The re-filing refuses to re-parent a folder while one of
-  its files is "missing from rabbit-files": the rows would then describe a
-  file nowhere. A trashed row whose object was purged is skipped. The way
-  out is to delete the dead row. Owner: Audrey, if it ever shows; the
-  sentence names the file.
+  folder back.** The re-filing checks every file of a shot BEFORE its first
+  object moves (review round 1) and leaves the shot where it is while one of
+  its live files is "missing from rabbit-files": the rows would otherwise
+  describe a file nowhere. The way out is to delete the dead row. A file in
+  Recently deleted is invisible to the client (`files_select`, 0014), so its
+  body keeps its old key — which still works after a restore (the key is a
+  key; the third segment `shots` is not gated). Owner: Audrey, if it ever
+  shows; the sentence names the file.
 - **S4c-04 · A shot moved to another scene keeps its folder where it is.**
   Nothing in the Scenes tab changes a shot's scene today (measured: no
   writer of `scene_id` on a shot), so there is no surface for it; if one
@@ -2797,4 +2803,46 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   them, so the offer shows on first open and the walkthrough's move has
   something to move; the fixtures adapter re-files them in memory. A test
   that wants the nested layout re-files first (`shotRefiling.fixtures.test.js`
-  shows how). Owner: none.
+  shows how). The fixtures' keys are path-based
+  (`…/projects/<pid>/<folder path>/<name>`) where the cloud's are id-based
+  (`projects/<pid>/scenes/<sceneId>/<shotId>/<leaf>`); the fixtures adapter
+  rewrites by path, so a test of the cloud's key shape belongs in
+  `shotRefilingCloud.test.js`, not the fixtures. Owner: none.
+- **S4c-09 · A move that stops between an object and its row leaves one
+  file the next run must find.** On the cloud each file's row is rewritten
+  at once after its object is seen at the new key, so the window is one
+  round trip per object; `storage-gc` now keeps an object whose twin key a
+  row names (`_shared/shotKeys.ts`), and the next run counts the object
+  landed and rewrites the row. On the Local Server the directory moves in
+  one step and every record is retargeted at once, but the bundle is
+  written after the shot, so a crash in between leaves records saying the
+  old place until the next run (which finds each file at its new place and
+  counts it done). A journal written before the move would close both
+  windows for good. Owner: a future session, if a stopped move ever shows
+  in the beta.
+- **S4c-10 · `storage-gc` must be deployed for the twin-key guard to hold.**
+  The Edge Function's orphan scan deleted any `rabbit-files` object no row
+  named once it was 24h old — exactly what a stopped move leaves. The code
+  on this branch asks the files table for the other shape of a shot key
+  before it deletes (one query per unreferenced object only), counted as
+  `skipped_twin`; pinned by `storageGcShotTwins.test.js`. Nothing deploys
+  Edge Functions from a session: `supabase functions deploy storage-gc`
+  on staging, then prod, by Audrey. Until then the walkthrough says to run
+  the move with the app open and the network up. Owner: Audrey.
+- **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
+  directory.** As before S4c for every entity (the PATCH route's note: the
+  old directory is left with whatever is in it, and a managed record stays
+  with its file). Since S4c a renamed scene re-paths its shot folders' rows
+  with it, so no row says a path its parent no longer has — but the
+  directories and the records keep the old scene's name on disk, as they
+  always did, and the Files tab lists a record by its own `folder_path`.
+  Moving the directory and the records on a rename (as the asset route
+  does) is one change on each backend. Owner: a session that takes renames.
+- **S4c-12 · Two runs of the move at once are not locked out of each
+  other.** One tab runs one move per project at a time
+  (`refilingNow` in the adapter); another tab's or another person's run
+  meets the same checks per object (an object already at its new key is
+  counted landed; a row that answers no row puts the object back only after
+  the row is read again), so two runs end in the same state as one, with
+  anything they disagreed on named in both results. A lock row in the
+  database would be the fuller answer. Owner: none unless it shows.

@@ -89,6 +89,19 @@ describe('Add files on the managed store copies into the folder the record names
 })
 
 describe('Show in explorer and Open folder read the same place', () => {
+  it('the copy goes where the RECORD says even when the entity\'s row says elsewhere (the server files the record; a row can lag)', async () => {
+    ctx.__folderPath = 'SHOTS/The-Door/'
+    render(<FileManager files={[]} shotId="sh1" shotName="The door" projectId="p1" project={ctx.project} />)
+    expect((await add()).destDir).toBe('D:\\Projects\\Salt-Hours\\SHOTS\\The-Door')
+  })
+  it('a record whose folder_path is not its entity row\'s (from before the move) is shown where IT is; the folder button opens the row\'s folder', async () => {
+    const files = [{ id: 'm1', shot_id: 'sh1', file_name: 'plate', stored_name: 'Salt-Hours_plate_v001.exr', folder_path: 'SHOTS/The-Door/', size_bytes: 1, uploaded_at: '2026-10-01T00:00:00Z', version_label: 'v001' }]
+    render(<FileManager files={files} shotId="sh1" shotName="The door" projectId="p1" project={ctx.project} />)
+    fireEvent.click(screen.getByTitle('Show Salt-Hours_plate_v001.exr in explorer'))
+    await waitFor(() => expect(api.openInExplorer).toHaveBeenCalledWith({ filePath: 'D:\\Projects\\Salt-Hours\\SHOTS\\The-Door\\Salt-Hours_plate_v001.exr' }))
+    fireEvent.click(screen.getByTitle('Open folder in explorer'))
+    await waitFor(() => expect(api.openInExplorer).toHaveBeenLastCalledWith({ filePath: 'D:\\Projects\\Salt-Hours\\SCENES\\Dawn\\The-Door' }))
+  })
   it('a record\'s own folder_path; the entity\'s folder row for the folder button', async () => {
     const files = [{ id: 'm1', shot_id: 'sh1', file_name: 'plate', stored_name: 'Salt-Hours_plate_v001.exr', folder_path: 'SCENES/Dawn/The-Door/', size_bytes: 1, uploaded_at: '2026-10-01T00:00:00Z', version_label: 'v001' }]
     render(<FileManager files={files} shotId="sh1" shotName="The door" projectId="p1" project={ctx.project} />)

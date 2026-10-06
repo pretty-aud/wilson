@@ -632,11 +632,17 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // the reason each was left — a stop part way is a state the rows describe,
   // and the offer comes back for what is still pending.
   const refileFn = ctx?.refileShotFolders
+  // EVERY shot and scene of the project (`allShots` / `allScenes`), not the
+  // active shot list's (`ctx.shots`, D10): the run moves every shot's
+  // folder, so the count, the names and the question must name every one
+  // (review round 1, item 3).
+  const allShots = ctx?.allShots
+  const allScenes = ctx?.allScenes
   const pendingRefile = useMemo(() => (
     onTab && isOpenProject && rowsOnScreen && typeof refileFn === 'function'
-      ? pendingShotRefiling({ folders: rowsOnScreen.folders, shots: ctx?.shots || [], scenes: ctx?.scenes || [] })
+      ? pendingShotRefiling({ folders: rowsOnScreen.folders, shots: allShots || [], scenes: allScenes || [] })
       : []
-  ), [onTab, isOpenProject, rowsOnScreen, refileFn, ctx?.shots, ctx?.scenes])
+  ), [onTab, isOpenProject, rowsOnScreen, refileFn, allShots, allScenes])
   const [refileAsk, setRefileAsk] = useState(false)
   const [refiling, setRefiling] = useState(null) // { name, done, total } while it runs
   const [refileResult, setRefileResult] = useState(null) // { moved, left, removedShotsCategory }
@@ -876,8 +882,14 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         if (currentFolder && !currentFolder.isRoot) { e.preventDefault(); goUp() }
         return
       case 'ArrowLeft':
-        if (!e.altKey || searching) return
-        if (currentFolder && !currentFolder.isRoot) { e.preventDefault(); goUp() }
+        if (!e.altKey) return
+        // Alt+← is the browser's Back in the web build (App.jsx's pushState
+        // history): taken here whatever the state — at the project folder
+        // and during a search it does nothing, rather than leaving the page
+        // (review round 1, item 9).
+        e.preventDefault()
+        if (searching) return
+        if (currentFolder && !currentFolder.isRoot) goUp()
         return
       default:
     }
@@ -1078,7 +1090,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         )}
         {refiling && (
           <Banner tone="info" Icon={FolderInput} data-shot-refile-progress>
-            Moving {refiling.name ? `${refiling.name} ` : ''}({Math.min(refiling.done + 1, Math.max(refiling.total, 1))} of {Math.max(refiling.total, 1)})&hellip; nothing is deleted; a stop part way can be run again.
+            Moving {refiling.name ? `${refiling.name} ` : 'shot folders '}({Math.min(refiling.done + 1, Math.max(refiling.total, 1))} of {Math.max(refiling.total, 1)})&hellip; no file is deleted; a stop part way can be run again.
           </Banner>
         )}
         {refileResult && !refiling && (
@@ -1229,10 +1241,11 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         </Dialog>
       )}
       {/* S4c: the question before the move. Every folder and where it goes
-          (the first eight, then how many more), and the two facts a person
-          needs before saying yes: nothing is deleted, and a stop part way
-          can be run again (Cognitive Bias: the one moment that cannot be
-          taken back is named, with what it does). */}
+          (the first eight, then how many more), and the facts a person
+          needs before saying yes: no file is deleted (the empty SHOTS folder
+          is), a trashed file keeps its place, and a stop part way can be
+          run again (Cognitive Bias: the one moment that cannot be taken
+          back is named, with what it does). */}
       {refileAsk && pendingRefile.length > 0 && (
         <Dialog
           title={`Move ${pendingRefile.length} shot folder${pendingRefile.length === 1 ? '' : 's'} into ${pendingRefile.length === 1 ? 'its scene' : 'their scenes'}?`}
@@ -1260,7 +1273,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
             {pendingRefile.length > 8 && <li className="fx-refile-more">and {pendingRefile.length - 8} more</li>}
           </ul>
           <p className="fx-refile-note">
-            Each folder moves with every file in it; nothing is deleted. If it stops part way, what has moved stays moved, and you can run it again for the rest.
+            Each folder moves with every file in it; no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way, what has moved stays moved, and you can run it again for the rest.
           </p>
         </Dialog>
       )}
@@ -1450,7 +1463,12 @@ function TableView({ rows, mode, sortKey, sortDir, onSort, onPick, onOpen, onEnt
                 className="fx-row"
                 onClick={onRowClick}
                 // E10: a double-click previews a file (single click selects).
-                onDoubleClick={() => { if (!isFolder) onOpen?.(node) }}
+                // Held back within the settle window too: a double-click on a
+                // FOLDER enters it on the first click, and the dblclick then
+                // fires on whichever row of the new folder is under the
+                // pointer — a file nobody chose, which would open and log a
+                // read (review round 1, item 5).
+                onDoubleClick={() => { if (!isFolder && settled()) onOpen?.(node) }}
                 data-node-kind={node.kind}
                 interactive
                 selected={node.id === selectedId}

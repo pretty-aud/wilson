@@ -86,6 +86,13 @@ describe('pendingShotRefiling', () => {
     const ids = pendingShotRefiling({ folders, shots, scenes }).map(p => p.folder.id)
     for (const left of ['f-sh3', 'f-sh4', 'f-sh5', 'moved']) expect(ids).not.toContain(left)
   })
+  it('toPath follows the scene\'s ROW where it has one (a row can lag its scene\'s name; the backends write under the row), else the planned path', () => {
+    const lagging = folders.map(f => (f.id === 'f-sc1' ? { ...f, path: 'SCENES/Old-Name' } : f))
+    expect(pendingShotRefiling({ folders: lagging, shots, scenes }).map(p => p.toPath))
+      .toEqual(['SCENES/Old-Name/The-Cold-Lamp', 'SCENES/Old-Name/The-Door'])
+    expect(pendingShotRefiling({ folders: folders.filter(f => f.id !== 'f-sc1'), shots, scenes }).map(p => p.toPath))
+      .toEqual(['SCENES/Lighthouse-Dawn/The-Cold-Lamp', 'SCENES/Lighthouse-Dawn/The-Door'])
+  })
   it('a scene with no folder row yet is still pending (sceneFolder null; the move makes the row)', () => {
     const noSceneRow = folders.filter(f => f.id !== 'f-sc1')
     const pending = pendingShotRefiling({ folders: noSceneRow, shots, scenes })
