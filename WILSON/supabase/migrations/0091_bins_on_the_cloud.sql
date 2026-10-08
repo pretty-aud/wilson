@@ -177,6 +177,12 @@ AS $$
       FROM public.projects p
       JOIN public.workspaces w ON w.id = p.workspace_id
      WHERE p.id = p_project
+       -- Not an oracle across companies: SECURITY DEFINER reads past
+       -- RLS, so the answer is for an active member of the project's
+       -- workspace only — anyone else reads false, the same as for a
+       -- project that does not exist. (A member may read the column on
+       -- their own workspaces row anyway; this adds nothing for them.)
+       AND public.has_active_membership(p.workspace_id)
   ), false);
 $$;
 
@@ -184,7 +190,7 @@ REVOKE ALL ON FUNCTION public.rabbit_remote_viewing_enabled(UUID) FROM PUBLIC, a
 GRANT EXECUTE ON FUNCTION public.rabbit_remote_viewing_enabled(UUID) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.rabbit_remote_viewing_enabled(UUID) IS
-  '0091: whether the workspace that owns p_project has remote viewing on (B5a). SECURITY DEFINER so the storage policies can ask it whatever the caller may read; false for an unknown project.';
+  '0091: whether the workspace that owns p_project has remote viewing on (B5a). SECURITY DEFINER so the storage policies can ask it whatever the caller may read; false for an unknown project and for a caller who is not an active member of its workspace (no oracle across companies).';
 
 
 -- =============================================================================
@@ -1961,8 +1967,9 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.rabbit_remote_viewing_enabled(uuid)'::regprocedure AND prosecdef)
      OR has_function_privilege('anon', 'public.rabbit_remote_viewing_enabled(uuid)', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.rabbit_remote_viewing_enabled(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '0091 post-condition failed: rabbit_remote_viewing_enabled must be SECURITY DEFINER, executable by authenticated and not by anon';
+     OR NOT has_function_privilege('authenticated', 'public.rabbit_remote_viewing_enabled(uuid)', 'EXECUTE')
+     OR position('has_active_membership(p.workspace_id)' IN pg_get_functiondef('public.rabbit_remote_viewing_enabled(uuid)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION '0091 post-condition failed: rabbit_remote_viewing_enabled must be SECURITY DEFINER, executable by authenticated and not by anon, and answer only an active member of the project''s workspace (has_active_membership in its body — no oracle across companies)';
   END IF;
 
   -- 11d. the poster policies: RESTRICTIVE, both commands, each naming the

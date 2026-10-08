@@ -54,7 +54,7 @@
 
 BEGIN;
 
-SELECT plan(63);
+SELECT plan(65);
 
 SELECT * FROM tests.rls_setup();
 
@@ -373,9 +373,9 @@ SELECT is((SELECT count(*)::int FROM public.shot_takes WHERE shot_id = '94940000
   0, 'deleting a shot takes its takes with it (CASCADE from the shot)');
 
 
--- ── 43-56: THE POSTER POLICY, BOTH WAYS (§9, B4) ───────────────────────────
+-- ── 43-58: THE POSTER POLICY, BOTH WAYS (§9, B4) ───────────────────────────
 
--- 42: the switch is OFF (its default). The caller is a workspace ADMIN, so
+-- 43: the switch is OFF (its default). The caller is a workspace ADMIN, so
 -- every permissive arm passes; the ONLY thing that can refuse this is the
 -- restrictive switch policy — and a restrictive denial names its policy.
 SELECT throws_ok(
@@ -388,7 +388,7 @@ SELECT throws_ok(
   'new row violates row-level security policy "petal_bin_posters_remote_viewing_insert" for table "objects"',
   'SWITCH OFF: a bin file''s poster is REFUSED, by the switch policy''s own name (B4)');
 
--- 43-44: the self-limiting arms — another entity's thumbnail, and the same
+-- 44-45: the self-limiting arms — another entity's thumbnail, and the same
 -- key shape in another bucket, still land while the switch is off.
 SELECT lives_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
@@ -405,7 +405,7 @@ SELECT lives_ok(
             '{"mimetype":"text/plain"}'::jsonb)$$,
   'SWITCH OFF: the same key shape in another bucket is not this policy''s business (the bucket arm)');
 
--- 45-47: ON — the poster lands and is regenerated in place.
+-- 46-48: ON — the poster lands and is regenerated in place.
 WITH upd AS (
   UPDATE public.workspaces SET remote_viewing_enabled = true
    WHERE id = '11111111-1111-1111-1111-111111111111' RETURNING 1)
@@ -427,7 +427,7 @@ WITH upd AS (
   RETURNING 1)
 SELECT is((SELECT count(*)::int FROM upd), 1, 'SWITCH ON: a poster is regenerated in place');
 
--- 48-50: a MEMBER and a REVIEWER write theirs (B6); a user with no seat cannot.
+-- 49-50: a MEMBER and a REVIEWER write theirs (B6).
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -464,6 +464,28 @@ SELECT lives_ok(
             '{"mimetype":"image/jpeg"}'::jsonb)$$,
   'SWITCH ON: a REVIEWER writes a poster (B6, the permissive pair past can_edit_shot_lists)');
 
+-- 51-52: the helper the policies ask is NOT an oracle across companies.
+-- It is SECURITY DEFINER (it must answer the storage policy whatever the
+-- caller may read), so it answers only an active member of the project's
+-- workspace: while A's switch is ON, A's reviewer reads true and B's admin
+-- reads false — the same false as for a project that does not exist.
+SELECT is((SELECT public.rabbit_remote_viewing_enabled('aaaa1111-0000-0000-0000-000000000001')),
+  true, 'SWITCH ON: rabbit_remote_viewing_enabled() answers true to a member of the company');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '22222222-2222-2222-2222-222222222222',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.rabbit_remote_viewing_enabled('aaaa1111-0000-0000-0000-000000000001')),
+  false, 'SWITCH ON: it answers FALSE to another company''s admin — the switch is no oracle across workspaces');
+
+-- 53: a user with no seat cannot write a poster.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -482,7 +504,7 @@ SELECT throws_ok(
             '{"mimetype":"image/jpeg"}'::jsonb)$$,
   '42501', NULL, 'SWITCH ON: a workspace user with no seat is still refused (no permissive arm admits them)');
 
--- 51-53: OFF again — nothing new lands, nothing is regenerated.
+-- 54-56: OFF again — nothing new lands, nothing is regenerated.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -516,7 +538,7 @@ SELECT throws_ok(
   'new row violates row-level security policy "petal_bin_posters_remote_viewing_insert" for table "objects"',
   'SWITCH OFF: a new poster is refused again, by name');
 
--- 54-55: the EXISTING poster stays readable by a project member (reading
+-- 57-58: the EXISTING poster stays readable by a project member (reading
 -- follows membership, never the switch) and invisible to the other workspace.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -552,7 +574,7 @@ RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 
 
--- ── 57-63: the policies' shape in the catalogue, and the RPCs ──────────────
+-- ── 59-65: the policies' shape in the catalogue, and the RPCs ──────────────
 
 SELECT is(
   (SELECT permissive || '|' || cmd FROM pg_policies
