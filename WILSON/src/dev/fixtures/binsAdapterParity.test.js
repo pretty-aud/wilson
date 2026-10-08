@@ -1,0 +1,147 @@
+// =============================================================================
+// binsAdapterParity.test.js — Bins on the cloud (BC1, migration 0091).
+//
+// Three backends hold bins now — the signed-out desktop (localServerAdapter
+// over electron/rabbitBins.cjs), the cloud (supabaseAdapter over 0091) and
+// the dev fixtures — and the provider drives all three through ONE set of
+// method names and ONE capability object (binsCapabilities()). This pins the
+// three against each other: the same names, the same capability keys, and
+// the same refusal sentences where two of them word a refusal themselves.
+// Audrey's A9 ("the system has to work the same on the cloud or a NAS") is
+// what a divergence here would break, quietly, on one backend only.
+//
+// Lives under src/dev/fixtures because the fixtures may be imported from
+// here only (devFixtures.test.js pins that).
+// =============================================================================
+
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
+
+const { supabaseAdapter, CLOUD_BINS_CAPABILITIES, BINS_REFUSALS } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
+const { localServerAdapter, LOCAL_SERVER_BINS_CAPABILITIES } = await import('../../tools/rabbit_v0.1.0/adapters/localServerAdapter')
+const { FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES } = await import('./rabbitFixturesAdapter')
+const { buildDevFixtures } = await import('./install')
+
+// The Local Server adapter's bins surface (its own comment block names these),
+// which the cloud and the fixtures must answer to by name.
+const BINS_METHODS = [
+  'listBins', 'createBin', 'updateBin', 'deleteBin', 'reorderBins',
+  'pickBinFiles', 'pickBinFolder', 'prepareBinFiles', 'addBinFiles',
+  'updateBinFile', 'bulkUpdateBinFiles', 'moveBinFiles', 'copyBinFiles', 'removeBinFiles', 'restoreBinFiles',
+  'probeBinFile', 'openBinFile', 'postBinFileThumbnail', 'binFileThumbnailUrl', 'binFileStreamUrl', 'binFilePosterUrl',
+  'binRelinkScan', 'binRelinkApply', 'removeBinRoot',
+  'assignShotTakes', 'updateShotTake', 'removeShotTakes', 'reorderShotTakes', 'replaceShotTakes',
+  'binsCapabilities', 'listBinLocations', 'createBinLocation', 'updateBinLocation', 'removeBinLocation',
+  'getRemoteViewingEnabled', 'setRemoteViewingEnabled',
+]
+
+const CAPABILITY_KEYS = [
+  'backend', 'pickFiles', 'probe', 'stream', 'resolveFiles', 'relink', 'openInOs',
+  'posters', 'locations', 'remoteViewingSwitch',
+]
+
+describe('the three bins backends answer to the same names', () => {
+  const cloud = supabaseAdapter()
+  const local = localServerAdapter()
+  const fixtures = buildDevFixtures().rabbitAdapter()
+
+  for (const [name, a] of [['supabase', cloud], ['local_server', local], ['fixtures', fixtures]]) {
+    it(`${name} has every bins method, by name`, () => {
+      const missing = BINS_METHODS.filter((m) => typeof a[m] !== 'function')
+      expect(missing).toEqual([])
+    })
+  }
+
+  it('CONTROL: a name none of them has is reported', () => {
+    const pretend = [...BINS_METHODS, 'listSomethingNew']
+    expect(pretend.filter((m) => typeof cloud[m] !== 'function')).toEqual(['listSomethingNew'])
+  })
+})
+
+describe('one capability object, the same keys on every backend', () => {
+  const objects = {
+    supabase: CLOUD_BINS_CAPABILITIES,
+    local_server: LOCAL_SERVER_BINS_CAPABILITIES,
+    fixtures: FIXTURES_BINS_CAPABILITIES,
+  }
+
+  it('each backend\'s binsCapabilities() is its exported object, frozen', () => {
+    expect(supabaseAdapter().binsCapabilities()).toBe(CLOUD_BINS_CAPABILITIES)
+    expect(localServerAdapter().binsCapabilities()).toBe(LOCAL_SERVER_BINS_CAPABILITIES)
+    expect(buildDevFixtures().rabbitAdapter().binsCapabilities()).toBe(FIXTURES_BINS_CAPABILITIES)
+    for (const o of Object.values(objects)) expect(Object.isFrozen(o)).toBe(true)
+  })
+
+  for (const [name, o] of Object.entries(objects)) {
+    it(`${name}: exactly the documented keys, booleans where a yes/no is meant`, () => {
+      expect(Object.keys(o).sort()).toEqual([...CAPABILITY_KEYS].sort())
+      expect(o.backend).toBe(name)
+      expect(['cloud', 'local']).toContain(o.posters)
+      for (const k of CAPABILITY_KEYS) {
+        if (k === 'backend' || k === 'posters') continue
+        expect(typeof o[k], `${name}.${k}`).toBe('boolean')
+      }
+    })
+  }
+
+  it('the cloud cannot pick, probe, stream, relink or open; it has locations, signed posters and the switch', () => {
+    expect(CLOUD_BINS_CAPABILITIES).toMatchObject({
+      pickFiles: false, probe: false, stream: false, resolveFiles: false, relink: false, openInOs: false,
+      posters: 'cloud', locations: true, remoteViewingSwitch: true,
+    })
+  })
+
+  it('the signed-out desktop does everything the loopback server does and nothing of a company\'s', () => {
+    expect(LOCAL_SERVER_BINS_CAPABILITIES).toMatchObject({
+      pickFiles: true, probe: true, stream: true, resolveFiles: true, relink: true, openInOs: true,
+      posters: 'local', locations: false, remoteViewingSwitch: false,
+    })
+  })
+
+  it('the fixtures are the cloud as a browser sees it, with reachable files', () => {
+    expect(FIXTURES_BINS_CAPABILITIES).toMatchObject({
+      pickFiles: false, probe: false, stream: false, resolveFiles: true, relink: false, openInOs: false,
+      posters: 'cloud', locations: true, remoteViewingSwitch: true,
+    })
+  })
+})
+
+describe('the refusal sentences the fixtures word themselves are the cloud\'s, word for word', () => {
+  // The fixtures restate them (devFixtures.test.js allow-lists what src/dev
+  // may import); a drift would show Audrey one sentence on the fixtures and
+  // another on the beta.
+  for (const k of Object.keys(FIXTURES_BINS_SENTENCES)) {
+    it(`${k}`, () => {
+      expect(BINS_REFUSALS[k], `BINS_REFUSALS lacks ${k}`).toBeDefined()
+      expect(FIXTURES_BINS_SENTENCES[k]).toBe(BINS_REFUSALS[k])
+    })
+  }
+
+  it('the cloud\'s not-supported answers name what is missing and carry the code', async () => {
+    const cloud = supabaseAdapter()
+    for (const m of ['pickBinFiles', 'pickBinFolder', 'prepareBinFiles', 'probeBinFile', 'openBinFile', 'binRelinkApply', 'removeBinRoot']) {
+      const err = await cloud[m]('p1').catch((e) => e)
+      expect(err, m).toBeInstanceOf(Error)
+      expect(err.code, m).toBe('not_supported_here')
+      expect(err.message, m).toContain(BINS_REFUSALS.notSupportedHere)
+    }
+    // The scan the Bins tab runs on open answers "nothing to relink", no throw.
+    expect(await cloud.binRelinkScan('p1')).toEqual({ offline: [], candidates: null, truncated: false })
+    // The sync URL builders answer null: a cloud poster is signed per read.
+    expect(cloud.binFileThumbnailUrl('p1', 'f1')).toBeNull()
+    expect(cloud.binFileStreamUrl('p1', 'f1')).toBeNull()
+  })
+
+  it('the signed-out desktop refuses a company\'s things with its own sentence and the same code', async () => {
+    const local = localServerAdapter()
+    for (const m of ['createBinLocation', 'updateBinLocation', 'removeBinLocation', 'setRemoteViewingEnabled']) {
+      const err = await local[m]('x').catch((e) => e)
+      expect(err.code, m).toBe('not_supported_here')
+      expect(err.message, m).toContain('belongs to a company')
+    }
+    expect(await local.listBinLocations()).toEqual([])
+    expect(await local.getRemoteViewingEnabled('p1')).toBe(false)
+    expect(await local.binFilePosterUrl('p1', { poster_path: 'x' })).toBeNull()
+  })
+})

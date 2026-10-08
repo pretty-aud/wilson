@@ -195,6 +195,11 @@ export function localServerAdapter() {
         binFiles:        bundle.binFiles || [],
         binRoots:        bundle.binRoots || [],
         shotTakes:       bundle.shotTakes || [],
+        // Bins on the cloud (BC1, 0091): a cloud clip is a LOCATION plus a
+        // relative path; the signed-out desktop keeps absolute source_paths
+        // and known roots instead (B12) and has no locations. The key is
+        // answered so the EMPTY_BUNDLE spread has nothing to reset.
+        binLocations:    [],
         // Post-overhaul S3a (0084) — same reason as every key above: omitted,
         // the EMPTY_BUNDLE spread would reset them to [] on every load, and
         // every surface that reads the ACTIVE list (D10) would fall back to
@@ -984,5 +989,75 @@ export function localServerAdapter() {
     replaceShotTakes: (projectId, shotIds, rows) => jfetch(`${BASE}/projects/${projectId}/shot-takes/replace`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIds, rows }),
     }),
+
+    // ── Bins on the cloud (BC1, 0091): the signed-out desktop's answers ──
+    // ONE capability object per backend, the shape the cloud adapter's
+    // CLOUD_BINS_CAPABILITIES has: the provider reads it instead of
+    // feature-detecting method by method. Here everything the loopback
+    // server does is true and everything that is the company's (locations,
+    // the admin's switch) is false — B12: nothing of the signed-out desktop
+    // changes.
+    binsCapabilities: () => LOCAL_SERVER_BINS_CAPABILITIES,
+    // Footage locations are a company's (bin_locations, per workspace); the
+    // signed-out desktop records known ROOTS instead (binRoots), so the list
+    // is empty and a write is refused with the one sentence.
+    listBinLocations: async () => [],
+    createBinLocation: async () => { throw localBinsNotHere('Naming a footage location'); },
+    updateBinLocation: async () => { throw localBinsNotHere('Renaming a footage location'); },
+    removeBinLocation: async () => { throw localBinsNotHere('Removing a footage location'); },
+    // The admin's switch belongs to a company; nobody is signed in here.
+    getRemoteViewingEnabled: async () => false,
+    setRemoteViewingEnabled: async () => { throw localBinsNotHere('The remote-viewing switch'); },
+    // Posters are served by the loopback route (binFileThumbnailUrl); nothing
+    // is signed.
+    binFilePosterUrl: async () => null,
+
+    // ── The desktop SIGNED IN (BC2's plumbing, electron/rabbitBins.cjs
+    //    cloud-bins routes): a cloud clip's file read by its location's
+    //    network address + its relative path. ──
+    // Tell the server the company's locations (and, per computer, where a
+    // location is seen as a drive letter — B2's fallback — a folder the person
+    // picked through the OS dialog, never a body path). → { locations: [{ id,
+    // unc_path, local_path, reachable, root }] }
+    registerCloudBinLocations: (locations) => jfetch(`${BASE}/cloud-bins/locations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locations }),
+    }),
+    // files: [{ id, location_id, relative_path, is_sequence }] →
+    // { files: [{ id, path, online }] } — what this computer can reach.
+    resolveCloudBinFiles: (files) => jfetch(`${BASE}/cloud-bins/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }),
+    }),
+    // Reads a cloud clip's technical columns on this computer (ffmpeg / sharp).
+    probeCloudBinFile: (file) => jfetch(`${BASE}/cloud-bins/probe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // URL builders for <img> / <video>: bytes and posters by location + path.
+    cloudBinFileStreamUrl: (locationId, relativePath, { probe = false } = {}) =>
+      `${BASE}/cloud-bins/stream?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${probe ? '&probe=1' : ''}`,
+    cloudBinFileThumbnailUrl: (locationId, relativePath, rev = 0) =>
+      `${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${rev ? `&v=${rev}` : ''}`,
   };
+}
+
+// Bins on the cloud (BC1): the signed-out desktop's capability object. The
+// same keys as the cloud adapter's CLOUD_BINS_CAPABILITIES, by name
+// (binsAdapterParity.test.js pins the two against each other).
+export const LOCAL_SERVER_BINS_CAPABILITIES = Object.freeze({
+  backend: 'local_server',
+  pickFiles: true,
+  probe: true,
+  stream: true,
+  resolveFiles: true,
+  relink: true,
+  openInOs: true,
+  posters: 'local',
+  locations: false,
+  remoteViewingSwitch: false,
+});
+
+function localBinsNotHere(what) {
+  const err = new Error(`[localServer] ${what} belongs to a company; the signed-out desktop keeps known folders (binRoots) instead.`);
+  err.code = 'not_supported_here';
+  err.status = 501;
+  return err;
 }

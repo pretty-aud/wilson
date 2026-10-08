@@ -81,6 +81,38 @@ const SET_ASIDE_ONLY = 'a row is set aside or brought back only by someone who c
 const BUDGET_SETTINGS_ONLY = 'the budget\'s settings (margin, contingency, agency, actuals and the lock) are changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
 const BUDGET_SETTINGS = ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct', 'budget_agency_enabled', 'budget_actual_column_mode', 'budget_actual_column_count', 'budget_active', 'budget_active_version_id', 'budget_finalized']
 const VERSION_NOT_HERE = 'bid version not found in this project'
+// BC1 (0091): the bins refusal map's sentences, word for word with the cloud
+// adapter's BINS_REFUSALS (restated here because devFixtures.test.js
+// allow-lists what src/dev may import; binsAdapterParity.test.js pins the two).
+const BINS_SENTENCES = {
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never with .. in it, and without a trailing backslash.',
+  locationExists: 'This location is already in the company\'s list.',
+  locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
+  locationName: 'A footage location needs a name.',
+  remoteViewingOff: 'This company has not allowed files to be viewed from outside the office network, so WILSON keeps no picture of this clip in the cloud. A workspace admin can turn that on in the company settings.',
+  switchAdminOnly: 'Only a workspace admin can change whether files may be viewed from outside the office network.',
+}
+// 0091's unc_path CHECK, as the database refuses it: two leading backslashes,
+// a server and at least a share, no forbidden characters, no . or .. segment,
+// no trailing backslash.
+const UNC_SEGMENT = '[^\\\\/:*?"<>|]+'
+const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`)
+function isUncPath(p) {
+  if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
+  return !p.split('\\').some(seg => seg === '.' || seg === '..')
+}
+// The fake cloud's capability object: a browser signed in to a company —
+// no OS pickers, no bytes, no relink; locations, the switch, signed posters.
+// `resolveFiles` is true because the dataset answers `online` itself (every
+// fixture file is "reachable", there being no disk behind it).
+const FIXTURES_BINS_CAPABILITIES = Object.freeze({
+  backend: 'fixtures',
+  pickFiles: false, probe: false, stream: false, resolveFiles: true, relink: false, openInOs: false,
+  posters: 'cloud', locations: true, remoteViewingSwitch: true,
+})
+// For binsAdapterParity.test.js: the sentences and the capability object,
+// pinned against the cloud adapter's.
+export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES }
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -432,6 +464,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         binFiles: binFilesWithOnline().filter(f => f.project_id === projectId),
         binRoots: inProject(store.binRoots),
         shotTakes: inProject(store.shotTakes),
+        // BC1 (0091): the company's footage locations, every project of it.
+        binLocations: clone(store.binLocations),
         // 0084 (S3a): the three bundle keys every adapter returns, in the
         // contract's order.
         shotLists: inProject(store.shotLists).sort(byCreated),
@@ -1219,17 +1253,77 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async supportsPrivateProjects() { return true },
 
     // ── Bins (docs/BINS_DESIGN.md §4; adapters/index.js's contract) ──────────
+    // Since BC1 (0091) the fake cloud keeps the CLOUD's rules: a clip is a
+    // location plus a relative path, a removed clip's takes go with it (the
+    // CASCADE), a location in use cannot be removed (RESTRICT), the
+    // location's address has the database's shape, and a clip's picture is
+    // kept only while the company's remote-viewing switch is on (B4).
+    binsCapabilities() { return FIXTURES_BINS_CAPABILITIES },
     async listBins(projectId) {
       const answer = takesAnswer([])
       return {
         bins: clone(store.bins.filter(b => b.project_id === projectId)),
         binFiles: clone(binFilesWithOnline().filter(f => f.project_id === projectId)),
         binRoots: clone(store.binRoots.filter(r => r.project_id === projectId)),
+        binLocations: clone(store.binLocations),
         shotTakes: answer.shotTakes.filter(t => t.project_id === projectId),
         orphanTakes: answer.orphanTakes.filter(t => t.project_id === projectId),
         ffmpeg: false,
+        capabilities: FIXTURES_BINS_CAPABILITIES,
       }
     },
+    // ── Footage locations (BC1, 0091 §2; Audrey's B2) ────────────────────────
+    async listBinLocations() { return clone(store.binLocations) },
+    async createBinLocation(location) {
+      const name = String(location?.name ?? '').trim()
+      const unc_path = String(location?.unc_path ?? '').trim()
+      if (!name) throw invalid(BINS_SENTENCES.locationName)
+      if (!isUncPath(unc_path)) throw refusal(400, '23514', BINS_SENTENCES.locationShape)
+      if (store.binLocations.some(l => l.unc_path.toLowerCase() === unc_path.toLowerCase())) throw conflict(BINS_SENTENCES.locationExists)
+      const row = { id: location?.id || newId(), workspace_id: workspaceId, name, unc_path, added_by: by, created_at: now(), updated_at: now() }
+      store.binLocations.push(row)
+      return clone(row)
+    },
+    async updateBinLocation(id, fields) {
+      const row = findById(store.binLocations, id); if (!row) throw missing('footage location not found')
+      const p = { ...(fields || {}) }
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw invalid(BINS_SENTENCES.locationName) }
+      if ('unc_path' in p) {
+        p.unc_path = String(p.unc_path ?? '').trim()
+        if (!isUncPath(p.unc_path)) throw refusal(400, '23514', BINS_SENTENCES.locationShape)
+        if (store.binLocations.some(l => l.id !== id && l.unc_path.toLowerCase() === p.unc_path.toLowerCase())) throw conflict(BINS_SENTENCES.locationExists)
+      }
+      delete p.id; delete p.workspace_id; delete p.added_by; delete p.created_at
+      return clone(patch(store.binLocations, id, p))
+    },
+    async removeBinLocation(id) {
+      const row = findById(store.binLocations, id); if (!row) throw missing('footage location not found')
+      // ON DELETE RESTRICT: a clip never loses its address.
+      if (store.binFiles.some(f => f.location_id === id)) throw refusal(409, '23503', BINS_SENTENCES.locationInUse)
+      remove(store.binLocations, id)
+      return clone(row)
+    },
+    // ── The company's switch (B5a) ───────────────────────────────────────────
+    async getRemoteViewingEnabled() { return store.workspace.remote_viewing_enabled === true },
+    async setRemoteViewingEnabled(_workspaceId, enabled) {
+      // workspaces_admin_update (0020): a workspace admin's verb.
+      if (appRole !== 'admin') throw forbidden(BINS_SENTENCES.switchAdminOnly)
+      store.workspace.remote_viewing_enabled = enabled === true
+      return store.workspace.remote_viewing_enabled
+    },
+    // A clip's picture is kept only while the switch is on (B4): refused
+    // before any byte, with the sentence the cloud answers.
+    async postBinFileThumbnail(_projectId, id, base64) {
+      const row = findById(store.binFiles, id); if (!row) throw notFound(id)
+      if (!base64 || typeof base64 !== 'string') throw invalid('base64 required')
+      if (store.workspace.remote_viewing_enabled !== true) throw refusal(403, 'remote_viewing_off', BINS_SENTENCES.remoteViewingOff)
+      const poster_path = `projects/${row.project_id}/bin_files/${id}/${Date.now()}-poster.jpg`
+      store.posters.set(id, `data:image/jpeg;base64,${base64}`)
+      patch(store.binFiles, id, { poster_path })
+      return { ok: true, poster_path }
+    },
+    // The cloud signs a poster per read; here the placeholder stands in.
+    async binFilePosterUrl(_projectId, row) { return row?.id ? (store.posters.get(row.id) ?? null) : null },
     async createBin(projectId, bin) { return clone(upsert(store.bins, { project_id: projectId, workspace_id: null, kind: 'other', color: null, parent_bin_id: null, sort_order: store.bins.length, created_by: by, ...bin, updated_by: by })) },
     async updateBin(_projectId, id, fields) { return clone(patch(store.bins, id, { ...fields, updated_by: by })) },
     async deleteBin(_projectId, id, { mode = 'remove', target = null } = {}) {
@@ -1237,17 +1331,23 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       let grew = true
       while (grew) { grew = false; for (const b of store.bins) if (!doomed.has(b.id) && doomed.has(b.parent_bin_id)) { doomed.add(b.id); grew = true } }
       const files = store.binFiles.filter(f => doomed.has(f.bin_id))
-      const movedFiles = []; const removedFiles = []
+      const movedFiles = []; const removedFiles = []; let removedTakes = []
       for (const f of files) {
         if (mode === 'move' && target) { f.bin_id = target; f.updated_at = now(); movedFiles.push(clone(f)) }
         else { removedFiles.push(clone(f)) }
       }
       // A 'move' with no target is a remove (review round 1: the files must not
-      // survive orphaned on a deleted bin id).
-      if (!(mode === 'move' && target)) store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
+      // survive orphaned on a deleted bin id). BC1: a removed clip's takes go
+      // with it, as 0091's CASCADE takes them; the answer carries them.
+      if (!(mode === 'move' && target)) {
+        const gone = new Set(removedFiles.map(f => f.id))
+        removedTakes = store.shotTakes.filter(t => gone.has(t.bin_file_id)).map(t => clone(t))
+        store.shotTakes = store.shotTakes.filter(t => !gone.has(t.bin_file_id))
+        store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
+      }
       const removedBins = store.bins.filter(b => doomed.has(b.id)).map(b => clone(b))
       store.bins = store.bins.filter(b => !doomed.has(b.id))
-      return { removedBins, movedFiles, removedFiles }
+      return { ok: true, removedBins, movedFiles, removedFiles, removedTakes }
     },
     async reorderBins(_projectId, rows) {
       for (const r of rows || []) { const b = findById(store.bins, r.id); if (b) { b.parent_bin_id = r.parent_bin_id ?? null; b.sort_order = r.sort_order ?? b.sort_order } }
@@ -1273,12 +1373,18 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone({ ...copy, online: true })) } }
       return { created }
     },
+    // Removes the ROWS only (B10). BC1: a removed clip's takes go with it
+    // (0091's CASCADE) and ride the answer as `removedTakes`; the provider
+    // snapshots the shots' takes first and puts them back on undo.
     async removeBinFiles(_projectId, ids) {
       const set = new Set(ids || [])
       const removed = store.binFiles.filter(f => set.has(f.id)).map(f => clone(f))
       store.binFiles = store.binFiles.filter(f => !set.has(f.id))
-      const affected = store.shotTakes.filter(t => set.has(t.bin_file_id)).map(t => t.shot_id)
-      return { removed, ...takesAnswer(affected) }
+      const removedTakes = store.shotTakes.filter(t => set.has(t.bin_file_id)).map(t => clone(t))
+      store.shotTakes = store.shotTakes.filter(t => !set.has(t.bin_file_id))
+      const affected = removedTakes.map(t => t.shot_id)
+      for (const s of new Set(affected)) normaliseTakes(s)
+      return { removed, removedTakes, ...takesAnswer(affected) }
     },
     async restoreBinFiles(_projectId, rows) {
       const restored = []; const skipped = []
@@ -1298,7 +1404,6 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     binFileThumbnailUrl(_projectId, id) { return store.posters.get(id) ?? null },
     // No bytes to stream: the poster stands in for the frame (the panel's <img>).
     binFileStreamUrl(_projectId, id) { return store.posters.get(id) ?? null },
-    async postBinFileThumbnail() { throw devWriteRefused('Saving a decoded poster') },
     async binRelinkScan() { return { offline: [], candidates: [], truncated: false } },
     async binRelinkApply() { throw devWriteRefused('Relinking a drive') },
     async openBinFile() { throw devWriteRefused('Opening a file on this machine') },

@@ -60,6 +60,16 @@ export const TABLE_TO_COLLECTION = {
   // replaced: the merge would stand ready for events the database never
   // sends, and nothing would ever say so.
   milestones:         'milestones',
+  // Bins on the cloud (BC1, 0091 §8; Audrey's B7: "a flag or a take
+  // assignment appears for everyone without reloading"). The three project
+  // tables joined fn_realtime_broadcast's project_id arm, each with its
+  // trigger — the migration's post-conditions pin all three, so this merge
+  // never stands ready for an event the database does not send.
+  // bin_locations is a WORKSPACE table and is not broadcast (a location is
+  // named once; the client re-reads the list on open).
+  bins:               'bins',
+  bin_files:          'binFiles',
+  shot_takes:         'shotTakes',
 }
 
 // 0061: `kind` is not a column on either edge table — it is implied by WHICH
@@ -93,11 +103,20 @@ export function stampKindFromTable(table, row) {
 // window, and only until its next reload. ProjectTasksView renders milestone
 // rows in array order, so this is a real position on a real screen.
 const bySortOrder = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+// BC1: the cloud's listBins orders bins and files by (sort_order, id) and
+// takes by (shot, position, id); a live insert lands where a reload would
+// put it. The id tie-break keeps two rows at one sort_order stable.
+const bySortOrderThenId = (a, b) => bySortOrder(a, b) || String(a.id).localeCompare(String(b.id))
+const byShotPositionId = (a, b) => String(a.shot_id).localeCompare(String(b.shot_id))
+  || ((a.position ?? 0) - (b.position ?? 0)) || String(a.id).localeCompare(String(b.id))
 
 const COLLECTION_ORDER = {
   phases:     bySortOrder,
   assets:     bySortOrder,
   milestones: byMilestoneDate,
+  bins:       bySortOrderThenId,
+  binFiles:   bySortOrderThenId,
+  shotTakes:  byShotPositionId,
 }
 
 // Collections whose rows can hide NOTHING when they are trashed, so a remote

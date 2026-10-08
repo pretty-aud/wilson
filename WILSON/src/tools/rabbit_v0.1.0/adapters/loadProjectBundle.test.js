@@ -24,7 +24,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { localServerAdapter } from './localServerAdapter'
+import { localServerAdapter, LOCAL_SERVER_BINS_CAPABILITIES } from './localServerAdapter'
 
 // Mirror of EMPTY_BUNDLE's collection keys (RabbitProvider.jsx:76-97),
 // minus `project` (an object, not a collection).
@@ -45,6 +45,10 @@ const EXPECTED_KEYS = [
   'folders',
   // The bin system (demo 2026-09-11): same trap, four more keys.
   'bins', 'binFiles', 'binRoots', 'shotTakes',
+  // Bins on the cloud (BC1, 0091): the company's locations — [] on the
+  // signed-out desktop, which keeps known roots instead, but the KEY must be
+  // there or the spread resets the cloud's list on a backend switch.
+  'binLocations',
   // Post-overhaul S3a (0084): omitted, the EMPTY_BUNDLE spread would reset
   // them and every surface reading the ACTIVE list (D10) would silently fall
   // back to "every scene and shot".
@@ -510,5 +514,83 @@ describe('localServerAdapter — set-aside rows (S5b)', () => {
     const src = readFileSync(new URL('./googleDriveAdapter.js', import.meta.url), 'utf-8')
     expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],\s*\}\);/)
     expect(src).toMatch(/import \{ splitSetAside \} from '\.\.\/state\/setAside';/)
+  })
+})
+
+
+// ── Bins on the cloud (BC1, 0091) — the signed-out desktop's side ───────────
+//
+// The Local Server keeps its bundle shape (B12) and answers the company's
+// things empty or refused; the desktop SIGNED IN reaches a cloud clip by its
+// location's address + its relative path through the cloud-bins routes
+// (electron/rabbitBins.cjs), which these methods address — pinned here by
+// URL and body, as the shot-list methods are.
+
+describe('localServerAdapter — Bins on the cloud (BC1)', () => {
+  function spyFetch(reply = { ok: true }) {
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method || 'GET', body: init?.body === undefined ? undefined : JSON.parse(init.body) })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply }
+    })
+    return calls
+  }
+
+  it('loadProject answers binLocations as [] whatever the bundle holds — a company\'s locations have no desktop shape', async () => {
+    stubFetch({ project: { id: 'p1' }, binLocations: [{ id: 'L1' }] })
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.binLocations).toEqual([])
+  })
+
+  it('binsCapabilities is the exported object: everything the loopback server does, nothing of a company\'s', () => {
+    const a = localServerAdapter()
+    expect(a.binsCapabilities()).toBe(LOCAL_SERVER_BINS_CAPABILITIES)
+    expect(LOCAL_SERVER_BINS_CAPABILITIES).toMatchObject({ pickFiles: true, probe: true, stream: true, relink: true, locations: false, remoteViewingSwitch: false, posters: 'local' })
+  })
+
+  it('locations and the switch are refused with one sentence and no request; the reads answer empty / false', async () => {
+    const calls = spyFetch()
+    const a = localServerAdapter()
+    for (const m of ['createBinLocation', 'updateBinLocation', 'removeBinLocation', 'setRemoteViewingEnabled']) {
+      const err = await a[m]('x', {}).catch(e => e)
+      expect(err.code, m).toBe('not_supported_here')
+      expect(err.status, m).toBe(501)
+    }
+    expect(await a.listBinLocations()).toEqual([])
+    expect(await a.getRemoteViewingEnabled('p1')).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('registerCloudBinLocations POSTs { locations } to /cloud-bins/locations', async () => {
+    const calls = spyFetch({ locations: [] })
+    const locations = [{ id: 'L1', unc_path: '\\\\nas\\footage', local_path: 'Z:\\footage' }]
+    await localServerAdapter().registerCloudBinLocations(locations)
+    expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/cloud-bins/locations', body: { locations } }])
+  })
+
+  it('resolveCloudBinFiles POSTs { files } to /cloud-bins/resolve; probeCloudBinFile POSTs the file to /cloud-bins/probe', async () => {
+    const calls = spyFetch({ files: [] })
+    const a = localServerAdapter()
+    const files = [{ id: 'f1', location_id: 'L1', relative_path: 'A001/T1.mov', is_sequence: false }]
+    await a.resolveCloudBinFiles(files)
+    await a.probeCloudBinFile({ location_id: 'L1', relative_path: 'A001/T1.mov', media_type: 'video', extension: '.mov', fps: 24 })
+    expect(calls).toEqual([
+      { method: 'POST', url: '/api/rabbit/cloud-bins/resolve', body: { files } },
+      { method: 'POST', url: '/api/rabbit/cloud-bins/probe', body: { location_id: 'L1', relative_path: 'A001/T1.mov', media_type: 'video', extension: '.mov', fps: 24 } },
+    ])
+  })
+
+  it('the URL builders address the file by location + path, encoded, with the probe and rev flags', () => {
+    const a = localServerAdapter()
+    expect(a.cloudBinFileStreamUrl('L1', 'A001/T 1.mov')).toBe('/api/rabbit/cloud-bins/stream?location_id=L1&relative_path=A001%2FT%201.mov')
+    expect(a.cloudBinFileStreamUrl('L1', 'A001/T1.mov', { probe: true })).toBe('/api/rabbit/cloud-bins/stream?location_id=L1&relative_path=A001%2FT1.mov&probe=1')
+    expect(a.cloudBinFileThumbnailUrl('L1', 'A001/T1.mov')).toBe('/api/rabbit/cloud-bins/thumbnail?location_id=L1&relative_path=A001%2FT1.mov')
+    expect(a.cloudBinFileThumbnailUrl('L1', 'A001/T1.mov', 3)).toBe('/api/rabbit/cloud-bins/thumbnail?location_id=L1&relative_path=A001%2FT1.mov&v=3')
+  })
+
+  it('CONTROL (B12): the signed-out bins routes are untouched — listBins still GETs …/projects/:id/bins', async () => {
+    const calls = spyFetch({ bins: [] })
+    await localServerAdapter().listBins('p1')
+    expect(calls).toEqual([{ method: 'GET', url: '/api/rabbit/projects/p1/bins', body: undefined }])
   })
 })

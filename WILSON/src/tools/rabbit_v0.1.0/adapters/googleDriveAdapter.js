@@ -224,6 +224,10 @@ export function googleDriveAdapter() {
         // Session 17 (§6 #47): same omission as localServerAdapter — see the
         // comment there. Milestones reverted to [] on every reload.
         milestones:    bundle.milestones || [],
+        // Bins on the cloud (BC1, 0091): a bundle exported from the desktop
+        // carries its bins (absolute paths, known roots); the cloud's
+        // locations are not in any export, so the key is answered empty.
+        binLocations:  bundle.binLocations || [],
         // Post-overhaul S3a (0084): the three shot-list keys every adapter's
         // bundle carries. A bundle exported before shot lists existed has
         // none, which reads as [] — "no active list", so every scene and shot

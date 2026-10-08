@@ -580,6 +580,49 @@ const EDIT_COLUMNS = new Set([
   'created_at', 'created_by', 'updated_at', 'updated_by',
 ]);
 
+// ── 0091 (Bins on the cloud, BC1): locations, bins, bin files, takes ─────
+// Exactly the four tables' columns — the row shapes every backend returns
+// (electron/rabbitBins.cjs for the signed-out desktop, with `source_path` in
+// place of location_id + relative_path and `binRoots` beside them). These say
+// what the TABLE has; `online` is NEVER a column (it is a fact about the
+// computer reading the row — updateBinFile strips it silently, without the
+// S23 warning, because it is a computed flag and not a person's input).
+//
+// 🚨 bin_files.poster_path is the key of the clip's picture in
+// rabbit-thumbnails; a row may only name a key under its own project's
+// bin_files prefix (0091's CHECK), and the upload itself lands only while the
+// workspace's remote_viewing_enabled is on (B4, the RESTRICTIVE policies) —
+// postBinFileThumbnail asks the switch first so the person reads a sentence,
+// not a storage error.
+const BIN_LOCATION_COLUMNS = new Set([
+  'id', 'workspace_id', 'name', 'unc_path',
+  'added_by', 'created_at', 'updated_at',
+]);
+
+const BIN_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id',
+  'name', 'description', 'kind', 'color', 'parent_bin_id', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
+const BIN_FILE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'bin_id', 'location_id', 'relative_path',
+  'display_name', 'original_name', 'extension', 'mime_type',
+  'is_sequence', 'sequence_pattern', 'frame_count', 'size_bytes', 'mtime',
+  'media_type', 'tags', 'scene_id', 'shot_id',
+  'slate', 'take_number', 'take_modifier', 'camera', 'roll', 'shoot_day',
+  'description', 'notes', 'review_flag', 'circled', 'color',
+  'duration_sec', 'width', 'height', 'fps', 'codec', 'timecode_start',
+  'probe_status', 'sort_order', 'poster_path',
+  'added_by', 'added_at', 'updated_at',
+]);
+
+const SHOT_TAKE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'shot_id', 'bin_file_id',
+  'role', 'position', 'notes',
+  'created_at', 'updated_at',
+]);
+
 // ── 0041: the folder tree ────────────────────────────────────────────────
 // `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
 // provider re-sends whole rows on update and PATCH_DROP strips it first.
@@ -767,6 +810,11 @@ export const COLUMN_ALLOWLIST = {
   shot_lists: SHOT_LIST_COLUMNS,
   shot_list_items: SHOT_LIST_ITEM_COLUMNS,
   edits: EDIT_COLUMNS,
+  // 0091 (BC1): the four bins tables.
+  bin_locations: BIN_LOCATION_COLUMNS,
+  bins: BIN_COLUMNS,
+  bin_files: BIN_FILE_COLUMNS,
+  shot_takes: SHOT_TAKE_COLUMNS,
 };
 
 /**
@@ -1727,6 +1775,223 @@ async function explainItemDeleteShortfall(client, listId, ids, deleted) {
   if (!(list.data || [])[0]) throw shotListRefusal('shot list not found', 'P0002');
 }
 
+// ── Bins on the cloud (0091, BC1) — module-level helpers ──────────────────
+//
+// The same contract electron/rabbitBins.cjs gives the signed-out desktop,
+// over the four cloud tables and the eleven SECURITY INVOKER RPCs. What the
+// cloud cannot do on its own — pick files with an OS dialog, read a file's
+// columns, stream its bytes, relink a drive, open a file — answers
+// `not_supported_here` through ONE capability object (CLOUD_BINS_CAPABILITIES)
+// the provider reads; BC2's desktop-signed-in mode fills those from the Local
+// Server's routes when the computer can reach the file.
+//
+// A database WITHOUT 0091 (a client ahead of its database): loadProject's
+// read of public.bins is the probe (0084's shotListsAbsent shape, no extra
+// request) — a 42P01 / PGRST205 there marks the four tables absent, every
+// bins READ answers [] and every bins WRITE refuses before any request with
+// code `bins_unavailable`. 0091 adds no column to any table the client
+// upserts, so there is nothing for stripUnmigrated to strip. Not cleared by
+// resetSupabaseAdapter (auth events do not change the schema); cleared by the
+// next load that finds the table, and by resetBinsSchemaState() for tests.
+
+export const CLOUD_BINS_CAPABILITIES = Object.freeze({
+  backend: 'supabase',
+  // the OS dialogs (pickBinFiles / pickBinFolder) and the walk of a picked
+  // folder (prepareBinFiles): the desktop's alone
+  pickFiles: false,
+  // probeBinFile reads a file's technical columns: needs the file
+  probe: false,
+  // binFileStreamUrl plays or scrubs bytes: needs the file
+  stream: false,
+  // the backend says whether each file is reachable (`online` on the rows);
+  // false means the provider marks every row "not on this computer"
+  resolveFiles: false,
+  // binRelinkScan / binRelinkApply, removeBinRoot: the desktop's known roots
+  relink: false,
+  // openBinFile (the OS default app / Explorer)
+  openInOs: false,
+  // where a clip's picture lives: 'cloud' = rabbit-thumbnails, signed per
+  // read (binFilePosterUrl); 'local' = the desktop's cache (binFileThumbnailUrl)
+  posters: 'cloud',
+  // bin_locations exist (a cloud clip is a location + a relative path)
+  locations: true,
+  // the admin's switch (B5a) can be read and, by an admin, set
+  remoteViewingSwitch: true,
+});
+
+let binsAbsent = false;
+
+// For tests only: forget what the last load learned about 0091.
+export function resetBinsSchemaState() {
+  binsAbsent = false;
+}
+
+const BINS_UNAVAILABLE_MSG = 'Bins are not on this database yet (migration 0091).';
+function binsUnavailable() {
+  const err = new Error(`[supabase] ${BINS_UNAVAILABLE_MSG}`);
+  err.code = 'bins_unavailable';
+  return err;
+}
+function requireBins() {
+  if (binsAbsent) throw binsUnavailable();
+}
+
+// loadProject's read of bins — AND the 0091 probe.
+function probeBins(result) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    binsAbsent = true;
+    return [];
+  }
+  const rows = unwrapOptionalShotListTable(result);
+  binsAbsent = false;
+  return rows;
+}
+
+// The orders every backend returns (the Local Server sorts its arrays the
+// same way, binsOrder.js): bins and files by sort_order then id; takes by
+// shot, position, then id; locations by name then id.
+function listBinsWith(client, projectId) {
+  return client.from('bins').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id').then(probeBins);
+}
+function listBinFilesWith(client, projectId) {
+  return client.from('bin_files').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id').then(unwrapOptionalShotListTable);
+}
+function listShotTakesWith(client, projectId) {
+  return client.from('shot_takes').select('*').eq('project_id', projectId)
+    .order('shot_id').order('position').order('id').then(unwrapOptionalShotListTable);
+}
+// The caller's workspace's locations: RLS scopes the read to it, so no
+// workspace id is needed (and none is trusted from a caller).
+function listBinLocationsWith(client) {
+  return client.from('bin_locations').select('*')
+    .order('name').order('id').then(unwrapOptionalShotListTable);
+}
+
+function missing0091Table(error) {
+  if (error?.code === 'PGRST205') return true;
+  return error?.code === '42P01'
+    && /\b(bins|bin_files|bin_locations|shot_takes)\b/.test(error.message || '');
+}
+function missing0091Function(fnName) {
+  return (error) => error?.code === 'PGRST202'
+    || (error?.code === '42883' && (error.message || '').includes(fnName));
+}
+
+// The sentences a person reads when the database refuses (the refusal map).
+// Matched on the constraint or policy Postgres names, never on the whole
+// text; anything else keeps Postgres' own words. err.code keeps the SQLSTATE.
+export const BINS_REFUSALS = Object.freeze({
+  gate: 'you cannot change this project\'s bins',
+  takesGate: 'you cannot change this project\'s takes',
+  locationsGate: 'you cannot change this company\'s footage locations',
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never with .. in it, and without a trailing backslash.',
+  locationExists: 'This location is already in the company\'s list.',
+  locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
+  locationName: 'A footage location needs a name.',
+  relativePath: 'A clip\'s path inside its location must be relative: forward slashes, no leading slash, no .., no drive letter.',
+  posterPath: 'A clip\'s picture must sit under its own project in the thumbnails bucket.',
+  binName: 'A bin needs a name.',
+  clipName: 'A clip needs a name.',
+  binCycle: 'a bin cannot be inside itself',
+  takeTwice: 'this take is already assigned to that shot',
+  takeProject: 'a take must name a shot and a clip of the same project',
+  remoteViewingOff: 'This company has not allowed files to be viewed from outside the office network, so WILSON keeps no picture of this clip in the cloud. A workspace admin can turn that on in the company settings.',
+  switchAdminOnly: 'Only a workspace admin can change whether files may be viewed from outside the office network.',
+  notSupportedHere: 'is not supported here — it needs the desktop app on a computer that can reach the footage.',
+});
+
+const BINS_CONSTRAINT_SENTENCES = new Map([
+  ['bin_locations_unc_path_shape_chk', BINS_REFUSALS.locationShape],
+  ['bin_locations_workspace_unc_key', BINS_REFUSALS.locationExists],
+  ['bin_locations_name_not_blank_chk', BINS_REFUSALS.locationName],
+  ['bin_files_location_fk', BINS_REFUSALS.locationInUse],
+  ['bin_files_relative_path_shape_chk', BINS_REFUSALS.relativePath],
+  ['bin_files_poster_path_shape_chk', BINS_REFUSALS.posterPath],
+  ['bin_files_display_name_not_blank_chk', BINS_REFUSALS.clipName],
+  ['bins_name_not_blank_chk', BINS_REFUSALS.binName],
+  ['shot_takes_shot_file_key', BINS_REFUSALS.takeTwice],
+  ['shot_takes_shot_fk', BINS_REFUSALS.takeProject],
+  ['shot_takes_file_fk', BINS_REFUSALS.takeProject],
+]);
+
+// The sentence for a refusal the database worded as a constraint, a policy
+// or one of 0091's own RAISEs, else null.
+export function binsRefusalSentence(error) {
+  if (!error) return null;
+  const msg = error.message || '';
+  const named = /(?:constraint|policy) "([^"]+)"/.exec(msg);
+  if (named && BINS_CONSTRAINT_SENTENCES.has(named[1])) return BINS_CONSTRAINT_SENTENCES.get(named[1]);
+  if (/petal_bin_posters_remote_viewing/.test(msg)) return BINS_REFUSALS.remoteViewingOff;
+  if (error.code === '42501' && /row-level security policy for table "(bins|bin_files)"/.test(msg)) return BINS_REFUSALS.gate;
+  if (error.code === '42501' && /row-level security policy for table "shot_takes"/.test(msg)) return BINS_REFUSALS.takesGate;
+  if (error.code === '42501' && /row-level security policy for table "bin_locations"/.test(msg)) return BINS_REFUSALS.locationsGate;
+  return null;
+}
+
+// The unwrap for every 0091 write and RPC: keeps the SQLSTATE on err.code,
+// words a named refusal as the map words it, and marks 0091 absent on a
+// missing table or function (unwrapShotList's three differences, kept).
+function unwrapBins({ data, error }, isMissing) {
+  if (error) {
+    if (isMissing(error)) {
+      binsAbsent = true;
+      lastError  = null;
+      lastSyncAt = new Date();
+      throw binsUnavailable();
+    }
+    const msg = binsRefusalSentence(error) || error.message || String(error);
+    lastError = msg;
+    const err = new Error(`[supabase] ${lastError}`);
+    if (error.code) err.code = error.code;
+    throw err;
+  }
+  lastError  = null;
+  lastSyncAt = new Date();
+  return data;
+}
+
+// A refusal the adapter words itself (the shotListRefusal shape).
+function binsRefusal(message, code) {
+  const err = new Error(`[supabase] ${message}`);
+  err.code = code;
+  return err;
+}
+function notSupportedHere(what) {
+  const err = new Error(`[supabase] ${what} ${BINS_REFUSALS.notSupportedHere}`);
+  err.code = 'not_supported_here';
+  err.status = 501;
+  return err;
+}
+
+// What an upsert of a bin never sends: the four audit columns fn_audit_touch
+// stamps (S3a's addendum F, the same reasons).
+const BIN_SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by'];
+// What a bin_files patch never sends: identity, who added it and when, the
+// stamps, and `online` (not a column — a fact about the reading computer).
+const BIN_FILE_PATCH_DROP = ['id', 'project_id', 'workspace_id', 'added_by', 'added_at', 'updated_at', 'online'];
+const BIN_KINDS_0091 = ['footage', 'audio', 'stills', 'graphics', 'vfx', 'selects', 'other'];
+const POSTER_BUCKET = 'rabbit-thumbnails';
+const POSTER_MAX_BYTES = 262144; // the bucket's own cap (0053)
+
+// A renderer-decoded JPEG, as a Uint8Array; the same narrowing the Local
+// Server's thumbnail route makes (magic number, size cap).
+function posterBytesFrom(base64) {
+  if (!base64 || typeof base64 !== 'string') throw binsRefusal('base64 required', 'invalid');
+  let bin;
+  try { bin = atob(base64); } catch { throw binsRefusal('unreadable body', 'invalid'); }
+  if (!bin.length) throw binsRefusal('unreadable body', 'invalid');
+  if (bin.length > POSTER_MAX_BYTES) throw binsRefusal('thumbnail too large', 'invalid');
+  if (!(bin.charCodeAt(0) === 0xff && bin.charCodeAt(1) === 0xd8 && bin.charCodeAt(2) === 0xff)) {
+    throw binsRefusal('not a JPEG', 'invalid');
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 // Columns a per-field patch must never carry: identity/tenancy, audit
 // stamps, and the trash columns (RPC-only under the 0014 policies — a
 // plain UPDATE with deleted_at either 42501s or silently no-ops).
@@ -1904,7 +2169,12 @@ export function supabaseAdapter() {
       // fifth time for the same reason (0084, D1–D22). They use the
       // 42P01/PGRST205-tolerant reads with NO blanket catch, and the
       // shot_lists read doubles as the 0084 probe — see shotListsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits] =
+      // Bins on the cloud (BC1, 0091): bins / binFiles / shotTakes /
+      // binLocations join for the sixth time for the same reason — and
+      // `binRoots` is answered [] (the signed-out desktop's known roots have
+      // no cloud shape; a cloud clip is a location + a relative path). The
+      // bins read doubles as the 0091 probe — see binsAbsent.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -1960,6 +2230,10 @@ export function supabaseAdapter() {
           listShotListsWith(client, projectId),
           listShotListItemsWith(client, projectId),
           listEditsWith(client, projectId),
+          listBinsWith(client, projectId),
+          listBinFilesWith(client, projectId),
+          listShotTakesWith(client, projectId),
+          listBinLocationsWith(client),
         ]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
@@ -1972,6 +2246,7 @@ export function supabaseAdapter() {
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
         scenes, shots, levels, experiences, folders, milestones,
         shotLists, shotListItems, edits,
+        bins, binFiles, binRoots: [], shotTakes, binLocations,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -4043,6 +4318,358 @@ export function supabaseAdapter() {
         }),
         missing0084Function('archive_edit'),
       );
+    },
+
+    // ── Bins on the cloud (BC1, migration 0091) ───────────────
+    //
+    // The Local Server adapter's names and shapes (localServerAdapter.js's
+    // bins block; electron/rabbitBins.cjs is the contract), over the four
+    // cloud tables and the eleven RPCs. Every method takes projectId first.
+    // Reads answer [] on a database without 0091; writes refuse with
+    // `bins_unavailable` before any request (see binsAbsent). What the cloud
+    // cannot do answers `not_supported_here` — the capability object says
+    // which (binsCapabilities).
+    //
+    // 🚨 Every RPC parameter is SENT, as null when the caller has no value —
+    // never left undefined (the 0084 rule: a missing name is PGRST202, which
+    // reads as "0091 is not here").
+    binsCapabilities() { return CLOUD_BINS_CAPABILITIES; },
+
+    async listBins(projectId) {
+      const client = await requireClient();
+      const [bins, binFiles, shotTakes, binLocations] = await Promise.all([
+        listBinsWith(client, projectId),
+        listBinFilesWith(client, projectId),
+        listShotTakesWith(client, projectId),
+        listBinLocationsWith(client),
+      ]);
+      // No `online` on the rows: the cloud does not know what this computer
+      // can reach (the provider marks them from the capability object). No
+      // orphans: the FKs cascade, so every take's shot and file exist.
+      return { bins, binFiles, binRoots: [], binLocations, shotTakes, orphanTakes: [], ffmpeg: false, capabilities: CLOUD_BINS_CAPABILITIES };
+    },
+    async createBin(projectId, bin) {
+      const client = await requireClient();
+      requireBins();
+      const name = String(bin?.name ?? '').trim();
+      if (!name) throw binsRefusal(BINS_REFUSALS.binName, 'invalid');
+      const row = toColumns('bins', sanitize({ ...bin, name, project_id: projectId }, BIN_SERVER_OWNED));
+      if (!BIN_KINDS_0091.includes(row.kind)) row.kind = 'other';
+      if (row.parent_bin_id === undefined || row.parent_bin_id === '') row.parent_bin_id = null;
+      if (!Number.isFinite(Number(row.sort_order)) || row.sort_order === null || row.sort_order === undefined) {
+        // The next slot among its siblings (the Local Server's nextSortOrder).
+        let q = client.from('bins').select('sort_order').eq('project_id', projectId);
+        q = row.parent_bin_id ? q.eq('parent_bin_id', row.parent_bin_id) : q.is('parent_bin_id', null);
+        const siblings = unwrapBins(await q.order('sort_order', { ascending: false }).limit(1), missing0091Table) || [];
+        row.sort_order = siblings.length ? Number(siblings[0].sort_order || 0) + 1 : 0;
+      }
+      return unwrapBins(await client.from('bins').upsert(row).select().single(), missing0091Table);
+    },
+    async updateBin(projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw binsRefusal(BINS_REFUSALS.binName, 'invalid'); }
+      if ('kind' in p && !BIN_KINDS_0091.includes(p.kind)) p.kind = 'other';
+      if ('parent_bin_id' in p && !p.parent_bin_id) p.parent_bin_id = null;
+      const cols = toColumns('bins', sanitize(p, [...BIN_SERVER_OWNED, 'id', 'project_id', 'workspace_id']));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(
+        await client.from('bins').update(cols).eq('id', id ?? null).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      // An UPDATE that RLS does not let through matches nothing and returns
+      // no row — not an error (the S3b patch rule): no row back is the refusal.
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return rows[0];
+    },
+    // mode 'move' needs target (the bin that receives the files); 'remove'
+    // drops the rows. → { ok, removedBins, movedFiles, removedFiles, removedTakes }
+    // — removedTakes is the cloud's extra: the FKs cascade, so the takes of a
+    // removed clip go with it, and the provider's undo puts them back through
+    // replaceShotTakes.
+    async deleteBin(_projectId, id, { mode = 'remove', target = null } = {}) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('delete_bin', { p_bin: id ?? null, p_mode: mode === 'move' ? 'move' : 'remove', p_target: target ?? null }),
+        missing0091Function('delete_bin'),
+      );
+      return res || { ok: true, removedBins: [], movedFiles: [], removedFiles: [], removedTakes: [] };
+    },
+    async reorderBins(_projectId, order) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('reorder_bins', { p_order: Array.isArray(order) ? order : null }),
+        missing0091Function('reorder_bins'),
+      );
+      return res || { ok: true, bins: [] };
+    },
+    // The OS dialogs, the walk of a picked folder, a file's columns, its
+    // bytes, the OS: the desktop's alone (CLOUD_BINS_CAPABILITIES).
+    async pickBinFiles() { throw notSupportedHere('Picking files'); },
+    async pickBinFolder() { throw notSupportedHere('Picking a folder'); },
+    async prepareBinFiles() { throw notSupportedHere('Reading a folder'); },
+    async probeBinFile() { throw notSupportedHere('Reading a file\'s columns'); },
+    async openBinFile() { throw notSupportedHere('Opening a file'); },
+    async binRelinkApply() { throw notSupportedHere('Relinking a drive'); },
+    async removeBinRoot() { throw notSupportedHere('Forgetting a folder'); },
+    // The view scans known roots on open; the cloud has none to scan.
+    async binRelinkScan() { return { offline: [], candidates: null, truncated: false }; },
+    // items: the rows as the adding computer described them, each with
+    // location_id + relative_path (BC2 builds them from the desktop's
+    // prepare); createSubBins nests a `sub_bin` path. `roots` is the
+    // desktop's and is ignored here. → { created, bins, results }
+    async addBinFiles(_projectId, binId, items, createSubBins = true) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('add_bin_files', {
+          p_bin: binId ?? null,
+          p_items: Array.isArray(items) ? items : null,
+          p_create_sub_bins: createSubBins !== false,
+        }),
+        missing0091Function('add_bin_files'),
+      );
+      return res || { created: [], bins: [], results: [] };
+    },
+    async updateBinFile(projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('display_name' in p) { p.display_name = String(p.display_name ?? '').trim(); if (!p.display_name) throw binsRefusal(BINS_REFUSALS.clipName, 'invalid'); }
+      const cols = toColumns('bin_files', sanitize(p, BIN_FILE_PATCH_DROP));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(
+        await client.from('bin_files').update(cols).eq('id', id ?? null).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return rows[0];
+    },
+    async bulkUpdateBinFiles(projectId, ids, patch) {
+      const client = await requireClient();
+      requireBins();
+      if (!Array.isArray(ids) || ids.length === 0) throw binsRefusal('ids required', 'invalid');
+      const cols = toColumns('bin_files', sanitize(patch || {}, BIN_FILE_PATCH_DROP));
+      if (!cols || Object.keys(cols).length === 0) return { updated: [] };
+      const rows = unwrapBins(
+        await client.from('bin_files').update(cols).in('id', ids).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return { updated: rows };
+    },
+    // sortOrders (optional, { id: n }): an undo puts rows back at their old
+    // positions. → { moved: [{ id, from, sort_order }], binFiles }
+    async moveBinFiles(_projectId, ids, binId, sortOrders = null) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('move_bin_files', {
+          p_ids: Array.isArray(ids) ? ids : null,
+          p_bin: binId ?? null,
+          p_sort_orders: sortOrders && typeof sortOrders === 'object' ? sortOrders : null,
+        }),
+        missing0091Function('move_bin_files'),
+      );
+      return res || { moved: [], binFiles: [] };
+    },
+    async copyBinFiles(_projectId, ids, binId) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('copy_bin_files', { p_ids: Array.isArray(ids) ? ids : null, p_bin: binId ?? null }),
+        missing0091Function('copy_bin_files'),
+      );
+      return res || { created: [] };
+    },
+    // Removes the ROWS only; the files on the server are the company's (B10).
+    // The takes of those clips go with them (CASCADE) and are read FIRST, so
+    // the answer carries them for the undo. → { removed, removedTakes }
+    async removeBinFiles(projectId, ids) {
+      const client = await requireClient();
+      requireBins();
+      if (!Array.isArray(ids) || ids.length === 0) throw binsRefusal('ids required', 'invalid');
+      const removedTakes = unwrapBins(
+        await client.from('shot_takes').select('*').in('bin_file_id', ids).eq('project_id', projectId ?? null),
+        missing0091Table,
+      ) || [];
+      const removed = unwrapBins(
+        await client.from('bin_files').delete().in('id', ids).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      ) || [];
+      // 🚨 RLS FILTERS a DELETE rather than refusing it (S3a, r2 closure#10):
+      // nothing removed for ids that were given is the refusal, said.
+      if (removed.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return { removed, removedTakes };
+    },
+    // The undo of a removal: the rows go back with their ids and who added
+    // them. → { restored, skipped: [{ id, reason: invalid | bin_gone }],
+    // affectedShotIds: [], shotTakes: [], orphanTakes: [] } — the takes come
+    // back through replaceShotTakes, not here.
+    async restoreBinFiles(_projectId, rows) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('restore_bin_files', { p_rows: Array.isArray(rows) ? rows : null }),
+        missing0091Function('restore_bin_files'),
+      );
+      return res || { restored: [], skipped: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    // A renderer-decoded JPEG (the desktop's fallback poster, or BC2's) goes
+    // to rabbit-thumbnails at projects/{project}/bin_files/{id}/{ts}-poster.jpg
+    // and the row learns its key. The switch is asked FIRST (B4), so the
+    // person reads the sentence and no byte moves while it is off; a storage
+    // refusal that slips past the pre-check reads the same sentence.
+    // → { ok: true, poster_path }
+    async postBinFileThumbnail(projectId, id, base64) {
+      const client = await requireClient();
+      requireBins();
+      const bytes = posterBytesFrom(base64);
+      const allowed = unwrapBins(
+        await client.rpc('rabbit_remote_viewing_enabled', { p_project: projectId ?? null }),
+        missing0091Function('rabbit_remote_viewing_enabled'),
+      );
+      if (allowed !== true) throw binsRefusal(BINS_REFUSALS.remoteViewingOff, 'remote_viewing_off');
+      const key = `projects/${projectId}/bin_files/${id}/${Date.now()}-poster.jpg`;
+      const { error } = await client.storage.from(POSTER_BUCKET).upload(key, bytes, { contentType: 'image/jpeg', upsert: false });
+      if (error) {
+        const msg = /row-level security|petal_bin_posters/.test(error.message || '')
+          ? BINS_REFUSALS.remoteViewingOff
+          : `storage upload failed: ${error.message || error}`;
+        const err = new Error(`[supabase] ${msg}`);
+        err.code = /row-level security|petal_bin_posters/.test(error.message || '') ? 'remote_viewing_off' : 'storage';
+        throw err;
+      }
+      await this.updateBinFile(projectId, id, { poster_path: key });
+      return { ok: true, poster_path: key };
+    },
+    // The cloud signs a poster per read (the bucket is private, 0053): an
+    // async URL, unlike the desktop's sync route URL. null when the row has
+    // no picture or the read is refused (the view shows its placeholder).
+    async binFilePosterUrl(_projectId, row, { expiresIn = 3600 } = {}) {
+      const key = row?.poster_path;
+      if (!key) return null;
+      const client = await requireClient();
+      const { data, error } = await client.storage.from(POSTER_BUCKET).createSignedUrl(key, expiresIn);
+      if (error) return null;
+      return data?.signedUrl || null;
+    },
+    // Sync URL builders: the cloud has no route to point an <img> or <video>
+    // at — a poster is signed (binFilePosterUrl), bytes are the desktop's.
+    binFileThumbnailUrl() { return null; },
+    binFileStreamUrl() { return null; },
+
+    // Footage locations (B2): the company's named shares. Every member reads
+    // them; anyone past the gate on a project of the workspace writes them.
+    async listBinLocations() {
+      const client = await requireClient();
+      return listBinLocationsWith(client);
+    },
+    async createBinLocation(location) {
+      const client = await requireClient();
+      requireBins();
+      const name = String(location?.name ?? '').trim();
+      const unc_path = String(location?.unc_path ?? '').trim();
+      if (!name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid');
+      if (!unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid');
+      const row = toColumns('bin_locations', sanitize({ ...location, name, unc_path }, ['added_by', 'created_at', 'updated_at', 'workspace_id']));
+      return unwrapBins(await client.from('bin_locations').insert(row).select().single(), missing0091Table);
+    },
+    async updateBinLocation(id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid'); }
+      if ('unc_path' in p) { p.unc_path = String(p.unc_path ?? '').trim(); if (!p.unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid'); }
+      const cols = toColumns('bin_locations', sanitize(p, ['id', 'workspace_id', 'added_by', 'created_at', 'updated_at']));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(await client.from('bin_locations').update(cols).eq('id', id ?? null).select(), missing0091Table);
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.locationsGate, '42501');
+      return rows[0];
+    },
+    // Refused while any clip names it (ON DELETE RESTRICT): a clip never loses
+    // its address. → the removed row
+    async removeBinLocation(id) {
+      const client = await requireClient();
+      requireBins();
+      const rows = unwrapBins(await client.from('bin_locations').delete().eq('id', id ?? null).select(), missing0091Table);
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.locationsGate, '42501');
+      return rows[0];
+    },
+    // The admin's switch (B5a). Read for any project of the workspace; set by
+    // a workspace admin (workspaces_admin_update, 0020) — anyone else's write
+    // matches nothing and reads the sentence.
+    async getRemoteViewingEnabled(projectId) {
+      const client = await requireClient();
+      const v = unwrapBins(
+        await client.rpc('rabbit_remote_viewing_enabled', { p_project: projectId ?? null }),
+        missing0091Function('rabbit_remote_viewing_enabled'),
+      );
+      return v === true;
+    },
+    async setRemoteViewingEnabled(workspaceId, enabled) {
+      const client = await requireClient();
+      requireBins();
+      const rows = unwrapBins(
+        await client.from('workspaces').update({ remote_viewing_enabled: enabled === true }).eq('id', workspaceId ?? null).select('id, remote_viewing_enabled'),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.switchAdminOnly, '42501');
+      return rows[0].remote_viewing_enabled === true;
+    },
+
+    // Shot takes: every mutation answers { affectedShotIds, shotTakes,
+    // orphanTakes: [] } — the FULL row set of the shots it touched, because a
+    // role change or a removal renumbers and re-roles the siblings; the
+    // provider replaces those shots' rows (the Local Server's contract).
+    async assignShotTakes(_projectId, assignments) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('assign_shot_takes', { p_assignments: Array.isArray(assignments) ? assignments : null }),
+        missing0091Function('assign_shot_takes'),
+      );
+      return res || { created: [], skipped: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async updateShotTake(_projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('update_shot_take', { p_id: id ?? null, p_patch: patch && typeof patch === 'object' ? patch : null }),
+        missing0091Function('update_shot_take'),
+      );
+      return res || { take: null, affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async removeShotTakes(_projectId, ids) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('remove_shot_takes', { p_ids: Array.isArray(ids) ? ids : null }),
+        missing0091Function('remove_shot_takes'),
+      );
+      return res || { removed: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async reorderShotTakes(_projectId, shotId, ids) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('reorder_shot_takes', { p_shot: shotId ?? null, p_ids: Array.isArray(ids) ? ids : null }),
+        missing0091Function('reorder_shot_takes'),
+      );
+      return res || { affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    // The undo primitive: the given shots' rows become exactly `rows`.
+    async replaceShotTakes(_projectId, shotIds, rows) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('replace_shot_takes', { p_shots: Array.isArray(shotIds) ? shotIds : null, p_rows: Array.isArray(rows) ? rows : null }),
+        missing0091Function('replace_shot_takes'),
+      );
+      return res || { affectedShotIds: [], shotTakes: [], orphanTakes: [] };
     },
 
     // ── Realtime (Session 7, migration 0016) ──────────────────

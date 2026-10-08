@@ -4822,6 +4822,75 @@ of a session — this section is limits by design, that file is faults.
 > ACCEPTED — against every single entry. `docs/RELEASE_TESTING.md` has the
 > user-facing subset under "Known not to work".
 
+**Bins on the cloud (BC1, migration 0091 — 2026-10-07)**
+
+- **A cloud clip is a REFERENCE: a footage location plus a relative path.
+  Nothing uploads, nothing costs footage storage (Audrey's B1).** `bin_locations`
+  is per WORKSPACE (a share is the company's: `\\server\share`, by network
+  address, never a drive letter — the CHECK refuses one); `bin_files` holds
+  `location_id` + `relative_path` (forward slashes, no `..`, no drive
+  letter) where the signed-out desktop holds an absolute `source_path`. The
+  desktop's signed-out bundle is UNCHANGED (B12): its `source_path` and
+  `binRoots` stay; the cloud's `binRoots` is always `[]`.
+- **The gate for all four tables is `can_edit_shot_lists()` (0084) — reviewers
+  included (B6).** No bins gate was invented; `project.bins.write` in the
+  client matrix mirrors it. Every write policy hops through `projects` (the
+  private-projects arm, 0072), and suites 93/94 prove a seated manager
+  cannot write into a private project they cannot see — with `workspace_id`
+  SENT, because the stamping trigger would otherwise refuse for the wrong
+  reason.
+- 🚨 **A clip's picture leaves the server only while the company's switch is
+  on (B4, B5a): `workspaces.remote_viewing_enabled`, off by default, a
+  workspace admin's (0020's `workspaces_admin_update`; no new trigger).** Two
+  RESTRICTIVE policies on `rabbit-thumbnails` (`petal_bin_posters_remote_viewing_*`)
+  AND over 0053's permissive set for keys whose third segment is `bin_files`
+  — a planted copy without `AS RESTRICTIVE` or without the switch arm is
+  caught by suite 94's probes 43/53/54 and by 0091's post-conditions.
+  Reading an existing poster follows membership, never the switch; a
+  reviewer uploads one through the permissive `petal_bin_posters_*` pair
+  (0053's own admit `can_write_project` only). **Posters are metered**
+  (`workspace_petal_bytes` counts `rabbit-thumbnails`, 0055) and never
+  quota-gated (the quota policy is on `rabbit-files` inserts only): a poster
+  is 10–30 KB and shows in the company's storage figure. The cloud adapter
+  asks the switch BEFORE uploading, so a person reads a sentence.
+- **Removing a clip or a bin removes ROWS, never a byte on the server (B10);
+  the FKs cascade** (bin → files → takes; shot → takes; a location in use is
+  RESTRICTed). The desktop keeps a removed file's takes as orphans for the
+  undo; the cloud does not, so the provider snapshots the shots' takes
+  before a removal and puts them back through `replaceShotTakes` — on every
+  backend (a no-op where nothing was lost). A removed clip's poster is
+  queued for disposal on `storage_gc_queue` (kind `thumbnail`, `file_id`
+  NULL) only when no other row — an instance made by `copy_bin_files` —
+  still names it. The orphan scan walks `rabbit-files` only, so a live poster
+  is never swept.
+- **What the cloud cannot do answers `not_supported_here` through ONE
+  capability object** (`binsCapabilities()`: `CLOUD_BINS_CAPABILITIES`,
+  `LOCAL_SERVER_BINS_CAPABILITIES`, the fixtures'), read onto
+  `binsInfo.capabilities`: no OS pickers, no probe, no stream, no relink, no
+  open-in-OS; rows from a backend that cannot resolve files are marked
+  `online: false` ("not on this computer", B3) on load and on a live insert.
+  The desktop SIGNED IN (BC2) fills those from the Local Server's
+  `/api/rabbit/cloud-bins/*` routes, which read a file by a REGISTERED
+  location's address + a relative path — only a UNC path can be registered
+  (a body can never make `C:\Users` a root), and a per-computer local path is
+  kept only when it is a folder the person picked this session (B2's
+  fallback).
+- **Live (B7):** `bins`, `bin_files` and `shot_takes` joined
+  `fn_realtime_broadcast`'s project_id arm (fifteen tables now; the body is
+  pinned name-by-name in 0091's post-conditions and suite 94). `bin_locations`
+  is not broadcast: re-read on open.
+- **A client ahead of its database (no 0091) reads empty bins and refuses
+  every bins write with code `bins_unavailable`** — the load's read of
+  `public.bins` is the probe (0084's `shotListsAbsent` shape); nothing is
+  stripped because 0091 adds no column to a table the client upserts.
+- **Known limits, by design:** the browser cannot play a clip until the file
+  gateway (BC4) exists; deleting a SHOT on the cloud drops its takes and the
+  shot's undo does not bring them back (the scenes block is not BC1's — BC3
+  to add the same snapshot); `addBinFiles` on the cloud trusts the technical
+  columns the adding computer read; `removeBinFiles` reads the takes it will
+  lose in one request and deletes in another (a take assigned in between is
+  lost, said in the hand-off).
+
 **Security-adjacent**
 
 - ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by

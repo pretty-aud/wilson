@@ -1,10 +1,12 @@
 // =============================================================================
-// scenes.js — six scenes, sixteen shots, five bins, twelve bin files, eight
-// takes, two shot lists (one active, one archived) and no edits. The bin rows
-// follow docs/BINS_DESIGN.md §4.4; `online` is the list
-// route's computed flag and is true for every fixture file (there is no disk
-// behind them — the posters are the SVG placeholders, and `probe_status` is
-// 'done' so the renderer's own probe never runs on them).
+// scenes.js — six scenes, sixteen shots, one footage location, seven bins,
+// sixteen bin files (one a frame sequence), nine takes, two shot lists (one
+// active, one archived) and no edits. The bin rows follow docs/BINS_DESIGN.md
+// §4.4 in the CLOUD shape of migration 0091 (a location plus a relative path,
+// never an absolute path); `online` is the list route's computed flag and is
+// true for every fixture file (there is no disk behind them — the posters are
+// the SVG placeholders, and `probe_status` is 'done' so the renderer's own
+// probe never runs on them).
 // =============================================================================
 
 import { fid, day, stamp } from '../ids'
@@ -92,19 +94,38 @@ export const SHOTS = SHOT_ROWS.map(([n, scene, shot_number, name, status, framin
 })
 
 // ── Bins ─────────────────────────────────────────────────────────────────────
+//
+// Bins on the cloud (BC1, migration 0091; Audrey's B1/B2): a clip is a
+// REFERENCE — a footage LOCATION (the company's share, saved by its network
+// address and named) plus a path inside it — never a copy, never one
+// machine's absolute path. These rows are the CLOUD shape the fake cloud
+// serves (location_id + relative_path, poster_path); the signed-out
+// desktop's absolute source_path and its known roots (binRoots) have no place
+// in it, so BIN_ROOTS is empty (B12: the desktop keeps its own, untouched).
+// Posters were made while the company's remote-viewing switch was on
+// (data/workspace.js), as a real company's would have been.
+
+export const BIN_LOCATIONS = [
+  { id: fid('binLocation', 1), workspace_id: WORKSPACE_ID, name: 'Footage NAS', unc_path: '\\\\salthours-nas\\footage', added_by: MEMBER_ID.sofia, created_at: stamp(30, 9), updated_at: stamp(30, 9) },
+]
+export const LOCATION_ID = BIN_LOCATIONS[0].id
 
 export const BINS = [
-  { id: fid('bin', 1), project_id: PROJECT_ID, workspace_id: null, name: 'Footage',  description: 'Camera originals by shoot day.', kind: 'footage', color: null,     parent_bin_id: null,          sort_order: 0, created_at: stamp(30, 9), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9), updated_by: MEMBER_ID.sofia },
-  { id: fid('bin', 2), project_id: PROJECT_ID, workspace_id: null, name: 'Day 1',    description: 'Lighthouse interior.',          kind: 'footage', color: 'blue',   parent_bin_id: fid('bin', 1), sort_order: 0, created_at: stamp(30, 9, 1), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9, 1), updated_by: MEMBER_ID.sofia },
-  { id: fid('bin', 3), project_id: PROJECT_ID, workspace_id: null, name: 'Day 2',    description: 'Café and the storm.',           kind: 'footage', color: 'cyan',   parent_bin_id: fid('bin', 1), sort_order: 1, created_at: stamp(30, 9, 2), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9, 2), updated_by: MEMBER_ID.sofia },
-  { id: fid('bin', 4), project_id: PROJECT_ID, workspace_id: null, name: 'Audio',    description: 'Location sound, slated.',      kind: 'audio',   color: 'green',  parent_bin_id: null,          sort_order: 1, created_at: stamp(30, 9, 3), created_by: MEMBER_ID.lena,  updated_at: stamp(30, 9, 3), updated_by: MEMBER_ID.lena },
-  { id: fid('bin', 5), project_id: PROJECT_ID, workspace_id: null, name: 'Stills',   description: 'Set photography.',             kind: 'stills',  color: 'yellow', parent_bin_id: null,          sort_order: 2, created_at: stamp(30, 9, 4), created_by: MEMBER_ID.jonah, updated_at: stamp(30, 9, 4), updated_by: MEMBER_ID.jonah },
+  { id: fid('bin', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Footage',    description: 'Camera originals by shoot day.', kind: 'footage', color: null,     parent_bin_id: null,          sort_order: 0, created_at: stamp(30, 9), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9), updated_by: MEMBER_ID.sofia },
+  { id: fid('bin', 2), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Day 1',      description: 'Lighthouse interior.',          kind: 'footage', color: 'blue',   parent_bin_id: fid('bin', 1), sort_order: 0, created_at: stamp(30, 9, 1), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9, 1), updated_by: MEMBER_ID.sofia },
+  { id: fid('bin', 3), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Day 2',      description: 'Café and the storm.',           kind: 'footage', color: 'cyan',   parent_bin_id: fid('bin', 1), sort_order: 1, created_at: stamp(30, 9, 2), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9, 2), updated_by: MEMBER_ID.sofia },
+  { id: fid('bin', 4), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Audio',      description: 'Location sound, slated.',      kind: 'audio',   color: 'green',  parent_bin_id: null,          sort_order: 1, created_at: stamp(30, 9, 3), created_by: MEMBER_ID.lena,  updated_at: stamp(30, 9, 3), updated_by: MEMBER_ID.lena },
+  { id: fid('bin', 5), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Stills',     description: 'Set photography.',             kind: 'stills',  color: 'yellow', parent_bin_id: null,          sort_order: 2, created_at: stamp(30, 9, 4), created_by: MEMBER_ID.jonah, updated_at: stamp(30, 9, 4), updated_by: MEMBER_ID.jonah },
+  // BC1: two more — a third shoot day under Footage, and the VFX plates.
+  { id: fid('bin', 6), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Day 3',      description: 'The lamp room, lightning.',    kind: 'footage', color: 'purple', parent_bin_id: fid('bin', 1), sort_order: 2, created_at: stamp(33, 9), created_by: MEMBER_ID.sofia, updated_at: stamp(33, 9), updated_by: MEMBER_ID.sofia },
+  { id: fid('bin', 7), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'VFX plates', description: 'Rendered plates from Kenji.',  kind: 'vfx',     color: null,     parent_bin_id: null,          sort_order: 3, created_at: stamp(33, 9, 1), created_by: MEMBER_ID.kenji, updated_at: stamp(33, 9, 1), updated_by: MEMBER_ID.kenji },
 ]
 
-export const BIN_ROOTS = [
-  { id: fid('binRoot', 1), project_id: PROJECT_ID, path: 'E:/SALT_HOURS/A001', label: 'Camera card A001', added_at: stamp(30, 9), last_seen_at: stamp(38, 9) },
-  { id: fid('binRoot', 2), project_id: PROJECT_ID, path: 'E:/SALT_HOURS/SOUND', label: 'Sound recorder', added_at: stamp(30, 9), last_seen_at: stamp(38, 9) },
-]
+// The signed-out desktop's known roots have no cloud shape (B12).
+export const BIN_ROOTS = []
+
+// The folder inside the location each bin's files sit in.
+const BIN_FOLDER = { 2: 'A001', 3: 'A002', 4: 'SOUND', 5: 'STILLS', 6: 'A003', 7: 'VFX' }
 
 const BIN_FILE_ROWS = [
   // [n, bin, name, ext, media_type, scene, shot, slate, take, camera, roll, dur, w, h, fps, codec, review_flag, color, circled, tint]
@@ -120,52 +141,70 @@ const BIN_FILE_ROWS = [
   [10, 4, 'SH_1A_T01',        '.bwf', 'audio', 1, 1,  '1A', 1, null, 'S001', 14.9, null, null, null, 'PCM 24/48',  'unflagged', null,     false, 'moss'],
   [11, 4, 'SH_3A_T02',        '.bwf', 'audio', 3, 7,  '3A', 2, null, 'S001', 30.6, null, null, null, 'PCM 24/48',  'select',    null,     false, 'moss'],
   [12, 5, 'lamp_room_dressed','.png', 'still', 1, null, null, null, null, null, null, 4000, 2667, null, 'PNG',      'select',    'yellow', false, 'ember'],
+  // BC1: four more — two Day 3 clips (one the take on "Lightning, wide"), a
+  // frame SEQUENCE (one row for the folder) and a still.
+  [13, 6, 'A003_C001_0927AB', '.mov', 'video', 4, 12, '4C', 1, 'A', 'A003', 22.0, 3840, 2160, 24, 'ProRes 422 HQ', 'select',    'green',  true,  'slate'],
+  [14, 6, 'A003_C002_0927AB', '.mov', 'video', 4, 12, '4C', 2, 'A', 'A003', 21.4, 3840, 2160, 24, 'ProRes 422 HQ', 'unflagged', null,     false, 'slate'],
+  [15, 7, 'storm_plate_v01',  '.exr', 'sequence', 4, 10, null, null, null, null, 10.0, 4096, 2160, 24, 'EXR',       'unflagged', null,     false, 'ember'],
+  [16, 5, 'cafe_window_dressed', '.png', 'still', 3, null, null, null, null, null, null, 4000, 2667, null, 'PNG',   'unflagged', null,     false, 'sand'],
 ]
 
-export const BIN_FILES = BIN_FILE_ROWS.map(([n, bin, name, extension, media_type, scene, shot, slate, take_number, camera, roll, duration_sec, width, height, fps, codec, review_flag, color, circled, tint], i) => ({
-  id: fid('binFile', n),
-  project_id: PROJECT_ID,
-  bin_id: fid('bin', bin),
-  display_name: name,
-  original_name: `${name}${extension}`,
-  extension,
-  mime_type: media_type === 'video' ? 'video/quicktime' : media_type === 'audio' ? 'audio/wav' : 'image/png',
-  source_path: `${bin === 4 ? 'E:/SALT_HOURS/SOUND' : 'E:/SALT_HOURS/A001'}/${name}${extension}`,
-  is_sequence: false,
-  sequence_pattern: null,
-  frame_count: duration_sec && fps ? Math.round(duration_sec * fps) : null,
-  size_bytes: media_type === 'video' ? Math.round(duration_sec * 110 * 1024 * 1024) : media_type === 'audio' ? Math.round(duration_sec * 288000) : 9_400_000,
-  mtime: stamp(49 + (bin === 3 ? 3 : 0), 12, i),
-  media_type,
-  tags: media_type === 'video' ? ['camera-original'] : media_type === 'audio' ? ['location'] : ['set-photo'],
-  scene_id: scene ? fid('scene', scene) : null,
-  shot_id: shot ? fid('shot', shot) : null,
-  slate,
-  take_number,
-  take_modifier: null,
-  camera,
-  roll,
-  shoot_day: day(49 + (bin === 3 ? 3 : 0)),
-  description: '',
-  notes: review_flag === 'reject' ? 'Boom in shot at 00:00:09.' : '',
-  review_flag,
-  circled,
-  color,
-  duration_sec,
-  width,
-  height,
-  fps,
-  codec,
-  timecode_start: media_type === 'still' ? null : `0${9 + (i % 8)}:${String(10 + i * 3).padStart(2, '0')}:00:00`,
-  probe_status: 'done',
-  sort_order: i,
-  added_by: MEMBER_ID.sofia,
-  added_at: stamp(51 + (bin === 3 ? 3 : 0), 20, i),
-  updated_at: stamp(52 + (bin === 3 ? 3 : 0), 10, i),
-  online: true,
-  // Not a column. The fixtures adapter serves this as the poster.
-  __poster: placeholder({ label: name, sub: `${slate ? `slate ${slate} · take ${take_number}` : media_type}`, tint, w: 320, h: 180 }),
-}))
+const posterKey = (n, name) => `projects/${PROJECT_ID}/bin_files/${fid('binFile', n)}/${1757548800000 + n}-${name}.jpg`
+
+export const BIN_FILES = BIN_FILE_ROWS.map(([n, bin, name, extension, media_type, scene, shot, slate, take_number, camera, roll, duration_sec, width, height, fps, codec, review_flag, color, circled, tint], i) => {
+  const is_sequence = media_type === 'sequence'
+  return {
+    id: fid('binFile', n),
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    bin_id: fid('bin', bin),
+    // The cloud shape (0091): where the file sits, as the company's share
+    // plus a path inside it, forward slashes; a sequence names its FOLDER.
+    location_id: LOCATION_ID,
+    relative_path: `${BIN_FOLDER[bin]}/${name}${is_sequence ? '' : extension}`,
+    display_name: name,
+    original_name: `${name}${is_sequence ? '' : extension}`,
+    extension,
+    mime_type: media_type === 'video' ? 'video/quicktime' : media_type === 'audio' ? 'audio/wav' : media_type === 'still' ? 'image/png' : media_type === 'sequence' ? 'image/x-exr' : null,
+    is_sequence,
+    sequence_pattern: is_sequence ? `${name}.####${extension}` : null,
+    frame_count: duration_sec && fps ? Math.round(duration_sec * fps) : null,
+    size_bytes: media_type === 'video' ? Math.round(duration_sec * 110 * 1024 * 1024) : media_type === 'audio' ? Math.round(duration_sec * 288000) : media_type === 'sequence' ? 240 * 24 * 1024 * 1024 : 9_400_000,
+    mtime: stamp(49 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 12, i),
+    media_type,
+    tags: media_type === 'video' ? ['camera-original'] : media_type === 'audio' ? ['location'] : media_type === 'sequence' ? ['plate', 'vfx'] : ['set-photo'],
+    scene_id: scene ? fid('scene', scene) : null,
+    shot_id: shot ? fid('shot', shot) : null,
+    slate,
+    take_number,
+    take_modifier: null,
+    camera,
+    roll,
+    shoot_day: day(49 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0)),
+    description: '',
+    notes: review_flag === 'reject' ? 'Boom in shot at 00:00:09.' : '',
+    review_flag,
+    circled,
+    color,
+    duration_sec,
+    width,
+    height,
+    fps,
+    codec,
+    timecode_start: media_type === 'still' || media_type === 'sequence' ? null : `0${9 + (i % 8)}:${String(10 + i * 3).padStart(2, '0')}:00:00`,
+    probe_status: 'done',
+    sort_order: i,
+    // The picture's key in rabbit-thumbnails (0091's shape): the fake cloud
+    // serves the SVG placeholder for it.
+    poster_path: posterKey(n, name),
+    added_by: bin === 7 ? MEMBER_ID.kenji : MEMBER_ID.sofia,
+    added_at: stamp(51 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 20, i),
+    updated_at: stamp(52 + (bin === 3 ? 3 : bin === 6 || bin === 7 ? 6 : 0), 10, i),
+    online: true,
+    // Not a column. The fixtures adapter serves this as the poster.
+    __poster: placeholder({ label: name, sub: `${slate ? `slate ${slate} · take ${take_number}` : media_type}`, tint, w: 320, h: 180 }),
+  }
+})
 
 // Takes: one primary per shot, a part and an alt where the shoot gave options.
 const TAKE_ROWS = [
@@ -178,11 +217,14 @@ const TAKE_ROWS = [
   [6, 7,  7, 'primary', 0],
   [7, 7,  6, 'part',    1],
   [8, 11, 8, 'primary', 0],
+  // BC1: the Day 3 clip cut into "Lightning, wide".
+  [9, 12, 13, 'primary', 0],
 ]
 
 export const SHOT_TAKES = TAKE_ROWS.map(([n, shot, file, role, position]) => ({
   id: fid('take', n),
   project_id: PROJECT_ID,
+  workspace_id: WORKSPACE_ID,
   shot_id: fid('shot', shot),
   bin_file_id: fid('binFile', file),
   role,

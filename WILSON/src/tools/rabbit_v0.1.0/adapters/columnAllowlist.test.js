@@ -736,3 +736,92 @@ describe('the four lists 0084 widens', () => {
     expect(warn.mock.calls[0][0]).toContain('public.projects')
   })
 })
+
+
+// ── Bins on the cloud (0091, BC1) ───────────────────────────────────────────
+//
+// The four tables' row shapes, verbatim, each a PLANTED CONTROL: the payload
+// goes in and must come out identical with no warning, so removing any one
+// key from the allowlist turns it red; and each table's opposite control —
+// a key that is NOT a column is dropped and warned about. `online` is the
+// deliberate non-column on bin_files: a fact about the reading computer,
+// never stored.
+
+const BIN_LOCATION_ROW = {
+  id: 'L1', workspace_id: 'w1', name: 'Footage NAS', unc_path: '\\\\nas\\footage',
+  added_by: 'u1', created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z',
+}
+const BIN_ROW = {
+  id: 'b1', project_id: 'p1', workspace_id: 'w1',
+  name: 'Footage', description: '', kind: 'footage', color: 'blue', parent_bin_id: null, sort_order: 0,
+  created_at: '2026-10-07T00:00:00Z', created_by: 'u1', updated_at: '2026-10-07T00:00:00Z', updated_by: 'u1',
+}
+const BIN_FILE_ROW = {
+  id: 'f1', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T1.mov',
+  display_name: 'T1', original_name: 'T1.mov', extension: '.mov', mime_type: 'video/quicktime',
+  is_sequence: false, sequence_pattern: null, frame_count: 348, size_bytes: 1024, mtime: '2026-10-07T00:00:00Z',
+  media_type: 'video', tags: ['camera-original'], scene_id: 'sc1', shot_id: 'sh1',
+  slate: '1A', take_number: 1, take_modifier: null, camera: 'A', roll: 'A001', shoot_day: '2026-09-21',
+  description: '', notes: '', review_flag: 'select', circled: true, color: 'green',
+  duration_sec: 14.5, width: 3840, height: 2160, fps: 24, codec: 'ProRes 422 HQ', timecode_start: '09:10:00:00',
+  probe_status: 'done', sort_order: 0, poster_path: 'projects/p1/bin_files/f1/1-poster.jpg',
+  added_by: 'u1', added_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z',
+}
+const SHOT_TAKE_ROW = {
+  id: 't1', project_id: 'p1', workspace_id: 'w1', shot_id: 'sh1', bin_file_id: 'f1',
+  role: 'primary', position: 0, notes: '',
+  created_at: '2026-10-07T00:00:00Z', updated_at: '2026-10-07T00:00:00Z',
+}
+
+describe('the four 0091 tables have entries, and each is EXACTLY its row shape', () => {
+  it('bin_locations, bins, bin_files and shot_takes are all in COLUMN_ALLOWLIST', () => {
+    for (const t of ['bin_locations', 'bins', 'bin_files', 'shot_takes']) {
+      expect(COLUMN_ALLOWLIST[t], `${t} has no COLUMN_ALLOWLIST entry`).toBeDefined()
+    }
+  })
+
+  it('each entry equals the row shape, key for key', () => {
+    const sorted = (x) => [...x].sort()
+    expect(sorted(COLUMN_ALLOWLIST.bin_locations)).toEqual(sorted(Object.keys(BIN_LOCATION_ROW)))
+    expect(sorted(COLUMN_ALLOWLIST.bins)).toEqual(sorted(Object.keys(BIN_ROW)))
+    expect(sorted(COLUMN_ALLOWLIST.bin_files)).toEqual(sorted(Object.keys(BIN_FILE_ROW)))
+    expect(sorted(COLUMN_ALLOWLIST.shot_takes)).toEqual(sorted(Object.keys(SHOT_TAKE_ROW)))
+  })
+
+  it('keeps every column of every row, NULLs and empty arrays included', () => {
+    expect(toColumns('bin_locations', BIN_LOCATION_ROW)).toEqual(BIN_LOCATION_ROW)
+    expect(toColumns('bins', BIN_ROW)).toEqual(BIN_ROW)
+    expect(toColumns('bin_files', BIN_FILE_ROW)).toEqual(BIN_FILE_ROW)
+    expect(toColumns('shot_takes', SHOT_TAKE_ROW)).toEqual(SHOT_TAKE_ROW)
+    expect(toColumns('bin_files', { id: 'f1', scene_id: null, shot_id: null, tags: [], poster_path: null }))
+      .toEqual({ id: 'f1', scene_id: null, shot_id: null, tags: [], poster_path: null })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('bin_files drops `online` (never a column) and the desktop\'s `source_path`, and warns', () => {
+    // `online` is computed by whichever computer reads the row; the
+    // desktop's absolute source_path has no place in the cloud (B1/B12).
+    const out = toColumns('bin_files', { id: 'f1', review_flag: 'select', online: true, source_path: 'E:\\A001\\T1.mov' })
+    expect(out).toEqual({ id: 'f1', review_flag: 'select' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.bin_files')
+    expect(warn.mock.calls[0][0]).toContain('source_path')
+  })
+
+  it('bins drops a stray key and warns; shot_takes and bin_locations too', () => {
+    expect(toColumns('bins', { id: 'b1', name: 'Footage', children: [] })).toEqual({ id: 'b1', name: 'Footage' })
+    expect(toColumns('shot_takes', { id: 't1', role: 'alt', file: {} })).toEqual({ id: 't1', role: 'alt' })
+    expect(toColumns('bin_locations', { id: 'L1', unc_path: '\\\\nas\\x', local_path: 'Z:\\x' })).toEqual({ id: 'L1', unc_path: '\\\\nas\\x' })
+    expect(warn).toHaveBeenCalledTimes(3)
+  })
+
+  it('CONTROL, against the REAL toColumns: plant the fault, watch the column drop, put it back', () => {
+    COLUMN_ALLOWLIST.bin_files.delete('poster_path')
+    try {
+      expect(toColumns('bin_files', { id: 'f1', poster_path: 'projects/p1/bin_files/f1/1-poster.jpg' })).toEqual({ id: 'f1' })
+    } finally {
+      COLUMN_ALLOWLIST.bin_files.add('poster_path')
+    }
+    expect(COLUMN_ALLOWLIST.bin_files.has('poster_path')).toBe(true)
+  })
+})

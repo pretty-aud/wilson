@@ -90,6 +90,19 @@
       "port": 5245
     },
     {
+      "_comment": "BC1 (Bins on the cloud, schema + plumbing): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the fixtures' bins — the one visible change of BC1.",
+      "name": "bc1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/frosty-noether-87add2/WILSON",
+        "--port",
+        "5284",
+        "--strictPort"
+      ],
+      "port": 5284
+    },
+    {
       "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
       "name": "v1-auth",
       "runtimeExecutable": "cmd",

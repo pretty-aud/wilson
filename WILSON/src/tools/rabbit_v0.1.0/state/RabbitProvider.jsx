@@ -173,6 +173,10 @@ const EMPTY_BUNDLE = {
   binFiles:       [],
   binRoots:       [],
   shotTakes:      [],
+  // Bins on the cloud (BC1, migration 0091): the company's footage locations
+  // (a cloud clip is one of these plus a relative path). Same rule, in the
+  // same three test lists below.
+  binLocations:   [],
   // Shot lists and edits (post-overhaul S3a, migration 0084). Same rule, on
   // EVERY adapter: supabase, localServer, the dev fixtures — and the key
   // lists in loadProjectBundle.test.js (EXPECTED_KEYS),
@@ -198,6 +202,17 @@ function indexById(rows) {
   for (const r of rows || []) out[r.id] = r;
   return out;
 }
+
+// Bins on the cloud (BC1): what an adapter WITHOUT binsCapabilities() is
+// read as — the signed-out desktop's answers, which is what every bins
+// backend was before 0091 (and what the older test doubles still are).
+// The real adapters each export their own object (CLOUD_BINS_CAPABILITIES,
+// LOCAL_SERVER_BINS_CAPABILITIES); binsAdapterParity.test.js pins the keys.
+const LEGACY_BINS_CAPABILITIES = Object.freeze({
+  backend: 'legacy',
+  pickFiles: true, probe: true, stream: true, resolveFiles: true, relink: true, openInOs: true,
+  posters: 'local', locations: false, remoteViewingSwitch: false,
+});
 
 export function RabbitProvider({ children }) {
   // ── adapter ──────────────────────────────────────────────
@@ -841,6 +856,12 @@ export function RabbitProvider({ children }) {
   // pending debounce can never reload a project the user already left.
   const activeProjectIdRef = useRef(activeProjectId);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
+  // Bins on the cloud (BC1): the backend's capability object for bins, as
+  // the last refreshBins read it (see the bins block). Read here by the
+  // realtime handler: a bin_files row arriving from a backend that cannot
+  // say whether this computer can reach the file is marked "not on this
+  // computer", as the rows of a load are.
+  const binsCapsRef = useRef(null);
 
   const reloadActiveProject = useCallback(async () => {
     const pid = activeProjectIdRef.current;
@@ -886,6 +907,11 @@ export function RabbitProvider({ children }) {
   // they are all idempotent (refetch is debounced, roster refresh and
   // teardown re-run safely), so a StrictMode double-invoke is harmless.
   const handleRealtimeEvent = useCallback((evt) => {
+    // BC1: a teammate's clip arrives without `online` (never stored); on a
+    // backend that cannot resolve files it is marked as the load marks it.
+    if (evt?.table === 'bin_files' && evt.record && binsCapsRef.current && binsCapsRef.current.resolveFiles === false) {
+      evt = { ...evt, record: { ...evt.record, online: false } };
+    }
     setBundle(prev => {
       const { bundle: next, effects } = applyRealtimeEvent(prev, evt, {
         pendingFields: pendingFieldsFor,
@@ -4430,28 +4456,42 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, managedFiles: files }));
   }, [activeProjectId]);
 
-  // ── Bins (demo 2026-09-11, docs/BINS_DESIGN.md) ─────────────
+  // ── Bins (demo 2026-09-11, docs/BINS_DESIGN.md; on the cloud since BC1) ──
   //
-  // Local Server only, like managed files: the adapter methods exist on that
-  // adapter and nowhere else, so every callback feature-detects and throws a
-  // sentence rather than a TypeError. State lives in the bundle (bins,
-  // binFiles, binRoots) so project switches and realtime refetches reset it
-  // the same way as everything else. History entries call through
-  // mutationsRef so undo always reaches the latest mutator; pushHistory is
-  // suspended while an undo runs, so the mutators may push unconditionally.
+  // Every backend that can hold bins — the Local Server, the cloud (0091),
+  // the dev fixtures — exposes the same method names; Google Drive has none,
+  // so every callback feature-detects and throws a sentence rather than a
+  // TypeError. What a backend CANNOT do (the cloud cannot pick files with an
+  // OS dialog, read a file's columns, stream its bytes or relink a drive) it
+  // says through ONE capability object, `binsCapabilities()`, kept on
+  // binsInfo.capabilities; the adapter answers `not_supported_here` for
+  // those, and the mutators here stand down where a capability is absent
+  // (no probe pass on the cloud). State lives in the bundle (bins, binFiles,
+  // binRoots, binLocations, shotTakes) so project switches and realtime
+  // refetches reset it the same way as everything else. History entries
+  // call through mutationsRef so undo always reaches the latest mutator;
+  // pushHistory is suspended while an undo runs, so the mutators may push
+  // unconditionally.
   const binsAdapter = useCallback(() => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId) throw new Error('no project');
     if (typeof adapterRef.current.listBins !== 'function') {
-      throw new Error('Bins require the Local Server backend');
+      throw new Error('Bins are not available on this backend');
     }
     return adapterRef.current;
   }, [activeProjectId]);
 
+  // The capability object of the current backend. An adapter without
+  // binsCapabilities (an older test double) is read as the signed-out
+  // desktop: everything the loopback server does, nothing of a company's.
+  const binsCapabilitiesOf = (a) => (typeof a?.binsCapabilities === 'function' ? a.binsCapabilities() : null) || LEGACY_BINS_CAPABILITIES;
+
   // `posterRev` counts posters the renderer's own probe posted, so every
   // <img> built from binFileThumbnailUrl(id, rev) re-requests a poster that
   // arrived after it first failed (BinPoster remembers WHICH src failed).
-  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0 });
+  // `capabilities` is the backend's object (above); `remoteViewing` is the
+  // company's switch (B5a) where the backend has one, else null.
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0, capabilities: null, remoteViewing: null });
   // The renderer's own probe and the once-per-project pass are defined below
   // (they need the URL and PATCH helpers); refreshBins and probeBinFile reach
   // them through refs — the mutationsRef pattern.
@@ -4469,23 +4509,40 @@ export function RabbitProvider({ children }) {
     if (!adapterRef.current || !activeProjectId) return null;
     if (typeof adapterRef.current.listBins !== 'function') return null;
     const projectId = activeProjectId;
-    const data = await adapterRef.current.listBins(projectId);
+    const a = adapterRef.current;
+    const caps = binsCapabilitiesOf(a);
+    binsCapsRef.current = caps;
+    const data = await a.listBins(projectId);
+    // The company's switch (B5a), where the backend has one. Read beside the
+    // list, never instead of it: a refused read leaves the value unknown.
+    let remoteViewing = null;
+    if (caps.remoteViewingSwitch && typeof a.getRemoteViewingEnabled === 'function') {
+      try { remoteViewing = await a.getRemoteViewingEnabled(projectId); } catch { remoteViewing = null; }
+    }
     // The project may have been switched during the await: nothing is
     // applied and nothing is handed back for a caller to apply either.
     if (activeProjectIdRef.current !== projectId) return null;
+    // A backend that cannot say what this computer can reach (the cloud, in
+    // a browser) answers rows without `online`; they are marked "not on this
+    // computer" here (B3: the clip still shows, with its details, and can be
+    // logged, flagged and assigned — it cannot be played here).
+    const binFiles = caps.resolveFiles === false
+      ? (data.binFiles || []).map(f => ({ ...f, online: false }))
+      : (data.binFiles || []);
     // Live rows AND the orphans (their shot or file is gone): the selectors
     // ignore the orphans; the undo that brings a shot or file back needs them.
-    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
-    setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
+    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles, binRoots: data.binRoots || [], binLocations: data.binLocations || prev.binLocations || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
+    setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId, capabilities: caps, remoteViewing }));
     // Once per project per session, from HERE and not from a tab: rows left
     // pending (the app closed mid-add) are probed again and rows the server
     // has no decoder for get the renderer's probe, so a take assigned on the
     // Scenes tab has its poster and length without Bins ever being opened.
-    if (browserProbeSweptRef.current !== projectId) {
+    // Not on a backend that cannot read a file's columns: nothing to probe.
+    if (caps.probe && browserProbeSweptRef.current !== projectId) {
       browserProbeSweptRef.current = projectId;
-      Promise.resolve(browserProbeSweepRef.current?.(data.binFiles || [], projectId)).catch(() => {});
+      Promise.resolve(browserProbeSweepRef.current?.(binFiles, projectId)).catch(() => {});
     }
-    return data;
+    return { ...data, binFiles };
   }, [activeProjectId]);
 
   // 🚨 Every mutator below captures the project it was called for and drops
@@ -4554,6 +4611,19 @@ export function RabbitProvider({ children }) {
   const deleteBin = useCallback(async (id, { mode = 'remove', target = null } = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
+    // The takes of the clips this bin (and its children) hold, before the
+    // call: on the cloud a removed clip's takes go with it (CASCADE), and the
+    // undo puts them back through replaceShotTakes after the rows.
+    const doomedBins = new Set([id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const b of bundleRef.current.bins || []) {
+        if (b.parent_bin_id && doomedBins.has(b.parent_bin_id) && !doomedBins.has(b.id)) { doomedBins.add(b.id); grew = true; }
+      }
+    }
+    const doomedFiles = new Set((bundleRef.current.binFiles || []).filter(f => doomedBins.has(f.bin_id)).map(f => f.id));
+    const takeShotIds = mode === 'move' ? [] : [...new Set((bundleRef.current.shotTakes || []).filter(t => doomedFiles.has(t.bin_file_id)).map(t => t.shot_id))];
+    const takesBefore = takeShotIds.length ? snapshotTakes(takeShotIds) : [];
     const res = await a.deleteBin(pid, id, { mode, target });
     if (activeProjectIdRef.current !== pid) return res;
     const removedIds = new Set((res.removedBins || []).map(b => b.id));
@@ -4591,6 +4661,7 @@ export function RabbitProvider({ children }) {
           for (const [from, g] of byFrom) await mutationsRef.current.moveBinFiles(g.ids, from, g.orders);
         } else if ((res.removedFiles || []).length) {
           await mutationsRef.current.restoreBinFiles(res.removedFiles);
+          if (takeShotIds.length) await mutationsRef.current.replaceShotTakes(takeShotIds, takesBefore);
         }
       }],
       redoOps: [() => mutationsRef.current.deleteBin(id, { mode, target })],
@@ -4648,6 +4719,9 @@ export function RabbitProvider({ children }) {
   const probeBinFiles = useCallback(async (ids) => {
     const queue = [...(ids || [])];
     if (!queue.length) return;
+    // A backend that cannot read a file's columns (the cloud): nothing to
+    // probe, and a row must not be marked failed for it.
+    if (!binsCapabilitiesOf(adapterRef.current).probe) return;
     setBinsInfo(i => ({ ...i, probing: i.probing + queue.length }));
     const worker = async () => {
       while (queue.length) {
@@ -4667,10 +4741,18 @@ export function RabbitProvider({ children }) {
     await Promise.all([worker(), worker()]);
   }, [probeBinFile]);
 
+  // 🚨 NEVER a file delete on any backend (B10, pinned by binsProvider.test):
+  // this removes ROWS. On the cloud the takes of a removed clip go with it
+  // (0091's CASCADE), so the takes of the shots those clips serve are
+  // snapshotted FIRST and put back by the undo through replaceShotTakes —
+  // exact whatever the backend did (the Local Server keeps them as orphans
+  // and the replace is then a no-op).
   const removeBinFiles = useCallback(async (ids, { quiet = false } = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
     const set = new Set(ids);
+    const takeShotIds = [...new Set((bundleRef.current.shotTakes || []).filter(t => set.has(t.bin_file_id)).map(t => t.shot_id))];
+    const takesBefore = takeShotIds.length ? snapshotTakes(takeShotIds) : [];
     const res = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.filter(f => !set.has(f.id)) }),
       () => a.removeBinFiles(pid, ids),
@@ -4679,7 +4761,10 @@ export function RabbitProvider({ children }) {
     const removed = res.removed || [];
     if (removed.length) {
       const token = pushHistory({
-        undoOps: [() => mutationsRef.current.restoreBinFiles(removed)],
+        undoOps: [async () => {
+          await mutationsRef.current.restoreBinFiles(removed);
+          if (takeShotIds.length) await mutationsRef.current.replaceShotTakes(takeShotIds, takesBefore);
+        }],
         redoOps: [() => mutationsRef.current.removeBinFiles(removed.map(r => r.id), { quiet: true })],
       });
       if (token != null && !quiet) {
@@ -4712,11 +4797,40 @@ export function RabbitProvider({ children }) {
           await mutationsRef.current.restoreBinFiles(created);
         }],
       });
-      // Not awaited: the rows are saved; the columns fill in as they arrive.
+      // Not awaited: the rows are saved; the columns fill in as they arrive
+      // (probeBinFiles stands down on a backend that cannot read a file).
       probeBinFiles(created.filter(r => r.online !== false).map(r => r.id)).catch(() => {});
     }
     return res;
   }, [binsAdapter, activeProjectId, probeBinFiles]);
+
+  // B8: "a clip already in the project (same location, same file)". Answers,
+  // for each item a computer is about to add ({ location_id, relative_path }),
+  // the row this project already holds for that file — compared as Windows
+  // shares compare, case-insensitively — or null. The Add dialog then offers
+  // Skip or Add anyway (an instance). Pure over the loaded rows; the Local
+  // Server answers the same question from paths inside `prepare`.
+  const findDuplicateBinFiles = useCallback((items) => {
+    const rows = bundleRef.current.binFiles || [];
+    const bins = bundleRef.current.bins || [];
+    const key = (loc, rel) => `${loc || ''}|${String(rel || '').replace(/\\/g, '/').toLowerCase()}`;
+    const byKey = new Map();
+    for (const r of rows) {
+      if (!r.location_id || !r.relative_path) continue;
+      const k = key(r.location_id, r.relative_path);
+      if (!byKey.has(k)) byKey.set(k, r);
+    }
+    return (items || []).map((it) => {
+      const hit = it ? byKey.get(key(it.location_id, it.relative_path)) : null;
+      if (!hit) return null;
+      return {
+        reason: 'same_path',
+        existing_id: hit.id,
+        existing_bin_id: hit.bin_id,
+        existing_bin_name: bins.find(b => b.id === hit.bin_id)?.name || null,
+      };
+    });
+  }, []);
 
   const updateBinFile = useCallback(async (id, patch) => {
     const a = binsAdapter();
@@ -4851,6 +4965,99 @@ export function RabbitProvider({ children }) {
     return res;
   }, [binsAdapter, activeProjectId]);
 
+  // ── Footage locations (BC1, 0091; Audrey's B2) ──
+  // A company's named shares, by network address. They are the WORKSPACE's,
+  // not the project's, so they are kept beside the bundle (reset with it,
+  // re-read with the bins) and every project of the company sees the same
+  // list. A location in use cannot be removed (the database refuses with its
+  // sentence; the undo of a removal is an add with the same row).
+  const refreshBinLocations = useCallback(async () => {
+    const a = adapterRef.current;
+    if (!a || typeof a.listBinLocations !== 'function') return [];
+    const rows = await a.listBinLocations();
+    setBundle(prev => ({ ...prev, binLocations: rows || [] }));
+    return rows || [];
+  }, []);
+
+  const addBinLocation = useCallback(async (location) => {
+    const a = binsAdapter();
+    if (typeof a.createBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const created = await a.createBinLocation(location);
+    setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [created]) }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.removeBinLocation(created.id)],
+      redoOps: [() => mutationsRef.current.addBinLocation(created)],
+    });
+    return created;
+  }, [binsAdapter]);
+
+  const updateBinLocation = useCallback(async (id, patch) => {
+    const a = binsAdapter();
+    if (typeof a.updateBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    const oldValues = {};
+    if (old) for (const k of Object.keys(patch || {})) oldValues[k] = old[k];
+    const result = await optimistic(
+      prev => ({ ...prev, binLocations: (prev.binLocations || []).map(l => l.id === id ? { ...l, ...patch } : l) }),
+      () => a.updateBinLocation(id, patch),
+    );
+    if (result) setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [result]) }));
+    if (old) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateBinLocation(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateBinLocation(id, patch)],
+      });
+    }
+    return result;
+  }, [binsAdapter, optimistic]);
+
+  const removeBinLocation = useCallback(async (id) => {
+    const a = binsAdapter();
+    if (typeof a.removeBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    // Server-first, no optimistic removal: a location in use is REFUSED by
+    // the database (RESTRICT), and a row that vanished then came back would
+    // read as "removed, then not".
+    const removed = await a.removeBinLocation(id);
+    setBundle(prev => ({ ...prev, binLocations: (prev.binLocations || []).filter(l => l.id !== id) }));
+    const row = removed || old;
+    if (row) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addBinLocation(row)],
+        redoOps: [() => mutationsRef.current.removeBinLocation(row.id)],
+      });
+    }
+    return row;
+  }, [binsAdapter]);
+
+  // The company's switch (B5a): "Allow files to be viewed from outside the
+  // office network." A workspace admin's verb; anyone else reads the
+  // database's sentence. Undoable, like every other change a person makes.
+  const setRemoteViewingEnabled = useCallback(async (enabled) => {
+    const a = binsAdapter();
+    if (typeof a.setRemoteViewingEnabled !== 'function') throw new Error('The remote-viewing switch is not available on this backend');
+    const workspaceId = bundleRef.current.project?.workspace_id || null;
+    const before = binsInfo.remoteViewing;
+    const now = await a.setRemoteViewingEnabled(workspaceId, enabled === true);
+    setBinsInfo(i => ({ ...i, remoteViewing: now }));
+    if (before !== null && before !== now) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.setRemoteViewingEnabled(before)],
+        redoOps: [() => mutationsRef.current.setRemoteViewingEnabled(now)],
+      });
+    }
+    return now;
+  }, [binsAdapter, binsInfo.remoteViewing]);
+
+  // A clip's picture where the backend signs it per read (the cloud:
+  // rabbit-thumbnails is private). null where the backend has a sync route
+  // instead (binFileThumbnailUrl), or the row has no picture.
+  const binFilePosterUrl = useCallback(async (row, opts) => {
+    const a = adapterRef.current;
+    if (!a || typeof a.binFilePosterUrl !== 'function' || !activeProjectId) return null;
+    return a.binFilePosterUrl(activeProjectId, row, opts);
+  }, [activeProjectId]);
+
   const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
   const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
   // What the renderer's own probe read (bins/binProbeFallback.js) — a machine
@@ -4884,6 +5091,8 @@ export function RabbitProvider({ children }) {
   // poster until Bins had been opened. A machine write, so no history entry.
   const browserProbe = useCallback(async (row) => {
     if (!needsBrowserProbe(row)) return null;
+    // No bytes to decode on a backend that cannot stream them (the cloud).
+    if (!binsCapabilitiesOf(adapterRef.current).stream) return null;
     const pid = activeProjectId;
     const src = binFileStreamUrl(row.id, { probe: true });
     if (!src) return null;
@@ -6540,6 +6749,12 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.copyBinFiles     = copyBinFiles;
   mutationsRef.current.removeBinFiles   = removeBinFiles;
   mutationsRef.current.restoreBinFiles  = restoreBinFiles;
+  // Bins on the cloud (BC1): the company's locations and its switch — each
+  // an undo step calls, so each is here (the same silent-undo hazard).
+  mutationsRef.current.addBinLocation   = addBinLocation;
+  mutationsRef.current.updateBinLocation = updateBinLocation;
+  mutationsRef.current.removeBinLocation = removeBinLocation;
+  mutationsRef.current.setRemoteViewingEnabled = setRemoteViewingEnabled;
   // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
   // and undo SWALLOWS a throw — a mutator missing from this list fails
   // silently (measured: Ctrl+Z after an assignment did nothing until
@@ -6860,19 +7075,26 @@ export function RabbitProvider({ children }) {
     supportsManagedFiles:
       adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
 
-    // The bin system (demo 2026-09-11). Same two conditions as managed files
-    // and for the same reason: the adapter methods exist on local_server
-    // only, and the picker dialogs and dropped-file paths need the desktop.
+    // The bin system (demo 2026-09-11; on the cloud since BC1, 0091).
+    // "This backend can hold bins": the signed-out desktop (the loopback
+    // server, with the OS pickers), the cloud (the four 0091 tables — what
+    // the cloud cannot do is on binsInfo.capabilities), and the dev fixtures.
+    // Google Drive cannot. Before BC1 this meant "Local Server + desktop";
+    // the Bins tab's desktop-only notice was the whole cloud experience.
     supportsBins:
       (adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit)
+      || adapterMode === 'supabase'
       // Dev fixtures (dev builds only): the Bins tab opens on the dataset's bins.
       || (import.meta.env.DEV && !!devFixtures()?.bins),
     binsInfo,
+    binLocations:  bundle.binLocations,
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
-    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
-    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
+    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
+    // Footage locations and the company's switch (BC1).
+    refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     // Shot takes (milestone 2).
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
@@ -6957,10 +7179,11 @@ export function RabbitProvider({ children }) {
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
-    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
-    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
+    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
+    refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

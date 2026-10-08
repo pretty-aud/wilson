@@ -17,7 +17,7 @@ import {
   COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
 import {
-  SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES,
+  SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES,
   GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
 } from './data/scenes'
 import { fid } from './ids'
@@ -129,6 +129,9 @@ export function createStore() {
     binFiles: BIN_FILES.map(({ __poster, ...f }) => clone(f)),
     posters: new Map(BIN_FILES.map(f => [f.id, f.__poster])),
     binRoots: clone(BIN_ROOTS),
+    // Bins on the cloud (BC1, 0091): the company's footage locations — a
+    // cloud clip is one of these plus a relative path.
+    binLocations: clone(BIN_LOCATIONS),
     shotTakes: clone(SHOT_TAKES),
     // 0084 (S3a): lists are archived, never deleted; items are the membership.
     shotLists: clone(SHOT_LISTS),

@@ -40,6 +40,10 @@ const BINS_SURFACE = [
   'probeBinFile', 'binFileThumbnailUrl', 'binFileStreamUrl', 'postBinFileThumbnail',
   'binRelinkScan', 'binRelinkApply', 'removeBinRoot',
   'assignShotTakes', 'updateShotTake', 'removeShotTakes', 'reorderShotTakes', 'replaceShotTakes',
+  // BC1 (0091): the capability object, the company's locations and switch,
+  // the signed poster — on every backend that holds bins.
+  'binsCapabilities', 'listBinLocations', 'createBinLocation', 'updateBinLocation', 'removeBinLocation',
+  'getRemoteViewingEnabled', 'setRemoteViewingEnabled', 'binFilePosterUrl',
 ]
 
 // Mirror of EMPTY_BUNDLE's collection keys (RabbitProvider.jsx) — the same list
@@ -50,6 +54,8 @@ const BUNDLE_KEYS = [
   'managedFiles', 'budgetVersions', 'expenses', 'projectTeam',
   'scenes', 'shots', 'levels', 'experiences', 'milestones', 'folders',
   'bins', 'binFiles', 'binRoots', 'shotTakes',
+  // Bins on the cloud (BC1, 0091): the company's footage locations.
+  'binLocations',
   // Post-overhaul S3a (0084): every adapter's loadProject returns these three.
   'shotLists', 'shotListItems', 'edits',
   // Post-overhaul S5b (0090): the rows the open bid version does not hold.
@@ -1055,5 +1061,75 @@ describe('S5b — set-aside rows and the budget settings (0090 on the fixtures)'
     const fx = buildDevFixtures().rabbitAdapter()
     expect(await refusal(fx.updateProject(PROJECT_ID, { budget_margin_pct: 12 }))).toBeNull()
     expect(await refusal(fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(2)] }))).toBeNull()
+  })
+})
+
+
+// ── Bins on the cloud (BC1, 0091): the fake cloud keeps the cloud's rules ──
+describe('the fixtures keep 0091\'s rules for bins (BC1)', () => {
+  it('loadProject and listBins carry the location; every clip is a location + a relative path with a poster key', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.binLocations).toHaveLength(1)
+    expect(bundle.binLocations[0].unc_path).toMatch(/^\\\\/)
+    expect(bundle.binRoots).toEqual([])
+    const { binFiles, binLocations, capabilities } = await fx.listBins(PROJECT_ID)
+    expect(binLocations).toHaveLength(1)
+    expect(capabilities).toMatchObject({ backend: 'fixtures', locations: true, remoteViewingSwitch: true, pickFiles: false })
+    for (const f of binFiles) {
+      expect(f.location_id).toBe(binLocations[0].id)
+      expect(f.relative_path).not.toMatch(/^[A-Za-z]:|\\|^\//)
+      expect(f.poster_path.startsWith(`projects/${PROJECT_ID}/bin_files/${f.id}/`)).toBe(true)
+      expect('source_path' in f).toBe(false)
+    }
+  })
+
+  it('removing a clip takes its takes (the CASCADE) and says so; deleting a bin in remove mode too', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { shotTakes } = await fx.listBins(PROJECT_ID)
+    const take = shotTakes[0]
+    const res = await fx.removeBinFiles(PROJECT_ID, [take.bin_file_id])
+    expect(res.removed.map(r => r.id)).toEqual([take.bin_file_id])
+    expect(res.removedTakes.some(t => t.id === take.id)).toBe(true)
+    expect((await fx.listBins(PROJECT_ID)).shotTakes.some(t => t.id === take.id)).toBe(false)
+    const { bins, binFiles } = await fx.listBins(PROJECT_ID)
+    const leaf = bins.find(b => b.parent_bin_id && binFiles.some(f => f.bin_id === b.id))
+    const takesIn = (await fx.listBins(PROJECT_ID)).shotTakes.filter(t => binFiles.some(f => f.bin_id === leaf.id && f.id === t.bin_file_id))
+    const del = await fx.deleteBin(PROJECT_ID, leaf.id, { mode: 'remove' })
+    expect(del.removedTakes.map(t => t.id).sort()).toEqual(takesIn.map(t => t.id).sort())
+  })
+
+  it('a location: the address must be a network address, once per company; one in use cannot be removed', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    await expect(fx.createBinLocation({ name: 'Drive', unc_path: 'Z:\\footage' })).rejects.toMatchObject({ code: '23514' })
+    await expect(fx.createBinLocation({ name: 'Trail', unc_path: '\\\\nas\\footage\\' })).rejects.toMatchObject({ code: '23514' })
+    await expect(fx.createBinLocation({ name: '', unc_path: '\\\\nas\\sound' })).rejects.toThrow(/needs a name/)
+    const [existing] = await fx.listBinLocations()
+    await expect(fx.createBinLocation({ name: 'Again', unc_path: existing.unc_path.toUpperCase() })).rejects.toMatchObject({ code: 'conflict' })
+    const made = await fx.createBinLocation({ name: ' Sound ', unc_path: '\\\\salthours-nas\\sound' })
+    expect(made.name).toBe('Sound')
+    expect((await fx.listBinLocations()).map(l => l.id)).toContain(made.id)
+    await expect(fx.removeBinLocation(existing.id)).rejects.toMatchObject({ code: '23503' })
+    expect((await fx.removeBinLocation(made.id)).id).toBe(made.id)
+  })
+
+  it('the switch is off; a poster is refused with the cloud\'s sentence until an admin turns it on, and then kept', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    expect(await fx.getRemoteViewingEnabled(PROJECT_ID)).toBe(false)
+    const [file] = (await fx.listBins(PROJECT_ID)).binFiles
+    const jpeg = btoa('\xff\xd8\xffx')
+    await expect(fx.postBinFileThumbnail(PROJECT_ID, file.id, jpeg)).rejects.toMatchObject({ code: 'remote_viewing_off' })
+    expect(await fx.setRemoteViewingEnabled(WORKSPACE_ID, true)).toBe(true)
+    const res = await fx.postBinFileThumbnail(PROJECT_ID, file.id, jpeg)
+    expect(res.poster_path).toMatch(new RegExp(`^projects/${PROJECT_ID}/bin_files/${file.id}/`))
+    const [again] = (await fx.listBins(PROJECT_ID)).binFiles
+    expect(again.poster_path).toBe(res.poster_path)
+    expect(await fx.binFilePosterUrl(PROJECT_ID, again)).toMatch(/^data:image\/jpeg;base64,/)
+  })
+
+  it('a member cannot flip the switch (the ?fixtures=member variant)', async () => {
+    const fx = buildDevFixtures({ variant: 'member' }).rabbitAdapter()
+    await expect(fx.setRemoteViewingEnabled(WORKSPACE_ID, true)).rejects.toMatchObject({ code: 'forbidden' })
+    expect(await fx.getRemoteViewingEnabled(PROJECT_ID)).toBe(false)
   })
 })

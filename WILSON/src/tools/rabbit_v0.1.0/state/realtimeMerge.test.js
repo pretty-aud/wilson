@@ -280,10 +280,80 @@ describe('applyRealtimeEvent — robustness', () => {
     // trigger in 0016/0077 never sends, which reads as live sync and is not.
     // Whoever adds one has to change this list, the trigger and the handbook
     // together.
+    //
+    // BC1 (0091, Audrey's B7): bins, bin_files and shot_takes joined the
+    // trigger's project_id arm — the migration's post-conditions pin the
+    // three arms and the three triggers, so this widening is the trigger's
+    // too. Scenes, shots, levels and experiences are still NOT here.
     expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
-      'asset_versions', 'assets', 'comments', 'files', 'milestones',
-      'phase_dependencies', 'phases', 'task_dependencies', 'task_links', 'tasks',
+      'asset_versions', 'assets', 'bin_files', 'bins', 'comments', 'files', 'milestones',
+      'phase_dependencies', 'phases', 'shot_takes', 'task_dependencies', 'task_links', 'tasks',
     ])
+  })
+})
+
+// ── BC1 (0091): bins, bin files and takes live-sync between windows ─────────
+//
+// B7: "a flag or a take assignment appears for everyone without reloading."
+// The merge applies the three tables like any other collection; the order
+// a live insert lands in is the cloud's load order (sort_order then id;
+// takes by shot, position, id), so another window's new clip sits where a
+// reload would put it.
+describe('BC1 — bins, bin_files and shot_takes events', () => {
+  const base = () => ({
+    bins: [{ id: 'b1', project_id: 'p1', name: 'Footage', sort_order: 0 }],
+    binFiles: [
+      { id: 'f1', project_id: 'p1', bin_id: 'b1', display_name: 'A', sort_order: 0, review_flag: 'unflagged', updated_at: '2026-10-07T10:00:00Z' },
+      { id: 'f3', project_id: 'p1', bin_id: 'b1', display_name: 'C', sort_order: 2, review_flag: 'unflagged', updated_at: '2026-10-07T10:00:00Z' },
+    ],
+    shotTakes: [{ id: 't1', project_id: 'p1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0 }],
+  })
+
+  it('a teammate\'s new clip lands in sort order, between its neighbours', () => {
+    const { bundle } = applyRealtimeEvent(base(), {
+      table: 'bin_files', op: 'INSERT',
+      record: { id: 'f2', project_id: 'p1', bin_id: 'b1', display_name: 'B', sort_order: 1, review_flag: 'unflagged' }, oldRecord: null,
+    })
+    expect(bundle.binFiles.map(f => f.id)).toEqual(['f1', 'f2', 'f3'])
+  })
+
+  it('a flag set elsewhere replaces the row field by field; a stale event is dropped', () => {
+    const { bundle } = applyRealtimeEvent(base(), {
+      table: 'bin_files', op: 'UPDATE',
+      record: { id: 'f1', project_id: 'p1', bin_id: 'b1', display_name: 'A', sort_order: 0, review_flag: 'select', updated_at: '2026-10-07T10:05:00Z' },
+      oldRecord: null,
+    })
+    expect(bundle.binFiles.find(f => f.id === 'f1').review_flag).toBe('select')
+    const stale = applyRealtimeEvent(bundle, {
+      table: 'bin_files', op: 'UPDATE',
+      record: { id: 'f1', project_id: 'p1', bin_id: 'b1', display_name: 'A', sort_order: 0, review_flag: 'reject', updated_at: '2026-10-07T09:00:00Z' },
+      oldRecord: null,
+    })
+    expect(stale.bundle.binFiles.find(f => f.id === 'f1').review_flag).toBe('select')
+  })
+
+  it('a take assigned elsewhere joins its shot in position order; an unassigned one leaves', () => {
+    const added = applyRealtimeEvent(base(), {
+      table: 'shot_takes', op: 'INSERT',
+      record: { id: 't0', project_id: 'p1', shot_id: 'sh1', bin_file_id: 'f3', role: 'alt', position: 1 }, oldRecord: null,
+    })
+    expect(added.bundle.shotTakes.map(t => t.id)).toEqual(['t1', 't0'])
+    const removed = applyRealtimeEvent(added.bundle, {
+      table: 'shot_takes', op: 'DELETE', record: null, oldRecord: { id: 't1', shot_id: 'sh1' },
+    })
+    expect(removed.bundle.shotTakes.map(t => t.id)).toEqual(['t0'])
+  })
+
+  it('a deleted bin leaves the tree', () => {
+    const { bundle } = applyRealtimeEvent(base(), { table: 'bins', op: 'DELETE', record: null, oldRecord: { id: 'b1', project_id: 'p1' } })
+    expect(bundle.bins).toEqual([])
+  })
+
+  it('CONTROL: a bin_locations event (not broadcast) changes nothing', () => {
+    const b = base()
+    const { bundle, effects } = applyRealtimeEvent(b, { table: 'bin_locations', op: 'INSERT', record: { id: 'l1', name: 'NAS' }, oldRecord: null })
+    expect(bundle).toBe(b)
+    expect(effects).toEqual([])
   })
 })
 

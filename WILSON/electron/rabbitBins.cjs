@@ -1426,6 +1426,219 @@ function mountRabbitBins(expressApp, deps) {
     writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json(takeResponse(bundle, shotIds));
   });
+
+  mountCloudBins(expressApp, { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow });
+}
+
+// ── The desktop SIGNED IN (Bins on the cloud, BC1 / 0091; built on by BC2) ──
+//
+// A cloud clip is a LOCATION (the company's share, by network address —
+// \\server\footage, B2) plus a path inside it. These routes read such a file
+// on THIS computer: nothing here touches the project bundle (B12: the
+// signed-out mode above is unchanged), nothing here writes the cloud, and
+// nothing here is reached by the signed-out Bins tab.
+//
+// AUTHORISATION — the known-roots rule extended to a location's address.
+// The signed-out routes stream only a path a bundle row holds or one under
+// a folder the person picked (isAuthorizedDir). Signed in, the rows are in
+// the cloud, so the renderer first REGISTERS the company's locations here
+// (POST /cloud-bins/locations). A registered location's unc_path is then an
+// authorised root for the file routes — and ONLY a UNC path can be
+// registered (isUncPath): a body can never make C:\Users a root, which is
+// the S14 rule's whole concern. Per computer, a location may also be given a
+// LOCAL path (B2's fallback: the share seen as a drive letter) — accepted
+// only when it is a folder the person picked through the OS dialog this
+// session (`authorized`, the pick routes' Set), never from the body alone.
+//
+// The same-origin gate applies to every route below (the renderer is the
+// one caller); the per-path wall is the registration above. Paths inside a
+// location are validated the way 0091's CHECK validates relative_path.
+
+const cloudLocations = new Map(); // id -> { id, unc_path, local_path }
+
+// 0091's unc_path shape, as the database refuses it: two leading
+// backslashes, a server and at least a share, segments free of \ / : * ? "
+// < > |, no . or .. segment, no trailing backslash.
+const UNC_SEGMENT = '[^\\\\/:*?"<>|]+';
+const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`);
+function isUncPath(p) {
+  if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false;
+  return !p.split('\\').some(seg => seg === '.' || seg === '..');
+}
+// 0091's relative_path shape: forward slashes, no leading or trailing
+// slash, no empty segment, no . or .., no backslash, no colon.
+function isSafeRelativePath(p) {
+  if (typeof p !== 'string' || !p || p.length > 1024) return false;
+  if (/(^\/|\/$|\/\/|\\|:)/.test(p)) return false;
+  return !p.split('/').some(seg => seg === '.' || seg === '..');
+}
+/**
+ * The absolute path of a cloud clip on this computer: the location's local
+ * path when one is registered for this computer, else its network address,
+ * joined with the relative path. Null when either is not the shape the
+ * database allows, or the location is not registered.
+ */
+function resolveCloudFilePath(locations, locationId, relativePath) {
+  const loc = locations.get(String(locationId || ''));
+  if (!loc || !isSafeRelativePath(relativePath)) return null;
+  const root = loc.local_path || loc.unc_path;
+  const joined = path.win32.join(root, ...relativePath.split('/'));
+  // Containment, belt to the shape's braces: the joined path must still sit
+  // under the root (path.join normalises away nothing we allow, but a root
+  // that ends oddly must never let a path escape).
+  const rootKey = pathKey(root).replace(/[\\/]+$/, '');
+  const key = pathKey(joined);
+  if (key !== rootKey && !key.startsWith(rootKey + path.sep)) return null;
+  return joined;
+}
+
+function mountCloudBins(expressApp, deps) {
+  const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
+  const C = '/api/rabbit/cloud-bins';
+  expressApp.use(C, gate);
+  const authKey = (p) => pathKey(p).toLowerCase();
+  const pickedDir = (p) => {
+    if (!isAbs(p)) return false;
+    const lk = authKey(p);
+    if (authorized.has(lk)) return true;
+    for (const a of authorized) if (lk.startsWith(a + path.sep)) return true;
+    return false;
+  };
+  function isAbs(p) { return typeof p === 'string' && p.length > 0 && path.isAbsolute(p); }
+  function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
+  function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
+  function reachable(p) { try { return fs.existsSync(p); } catch { return false; } }
+  function resolveBody(q) {
+    const abs = resolveCloudFilePath(cloudLocations, q?.location_id, q?.relative_path);
+    return abs;
+  }
+
+  // Register (or replace) the company's locations for this process. Each:
+  // { id, unc_path, local_path? }. A location whose unc_path is not a network
+  // address is refused by name; a local_path that is not a folder the person
+  // picked is dropped with its reason, never kept. Answers what this
+  // computer can reach right now.
+  expressApp.post(`${C}/locations`, (req, res) => {
+    const list = Array.isArray(req.body?.locations) ? req.body.locations : null;
+    if (!list) return res.status(400).json({ error: 'locations required' });
+    const out = [];
+    for (const l of list) {
+      const id = l && typeof l.id === 'string' ? l.id : null;
+      if (!id || !isUncPath(l.unc_path)) {
+        out.push({ id, unc_path: l?.unc_path ?? null, status: 'refused', reason: 'not_a_network_address' });
+        continue;
+      }
+      let local_path = null; let localReason = null;
+      if (l.local_path != null && l.local_path !== '') {
+        if (isAbs(l.local_path) && pickedDir(l.local_path) && isDir(l.local_path)) local_path = path.resolve(l.local_path);
+        else localReason = 'local_path_not_picked';
+      }
+      cloudLocations.set(id, { id, unc_path: l.unc_path, local_path });
+      const root = local_path || l.unc_path;
+      out.push({ id, unc_path: l.unc_path, local_path, status: 'registered', reachable: reachable(root), root, ...(localReason ? { local_path_reason: localReason } : {}) });
+    }
+    res.json({ locations: out });
+  });
+
+  // files: [{ id, location_id, relative_path, is_sequence }] → what this
+  // computer can reach. A file whose location is not registered, or whose
+  // path is not the database's shape, reads online:false with a reason.
+  expressApp.post(`${C}/resolve`, (req, res) => {
+    const files = Array.isArray(req.body?.files) ? req.body.files : null;
+    if (!files) return res.status(400).json({ error: 'files required' });
+    const out = files.map((f) => {
+      const abs = resolveBody(f);
+      if (!abs) return { id: f?.id ?? null, path: null, online: false, reason: cloudLocations.has(String(f?.location_id || '')) ? 'bad_path' : 'unknown_location' };
+      const online = f?.is_sequence ? isDir(abs) : isFile(abs);
+      return { id: f?.id ?? null, path: abs, online };
+    });
+    res.json({ files: out });
+  });
+
+  // Reads the technical columns of a cloud clip on this computer. Body:
+  // { location_id, relative_path, is_sequence, media_type, extension, fps }.
+  // → the columns probeRow fills (duration, size, dimensions, codec…), or
+  // 410 offline.
+  expressApp.post(`${C}/probe`, async (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = req.body?.is_sequence === true;
+    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const row = { source_path: abs, is_sequence: isSeq, media_type: String(req.body?.media_type || guessMediaType(extOf(abs))), extension: String(req.body?.extension || extOf(abs)) };
+    const fps = Number(req.body?.fps);
+    try {
+      const patch = await probeRow({ project: { fps: fps > 0 ? fps : 24 } }, row);
+      res.json({ ...patch, path: abs, online: true });
+    } catch (e) {
+      res.json({ probe_status: 'failed', path: abs, online: true, error: e?.message || String(e) });
+    }
+  });
+
+  // A poster for a cloud clip, from the shared cache (keyed by path + mtime,
+  // as the signed-out route keys it, so a file re-exported in place gets a
+  // fresh frame). Query: location_id, relative_path, is_sequence, media_type.
+  expressApp.get(`${C}/thumbnail`, async (req, res) => {
+    const abs = resolveBody(req.query);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
+    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const ext = extOf(abs);
+    const mediaType = String(req.query?.media_type || (isSeq ? 'sequence' : guessMediaType(ext)));
+    if (mediaType === 'audio' || mediaType === 'document' || mediaType === 'other') {
+      return res.status(415).json({ error: 'no poster for this type', code: 'unsupported_type' });
+    }
+    let mtime = ''; try { mtime = fs.statSync(abs).mtime.toISOString(); } catch { /* keyed without */ }
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, mtime));
+    if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
+    if (fs.existsSync(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    let source = abs;
+    if (isSeq) { const seq = detectSequence(abs); if (!seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' }); source = seq.middle_frame_path; }
+    const stillLike = STILL_EXTS.has(ext) && !isSeq;
+    if (stillLike || (isSeq && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(extOf(source)))) {
+      try {
+        const sharp = require('sharp');
+        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+        const part = thumbPath + '.part';
+        fs.writeFileSync(part, buf);
+        fs.renameSync(part, thumbPath);
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.sendFile(thumbPath);
+      } catch (err) {
+        if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
+      }
+    }
+    if (!ffmpeg.hasFfmpeg()) return res.status(415).json({ error: 'no video decoder installed on this machine', code: 'ffmpeg_missing' });
+    try {
+      const out = await generateVideoThumbOnce(source, thumbPath);
+      if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.sendFile(thumbPath);
+    } catch (err) {
+      return res.status(500).json({ error: 'thumbnail generation failed' });
+    }
+  });
+
+  // The bytes, Range-capable, allowlisted Content-Type, never a folder (a
+  // sequence streams its middle frame). Query: location_id, relative_path,
+  // is_sequence.
+  expressApp.get(`${C}/stream`, (req, res) => {
+    let abs = resolveBody(req.query);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
+    if (isSeq) {
+      const seq = detectSequence(abs);
+      if (!seq) return res.status(410).json({ error: 'sequence missing on this computer', code: 'offline' });
+      abs = seq.middle_frame_path;
+    }
+    if (!isFile(abs)) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    res.setHeader('Content-Type', safeMediaContentType(guessMime(extOf(abs))));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
+      if (!err) return;
+      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
+      res.status(err.status || 500).json({ error: 'could not read the file' });
+    });
+  });
 }
 
 const TAKE_ROLES = ['primary', 'part', 'alt'];
@@ -1462,6 +1675,8 @@ module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
   guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
+  // BC1: the cloud clip's address on this computer (the cloud-bins routes).
+  isUncPath, isSafeRelativePath, resolveCloudFilePath,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
   MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };

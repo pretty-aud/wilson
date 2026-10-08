@@ -66,6 +66,7 @@ export const PROJECT_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
 // Unrecognised actions passed to canOnProject() warn at development time
 // (dev-build) and return false in production. Keep this list alphabetised.
 export const PROJECT_ACTIONS = Object.freeze([
+  'project.bins.write',
   'project.comment.write',
   'project.entity.write',
   'project.roster.manage',
@@ -295,6 +296,10 @@ export function projectActionDeniedReason(ctx, action) {
     case 'project.shotlist.write':
       return 'Only this project\'s managers, members and reviewers can change its shot lists and edits.'
 
+    // 0091 / B6 (Bins on the cloud) — the same gate, the same shape.
+    case 'project.bins.write':
+      return 'Only this project\'s managers, members and reviewers can change its bins, clips and takes.'
+
     // 0084 / D8 — denied to everyone but a workspace ADMIN or the project
     // MANAGER; a workspace manager is told the same, because the rule names
     // the two seats that work and theirs is not one of them.
@@ -360,7 +365,10 @@ export function canOnProject(ctx, action) {
   // PURPOSE: the four older actions already resolve on the Local Server
   // through the unstaffed opening, and roster management is cloud-only, so
   // widening noRoles to them would change behaviour nobody asked to change.
+  // 0091 (BC1): project.bins.write joins them — the signed-out desktop's bins
+  // routes check no seat either (B12), and the gate is the same function.
   const isShotListAction = action === 'project.shotlist.activate' || action === 'project.shotlist.write'
+    || action === 'project.bins.write'
   if (noRoles === true && isShotListAction) return true
 
   // 🚨 project.shotlist.activate MUST be decided BEFORE the admin/manager
@@ -426,6 +434,14 @@ export function canOnProject(ctx, action) {
     // project.entity.write. The unstaffed opening matches the SQL's
     // NOT project_is_staffed() leg.
     case 'project.shotlist.write':
+      return !isStaffed || projectRole === 'manager' || projectRole === 'member' || projectRole === 'reviewer'
+    // Bins on the cloud (0091, BC1): Audrey's B6, "reviewers may do everything
+    // members may" in bins — add and remove bins and clips, log, flag, assign
+    // takes. The database's gate for all four bins tables IS
+    // can_edit_shot_lists() (no bins gate was invented), so this mirrors
+    // project.shotlist.write exactly. BC3 gates the browser's Bins controls
+    // on it; the signed-out Local Server has no roles (noRoles opens it).
+    case 'project.bins.write':
       return !isStaffed || projectRole === 'manager' || projectRole === 'member' || projectRole === 'reviewer'
     default:
       return false
