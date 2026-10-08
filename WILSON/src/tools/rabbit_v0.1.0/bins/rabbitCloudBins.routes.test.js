@@ -95,6 +95,14 @@ describe('the shapes 0091 refuses, refused here too', () => {
     for (const bad of ['Z:\\footage', 'C:\\Users', '//nas/footage', '\\\\nas', '\\\\nas\\footage\\', '\\\\nas\\footage\\..\\secret', '\\\\nas\\.\\x', '', null, 42, '\\\\nas\\foo:bar']) expect(isUncPath(bad), String(bad)).toBe(false)
   })
 
+  it('isUncPath: never an administrative share, never the loopback host (review round 1 — \\\\localhost\\C$ is C: in disguise)', () => {
+    for (const bad of ['\\\\localhost\\C$', '\\\\LOCALHOST\\c$\\Users', '\\\\127.0.0.1\\C$', '\\\\127.0.0.1\\footage', '\\\\0.0.0.0\\share',
+      '\\\\server\\C$\\Windows', '\\\\server\\d$', '\\\\server\\ADMIN$', '\\\\server\\ipc$']) expect(isUncPath(bad), bad).toBe(false)
+    // A hidden share that is not administrative is an ordinary share, and so
+    // is one whose name merely starts with a letter and a dollar.
+    for (const ok of ['\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share']) expect(isUncPath(ok), ok).toBe(true)
+  })
+
   it('isSafeRelativePath: forward slashes inside the location, never out of it', () => {
     for (const ok of ['A001/clip.mov', 'clip.mov', 'VFX/plate_seq', 'a b/c d.png']) expect(isSafeRelativePath(ok), ok).toBe(true)
     for (const bad of ['/clip.mov', 'A001/', 'A001//clip.mov', '../clip.mov', 'a/../b.mov', 'a/./b', 'C:/x.mov', 'a\\b.mov', '', null]) expect(isSafeRelativePath(bad), String(bad)).toBe(false)

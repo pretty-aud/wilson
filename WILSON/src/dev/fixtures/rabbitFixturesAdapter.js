@@ -85,7 +85,7 @@ const VERSION_NOT_HERE = 'bid version not found in this project'
 // adapter's BINS_REFUSALS (restated here because devFixtures.test.js
 // allow-lists what src/dev may import; binsAdapterParity.test.js pins the two).
 const BINS_SENTENCES = {
-  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never with .. in it, and without a trailing backslash.',
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never this computer (localhost), never an administrative share like C$, never with .. in it, and without a trailing backslash.',
   locationExists: 'This location is already in the company\'s list.',
   locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
   locationName: 'A footage location needs a name.',
@@ -97,9 +97,16 @@ const BINS_SENTENCES = {
 // no trailing backslash.
 const UNC_SEGMENT = '[^\\\\/:*?"<>|]+'
 const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`)
+// The same two refusals as 0091's CHECK and electron/rabbitBins.cjs (review
+// round 1 of BC1): an administrative share (C$, ADMIN$, IPC$) and the
+// loopback host. binsAdapterParity.test.js holds this copy to the desktop's.
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/i
+const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
-  return !p.split('\\').some(seg => seg === '.' || seg === '..')
+  const segs = p.split('\\')
+  if (segs.some(seg => seg === '.' || seg === '..')) return false
+  return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3])
 }
 // The fake cloud's capability object: a browser signed in to a company —
 // no OS pickers, no bytes, no relink; locations, the switch, signed posters.

@@ -1887,7 +1887,7 @@ export const BINS_REFUSALS = Object.freeze({
   gate: 'you cannot change this project\'s bins',
   takesGate: 'you cannot change this project\'s takes',
   locationsGate: 'you cannot change this company\'s footage locations',
-  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never with .. in it, and without a trailing backslash.',
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never this computer (localhost), never an administrative share like C$, never with .. in it, and without a trailing backslash.',
   locationExists: 'This location is already in the company\'s list.',
   locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
   locationName: 'A footage location needs a name.',
@@ -4543,7 +4543,16 @@ export function supabaseAdapter() {
         err.code = /row-level security|petal_bin_posters/.test(error.message || '') ? 'remote_viewing_off' : 'storage';
         throw err;
       }
-      await this.updateBinFile(projectId, id, { poster_path: key });
+      try {
+        await this.updateBinFile(projectId, id, { poster_path: key });
+      } catch (e) {
+        // The object just uploaded names nothing now, and the orphan scan
+        // never walks this bucket (0091 §6) — take it back, best effort
+        // (0053's rabbit_thumbnails_delete_own lets the uploader delete their
+        // own object). The PATCH's refusal stays the answer (review round 1).
+        try { await client.storage.from(POSTER_BUCKET).remove([key]); } catch { /* the refusal below is the answer */ }
+        throw e;
+      }
       return { ok: true, poster_path: key };
     },
     // The cloud signs a poster per read (the bucket is private, 0053): an

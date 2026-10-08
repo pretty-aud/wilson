@@ -1461,9 +1461,19 @@ const cloudLocations = new Map(); // id -> { id, unc_path, local_path }
 // < > |, no . or .. segment, no trailing backslash.
 const UNC_SEGMENT = '[^\\\\/:*?"<>|]+';
 const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`);
+// Two things a network address must never be (0091's CHECK has the same two
+// arms; review round 1 of BC1): an ADMINISTRATIVE share — C$, ADMIN$, IPC$,
+// the local disk in disguise, so \\localhost\C$\Users would make C:\Users a
+// root again — and the LOOPBACK host (localhost, 127.x, 0.0.0.0), which is
+// this very computer. A hidden share that is not administrative (footage$)
+// is an ordinary share.
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/i;
+const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i;
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false;
-  return !p.split('\\').some(seg => seg === '.' || seg === '..');
+  const segs = p.split('\\'); // ['', '', host, share, ...]
+  if (segs.some(seg => seg === '.' || seg === '..')) return false;
+  return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3]);
 }
 // 0091's relative_path shape: forward slashes, no leading or trailing
 // slash, no empty segment, no . or .., no backslash, no colon.

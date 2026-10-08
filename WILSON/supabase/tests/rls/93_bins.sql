@@ -54,7 +54,7 @@
 
 BEGIN;
 
-SELECT plan(98);
+SELECT plan(114);
 
 SELECT * FROM tests.rls_setup();
 
@@ -743,6 +743,116 @@ $$, '42501', NULL, 'reorder_bins for the same reader is refused');
 
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
+
+-- ── 99-114: review round 1 — never this computer, never an administrative ─
+-- share (§2); a REPLACED picture is queued like a removed one (§6)
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- 99-104: the loopback host and the administrative shares are refused by the
+-- CHECK whoever asks — \\localhost\C$\Users would be C:\Users in disguise,
+-- and anyone past the gate may name a location (B6).
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\localhost\C$')
+$q$, '23514', NULL, 'a location on localhost with the C$ share is refused (review round 1)');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\127.0.0.1\C$')
+$q$, '23514', NULL, 'the loopback address with C$ is refused');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\server\C$\Windows')
+$q$, '23514', NULL, 'a real server''s C$ is refused, however deep');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\server\ADMIN$')
+$q$, '23514', NULL, 'ADMIN$ is refused');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\server\ipc$')
+$q$, '23514', NULL, 'IPC$ is refused (case does not help)');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\127.0.0.1\footage')
+$q$, '23514', NULL, 'the loopback host is refused even with an ordinary share name');
+
+-- 105-106: an ordinary hidden share, and a share that merely starts with a
+-- letter and a dollar, still land.
+SELECT lives_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'footage$', '\\nas\footage$')
+$q$, 'a hidden share that is not administrative is an ordinary share');
+SELECT lives_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'c$footage', '\\nas\c$footage')
+$q$, 'a share whose name starts with a letter and a dollar is an ordinary share');
+
+-- 107-114: a REPLACED picture is queued for disposal like a removed one, with
+-- the same sibling check, so a company''s storage figure does not drift up
+-- by stranded posters. A clip with a picture and an instance sharing it.
+SELECT lives_ok($q$
+  INSERT INTO public.bin_files (id, project_id, bin_id, location_id, relative_path, display_name, original_name, poster_path)
+  VALUES ('93930000-0000-0000-0000-0000000000e1', 'aaaa1111-0000-0000-0000-000000000001',
+          '93930000-0000-0000-0000-000000000002', '93930000-0000-0000-0000-00000000000a',
+          'A001/r1_poster.mov', 'r1 poster', 'r1_poster.mov',
+          'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg')
+$q$, 'a clip with a picture (review round 1)');
+SELECT is((SELECT jsonb_array_length(public.copy_bin_files(ARRAY['93930000-0000-0000-0000-0000000000e1'::uuid],
+                                                            '93930000-0000-0000-0000-000000000002'::uuid) -> 'created')),
+  1, 'and an instance of it, sharing the picture');
+
+WITH upd AS (
+  UPDATE public.bin_files SET poster_path = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/2-poster.jpg'
+   WHERE id = '93930000-0000-0000-0000-0000000000e1' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'the original is re-posted (its picture replaced)');
+-- (the queue is postgres's to read; the 84-91 section counts it the same way)
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg'),
+  0, 'the old picture is NOT queued while the instance still names it');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+WITH upd AS (
+  UPDATE public.bin_files SET poster_path = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/2-poster.jpg'
+   WHERE poster_path = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg' AND id <> '93930000-0000-0000-0000-0000000000e1' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'the instance is re-posted too');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue
+            WHERE object_path = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg'
+              AND bucket_id = 'rabbit-thumbnails' AND kind = 'thumbnail' AND file_id IS NULL),
+  1, 'now nobody names the old picture and it is queued once (rabbit-thumbnails, kind thumbnail, file_id NULL)');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+WITH upd AS (
+  UPDATE public.bin_files SET poster_path = poster_path
+   WHERE id = '93930000-0000-0000-0000-0000000000e1' RETURNING 1)
+SELECT is((SELECT count(*)::int FROM upd), 1, 'the same key written again');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path IN ('projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg', 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/2-poster.jpg')),
+  1, 'queues nothing more: the current picture is never queued, the old one once');
 
 SELECT * FROM finish();
 ROLLBACK;

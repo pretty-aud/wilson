@@ -4827,7 +4827,11 @@ of a session — this section is limits by design, that file is faults.
 - **A cloud clip is a REFERENCE: a footage location plus a relative path.
   Nothing uploads, nothing costs footage storage (Audrey's B1).** `bin_locations`
   is per WORKSPACE (a share is the company's: `\\server\share`, by network
-  address, never a drive letter — the CHECK refuses one); `bin_files` holds
+  address, never a drive letter, never THIS computer (`localhost`, `127.x`)
+  and never an administrative share (`C$`, `ADMIN$`, `IPC$` — `\\localhost\C$`
+  is `C:` in disguise; review round 1) — the CHECK refuses each, and the
+  desktop's and the fixtures' guards refuse the same list, held together by
+  `binsAdapterParity.test.js`); `bin_files` holds
   `location_id` + `relative_path` (forward slashes, no `..`, no drive
   letter) where the signed-out desktop holds an absolute `source_path`. The
   desktop's signed-out bundle is UNCHANGED (B12): its `source_path` and
@@ -4863,11 +4867,14 @@ of a session — this section is limits by design, that file is faults.
   RESTRICTed). The desktop keeps a removed file's takes as orphans for the
   undo; the cloud does not, so the provider snapshots the shots' takes
   before a removal and puts them back through `replaceShotTakes` — on every
-  backend (a no-op where nothing was lost). A removed clip's poster is
+  backend (a no-op where nothing was lost). A removed clip's poster — and a
+  REPLACED one (`trg_bin_files_poster_replaced`, review round 1) — is
   queued for disposal on `storage_gc_queue` (kind `thumbnail`, `file_id`
   NULL) only when no other row — an instance made by `copy_bin_files` —
   still names it. The orphan scan walks `rabbit-files` only, so a live poster
-  is never swept.
+  is never swept and a stranded one would never be: that is why a replaced
+  key is queued by the database, and why the adapter takes a just-uploaded
+  object back when its PATCH of `poster_path` is refused.
 - **What the cloud cannot do answers `not_supported_here` through ONE
   capability object** (`binsCapabilities()`: `CLOUD_BINS_CAPABILITIES`,
   `LOCAL_SERVER_BINS_CAPABILITIES`, the fixtures'), read onto
@@ -4877,7 +4884,7 @@ of a session — this section is limits by design, that file is faults.
   The desktop SIGNED IN (BC2) fills those from the Local Server's
   `/api/rabbit/cloud-bins/*` routes, which read a file by a REGISTERED
   location's address + a relative path — only a UNC path can be registered
-  (a body can never make `C:\Users` a root), and a per-computer local path is
+  (a body can never make `C:\Users` a root, nor `\\localhost\C$\Users`), and a per-computer local path is
   kept only when it is a folder the person picked this session (B2's
   fallback).
 - **Live (B7):** `bins`, `bin_files` and `shot_takes` joined

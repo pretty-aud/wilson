@@ -218,6 +218,14 @@ CREATE TABLE IF NOT EXISTS public.bin_locations (
   CONSTRAINT bin_locations_unc_path_shape_chk CHECK (
     unc_path ~ '^\\\\[^\\/:*?"<>|]+(\\[^\\/:*?"<>|]+)+$'
     AND unc_path !~ '(^|\\)\.\.?(\\|$)'
+    -- Never THIS computer (review round 1): the loopback host is the
+    -- local disk by another name.
+    AND unc_path !~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)'
+    -- Never an ADMINISTRATIVE share (C$, ADMIN$, IPC$): \\server\C$\Users
+    -- is C:\Users in disguise, and anyone past the gate may name a
+    -- location. A hidden share that is not administrative (footage$) is
+    -- an ordinary share.
+    AND unc_path !~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)'
     AND length(unc_path) <= 1024
   )
 );
@@ -592,8 +600,23 @@ CREATE TRIGGER trg_bin_files_gc_enqueue
   WHEN (OLD.poster_path IS NOT NULL)
   EXECUTE FUNCTION public.fn_bin_files_gc_enqueue();
 
+-- A REPLACED picture (the renderer probes again, a computer that reaches the
+-- file posts a better frame, a restore brings an older key back) supersedes
+-- the old key: queue it the same way, with the same sibling check, so a
+-- company's storage figure does not drift up by stranded posters (review
+-- round 1 of BC1 — the orphan scan never walks this bucket). The body reads
+-- OLD only; after the update the row itself names the NEW key, so the
+-- sibling check sees other rows alone. storage_gc_queue.reason is 0027's
+-- closed list and the drain does not read it: 'file-purged' is the word.
+DROP TRIGGER IF EXISTS trg_bin_files_poster_replaced ON public.bin_files;
+CREATE TRIGGER trg_bin_files_poster_replaced
+  AFTER UPDATE OF poster_path ON public.bin_files
+  FOR EACH ROW
+  WHEN (OLD.poster_path IS NOT NULL AND OLD.poster_path IS DISTINCT FROM NEW.poster_path)
+  EXECUTE FUNCTION public.fn_bin_files_gc_enqueue();
+
 COMMENT ON FUNCTION public.fn_bin_files_gc_enqueue() IS
-  '0091: when a bin_files row is deleted (removed, or taken by its bin''s delete) and no other row names its picture, its poster in rabbit-thumbnails is queued for disposal (storage_gc_queue, kind thumbnail, file_id NULL). The footage on the server is never touched. Never aborts the delete.';
+  '0091: when a bin_files row is deleted (removed, or taken by its bin''s delete) or its picture is replaced (poster_path changes), and no other row names the old picture, that poster in rabbit-thumbnails is queued for disposal (storage_gc_queue, kind thumbnail, file_id NULL). The footage on the server is never touched. Never aborts the write.';
 
 
 -- =============================================================================
@@ -1913,6 +1936,8 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.bins'::regclass AND tgname = 'trg_bins_cycle_guard' AND NOT tgisinternal)
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.bin_files'::regclass AND tgname = 'trg_bin_files_touch' AND NOT tgisinternal)
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.bin_files'::regclass AND tgname = 'trg_bin_files_gc_enqueue' AND NOT tgisinternal)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.bin_files'::regclass AND tgname = 'trg_bin_files_poster_replaced' AND NOT tgisinternal
+                      AND pg_get_triggerdef(oid) LIKE '%AFTER UPDATE OF poster_path%' AND pg_get_triggerdef(oid) LIKE '%fn_bin_files_gc_enqueue%')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.shot_takes'::regclass AND tgname = 'trg_shot_takes_touch' AND NOT tgisinternal)
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.bin_locations'::regclass AND tgname = 'trg_bin_locations_touch' AND NOT tgisinternal) THEN
     RAISE EXCEPTION '0091 post-condition failed: a stamp, cycle-guard or gc trigger is missing';
@@ -2103,6 +2128,28 @@ BEGIN
      OR NOT ('\\nas\footage\..\secret' ~ '(^|\\)\.\.?(\\|$)')
      OR ('\\nas\footage\day.01' ~ '(^|\\)\.\.?(\\|$)') THEN
     RAISE EXCEPTION '0091 post-condition failed: the unc_path shape expression does not refuse what it must (or refuses a good share)';
+  END IF;
+  -- 11g (review round 1): the loopback host and the administrative share,
+  --      exercised both ways, and demanded in the CHECK's own body — a
+  --      copy that keeps these self-tests but drops an arm from the CHECK
+  --      is refused too.
+  IF NOT ('\\localhost\C$' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
+     OR NOT ('\\127.0.0.1\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
+     OR ('\\nas\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
+     OR ('\\127-nas\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
+     OR NOT ('\\server\C$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
+     OR NOT ('\\server\c$\Windows' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
+     OR NOT ('\\server\ADMIN$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
+     OR NOT ('\\server\IPC$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
+     OR ('\\nas\footage$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
+     OR ('\\nas\c$footage' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)') THEN
+    RAISE EXCEPTION '0091 post-condition failed: the loopback / administrative-share expressions do not refuse what they must (or refuse an ordinary share)';
+  END IF;
+  IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+       WHERE conrelid = 'public.bin_locations'::regclass AND conname = 'bin_locations_unc_path_shape_chk') NOT LIKE '%admin|ipc%'
+     OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+          WHERE conrelid = 'public.bin_locations'::regclass AND conname = 'bin_locations_unc_path_shape_chk') NOT LIKE '%localhost%' THEN
+    RAISE EXCEPTION '0091 post-condition failed: bin_locations_unc_path_shape_chk lost its loopback or administrative-share arm';
   END IF;
   IF ('A001/clip.mov' ~ '(^/|/$|//|\\|:)') OR ('A001/clip.mov' ~ '(^|/)\.\.?(/|$)')
      OR NOT ('../clip.mov' ~ '(^|/)\.\.?(/|$)') OR NOT ('a/../b.mov' ~ '(^|/)\.\.?(/|$)')

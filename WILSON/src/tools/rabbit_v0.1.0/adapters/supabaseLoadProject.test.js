@@ -1817,6 +1817,50 @@ describe('the refusal map: the sentences a person reads (0091)', () => {
   })
 })
 
+// PostgREST answers PGRST202 both for a function that does not exist and for
+// one called with parameter names it does not declare, and the adapter reads
+// PGRST202 as "0091 is not on this database". So the names the client sends
+// are held to the names the migration DECLARES, read from the file (review
+// round 1 of BC1): a renamed parameter fails here, not as "0091 missing" in
+// front of a person.
+describe('the client sends exactly the parameter names 0091 declares (PGRST202 would otherwise read as 0091 missing)', () => {
+  afterEach(() => resetBinsSchemaState())
+  const SQL = readFileSync(new URL('../../../../supabase/migrations/0091_bins_on_the_cloud.sql', import.meta.url), 'utf8')
+  function declared(name) {
+    const m = SQL.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(([^)]*)\\)`))
+    if (!m) throw new Error(`0091 declares no function ${name}`)
+    return m[1].split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean).sort()
+  }
+  const CALLS = {
+    delete_bin: (a) => a.deleteBin('p1', 'b1', { mode: 'move', target: 'b2' }),
+    reorder_bins: (a) => a.reorderBins('p1', [{ id: 'b1', parent_bin_id: null, sort_order: 0 }]),
+    add_bin_files: (a) => a.addBinFiles('p1', 'b1', [{ location_id: 'L1', relative_path: 'A001/T1.mov' }], true),
+    move_bin_files: (a) => a.moveBinFiles('p1', ['f1'], 'b2', { f1: 3 }),
+    copy_bin_files: (a) => a.copyBinFiles('p1', ['f1'], 'b2'),
+    restore_bin_files: (a) => a.restoreBinFiles('p1', [{ id: 'f1', bin_id: 'b1' }]),
+    assign_shot_takes: (a) => a.assignShotTakes('p1', [{ shot_id: 'sh1', bin_file_id: 'f1', role: 'primary' }]),
+    update_shot_take: (a) => a.updateShotTake('p1', 't1', { role: 'alt', position: 2 }),
+    remove_shot_takes: (a) => a.removeShotTakes('p1', ['t1']),
+    reorder_shot_takes: (a) => a.reorderShotTakes('p1', 'sh1', ['t2', 't1']),
+    replace_shot_takes: (a) => a.replaceShotTakes('p1', ['sh1'], [{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0 }]),
+    rabbit_remote_viewing_enabled: (a) => a.getRemoteViewingEnabled('p1'),
+  }
+  for (const [fn, call] of Object.entries(CALLS)) {
+    it(`${fn}: the parameter names the client sends are the ones the migration declares`, async () => {
+      const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: fn === 'rabbit_remote_viewing_enabled' ? true : {}, error: null }) })
+      const a = install(rec)
+      await call(a).catch(() => {})
+      const sent = rec.rpcs.find(r => r.name === fn)
+      expect(sent, `${fn} was not called`).toBeTruthy()
+      expect(Object.keys(sent.args).sort()).toStrictEqual(declared(fn))
+    })
+  }
+  it('CONTROL: the migration is read for real — a function it does not declare is reported, and the declared list is exact', () => {
+    expect(() => declared('no_such_function')).toThrow(/declares no function/)
+    expect(declared('delete_bin')).toStrictEqual(['p_bin', 'p_mode', 'p_target'])
+  })
+})
+
 describe('the poster upload asks the switch first (B4)', () => {
   afterEach(() => resetBinsSchemaState())
   const JPEG = btoa('\xff\xd8\xff' + 'x'.repeat(16))
@@ -1848,6 +1892,27 @@ describe('the poster upload asks the switch first (B4)', () => {
     expect(upload.mock.calls[0][0]).toBe(res.poster_path)
     expect(upload.mock.calls[0][2]).toMatchObject({ contentType: 'image/jpeg', upsert: false })
     expect(rec.writes.find(w => w.table === 'bin_files').row).toStrictEqual({ poster_path: res.poster_path })
+  })
+
+  it('when the PATCH of poster_path is refused after the upload landed, the object is taken back (best effort) and the refusal propagates', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: true, error: null }),
+      // The PATCH filtered to nothing: the adapter reads a 0-row UPDATE as the gate's 42501.
+      perWrite: { bin_files: () => ({ data: [], error: null }) },
+    })
+    const upload = vi.fn(async () => ({ error: null }))
+    const remove = vi.fn(async () => ({ error: null }))
+    rec.client.storage = { from: () => ({ upload, remove }) }
+    const a = install(rec)
+    const err = await a.postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)
+    expect(err.code).toBe('42501')
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove.mock.calls[0][0]).toStrictEqual([upload.mock.calls[0][0]])
+    // And a remove that itself fails changes nothing: the PATCH's refusal is still the answer.
+    const rec2 = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: true, error: null }), perWrite: { bin_files: () => ({ data: [], error: null }) } })
+    rec2.client.storage = { from: () => ({ upload: async () => ({ error: null }), remove: async () => { throw new Error('storage down') } }) }
+    expect((await install(rec2).postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)).code).toBe('42501')
   })
 
   it('a storage refusal that slips past the pre-check reads the same sentence; a non-JPEG never reaches storage', async () => {

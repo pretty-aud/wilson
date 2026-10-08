@@ -41,6 +41,46 @@ const CAPABILITY_KEYS = [
   'posters', 'locations', 'remoteViewingSwitch',
 ]
 
+// The network-address guard is ONE guard on every backend (review round 1 of
+// BC1): 0091's CHECK, the desktop's isUncPath (electron/rabbitBins.cjs) and
+// the fixtures' copy refuse the same addresses — a drive letter, a bare
+// server, a trailing backslash, a traversal, forward slashes, the LOOPBACK
+// host and an ADMINISTRATIVE share (\\localhost\C$ is C: in disguise) — and
+// admit the same shares. Suite 93 probes 99-106 hold the CHECK to this list.
+const { createRequire } = await import('node:module')
+const desktopBins = createRequire(import.meta.url)('../../../electron/rabbitBins.cjs')
+const UNC_REFUSED = [
+  'Z:\\footage', '\\\\nas', '\\\\nas\\footage\\', '\\\\nas\\footage\\..\\secret', '//nas/footage',
+  '\\\\localhost\\C$', '\\\\LOCALHOST\\c$\\Users', '\\\\127.0.0.1\\C$', '\\\\127.0.0.1\\footage', '\\\\0.0.0.0\\share',
+  '\\\\server\\C$\\Windows', '\\\\server\\d$', '\\\\server\\ADMIN$', '\\\\server\\ipc$',
+]
+const UNC_ADMITTED = ['\\\\nas\\footage', '\\\\10.0.0.5\\share', '\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share']
+
+describe('the network-address guard is one guard on every backend (review round 1)', () => {
+  it('the desktop refuses and admits the same addresses as 0091\'s CHECK', () => {
+    for (const bad of UNC_REFUSED) expect(desktopBins.isUncPath(bad), bad).toBe(false)
+    for (const ok of UNC_ADMITTED) expect(desktopBins.isUncPath(ok), ok).toBe(true)
+  })
+
+  it('the fixtures refuse the same addresses with the cloud\'s sentence, and admit the same shares', async () => {
+    const fixtures = buildDevFixtures().rabbitAdapter()
+    for (const bad of UNC_REFUSED) {
+      const err = await fixtures.createBinLocation({ name: 'x', unc_path: bad }).catch(e => e)
+      expect(err, bad).toBeInstanceOf(Error)
+      expect(err.message, bad).toContain(BINS_REFUSALS.locationShape)
+    }
+    for (const ok of UNC_ADMITTED) {
+      const row = await fixtures.createBinLocation({ name: ok.split('\\').pop(), unc_path: ok })
+      expect(row.unc_path, ok).toBe(ok)
+    }
+  })
+
+  it('the sentence names the two new refusals', () => {
+    expect(BINS_REFUSALS.locationShape).toContain('localhost')
+    expect(BINS_REFUSALS.locationShape).toContain('C$')
+  })
+})
+
 describe('the three bins backends answer to the same names', () => {
   const cloud = supabaseAdapter()
   const local = localServerAdapter()
