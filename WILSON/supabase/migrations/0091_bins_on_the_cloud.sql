@@ -219,13 +219,20 @@ CREATE TABLE IF NOT EXISTS public.bin_locations (
     unc_path ~ '^\\\\[^\\/:*?"<>|]+(\\[^\\/:*?"<>|]+)+$'
     AND unc_path !~ '(^|\\)\.\.?(\\|$)'
     -- Never THIS computer (review round 1): the loopback host is the
-    -- local disk by another name.
-    AND unc_path !~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)'
+    -- local disk by another name. Round 2: every spelling of 127.0.0.1
+    -- (127.1, 2130706433, 0177.0.0.1, 0x7f.0.0.1), and an all-digit or
+    -- 0-led host outright — neither is ever a server's name.
+    AND unc_path !~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)'
     -- Never an ADMINISTRATIVE share (C$, ADMIN$, IPC$): \\server\C$\Users
     -- is C:\Users in disguise, and anyone past the gate may name a
     -- location. A hidden share that is not administrative (footage$) is
     -- an ordinary share.
     AND unc_path !~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)'
+    -- Never a segment that ends in a dot or a space (review round 2):
+    -- Windows strips both when it opens a path, so \\server\C$. is C$ to
+    -- anything that is not node:fs (which reads the literal name under
+    -- its \\?\ prefix and finds nothing).
+    AND unc_path !~ '[. ](\\|$)'
     AND length(unc_path) <= 1024
   )
 );
@@ -426,6 +433,9 @@ CREATE TABLE IF NOT EXISTS public.bin_files (
     relative_path <> ''
     AND relative_path !~ '(^/|/$|//|\\|:)'
     AND relative_path !~ '(^|/)\.\.?(/|$)'
+    -- no segment ends in a dot or a space: ".. " is ".." to Windows
+    -- (review round 2)
+    AND relative_path !~ '[. ](/|$)'
     AND length(relative_path) <= 1024
   ),
   CONSTRAINT bin_files_display_name_not_blank_chk CHECK (btrim(display_name) <> ''),
@@ -1057,6 +1067,30 @@ COMMENT ON POLICY petal_bin_posters_insert ON storage.objects IS
   '0091 (B6): a bin file''s poster may be written by anyone past can_edit_shot_lists on the key''s project — reviewers included, as for the rows. Permissive, for the bin_files segment only; the RESTRICTIVE switch policies still AND over it.';
 COMMENT ON POLICY petal_bin_posters_update ON storage.objects IS
   '0091 (B6): the same for an in-place regeneration.';
+
+-- A reviewer may UPLOAD a poster (above) and so must be able to take their
+-- own back: the adapter removes the object it just uploaded when the PATCH
+-- of poster_path is refused, and 0053's rabbit_thumbnails_delete_own admits
+-- can_write_project only (review round 2). Owner-scoped, the bin_files
+-- segment only, within the hour 0053 gives.
+DROP POLICY IF EXISTS petal_bin_posters_delete_own ON storage.objects;
+CREATE POLICY petal_bin_posters_delete_own ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'rabbit-thumbnails'
+    AND owner_id = (auth.uid())::text
+    AND (storage.foldername(name))[1] = 'projects'
+    AND (storage.foldername(name))[3] = 'bin_files'
+    AND NOT public.rabbit_money_segment((storage.foldername(name))[3])
+    AND EXISTS (
+      SELECT 1 FROM public.projects p
+       WHERE p.id = public.fn_try_uuid((storage.foldername(name))[2])
+    )
+    AND public.has_active_membership(public.current_workspace_id())
+    AND public.can_edit_shot_lists(public.fn_try_uuid((storage.foldername(name))[2]))
+    AND created_at > (now() - interval '1 hour')
+  );
+COMMENT ON POLICY petal_bin_posters_delete_own ON storage.objects IS
+  '0091 (review round 2): the uploader of a bin file''s poster may delete it within the hour — the adapter''s take-back when the PATCH of poster_path is refused — reviewers included (B6).';
 
 
 -- =============================================================================
@@ -2027,20 +2061,25 @@ BEGIN
   -- restrictive pair's; a permissive copy of the switch would be ORed away).
   SELECT count(*) INTO v_n FROM pg_policies
    WHERE schemaname = 'storage' AND tablename = 'objects'
-     AND policyname IN ('petal_bin_posters_insert', 'petal_bin_posters_update')
+     AND policyname IN ('petal_bin_posters_insert', 'petal_bin_posters_update', 'petal_bin_posters_delete_own')
      AND permissive = 'PERMISSIVE'
      AND (COALESCE(qual, '') || COALESCE(with_check, '')) LIKE '%bin_files%'
      AND (COALESCE(qual, '') || COALESCE(with_check, '')) LIKE '%projects%'
      AND (COALESCE(qual, '') || COALESCE(with_check, '')) LIKE '%has_active_membership%'
      AND (COALESCE(qual, '') || COALESCE(with_check, '')) LIKE '%can_edit_shot_lists%'
      AND (COALESCE(qual, '') || COALESCE(with_check, '')) LIKE '%rabbit_money_segment%';
-  IF v_n <> 2 THEN
-    RAISE EXCEPTION '0091 post-condition failed: % of 2 reviewer poster policies are permissive and carry the segment, the hop, membership, the gate and the money predicate', v_n;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION '0091 post-condition failed: % of 3 reviewer poster policies are permissive and carry the segment, the hop, membership, the gate and the money predicate', v_n;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'petal_bin_posters_delete_own'
+                    AND cmd = 'DELETE' AND COALESCE(qual, '') LIKE '%owner_id%' AND COALESCE(qual, '') LIKE '%interval%') THEN
+    RAISE EXCEPTION '0091 post-condition failed: petal_bin_posters_delete_own must be a DELETE policy scoped to the owner and the hour';
   END IF;
   SELECT count(*) INTO v_n FROM pg_policies
    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname LIKE 'petal_bin_posters%';
-  IF v_n <> 4 THEN
-    RAISE EXCEPTION '0091 post-condition failed: % petal_bin_posters%% policies, expected 4', v_n;
+  IF v_n <> 5 THEN
+    RAISE EXCEPTION '0091 post-condition failed: % petal_bin_posters%% policies, expected 5', v_n;
   END IF;
   SELECT count(*) INTO v_n FROM pg_policies
    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname LIKE 'rabbit_thumbnails%';
@@ -2133,10 +2172,16 @@ BEGIN
   --      exercised both ways, and demanded in the CHECK's own body — a
   --      copy that keeps these self-tests but drops an arm from the CHECK
   --      is refused too.
-  IF NOT ('\\localhost\C$' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
-     OR NOT ('\\127.0.0.1\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
-     OR ('\\nas\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
-     OR ('\\127-nas\footage' ~* '^\\\\(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|0\.0\.0\.0)(\\|$)')
+  IF NOT ('\\localhost\C$' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR NOT ('\\127.0.0.1\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR ('\\nas\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR ('\\127-nas\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR NOT ('\\127.1\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR NOT ('\\2130706433\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR NOT ('\\0177.0.0.1\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR NOT ('\\0x7f.0.0.1\footage' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR ('\\10.0.0.5\share' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
+     OR ('\\3com-nas\share' ~* '^\\\\(localhost|127(\.[0-9]+)*|0[0-9x.][^\\]*|[0-9]+)(\\|$)')
      OR NOT ('\\server\C$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
      OR NOT ('\\server\c$\Windows' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
      OR NOT ('\\server\ADMIN$' ~* '^\\\\[^\\]+\\([a-z]|admin|ipc)\$(\\|$)')
@@ -2150,6 +2195,28 @@ BEGIN
      OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint
           WHERE conrelid = 'public.bin_locations'::regclass AND conname = 'bin_locations_unc_path_shape_chk') NOT LIKE '%localhost%' THEN
     RAISE EXCEPTION '0091 post-condition failed: bin_locations_unc_path_shape_chk lost its loopback or administrative-share arm';
+  END IF;
+  -- 11g (review round 2): no segment ends in a dot or a space — in either
+  --      shape, exercised both ways, and present in both CHECKs' bodies.
+  IF NOT ('\\server\C$.' ~ '[. ](\\|$)')
+     OR NOT ('\\server\C$ \Windows' ~ '[. ](\\|$)')
+     OR NOT ('\\localhost.\footage' ~ '[. ](\\|$)')
+     OR ('\\nas\footage' ~ '[. ](\\|$)')
+     OR ('\\nas\day 1\footage' ~ '[. ](\\|$)')
+     OR ('\\nas\v1.2\footage' ~ '[. ](\\|$)')
+     OR NOT ('.. /secret.mov' ~ '[. ](/|$)')
+     OR NOT ('clip.mov.' ~ '[. ](/|$)')
+     OR NOT ('A001 /clip.mov' ~ '[. ](/|$)')
+     OR ('A001/clip.mov' ~ '[. ](/|$)')
+     OR ('a.b/c.d' ~ '[. ](/|$)')
+     OR ('.hidden/clip.mov' ~ '[. ](/|$)') THEN
+    RAISE EXCEPTION '0091 post-condition failed: the trailing-dot-or-space expressions do not refuse what they must (or refuse an ordinary name)';
+  END IF;
+  IF position('[. ](' IN (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                            WHERE conrelid = 'public.bin_locations'::regclass AND conname = 'bin_locations_unc_path_shape_chk')) = 0
+     OR position('[. ](/|$)' IN (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                                 WHERE conrelid = 'public.bin_files'::regclass AND conname = 'bin_files_relative_path_shape_chk')) = 0 THEN
+    RAISE EXCEPTION '0091 post-condition failed: a shape CHECK lost its trailing-dot-or-space arm';
   END IF;
   IF ('A001/clip.mov' ~ '(^/|/$|//|\\|:)') OR ('A001/clip.mov' ~ '(^|/)\.\.?(/|$)')
      OR NOT ('../clip.mov' ~ '(^|/)\.\.?(/|$)') OR NOT ('a/../b.mov' ~ '(^|/)\.\.?(/|$)')

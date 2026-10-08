@@ -100,12 +100,15 @@ const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`)
 // The same two refusals as 0091's CHECK and electron/rabbitBins.cjs (review
 // round 1 of BC1): an administrative share (C$, ADMIN$, IPC$) and the
 // loopback host. binsAdapterParity.test.js holds this copy to the desktop's.
-const UNC_LOOPBACK_HOST_RE = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/i
+// Review round 2: every spelling of 127.0.0.1, an all-digit or 0-led host,
+// and any segment ending in a dot or a space (Windows strips both).
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+)$/i
 const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i
+const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
   const segs = p.split('\\')
-  if (segs.some(seg => seg === '.' || seg === '..')) return false
+  if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
   return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3])
 }
 // The fake cloud's capability object: a browser signed in to a company —

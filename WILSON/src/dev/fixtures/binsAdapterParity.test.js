@@ -53,8 +53,13 @@ const UNC_REFUSED = [
   'Z:\\footage', '\\\\nas', '\\\\nas\\footage\\', '\\\\nas\\footage\\..\\secret', '//nas/footage',
   '\\\\localhost\\C$', '\\\\LOCALHOST\\c$\\Users', '\\\\127.0.0.1\\C$', '\\\\127.0.0.1\\footage', '\\\\0.0.0.0\\share',
   '\\\\server\\C$\\Windows', '\\\\server\\d$', '\\\\server\\ADMIN$', '\\\\server\\ipc$',
+  // review round 2: a segment ending in a dot or a space, and the other
+  // spellings of 127.0.0.1
+  '\\\\server\\C$.', '\\\\server\\C$ \\Windows', '\\\\nas\\footage.', '\\\\localhost.\\footage',
+  '\\\\127.1\\footage', '\\\\2130706433\\footage', '\\\\0177.0.0.1\\footage', '\\\\0x7f.0.0.1\\footage',
 ]
-const UNC_ADMITTED = ['\\\\nas\\footage', '\\\\10.0.0.5\\share', '\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share']
+const UNC_ADMITTED = ['\\\\nas\\footage', '\\\\10.0.0.5\\share', '\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share',
+  '\\\\nas-01.corp.local\\footage', '\\\\nas\\day 1\\footage', '\\\\3com-nas\\share']
 
 describe('the network-address guard is one guard on every backend (review round 1)', () => {
   it('the desktop refuses and admits the same addresses as 0091\'s CHECK', () => {

@@ -103,6 +103,17 @@ describe('the shapes 0091 refuses, refused here too', () => {
     for (const ok of ['\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share']) expect(isUncPath(ok), ok).toBe(true)
   })
 
+  it('isUncPath, round 2: a segment ending in a dot or a space is refused (Windows strips both — \\\\server\\C$. is C$), and the loopback arm knows every spelling of 127.0.0.1', () => {
+    for (const bad of ['\\\\server\\C$.', '\\\\server\\C$ \\Windows', '\\\\server\\C$ ', '\\\\server\\ADMIN$.', '\\\\nas\\footage.', '\\\\nas\\footage \\day1', '\\\\localhost.\\footage',
+      '\\\\127.1\\footage', '\\\\127.0.0.1.\\footage', '\\\\2130706433\\footage', '\\\\0177.0.0.1\\footage', '\\\\0x7f.0.0.1\\footage', '\\\\0.0.0.0\\footage', '\\\\127\\footage']) expect(isUncPath(bad), bad).toBe(false)
+    for (const ok of ['\\\\10.0.0.5\\share', '\\\\nas-01.corp.local\\footage', '\\\\3com-nas\\share', '\\\\nas\\day 1\\footage', '\\\\nas\\v1.2\\footage']) expect(isUncPath(ok), ok).toBe(true)
+  })
+
+  it('isSafeRelativePath, round 2: a segment ending in a dot or a space is refused (".. " is ".." to Windows)', () => {
+    for (const bad of ['.. /secret.mov', 'a/.. /b.mov', 'a/. /b.mov', 'clip.mov.', 'A001 /clip.mov', 'A001/clip.mov ', '.. ']) expect(isSafeRelativePath(bad), bad).toBe(false)
+    for (const ok of ['A001/clip.mov', 'day 1/clip.mov', 'a.b/c.d', 'VFX/plate_seq', '.hidden/clip.mov']) expect(isSafeRelativePath(ok), ok).toBe(true)
+  })
+
   it('isSafeRelativePath: forward slashes inside the location, never out of it', () => {
     for (const ok of ['A001/clip.mov', 'clip.mov', 'VFX/plate_seq', 'a b/c d.png']) expect(isSafeRelativePath(ok), ok).toBe(true)
     for (const bad of ['/clip.mov', 'A001/', 'A001//clip.mov', '../clip.mov', 'a/../b.mov', 'a/./b', 'C:/x.mov', 'a\\b.mov', '', null]) expect(isSafeRelativePath(bad), String(bad)).toBe(false)

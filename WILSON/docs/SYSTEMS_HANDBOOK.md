@@ -4829,7 +4829,10 @@ of a session — this section is limits by design, that file is faults.
   is per WORKSPACE (a share is the company's: `\\server\share`, by network
   address, never a drive letter, never THIS computer (`localhost`, `127.x`)
   and never an administrative share (`C$`, `ADMIN$`, `IPC$` — `\\localhost\C$`
-  is `C:` in disguise; review round 1) — the CHECK refuses each, and the
+  is `C:` in disguise; review round 1), nor a segment ending in a dot or a
+  space (Windows strips both: `\\server\C$.` is `C$`), nor any spelling of
+  127.0.0.1 (round 2; the same trailing rule guards a clip's relative
+  path, where `.. ` is `..`) — the CHECK refuses each, and the
   desktop's and the fixtures' guards refuse the same list, held together by
   `binsAdapterParity.test.js`); `bin_files` holds
   `location_id` + `relative_path` (forward slashes, no `..`, no drive
@@ -4849,11 +4852,11 @@ of a session — this section is limits by design, that file is faults.
   RESTRICTIVE policies on `rabbit-thumbnails` (`petal_bin_posters_remote_viewing_*`)
   AND over 0053's permissive set for keys whose third segment is `bin_files`
   — a planted copy without `AS RESTRICTIVE` or without the switch arm is
-  caught by suite 94's probes 43/55/56 and by 0091's post-conditions. The
+  caught by suite 94's probes 43/57/58 and by 0091's post-conditions. The
   policies ask `rabbit_remote_viewing_enabled(project)`, SECURITY DEFINER
   so it can answer past RLS — and therefore it answers only an active
   member of the project's workspace, false to everyone else (no oracle
-  across companies: suite 94's probes 51/52, breaker B14, a post-condition
+  across companies: suite 94's probes 53/54, breaker B14, a post-condition
   that demands `has_active_membership` in its body).
   Reading an existing poster follows membership, never the switch; a
   reviewer uploads one through the permissive `petal_bin_posters_*` pair
@@ -4874,7 +4877,9 @@ of a session — this section is limits by design, that file is faults.
   still names it. The orphan scan walks `rabbit-files` only, so a live poster
   is never swept and a stranded one would never be: that is why a replaced
   key is queued by the database, and why the adapter takes a just-uploaded
-  object back when its PATCH of `poster_path` is refused.
+  object back when its PATCH of `poster_path` is refused — a reviewer's own
+  through `petal_bin_posters_delete_own` (round 2; 0053's delete policy
+  admits writers only).
 - **What the cloud cannot do answers `not_supported_here` through ONE
   capability object** (`binsCapabilities()`: `CLOUD_BINS_CAPABILITIES`,
   `LOCAL_SERVER_BINS_CAPABILITIES`, the fixtures'), read onto

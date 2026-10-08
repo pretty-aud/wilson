@@ -54,7 +54,7 @@
 
 BEGIN;
 
-SELECT plan(65);
+SELECT plan(67);
 
 SELECT * FROM tests.rls_setup();
 
@@ -373,7 +373,7 @@ SELECT is((SELECT count(*)::int FROM public.shot_takes WHERE shot_id = '94940000
   0, 'deleting a shot takes its takes with it (CASCADE from the shot)');
 
 
--- ── 43-58: THE POSTER POLICY, BOTH WAYS (§9, B4) ───────────────────────────
+-- ── 43-60: THE POSTER POLICY, BOTH WAYS (§9, B4) ───────────────────────────
 
 -- 43: the switch is OFF (its default). The caller is a workspace ADMIN, so
 -- every permissive arm passes; the ONLY thing that can refuse this is the
@@ -464,7 +464,29 @@ SELECT lives_ok(
             '{"mimetype":"image/jpeg"}'::jsonb)$$,
   'SWITCH ON: a REVIEWER writes a poster (B6, the permissive pair past can_edit_shot_lists)');
 
--- 51-52: the helper the policies ask is NOT an oracle across companies.
+-- 51-52: the reviewer takes their OWN poster back — what the adapter does
+-- when the PATCH of poster_path is refused after the upload landed (review
+-- round 2: 0053's delete policy admits writers only) — and cannot take the
+-- member's. storage.protect_delete() refuses a direct DELETE on
+-- storage.objects unless the Storage API's own override is set for the
+-- statement; setting it for this transaction runs the REAL policy (the older
+-- suites, 33 onward, predate the override and pin their delete policies by
+-- catalogue shape only). CI's local stack has no storage-api and no such
+-- trigger; the setting is harmless there.
+SELECT set_config('storage.allow_delete_query', 'true', true);
+WITH del AS (
+  DELETE FROM storage.objects
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/94940000-0000-0000-0000-000000000f03/2-poster.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 1, 'SWITCH ON: a REVIEWER takes their own poster back (petal_bin_posters_delete_own)');
+WITH del AS (
+  DELETE FROM storage.objects
+   WHERE bucket_id = 'rabbit-thumbnails' AND name = 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/94940000-0000-0000-0000-000000000f03/1-poster.jpg'
+  RETURNING 1)
+SELECT is((SELECT count(*)::int FROM del), 0, 'but not the MEMBER''s poster (owner-scoped)');
+SELECT set_config('storage.allow_delete_query', 'false', true);
+
+-- 53-54: the helper the policies ask is NOT an oracle across companies.
 -- It is SECURITY DEFINER (it must answer the storage policy whatever the
 -- caller may read), so it answers only an active member of the project's
 -- workspace: while A's switch is ON, A's reviewer reads true and B's admin
@@ -485,7 +507,7 @@ SET LOCAL ROLE authenticated;
 SELECT is((SELECT public.rabbit_remote_viewing_enabled('aaaa1111-0000-0000-0000-000000000001')),
   false, 'SWITCH ON: it answers FALSE to another company''s admin — the switch is no oracle across workspaces');
 
--- 53: a user with no seat cannot write a poster.
+-- 55: a user with no seat cannot write a poster.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -504,7 +526,7 @@ SELECT throws_ok(
             '{"mimetype":"image/jpeg"}'::jsonb)$$,
   '42501', NULL, 'SWITCH ON: a workspace user with no seat is still refused (no permissive arm admits them)');
 
--- 54-56: OFF again — nothing new lands, nothing is regenerated.
+-- 56-58: OFF again — nothing new lands, nothing is regenerated.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -538,7 +560,7 @@ SELECT throws_ok(
   'new row violates row-level security policy "petal_bin_posters_remote_viewing_insert" for table "objects"',
   'SWITCH OFF: a new poster is refused again, by name');
 
--- 57-58: the EXISTING poster stays readable by a project member (reading
+-- 59-60: the EXISTING poster stays readable by a project member (reading
 -- follows membership, never the switch) and invisible to the other workspace.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -574,7 +596,7 @@ RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 
 
--- ── 59-65: the policies' shape in the catalogue, and the RPCs ──────────────
+-- ── 61-67: the policies' shape in the catalogue, and the RPCs ──────────────
 
 SELECT is(
   (SELECT permissive || '|' || cmd FROM pg_policies

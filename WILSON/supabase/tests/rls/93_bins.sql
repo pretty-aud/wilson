@@ -54,7 +54,7 @@
 
 BEGIN;
 
-SELECT plan(114);
+SELECT plan(122);
 
 SELECT * FROM tests.rls_setup();
 
@@ -853,6 +853,57 @@ RESET ROLE;
 SELECT set_config('request.jwt.claims', '{}', true);
 SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path IN ('projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/1-poster.jpg', 'projects/aaaa1111-0000-0000-0000-000000000001/bin_files/93930000-0000-0000-0000-0000000000e1/2-poster.jpg')),
   1, 'queues nothing more: the current picture is never queued, the old one once');
+
+-- ── 115-122: review round 2 — no segment ends in a dot or a space; every ──
+-- spelling of this computer (§2, §4). Windows strips a trailing dot or
+-- space when it opens a path, so \\server\C$. would be C$ to anything that
+-- is not node:fs; ".. " would be "..".
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\server\C$.')
+$q$, '23514', NULL, 'a trailing dot does not smuggle C$ past the CHECK (review round 2)');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\server\C$ \Windows')
+$q$, '23514', NULL, 'a trailing space does not either');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\127.1\footage')
+$q$, '23514', NULL, 'the short spelling of 127.0.0.1 is refused');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\2130706433\footage')
+$q$, '23514', NULL, 'the decimal spelling of 127.0.0.1 is refused (an all-digit host is never a server''s name)');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'x', '\\localhost.\footage')
+$q$, '23514', NULL, 'localhost with a trailing dot is refused');
+SELECT lives_ok($q$
+  INSERT INTO public.bin_locations (workspace_id, name, unc_path)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'r2', '\\nas-01.corp.local\footage')
+$q$, 'a dotted hostname is an ordinary server');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_files (project_id, bin_id, location_id, relative_path, display_name, original_name)
+  VALUES ('aaaa1111-0000-0000-0000-000000000001', '93930000-0000-0000-0000-000000000002',
+          '93930000-0000-0000-0000-00000000000a', '.. /secret.mov', 'x', 'x.mov')
+$q$, '23514', NULL, 'a traversal with a trailing space is refused (".. " is ".." to Windows)');
+SELECT throws_ok($q$
+  INSERT INTO public.bin_files (project_id, bin_id, location_id, relative_path, display_name, original_name)
+  VALUES ('aaaa1111-0000-0000-0000-000000000001', '93930000-0000-0000-0000-000000000002',
+          '93930000-0000-0000-0000-00000000000a', 'A001/clip.mov.', 'x', 'x.mov')
+$q$, '23514', NULL, 'a name ending in a dot is refused');
+
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
 
 SELECT * FROM finish();
 ROLLBACK;

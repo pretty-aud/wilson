@@ -1467,20 +1467,28 @@ const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`);
 // root again — and the LOOPBACK host (localhost, 127.x, 0.0.0.0), which is
 // this very computer. A hidden share that is not administrative (footage$)
 // is an ordinary share.
-const UNC_LOOPBACK_HOST_RE = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/i;
+// Review round 2: the loopback arm knows every spelling of 127.0.0.1 (127.1,
+// 2130706433, 0177.0.0.1, 0x7f.0.0.1) and refuses an all-digit or 0-led host
+// outright; and NO segment may end in a dot or a space, because Windows
+// strips both when it opens a path — \\server\C$. is C$ to anything that is
+// not node:fs (which reads the literal name under its \\?\ prefix and finds
+// nothing). The same rule guards a relative path: ".. " is ".." to Windows.
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+)$/i;
 const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i;
+const TRAILING_DOT_OR_SPACE_RE = /[. ]$/;
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false;
   const segs = p.split('\\'); // ['', '', host, share, ...]
-  if (segs.some(seg => seg === '.' || seg === '..')) return false;
+  if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false;
   return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3]);
 }
 // 0091's relative_path shape: forward slashes, no leading or trailing
-// slash, no empty segment, no . or .., no backslash, no colon.
+// slash, no empty segment, no . or .., no backslash, no colon, and no
+// segment ending in a dot or a space (review round 2).
 function isSafeRelativePath(p) {
   if (typeof p !== 'string' || !p || p.length > 1024) return false;
   if (/(^\/|\/$|\/\/|\\|:)/.test(p)) return false;
-  return !p.split('/').some(seg => seg === '.' || seg === '..');
+  return !p.split('/').some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg));
 }
 /**
  * The absolute path of a cloud clip on this computer: the location's local
