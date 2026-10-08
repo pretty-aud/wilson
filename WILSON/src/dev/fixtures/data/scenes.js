@@ -108,7 +108,7 @@ export const SHOTS = SHOT_ROWS.map(([n, scene, shot_number, name, status, framin
 export const BIN_LOCATIONS = [
   { id: fid('binLocation', 1), workspace_id: WORKSPACE_ID, name: 'Footage NAS', unc_path: '\\\\salthours-nas\\footage', added_by: MEMBER_ID.sofia, created_at: stamp(30, 9), updated_at: stamp(30, 9) },
 ]
-export const LOCATION_ID = BIN_LOCATIONS[0].id
+const LOCATION_ID = BIN_LOCATIONS[0].id
 
 export const BINS = [
   { id: fid('bin', 1), project_id: PROJECT_ID, workspace_id: WORKSPACE_ID, name: 'Footage',    description: 'Camera originals by shoot day.', kind: 'footage', color: null,     parent_bin_id: null,          sort_order: 0, created_at: stamp(30, 9), created_by: MEMBER_ID.sofia, updated_at: stamp(30, 9), updated_by: MEMBER_ID.sofia },

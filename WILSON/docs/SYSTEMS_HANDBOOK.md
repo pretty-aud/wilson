@@ -4845,7 +4845,12 @@ of a session — this section is limits by design, that file is faults.
   RESTRICTIVE policies on `rabbit-thumbnails` (`petal_bin_posters_remote_viewing_*`)
   AND over 0053's permissive set for keys whose third segment is `bin_files`
   — a planted copy without `AS RESTRICTIVE` or without the switch arm is
-  caught by suite 94's probes 43/53/54 and by 0091's post-conditions.
+  caught by suite 94's probes 43/55/56 and by 0091's post-conditions. The
+  policies ask `rabbit_remote_viewing_enabled(project)`, SECURITY DEFINER
+  so it can answer past RLS — and therefore it answers only an active
+  member of the project's workspace, false to everyone else (no oracle
+  across companies: suite 94's probes 51/52, breaker B14, a post-condition
+  that demands `has_active_membership` in its body).
   Reading an existing poster follows membership, never the switch; a
   reviewer uploads one through the permissive `petal_bin_posters_*` pair
   (0053's own admit `can_write_project` only). **Posters are metered**
