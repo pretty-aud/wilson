@@ -1478,17 +1478,30 @@ function isSafeRelativePath(p) {
  * joined with the relative path. Null when either is not the shape the
  * database allows, or the location is not registered.
  */
+// The ROOT's shape chooses the path rules, not the computer's. A network
+// address (\\server\share) or a drive letter is joined and compared the
+// Windows way on every platform — backslashes, case-folded — and a POSIX root
+// (the share a Mac mounts at /Volumes/footage) the POSIX way. Deciding by
+// process.platform was wrong twice over: CI runs these routes on Linux
+// against a POSIX temp folder, and a Mac desktop registers a POSIX local
+// path for a Windows-shaped network address.
+const WINDOWS_ROOT_RE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+function rootPathModule(root) {
+  return WINDOWS_ROOT_RE.test(String(root || '')) ? path.win32 : path.posix;
+}
 function resolveCloudFilePath(locations, locationId, relativePath) {
   const loc = locations.get(String(locationId || ''));
   if (!loc || !isSafeRelativePath(relativePath)) return null;
   const root = loc.local_path || loc.unc_path;
-  const joined = path.win32.join(root, ...relativePath.split('/'));
+  const mod = rootPathModule(root);
+  const fold = (p) => (mod === path.win32 ? p.toLowerCase() : p);
+  const joined = mod.join(root, ...relativePath.split('/'));
   // Containment, belt to the shape's braces: the joined path must still sit
-  // under the root (path.join normalises away nothing we allow, but a root
-  // that ends oddly must never let a path escape).
-  const rootKey = pathKey(root).replace(/[\\/]+$/, '');
-  const key = pathKey(joined);
-  if (key !== rootKey && !key.startsWith(rootKey + path.sep)) return null;
+  // under the root (join normalises away nothing we allow, but a root that
+  // ends oddly must never let a path escape).
+  const rootKey = fold(mod.resolve(root)).replace(/[\\/]+$/, '');
+  const key = fold(mod.resolve(joined));
+  if (key !== rootKey && !key.startsWith(rootKey + mod.sep)) return null;
   return joined;
 }
 

@@ -110,6 +110,30 @@ describe('the shapes 0091 refuses, refused here too', () => {
     const withLocal = new Map([[LOC, { id: LOC, unc_path: UNC, local_path: 'Z:\\footage' }]])
     expect(resolveCloudFilePath(withLocal, LOC, 'A001/clip.mov')).toBe('Z:\\footage\\A001\\clip.mov')
   })
+
+  it('the root\'s shape chooses the path rules, not the computer: a POSIX root joins the POSIX way on Windows, a Windows root the Windows way on Linux', () => {
+    // CI runs this file on Linux against a POSIX temp folder; a Mac desktop
+    // mounts the share at /Volumes/footage. The first version joined every
+    // root with path.win32 and contained it with the platform's resolve, so
+    // on Linux a POSIX root became \tmp\...\A001\clip.mp4, failed containment
+    // and every route answered 403.
+    const posixRoot = new Map([[LOC, { id: LOC, unc_path: UNC, local_path: '/Volumes/footage' }]])
+    expect(resolveCloudFilePath(posixRoot, LOC, 'A001/clip.mov')).toBe('/Volumes/footage/A001/clip.mov')
+    expect(resolveCloudFilePath(posixRoot, LOC, 'VFX/plate_seq')).toBe('/Volumes/footage/VFX/plate_seq')
+    expect(resolveCloudFilePath(posixRoot, LOC, 'a/../../clip.mov')).toBeNull()
+    // A Windows root keeps Windows rules on every platform: a drive letter
+    // written with forward slashes, a network address with a trailing
+    // backslash (what path.resolve gives a registered UNC local_path).
+    const drive = new Map([[LOC, { id: LOC, unc_path: UNC, local_path: 'z:/footage' }]])
+    expect(resolveCloudFilePath(drive, LOC, 'A001/clip.mov')).toBe('z:\\footage\\A001\\clip.mov')
+    const trailing = new Map([[LOC, { id: LOC, unc_path: UNC, local_path: '\\\\salthours-nas\\footage\\' }]])
+    expect(resolveCloudFilePath(trailing, LOC, 'A001/clip.mov')).toBe('\\\\salthours-nas\\footage\\A001\\clip.mov')
+    // Containment is case-folded only where the filesystem is: a Windows
+    // root admits a path spelt in another case, a POSIX root does not care
+    // because its join never changes case either way.
+    const upper = new Map([[LOC, { id: LOC, unc_path: '\\\\SALTHOURS-NAS\\Footage', local_path: null }]])
+    expect(resolveCloudFilePath(upper, LOC, 'A001/clip.mov')).toBe('\\\\SALTHOURS-NAS\\Footage\\A001\\clip.mov')
+  })
 })
 
 // ── the routes ──────────────────────────────────────────────────────────────

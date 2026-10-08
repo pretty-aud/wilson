@@ -183,11 +183,15 @@ SELECT ok(
   'the project_id branch of fn_realtime_broadcast names milestones (comments stripped)');
 
 
--- ── probe 10: the trigger is on the twelve tables it should be on ────────
+-- ── probe 10: the trigger is on the fifteen tables it should be on ───────
 -- 🚨 A SET, NOT A COUNT. The first version asserted `count(*) = 12`, which R1
 -- pointed out cannot see a trigger MOVED to the wrong table: detach
 -- trg_files_realtime, attach one to some other table, and the count is still
 -- 12. Naming the tables costs nothing and says what is actually meant.
+-- 2026-10-07 (BC1, migration 0091): twelve became fifteen — bins, bin_files
+-- and shot_takes broadcast on the project topic as 0077 did milestones. The
+-- loosening is proven the other way by 94_shot_takes probe 5 and 0091's own
+-- post-condition, both of which fail when the arm is left out of the body.
 SELECT is(
   (SELECT string_agg(c.relname::text, ',' ORDER BY c.relname::text)
      FROM pg_trigger tg
@@ -195,9 +199,9 @@ SELECT is(
      JOIN pg_class c ON c.oid = tg.tgrelid
     WHERE p.proname = 'fn_realtime_broadcast'
       AND NOT tg.tgisinternal),
-  'asset_versions,assets,comments,files,milestones,phase_dependencies,phases,'
-  || 'project_members,projects,task_dependencies,task_links,tasks',
-  'the broadcast trigger is on exactly the twelve project-scoped tables');
+  'asset_versions,assets,bin_files,bins,comments,files,milestones,phase_dependencies,'
+  || 'phases,project_members,projects,shot_takes,task_dependencies,task_links,tasks',
+  'the broadcast trigger is on exactly the fifteen project-scoped tables (0091 added bins, bin_files, shot_takes)');
 
 
 -- ── probes 11-14: KEY DATES ONLY — Audrey's ruling, machine-checked ───────
