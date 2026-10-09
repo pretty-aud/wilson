@@ -285,7 +285,9 @@ try {
   await page.locator('pre.s-log').evaluate(el => el.scrollIntoView({ block: 'start' }));
   await sleep(200);
   await shot('migrate-report');
-  await page.locator('.s-table tbody tr', { hasText: 'pictures' }).evaluate(el => el.scrollIntoView({ block: 'end' }));
+  // The lines under the table — what stays on this computer, the orphan
+  // takes (review round 2) — in frame with the table's last rows.
+  await page.locator('[data-testid="not-carried"]').evaluate(el => el.scrollIntoView({ block: 'end' }));
   await sleep(200);
   await shot('migrate-report-table');
   console.log(`  cloud stub: ${cloud.inserts} inserts, ${cloud.uploads} uploads, ${cloud.removes || 0} removes`);
