@@ -1,7 +1,7 @@
 // =============================================================================
-// FootageSettings — Bins on the cloud, the desktop signed in (BC2, item 2).
+// FootageSettings — Bins on the cloud, the desktop signed in (BC2, items 2 + 7).
 //
-// A section of Settings, Storage, shown while signed in to a company:
+// Two sections of Settings, Storage, shown while signed in to a company:
 //
 //   FootageLocationsSection — the company's footage locations: a share on the
 //     office network, saved by its network address and named once (B2).
@@ -9,6 +9,10 @@
 //     use it); per computer, "Where is it on this computer?" for a share this
 //     computer sees only as a drive letter (B2's fallback, kept in this
 //     computer's settings, never the cloud).
+//   RemoteViewingSection — the company's switch (B5a): "Allow files to be
+//     viewed from outside the office network", admins only, off by default,
+//     with the storage design §4b sentence at the switch. Everyone else sees
+//     its state and why they cannot change it. Undoable (the app's toast).
 //
 // Laws of UX that shaped it (design-direction + laws-of-ux, BC2):
 //   Mental model — a location is written exactly as Explorer shows a share,
@@ -23,17 +27,31 @@
 //   Hick's law — a row offers Edit and Remove; the per-computer question
 //     appears only where it is needed (this computer cannot reach the share,
 //     or a folder is already saved for it).
+//   Proximity — the TPN sentence sits directly under the switch's own label,
+//     not in a manual (§4b point 2: "at the point of the switch").
+//   Cognitive bias — off by default; the consequence is stated before the
+//     click, and the click is undoable, rather than a confirm that gets
+//     clicked through.
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 import { BINS_REFUSALS } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
 import {
   isUncPath, normalizeUncInput, addedByName, locationReachWords,
 } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import { Section, Group, Row } from './SettingsChrome'
-import { Button, Input } from '../../ui'
+import { Button, Input, Switch } from '../../ui'
+
+// B5a's control, in the words the plan gives it.
+export const REMOTE_VIEWING_LABEL = 'Allow files to be viewed from outside the office network'
+// The storage design §4b sentence: what turning it on means for a studio
+// that needs TPN certification, at the point of the switch ("Turning on
+// external access is the moment a workspace leaves Gold eligibility. The UI
+// must say that, in those words, at the point of the switch").
+export const REMOTE_VIEWING_TPN_SENTENCE = 'Turning on external access is the moment this workspace leaves TPN Gold Shield eligibility: remote access to content then runs outside the VPN model TPN prescribes. A studio that needs TPN certification keeps this off and works over its VPN, or on one computer.'
 
 // The sentence a person reads, without the backend's bracketed prefix.
 function said(e) {
@@ -195,6 +213,59 @@ export function FootageLocationsSection() {
           {addError && <p className="s-feedback" data-tone="error" role="alert">{addError}</p>}
         </div>
       </Group>
+    </Section>
+  )
+}
+
+// B5a: the company's switch. A workspace admin flips it (the database says
+// so too: workspaces_admin_update); everyone else reads its state and why
+// they cannot change it. Its consequence for TPN sits under its own label.
+export function RemoteViewingSection() {
+  const ctx = useRabbit()
+  const perms = usePermissions()
+  const isAdmin = perms.role === 'admin'
+  const on = ctx?.binsInfo?.remoteViewing
+  const refreshRemoteViewing = ctx?.refreshRemoteViewing
+  // Read on arrival, for the company signed in to, open project or not.
+  useEffect(() => { Promise.resolve(refreshRemoteViewing?.({ workspaceId: perms.workspaceId })).catch(() => {}) }, [refreshRemoteViewing, perms.workspaceId])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  const flip = async (next) => {
+    setBusy(true); setError(null)
+    try { await ctx.setRemoteViewingEnabled(next, { workspaceId: perms.workspaceId }) }
+    catch (e) { setError(said(e)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Section
+      title="Viewing from outside the office network"
+      description="Off by default. While it is off, no picture of a clip leaves the office network: teammates on the network make their own from the file. While it is on, a small picture of each clip is kept in the cloud, so people who cannot reach the share still see what it is. Playing footage from outside the office comes with the WILSON file gateway, later. Turning it off deletes nothing: pictures already uploaded stay until their clips are removed."
+    >
+      <Group>
+        {/* The switch's label is a sentence, so it takes the sentence-case
+            H3 step, not the uppercase row label; the §4b sentence is the
+            first thing under it. */}
+        <div className="s-row" data-testid="remote-viewing-row">
+          <div className="s-row-label">
+            {isAdmin
+              ? <label className="s-card-title" htmlFor="s-remote-viewing">{REMOTE_VIEWING_LABEL}</label>
+              : <span className="s-card-title">{REMOTE_VIEWING_LABEL}</span>}
+            <p className="s-row-desc">{REMOTE_VIEWING_TPN_SENTENCE}</p>
+            {!isAdmin && <p className="s-row-desc">{BINS_REFUSALS.switchAdminOnly}</p>}
+          </div>
+          <div className="s-row-control">
+            {isAdmin ? (
+              <Switch surface="light" id="s-remote-viewing" checked={on === true} disabled={busy || on == null} onChange={flip}
+                aria-label={REMOTE_VIEWING_LABEL} />
+            ) : (
+              <span className="s-badge">{on == null ? 'Unknown' : on ? 'On' : 'Off'}</span>
+            )}
+          </div>
+        </div>
+      </Group>
+      {error && <p className="s-feedback" data-tone="error" role="alert">{error}</p>}
     </Section>
   )
 }

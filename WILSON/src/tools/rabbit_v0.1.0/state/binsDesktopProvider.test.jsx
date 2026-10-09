@@ -77,6 +77,8 @@ function makeCloud(mode = 'supabase') {
     binsCapabilities: () => CLOUD_CAPS,
     listBins: async () => clone({ bins: db.bins, binFiles: db.files, binRoots: [], binLocations: db.locations, shotTakes: [], orphanTakes: [], ffmpeg: false }),
     getRemoteViewingEnabled: async () => db.remoteViewing === true,
+    getWorkspaceRemoteViewing: async (ws) => { db.switchReads = [...(db.switchReads || []), ws]; return db.remoteViewing === true },
+    setRemoteViewingEnabled: async (ws, on) => { db.switchWrites = [...(db.switchWrites || []), [ws, on]]; db.remoteViewing = on === true; return db.remoteViewing },
     // The cloud's own upload: asks the switch (the client's pre-check) and
     // the "database" refuses regardless when `refuseAnyway` (the admin
     // turned it off between the pre-check and the write).
@@ -228,6 +230,24 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
       expect(holder.adapter.db.locations.map(l => l.id)).toEqual(['L1'])
       // The removal offers its undo where Settings shows it: the app's toast.
       expect(ctxRef.undoToast?.message).toContain('Sound')
+    } finally { holder.noProject = false }
+  })
+
+  it('the switch with no project open: read for the company, flipped for it, and its undo is for the same company', async () => {
+    holder.noProject = true
+    try {
+      render(<RabbitProvider><Probe /></RabbitProvider>)
+      await waitFor(() => expect(ctxRef?.adapterMode).toBe('supabase'))
+      await act(async () => { await ctxRef.refreshRemoteViewing({ workspaceId: 'w1' }) })
+      expect(holder.adapter.db.switchReads).toEqual(['w1'])
+      expect(ctxRef.binsInfo.remoteViewing).toBe(false)
+      await act(async () => { await ctxRef.setRemoteViewingEnabled(true, { workspaceId: 'w1' }) })
+      expect(holder.adapter.db.switchWrites).toEqual([['w1', true]])
+      expect(ctxRef.binsInfo.remoteViewing).toBe(true)
+      expect(ctxRef.undoToast?.message).toBe('Turned on viewing files from outside the office network')
+      await act(async () => { await ctxRef.undo() })
+      await waitFor(() => expect(holder.adapter.db.switchWrites).toEqual([['w1', true], ['w1', false]]))
+      expect(ctxRef.binsInfo.remoteViewing).toBe(false)
     } finally { holder.noProject = false }
   })
 

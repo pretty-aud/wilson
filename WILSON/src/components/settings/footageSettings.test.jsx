@@ -18,12 +18,13 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react'
 
-const holder = vi.hoisted(() => ({ ctx: null }))
+const holder = vi.hoisted(() => ({ ctx: null, perms: { ready: true, role: 'admin', workspaceId: 'w1' } }))
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => holder.ctx }))
+vi.mock('../../permissions', () => ({ usePermissions: () => holder.perms }))
 vi.mock('../TeamMembers/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ members: [{ user_id: 'u1', display_name: 'Sofia Aldana' }] }) }))
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: null }))
 
-const { FootageLocationsSection } = await import('./FootageSettings')
+const { FootageLocationsSection, RemoteViewingSection, REMOTE_VIEWING_LABEL, REMOTE_VIEWING_TPN_SENTENCE } = await import('./FootageSettings')
 const { BINS_REFUSALS } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
 
 function makeCtx(over = {}) {
@@ -44,7 +45,7 @@ function makeCtx(over = {}) {
   }
 }
 
-beforeEach(() => { holder.ctx = makeCtx() })
+beforeEach(() => { holder.ctx = makeCtx(); holder.perms = { ready: true, role: 'admin', workspaceId: 'w1' } })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 const row = (id) => document.querySelector(`[data-location-row="${id}"]`)
@@ -153,5 +154,62 @@ describe('edit and remove', () => {
     render(<FootageLocationsSection />)
     fireEvent.click(within(row('L1')).getByText('Remove'))
     await waitFor(() => expect(within(row('L1')).getByRole('alert').textContent).toContain(BINS_REFUSALS.locationInUse))
+  })
+})
+
+// ── Item 7: the company's switch (B5a) ───────────────────────────────────────
+describe('the switch: admins only, off by default, the §4b sentence at the switch', () => {
+  const switchCtx = (over = {}) => makeCtx({
+    binsInfo: { locations: [], remoteViewing: false },
+    refreshRemoteViewing: vi.fn(async () => false),
+    setRemoteViewingEnabled: vi.fn(async (on) => on),
+    ...over,
+  })
+  const theRow = () => document.querySelector('[data-testid="remote-viewing-row"]')
+
+  it('an admin: the switch, its label, and the TPN sentence directly under the label', () => {
+    holder.ctx = switchCtx()
+    render(<RemoteViewingSection />)
+    expect(holder.ctx.refreshRemoteViewing).toHaveBeenCalledWith({ workspaceId: 'w1' })
+    const sw = screen.getByRole('switch')
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    expect(sw.getAttribute('aria-label')).toBe(REMOTE_VIEWING_LABEL)
+    const label = theRow().querySelector('label.s-card-title')
+    expect(label.textContent).toBe('Allow files to be viewed from outside the office network')
+    expect(label.getAttribute('for')).toBe(sw.id)
+    // Proximity: the first thing under the label is the sentence.
+    expect(label.nextElementSibling.textContent).toBe(REMOTE_VIEWING_TPN_SENTENCE)
+    expect(REMOTE_VIEWING_TPN_SENTENCE).toContain('Turning on external access is the moment this workspace leaves TPN Gold Shield eligibility')
+    expect(document.body.textContent).toContain('Turning it off deletes nothing: pictures already uploaded stay')
+  })
+
+  it('flipping it is the provider\'s undoable verb, for this company', async () => {
+    holder.ctx = switchCtx()
+    render(<RemoteViewingSection />)
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() => expect(holder.ctx.setRemoteViewingEnabled).toHaveBeenCalledWith(true, { workspaceId: 'w1' }))
+  })
+
+  it('a refusal is shown without its bracketed prefix', async () => {
+    holder.ctx = switchCtx({ setRemoteViewingEnabled: vi.fn(async () => { throw new Error(`[supabase] ${BINS_REFUSALS.switchAdminOnly}`) }) })
+    render(<RemoteViewingSection />)
+    fireEvent.click(screen.getByRole('switch'))
+    expect((await screen.findByRole('alert')).textContent).toBe(BINS_REFUSALS.switchAdminOnly)
+  })
+
+  it('not yet read: the switch waits (never flipped from an unknown state)', () => {
+    holder.ctx = switchCtx({ binsInfo: { locations: [], remoteViewing: null } })
+    render(<RemoteViewingSection />)
+    expect(screen.getByRole('switch').disabled).toBe(true)
+  })
+
+  it('everyone else: its state, the TPN sentence, and why they cannot change it — no switch', () => {
+    holder.perms = { ready: true, role: 'member', workspaceId: 'w1' }
+    holder.ctx = switchCtx({ binsInfo: { locations: [], remoteViewing: true } })
+    render(<RemoteViewingSection />)
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(theRow().querySelector('.s-badge').textContent).toBe('On')
+    expect(theRow().textContent).toContain(REMOTE_VIEWING_TPN_SENTENCE)
+    expect(theRow().textContent).toContain(BINS_REFUSALS.switchAdminOnly)
   })
 })
