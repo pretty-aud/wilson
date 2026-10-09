@@ -52,6 +52,7 @@ const CAPABILITY_KEYS = [
 // admit the same shares. Suite 93 probes 99-106 hold the CHECK to this list.
 const { createRequire } = await import('node:module')
 const desktopBins = createRequire(import.meta.url)('../../../electron/rabbitBins.cjs')
+const rendererLocations = await import('../../tools/rabbit_v0.1.0/bins/binLocations')
 const UNC_REFUSED = [
   'Z:\\footage', '\\\\nas', '\\\\nas\\footage\\', '\\\\nas\\footage\\..\\secret', '//nas/footage',
   '\\\\localhost\\C$', '\\\\LOCALHOST\\c$\\Users', '\\\\127.0.0.1\\C$', '\\\\127.0.0.1\\footage', '\\\\0.0.0.0\\share',
@@ -68,6 +69,14 @@ describe('the network-address guard is one guard on every backend (review round 
   it('the desktop refuses and admits the same addresses as 0091\'s CHECK', () => {
     for (const bad of UNC_REFUSED) expect(desktopBins.isUncPath(bad), bad).toBe(false)
     for (const ok of UNC_ADMITTED) expect(desktopBins.isUncPath(ok), ok).toBe(true)
+  })
+
+  // BC2: the renderer's copy (bins/binLocations.js) judges a typed address
+  // BEFORE the request, so a person reads the sentence with the field in
+  // front of them; it is the fourth guard and refuses the same list.
+  it('the renderer (Settings, the add flow) refuses and admits the same addresses', () => {
+    for (const bad of UNC_REFUSED) expect(rendererLocations.isUncPath(bad), bad).toBe(false)
+    for (const ok of UNC_ADMITTED) expect(rendererLocations.isUncPath(ok), ok).toBe(true)
   })
 
   it('the fixtures refuse the same addresses with the cloud\'s sentence, and admit the same shares', async () => {

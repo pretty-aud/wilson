@@ -127,6 +127,52 @@ describe('B2\'s fallback, per computer: the folder from this computer\'s setting
     expect(saved.value.locations['loc-a']).toBeUndefined()
   })
 
+  it('the dialog for one REGISTERED location saves its folder in this computer\'s settings — not in the process-wide picked set', async () => {
+    saved.value = null
+    const before = new Set(userAuthorizedDirs)
+    // Not registered: refused before any dialog opens.
+    dialogAnswer.canceled = false; dialogAnswer.filePaths = [media]
+    expect((await api('/locations/loc-x/pick-local', J({ name: 'X' }))).status).toBe(403)
+    expect(saved.value).toBeNull()
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const r = await api('/locations/loc-a/pick-local', J({ name: 'Footage NAS' }))
+    expect(r.status).toBe(200)
+    const body = await r.json()
+    expect(body).toMatchObject({ id: 'loc-a', unc_path: UNC, local_path: path.resolve(media), local_path_source: 'saved', reachable: true })
+    expect(saved.value.locations['loc-a']).toMatchObject({ unc_path: UNC, local_path: path.resolve(media) })
+    expect([...userAuthorizedDirs]).toEqual([...before])
+    // The clip is read under the chosen folder now.
+    const res = await (await api('/resolve', J({ files: [{ id: 'c', location_id: 'loc-a', relative_path: 'A001/clip.mp4' }] }))).json()
+    expect(res.files[0].online).toBe(true)
+    // …and after a restart (the list registered afresh) it still is.
+    await api('/locations', J({ locations: [] }))
+    const again = await (await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))).json()
+    expect(again.locations[0]).toMatchObject({ local_path: path.resolve(media), local_path_source: 'saved', reachable: true })
+  })
+
+  it('a cancelled dialog saves nothing; a file instead of a folder is refused', async () => {
+    saved.value = null
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    dialogAnswer.canceled = true; dialogAnswer.filePaths = []
+    expect(await (await api('/locations/loc-a/pick-local', J({}))).json()).toEqual({ canceled: true })
+    dialogAnswer.canceled = false; dialogAnswer.filePaths = [path.join(media, 'A001', 'clip.mp4')]
+    const r = await api('/locations/loc-a/pick-local', J({}))
+    expect(r.status).toBe(400)
+    expect((await r.json()).code).toBe('not_a_directory')
+    expect(saved.value).toBeNull()
+  })
+
+  it('forgetting the folder: the clip is read at the network address again', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const r = await (await api('/locations/loc-a/local', { method: 'DELETE' })).json()
+    expect(r).toMatchObject({ id: 'loc-a', local_path: null, root: UNC })
+    expect(saved.value.locations['loc-a']).toBeUndefined()
+    const res = await (await api('/resolve', J({ files: [{ id: 'c', location_id: 'loc-a', relative_path: 'A001/clip.mp4' }] }))).json()
+    expect(res.files[0].online).toBe(false)
+    expect((await api('/locations/nothing-here/local', { method: 'DELETE' })).status).toBe(404)
+  })
+
   it('a body local_path nobody picked is still dropped; the saved folder of ANOTHER location is never borrowed', async () => {
     saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
     const r = await (await api('/locations', J({ locations: [{ id: 'loc-z', unc_path: UNC, local_path: other }] }))).json()

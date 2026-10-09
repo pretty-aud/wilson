@@ -1629,6 +1629,44 @@ function mountCloudBins(expressApp, deps) {
     res.json({ locations: out });
   });
 
+  // ── B2's fallback: "Where is this location on this computer?" ──
+  // The OS folder dialog, opened HERE for one REGISTERED location (a body
+  // cannot save a folder for an address the renderer did not register from
+  // the cloud's list), and the answer kept in this computer's settings for
+  // that location and that address. The folder is not added to
+  // `authorized` (the process-wide set other subsystems trust): it is a
+  // root for this location's clips only. Body: { name } for the dialog's
+  // title. → { id, local_path, reachable, root } or { canceled: true }.
+  expressApp.post(`${C}/locations/:id/pick-local`, async (req, res) => {
+    const loc = cloudLocations.get(String(req.params.id));
+    if (!loc) return res.status(403).json({ error: 'that footage location is not registered on this computer', code: 'unauthorized_location' });
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    const name = String(req.body?.name || '').replace(/[\r\n]+/g, ' ').slice(0, 80).trim();
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: `Where is ${name ? `"${name}"` : 'this location'} (${loc.unc_path}) on this computer?`,
+    });
+    if (result.canceled || !result.filePaths?.length) return res.json({ canceled: true });
+    const picked = result.filePaths[0];
+    if (!isAbs(picked) || !isDir(picked)) return res.status(400).json({ error: 'pick a folder', code: 'not_a_directory' });
+    const local_path = path.resolve(picked);
+    localPaths.set(loc.id, { unc_path: loc.unc_path, local_path, saved_at: new Date().toISOString() });
+    cloudLocations.set(loc.id, { ...loc, local_path });
+    res.json({ id: loc.id, unc_path: loc.unc_path, local_path, local_path_source: 'saved', reachable: reachable(local_path), root: local_path });
+  });
+
+  // Forget this computer's folder for a location: its clips are read at the
+  // network address again. → { id, local_path: null, reachable, root }
+  expressApp.delete(`${C}/locations/:id/local`, (req, res) => {
+    const id = String(req.params.id);
+    const had = localPaths.remove(id);
+    const loc = cloudLocations.get(id);
+    if (loc) cloudLocations.set(id, { ...loc, local_path: null });
+    if (!had && !loc) return res.status(404).json({ error: 'no folder is saved for that location on this computer', code: 'not_found' });
+    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, reachable: loc ? reachable(loc.unc_path) : false, root: loc?.unc_path ?? null });
+  });
+
   // files: [{ id, location_id, relative_path, is_sequence }] → what this
   // computer can reach. A file whose location is not registered, or whose
   // path is not the database's shape, reads online:false with a reason.

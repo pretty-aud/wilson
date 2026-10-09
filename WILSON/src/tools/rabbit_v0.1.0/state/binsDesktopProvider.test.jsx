@@ -41,7 +41,7 @@ vi.mock('../../../cloud/auth/supabaseClient', () => ({
 }))
 vi.mock('../../../lib/localData', () => ({
   hasLocalServer: () => true,
-  loadOtterSettings: async () => ({ rabbit: { adapterMode: holder.mode, activeProjectId: 'p1' } }),
+  loadOtterSettings: async () => ({ rabbit: { adapterMode: holder.mode, activeProjectId: holder.noProject ? null : 'p1' } }),
   saveOtterSettings: async () => {},
 }))
 vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => null }))
@@ -93,6 +93,8 @@ function makeFiles({ pingOk = true } = {}) {
     resolveCloudBinFiles: vi.fn(async (list) => { calls.push(['resolve', list.map(f => f.id)]); return { files: list.map(f => ({ id: f.id, online: f.id === 'f1' })) } }),
     cloudBinFileThumbnailUrl: (loc, rel) => `thumb:${loc}:${rel}`,
     cloudBinFileStreamUrl: (loc, rel) => `stream:${loc}:${rel}`,
+    pickCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['pickLocal', id]); return { id, local_path: 'Z:\\footage', local_path_source: 'saved', reachable: true } }),
+    forgetCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['forgetLocal', id]); return { id, local_path: null } }),
   }
 }
 
@@ -189,6 +191,48 @@ describe('BC2 — registering the company\'s locations with this computer', () =
     expect(ctxRef.binFiles.map(f => f.online)).toEqual([false, false])
     await act(async () => { releasePing() })
     await waitFor(() => expect(ctxRef.binFiles.map(f => [f.id, f.online])).toEqual([['f1', true], ['f2', false]]))
+  })
+})
+
+describe('BC2 — the company\'s locations, managed from Settings', () => {
+  it('with no project open, a location is added, renamed and removed (the verbs need the company, not a project)', async () => {
+    holder.noProject = true
+    try {
+      render(<RabbitProvider><Probe /></RabbitProvider>)
+      await waitFor(() => expect(ctxRef?.adapterMode).toBe('supabase'))
+      expect(ctxRef.activeProjectId).toBeNull()
+      await act(async () => { await ctxRef.refreshBinLocations() })
+      expect(ctxRef.binLocations.map(l => l.id)).toEqual(['L1'])
+      let row
+      await act(async () => { row = await ctxRef.addBinLocation({ name: 'Sound', unc_path: '\\\\nas\\sound' }) })
+      expect(holder.adapter.db.locations.map(l => l.id)).toEqual(['L1', row.id])
+      await act(async () => { await ctxRef.removeBinLocation(row.id) })
+      expect(holder.adapter.db.locations.map(l => l.id)).toEqual(['L1'])
+      // The removal offers its undo where Settings shows it: the app's toast.
+      expect(ctxRef.undoToast?.message).toContain('Sound')
+    } finally { holder.noProject = false }
+  })
+
+  it('"Where is it on this computer?": the desktop\'s dialog for that location, then the list registered again and every clip resolved', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    const registersBefore = holder.files.calls.filter(c => c[0] === 'register').length
+    holder.files.resolveCloudBinFiles.mockClear()
+    await act(async () => { await ctxRef.pickBinLocationLocalPath('L1') })
+    expect(holder.files.pickCloudBinLocationLocalPath).toHaveBeenCalledWith('L1', { name: 'Footage NAS', unc_path: '\\\\nas\\footage' })
+    expect(holder.files.calls.filter(c => c[0] === 'register').length).toBeGreaterThan(registersBefore)
+    expect(holder.files.resolveCloudBinFiles).toHaveBeenCalled()
+    await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') })
+    expect(holder.files.forgetCloudBinLocationLocalPath).toHaveBeenCalledWith('L1')
+  })
+
+  it('in a browser the per-computer question is refused with a sentence, not a TypeError', async () => {
+    delete window.electronAPI
+    await mount()
+    const err = await ctxRef.pickBinLocationLocalPath('L1').catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message).toContain('needs the desktop app')
   })
 })
 

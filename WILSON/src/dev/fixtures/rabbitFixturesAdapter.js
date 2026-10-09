@@ -1315,6 +1315,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     // ── The company's switch (B5a) ───────────────────────────────────────────
     async getRemoteViewingEnabled() { return store.workspace.remote_viewing_enabled === true },
+    // BC2: read for the workspace, where no project is open (Settings).
+    async getWorkspaceRemoteViewing() { return store.workspace.remote_viewing_enabled === true },
     async setRemoteViewingEnabled(_workspaceId, enabled) {
       // workspaces_admin_update (0020): a workspace admin's verb.
       if (appRole !== 'admin') throw forbidden(BINS_SENTENCES.switchAdminOnly)

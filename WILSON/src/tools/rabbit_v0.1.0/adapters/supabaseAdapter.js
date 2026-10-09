@@ -4619,6 +4619,19 @@ export function supabaseAdapter() {
       );
       return v === true;
     },
+    // BC2: the same switch read for the WORKSPACE, where no project is open
+    // (Settings, Storage). workspaces_select (0002) lets every active member
+    // read their own company's row; another company's id reads as off.
+    async getWorkspaceRemoteViewing(workspaceId) {
+      const client = await requireClient();
+      if (!workspaceId) return false;
+      const { data, error } = await client.from('workspaces').select('remote_viewing_enabled').eq('id', workspaceId).maybeSingle();
+      if (error) {
+        if (error.code === '42703') return false; // a database without 0091's column
+        throw new Error(`[supabase] ${error.message || error}`);
+      }
+      return data?.remote_viewing_enabled === true;
+    },
     async setRemoteViewingEnabled(workspaceId, enabled) {
       const client = await requireClient();
       requireBins();

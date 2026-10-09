@@ -5183,8 +5183,10 @@ export function RabbitProvider({ children }) {
     return rows || [];
   }, [binsBackend]);
 
+  // BC2: the four location verbs and the switch run with or without an open
+  // project (locationsAdapter): Settings, Storage manages the company's list.
   const addBinLocation = useCallback(async (location) => {
-    const a = binsAdapter();
+    const a = locationsAdapter();
     if (typeof a.createBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
     const created = await a.createBinLocation(location);
     setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [created]) }));
@@ -5193,10 +5195,10 @@ export function RabbitProvider({ children }) {
       redoOps: [() => mutationsRef.current.addBinLocation(created)],
     });
     return created;
-  }, [binsAdapter]);
+  }, [locationsAdapter]);
 
   const updateBinLocation = useCallback(async (id, patch) => {
-    const a = binsAdapter();
+    const a = locationsAdapter();
     if (typeof a.updateBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
     const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
     const oldValues = {};
@@ -5213,10 +5215,10 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [binsAdapter, optimistic]);
+  }, [locationsAdapter, optimistic]);
 
   const removeBinLocation = useCallback(async (id) => {
-    const a = binsAdapter();
+    const a = locationsAdapter();
     if (typeof a.removeBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
     const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
     // Server-first, no optimistic removal: a location in use is REFUSED by
@@ -5226,32 +5228,84 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, binLocations: (prev.binLocations || []).filter(l => l.id !== id) }));
     const row = removed || old;
     if (row) {
-      pushHistory({
+      const token = pushHistory({
         undoOps: [() => mutationsRef.current.addBinLocation(row)],
         redoOps: [() => mutationsRef.current.removeBinLocation(row.id)],
       });
+      // BC2: Settings has no Ctrl+Z of its own; the app's undo toast does it.
+      if (token != null) showUndoToast(`Removed the footage location "${row.name || row.unc_path}"`, () => undoHistoryEntry(token));
     }
     return row;
-  }, [binsAdapter]);
+  }, [locationsAdapter, showUndoToast, undoHistoryEntry]);
 
   // The company's switch (B5a): "Allow files to be viewed from outside the
   // office network." A workspace admin's verb; anyone else reads the
   // database's sentence. Undoable, like every other change a person makes.
-  const setRemoteViewingEnabled = useCallback(async (enabled) => {
-    const a = binsAdapter();
+  // BC2: `workspaceId` for a caller with no open project (Settings); the
+  // undo and redo carry the same company, whatever project is open later.
+  const setRemoteViewingEnabled = useCallback(async (enabled, { workspaceId: ws = null } = {}) => {
+    const a = locationsAdapter();
     if (typeof a.setRemoteViewingEnabled !== 'function') throw new Error('The remote-viewing switch is not available on this backend');
-    const workspaceId = bundleRef.current.project?.workspace_id || null;
+    const workspaceId = ws || bundleRef.current.project?.workspace_id || null;
     const before = binsInfo.remoteViewing;
     const now = await a.setRemoteViewingEnabled(workspaceId, enabled === true);
     setBinsInfo(i => ({ ...i, remoteViewing: now }));
     if (before !== null && before !== now) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.setRemoteViewingEnabled(before)],
-        redoOps: [() => mutationsRef.current.setRemoteViewingEnabled(now)],
+      const token = pushHistory({
+        undoOps: [() => mutationsRef.current.setRemoteViewingEnabled(before, { workspaceId })],
+        redoOps: [() => mutationsRef.current.setRemoteViewingEnabled(now, { workspaceId })],
       });
+      if (token != null) {
+        showUndoToast(now
+          ? 'Turned on viewing files from outside the office network'
+          : 'Turned off viewing files from outside the office network', () => undoHistoryEntry(token));
+      }
     }
     return now;
-  }, [binsAdapter, binsInfo.remoteViewing]);
+  }, [locationsAdapter, binsInfo.remoteViewing, showUndoToast, undoHistoryEntry]);
+
+  // BC2: the switch read where no project is open (Settings), for the
+  // company the person is signed in to. Where a project is open it is the
+  // project's own read (refreshBins), which says the same thing.
+  const refreshRemoteViewing = useCallback(async ({ workspaceId = null } = {}) => {
+    const a = binsBackend();
+    if (!a) return null;
+    let v = null;
+    try {
+      if (activeProjectId && typeof a.getRemoteViewingEnabled === 'function') v = await a.getRemoteViewingEnabled(activeProjectId);
+      else if (workspaceId && typeof a.getWorkspaceRemoteViewing === 'function') v = await a.getWorkspaceRemoteViewing(workspaceId);
+    } catch { v = null; }
+    if (v !== null) setBinsInfo(i => ({ ...i, remoteViewing: v === true }));
+    return v;
+  }, [binsBackend, activeProjectId]);
+
+  // BC2, B2's fallback: "Where is this location on this computer?" — the
+  // desktop's own folder dialog for that location; the answer stays in this
+  // computer's settings. Then the list is registered again and every clip
+  // resolved. Not an edit of the company's data, so no history entry: the
+  // way back is forgetBinLocationLocalPath.
+  const pickBinLocationLocalPath = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.pickBinLocationLocalPath !== 'function') throw new Error('Choosing where a location is on this computer needs the desktop app.');
+    const loc = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    if (!loc) throw new Error('That footage location is not in the company\'s list.');
+    // The desktop only answers for a REGISTERED location: register first.
+    await registerBinLocationsNow();
+    const res = await a.pickBinLocationLocalPath(loc);
+    if (res?.canceled) return res;
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
+
+  const forgetBinLocationLocalPath = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.forgetBinLocationLocalPath !== 'function') throw new Error('This computer keeps no folder for footage locations outside the desktop app.');
+    const res = await a.forgetBinLocationLocalPath(id);
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
 
   // A clip's picture where the backend signs it per read (the cloud:
   // rabbit-thumbnails is private). null where the backend has a sync route
@@ -6963,6 +7017,9 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.updateBinLocation = updateBinLocation;
   mutationsRef.current.removeBinLocation = removeBinLocation;
   mutationsRef.current.setRemoteViewingEnabled = setRemoteViewingEnabled;
+  // BC2: every new mutator in the registry, history op or not.
+  mutationsRef.current.pickBinLocationLocalPath = pickBinLocationLocalPath;
+  mutationsRef.current.forgetBinLocationLocalPath = forgetBinLocationLocalPath;
   // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
   // and undo SWALLOWS a throw — a mutator missing from this list fails
   // silently (measured: Ctrl+Z after an assignment did nothing until
@@ -7306,6 +7363,8 @@ export function RabbitProvider({ children }) {
     binRelinkScan, binRelinkApply, removeBinRoot,
     // Footage locations and the company's switch (BC1).
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
+    // BC2: the switch read without a project; where a location is on THIS computer.
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath,
     // Shot takes (milestone 2).
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
@@ -7395,6 +7454,7 @@ export function RabbitProvider({ children }) {
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, desktopBinFiles,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

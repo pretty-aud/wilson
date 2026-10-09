@@ -22,6 +22,7 @@ import AttachmentMigrationPanel from '../cloud/migrate/AttachmentMigrationPanel'
 import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
+import { FootageLocationsSection } from './settings/FootageSettings'
 import UserModelsSection from './settings/UserModelsSection'
 import { usePermissions } from '../permissions'
 import GatedAction from '../permissions/GatedAction'
@@ -863,6 +864,12 @@ export default function SettingsPage({
                   </span>
                 </div>
               </Section>
+
+              {/* BC2 (Bins on the cloud, the desktop signed in): the company's
+                  footage locations — where footage lives on the office
+                  network, by network address. Signed in to a company only;
+                  the signed-out desktop keeps its known folders (B12). */}
+              {rabbitCtx?.adapterMode === 'supabase' && <FootageLocationsSection />}
 
               {/* Cloud migration tool — dry-run + migrate + archive local */}
               {/* Session 9: per-provider connection details (locked #14). */}
