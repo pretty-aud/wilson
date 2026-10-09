@@ -281,6 +281,16 @@ describe('B4: the catch-up when the switch is on', () => {
     expect(document.body.textContent).toContain('Uploaded 1 picture.')
   })
 
+  it('review round 1: a clip whose picture cannot be made here is not offered again (the offer goes)', async () => {
+    await mount(DESKTOP, reviewer(), {
+      binsInfo: { ffmpeg: true, capabilities: DESKTOP, locations: [], remoteViewing: true },
+      uploadBinFilePosters: vi.fn(async () => ({ uploaded: 0, failed: 1, failedIds: ['f1'], refused: false })),
+    })
+    await act(async () => { fireEvent.click(screen.getByText('Upload pictures for 1 clip')) })
+    expect(document.body.textContent).toContain('1 could not be made on this computer')
+    expect(document.body.textContent).not.toContain('Upload pictures for')
+  })
+
   it('switch off, or a browser: no offer', async () => {
     await mount(DESKTOP, reviewer(), { binsInfo: { ffmpeg: true, capabilities: DESKTOP, locations: [], remoteViewing: false } })
     expect(document.body.textContent).not.toContain('no picture in the cloud yet')

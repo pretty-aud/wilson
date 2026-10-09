@@ -212,8 +212,11 @@ export function composeDesktopCloudBins(cloud, files, { rowOf = () => null, proj
         try {
           const patch = await probeFile(it)
           Object.assign(it, pick(patch, BIN_FILE_TECH_COLUMNS))
-        } catch {
-          it.probe_status = 'failed'
+        } catch (err) {
+          // Out of reach right now (410) is not a failure: the row stays
+          // pending for the next pass, as the provider marks it (review
+          // round 1).
+          it.probe_status = err?.code === 'offline' || err?.status === 410 ? 'pending' : 'failed'
         }
         done++
         opts.onProgress?.({ done, total })

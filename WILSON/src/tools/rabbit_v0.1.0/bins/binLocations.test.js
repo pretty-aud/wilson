@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { isUncPath, normalizeUncInput, shareRootOf, suggestLocationName, addedByName, locationReachWords, notHereSentence, NOT_ON_THIS_COMPUTER } from './binLocations'
+import { isUncPath, normalizeUncInput, suggestLocationName, addedByName, locationReachWords, notHereSentence, NOT_ON_THIS_COMPUTER } from './binLocations'
 
 describe('normalizeUncInput: what a person pastes, in the stored shape', () => {
   const cases = [
@@ -46,15 +46,11 @@ describe('normalizeUncInput: what a person pastes, in the stored shape', () => {
   })
 })
 
-describe('the share a path lies in, and a name to start from', () => {
-  it('shareRootOf: \\\\server\\share of a path on the network; null off it', () => {
-    expect(shareRootOf('\\\\salthours-nas\\footage\\A001\\T1.mov')).toBe('\\\\salthours-nas\\footage')
-    expect(shareRootOf('//nas/vfx/plates')).toBe('\\\\nas\\vfx')
-    expect(shareRootOf('C:\\Users\\me\\clip.mov')).toBeNull()
-    expect(shareRootOf('\\\\localhost\\C$\\Users')).toBeNull()
-    expect(shareRootOf('\\\\nas')).toBeNull()
-  })
-
+// Review round 1: the renderer's shareRootOf had no caller (the desktop's
+// prepare answers each outside path's share_root, from shareRootOfPath in
+// electron/rabbitBins.cjs, whose own tests keep the shape); it went, and its
+// test with it.
+describe('a name to start from', () => {
   it('suggestLocationName: the share, in words', () => {
     expect(suggestLocationName('\\\\nas\\footage')).toBe('Footage')
     expect(suggestLocationName('\\\\nas\\vfx_plates')).toBe('Vfx plates')

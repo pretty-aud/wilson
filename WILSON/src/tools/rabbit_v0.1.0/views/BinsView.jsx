@@ -779,9 +779,13 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // ── BC2 (B4): pictures to the cloud, while the company allows it ──
   // The catch-up for clips added while the switch was off: counted from the
   // rows this computer reaches that have no picture in the cloud.
+  // Review round 1: a clip whose picture could not be made on this computer
+  // (no decoder for it) is not counted again after a catch-up, or the offer
+  // would never go.
+  const [noPictureHere, setNoPictureHere] = useState(() => new Set())
   const posterCatchUp = useMemo(
-    () => (desktopCloud && ctx?.binsInfo?.remoteViewing === true ? files.filter(needsCloudPoster).length : 0),
-    [desktopCloud, ctx?.binsInfo?.remoteViewing, files],
+    () => (desktopCloud && ctx?.binsInfo?.remoteViewing === true ? files.filter(f => needsCloudPoster(f) && !noPictureHere.has(f.id)).length : 0),
+    [desktopCloud, ctx?.binsInfo?.remoteViewing, files, noPictureHere],
   )
   const [catchUpDismissed, setCatchUpDismissed] = useState(false)
   const [catchUpBusy, setCatchUpBusy] = useState(false)
@@ -791,6 +795,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     setCatchUpBusy(true)
     try {
       const r = await uploadBinFilePosters(null)
+      if (r?.failedIds?.length) setNoPictureHere(s => new Set([...s, ...r.failedIds]))
       if (r?.refused) return
       const parts = [`Uploaded ${r.uploaded} picture${r.uploaded === 1 ? '' : 's'}`]
       if (r.failed) parts.push(`${r.failed} could not be made on this computer`)

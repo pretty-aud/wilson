@@ -4632,6 +4632,18 @@ export function RabbitProvider({ children }) {
   // this computer". Dropped when the project changed meanwhile.
   const binResolveTimerRef = useRef(null);
   const binResolvePendingRef = useRef(null); // null = nothing pending; 'all' or a Set of ids
+  // Review round 1, finding 7: answers can land out of order (a resolve
+  // waiting on a slow root, then a quick one after "Where is it on this
+  // computer?"). Each row keeps the number of the latest question asked for
+  // it; an older answer for it is dropped.
+  const binResolveSeqRef = useRef({ n: 0, byId: new Map() });
+  // Finding 4: a clip on a location this computer was never told of (a
+  // teammate named it since; locations are not broadcast) — the company's
+  // list is read again, at most every ten seconds, and its key change
+  // registers it and resolves its clips. Reached through a ref: the reader
+  // is defined in the bins block below.
+  const refreshBinLocationsRef = useRef(null);
+  const binLocationsRereadAtRef = useRef(0);
   const resolveBinOnline = useCallback(async (ids = null) => {
     const a = binsBackend();
     if (typeof a?.resolveBinFiles !== 'function') return;
@@ -4639,14 +4651,52 @@ export function RabbitProvider({ children }) {
     const want = ids ? new Set(ids) : null;
     const rows = (bundleRef.current.binFiles || []).filter(f => f.location_id && (!want || want.has(f.id)));
     if (!rows.length) return;
+    const seq = binResolveSeqRef.current;
+    const n = ++seq.n;
+    for (const r of rows) seq.byId.set(r.id, n);
     let map;
     try { map = await a.resolveBinFiles(rows); } catch { return; }
     if (activeProjectIdRef.current !== pid) return;
-    const asked = new Set(rows.map(r => r.id));
-    setBundle(prev => ({
-      ...prev,
-      binFiles: (prev.binFiles || []).map(f => (asked.has(f.id) ? { ...f, online: map.get(f.id)?.online === true } : f)),
-    }));
+    const asked = new Set(rows.filter(r => seq.byId.get(r.id) === n).map(r => r.id));
+    if (asked.size) {
+      setBundle(prev => ({
+        ...prev,
+        binFiles: (prev.binFiles || []).map(f => (asked.has(f.id) ? { ...f, online: map.get(f.id)?.online === true } : f)),
+      }));
+    }
+    // Finding 8: what resolve learned about a LOCATION reaches the notices
+    // and the relink dialog, not only the rows — a server that went down
+    // after registration reads "not reachable", never "the file is not at
+    // its path" (which would counsel removing the clip).
+    const byLoc = new Map();
+    for (const r of rows) {
+      const ans = asked.has(r.id) ? map.get(r.id) : null;
+      if (!ans) continue;
+      const cur = byLoc.get(r.location_id) || {};
+      if (ans.online) cur.online = true;
+      if (ans.reason === 'location_unreachable') cur.unreachable = true;
+      if (ans.reason === 'not_connected') cur.notConnected = true;
+      byLoc.set(r.location_id, cur);
+    }
+    if (byLoc.size) {
+      setBinsInfo(i => ({
+        ...i,
+        locations: (i.locations || []).map(st => {
+          const b = st && byLoc.get(st.id);
+          if (!b || st.status === 'refused') return st;
+          if (b.online) return st.reachable === true && st.connected !== false ? st : { ...st, reachable: true, connected: true };
+          if (b.notConnected) return st.connected === false ? st : { ...st, connected: false, reachable: false };
+          if (b.unreachable) return st.reachable === false ? st : { ...st, reachable: false };
+          return st;
+        }),
+      }));
+    }
+    const known = new Set((bundleRef.current.binLocations || []).map(l => l.id));
+    const unknown = rows.some(r => map.get(r.id)?.reason === 'unknown_location' || !known.has(r.location_id));
+    if (unknown && Date.now() - binLocationsRereadAtRef.current > 10000) {
+      binLocationsRereadAtRef.current = Date.now();
+      Promise.resolve(refreshBinLocationsRef.current?.()).catch(() => {});
+    }
   }, [binsBackend]);
   scheduleBinResolveRef.current = (ids = null) => {
     if (!desktopBinFilesRef.current) return;
@@ -5026,7 +5076,13 @@ export function RabbitProvider({ children }) {
       });
       // Not awaited: the rows are saved; the columns fill in as they arrive
       // (probeBinFiles stands down on a backend that cannot read a file).
-      probeBinFiles(created.filter(r => r.online !== false).map(r => r.id)).catch(() => {});
+      // Review round 1, finding 5: on the desktop signed in the composite
+      // already read each clip BEFORE the add (its columns are in the row);
+      // only a clip still pending is read again — not a second network probe
+      // and a second write fanned out to every teammate per clip, whose late
+      // answer could also overwrite the poster the upload just stored.
+      const desktopCloudAdd = binsCapabilitiesOf(a).backend === 'desktop_cloud';
+      probeBinFiles(created.filter(r => r.online !== false && (!desktopCloudAdd || r.probe_status === 'pending')).map(r => r.id)).catch(() => {});
       // BC2: on the desktop signed in, the new clips' pictures go to the
       // cloud only if the company allows it — asked first, quietly when not.
       if (binsCapabilitiesOf(a).backend === 'desktop_cloud') {
@@ -5210,6 +5266,7 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, binLocations: rows || [] }));
     return rows || [];
   }, [binsBackend]);
+  refreshBinLocationsRef.current = refreshBinLocations;
 
   // BC2: the four location verbs and the switch run with or without an open
   // project (locationsAdapter): Settings, Storage manages the company's list.
@@ -5406,7 +5463,9 @@ export function RabbitProvider({ children }) {
     const want = ids ? new Set(ids) : null;
     // `given`: rows a mutator just created (state lands a render later).
     const rows = (given || bundleRef.current.binFiles || []).filter(f => (!want || want.has(f.id)) && needsCloudPoster(f));
-    let uploaded = 0; let failed = 0;
+    // `failedIds` (review round 1): the clips whose picture could not be
+    // made on this computer, so the catch-up stops counting them.
+    let uploaded = 0; let failed = 0; const failedIds = [];
     for (const r of rows) {
       if (activeProjectIdRef.current !== pid) break;
       try {
@@ -5416,12 +5475,13 @@ export function RabbitProvider({ children }) {
       } catch (e) {
         if (e?.code === 'remote_viewing_off') {
           setBinsInfo(i => ({ ...i, remoteViewing: false, notice: { text: BIN_POSTERS_OFF_SENTENCE, kind: 'warn', at: Date.now() } }));
-          return { uploaded, failed, refused: true };
+          return { uploaded, failed, failedIds, refused: true };
         }
         failed++;
+        failedIds.push(r.id);
       }
     }
-    return { uploaded, failed, refused: false };
+    return { uploaded, failed, failedIds, refused: false };
   }, [binsAdapter, activeProjectId]);
   uploadPostersRef.current = uploadBinFilePosters;
   const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);

@@ -55,14 +55,6 @@ export function normalizeUncInput(input) {
   return s
 }
 
-/** The share a path on the network lies in: \\server\share, or null. */
-export function shareRootOf(p) {
-  const s = normalizeUncInput(p)
-  const m = /^\\\\([^\\]+)\\([^\\]+)/.exec(s)
-  if (!m) return null
-  const root = `\\\\${m[1]}\\${m[2]}`
-  return isUncPath(root) ? root : null
-}
 
 /** A name to start from for a share: "footage" → "Footage", "vfx_plates" → "Vfx plates". */
 export function suggestLocationName(unc) {

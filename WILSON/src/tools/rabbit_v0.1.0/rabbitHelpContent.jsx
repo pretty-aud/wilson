@@ -468,6 +468,14 @@ export function RabbitHelpContent({ helpPage, theme }) {
               only as a drive letter is asked once, with Where is it on this
               computer?, and only that computer keeps the answer.
             </p>
+            <p className={T.listItem}>
+              Anyone in the company can name a location, so each computer
+              connects to an address only once its own person agrees: Connect…
+              asks Windows to confirm the address first (picking files on the
+              share in the desktop&apos;s own file dialog counts too). Until
+              then its clips read Not connected on this computer. Connect only
+              to a share you recognise.
+            </p>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Adding clips</h4>

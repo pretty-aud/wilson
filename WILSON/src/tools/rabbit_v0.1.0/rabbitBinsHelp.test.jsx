@@ -12,7 +12,7 @@ import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent'
-import { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER } from './bins/binLocations'
+import { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CONNECT_LABEL, NOT_CONNECTED_HERE } from './bins/binLocations'
 import { REMOTE_VIEWING_LABEL } from './bins/cloudPosters'
 
 afterEach(cleanup)
@@ -49,6 +49,10 @@ describe('the "Bins" help page (BC2)', () => {
     for (const f of ['src/components/settings/FootageSettings.jsx', 'src/tools/rabbit_v0.1.0/views/BinsView.jsx', 'src/tools/rabbit_v0.1.0/views/bins/RelinkLocationsDialog.jsx']) {
       expect(src(f), f).toContain('Where is it on this computer?')
     }
+    // Review round 1: consent before contact, in the controls' own words.
+    expect(text).toContain(CONNECT_LABEL)
+    expect(text).toContain(NOT_CONNECTED_HERE)
+    expect(text).toContain('each computer connects to an address only once its own person agrees')
     // Where the locations and the switch live, as the Settings page names them.
     expect(text).toContain('App settings, Storage, Footage locations')
     expect(src('src/components/settings/FootageSettings.jsx')).toContain('title="Footage locations"')

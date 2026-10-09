@@ -68,7 +68,7 @@ function makeFiles({ reachable = new Set(['f1', 'f3']), fail = false } = {}) {
       // f2 is not answered at all: it must read "not on this computer".
       return { files: list.filter(f => f.id !== 'f2').map(f => ({ id: f.id, online: reachable.has(f.id) })) }
     },
-    async probeCloudBinFile(file) { calls.push(['probe', file]); if (file.relative_path.includes('broken')) throw Object.assign(new Error('nope'), { status: 422 }); return { size_bytes: 10, duration_sec: 4.5, width: 1920, height: 1080, fps: 25, codec: 'h264', probe_status: 'done', sample_rate: 48000, path: 'Z:\\x', online: true } },
+    async probeCloudBinFile(file) { calls.push(['probe', file]); if (file.relative_path.includes('broken')) throw Object.assign(new Error('nope'), { status: 422 }); if (file.relative_path.includes('away')) throw Object.assign(new Error('file missing on this computer'), { status: 410, code: 'offline' }); return { size_bytes: 10, duration_sec: 4.5, width: 1920, height: 1080, fps: 25, codec: 'h264', probe_status: 'done', sample_rate: 48000, path: 'Z:\\x', online: true } },
     async pickCloudBinFiles() { calls.push(['pick']); return { paths: ['\\\\nas\\footage\\A001\\T3.mov'] } },
     async pickCloudBinFolder(title) { calls.push(['pickFolder', title]); return { path: '\\\\nas\\footage\\A001' } },
     async prepareCloudBinFiles(paths, opts) { calls.push(['prepare', paths, opts]); return { items: [] } },
@@ -153,6 +153,14 @@ describe('adding: the adding computer fills the columns, the cloud stores them',
     { kind: 'file', status: 'ok', location_id: 'L1', relative_path: 'A001/T3.mov', source_path: '\\\\nas\\footage\\A001\\T3.mov', original_name: 'T3.mov', extension: '.mov', size_bytes: 9, mtime: '2026-10-02T00:00:00.000Z', media_type: 'video', display_name: 'T3', suggestions: { slate: '1' }, duplicate: null, sub_bin: 'A001', slate: '1' },
     { kind: 'sequence', status: 'ok', location_id: 'L2', relative_path: 'VFX/broken_seq', source_path: '\\\\nas\\vfx\\VFX\\broken_seq', original_name: 'broken_seq', extension: '.exr', media_type: 'sequence', sequence: { pattern: 'p.####.exr' }, sequence_pattern: 'p.####.exr', frame_count: 12 },
   ]
+
+  it('review round 1: a clip out of reach while it is added is pending (read again later), not failed', async () => {
+    const cloud = makeCloud(); const files = makeFiles()
+    const c = composeDesktopCloudBins(cloud, files, { rowOf, projectFps: () => 25 })
+    await c.addBinFiles('p1', 'b1', [{ kind: 'file', status: 'ok', location_id: 'L1', relative_path: 'A001/away.mov', original_name: 'away.mov', media_type: 'video' }], true)
+    const sent = cloud.calls.find(x => x[0] === 'addBinFiles')[3]
+    expect(sent[0]).toMatchObject({ relative_path: 'A001/away.mov', probe_status: 'pending' })
+  })
 
   it('probes each item here first, sends only what add_bin_files reads, and never this computer\'s path', async () => {
     const cloud = makeCloud(); const files = makeFiles()

@@ -320,6 +320,13 @@ describe('BC2 — adding clips from a location, through the provider', () => {
     expect(stored).toMatchObject({ duration_sec: 3, width: 1920, probe_status: 'done' })
     expect('source_path' in stored).toBe(false)
     expect(res.created[0].online).toBe(true)
+    // Review round 1, finding 5: read ONCE — not again after the add (a
+    // second network probe and a second write fanned out per clip).
+    await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+    expect(holder.files.probeCloudBinFile).toHaveBeenCalledTimes(1)
+    // …and what it read stands (a second pass, racing the row into state,
+    // would mark the clip "failed").
+    expect(ctxRef.binFiles.find(f => f.relative_path === 'A002/T5.mov').probe_status).toBe('done')
   })
 
   it('naming a location registers it with this computer at once (the add flow reads the batch again straight after)', async () => {
@@ -358,6 +365,15 @@ describe('BC2 (B4) — a clip\'s picture goes to the cloud only while the compan
     const before = ctxRef.binsInfo.notice
     await act(async () => { await ctxRef.uploadBinFilePosters(null, { quiet: true }) })
     expect(ctxRef.binsInfo.notice).toBe(before)
+  })
+
+  it('review round 1: a clip whose picture cannot be made here is named, so the catch-up stops offering it', async () => {
+    holder.adapter.db.remoteViewing = true
+    holder.files.cloudBinFileThumbnailBase64.mockImplementation(async () => { throw Object.assign(new Error('no video decoder installed on this machine'), { status: 415 }) })
+    await ready()
+    let r
+    await act(async () => { r = await ctxRef.uploadBinFilePosters(null) })
+    expect(r).toMatchObject({ uploaded: 0, failed: 1, failedIds: ['f1'], refused: false })
   })
 
   it('switch on: only the clips this computer reaches that have no picture yet', async () => {
@@ -420,6 +436,61 @@ describe('BC2 — a teammate\'s clip arriving live', () => {
     act(() => { holder.live({ table: 'bin_files', op: 'UPDATE', record: { ...holder.adapter.db.files[0], review_flag: 'select' } }) })
     await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f1').review_flag).toBe('select'))
     expect(ctxRef.binFiles.find(f => f.id === 'f1').online).toBe(true)
+  })
+})
+
+describe('BC2 review round 1 — what resolve answers', () => {
+  const L1 = () => ctxRef.binsInfo.locations.find(l => l.id === 'L1')
+
+  it('finding 7: an older resolve that lands last does not undo a newer one (rows or location)', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    let releaseSlow = null
+    holder.files.resolveCloudBinFiles.mockImplementationOnce(async (list) => {
+      await new Promise(r => { releaseSlow = r })
+      return { files: list.map(f => ({ id: f.id, online: false, reason: 'location_unreachable' })) }
+    })
+    let first
+    act(() => { first = ctxRef.forgetBinLocationLocalPath('L1') })
+    await waitFor(() => expect(releaseSlow).toBeTypeOf('function'))
+    await act(async () => { await ctxRef.pickBinLocationLocalPath('L1') })
+    expect(ctxRef.binFiles.find(f => f.id === 'f1').online).toBe(true)
+    await act(async () => { releaseSlow(); await first })
+    expect(ctxRef.binFiles.find(f => f.id === 'f1').online).toBe(true)
+    expect(L1().reachable).toBe(true)
+  })
+
+  it('finding 8: a server gone since registration reads "not reachable"; a location not connected here reads so', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(L1().reachable).toBe(true)
+    holder.files.resolveCloudBinFiles.mockImplementationOnce(async (list) => ({ files: list.map(f => ({ id: f.id, online: false, reason: 'location_unreachable' })) }))
+    await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') })
+    expect(L1()).toMatchObject({ reachable: false })
+    holder.files.resolveCloudBinFiles.mockImplementationOnce(async (list) => ({ files: list.map(f => ({ id: f.id, online: false, reason: 'not_connected' })) }))
+    await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') })
+    expect(L1()).toMatchObject({ connected: false, reachable: false })
+    // And back: registration says "not reachable", but a clip of it answers
+    // here — so the location IS reached (the newer, finer answer).
+    holder.files.registerCloudBinLocations.mockImplementationOnce(async (list) => ({ locations: list.map(l => ({ id: l.id, unc_path: l.unc_path, status: 'registered', connected: true, reachable: false, root: l.unc_path })) }))
+    await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') })
+    expect(L1()).toMatchObject({ reachable: true, connected: true })
+  })
+
+  it('finding 4: a teammate\'s clip on a location this computer was never told of — the company\'s list is read again, registered, and the clip resolved', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    // A teammate names a new share in the cloud and adds a clip from it.
+    holder.adapter.db.locations = [...holder.adapter.db.locations, { id: 'L2', workspace_id: 'w1', name: 'Sound', unc_path: '\\\\nas\\sound' }]
+    holder.files.resolveCloudBinFiles.mockImplementation(async (list) => ({ files: list.map(f => (f.location_id === 'L2' && !holder.files.calls.some(c => c[0] === 'register' && c[1].some(l => l.id === 'L2')) ? { id: f.id, online: false, reason: 'unknown_location' } : { id: f.id, online: true })) }))
+    const record = { id: 'f7', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L2', relative_path: 'room_tone.wav', display_name: 'room tone', original_name: 'room_tone.wav', media_type: 'audio', sort_order: 3 }
+    act(() => { holder.live({ table: 'bin_files', op: 'INSERT', record }) })
+    await waitFor(() => expect(ctxRef.binLocations.map(l => l.id)).toContain('L2'))
+    await waitFor(() => expect(holder.files.calls.some(c => c[0] === 'register' && c[1].some(l => l.id === 'L2'))).toBe(true))
+    await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f7').online).toBe(true))
   })
 })
 
