@@ -3527,6 +3527,12 @@ export function RabbitProvider({ children }) {
     const oldShot = bundleRef.current.shots.find(s => s.id === id);
     const removedItems = (bundleRef.current.shotListItems || []).filter(i => i.shot_id === id).map(i => ({ ...i }));
     const linkedTaskIds = (bundleRef.current.tasks || []).filter(t => t.shot_id === id).map(t => t.id);
+    // BC2 (BC1's Deferred): the shot's TAKES, before the delete. On the
+    // cloud they go with the shot (0091's shot_takes_shot_fk CASCADE); the
+    // Local Server keeps them as orphans. The undo puts them back through
+    // replaceShotTakes after the shot — exact on every backend, as
+    // removeBinFiles' undo does for a clip's takes.
+    const takesBefore = (bundleRef.current.shotTakes || []).filter(t => t.shot_id === id).map(t => ({ ...t }));
     const result = await optimistic(
       prev => ({
         ...prev,
@@ -3538,7 +3544,10 @@ export function RabbitProvider({ children }) {
     );
     if (oldShot) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds })],
+        undoOps: [async () => {
+          await mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds });
+          if (takesBefore.length) await mutationsRef.current.replaceShotTakes([id], takesBefore);
+        }],
         redoOps: [() => mutationsRef.current.deleteShot(id)],
       });
     }

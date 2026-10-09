@@ -860,7 +860,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
-    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id) },
+    // BC2: a shot's takes go with it, as 0091's shot_takes_shot_fk CASCADE
+    // takes them on the cloud (the provider's undo puts them back).
+    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
     async deleteLevel(id) { remove(store.levels, id) },

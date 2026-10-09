@@ -3480,3 +3480,23 @@ describe('S3c step 7: a popup\'s typed work is asked about before it goes (S3b-0
     expect(await confirmLeave('tab')).toBe(true)
   })
 })
+
+// BC2 item 8 (B6): the takes on a shot are bins data — on the cloud a
+// REVIEWER assigns them too (shot_takes' gate is can_edit_shot_lists, 0091),
+// so the shot popup's Takes use the Bins gate, project.bins.write, not
+// project.entity.write (which refuses reviewers).
+describe('the Scenes tab\'s takes on the cloud: the Bins gate (BC2, B6)', () => {
+  const asReviewer = { role: 'member', ready: true, can: () => false }
+  it('a reviewer on a staffed project adds takes from the shot popup', () => {
+    perms.current = asReviewer
+    page({ ...TAKES, adapterMode: 'supabase', myProjectRole: 'reviewer', projectIsStaffed: true })
+    const dialog = openShotPopup('The cold lamp')
+    expect(within(dialog.querySelector('.rb-scene-detail-takes')).getByRole('button', { name: /Add takes/ })).toBeTruthy()
+  })
+  it('CONTROL: someone the bins gate refuses (no seat on a staffed project) gets no Add takes', () => {
+    perms.current = asReviewer
+    page({ ...TAKES, adapterMode: 'supabase', myProjectRole: null, projectIsStaffed: true })
+    const dialog = openShotPopup('The cold lamp')
+    expect(within(dialog.querySelector('.rb-scene-detail-takes')).queryByRole('button', { name: /Add takes/ })).toBeNull()
+  })
+})

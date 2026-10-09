@@ -406,6 +406,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   // reviewers write lists; set active and archive are a project manager's
   // or a workspace admin's; on the Local Server (no roles) both are open.
   const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()
+  // BC2 (B6): the takes on a shot are bins data — the Bins gate.
+  const canTakes = canOn('project.bins.write')
   const canListWrite = canOn('project.shotlist.write')
   const canListActivate = canOn('project.shotlist.activate')
   const supportsBins = !!ctx?.supportsBins
@@ -474,11 +476,13 @@ export default function ScenesView({ pageActive = false } = {}) {
     try { await ctx?.updateShot?.(shotId, { frame_count: frames }) } catch (err) { takeFail(err, 'set the frame count') }
   }, [ctx])
   const takesApi = useMemo(() => ({
-    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canWriteProject && supportsBins,
+    // BC2 (B6): takes are bins data, gated as the Bins tab is — a reviewer
+    // assigns takes too (shot_takes' gate is can_edit_shot_lists, 0091).
+    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canTakes && supportsBins,
     open: setTakesShotId, openPicker: setPickerShotId, binPathFor, projectId: project?.id || null,
     onUpdate: handleUpdateTake, onRemove: handleRemoveTakes, onReorder: handleReorderTakes, onUseLength: handleUseTakeLength,
     notice: takesNotice, clearNotice: () => setTakesNotice(null),
-  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
+  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canTakes, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
   // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
   // Declined (false) until the shot is in state, so the request is retried
   // rather than lost; a payload for another project is dropped by the hook.
