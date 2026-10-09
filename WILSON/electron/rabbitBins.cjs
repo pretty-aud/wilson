@@ -1427,7 +1427,10 @@ function mountRabbitBins(expressApp, deps) {
     res.json(takeResponse(bundle, shotIds));
   });
 
-  mountCloudBins(expressApp, { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow });
+  mountCloudBins(expressApp, {
+    gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow,
+    dialog, getMainWindow, shell, cloudBinsLocalPaths: deps.cloudBinsLocalPaths || null,
+  });
 }
 
 // ── The desktop SIGNED IN (Bins on the cloud, BC1 / 0091; built on by BC2) ──
@@ -1455,6 +1458,35 @@ function mountRabbitBins(expressApp, deps) {
 // location are validated the way 0091's CHECK validates relative_path.
 
 const cloudLocations = new Map(); // id -> { id, unc_path, local_path }
+
+// ── B2's fallback, per computer (BC2) ──
+// "Where is this location on this computer?" — the share seen as a drive
+// letter, or under another folder, on THIS machine only. It lives in the
+// desktop's own settings (main.cjs injects a JSON file under userData as
+// `cloudBinsLocalPaths: { read(), write(obj) }`), never in the cloud, and it
+// is written by ONE route only: the OS folder dialog this process opens for
+// that location (POST /cloud-bins/locations/:id/pick-local). A body can name a
+// folder, but a body is not consent (the S14 rule), so registration reads the
+// folder from here, keyed by the location's id AND the network address it was
+// chosen for: a location re-addressed since points at another share, and its
+// old folder is dropped, never followed.
+function makeLocalPathStore(io) {
+  let memory = { version: 1, locations: {} };
+  const read = () => {
+    if (!io) return memory;
+    try {
+      const v = io.read();
+      return v && typeof v === 'object' && v.locations && typeof v.locations === 'object' ? v : { version: 1, locations: {} };
+    } catch { return { version: 1, locations: {} }; }
+  };
+  const write = (v) => { if (io) { try { io.write(v); } catch (e) { console.warn('cloud-bins local paths not saved:', e?.message || e); } } else memory = v; };
+  return {
+    get(id) { const e = read().locations[String(id)]; return e && typeof e.local_path === 'string' && typeof e.unc_path === 'string' ? e : null; },
+    set(id, entry) { const v = read(); v.locations[String(id)] = entry; write(v); },
+    remove(id) { const v = read(); if (!(String(id) in v.locations)) return false; delete v.locations[String(id)]; write(v); return true; },
+  };
+}
+const sameUnc = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 // 0091's unc_path shape, as the database refuses it: two leading
 // backslashes, a server and at least a share, segments free of \ / : * ? "
@@ -1525,8 +1557,18 @@ function resolveCloudFilePath(locations, locationId, relativePath) {
 
 function mountCloudBins(expressApp, deps) {
   const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
+  const localPaths = makeLocalPathStore(deps.cloudBinsLocalPaths || null);
   const C = '/api/rabbit/cloud-bins';
   expressApp.use(C, gate);
+
+  // BC2: "the desktop's file process is reachable" — the renderer asks this
+  // before it reads a cloud clip through these routes, and builds its
+  // composite capability object (data from the cloud, files from here) only
+  // on a 200. It says whether a decoder is installed, as the signed-out list
+  // route does. Nothing else: no path, no location, no state.
+  expressApp.get(`${C}/ping`, (_req, res) => {
+    res.json({ ok: true, ffmpeg: ffmpeg.hasFfmpeg() });
+  });
   const authKey = (p) => pathKey(p).toLowerCase();
   const pickedDir = (p) => {
     if (!isAbs(p)) return false;
@@ -1544,14 +1586,21 @@ function mountCloudBins(expressApp, deps) {
     return abs;
   }
 
-  // Register (or replace) the company's locations for this process. Each:
+  // Register the company's locations for this process: the list REPLACES
+  // what was registered before (BC2 — a sign-out, a switch of company or a
+  // location removed in the cloud must take its address off this computer's
+  // list, not leave it readable for the rest of the session). Each:
   // { id, unc_path, local_path? }. A location whose unc_path is not a network
-  // address is refused by name; a local_path that is not a folder the person
-  // picked is dropped with its reason, never kept. Answers what this
+  // address is refused by name. Its folder on THIS computer (B2's fallback)
+  // is the one the person chose through the OS dialog for it — saved by
+  // pick-local below, for the address it was chosen for — or a body
+  // local_path that is a folder picked this session (BC1); any other body
+  // local_path is dropped with its reason, never kept. Answers what this
   // computer can reach right now.
   expressApp.post(`${C}/locations`, (req, res) => {
     const list = Array.isArray(req.body?.locations) ? req.body.locations : null;
     if (!list) return res.status(400).json({ error: 'locations required' });
+    cloudLocations.clear();
     const out = [];
     for (const l of list) {
       const id = l && typeof l.id === 'string' ? l.id : null;
@@ -1559,14 +1608,23 @@ function mountCloudBins(expressApp, deps) {
         out.push({ id, unc_path: l?.unc_path ?? null, status: 'refused', reason: 'not_a_network_address' });
         continue;
       }
-      let local_path = null; let localReason = null;
+      let local_path = null; let localReason = null; let localSource = null;
       if (l.local_path != null && l.local_path !== '') {
-        if (isAbs(l.local_path) && pickedDir(l.local_path) && isDir(l.local_path)) local_path = path.resolve(l.local_path);
+        if (isAbs(l.local_path) && pickedDir(l.local_path) && isDir(l.local_path)) { local_path = path.resolve(l.local_path); localSource = 'picked'; }
         else localReason = 'local_path_not_picked';
+      }
+      if (!local_path) {
+        const saved = localPaths.get(id);
+        if (saved && sameUnc(saved.unc_path, l.unc_path) && isAbs(saved.local_path)) { local_path = saved.local_path; localSource = 'saved'; localReason = null; }
+        else if (saved && !sameUnc(saved.unc_path, l.unc_path)) { localPaths.remove(id); localReason = localReason || 'address_changed'; }
       }
       cloudLocations.set(id, { id, unc_path: l.unc_path, local_path });
       const root = local_path || l.unc_path;
-      out.push({ id, unc_path: l.unc_path, local_path, status: 'registered', reachable: reachable(root), root, ...(localReason ? { local_path_reason: localReason } : {}) });
+      out.push({
+        id, unc_path: l.unc_path, local_path, status: 'registered', reachable: reachable(root), root,
+        ...(localSource ? { local_path_source: localSource } : {}),
+        ...(localReason ? { local_path_reason: localReason } : {}),
+      });
     }
     res.json({ locations: out });
   });

@@ -1032,10 +1032,61 @@ export function localServerAdapter() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
     }),
     // URL builders for <img> / <video>: bytes and posters by location + path.
-    cloudBinFileStreamUrl: (locationId, relativePath, { probe = false } = {}) =>
-      `${BASE}/cloud-bins/stream?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${probe ? '&probe=1' : ''}`,
-    cloudBinFileThumbnailUrl: (locationId, relativePath, rev = 0) =>
-      `${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${rev ? `&v=${rev}` : ''}`,
+    // BC2: a frame sequence says so (it streams its middle frame); a poster
+    // names its media type (audio has none) and the clip's stored mtime, so a
+    // poster cached on this computer still shows while the share is out.
+    cloudBinFileStreamUrl: (locationId, relativePath, { probe = false, isSequence = false } = {}) =>
+      `${BASE}/cloud-bins/stream?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${isSequence ? '&is_sequence=true' : ''}${probe ? '&probe=1' : ''}`,
+    cloudBinFileThumbnailUrl: (locationId, relativePath, rev = 0, { isSequence = false, mediaType = null, mtime = null } = {}) =>
+      `${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${isSequence ? '&is_sequence=true' : ''}${mediaType ? `&media_type=${encodeURIComponent(mediaType)}` : ''}${mtime ? `&mtime=${encodeURIComponent(mtime)}` : ''}${rev ? `&v=${rev}` : ''}`,
+
+    // ── BC2: the rest of the desktop signed in (electron/rabbitBins.cjs,
+    //    mountCloudBins). The composite in adapters/desktopCloudBins.js is
+    //    the only caller: the provider reaches these through it. ──
+    // "Is the desktop's file process reachable?" → { ok, ffmpeg }
+    cloudBinsPing: () => jfetch(`${BASE}/cloud-bins/ping`),
+    // The OS dialogs, opened by the main process (no path is typed into a
+    // request by a page). → { paths } / { path }
+    pickCloudBinFiles: () => jfetch(`${BASE}/cloud-bins/pick-files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    pickCloudBinFolder: (title) => jfetch(`${BASE}/cloud-bins/pick-folder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    }),
+    // paths → a plan whose items are { location_id, relative_path, … } or
+    // refused as outside every registered location (never walked).
+    prepareCloudBinFiles: (paths, opts = {}) => jfetch(`${BASE}/cloud-bins/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, ...opts }),
+    }),
+    // The OS default app, or Explorer with reveal:true.
+    openCloudBinFile: (file) => jfetch(`${BASE}/cloud-bins/open`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // A renderer-decoded JPEG into THIS computer's poster cache (never the cloud).
+    postCloudBinFileThumbnail: (file) => jfetch(`${BASE}/cloud-bins/thumbnail`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // The cached poster's bytes, as base64 — what an upload to the cloud
+    // sends (only while the company's switch is on; the provider asks first).
+    cloudBinFileThumbnailBase64: async (locationId, relativePath, opts = {}) => {
+      const res = await localFetch(`${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${opts.isSequence ? '&is_sequence=true' : ''}${opts.mediaType ? `&media_type=${encodeURIComponent(opts.mediaType)}` : ''}`);
+      if (!res.ok) {
+        let code = null; try { code = (await res.json())?.code || null; } catch { /* not JSON */ }
+        const err = new Error(`[localServer] no picture on this computer (HTTP ${res.status})`);
+        err.status = res.status; if (code) err.code = code;
+        throw err;
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    },
+    // B2's fallback, per computer: the OS folder dialog for one location;
+    // the main process keeps the answer in this computer's settings.
+    pickCloudBinLocationLocalPath: (id, { name = '', unc_path = '' } = {}) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/pick-local`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, unc_path }),
+    }),
+    forgetCloudBinLocationLocalPath: (id) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/local`, { method: 'DELETE' }),
   };
 }
 

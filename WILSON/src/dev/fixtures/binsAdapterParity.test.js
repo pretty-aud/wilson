@@ -22,6 +22,9 @@ const { supabaseAdapter, CLOUD_BINS_CAPABILITIES, BINS_REFUSALS } = await import
 const { localServerAdapter, LOCAL_SERVER_BINS_CAPABILITIES } = await import('../../tools/rabbit_v0.1.0/adapters/localServerAdapter')
 const { FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES } = await import('./rabbitFixturesAdapter')
 const { buildDevFixtures } = await import('./install')
+// BC2: the desktop signed in is a FOURTH answer to the same contract — the
+// cloud's data and this computer's files, composed (adapters/desktopCloudBins).
+const { composeDesktopCloudBins, DESKTOP_CLOUD_BINS_CAPABILITIES } = await import('../../tools/rabbit_v0.1.0/adapters/desktopCloudBins')
 
 // The Local Server adapter's bins surface (its own comment block names these),
 // which the cloud and the fixtures must answer to by name.
@@ -90,8 +93,9 @@ describe('the three bins backends answer to the same names', () => {
   const cloud = supabaseAdapter()
   const local = localServerAdapter()
   const fixtures = buildDevFixtures().rabbitAdapter()
+  const desktopCloud = composeDesktopCloudBins(supabaseAdapter(), localServerAdapter())
 
-  for (const [name, a] of [['supabase', cloud], ['local_server', local], ['fixtures', fixtures]]) {
+  for (const [name, a] of [['supabase', cloud], ['local_server', local], ['fixtures', fixtures], ['desktop_cloud', desktopCloud]]) {
     it(`${name} has every bins method, by name`, () => {
       const missing = BINS_METHODS.filter((m) => typeof a[m] !== 'function')
       expect(missing).toEqual([])
@@ -109,12 +113,14 @@ describe('one capability object, the same keys on every backend', () => {
     supabase: CLOUD_BINS_CAPABILITIES,
     local_server: LOCAL_SERVER_BINS_CAPABILITIES,
     fixtures: FIXTURES_BINS_CAPABILITIES,
+    desktop_cloud: DESKTOP_CLOUD_BINS_CAPABILITIES,
   }
 
   it('each backend\'s binsCapabilities() is its exported object, frozen', () => {
     expect(supabaseAdapter().binsCapabilities()).toBe(CLOUD_BINS_CAPABILITIES)
     expect(localServerAdapter().binsCapabilities()).toBe(LOCAL_SERVER_BINS_CAPABILITIES)
     expect(buildDevFixtures().rabbitAdapter().binsCapabilities()).toBe(FIXTURES_BINS_CAPABILITIES)
+    expect(composeDesktopCloudBins(supabaseAdapter(), localServerAdapter()).binsCapabilities()).toBe(DESKTOP_CLOUD_BINS_CAPABILITIES)
     for (const o of Object.values(objects)) expect(Object.isFrozen(o)).toBe(true)
   })
 

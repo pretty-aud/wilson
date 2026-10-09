@@ -37,6 +37,10 @@ import { buildProjectManifest } from '../projectManifest';
 import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../fileTags';
 import { selectAdapter, ADAPTER_MODES, adapterSupportsWrites } from '../adapters';
 import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
+// Bins on the cloud, the desktop signed in (BC2): the cloud's data, this
+// computer's files — the composite and the client of the desktop's routes.
+import { localServerAdapter } from '../adapters/localServerAdapter';
+import { composeDesktopCloudBins } from '../adapters/desktopCloudBins';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
 import {
@@ -214,6 +218,34 @@ const LEGACY_BINS_CAPABILITIES = Object.freeze({
   posters: 'local', locations: false, remoteViewingSwitch: false,
 });
 
+// The capability object of a bins backend. An adapter without
+// binsCapabilities (an older test double) is read as the signed-out
+// desktop: everything the loopback server does, nothing of a company's.
+function binsCapabilitiesOf(a) {
+  return (typeof a?.binsCapabilities === 'function' ? a.binsCapabilities() : null) || LEGACY_BINS_CAPABILITIES;
+}
+
+/**
+ * BC2: a project load (or a realtime refetch) brings clip rows without
+ * `online` — it is never stored; it is a fact about the reading computer.
+ * What they read as depends on the backend:
+ *   - one that cannot say what this computer can reach (the cloud in a
+ *     browser, `resolveFiles: false`): every row is "not on this computer";
+ *   - the desktop signed in (`backend: 'desktop_cloud'`): a row keeps what
+ *     this computer last resolved for it, and a row it has not resolved yet
+ *     reads "not on this computer" until the resolve lands — never "here"
+ *     before anything has looked;
+ *   - the signed-out desktop and the fixtures: untouched (B12).
+ * Pure; `prevFiles` is the state the load replaces.
+ */
+export function markLoadedBinFiles(nextFiles, prevFiles, caps) {
+  if (!Array.isArray(nextFiles) || !caps) return nextFiles;
+  if (caps.resolveFiles === false) return nextFiles.map(f => ({ ...f, online: false }));
+  if (caps.backend !== 'desktop_cloud') return nextFiles;
+  const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
+  return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
+}
+
 export function RabbitProvider({ children }) {
   // ── adapter ──────────────────────────────────────────────
   const [adapterMode, setAdapterMode] = useState(DEFAULT_ADAPTER_MODE);
@@ -242,6 +274,39 @@ export function RabbitProvider({ children }) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const bundleRef = useRef(bundle);
   useEffect(() => { bundleRef.current = bundle; }, [bundle]);
+
+  // ── Bins on the cloud, the desktop signed in (BC2) ──
+  // The composite (adapters/desktopCloudBins.js): the cloud's DATA, this
+  // computer's FILES. Built only when the backend is the cloud AND the
+  // desktop's file process answers — window.electronAPI.rabbit and the
+  // cloud-bins ping (the effect in the bins block). The predicate is never
+  // the storage mode, and it picks no store: `supportsManagedFiles` decides
+  // the FILES store and stays exactly as it was; bins are not files.
+  // `desktopBinFiles` is { files, ping } (the Local Server adapter's
+  // cloud-bins client and its answer) or null. binsBackend() is what every
+  // bins call goes through: the composite when there is one, else the
+  // adapter itself (the signed-out desktop, the browser, the fixtures).
+  const [desktopBinFiles, setDesktopBinFiles] = useState(null);
+  const desktopBinFilesRef = useRef(null);
+  const desktopCompositeRef = useRef({ cloud: null, files: null, composite: null });
+  const binsBackend = useCallback(() => {
+    const a = adapterRef.current;
+    const d = desktopBinFilesRef.current;
+    if (!a || !d || a.mode !== 'supabase') return a;
+    const memo = desktopCompositeRef.current;
+    if (memo.cloud === a && memo.files === d && memo.composite) return memo.composite;
+    const composite = composeDesktopCloudBins(a, d.files, {
+      rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
+      projectFps: () => Number(bundleRef.current.project?.fps) || 24,
+      ping: d.ping,
+    });
+    desktopCompositeRef.current = { cloud: a, files: d, composite };
+    return composite;
+  }, []);
+  // Asks the desktop again what this computer can reach (debounced; the
+  // bins block defines it). Called after every load and for a teammate's
+  // clip arriving live — a no-op where there is no composite.
+  const scheduleBinResolveRef = useRef(null);
   // Serializes full-bundle loads (setActiveProject + reloadActiveProject):
   // only the newest load may land, so a slow stale snapshot can't wipe
   // fresher state — e.g. realtime events or a post-join refetch that
@@ -652,7 +717,10 @@ export function RabbitProvider({ children }) {
       // A newer load (rapid project switch, post-join realtime refetch)
       // supersedes this snapshot — never land stale data over it.
       if (loadSeq === bundleLoadSeqRef.current) {
-        setBundle({ ...EMPTY_BUNDLE, ...next });
+        // BC2: clip rows read as what this computer can reach (never stored).
+        const binFiles = markLoadedBinFiles(next?.binFiles, null, binsCapabilitiesOf(binsBackend()));
+        setBundle({ ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) });
+        scheduleBinResolveRef.current?.();
       }
     } catch (err) {
       setError(err.message || String(err));
@@ -881,9 +949,17 @@ export function RabbitProvider({ children }) {
         return null;
       }
       const listsStale = listWriteSeq !== shotListWriteSeqRef.current;
-      setBundle(prev => (listsStale
-        ? { ...EMPTY_BUNDLE, ...next, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }
-        : { ...EMPTY_BUNDLE, ...next }));
+      // BC2: a refetch's clip rows keep what this computer resolved for them
+      // (a teammate's edit must not make every clip read "here" or "not here").
+      const binCaps = binsCapabilitiesOf(binsBackend());
+      setBundle(prev => {
+        const binFiles = markLoadedBinFiles(next?.binFiles, prev.binFiles, binCaps);
+        const merged = { ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) };
+        return listsStale
+          ? { ...merged, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }
+          : merged;
+      });
+      scheduleBinResolveRef.current?.();
       if (!listsStale) unmarkIfServerShowsLive(next.shotLists, next.edits);
       // Callers (revert's restore path) inspect the fresh bundle
       // directly — bundleRef only catches up after the next commit.
@@ -911,6 +987,15 @@ export function RabbitProvider({ children }) {
     // backend that cannot resolve files it is marked as the load marks it.
     if (evt?.table === 'bin_files' && evt.record && binsCapsRef.current && binsCapsRef.current.resolveFiles === false) {
       evt = { ...evt, record: { ...evt.record, online: false } };
+    }
+    // BC2, the desktop signed in: a teammate's clip arrives without `online`
+    // too. It keeps what this computer last resolved for that row, else
+    // reads "not on this computer" until the desktop has been asked — which
+    // is scheduled here, for this row.
+    else if (evt?.table === 'bin_files' && evt.record?.id && binsCapsRef.current?.backend === 'desktop_cloud' && typeof evt.record.online !== 'boolean') {
+      const was = (bundleRef.current.binFiles || []).find(f => f.id === evt.record.id);
+      evt = { ...evt, record: { ...evt.record, online: typeof was?.online === 'boolean' ? was.online : false } };
+      scheduleBinResolveRef.current?.([evt.record.id]);
     }
     setBundle(prev => {
       const { bundle: next, effects } = applyRealtimeEvent(prev, evt, {
@@ -4472,26 +4557,135 @@ export function RabbitProvider({ children }) {
   // call through mutationsRef so undo always reaches the latest mutator;
   // pushHistory is suspended while an undo runs, so the mutators may push
   // unconditionally.
+  // BC2: through binsBackend() — the desktop-signed-in composite when this
+  // computer's file process answers on the cloud, else the adapter itself.
   const binsAdapter = useCallback(() => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId) throw new Error('no project');
     if (typeof adapterRef.current.listBins !== 'function') {
       throw new Error('Bins are not available on this backend');
     }
-    return adapterRef.current;
-  }, [activeProjectId]);
-
-  // The capability object of the current backend. An adapter without
-  // binsCapabilities (an older test double) is read as the signed-out
-  // desktop: everything the loopback server does, nothing of a company's.
-  const binsCapabilitiesOf = (a) => (typeof a?.binsCapabilities === 'function' ? a.binsCapabilities() : null) || LEGACY_BINS_CAPABILITIES;
+    return binsBackend();
+  }, [activeProjectId, binsBackend]);
+  // The company's footage locations and the switch need no open project:
+  // Settings, Storage manages them with or without one (BC2, item 2).
+  const locationsAdapter = useCallback(() => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (typeof adapterRef.current.listBins !== 'function') {
+      throw new Error('Bins are not available on this backend');
+    }
+    return binsBackend();
+  }, [binsBackend]);
 
   // `posterRev` counts posters the renderer's own probe posted, so every
   // <img> built from binFileThumbnailUrl(id, rev) re-requests a poster that
   // arrived after it first failed (BinPoster remembers WHICH src failed).
   // `capabilities` is the backend's object (above); `remoteViewing` is the
   // company's switch (B5a) where the backend has one, else null.
-  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0, capabilities: null, remoteViewing: null });
+  // BC2: `locations` is what THIS computer's desktop process answered when
+  // the company's locations were registered — [{ id, reachable, root,
+  // local_path, local_path_source?, local_path_reason?, status }] — empty
+  // where there is no desktop composite.
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0, capabilities: null, remoteViewing: null, locations: [] });
+
+  // ── BC2: is the desktop's file process reachable? ──
+  // On the cloud inside the desktop app, the cloud-bins ping decides. Off
+  // the cloud (or on leaving it), this computer is told to forget the
+  // company's addresses: an empty registration replaces the list.
+  useEffect(() => {
+    let cancelled = false;
+    const inDesktop = !!globalThis.window?.electronAPI?.rabbit;
+    if (adapterMode !== 'supabase' || !inDesktop) {
+      const had = desktopBinFilesRef.current;
+      desktopBinFilesRef.current = null;
+      setDesktopBinFiles(null);
+      if (had) had.files.registerCloudBinLocations([]).catch(() => {});
+      return undefined;
+    }
+    const files = localServerAdapter();
+    Promise.resolve().then(() => files.cloudBinsPing()).then((ping) => {
+      if (cancelled || !ping?.ok) return;
+      const d = { files, ping };
+      desktopBinFilesRef.current = d;
+      setDesktopBinFiles(d);
+    }).catch(() => { /* no desktop process: the cloud's own answers stand */ });
+    return () => { cancelled = true; };
+  }, [adapterMode]);
+
+  // What this computer can reach, asked again for the given rows (or all of
+  // them), debounced. A row the desktop does not answer for reads "not on
+  // this computer". Dropped when the project changed meanwhile.
+  const binResolveTimerRef = useRef(null);
+  const binResolvePendingRef = useRef(null); // null = nothing pending; 'all' or a Set of ids
+  const resolveBinOnline = useCallback(async (ids = null) => {
+    const a = binsBackend();
+    if (typeof a?.resolveBinFiles !== 'function') return;
+    const pid = activeProjectIdRef.current;
+    const want = ids ? new Set(ids) : null;
+    const rows = (bundleRef.current.binFiles || []).filter(f => f.location_id && (!want || want.has(f.id)));
+    if (!rows.length) return;
+    let map;
+    try { map = await a.resolveBinFiles(rows); } catch { return; }
+    if (activeProjectIdRef.current !== pid) return;
+    const asked = new Set(rows.map(r => r.id));
+    setBundle(prev => ({
+      ...prev,
+      binFiles: (prev.binFiles || []).map(f => (asked.has(f.id) ? { ...f, online: map.get(f.id)?.online === true } : f)),
+    }));
+  }, [binsBackend]);
+  scheduleBinResolveRef.current = (ids = null) => {
+    if (!desktopBinFilesRef.current) return;
+    const cur = binResolvePendingRef.current;
+    if (!ids || cur === 'all') binResolvePendingRef.current = 'all';
+    else binResolvePendingRef.current = new Set([...(cur || []), ...ids]);
+    clearTimeout(binResolveTimerRef.current);
+    binResolveTimerRef.current = setTimeout(() => {
+      const p = binResolvePendingRef.current;
+      binResolvePendingRef.current = null;
+      resolveBinOnline(p === 'all' ? null : [...(p || [])]).catch(() => {});
+    }, 250);
+  };
+  useEffect(() => () => clearTimeout(binResolveTimerRef.current), []);
+
+  // ── BC2: register the company's locations with this computer ──
+  // On sign-in (the composite appears) and on every change of the company's
+  // locations (an add, a re-address, a removal), the list is registered with
+  // the desktop process — only what the cloud returned, never a typed path —
+  // and every clip is resolved again. refreshBins registers through the
+  // composite's listBins itself; the key it registered is remembered so the
+  // same list is not sent twice for one load.
+  const binLocationsKey = (bundle.binLocations || []).map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+  const registeredKeyRef = useRef(null);
+  const registerBinLocationsNow = useCallback(async () => {
+    const a = binsBackend();
+    if (typeof a?.registerBinLocations !== 'function') return [];
+    const list = bundleRef.current.binLocations || [];
+    const status = await a.registerBinLocations(list);
+    registeredKeyRef.current = list.map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+    setBinsInfo(i => ({ ...i, locations: status }));
+    return status;
+  }, [binsBackend]);
+  useEffect(() => {
+    if (!desktopBinFiles) { registeredKeyRef.current = null; return; }
+    // The composite appeared after a list was read with the cloud's own
+    // answers: the capability object the tab reads is the composite's now.
+    const caps = binsCapabilitiesOf(binsBackend());
+    if (binsCapsRef.current && binsCapsRef.current.backend !== caps.backend) {
+      binsCapsRef.current = caps;
+      setBinsInfo(i => ({ ...i, capabilities: caps, ffmpeg: desktopBinFiles.ping?.ffmpeg === true }));
+    }
+    if (registeredKeyRef.current === binLocationsKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await registerBinLocationsNow();
+        if (!cancelled) await resolveBinOnline(null);
+      } catch (e) {
+        if (!cancelled) setBinsInfo(i => ({ ...i, notice: { text: `This computer could not be told where the company's footage is: ${e?.message || e}`, kind: 'warn', at: Date.now() } }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [desktopBinFiles, binLocationsKey, registerBinLocationsNow, resolveBinOnline, binsBackend]);
   // The renderer's own probe and the once-per-project pass are defined below
   // (they need the URL and PATCH helpers); refreshBins and probeBinFile reach
   // them through refs — the mutationsRef pattern.
@@ -4509,10 +4703,14 @@ export function RabbitProvider({ children }) {
     if (!adapterRef.current || !activeProjectId) return null;
     if (typeof adapterRef.current.listBins !== 'function') return null;
     const projectId = activeProjectId;
-    const a = adapterRef.current;
+    const a = binsBackend();
     const caps = binsCapabilitiesOf(a);
     binsCapsRef.current = caps;
     const data = await a.listBins(projectId);
+    // BC2: the composite registered the company's locations as it listed.
+    if (Array.isArray(data.locationStatus)) {
+      registeredKeyRef.current = (data.binLocations || []).map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+    }
     // The company's switch (B5a), where the backend has one. Read beside the
     // list, never instead of it: a refused read leaves the value unknown.
     let remoteViewing = null;
@@ -4532,7 +4730,13 @@ export function RabbitProvider({ children }) {
     // Live rows AND the orphans (their shot or file is gone): the selectors
     // ignore the orphans; the undo that brings a shot or file back needs them.
     setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles, binRoots: data.binRoots || [], binLocations: data.binLocations || prev.binLocations || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
-    setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId, capabilities: caps, remoteViewing }));
+    setBinsInfo(i => ({
+      ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId, capabilities: caps, remoteViewing,
+      ...(Array.isArray(data.locationStatus) ? { locations: data.locationStatus } : {}),
+      // The desktop process did not answer: the rows read "not on this
+      // computer" and the tab says why, once.
+      ...(data.filesError ? { notice: { text: `This computer's desktop process did not answer, so no clip can be played here right now: ${data.filesError}`, kind: 'warn', at: Date.now() } } : {}),
+    }));
     // Once per project per session, from HERE and not from a tab: rows left
     // pending (the app closed mid-add) are probed again and rows the server
     // has no decoder for get the renderer's probe, so a take assigned on the
@@ -4543,7 +4747,7 @@ export function RabbitProvider({ children }) {
       Promise.resolve(browserProbeSweepRef.current?.(binFiles, projectId)).catch(() => {});
     }
     return { ...data, binFiles };
-  }, [activeProjectId]);
+  }, [activeProjectId, binsBackend]);
 
   // 🚨 Every mutator below captures the project it was called for and drops
   // its response when the project changed during the await — the refreshBins
@@ -4721,7 +4925,7 @@ export function RabbitProvider({ children }) {
     if (!queue.length) return;
     // A backend that cannot read a file's columns (the cloud): nothing to
     // probe, and a row must not be marked failed for it.
-    if (!binsCapabilitiesOf(adapterRef.current).probe) return;
+    if (!binsCapabilitiesOf(binsBackend()).probe) return;
     setBinsInfo(i => ({ ...i, probing: i.probing + queue.length }));
     const worker = async () => {
       while (queue.length) {
@@ -4972,12 +5176,12 @@ export function RabbitProvider({ children }) {
   // list. A location in use cannot be removed (the database refuses with its
   // sentence; the undo of a removal is an add with the same row).
   const refreshBinLocations = useCallback(async () => {
-    const a = adapterRef.current;
+    const a = binsBackend();
     if (!a || typeof a.listBinLocations !== 'function') return [];
     const rows = await a.listBinLocations();
     setBundle(prev => ({ ...prev, binLocations: rows || [] }));
     return rows || [];
-  }, []);
+  }, [binsBackend]);
 
   const addBinLocation = useCallback(async (location) => {
     const a = binsAdapter();
@@ -5053,10 +5257,10 @@ export function RabbitProvider({ children }) {
   // rabbit-thumbnails is private). null where the backend has a sync route
   // instead (binFileThumbnailUrl), or the row has no picture.
   const binFilePosterUrl = useCallback(async (row, opts) => {
-    const a = adapterRef.current;
+    const a = binsBackend();
     if (!a || typeof a.binFilePosterUrl !== 'function' || !activeProjectId) return null;
     return a.binFilePosterUrl(activeProjectId, row, opts);
-  }, [activeProjectId]);
+  }, [activeProjectId, binsBackend]);
 
   const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
   const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
@@ -5070,12 +5274,16 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
     return row;
   }, [binsAdapter, activeProjectId]);
-  const binFileThumbnailUrl = useCallback((id, rev = 0) =>
-    (adapterRef.current && typeof adapterRef.current.binFileThumbnailUrl === 'function' && activeProjectId)
-      ? adapterRef.current.binFileThumbnailUrl(activeProjectId, id, rev) : null, [activeProjectId]);
-  const binFileStreamUrl = useCallback((id, opts) =>
-    (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
-      ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+  // BC2: through binsBackend() — on the desktop signed in, the poster cache
+  // and the bytes of a clip by its location + path.
+  const binFileThumbnailUrl = useCallback((id, rev = 0) => {
+    const a = binsBackend();
+    return (a && typeof a.binFileThumbnailUrl === 'function' && activeProjectId) ? a.binFileThumbnailUrl(activeProjectId, id, rev) : null;
+  }, [activeProjectId, binsBackend]);
+  const binFileStreamUrl = useCallback((id, opts) => {
+    const a = binsBackend();
+    return (a && typeof a.binFileStreamUrl === 'function' && activeProjectId) ? a.binFileStreamUrl(activeProjectId, id, opts) : null;
+  }, [activeProjectId, binsBackend]);
 
   // ── The renderer's own probe (no ffmpeg on this machine) ──
   // Chromium decodes H.264 MP4 / WebM, the common audio formats and images: a
@@ -5092,7 +5300,7 @@ export function RabbitProvider({ children }) {
   const browserProbe = useCallback(async (row) => {
     if (!needsBrowserProbe(row)) return null;
     // No bytes to decode on a backend that cannot stream them (the cloud).
-    if (!binsCapabilitiesOf(adapterRef.current).stream) return null;
+    if (!binsCapabilitiesOf(binsBackend()).stream) return null;
     const pid = activeProjectId;
     const src = binFileStreamUrl(row.id, { probe: true });
     if (!src) return null;
@@ -7088,6 +7296,9 @@ export function RabbitProvider({ children }) {
       || (import.meta.env.DEV && !!devFixtures()?.bins),
     binsInfo,
     binLocations:  bundle.binLocations,
+    // BC2: this computer's desktop process answers on the cloud — the
+    // composite reads clips where they are (bins only; never the FILES store).
+    binsDesktopFiles: !!desktopBinFiles,
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,

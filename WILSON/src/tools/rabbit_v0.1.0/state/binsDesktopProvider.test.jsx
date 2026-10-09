@@ -1,0 +1,227 @@
+/** @vitest-environment jsdom */
+// binsDesktopProvider.test.jsx — Bins on the cloud, the desktop app signed in
+// (BC2), through the REAL provider: binsProvider.test.jsx's harness (an
+// in-memory cloud in 'supabase' mode) plus a fake of this computer's desktop
+// process (the Local Server adapter's cloud-bins client).
+//
+// What this pins:
+//   * the predicate: the composite (data from the cloud, files from the
+//     desktop) is built only on the cloud, inside the desktop app, when the
+//     desktop's file process answers its ping — never in the signed-out
+//     desktop (B12: local_server mode never pings), never in a browser, and
+//     not when the ping is refused;
+//   * it is NOT the supportsManagedFiles mistake: the FILES store is decided
+//     exactly as before (false on the cloud, desktop or not) — bins are not
+//     files, and this picks no store;
+//   * registration: the company's locations — what the cloud returned, id
+//     and network address only — are registered with the desktop, again on
+//     every change of the list (an add, a removal), the list replacing;
+//   * every clip reads what THIS computer can reach, on a load as on a list:
+//     never "here" before the desktop has been asked.
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import React from 'react'
+import { render, cleanup, act, waitFor } from '@testing-library/react'
+
+const holder = vi.hoisted(() => ({ adapter: null, files: null, mode: 'supabase', session: null, authCbs: [], live: null }))
+
+vi.mock('../adapters', () => ({
+  selectAdapter: () => holder.adapter,
+  ADAPTER_MODES: ['supabase', 'local_server', 'google_drive'],
+  adapterSupportsWrites: () => true,
+}))
+vi.mock('../adapters/supabaseAdapter', () => ({ resetSupabaseAdapter: () => {} }))
+vi.mock('../adapters/localServerAdapter', () => ({ localServerAdapter: () => holder.files }))
+vi.mock('../../../cloud/auth/supabaseClient', () => ({
+  supabase: {
+    auth: {
+      onAuthStateChange: (cb) => { holder.authCbs.push(cb); return { data: { subscription: { unsubscribe() {} } } } },
+      getSession: async () => ({ data: { session: holder.session } }),
+    },
+  },
+}))
+vi.mock('../../../lib/localData', () => ({
+  hasLocalServer: () => true,
+  loadOtterSettings: async () => ({ rabbit: { adapterMode: holder.mode, activeProjectId: 'p1' } }),
+  saveOtterSettings: async () => {},
+}))
+vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => null }))
+vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
+
+const { RabbitProvider, useRabbit, markLoadedBinFiles } = await import('./RabbitProvider')
+
+const CLOUD_CAPS = Object.freeze({
+  backend: 'supabase', pickFiles: false, probe: false, stream: false, resolveFiles: false, relink: false, openInOs: false,
+  posters: 'cloud', locations: true, remoteViewingSwitch: true,
+})
+
+function makeCloud(mode = 'supabase') {
+  const clone = (x) => JSON.parse(JSON.stringify(x))
+  let n = 0
+  const db = {
+    project: { id: 'p1', title: 'Salt Hours', workspace_id: 'w1', fps: 25 },
+    locations: [{ id: 'L1', workspace_id: 'w1', name: 'Footage NAS', unc_path: '\\\\nas\\footage' }],
+    bins: [{ id: 'b1', project_id: 'p1', workspace_id: 'w1', name: 'Day 1', kind: 'footage', parent_bin_id: null, sort_order: 0 }],
+    files: [
+      { id: 'f1', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T1.mov', display_name: 'T1', original_name: 'T1.mov', media_type: 'video', sort_order: 0 },
+      { id: 'f2', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T2.mov', display_name: 'T2', original_name: 'T2.mov', media_type: 'video', sort_order: 1 },
+    ],
+  }
+  return {
+    mode, db,
+    status: async () => ({ online: true, lastSyncAt: null }),
+    listProjects: async () => [clone(db.project)],
+    loadProject: async () => clone({ project: db.project, scenes: [], shots: [], bins: db.bins, binFiles: db.files, binRoots: [], shotTakes: [], binLocations: db.locations }),
+    listProjectMembers: async () => [],
+    subscribeProjectChanges: (_pid, cb) => { holder.live = cb; return () => {} },
+    binsCapabilities: () => CLOUD_CAPS,
+    listBins: async () => clone({ bins: db.bins, binFiles: db.files, binRoots: [], binLocations: db.locations, shotTakes: [], orphanTakes: [], ffmpeg: false }),
+    getRemoteViewingEnabled: async () => false,
+    listBinLocations: async () => clone(db.locations),
+    createBinLocation: async (loc) => { const row = { id: loc.id || `loc-${++n}`, workspace_id: 'w1', name: loc.name, unc_path: loc.unc_path }; db.locations = [...db.locations.filter(l => l.id !== row.id), row]; return clone(row) },
+    removeBinLocation: async (lid) => { const row = db.locations.find(l => l.id === lid); db.locations = db.locations.filter(l => l.id !== lid); return clone(row) },
+    binFileThumbnailUrl: () => null,
+    binFileStreamUrl: () => null,
+  }
+}
+
+function makeFiles({ pingOk = true } = {}) {
+  const calls = []
+  return {
+    calls,
+    cloudBinsPing: vi.fn(async () => { calls.push(['ping']); if (!pingOk) throw new Error('HTTP 404'); return { ok: true, ffmpeg: true } }),
+    registerCloudBinLocations: vi.fn(async (list) => { calls.push(['register', list]); return { locations: list.map(l => ({ id: l.id, unc_path: l.unc_path, status: 'registered', reachable: true, root: l.unc_path })) } }),
+    resolveCloudBinFiles: vi.fn(async (list) => { calls.push(['resolve', list.map(f => f.id)]); return { files: list.map(f => ({ id: f.id, online: f.id === 'f1' })) } }),
+    cloudBinFileThumbnailUrl: (loc, rel) => `thumb:${loc}:${rel}`,
+    cloudBinFileStreamUrl: (loc, rel) => `stream:${loc}:${rel}`,
+  }
+}
+
+let ctxRef
+function Probe() { ctxRef = useRabbit(); return null }
+
+async function mount() {
+  render(<RabbitProvider><Probe /></RabbitProvider>)
+  await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+}
+
+beforeEach(() => {
+  holder.adapter = makeCloud()
+  holder.files = makeFiles()
+  holder.mode = 'supabase'
+  holder.session = { user: { id: 'u1', app_metadata: {} } }
+  holder.authCbs = []
+  ctxRef = null
+  window.electronAPI = { rabbit: {} }
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks(); delete window.electronAPI })
+
+describe('BC2 — the predicate: the desktop\'s file process is reachable', () => {
+  it('on the cloud, in the desktop app, with the ping answering: the composite, and every clip marked by this computer', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(ctxRef.binsInfo.capabilities.backend).toBe('desktop_cloud')
+    expect(ctxRef.binsInfo.capabilities).toMatchObject({ pickFiles: true, probe: true, stream: true, resolveFiles: true, openInOs: true, posters: 'cloud' })
+    expect(ctxRef.binsInfo.ffmpeg).toBe(true)
+    expect(ctxRef.binFiles.map(f => [f.id, f.online])).toEqual([['f1', true], ['f2', false]])
+    expect(ctxRef.binsInfo.locations.map(l => [l.id, l.reachable])).toEqual([['L1', true]])
+    // Files by location + path, through the desktop.
+    expect(ctxRef.binFileThumbnailUrl('f1')).toBe('thumb:L1:A001/T1.mov')
+    expect(ctxRef.binFileStreamUrl('f1')).toBe('stream:L1:A001/T1.mov')
+    expect(ctxRef.binFileStreamUrl('f2')).toBeNull()
+  })
+
+  it('it is not the supportsManagedFiles mistake: the FILES store is decided as before (false on the cloud)', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    expect(ctxRef.supportsManagedFiles).toBe(false)
+    expect(ctxRef.supportsBins).toBe(true)
+  })
+
+  it('the ping refused: no composite — the cloud\'s own answers, every clip "not on this computer"', async () => {
+    holder.files = makeFiles({ pingOk: false })
+    await mount()
+    await waitFor(() => expect(holder.files.cloudBinsPing).toHaveBeenCalled())
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(ctxRef.binsDesktopFiles).toBe(false)
+    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    expect(ctxRef.binFiles.every(f => f.online === false)).toBe(true)
+    expect(holder.files.registerCloudBinLocations).not.toHaveBeenCalled()
+  })
+
+  it('in a browser (no desktop bridge): never pinged', async () => {
+    delete window.electronAPI
+    await mount()
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(holder.files.cloudBinsPing).not.toHaveBeenCalled()
+    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+  })
+
+  it('B12: the signed-out desktop (local_server) is never pinged and never composed', async () => {
+    holder.mode = 'local_server'
+    holder.adapter = { ...makeCloud('local_server'), binsCapabilities: undefined }
+    await mount()
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(holder.files.cloudBinsPing).not.toHaveBeenCalled()
+    expect(ctxRef.binsDesktopFiles).toBe(false)
+    expect(ctxRef.binsInfo.capabilities.backend).toBe('legacy')
+  })
+})
+
+describe('BC2 — registering the company\'s locations with this computer', () => {
+  it('on sign-in, then again on every change of the list — only what the cloud returned, the list replacing', async () => {
+    await mount()
+    await waitFor(() => expect(holder.files.registerCloudBinLocations).toHaveBeenCalled())
+    expect(holder.files.calls.find(c => c[0] === 'register')[1]).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }])
+    let row
+    await act(async () => { row = await ctxRef.addBinLocation({ name: 'Sound', unc_path: '\\\\nas\\sound' }) })
+    await waitFor(() => expect(holder.files.calls.filter(c => c[0] === 'register').at(-1)[1].map(l => l.id).sort()).toEqual(['L1', row.id].sort()))
+    await act(async () => { await ctxRef.removeBinLocation(row.id) })
+    await waitFor(() => expect(holder.files.calls.filter(c => c[0] === 'register').at(-1)[1]).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }]))
+  })
+
+  it('a load marks clips "not on this computer" until the desktop has answered — never "here" before anyone looked', async () => {
+    // The load (setActiveProject) lands before the ping: every row false,
+    // not undefined. The composite then resolves them.
+    let releasePing
+    holder.files.cloudBinsPing = vi.fn(() => new Promise(r => { releasePing = () => r({ ok: true, ffmpeg: false }) }))
+    await mount()
+    expect(ctxRef.binFiles.map(f => f.online)).toEqual([false, false])
+    await act(async () => { releasePing() })
+    await waitFor(() => expect(ctxRef.binFiles.map(f => [f.id, f.online])).toEqual([['f1', true], ['f2', false]]))
+  })
+})
+
+describe('BC2 — a teammate\'s clip arriving live', () => {
+  it('reads "not on this computer" until the desktop has been asked for THAT row, then what it answered', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    holder.files.resolveCloudBinFiles.mockClear()
+    holder.files.resolveCloudBinFiles.mockImplementation(async (list) => ({ files: list.map(f => ({ id: f.id, online: true })) }))
+    const record = { id: 'f9', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L1', relative_path: 'A002/T9.mov', display_name: 'T9', original_name: 'T9.mov', media_type: 'video', sort_order: 2 }
+    act(() => { holder.live({ table: 'bin_files', op: 'INSERT', record }) })
+    await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f9')).toBeTruthy())
+    expect(ctxRef.binFiles.find(f => f.id === 'f9').online).toBe(false)
+    await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f9').online).toBe(true))
+    expect(holder.files.resolveCloudBinFiles.mock.calls.at(-1)[0].map(f => f.id)).toEqual(['f9'])
+    // A teammate's flag on a clip keeps what this computer resolved for it.
+    act(() => { holder.live({ table: 'bin_files', op: 'UPDATE', record: { ...holder.adapter.db.files[0], review_flag: 'select' } }) })
+    await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f1').review_flag).toBe('select'))
+    expect(ctxRef.binFiles.find(f => f.id === 'f1').online).toBe(true)
+  })
+})
+
+describe('markLoadedBinFiles (pure)', () => {
+  const rows = [{ id: 'a' }, { id: 'b' }]
+  it('a backend that cannot resolve files: every row "not on this computer"', () => {
+    expect(markLoadedBinFiles(rows, null, CLOUD_CAPS).map(r => r.online)).toEqual([false, false])
+  })
+  it('the desktop signed in: what was resolved is kept, the rest reads "not on this computer"', () => {
+    expect(markLoadedBinFiles(rows, [{ id: 'a', online: true }], { backend: 'desktop_cloud', resolveFiles: true }).map(r => r.online)).toEqual([true, false])
+  })
+  it('the signed-out desktop and the fixtures: untouched (B12)', () => {
+    const out = markLoadedBinFiles(rows, [{ id: 'a', online: true }], { backend: 'local_server', resolveFiles: true })
+    expect(out).toBe(rows)
+  })
+})

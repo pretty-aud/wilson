@@ -103,6 +103,19 @@
       "port": 5284
     },
     {
+      "_comment": "BC2 (Bins on the cloud, the desktop app signed in): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The fixtures show the footage locations and the company's switch in Settings, Storage; the desktop's own file reads need the Electron app signed in to wilson-dev.",
+      "name": "bc2-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/kind-swanson-1ed3d7/WILSON",
+        "--port",
+        "5285",
+        "--strictPort"
+      ],
+      "port": 5285
+    },
+    {
       "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
       "name": "v1-auth",
       "runtimeExecutable": "cmd",

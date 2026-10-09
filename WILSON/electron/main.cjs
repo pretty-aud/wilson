@@ -4458,6 +4458,21 @@ function startLocalServer(distPath) {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+      // BC2 (Bins on the cloud, the desktop signed in): B2's fallback — where
+      // each of the company's footage locations is on THIS computer, when it
+      // is seen as a drive letter. This computer's settings only, never the
+      // cloud; written by the folder dialog the bins module opens, nothing else.
+      cloudBinsLocalPaths: {
+        read: () => {
+          try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json'), 'utf8')); }
+          catch { return null; }
+        },
+        write: (obj) => {
+          const file = path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json');
+          fs.writeFileSync(file + '.part', JSON.stringify(obj, null, 2));
+          fs.renameSync(file + '.part', file);
+        },
+      },
     });
 
     // ── Shot lists, their membership and edits (post-overhaul S3a, 0084) —
