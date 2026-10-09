@@ -41,6 +41,7 @@ import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
 // computer's files — the composite and the client of the desktop's routes.
 import { localServerAdapter } from '../adapters/localServerAdapter';
 import { composeDesktopCloudBins } from '../adapters/desktopCloudBins';
+import { needsCloudPoster, BIN_POSTERS_OFF_SENTENCE } from '../bins/cloudPosters';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
 import {
@@ -4694,6 +4695,9 @@ export function RabbitProvider({ children }) {
   const browserProbeRef = useRef(null);
   const browserProbeSweepRef = useRef(null);
   const browserProbeSweptRef = useRef(null);
+  // BC2: the switch-gated poster upload (defined below, beside the poster
+  // helpers); addBinFiles and the renderer's probe reach it through here.
+  const uploadPostersRef = useRef(null);
 
   const mergeRows = (rows, incoming) => {
     const byId = new Map((rows || []).map(r => [r.id, r]));
@@ -5009,6 +5013,11 @@ export function RabbitProvider({ children }) {
       // Not awaited: the rows are saved; the columns fill in as they arrive
       // (probeBinFiles stands down on a backend that cannot read a file).
       probeBinFiles(created.filter(r => r.online !== false).map(r => r.id)).catch(() => {});
+      // BC2: on the desktop signed in, the new clips' pictures go to the
+      // cloud only if the company allows it — asked first, quietly when not.
+      if (binsCapabilitiesOf(a).backend === 'desktop_cloud') {
+        Promise.resolve(uploadPostersRef.current?.(null, { quiet: true, rows: created })).catch(() => {});
+      }
     }
     return res;
   }, [binsAdapter, activeProjectId, probeBinFiles]);
@@ -5333,6 +5342,54 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId, binsBackend]);
 
   const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
+
+  // ── BC2: a clip's picture to the cloud — ONLY while the company allows it ──
+  // Audrey (B4): "if the user allows external access pictures are fine.
+  // never take images when external access is denied." On the desktop
+  // signed in a poster is made and kept on THIS computer for every clip it
+  // can reach; this uploads the ones the cloud has no picture for yet. The
+  // switch is asked FIRST, once per call: off, and not a byte moves (the
+  // database refuses regardless — 0091's RESTRICTIVE policy). A refusal
+  // that slips past the pre-check (the admin turned it off meanwhile) stops
+  // the batch and is said ONCE, not per clip. `ids` null: every clip this
+  // computer reaches without a picture (the catch-up). `quiet`: the
+  // automatic pass after an add says nothing when the switch is off.
+  // Already-uploaded pictures are never touched here: turning the switch off
+  // deletes nothing (BINS_CLOUD_PLAN §1).
+  const uploadBinFilePosters = useCallback(async (ids = null, { quiet = false, rows: given = null } = {}) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const none = { uploaded: 0, failed: 0, refused: false };
+    if (typeof a.uploadBinFilePoster !== 'function') return none;
+    let on = false;
+    try { on = (await a.getRemoteViewingEnabled(pid)) === true; } catch { on = false; }
+    if (activeProjectIdRef.current !== pid) return none;
+    setBinsInfo(i => ({ ...i, remoteViewing: on }));
+    if (!on) {
+      if (!quiet) setBinsInfo(i => ({ ...i, notice: { text: BIN_POSTERS_OFF_SENTENCE, kind: 'warn', at: Date.now() } }));
+      return { ...none, refused: true };
+    }
+    const want = ids ? new Set(ids) : null;
+    // `given`: rows a mutator just created (state lands a render later).
+    const rows = (given || bundleRef.current.binFiles || []).filter(f => (!want || want.has(f.id)) && needsCloudPoster(f));
+    let uploaded = 0; let failed = 0;
+    for (const r of rows) {
+      if (activeProjectIdRef.current !== pid) break;
+      try {
+        const res = await a.uploadBinFilePoster(pid, r.id, r);
+        uploaded++;
+        if (res?.poster_path) setBundle(prev => ({ ...prev, binFiles: (prev.binFiles || []).map(f => (f.id === r.id ? { ...f, poster_path: res.poster_path } : f)) }));
+      } catch (e) {
+        if (e?.code === 'remote_viewing_off') {
+          setBinsInfo(i => ({ ...i, remoteViewing: false, notice: { text: BIN_POSTERS_OFF_SENTENCE, kind: 'warn', at: Date.now() } }));
+          return { uploaded, failed, refused: true };
+        }
+        failed++;
+      }
+    }
+    return { uploaded, failed, refused: false };
+  }, [binsAdapter, activeProjectId]);
+  uploadPostersRef.current = uploadBinFilePosters;
   const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
   // What the renderer's own probe read (bins/binProbeFallback.js) — a machine
   // write, so no history entry, unlike updateBinFile.
@@ -5385,6 +5442,11 @@ export function RabbitProvider({ children }) {
       if (r.jpegBase64) {
         await postBinFileThumbnail(row.id, r.jpegBase64);
         setBinsInfo(i => ({ ...i, posterRev: i.posterRev + 1 }));
+        // BC2: on the desktop signed in that poster went to THIS computer's
+        // cache; it goes to the cloud only if the company allows it.
+        if (binsCapabilitiesOf(binsBackend()).backend === 'desktop_cloud') {
+          Promise.resolve(uploadPostersRef.current?.([row.id], { quiet: true, rows: [{ ...row, ...done, online: true }] })).catch(() => {});
+        }
       }
       return done;
     } catch {
@@ -7036,6 +7098,7 @@ export function RabbitProvider({ children }) {
   // BC2: every new mutator in the registry, history op or not.
   mutationsRef.current.pickBinLocationLocalPath = pickBinLocationLocalPath;
   mutationsRef.current.forgetBinLocationLocalPath = forgetBinLocationLocalPath;
+  mutationsRef.current.uploadBinFilePosters = uploadBinFilePosters;
   // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
   // and undo SWALLOWS a throw — a mutator missing from this list fails
   // silently (measured: Ctrl+Z after an assignment did nothing until
@@ -7379,8 +7442,9 @@ export function RabbitProvider({ children }) {
     binRelinkScan, binRelinkApply, removeBinRoot,
     // Footage locations and the company's switch (BC1).
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
-    // BC2: the switch read without a project; where a location is on THIS computer.
-    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath,
+    // BC2: the switch read without a project; where a location is on THIS computer;
+    // pictures to the cloud only while the company allows it.
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters,
     // Shot takes (milestone 2).
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
@@ -7470,7 +7534,7 @@ export function RabbitProvider({ children }) {
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
-    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, desktopBinFiles,
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, desktopBinFiles,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

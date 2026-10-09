@@ -24,9 +24,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, FolderPlus, FilePlus, LayoutGrid, List as ListIcon, Search, X, Filter, ChevronDown,
   Unplug, Link2, Check, Ban, Circle, Trash2, FolderInput, Copy, ExternalLink, FolderOpen, RefreshCw,
-  Edit3, ArrowUp, ArrowDown, CornerLeftUp, Layers, Clapperboard, AlertTriangle, Film,
+  Edit3, ArrowUp, ArrowDown, CornerLeftUp, Layers, Clapperboard, AlertTriangle, Film, UploadCloud,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { needsCloudPoster } from '../bins/cloudPosters'
 import { useProjectAccess } from '../state/useProjectAccess'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
@@ -707,6 +708,30 @@ export default function BinsView({ pageActive = false } = {}) {
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop) }
   }, [])
 
+  // ── BC2 (B4): pictures to the cloud, while the company allows it ──
+  // The catch-up for clips added while the switch was off: counted from the
+  // rows this computer reaches that have no picture in the cloud.
+  const desktopCloud = caps?.backend === 'desktop_cloud'
+  const posterCatchUp = useMemo(
+    () => (desktopCloud && ctx?.binsInfo?.remoteViewing === true ? files.filter(needsCloudPoster).length : 0),
+    [desktopCloud, ctx?.binsInfo?.remoteViewing, files],
+  )
+  const [catchUpDismissed, setCatchUpDismissed] = useState(false)
+  const [catchUpBusy, setCatchUpBusy] = useState(false)
+  const uploadBinFilePosters = ctx?.uploadBinFilePosters
+  const runCatchUp = useCallback(async () => {
+    if (typeof uploadBinFilePosters !== 'function') return
+    setCatchUpBusy(true)
+    try {
+      const r = await uploadBinFilePosters(null)
+      if (r?.refused) return
+      const parts = [`Uploaded ${r.uploaded} picture${r.uploaded === 1 ? '' : 's'}`]
+      if (r.failed) parts.push(`${r.failed} could not be made on this computer`)
+      say(parts.join(' · ') + '.', r.failed ? 'warn' : 'ok')
+    } catch (e) { say(e?.message || String(e), 'error') }
+    finally { setCatchUpBusy(false) }
+  }, [uploadBinFilePosters, say])
+
   // ── Filters UI data ──
   const filterValues = useMemo(() => ({
     cameras: distinctValues(scopeFiles, 'camera'),
@@ -746,6 +771,23 @@ export default function BinsView({ pageActive = false } = {}) {
             <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
           </>}>
           <span className="block truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
+        </Banner>
+      )}
+
+      {/* BC2 (B4): the switch turned on after clips were added — offer the
+          catch-up, the count named. Only on the desktop signed in (it is
+          the computer that has the pictures) and only while it is on. */}
+      {posterCatchUp > 0 && !catchUpDismissed && (
+        <Banner className="flex-shrink-0" tone="info" Icon={UploadCloud}
+          action={<>
+            <Btn small primary disabled={catchUpBusy} onClick={runCatchUp}>
+              {catchUpBusy ? 'Uploading…' : `Upload pictures for ${posterCatchUp} clip${posterCatchUp === 1 ? '' : 's'}`}
+            </Btn>
+            <IconBtn Icon={X} title="Not now" onClick={() => setCatchUpDismissed(true)} />
+          </>}>
+          <span className="block">
+            {posterCatchUp === 1 ? 'One clip this computer reaches has' : `${posterCatchUp} clips this computer reaches have`} no picture in the cloud yet, so teammates who cannot reach the share see only {posterCatchUp === 1 ? 'its name' : 'their names'}.
+          </span>
         </Banner>
       )}
 

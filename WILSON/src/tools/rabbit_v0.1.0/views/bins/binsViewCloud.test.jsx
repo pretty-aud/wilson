@@ -96,6 +96,27 @@ describe('where no computer can pick a file, the add verbs say why', () => {
   })
 })
 
+describe('B4: the catch-up when the switch is on', () => {
+  it('on the desktop signed in, switch on: the count named, and one click uploads', async () => {
+    await mount(DESKTOP, reviewer(), {
+      binsInfo: { ffmpeg: true, capabilities: DESKTOP, locations: [], remoteViewing: true },
+      uploadBinFilePosters: vi.fn(async () => ({ uploaded: 1, failed: 0, refused: false })),
+    })
+    expect(document.body.textContent).toContain('One clip this computer reaches has no picture in the cloud yet')
+    await act(async () => { fireEvent.click(screen.getByText('Upload pictures for 1 clip')) })
+    expect(state.ctx.uploadBinFilePosters).toHaveBeenCalledWith(null)
+    expect(document.body.textContent).toContain('Uploaded 1 picture.')
+  })
+
+  it('switch off, or a browser: no offer', async () => {
+    await mount(DESKTOP, reviewer(), { binsInfo: { ffmpeg: true, capabilities: DESKTOP, locations: [], remoteViewing: false } })
+    expect(document.body.textContent).not.toContain('no picture in the cloud yet')
+    cleanup()
+    await mount(BROWSER, reviewer(), { binsInfo: { ffmpeg: true, capabilities: BROWSER, locations: [], remoteViewing: true } })
+    expect(document.body.textContent).not.toContain('no picture in the cloud yet')
+  })
+})
+
 describe('adding from a location, on the desktop signed in', () => {
   it('B8: a clip already in the project arrives unticked, "already in …"', async () => {
     await mount(DESKTOP, reviewer())

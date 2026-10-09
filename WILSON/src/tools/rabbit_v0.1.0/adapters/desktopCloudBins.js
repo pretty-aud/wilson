@@ -269,8 +269,10 @@ export function composeDesktopCloudBins(cloud, files, { rowOf = () => null, proj
   // The upload, for the provider's switch-gated pass: the cached poster's
   // bytes to rabbit-thumbnails through the cloud's own method (which asks
   // the switch again, and the database refuses regardless).
-  c.uploadBinFilePoster = async (projectId, id) => {
-    const row = requireRow(id)
+  // `given`: the row when the caller has it (a clip just added is not in
+  // the provider's state until a render later).
+  c.uploadBinFilePoster = async (projectId, id, given = null) => {
+    const row = given && given.id === id && given.location_id && given.relative_path ? given : requireRow(id)
     const base64 = await files.cloudBinFileThumbnailBase64(row.location_id, row.relative_path, {
       isSequence: !!row.is_sequence, mediaType: row.media_type || null,
     })

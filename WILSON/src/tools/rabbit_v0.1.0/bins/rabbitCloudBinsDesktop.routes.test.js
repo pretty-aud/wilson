@@ -65,6 +65,12 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(media, 'A001', 'stills', 'frame.png'), Buffer.alloc(32, 4))
   const seq = path.join(media, 'VFX', 'plate_seq'); fs.mkdirSync(seq, { recursive: true })
   for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(seq, `plate.${String(i).padStart(4, '0')}.exr`), Buffer.alloc(8, i))
+  // Item 4: a real still (sharp draws its poster) and a PNG frame sequence.
+  const sharp = require('sharp')
+  fs.mkdirSync(path.join(media, 'STILLS'))
+  await sharp({ create: { width: 64, height: 36, channels: 3, background: '#ea580c' } }).png().toFile(path.join(media, 'STILLS', 'set.png'))
+  const pseq = path.join(media, 'STILLS', 'png_seq'); fs.mkdirSync(pseq)
+  for (let i = 1; i <= 3; i++) await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).png().toFile(path.join(pseq, `f.${String(i).padStart(4, '0')}.png`))
   const app = express()
   app.use(express.json({ limit: '5mb' }))
   mountRabbitBins(app, {
@@ -274,5 +280,63 @@ describe('adding clips: the dialogs, and the plan by location', () => {
   it('no paths is a 400; the gate stands in front', async () => {
     expect((await api('/prepare', J({ paths: [] }))).status).toBe(400)
     expect((await raw('/prepare', J({ paths: [media] }))).status).toBe(403)
+  })
+})
+
+// ── Pictures on this computer (item 4) ──────────────────────────────────────
+describe('a cloud clip\'s poster on this computer', () => {
+  const reg = async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+  }
+  const q = (rel, extra = '') => `?location_id=loc-a&relative_path=${encodeURIComponent(rel)}${extra}`
+  // Postgres writes a stored timestamptz back as "…+00:00"; the disk's is "…Z".
+  const asPostgres = (iso) => iso.replace('Z', '+00:00')
+
+  it('a renderer-decoded JPEG goes into THIS computer\'s cache; refused unless a registered, present file, a JPEG, small', async () => {
+    await reg()
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 1)]).toString('base64')
+    const r = await api('/thumbnail', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4', base64: jpeg }))
+    expect(await r.json()).toEqual({ ok: true })
+    // Served back from the cache by the same key.
+    const back = await api(`/thumbnail${q('A001/clip.mp4', '&media_type=video')}`)
+    expect(back.status).toBe(200)
+    expect(Buffer.from(await back.arrayBuffer()).subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]))
+    expect((await api('/thumbnail', J({ location_id: 'nope', relative_path: 'A001/clip.mp4', base64: jpeg }))).status).toBe(403)
+    expect((await api('/thumbnail', J({ location_id: 'loc-a', relative_path: 'A001/missing.mp4', base64: jpeg }))).status).toBe(410)
+    expect((await api('/thumbnail', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4', base64: Buffer.from('not a jpeg').toString('base64') }))).status).toBe(415)
+    expect((await api('/thumbnail', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4', base64: Buffer.alloc(300000, 0xff).toString('base64') }))).status).toBe(413)
+    expect((await raw('/thumbnail', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4', base64: jpeg }))).status).toBe(403)
+  })
+
+  it('B3: a poster made earlier still shows while the file is out — found by the clip\'s stored time, in Postgres\'s spelling too', async () => {
+    await reg()
+    const still = path.join(media, 'STILLS', 'set.png')
+    const made = await api(`/thumbnail${q('STILLS/set.png', '&media_type=still')}`)
+    expect(made.status).toBe(200)
+    const mtime = fs.statSync(still).mtime.toISOString()
+    // The share goes away (the file moves out of reach).
+    fs.renameSync(still, still + '.away')
+    try {
+      expect((await api(`/thumbnail${q('STILLS/set.png', '&media_type=still')}`)).status).toBe(410)
+      const cached = await api(`/thumbnail${q('STILLS/set.png', `&media_type=still&mtime=${encodeURIComponent(asPostgres(mtime))}`)}`)
+      expect(cached.status).toBe(200)
+      expect(cached.headers.get('content-type')).toBe('image/jpeg')
+      // A time that was never cached finds nothing (nothing is made while out).
+      expect((await api(`/thumbnail${q('STILLS/set.png', '&mtime=2001-01-01T00:00:00.000Z')}`)).status).toBe(410)
+    } finally { fs.renameSync(still + '.away', still) }
+  })
+
+  it('a frame sequence\'s poster is keyed by its newest frame (what prepare stores), so the same key serves it offline', async () => {
+    await reg()
+    const dir = path.join(media, 'STILLS', 'png_seq')
+    const { items } = await (await api('/prepare', J({ paths: [dir] }))).json()
+    const stored = items[0].mtime
+    expect((await api(`/thumbnail${q('STILLS/png_seq', '&is_sequence=true&media_type=sequence')}`)).status).toBe(200)
+    fs.renameSync(dir, dir + '_away')
+    try {
+      const r = await api(`/thumbnail${q('STILLS/png_seq', `&is_sequence=true&media_type=sequence&mtime=${encodeURIComponent(asPostgres(stored))}`)}`)
+      expect(r.status).toBe(200)
+    } finally { fs.renameSync(dir + '_away', dir) }
   })
 })

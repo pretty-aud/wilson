@@ -1878,22 +1878,69 @@ function mountCloudBins(expressApp, deps) {
   // A poster for a cloud clip, from the shared cache (keyed by path + mtime,
   // as the signed-out route keys it, so a file re-exported in place gets a
   // fresh frame). Query: location_id, relative_path, is_sequence, media_type.
+  // BC2: the poster cache's key time. A stored mtime comes back from the
+  // cloud as Postgres writes a timestamptz ("…+00:00"), the disk's as
+  // Date.toISOString ("…Z"): both are read as an instant and written the
+  // one way, so the poster made at add time is found again.
+  const keyTime = (v) => { const d = v ? new Date(String(v)) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString() : ''; };
+  // Where this computer keeps a cloud clip's poster: by the path and the
+  // clip's modification time — a file's own, a frame sequence's newest
+  // frame (what prepare stored), so the key is the same online and off.
+  function cloudPosterKey(abs, isSeq) {
+    if (isSeq) {
+      const seq = detectSequence(abs);
+      if (!seq) return { seq: null, thumbPath: null };
+      return { seq, thumbPath: resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, keyTime(seq.mtime))) };
+    }
+    let mtime = ''; try { mtime = fs.statSync(abs).mtime.toISOString(); } catch { /* keyed without */ }
+    return { seq: null, thumbPath: resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, mtime)) };
+  }
+
+  // A poster the renderer decoded itself (no decoder on this computer), into
+  // THIS computer's cache — never the cloud (an upload is the provider's
+  // switch-gated step). The same narrowing as the signed-out route: a
+  // registered location, the file present, a JPEG by its magic number, at
+  // most 256 KB, the path contained under the cache.
+  expressApp.post(`${C}/thumbnail`, (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = req.body?.is_sequence === true;
+    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const base64 = req.body?.base64;
+    if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: 'base64 required' });
+    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
+    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
+    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const { thumbPath } = cloudPosterKey(abs, isSeq);
+    if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
+    try { fs.writeFileSync(thumbPath + '.part', buf); fs.renameSync(thumbPath + '.part', thumbPath); }
+    catch { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    res.json({ ok: true });
+  });
   expressApp.get(`${C}/thumbnail`, async (req, res) => {
     const abs = resolveBody(req.query);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
-    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    if (!(isSeq ? isDir(abs) : isFile(abs))) {
+      // Not reachable right now (B3): a poster this computer made earlier
+      // still shows — found by the clip's stored mtime, as the signed-out
+      // route finds an offline row's. Nothing is made while it is out.
+      const stored = keyTime(req.query?.mtime);
+      const cached = stored ? resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, stored)) : null;
+      if (cached && fs.existsSync(cached)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(cached); }
+      return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    }
     const ext = extOf(abs);
     const mediaType = String(req.query?.media_type || (isSeq ? 'sequence' : guessMediaType(ext)));
     if (mediaType === 'audio' || mediaType === 'document' || mediaType === 'other') {
       return res.status(415).json({ error: 'no poster for this type', code: 'unsupported_type' });
     }
-    let mtime = ''; try { mtime = fs.statSync(abs).mtime.toISOString(); } catch { /* keyed without */ }
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, mtime));
+    const { seq, thumbPath } = cloudPosterKey(abs, isSeq);
+    if (isSeq && !seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' });
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
     if (fs.existsSync(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
-    let source = abs;
-    if (isSeq) { const seq = detectSequence(abs); if (!seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' }); source = seq.middle_frame_path; }
+    const source = isSeq ? seq.middle_frame_path : abs;
     const stillLike = STILL_EXTS.has(ext) && !isSeq;
     if (stillLike || (isSeq && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(extOf(source)))) {
       try {

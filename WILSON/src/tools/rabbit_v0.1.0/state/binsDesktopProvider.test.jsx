@@ -48,6 +48,7 @@ vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => null }))
 vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
 
 const { RabbitProvider, useRabbit, markLoadedBinFiles } = await import('./RabbitProvider')
+const { BIN_POSTERS_OFF_SENTENCE, needsCloudPoster } = await import('../bins/cloudPosters')
 
 const CLOUD_CAPS = Object.freeze({
   backend: 'supabase', pickFiles: false, probe: false, stream: false, resolveFiles: false, relink: false, openInOs: false,
@@ -75,7 +76,17 @@ function makeCloud(mode = 'supabase') {
     subscribeProjectChanges: (_pid, cb) => { holder.live = cb; return () => {} },
     binsCapabilities: () => CLOUD_CAPS,
     listBins: async () => clone({ bins: db.bins, binFiles: db.files, binRoots: [], binLocations: db.locations, shotTakes: [], orphanTakes: [], ffmpeg: false }),
-    getRemoteViewingEnabled: async () => false,
+    getRemoteViewingEnabled: async () => db.remoteViewing === true,
+    // The cloud's own upload: asks the switch (the client's pre-check) and
+    // the "database" refuses regardless when `refuseAnyway` (the admin
+    // turned it off between the pre-check and the write).
+    postBinFileThumbnail: async (pid, id, base64) => {
+      db.uploads = [...(db.uploads || []), id]
+      if (db.remoteViewing !== true || db.refuseAnyway) throw Object.assign(new Error('[supabase] This company has not allowed files to be viewed from outside the office network, so WILSON keeps no picture of this clip in the cloud.'), { code: 'remote_viewing_off' })
+      const key = `projects/${pid}/bin_files/${id}/1-poster.jpg`
+      db.files = db.files.map(f => (f.id === id ? { ...f, poster_path: key } : f))
+      return { ok: true, poster_path: key, base64 }
+    },
     listBinLocations: async () => clone(db.locations),
     createBinLocation: async (loc) => { const row = { id: loc.id || `loc-${++n}`, workspace_id: 'w1', name: loc.name, unc_path: loc.unc_path }; db.locations = [...db.locations.filter(l => l.id !== row.id), row]; return clone(row) },
     removeBinLocation: async (lid) => { const row = db.locations.find(l => l.id === lid); db.locations = db.locations.filter(l => l.id !== lid); return clone(row) },
@@ -99,6 +110,7 @@ function makeFiles({ pingOk = true } = {}) {
     cloudBinFileThumbnailUrl: (loc, rel) => `thumb:${loc}:${rel}`,
     cloudBinFileStreamUrl: (loc, rel) => `stream:${loc}:${rel}`,
     probeCloudBinFile: vi.fn(async () => ({ duration_sec: 3, width: 1920, height: 1080, probe_status: 'done' })),
+    cloudBinFileThumbnailBase64: vi.fn(async () => '/9j/AAAA'),
     pickCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['pickLocal', id]); return { id, local_path: 'Z:\\footage', local_path_source: 'saved', reachable: true } }),
     forgetCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['forgetLocal', id]); return { id, local_path: null } }),
   }
@@ -274,6 +286,70 @@ describe('BC2 — adding clips from a location, through the provider', () => {
       duringAdd = holder.files.calls.filter(c => c[0] === 'register').at(-1)[1].map(l => l.id)
     })
     expect(duringAdd.sort()).toEqual(['L1', row.id].sort())
+  })
+})
+
+describe('BC2 (B4) — a clip\'s picture goes to the cloud only while the company allows it', () => {
+  const ready = async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+  }
+
+  it('switch off: not a byte moves — the switch is asked first, and the person reads why (unless quiet)', async () => {
+    holder.adapter.db.remoteViewing = false
+    await ready()
+    let r
+    await act(async () => { r = await ctxRef.uploadBinFilePosters(null) })
+    expect(r).toMatchObject({ uploaded: 0, refused: true })
+    expect(holder.adapter.db.uploads || []).toEqual([])
+    expect(holder.files.cloudBinFileThumbnailBase64).not.toHaveBeenCalled()
+    expect(ctxRef.binsInfo.notice.text).toBe(BIN_POSTERS_OFF_SENTENCE)
+    const before = ctxRef.binsInfo.notice
+    await act(async () => { await ctxRef.uploadBinFilePosters(null, { quiet: true }) })
+    expect(ctxRef.binsInfo.notice).toBe(before)
+  })
+
+  it('switch on: only the clips this computer reaches that have no picture yet', async () => {
+    holder.adapter.db.remoteViewing = true
+    await ready()
+    let r
+    await act(async () => { r = await ctxRef.uploadBinFilePosters(null) })
+    // f1 is reachable here, f2 is not: only f1's picture can be made here.
+    expect(holder.adapter.db.uploads).toEqual(['f1'])
+    expect(r).toMatchObject({ uploaded: 1, failed: 0, refused: false })
+    expect(ctxRef.binFiles.find(f => f.id === 'f1').poster_path).toBe('projects/p1/bin_files/f1/1-poster.jpg')
+    // A second pass finds nothing left to do.
+    await act(async () => { r = await ctxRef.uploadBinFilePosters(null) })
+    expect(r.uploaded).toBe(0)
+  })
+
+  it('a refusal that slips past the pre-check stops the batch and is said ONCE, not per clip', async () => {
+    holder.adapter.db.remoteViewing = true
+    holder.adapter.db.files = [...holder.adapter.db.files, { ...holder.adapter.db.files[0], id: 'f3', relative_path: 'A001/T3.mov' }]
+    holder.files.resolveCloudBinFiles.mockImplementation(async (list) => ({ files: list.map(f => ({ id: f.id, online: true })) }))
+    await ready()
+    holder.adapter.db.refuseAnyway = true
+    let r
+    await act(async () => { r = await ctxRef.uploadBinFilePosters(null) })
+    expect(holder.adapter.db.uploads).toHaveLength(1)
+    expect(r).toMatchObject({ uploaded: 0, refused: true })
+    expect(ctxRef.binsInfo.remoteViewing).toBe(false)
+    expect(ctxRef.binsInfo.notice.text).toBe(BIN_POSTERS_OFF_SENTENCE)
+  })
+
+  it('after an add: the new clips\' pictures go up when the switch is on, and nothing (and no word) when it is off', async () => {
+    holder.adapter.db.remoteViewing = false
+    await ready()
+    const noticeBefore = ctxRef.binsInfo.notice
+    await act(async () => { await ctxRef.addBinFiles('b1', [{ location_id: 'L1', relative_path: 'A002/T7.mov', media_type: 'video' }], true) })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    expect(holder.adapter.db.uploads || []).toEqual([])
+    expect(ctxRef.binsInfo.notice).toBe(noticeBefore)
+    holder.adapter.db.remoteViewing = true
+    let res
+    await act(async () => { res = await ctxRef.addBinFiles('b1', [{ location_id: 'L1', relative_path: 'A002/T8.mov', media_type: 'video' }], true) })
+    await waitFor(() => expect(holder.adapter.db.uploads).toEqual([res.created[0].id]))
   })
 })
 
