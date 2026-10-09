@@ -188,3 +188,9 @@ The controller's readings:
 - Told to her and not objected to: locking now freezes the version as saved; while a budget is active Save as new version only records a copy; versions saved before S5 cannot be opened for editing; and the next session closes S5-01 (a project member changing the budget's settings directly in the database) under her D8 ruling.
 
 Built by the S5 continuation (`docs/sessions/briefs/po-s5b-budget-versions-screens.md`).
+
+## 2026-10-08 — the Legal questions (walkthrough 54 §5), asked in chat as multiple choice
+
+1. **A Legal file's deletion record** — her follow-up instead of an answer: *"follow up. where do they see the deleted record? if the files are deleted there shouldnt be anything to see"*. The controller's answer: the record is the audit trail in the File activity drawer (the `purged` certificate: who deleted what, when — the disposal record a studio's content-security audit asks for; not the file). For an invoice every member sees it (ruling 22); S4b hid a Legal file's from members. Pending her word; the default (hidden from members) stands meanwhile.
+2. **The LEGAL folder for members:** "Hide it from members entirely (Recommended)" — as built.
+3. **Who else sees Legal files:** "Also workspace managers, without taking a seat". The controller's reading, consistent with her D8 (only project admins access the budget) and her 2026-10-02 words ("workspace managers can have access to the files … inherently workspace manager may need to access a folder to review things"): a **Legal gate of its own**, no longer the money gate — workspace admins, the project's managers AND workspace-level managers see Legal files; invoices, budgets and rates stay on the money gate as they are. Bundle S4d (`docs/sessions/briefs/po-s4d-legal-gate-managers.md`), after BC2.
