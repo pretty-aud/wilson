@@ -494,6 +494,24 @@ describe('BC2 review round 1 — what resolve answers', () => {
   })
 })
 
+describe('BC2 review round 2 — the re-read of the company\'s list stops', () => {
+  it('a location still unknown after one re-read (gone from the list) is not read again every ten seconds', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    const list = vi.spyOn(holder.adapter, 'listBinLocations')
+    holder.files.resolveCloudBinFiles.mockImplementation(async (rows) => ({ files: rows.map(f => (f.location_id === 'L9' ? { id: f.id, online: false, reason: 'unknown_location' } : { id: f.id, online: true })) }))
+    const record = { id: 'f8', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L9', relative_path: 'gone.mov', display_name: 'gone', original_name: 'gone.mov', media_type: 'video', sort_order: 4 }
+    act(() => { holder.live({ table: 'bin_files', op: 'INSERT', record }) })
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 60000) // well past the ten seconds
+    await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') }) // every clip resolved again
+    expect(holder.files.resolveCloudBinFiles.mock.calls.at(-1)[0].map(f => f.id)).toContain('f8')
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('markLoadedBinFiles (pure)', () => {
   const rows = [{ id: 'a' }, { id: 'b' }]
   it('a backend that cannot resolve files: every row "not on this computer"', () => {

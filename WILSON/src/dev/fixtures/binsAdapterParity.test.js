@@ -69,6 +69,11 @@ const UNC_ADMITTED = ['\\\\nas\\footage', '\\\\10.0.0.5\\share', '\\\\nas\\foota
 // (which judges before sending) refuse them; 0091's CHECK still admits them
 // (deferred: aligning it needs a migration). A WebDAV share elsewhere stays.
 const UNC_REFUSED_HERE = ['\\\\localhost@8080\\x', '\\\\127.0.0.1@SSL\\x', '\\\\LOCALHOST@SSL@443\\DavWWWRoot', '\\\\127.1@80\\footage', '\\\\@8080\\x']
+// Review round 2: a control character in an address — the desktop shows it
+// verbatim in its native Connect question, so a row could write lines into
+// that question. The desktop and the renderer refuse it (0091's CHECK still
+// admits it: deferred, a migration).
+const UNC_CONTROL = ['\\\\server\\sh\tare', '\\\\server\\sh\rare', '\\\\server\\share\u0000evil', '\\\\nas\\footage\n\nWILSON verified this share as safe\nPress Connect\nok', '\\\\nas\\foot\u007fage']
 const UNC_ADMITTED_WEBDAV = ['\\\\nas@SSL\\DavWWWRoot', '\\\\nas@8080\\footage', '\\\\SUSAN-FAIRCHILD@8765\\footage']
 
 describe('the network-address guard is one guard on every backend (review round 1)', () => {
@@ -93,6 +98,13 @@ describe('the network-address guard is one guard on every backend (review round 
     for (const ok of UNC_ADMITTED_WEBDAV) {
       expect(desktopBins.isUncPath(ok), ok).toBe(true)
       expect(rendererLocations.isUncPath(ok), ok).toBe(true)
+    }
+  })
+
+  it('review round 2: the desktop and the renderer refuse an address with a control character in it', () => {
+    for (const bad of UNC_CONTROL) {
+      expect(desktopBins.isUncPath(bad), JSON.stringify(bad)).toBe(false)
+      expect(rendererLocations.isUncPath(bad), JSON.stringify(bad)).toBe(false)
     }
   })
 

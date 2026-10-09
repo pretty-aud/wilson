@@ -28,6 +28,9 @@ const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
 
 export function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
+  // Review round 2: no control character (the desktop shows the address
+  // verbatim in its native Connect question).
+  if (/[\u0000-\u001f\u007f]/.test(p)) return false
   const segs = p.split('\\')
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
   // BC2 review round 1: a WebDAV address's port or SSL after the host

@@ -4636,6 +4636,8 @@ export function RabbitProvider({ children }) {
   // waiting on a slow root, then a quick one after "Where is it on this
   // computer?"). Each row keeps the number of the latest question asked for
   // it; an older answer for it is dropped.
+  // (One entry per clip resolved this session — bounded by the clips seen;
+  // review round 2 noted it, a known limit.)
   const binResolveSeqRef = useRef({ n: 0, byId: new Map() });
   // Finding 4: a clip on a location this computer was never told of (a
   // teammate named it since; locations are not broadcast) — the company's
@@ -4644,6 +4646,9 @@ export function RabbitProvider({ children }) {
   // is defined in the bins block below.
   const refreshBinLocationsRef = useRef(null);
   const binLocationsRereadAtRef = useRef(0);
+  // Location ids already read again once and still unknown: not read again
+  // (a location gone from the company's list would otherwise poll forever).
+  const binLocationsRereadForRef = useRef(new Set());
   const resolveBinOnline = useCallback(async (ids = null) => {
     const a = binsBackend();
     if (typeof a?.resolveBinFiles !== 'function') return;
@@ -4692,9 +4697,12 @@ export function RabbitProvider({ children }) {
       }));
     }
     const known = new Set((bundleRef.current.binLocations || []).map(l => l.id));
-    const unknown = rows.some(r => map.get(r.id)?.reason === 'unknown_location' || !known.has(r.location_id));
-    if (unknown && Date.now() - binLocationsRereadAtRef.current > 10000) {
+    const rereadFor = binLocationsRereadForRef.current;
+    const unknownIds = [...new Set(rows.filter(r => map.get(r.id)?.reason === 'unknown_location' || !known.has(r.location_id)).map(r => r.location_id))]
+      .filter(id => id && !rereadFor.has(id));
+    if (unknownIds.length && Date.now() - binLocationsRereadAtRef.current > 10000) {
       binLocationsRereadAtRef.current = Date.now();
+      for (const id of unknownIds) rereadFor.add(id);
       Promise.resolve(refreshBinLocationsRef.current?.()).catch(() => {});
     }
   }, [binsBackend]);

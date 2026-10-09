@@ -47,6 +47,8 @@ const under = (p, root) => String(p).toLowerCase().startsWith(root.toLowerCase()
 // What touched a dead, slow or stranger share, and how.
 const calls = { syncDead: [], asyncDead: [], asyncSlow: 0, stranger: [] }
 const slow = { next: null }
+const hangs = []
+const releaseHangs = () => { while (hangs.length) hangs.shift()() }
 const realStat = fs.promises.stat.bind(fs.promises)
 const realStatSync = fs.statSync
 const realExistsSync = fs.existsSync
@@ -97,7 +99,8 @@ beforeAll(async () => {
       // (here.mov), any other is not.
       if (String(p).toLowerCase() === SLOW.toLowerCase()) { calls.asyncSlow++; return slow.next }
       if (String(p).endsWith('here.mov')) return Promise.resolve({ isFile: () => true, isDirectory: () => false, mtime: new Date(0) })
-      if (String(p).endsWith('hang.mov')) return new Promise(() => {})
+      // A clip check that is not answered until the test lets it go.
+      if (/hang\d*\.mov$/.test(String(p))) { calls.hangStarted = (calls.hangStarted || 0) + 1; return new Promise((_, rej) => hangs.push(() => rej(Object.assign(new Error('gone'), { code: 'ENOENT' })))) }
       return Promise.reject(Object.assign(new Error('not here'), { code: 'ENOENT' }))
     }
     return realStat(p, ...rest)
@@ -268,11 +271,38 @@ describe('after a root answered: the share is touched only off the main thread',
     expect(hang).toBe(410)
     expect(hangMs).toBeLessThan(WAIT_MS + 1500)
     expect((await register([L_SLOW]))[0].reachable).toBe(false)
+    releaseHangs()
     // A path on a drive letter outside every location: refused by name, its
     // real path asked asynchronously (a disconnected mapped drive).
     const items = (await (await api('/prepare', J({ paths: ['Q:\\footage\\x.mov'] }))).json()).items
     expect(items[0].status).toBe('outside')
     expect(calls.syncRealpath).toEqual([])
+  })
+})
+
+// Review round 2: per-clip checks share libuv's pool with the app's own
+// files — at most two out at once; one slow clip marks its root off only
+// briefly (as long as an "on" answer is kept), not for the full off time.
+describe('review round 2: clip checks on the shared pool', () => {
+  it('one slow clip marks its root off briefly: asked again after the "on" keep time, not the "off" one', async () => {
+    calls.asyncSlow = 0
+    await sleep(TTL_MS + 50) // the brief off from the hang above is due again (OFF_TTL_MS is longer)
+    expect((await register([L_SLOW]))[0].reachable).toBe(false) // known off: answered at once…
+    await sleep(20)
+    expect(calls.asyncSlow).toBe(1) // …and asked again behind it
+    expect((await register([L_SLOW]))[0].reachable).toBe(true)
+  })
+
+  it('at most two clip checks are out at once; the others wait, and say "not here" without marking a root off', async () => {
+    calls.hangStarted = 0
+    const one = (n) => api(`/stream?location_id=loc-slow&relative_path=A001%2Fhang${n}.mov`).then(r => r.status)
+    const codes = await Promise.all([one(2), one(3), one(4), one(5)])
+    expect(codes).toEqual([410, 410, 410, 410])
+    expect(calls.hangStarted).toBe(2)
+    releaseHangs()
+    await sleep(20)
+    expect(calls.hangStarted).toBe(2) // the two that waited never asked
+    expect(calls.syncDead).toEqual([])
   })
 })
 
@@ -331,6 +361,23 @@ describe('an address this computer\'s person has not agreed to', () => {
     expect((await register([L_STRANGER]))[0]).toMatchObject({ connected: true, reachable: true })
     await api('/locations/loc-stranger/connect', J({}))
     expect(messageCalls.length).toBe(asked)
+  })
+
+  it('review round 2: forgetting this computer\'s folder for a location never contacts an address not agreed to', async () => {
+    const S9 = `${STRANGER}9`
+    calls.stranger.length = 0
+    await register([{ id: 'loc-s9', unc_path: S9 }])
+    const r = await (await api('/locations/loc-s9/local', { method: 'DELETE' })).json()
+    expect(r).toMatchObject({ id: 'loc-s9', local_path: null, connected: false, reachable: false })
+    expect(calls.stranger).toEqual([])
+  })
+
+  it('review round 2: a sign-out forgets the shares picked in this session: the next list cannot connect on them', async () => {
+    const S5 = `${STRANGER}5`
+    dialogNext.open = [`${S5}\\x.mov`]
+    await api('/pick-files', J({}))
+    await register([]) // signed out
+    expect((await register([{ id: 'loc-r', unc_path: S5 }]))[0].connected).toBe(false)
   })
 
   it('the agreement is to an ADDRESS: a location re-addressed asks again', async () => {

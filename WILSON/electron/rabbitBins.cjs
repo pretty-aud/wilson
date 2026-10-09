@@ -1531,6 +1531,11 @@ const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i;
 const TRAILING_DOT_OR_SPACE_RE = /[. ]$/;
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false;
+  // Review round 2: no control character (a newline, a tab, a NUL…) — the
+  // address is shown verbatim in the native "Connect this computer to …?"
+  // question, and a row-writer must not be able to write lines into it.
+  // (0091's CHECK still admits them: deferred, a migration.)
+  if (/[\u0000-\u001f\u007f]/.test(p)) return false;
   const segs = p.split('\\'); // ['', '', host, share, ...]
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false;
   // BC2 review round 1: Windows' WebDAV forms put a port or SSL after the
@@ -1715,9 +1720,11 @@ function mountCloudBins(expressApp, deps) {
     const k = root.toLowerCase();
     const c = rootAnswers.get(k) || { ok: false, at: 0, asking: null, waiting: null };
     if (c.waiting) return c.waiting;
-    if (c.asking || Date.now() - c.at < (c.ok ? ROOT_TTL_MS : ROOT_OFF_TTL_MS)) return Promise.resolve(c.ok);
+    // An off answer from ONE slow clip (`brief`) is kept as long as an on
+    // answer, not the full off time (review round 2).
+    if (c.asking || Date.now() - c.at < (c.ok || c.brief ? ROOT_TTL_MS : ROOT_OFF_TTL_MS)) return Promise.resolve(c.ok);
     const asking = takeSlot().then(() => Promise.resolve().then(() => askRoot(root)).then((ok) => ok === true, () => false).finally(freeSlot));
-    asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null }); });
+    asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null, brief: false }); });
     // Known to be off and due again: "not reachable" at once, asked again
     // behind it — a location that stays off costs nothing after the first
     // time, one that comes back counts from the next question. (A root that
@@ -1728,7 +1735,7 @@ function mountCloudBins(expressApp, deps) {
     const waiting = Promise.race([asking, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
       clearTimeout(timer);
       const cur = rootAnswers.get(k) || {};
-      if (v === null) { rootAnswers.set(k, { ...cur, ok: false, at: Date.now(), waiting: null }); return false; }
+      if (v === null) { rootAnswers.set(k, { ...cur, ok: false, at: Date.now(), waiting: null, brief: false }); return false; }
       rootAnswers.set(k, { ...cur, waiting: null });
       return v;
     });
@@ -1745,17 +1752,46 @@ function mountCloudBins(expressApp, deps) {
   // ROOT_WAIT_MS: a server that died after its root answered marks that
   // root off at once, so the next clip on it is not asked (after review
   // round 1; each such call can hold a pool thread until the server lets go).
+  // Review round 2: these run on libuv's pool (four threads in the main
+  // process, shared with the app's own files), so at most STAT_MAX are out
+  // at once — a share that dies mid-session holds at most two threads, not
+  // the pool. A check that waited for a slot asks again whether its root is
+  // still on before it stats; one that runs out of time while still waiting
+  // says "not here" without marking a healthy root off.
+  const STAT_MAX = 2;
+  let statNow = 0;
+  const statWaiters = [];
+  const takeStat = () => (statNow < STAT_MAX ? (statNow++, Promise.resolve()) : new Promise((r) => statWaiters.push(r)));
+  const freeStat = () => { const next = statWaiters.shift(); if (next) next(); else statNow--; };
   const statKind = (p, kind) => {
-    let timer = null;
-    return Promise.race([
-      fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false),
-      new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); }),
-    ]).then((v) => {
+    let timer = null; let started = false; let abandoned = false;
+    const run = takeStat().then(() => {
+      if (abandoned || rootKnownOffFor(p)) { freeStat(); return false; }
+      started = true;
+      const ask = fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false);
+      ask.finally(freeStat); // the slot is held as long as the thread is
+      return ask;
+    });
+    return Promise.race([run, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
       clearTimeout(timer);
-      if (v === null) { markRootOffFor(p); return false; }
+      if (v === null) { if (started) markRootOffFor(p); else abandoned = true; return false; }
       return v;
     });
   };
+  // The root this path lies under is known to be off right now.
+  function rootKnownOffFor(p) {
+    const lp = String(p).toLowerCase();
+    for (const loc of cloudLocations.values()) {
+      const root = rootOf(loc);
+      if (!root) continue;
+      const k = root.toLowerCase().replace(/[\\/]+$/, '');
+      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
+        const c = rootAnswers.get(root.toLowerCase());
+        if (c && c.at > 0 && !c.ok) return true;
+      }
+    }
+    return false;
+  }
   function markRootOffFor(p) {
     const lp = String(p).toLowerCase();
     for (const loc of cloudLocations.values()) {
@@ -1763,7 +1799,7 @@ function mountCloudBins(expressApp, deps) {
       if (!root) continue;
       const k = root.toLowerCase().replace(/[\\/]+$/, '');
       if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
-        rootAnswers.set(k === root.toLowerCase() ? k : root.toLowerCase(), { ...(rootAnswers.get(root.toLowerCase()) || {}), ok: false, at: Date.now() });
+        rootAnswers.set(root.toLowerCase(), { ...(rootAnswers.get(root.toLowerCase()) || {}), ok: false, at: Date.now(), brief: true });
       }
     }
   }
@@ -1795,6 +1831,11 @@ function mountCloudBins(expressApp, deps) {
     const list = Array.isArray(req.body?.locations) ? req.body.locations : null;
     if (!list) return res.status(400).json({ error: 'locations required' });
     cloudLocations.clear();
+    // Review round 2: an empty list is a sign-out (or a company with none):
+    // the shares picked in this session's dialogs are forgotten with it, so
+    // the next company's list cannot connect on an earlier person's pick.
+    // (An address agreed to through Connect stays this computer's answer.)
+    if (list.length === 0) pickedShares.clear();
     const out = [];
     for (const l of list) {
       const id = l && typeof l.id === 'string' ? l.id : null;
@@ -1897,7 +1938,10 @@ function mountCloudBins(expressApp, deps) {
     const loc = cloudLocations.get(id);
     if (loc) cloudLocations.set(id, { ...loc, local_path: null });
     if (!had && !loc) return res.status(404).json({ error: 'no folder is saved for that location on this computer', code: 'not_found' });
-    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, reachable: loc ? await rootReachable(loc.unc_path) : false, root: loc?.unc_path ?? null });
+    // Review round 2: through rootOf, like every other route — the address
+    // is asked only if this computer's person agreed to it.
+    const root = loc ? rootOf({ ...loc, local_path: null }) : null;
+    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, connected: !!root, reachable: root ? await rootReachable(root) : false, root: loc?.unc_path ?? null });
   });
 
   // ── Adding clips from a location (BC2 item 3) ──
