@@ -71,3 +71,11 @@ g9 it updates itself and shows its version; by hand also possible
 g10 a design session first, then the build
 decided-without-asking all good
 ```
+
+## The design's decisions — her answers of 2026-10-09 (BC4's hand-off §6, asked in chat as multiple choice; the first four answered, the rest stand as the design's picks unless she says otherwise)
+
+- **Which NAS for the rehearsal:** "No NAS here — rehearse on a Windows PC" — the Windows service install is rehearsed; the container install is tested in Docker on a PC.
+- **The model for the gateway sessions:** "Fable for design and reviews, Opus for code" — design and review subagents on Fable 5.1, the coding sessions on Opus 5.5.
+- **The code-signing certificate (D14):** "Decide later" — the installer session asks again.
+- **The viewer's name over remote playback (D9):** "Name + member code + clock, moving (Recommended)".
+- **D1–D8, D10–D13, D15–D27:** the design's picks stand (she stopped the questions after the first four; any of them can be reopened by number).
