@@ -241,27 +241,37 @@ staging lines. The test data does not need it: `/rabbit` is the admin,
 **The numbers, measured (2026-10-09).**
 
 - **The database checks**, run on the development database's real data in
-  runs that were rolled back: the new suite (95) **151 of 151**; the S4b
+  runs that were rolled back: the new suite (95) **173 of 173** (151 when
+  first written, 168 after the first review, 173 after the second); the S4b
   suite (90), with its workspace-manager checks turned from absences into
   presences and its invoice-record check turned round, **109 of 109**; the
-  activity-stream suite (78) **60 of 60**; fifteen neighbouring suites all
+  activity-stream suite (78) **61 of 61**; sixteen neighbouring suites all
   green with 0092 in front of them; 0092 applied twice in one run, still
-  151 of 151. Without 0092, suite 90 fails on exactly the fifteen checks
-  that changed and suite 78 on exactly its two: each loosening and the
-  narrowing is proven both ways.
-- **Broken copies of the migration**: seventeen, from the plain ones (one
+  173 of 173; the S4b migration replayed AFTER 0092 and 0092 run again,
+  still 173 of 173 (the repair the handbook's replay rule promises). Without
+  0092, suite 90 fails on exactly the fifteen checks that changed and suite
+  78 on exactly its two: each loosening and the narrowing is proven both
+  ways.
+- **Broken copies of the migration**: thirty, from the plain ones (one
   closure left on the money gate: the file rules, each bucket's rules, the
   download log, the trash, reservations, the edit history, the activity
   stream) to the ones that matter most (the money rule widened to workspace
-  managers; the Legal rule opened to members, or to another workspace, or to
-  a private project's non-creator; the invoice record's old exception put
-  back; the "never an invoice" check dropped). The migration's own checks
-  refused every one by name, and with those checks taken out suite 95 went
-  red for each — 33 checks red for the money-widening one. A copy with only
-  the checks taken out, and no fault, stayed green.
+  managers, twice — once in plain words and once hidden inside a quoted
+  string; the Legal rule opened to members, to another workspace, or to a
+  private project's non-creator; the invoice record's old exception put
+  back; the "never an invoice" check dropped; the history verdict made too
+  wide in two ways; a second trigger re-labelling rows; the fixed-at-add
+  trigger switched off; an extra storage rule under another name). The
+  migration's own checks refused every one by name, and with those checks
+  taken out suite 95 went red for each — 33 and 40 checks red for the two
+  money-widening ones. A copy with only the checks taken out, and no fault,
+  stayed green.
 - **Tests**: 296 files / 7,067 tests at the start of the bundle; the count
-  at its end is in the hand-off. Sixteen deliberately broken versions of the
-  client code were planted; the hand-off says how many were caught.
+  at its end is in the hand-off (two new test files and about twenty new
+  tests). Twenty-one deliberately broken versions of the client code were
+  planted — sixteen after the build, five more after the two reviews — and
+  every one was caught. The reviewers planted their own as well; each
+  survivor they found is among the twenty-one, caught now.
 
 **Still not right, and not this session's to change:** the two S4b items
 that were already open (a manager's second window refreshes to see a new

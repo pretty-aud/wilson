@@ -51,6 +51,12 @@ const fake = vi.hoisted(() => {
         if (state.rpcError) return { data: null, error: state.rpcError }
         return { data: args?.seg === 'LEGAL' ? state.legalLocked : false, error: null }
       }
+      // S4d (0092): the Legal gate, probed with the nil project; a cloud
+      // without 0092 answers "no such function".
+      if (fn === 'can_access_project_legal') {
+        if (state.gateMissing) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.can_access_project_legal(p_project) in the schema cache' } }
+        return { data: false, error: null }
+      }
       return { data: null, error: null }
     },
   }
@@ -86,6 +92,7 @@ beforeEach(() => {
   fake.state.uploads = []
   fake.state.rpcs = []
   fake.state.legalLocked = true
+  fake.state.gateMissing = false
   fake.state.rpcError = null
   fake.state.existing = {}
   fake.state.selectError = null
@@ -289,6 +296,18 @@ describe('files keep their gate on the way to the cloud (S4b)', () => {
   it('asks the database once per run (the answer is the same for every Legal file)', async () => {
     await runMigration({ workspaceId: 'ws1' })
     expect(fake.state.rpcs.filter(r => r[0] === 'rabbit_money_segment')).toHaveLength(1)
+    expect(fake.state.rpcs.filter(r => r[0] === 'can_access_project_legal')).toHaveLength(1)
+  })
+
+  it('on a cloud with 0088 but not 0092 (the folder locked, no Legal gate): a Legal file stays, with the same sentence (S4d, review round 2)', async () => {
+    fake.state.gateMissing = true
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(rowOf('f-legal')).toBeUndefined()
+    expect(fetched).not.toContain('f-legal')
+    expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^Legal file not migrated: Legal files need a database update \(migrations 0088 and 0092\)/)
+    // CONTROL: the invoice and the plain file still go — only the Legal gate is missing.
+    expect(rowOf('f-plain')).toBeTruthy()
+    expect(rowOf('f-inv')).toBeTruthy()
   })
 })
 

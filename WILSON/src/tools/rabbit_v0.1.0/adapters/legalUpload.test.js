@@ -157,6 +157,34 @@ describe('uploadFile({ legal: true }) on a database with 0088', () => {
     expect(row.storage_provider).toBe(FILE_PROVIDERS.SUPABASE)
   })
 
+  it('a shot scope never moves a Legal or invoice body under the nested scene key (review round 2, finding 7)', async () => {
+    // The shot branch builds projects/<pid>/scenes/<scene>/shots/<shot>/… —
+    // a key no gate locks. It is skipped for money (`!moneyGated`); without
+    // that guard a Legal body would land where every member reads it until
+    // the row insert was refused.
+    for (const [scope, segment] of [[{ shotId: 'h1', legal: true }, 'LEGAL'], [{ shotId: 'h1', financial: true }, 'INVOICES']]) {
+      resetSupabaseAdapter()
+      puts = []
+      const client = makeClient()
+      globalThis.__testSupabase = client
+      await supabaseAdapter().uploadFile(PID, scope, pdf())
+      expect(puts, JSON.stringify(scope)).toHaveLength(1)
+      expect(thirdSegment(puts[0].path), JSON.stringify(scope)).toBe(segment)
+      const row = client.inserts.find(i => i.table === 'files').row
+      expect(thirdSegment(row.storage_path), JSON.stringify(scope)).toBe(segment)
+      expect(row.is_financial, JSON.stringify(scope)).toBe(segment === 'INVOICES')
+    }
+    // CONTROL: the same shot scope, neither Legal nor an invoice, takes an
+    // UNLOCKED key (the nested scenes/… key, or the older shots/… one when
+    // the fake knows no scene for the shot) — the branch is alive and only
+    // money skips it.
+    resetSupabaseAdapter()
+    puts = []
+    globalThis.__testSupabase = makeClient()
+    await supabaseAdapter().uploadFile(PID, { shotId: 'h1' }, pdf())
+    expect(['scenes', 'shots']).toContain(thirdSegment(puts[0].path))
+  })
+
   it('is filed in no entity folder, whatever container or folder the scope names', async () => {
     // CONTROL first: the same scene scope, not Legal, finds the scene's folder.
     const control = makeClient()

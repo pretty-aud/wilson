@@ -66,7 +66,7 @@
 
 BEGIN;
 
-SELECT plan(168);
+SELECT plan(173);
 
 SELECT * FROM tests.rls_setup();
 
@@ -111,12 +111,19 @@ VALUES ('rabbit-files',
         'projects/bbbb2222-0000-0000-0000-000000000001/project/bbbb2222-0000-0000-0000-000000000001/1-b-brief.pdf',
         'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '{"size": 50}'::jsonb);
 
--- A budget version on project A, as postgres: probe 146 (the workspace
--- manager reads no money table row) must have a row to refuse, and §P reads
--- it as the project manager for the control.
+-- A budget version, a budget line and a rate override on project A, as
+-- postgres: probe 146 (the workspace manager reads no money table row) must
+-- have a row in EACH table to refuse (review round 2, finding 6), and §P
+-- reads them as the project manager for the controls.
 INSERT INTO public.budget_versions (id, project_id, workspace_id, name)
 VALUES ('95950000-0000-0000-0000-0000000000b1', 'aaaa1111-0000-0000-0000-000000000001',
         '11111111-1111-1111-1111-111111111111', 'S4d probe version');
+INSERT INTO public.budget_lines (id, project_id, workspace_id)
+VALUES ('95950000-0000-0000-0000-0000000000b2', 'aaaa1111-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111');
+INSERT INTO public.project_rate_overrides (id, project_id, workspace_id, role_slug)
+VALUES ('95950000-0000-0000-0000-0000000000b3', 'aaaa1111-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 's4d-probe-role');
 
 INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role)
 VALUES
@@ -1426,17 +1433,19 @@ SELECT ok(
   AND (SELECT is_financial AND NOT is_legal FROM public.edit_history WHERE entity_id = '95950000-0000-0000-0000-00000000e002')
   AND (SELECT NOT is_financial AND NOT is_legal FROM public.edit_history WHERE entity_id = '95950000-0000-0000-0000-00000000e003'),
   '🚨 trg_edit_history_money, smoked: a LEGAL rename is money and Legal, an unflagged INVOICES create is money and NOT Legal, a plain create is neither'); -- 164
+-- Synthetic diffs with a NULL entity id, so only the diff speaks (a fixed
+-- uuid is a files id the client could occupy — review round 2, finding 1).
 SELECT ok(
-  public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/INVOICES/x/1.pdf", "new": "projects/p/LEGAL/x/1.pdf"}}') IS FALSE
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/FINANCE/RATES.json", "is_financial": false}}') IS FALSE
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": true}}') IS FALSE
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"description": {"old": "a", "new": "b"}}') IS FALSE
+  public.edit_history_file_is_legal(NULL, '{"storage_path": {"old": "projects/p/INVOICES/x/1.pdf", "new": "projects/p/LEGAL/x/1.pdf"}}') IS FALSE
+  AND public.edit_history_file_is_legal(NULL, '{"new": {"storage_path": "projects/p/FINANCE/RATES.json", "is_financial": false}}') IS FALSE
+  AND public.edit_history_file_is_legal(NULL, '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": true}}') IS FALSE
+  AND public.edit_history_file_is_legal(NULL, '{"description": {"old": "a", "new": "b"}}') IS FALSE
   -- A flag that arrives WITHOUT a path of its own (a column-wise diff whose
   -- new side carries only is_financial = true beside an old LEGAL path)
   -- still votes: not Legal. (Breaker B19 drops exactly that vote.)
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf"}, "is_financial": {"new": true}}') IS FALSE
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf", "new": "projects/p/LEGAL/x/2.pdf"}, "is_financial": {"old": false, "new": true}}') IS FALSE
-  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": false}}') IS TRUE
+  AND public.edit_history_file_is_legal(NULL, '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf"}, "is_financial": {"new": true}}') IS FALSE
+  AND public.edit_history_file_is_legal(NULL, '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf", "new": "projects/p/LEGAL/x/2.pdf"}, "is_financial": {"old": false, "new": true}}') IS FALSE
+  AND public.edit_history_file_is_legal(NULL, '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": false}}') IS TRUE
   AND public.edit_history_file_is_legal('f9500000-0000-0000-0000-000000000008', '{"description": {"old": "a", "new": "b"}}') IS TRUE
   AND public.edit_history_file_is_legal('f9500000-0000-0000-0000-00000000000b', '{"description": {"old": "a", "new": "b"}}') IS FALSE,
   'the verdict: a mixed diff, an unflagged FINANCE row, a flagged LEGAL row and a note-only diff of nothing are not Legal; a purged Legal file''s old row and a note-only diff of a live Legal file are; of a live unflagged INVOICES row is not'); -- 165
@@ -1457,6 +1466,99 @@ SELECT ok(
   (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure)
     = 'SELECT COALESCE(public.can_access_project_money(p_project), false) OR COALESCE( public.current_app_role() = ''manager'' AND EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project), false);',
   'can_access_project_legal''s body is 0092''s, WHOLE — the money gate called once, the manager leg with the hop and the privacy arm, nothing added'); -- 168
+
+
+-- ══ Q. Review round 2 — the money tables with rows, the realtime arm whole,
+--    the audit tables' trigger lists, the fixed-at-add trigger enabled, and a
+--    reused id ═════════════════════════════════════════════════════════════
+
+-- 146 read a budget_lines and a project_rate_overrides table with no row on
+-- the project; the fixtures at the top give it one of each, and the project
+-- manager reads all three here as the control.
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+SELECT is(
+  (SELECT count(*)::int FROM public.budget_versions WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001')
+  + (SELECT count(*)::int FROM public.budget_lines WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001')
+  + (SELECT count(*)::int FROM public.project_rate_overrides WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001'),
+  3, 'CONTROL for 146: the project manager reads the budget version, the budget line and the rate override'); -- 169
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The realtime files arm WHOLE (raw text, whitespace collapsed): an arm that
+-- exempted LEGAL rows from the skip would still name 'files' once and the
+-- row classifier twice (review round 2, finding 3).
+SELECT is(
+  btrim(regexp_replace(substring(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
+                                 from 'WHEN ''files'' THEN.*?v_project := \(v_row ->> ''project_id''\)::uuid;'),
+                       '\s+', ' ', 'g')),
+  'WHEN ''files'' THEN IF public.file_row_is_money((to_jsonb(NEW) ->> ''is_financial'')::boolean, to_jsonb(NEW) ->> ''storage_path'') OR public.file_row_is_money((to_jsonb(OLD) ->> ''is_financial'')::boolean, to_jsonb(OLD) ->> ''storage_path'') THEN RETURN NULL; END IF; v_project := (v_row ->> ''project_id'')::uuid;',
+  '🚨 the files arm of fn_realtime_broadcast is 0088''s, whole: every money row — a Legal row included — returns before the broadcast'); -- 170
+
+-- The audit tables carry exactly their one trigger each, and the
+-- fixed-at-add trigger on files is ENABLED (a disabled one exists and lets a
+-- Legal row leave LEGAL in one UPDATE — review round 2, finding 5).
+SELECT ok(
+  (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.edit_history'::regclass AND NOT tgisinternal) = 'trg_edit_history_money'
+  AND (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal) = 'trg_file_events_money'
+  AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.files'::regclass AND tgname = 'trg_files_legal_fixed' AND tgenabled = 'O'),
+  'edit_history and file_events carry exactly their one snapshot trigger each; trg_files_legal_fixed is enabled');            -- 171
+
+-- No storage.objects policy outside the sixteen names Legal, a Legal
+-- classifier or a gate; every PERMISSIVE one outside them that reads a key's
+-- third segment negates the locked list (0091's bin-poster policies do); no
+-- base policy names Legal. A permissive policy added under any other name
+-- would OR a new door open.
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM pg_policies
+               WHERE schemaname = 'storage' AND tablename = 'objects'
+                 AND policyname NOT LIKE 'rabbit\_files\_%' AND policyname NOT LIKE 'rabbit\_thumbnails\_%'
+                 AND (COALESCE(qual, '') || COALESCE(with_check, '')) ~* 'legal|rabbit_money_key|can_access_project_money')
+  AND NOT EXISTS (SELECT 1 FROM pg_policies
+               WHERE schemaname = 'storage' AND tablename = 'objects'
+                 AND policyname NOT LIKE 'rabbit\_files\_%' AND policyname NOT LIKE 'rabbit\_thumbnails\_%'
+                 AND permissive = 'PERMISSIVE'
+                 AND (COALESCE(qual, '') || COALESCE(with_check, '')) ~* 'foldername\(name\)\)\[3\]|split_part\(name'
+                 AND (COALESCE(qual, '') || COALESCE(with_check, '')) NOT LIKE '%(NOT rabbit_money_segment((storage.foldername(name))[3]))%')
+  AND NOT EXISTS (SELECT 1 FROM pg_policies
+               WHERE schemaname = 'storage' AND tablename = 'objects'
+                 AND (policyname LIKE 'rabbit\_files\_%' OR policyname LIKE 'rabbit\_thumbnails\_%')
+                 AND policyname NOT LIKE '%\_money\_%'
+                 AND (COALESCE(qual, '') || COALESCE(with_check, '')) ~* 'legal'),
+  'outside the sixteen no storage policy names Legal or a gate, and every permissive one reading the third segment negates the locked list; no base policy names Legal'); -- 172
+
+-- A reused files id (review round 2, finding 2): the history a purged file
+-- left behind is judged on its own diff, never on the row that now holds
+-- the id. The invoice's note edit (a note-only diff) stays money and NOT
+-- Legal although a Legal row now wears its id; the Legal row's own history
+-- is Legal. As postgres, with a fresh id so no fixture above is disturbed.
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
+VALUES ('95950000-0000-0000-0000-00000000f001', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'reused-invoice.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-reused.pdf',
+        10, true);
+UPDATE public.files SET description = 'paid' WHERE id = '95950000-0000-0000-0000-00000000f001';
+DELETE FROM public.files WHERE id = '95950000-0000-0000-0000-00000000f001';
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags, created_at)
+VALUES ('95950000-0000-0000-0000-00000000f001', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'reused-nda.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-reused.pdf',
+        10, false, ARRAY['legal'], clock_timestamp());
+-- Re-run 0092's backfill shape over this entity, as the migration would.
+UPDATE public.edit_history eh
+   SET is_legal = eh.is_legal OR public.edit_history_file_is_legal(
+         CASE WHEN EXISTS (SELECT 1 FROM public.files f WHERE f.id = eh.entity_id AND f.created_at <= eh.created_at)
+              THEN eh.entity_id END, eh.diff)
+ WHERE eh.entity_type = 'files' AND eh.entity_id = '95950000-0000-0000-0000-00000000f001';
+SELECT ok(
+  (SELECT bool_and(is_financial AND NOT is_legal) FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id = '95950000-0000-0000-0000-00000000f001' AND action IN ('create', 'delete')
+      AND diff::text LIKE '%INVOICES%')
+  AND (SELECT bool_and(is_financial AND NOT is_legal) FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id = '95950000-0000-0000-0000-00000000f001' AND action = 'update')
+  AND (SELECT bool_and(is_financial AND is_legal) FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id = '95950000-0000-0000-0000-00000000f001' AND action = 'create'
+      AND diff::text LIKE '%LEGAL%'),
+  '🚨 a purged invoice''s id reused for a Legal row: the invoice''s history (its note-only edit included) stays money and NOT Legal; the Legal row''s own is Legal'); -- 173
 
 SELECT * FROM finish();
 ROLLBACK;
