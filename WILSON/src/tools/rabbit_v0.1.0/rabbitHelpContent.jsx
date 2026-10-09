@@ -4,9 +4,15 @@
 
 import React from 'react';
 import { Kbd } from '../../ui';
-// BC2: the Bins page quotes the controls' own words.
-import { ADD_NEEDS_DESKTOP as ADD_NEEDS_DESKTOP_WORDS } from './bins/binLocations';
+// BC2: the Bins page quotes the controls' own words. BC3: the browser's and
+// the migration's, from the pure modules that hold them (never from a panel
+// whose imports build the Supabase client: CI has no address).
+import {
+  ADD_NEEDS_DESKTOP as ADD_NEEDS_DESKTOP_WORDS, CATALOGUE_SENTENCE as CATALOGUE_WORDS, PLAY_NEEDS_DESKTOP as PLAY_NEEDS_DESKTOP_WORDS,
+  POSTER_LARGE_HINT as POSTER_LARGE_WORDS, NOT_ON_THIS_COMPUTER as NOT_HERE_WORDS,
+} from './bins/binLocations';
 import { REMOTE_VIEWING_LABEL as REMOTE_VIEWING_WORDS } from './bins/cloudPosters';
+import { LOCATION_QUESTION as LOCATION_QUESTION_WORDS, LEAVE_FOR_NOW as LEAVE_FOR_NOW_WORDS } from '../../cloud/migrate/binsMigration';
 
 // The Bins tab's keyboard, as BinsView's document handler binds it (and the
 // preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
@@ -25,7 +31,7 @@ export const BINS_SHORTCUTS = [
   { keys: [['C']], does: 'Circle, or uncircle' },
   { keys: [['1'], ['8']], range: true, does: 'Colour; 0 clears it' },
   { keys: [['A']], does: 'Assign to shot' },
-  { keys: [['Space']], does: 'Play or pause the preview' },
+  { keys: [['Space']], does: 'Play or pause the preview; in a browser, show the picture large' },
   { keys: [['F2'], ['Enter']], does: 'Rename' },
   { keys: [['Del'], ['Backspace']], does: 'Remove from the bin (undo in the toast)' },
   { keys: [['Ctrl', 'Z']], does: 'Undo' },
@@ -504,7 +510,39 @@ export function RabbitHelpContent({ helpPage, theme }) {
               On a computer that reaches the share, the preview plays the clip
               where it is and moving across a tile scrubs it; Open in default
               app hands it to the computer&apos;s own player. Nothing is copied
-              to this computer.
+              to this computer. In a browser nothing plays yet: {PLAY_NEEDS_DESKTOP_WORDS}
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>In a browser</h4>
+            <p className={T.listItem}>
+              {CATALOGUE_WORDS} The tab says so once, at the top. Every clip is
+              marked {NOT_HERE_WORDS}, and under its picture the inspector says
+              which footage location holds it and that the desktop app plays
+              it. Everything else works here as on the desktop: New bin, the
+              logging fields, Select, Reject, Unflag, the colours and the
+              circled mark (alone or on a selection), Assign to shot from a
+              clip or from a shot on the Scenes tab, Move to, Copy to and
+              Remove with Undo in the toast; a change made here shows up for
+              everyone, and the keyboard review keys work with no preview:
+              {' '}{POSTER_LARGE_WORDS}
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Moving a desktop project to the cloud</h4>
+            <p className={T.listItem}>
+              A desktop project moves with its bins, logging, marks and takes:
+              App settings, Storage, Migrate to cloud. Dry-run lists what will
+              move and asks, once for each folder the clips were added from,
+              {' '}{LOCATION_QUESTION_WORDS} An existing location of the company
+              is matched by its network address; a new one is named now. A
+              drive letter is this computer&apos;s alone, so such a folder is
+              given the address the network sees it by. {LEAVE_FOR_NOW_WORDS}
+              {' '}keeps a folder&apos;s clips on this computer, listed in the
+              report, never dropped; a later run brings them. Pictures go up
+              only while {REMOTE_VIEWING_WORDS} is on; off, they stay on this
+              computer and the desktop makes them again where it reaches the
+              file. Running it again changes nothing already there.
             </p>
           </div>
           <div className={T.card}>

@@ -11,9 +11,10 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent'
-import { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CONNECT_LABEL, NOT_CONNECTED_HERE } from './bins/binLocations'
+import { RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS, BINS_SHORTCUTS } from './rabbitHelpContent'
+import { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CONNECT_LABEL, NOT_CONNECTED_HERE, CATALOGUE_SENTENCE, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT } from './bins/binLocations'
 import { REMOTE_VIEWING_LABEL } from './bins/cloudPosters'
+import { LOCATION_QUESTION, LEAVE_FOR_NOW } from '../../cloud/migrate/binsMigration'
 
 afterEach(cleanup)
 
@@ -70,5 +71,38 @@ describe('the "Bins" help page (BC2)', () => {
 
   it('reads the same on the light surface', () => {
     expect(page('light')).toBe(page('dark'))
+  })
+
+  // BC3: the browser's half, in the tab's own words.
+  it('says what a browser shows and what needs the desktop app, word for word (B5), and what Space does there', () => {
+    const text = page()
+    expect(text).toContain(CATALOGUE_SENTENCE)
+    expect(text).toContain(PLAY_NEEDS_DESKTOP)
+    expect(text).toContain(POSTER_LARGE_HINT)
+    expect(text).toContain(`marked ${NOT_ON_THIS_COMPUTER}`)
+    expect(text).toContain('New bin')
+    expect(text).toContain('Remove with Undo in the toast')
+    // The Space row of the keyboard list says both.
+    const space = BINS_SHORTCUTS.find(s => s.keys.flat().includes('Space'))
+    expect(space.does).toBe('Play or pause the preview; in a browser, show the picture large')
+    // …and the view has the words it quotes (a renamed control reaches Help or fails here).
+    expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toContain('CATALOGUE_SENTENCE')
+    expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toContain('New bin')
+  })
+
+  // BC3 (B9): the move, in the panel's own words.
+  it('says how a desktop project\'s bins move to the cloud, in the migration panel\'s words', () => {
+    const text = page()
+    expect(text).toContain('App settings, Storage, Migrate to cloud')
+    expect(text).toContain(LOCATION_QUESTION)
+    expect(text).toContain(LEAVE_FOR_NOW)
+    expect(text).toContain('never dropped')
+    expect(text).toContain(`only while ${REMOTE_VIEWING_LABEL} is on`)
+    expect(text).toContain('Running it again changes nothing already there.')
+    const panel = src('src/cloud/migrate/MigrationPanel.jsx')
+    expect(panel).toContain("MIGRATE_TITLE = 'Migrate to cloud'")
+    expect(panel).toContain('LOCATION_QUESTION')
+    expect(panel).toContain('LEAVE_FOR_NOW')
+    expect(src('src/components/SettingsPage.jsx')).toContain("{ key: 'rabbit',  label: 'Storage' }")
   })
 })
