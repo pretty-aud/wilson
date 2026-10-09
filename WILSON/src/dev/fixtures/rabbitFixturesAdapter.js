@@ -1370,7 +1370,72 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async pickBinFiles() { throw devWriteRefused('Picking files from disk') },
     async pickBinFolder() { throw devWriteRefused('Picking a folder from disk') },
     async prepareBinFiles() { throw devWriteRefused('Adding files from disk') },
-    async addBinFiles() { throw devWriteRefused('Adding files from disk') },
+    // BC2: the cloud's add_bin_files (0091), for the desktop signed in. An
+    // item is a REFERENCE — one of the company's footage locations plus a
+    // path inside it, the technical columns the adding computer read — never
+    // bytes; an item without one is answered 'invalid', as the function does.
+    // (Picking and preparing stay refused here: they are the desktop's.)
+    async addBinFiles(_projectId, binId, items, createSubBins = true) {
+      const bin = findById(store.bins, binId); if (!bin) throw missing('bin not found')
+      if (!Array.isArray(items) || items.length === 0) throw invalid('items required')
+      const MEDIA = ['video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other']
+      const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink']
+      const pos = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
+      const text = (v) => (typeof v === 'string' && v.trim() ? v : null)
+      const created = []; const bins = []; const results = []
+      for (const e of items) {
+        const rel = String(e?.relative_path ?? '').trim()
+        const loc = e?.location_id ? store.binLocations.find(l => l.id === e.location_id) : null
+        if (!loc || !rel) { results.push({ relative_path: e?.relative_path ?? null, status: 'invalid' }); continue }
+        let target = bin.id
+        if (createSubBins !== false && String(e.sub_bin ?? '').trim()) {
+          let parent = bin.id
+          for (const seg of String(e.sub_bin).split('/').map(s => s.trim()).filter(Boolean)) {
+            let child = store.bins
+              .filter(b => b.project_id === bin.project_id && (b.parent_bin_id ?? null) === parent && String(b.name).toLowerCase() === seg.toLowerCase())
+              .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
+            if (!child) {
+              const siblings = store.bins.filter(b => b.project_id === bin.project_id && (b.parent_bin_id ?? null) === parent)
+              child = upsert(store.bins, { project_id: bin.project_id, workspace_id: bin.workspace_id ?? null, name: seg, description: '', kind: 'footage', color: null, parent_bin_id: parent, sort_order: siblings.reduce((m, b) => Math.max(m, b.sort_order ?? 0), -1) + 1, created_by: by, updated_by: by })
+              bins.push(clone(child))
+            }
+            parent = child.id
+          }
+          target = parent
+        }
+        const isSeq = e.is_sequence === true
+        const name = String(e.original_name ?? '').trim() || rel.replace(/^.*\//, '')
+        const extOf = !isSeq && /\.[A-Za-z0-9]{1,12}$/.test(name) ? name.match(/(\.[A-Za-z0-9]{1,12})$/)[1] : ''
+        const order = store.binFiles.filter(f => f.bin_id === target).reduce((m, f) => Math.max(m, f.sort_order ?? 0), -1) + 1
+        const row = {
+          id: newId(), project_id: bin.project_id, workspace_id: bin.workspace_id ?? workspaceId, bin_id: target,
+          location_id: loc.id, relative_path: rel,
+          display_name: String(e.display_name ?? '').trim() || (isSeq ? name : name.replace(/\.[A-Za-z0-9]{1,12}$/, '')),
+          original_name: name, extension: String(e.extension || extOf).toLowerCase(), mime_type: text(e.mime_type),
+          is_sequence: isSeq, sequence_pattern: text(e.sequence_pattern),
+          frame_count: pos(e.frame_count) ? Math.round(e.frame_count) : null,
+          size_bytes: typeof e.size_bytes === 'number' && Number.isFinite(e.size_bytes) ? e.size_bytes : null,
+          mtime: e.mtime ?? null,
+          media_type: MEDIA.includes(e.media_type) ? e.media_type : isSeq ? 'sequence' : 'other',
+          tags: (Array.isArray(e.tags) ? e.tags : []).map(t => String(t).trim()).filter(Boolean).slice(0, 50),
+          scene_id: e.scene_id ?? null, shot_id: e.shot_id ?? null, slate: text(e.slate),
+          take_number: pos(e.take_number) ? Math.floor(e.take_number) : null, take_modifier: text(e.take_modifier),
+          camera: text(e.camera), roll: text(e.roll),
+          shoot_day: /^\d{4}-\d{2}-\d{2}$/.test(String(e.shoot_day ?? '')) ? e.shoot_day : null,
+          description: e.description ?? '', notes: e.notes ?? '',
+          review_flag: ['unflagged', 'select', 'reject'].includes(e.review_flag) ? e.review_flag : 'unflagged',
+          circled: e.circled === true, color: COLORS.includes(e.color) ? e.color : null,
+          duration_sec: pos(e.duration_sec), width: pos(e.width) ? Math.floor(e.width) : null, height: pos(e.height) ? Math.floor(e.height) : null,
+          fps: pos(e.fps), codec: text(e.codec), timecode_start: text(e.timecode_start),
+          probe_status: ['pending', 'done', 'failed', 'unavailable'].includes(e.probe_status) ? e.probe_status : 'pending',
+          sort_order: order, poster_path: null, added_by: by, added_at: now(), updated_at: now(),
+        }
+        store.binFiles.push(row)
+        created.push(clone(row))
+        results.push({ relative_path: rel, status: 'added', id: row.id, bin_id: target })
+      }
+      return { created, bins, results }
+    },
     async updateBinFile(_projectId, id, fields) { return clone({ ...patch(store.binFiles, id, fields), online: true }) },
     async bulkUpdateBinFiles(_projectId, ids, fields) {
       const updated = []

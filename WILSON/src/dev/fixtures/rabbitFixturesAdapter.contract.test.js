@@ -1133,3 +1133,51 @@ describe('the fixtures keep 0091\'s rules for bins (BC1)', () => {
     expect(await fx.getRemoteViewingEnabled(PROJECT_ID)).toBe(false)
   })
 })
+
+describe('the fixtures add clips as 0091\'s add_bin_files does (BC2, for the desktop signed in)', () => {
+  it('a location + a path becomes a row in the bin, with what the adding computer read; no poster yet', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binLocations } = await fx.listBins(PROJECT_ID)
+    const day = bins.find(b => b.name === 'Day 1')
+    const res = await fx.addBinFiles(PROJECT_ID, day.id, [
+      { location_id: binLocations[0].id, relative_path: 'A001/A001C001_261008_T1.mp4', original_name: 'A001C001_261008_T1.mp4', media_type: 'video', size_bytes: 2097802, duration_sec: 1, width: 640, height: 360, fps: 24, codec: 'h264', probe_status: 'done', slate: '1A', take_number: 1 },
+    ])
+    expect(res.results).toEqual([{ relative_path: 'A001/A001C001_261008_T1.mp4', status: 'added', id: res.created[0].id, bin_id: day.id }])
+    expect(res.created[0]).toMatchObject({ bin_id: day.id, location_id: binLocations[0].id, display_name: 'A001C001_261008_T1', extension: '.mp4', size_bytes: 2097802, codec: 'h264', probe_status: 'done', slate: '1A', take_number: 1, poster_path: null })
+    expect('source_path' in res.created[0]).toBe(false)
+    expect((await fx.listBins(PROJECT_ID)).binFiles.some(f => f.id === res.created[0].id)).toBe(true)
+  })
+
+  it('an item that is not a reference to one of the company\'s locations is answered invalid, and nothing is written', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binFiles } = await fx.listBins(PROJECT_ID)
+    const res = await fx.addBinFiles(PROJECT_ID, bins[0].id, [
+      { source_path: 'D:\\x\\T1.mov' },
+      { location_id: 'not-a-location', relative_path: 'A001/T1.mov' },
+      { location_id: (await fx.listBins(PROJECT_ID)).binLocations[0].id, relative_path: '  ' },
+    ])
+    expect(res.results.map(r => r.status)).toEqual(['invalid', 'invalid', 'invalid'])
+    expect(res.created).toEqual([])
+    expect((await fx.listBins(PROJECT_ID)).binFiles).toHaveLength(binFiles.length)
+    await expect(fx.addBinFiles(PROJECT_ID, 'no-such-bin', [{}])).rejects.toMatchObject({ status: 404 })
+    await expect(fx.addBinFiles(PROJECT_ID, bins[0].id, [])).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('a folder\'s sub-bins are found or made under the target, once (the folder walk)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binLocations } = await fx.listBins(PROJECT_ID)
+    const vfx = bins.find(b => b.name === 'VFX plates')
+    const loc = binLocations[0].id
+    const res = await fx.addBinFiles(PROJECT_ID, vfx.id, [
+      { location_id: loc, relative_path: 'VFX/plate_seq', is_sequence: true, original_name: 'plate_seq', sub_bin: 'VFX/plates' },
+      { location_id: loc, relative_path: 'VFX/plates/ref.jpg', media_type: 'still', sub_bin: 'vfx/Plates' },
+    ])
+    expect(res.bins.map(b => b.name)).toEqual(['VFX', 'plates'])
+    const leaf = res.bins[1]
+    expect(res.created.map(r => r.bin_id)).toEqual([leaf.id, leaf.id])
+    expect(res.created[0]).toMatchObject({ is_sequence: true, media_type: 'sequence', display_name: 'plate_seq', extension: '' })
+    const flat = await fx.addBinFiles(PROJECT_ID, vfx.id, [{ location_id: loc, relative_path: 'VFX/x.jpg', sub_bin: 'VFX' }], false)
+    expect(flat.created[0].bin_id).toBe(vfx.id)
+    expect(flat.bins).toEqual([])
+  })
+})
