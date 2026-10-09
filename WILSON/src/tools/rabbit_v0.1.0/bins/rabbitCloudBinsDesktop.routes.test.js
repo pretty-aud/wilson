@@ -25,7 +25,7 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountRabbitBins } = require('../../../../electron/rabbitBins.cjs')
+const { mountRabbitBins, locateCloudPath, shareRootOfPath } = require('../../../../electron/rabbitBins.cjs')
 
 const store = new Map()
 const readRabbitBundle = (id) => (store.has(id) ? JSON.parse(store.get(id)) : null)
@@ -44,7 +44,8 @@ const saved = { value: null, writes: 0 }
 const cloudBinsLocalPaths = { read: () => (saved.value ? JSON.parse(JSON.stringify(saved.value)) : null), write: (v) => { saved.value = JSON.parse(JSON.stringify(v)); saved.writes++ } }
 // The OS dialog: answers whatever the test sets next.
 const dialogAnswer = { filePaths: [], canceled: true }
-const dialog = { showOpenDialog: async () => ({ ...dialogAnswer }) }
+const dialogCalls = []
+const dialog = { showOpenDialog: async (_win, opts) => { dialogCalls.push(opts); return { ...dialogAnswer } } }
 
 const J = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 const raw = (p, init) => fetch(`${base}/api/rabbit/cloud-bins${p}`, init)
@@ -59,6 +60,11 @@ beforeAll(async () => {
   other = path.join(root, 'elsewhere'); fs.mkdirSync(other)
   fs.writeFileSync(path.join(media, 'A001', 'clip.mp4'), Buffer.alloc(1024, 3))
   fs.writeFileSync(path.join(other, 'secret.mov'), Buffer.alloc(16, 1))
+  fs.writeFileSync(path.join(media, 'A001', 'A001C003_240612_R1AB_T4.mov'), Buffer.alloc(64, 2))
+  fs.mkdirSync(path.join(media, 'A001', 'stills'))
+  fs.writeFileSync(path.join(media, 'A001', 'stills', 'frame.png'), Buffer.alloc(32, 4))
+  const seq = path.join(media, 'VFX', 'plate_seq'); fs.mkdirSync(seq, { recursive: true })
+  for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(seq, `plate.${String(i).padStart(4, '0')}.exr`), Buffer.alloc(8, i))
   const app = express()
   app.use(express.json({ limit: '5mb' }))
   mountRabbitBins(app, {
@@ -179,5 +185,94 @@ describe('B2\'s fallback, per computer: the folder from this computer\'s setting
     expect(r.locations[0]).toMatchObject({ id: 'loc-z', local_path: null, local_path_reason: 'local_path_not_picked', root: UNC })
     const res = await (await api('/resolve', J({ files: [{ id: 's', location_id: 'loc-z', relative_path: 'secret.mov' }] }))).json()
     expect(res.files[0].online).toBe(false)
+  })
+})
+
+// ── Adding clips from a location (item 3) ───────────────────────────────────
+describe('locateCloudPath (pure): the location a path lies in, and the path inside it', () => {
+  const locs = new Map([
+    ['L1', { id: 'L1', unc_path: '\\\\SaltHours-NAS\\Footage', local_path: 'Z:\\footage' }],
+    ['L2', { id: 'L2', unc_path: '\\\\nas\\vfx', local_path: '/Volumes/vfx' }],
+  ])
+  it('a network path, case-folded as Windows folds, with forward slashes inside', () => {
+    expect(locateCloudPath(locs, '\\\\salthours-nas\\footage\\A001\\T1.mov')).toMatchObject({ location: { id: 'L1' }, relative_path: 'A001/T1.mov' })
+  })
+  it('this computer\'s folder for a location (B2) first; a POSIX folder the POSIX way', () => {
+    expect(locateCloudPath(locs, 'z:\\Footage\\A001\\T1.mov')).toMatchObject({ location: { id: 'L1' }, relative_path: 'A001/T1.mov' })
+    expect(locateCloudPath(locs, '/Volumes/vfx/plates/p.0001.exr')).toMatchObject({ location: { id: 'L2' }, relative_path: 'plates/p.0001.exr' })
+  })
+  it('the location root itself is the empty path; a sibling with the same prefix is NOT inside', () => {
+    expect(locateCloudPath(locs, '\\\\nas\\vfx')).toMatchObject({ location: { id: 'L2' }, relative_path: '' })
+    expect(locateCloudPath(locs, '\\\\nas\\vfx2\\a.exr')).toBeNull()
+    expect(locateCloudPath(locs, 'C:\\Users\\me\\a.mov')).toBeNull()
+    expect(locateCloudPath(locs, '/Volumes/vfxother/a.exr')).toBeNull()
+  })
+  it('shareRootOfPath: the share a network path is on — never this computer, never an administrative share', () => {
+    expect(shareRootOfPath('\\\\other-nas\\sound\\day1\\a.wav')).toBe('\\\\other-nas\\sound')
+    expect(shareRootOfPath('\\\\localhost\\C$\\Users\\a.mov')).toBeNull()
+    expect(shareRootOfPath('\\\\server\\ADMIN$\\a')).toBeNull()
+    expect(shareRootOfPath('C:\\x')).toBeNull()
+  })
+})
+
+describe('adding clips: the dialogs, and the plan by location', () => {
+  it('the dialogs open in the main process, at the first location this computer reaches; nothing is added to the picked set', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const before = new Set(userAuthorizedDirs)
+    dialogAnswer.canceled = false; dialogAnswer.filePaths = [path.join(media, 'A001', 'clip.mp4')]
+    dialogCalls.length = 0
+    expect(await (await api('/pick-files', J({}))).json()).toEqual({ paths: [path.join(media, 'A001', 'clip.mp4')], canceled: false })
+    expect(dialogCalls[0]).toMatchObject({ properties: ['openFile', 'multiSelections'], defaultPath: path.resolve(media) })
+    dialogAnswer.filePaths = [path.join(media, 'A001')]
+    expect(await (await api('/pick-folder', J({ title: 'Add a folder' }))).json()).toEqual({ path: path.join(media, 'A001'), canceled: false })
+    expect([...userAuthorizedDirs]).toEqual([...before])
+    expect((await raw('/pick-files', J({}))).status).toBe(403)
+  })
+
+  it('a file in a location: its location, its path inside it, the columns this computer reads, the name parser\'s suggestions', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const r = await api('/prepare', J({ paths: [path.join(media, 'A001', 'A001C003_240612_R1AB_T4.mov')] }))
+    const { items } = await r.json()
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      status: 'ok', kind: 'file', location_id: 'loc-a', relative_path: 'A001/A001C003_240612_R1AB_T4.mov',
+      original_name: 'A001C003_240612_R1AB_T4.mov', extension: '.mov', media_type: 'video', size_bytes: 64, is_sequence: false,
+    })
+    expect(items[0].suggestions).toMatchObject({ camera: 'A', roll: 'A001', take_number: 4, confidence: 'high' })
+    expect(typeof items[0].mtime).toBe('string')
+    expect('duplicate' in items[0]).toBe(false)
+  })
+
+  it('a folder: walked inside the location, subfolders as nested bins, a frame sequence as one item', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const { items } = await (await api('/prepare', J({ paths: [path.join(media, 'A001'), path.join(media, 'VFX')] }))).json()
+    const byRel = Object.fromEntries(items.map(i => [i.relative_path, i]))
+    expect(byRel['A001/clip.mp4']).toMatchObject({ status: 'ok', sub_bin: 'A001' })
+    expect(byRel['A001/stills/frame.png']).toMatchObject({ status: 'ok', sub_bin: 'A001/stills', media_type: 'still' })
+    expect(byRel['VFX/plate_seq']).toMatchObject({ status: 'ok', kind: 'sequence', is_sequence: true, frame_count: 4, sequence_pattern: 'plate.####.exr', sub_bin: 'VFX', media_type: 'sequence' })
+    expect(items.every(i => i.location_id === 'loc-a')).toBe(true)
+  })
+
+  it('a path outside every location is refused — never walked, never read — and says the share it is on when it is one', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+    const { items } = await (await api('/prepare', J({ paths: [other, path.join(other, 'secret.mov'), '\\\\other-nas\\sound\\day1\\a.wav', '\\\\localhost\\C$\\Users\\x.mov'] }))).json()
+    expect(items.map(i => [i.status, i.reason, i.share_root])).toEqual([
+      ['outside', 'not_a_share', null],
+      ['outside', 'not_a_share', null],
+      ['outside', 'no_location', '\\\\other-nas\\sound'],
+      ['outside', 'not_a_share', null],
+    ])
+    // Nothing of the folder or the file was read: no size, no listing.
+    expect(items.some(i => 'size_bytes' in i)).toBe(false)
+    expect(items.some(i => i.source_path === path.join(other, 'secret.mov') && i.location_id)).toBe(false)
+  })
+
+  it('no paths is a 400; the gate stands in front', async () => {
+    expect((await api('/prepare', J({ paths: [] }))).status).toBe(400)
+    expect((await raw('/prepare', J({ paths: [media] }))).status).toBe(403)
   })
 })

@@ -1789,8 +1789,11 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
       /<span className="([^"]*)"[^>]*>\{amb\.candidates\.length\} files with this name:/, 'sans'],
     ['src/tools/rabbit_v0.1.0/views/bins/RelinkBinsDialog.jsx',
       /<div className="([^"]*)"[^>]*>not found in that folder/, 'sans'],
+    // BC2: the refused line's phrase ("missing on disk", "not in any footage
+    // location yet", …) is chosen by refusedWords(); the span that carries
+    // it is the one pinned, and it is still the sans.
     ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
-      /<span className="([^"]*)"[^>]*> · missing on disk/, 'sans'],
+      /<span className="([^"]*)"[^>]*> · \{refusedWords\(it\)\}/, 'sans'],
     ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
       /<span className="([^"]*)"[^>]*>\{` · already in /, 'sans'],
   ];

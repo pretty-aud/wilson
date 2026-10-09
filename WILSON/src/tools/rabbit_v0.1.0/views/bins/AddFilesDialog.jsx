@@ -11,9 +11,22 @@
 // and chooses whether folders become nested bins.
 
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Layers, FolderTree, Check } from 'lucide-react'
+import { AlertTriangle, Layers, FolderTree, Check, Server } from 'lucide-react'
 import { C, Btn, Modal, Field, Select, TextInput, MediaTag, Toggle, Loading, Banner } from './binUi'
 import { MEDIA_TYPES, MEDIA_TYPE_META, formatBytes } from '../../bins/binMedia'
+// BC2 (Bins on the cloud, the desktop signed in): a picked file lies in one
+// of the company's footage locations, or it is refused with the sentence —
+// never silently added. On a share nobody has named yet, the dialog asks:
+// "Which location is this? Name it."
+import { suggestLocationName } from '../../bins/binLocations'
+import { OUTSIDE_LOCATIONS_SENTENCE } from '../../adapters/desktopCloudBins'
+
+// Why a line cannot be added, in words (the desktop's prepare says which).
+function refusedWords(it) {
+  if (it.status === 'outside') return it.share_root ? 'not in any footage location yet' : 'not on a footage location'
+  if (it.status === 'unsafe_name') return 'this name cannot be stored (a part of it ends in a dot or a space)'
+  return 'missing on disk'
+}
 
 function suggestionText(s) {
   if (!s) return ''
@@ -26,7 +39,7 @@ function suggestionText(s) {
   return parts.join(' · ')
 }
 
-export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel, busy, progress, error = null }) {
+export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel, busy, progress, error = null, onNameLocation = null }) {
   // A suggestion starts ticked only when the parser read an explicit marker
   // (T4, SH03, a camera clip name, a date): 'high' confidence. A bare "12A"
   // or "4K" is shown but left unticked (adversarial review: ordinary names
@@ -52,7 +65,17 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
   const guardedCancel = () => { if (busy) return; if (!dirty) onCancel(); else setAskDiscard(true) }
   const included = items.filter(i => i.include && i.status === 'ok')
   const dupes = items.filter(i => i.duplicate).length
-  const missing = items.filter(i => i.status !== 'ok').length
+  const missing = items.filter(i => i.status === 'missing').length
+  // BC2: the lines outside every footage location, grouped by the share they
+  // are on (one question per share), and those on no share at all.
+  const outside = items.filter(i => i.status === 'outside')
+  const unnamedShares = useMemo(() => {
+    const m = new Map()
+    for (const it of items) if (it.status === 'outside' && it.share_root) m.set(it.share_root, (m.get(it.share_root) || 0) + 1)
+    return [...m.entries()].map(([root, count]) => ({ root, count }))
+  }, [items])
+  const offShare = outside.filter(i => !i.share_root).length
+  const unsafe = items.filter(i => i.status === 'unsafe_name').length
   const seqs = included.filter(i => i.kind === 'sequence').length
   const bytes = included.reduce((s, i) => s + (Number(i.size_bytes) || 0), 0)
   const sceneOptions = (scenes || []).slice().sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0)).map(s => ({ value: s.id, label: s.name || 'Untitled scene' }))
@@ -62,6 +85,15 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
     const out = included.map(it => {
       const s = it.apply ? (it.suggestions || {}) : {}
       return {
+        // BC2: a clip in a footage location goes to the cloud as its location
+        // and its path inside it, with what this computer read of it.
+        ...(it.location_id ? {
+          location_id: it.location_id, relative_path: it.relative_path,
+          original_name: it.original_name, extension: it.extension, mime_type: it.mime_type,
+          is_sequence: it.kind === 'sequence', sequence_pattern: it.sequence?.pattern ?? it.sequence_pattern ?? null,
+          frame_count: it.sequence?.frame_count ?? it.frame_count ?? null,
+          size_bytes: it.size_bytes ?? null, mtime: it.mtime ?? null,
+        } : {}),
         kind: it.kind, source_path: it.source_path, sub_bin: createSubBins ? it.sub_bin : null,
         display_name: it.display_name, media_type: it.media_type, tags,
         scene_id: batch.scene_id || null,
@@ -76,7 +108,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
 
   return (
     <Modal title={`Add to "${bin?.name || 'bin'}"`} onClose={onCancel} onBeforeClose={() => { if (!dirty) return true; setAskDiscard(true); return false }} width="workbench" busy={busy} error={error}
-      subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''} · ${formatBytes(bytes)} referenced in place`}
+      subtitle={`${included.length} of ${items.length} will be added${seqs ? ` · ${seqs} sequence${seqs === 1 ? '' : 's'}` : ''}${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'}` : ''}${missing ? ` · ${missing} missing` : ''}${outside.length ? ` · ${outside.length} outside the footage locations` : ''}${unsafe ? ` · ${unsafe} with a name that cannot be stored` : ''} · ${formatBytes(bytes)} referenced in place`}
       footer={<>
         {busy && progress && <Loading className="mr-auto" label={progress} />}
         <Btn onClick={guardedCancel} disabled={busy}>Cancel</Btn>
@@ -94,6 +126,16 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
       {plan?.truncated && (
         <Banner tone="warning" Icon={AlertTriangle} className="mb-3 rounded-control">
           The folder was too large to walk completely; add the rest in a second pass.
+        </Banner>
+      )}
+      {/* BC2: "Which location is this? Name it." — one question per share a
+          picked file lies on that the company has not named. */}
+      {unnamedShares.map(({ root, count }) => (
+        <NameShareBanner key={root} root={root} count={count} onNameLocation={onNameLocation} disabled={busy} />
+      ))}
+      {offShare > 0 && (
+        <Banner tone="warning" Icon={AlertTriangle} className="mb-3 rounded-control">
+          {offShare === 1 ? 'One file is' : `${offShare} files are`} not on a footage location, so {offShare === 1 ? 'it' : 'they'} cannot be added. {OUTSIDE_LOCATIONS_SENTENCE} A share this computer sees only as a drive letter is set in Settings, Storage, Footage locations.
         </Banner>
       )}
 
@@ -145,7 +187,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                         two items (icon, text) and the gap does not move. */}
                     <span>
                       {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
-                      {disabled && <span className="font-sans"> · missing on disk</span>}
+                      {disabled && <span className="font-sans"> · {refusedWords(it)}</span>}
                       {it.duplicate && <span className="font-sans">{` · already in ${it.duplicate.existing_bin_name ? `"${it.duplicate.existing_bin_name}"` : 'the project'}${it.duplicate.reason === 'same_name_size' ? ' (same name and size)' : ''}`}</span>}
                     </span>
                   </div>
@@ -176,5 +218,40 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
         {' '}<MediaTag type="sequence" small /> a folder of numbered frames is added as one item.
       </div>
     </Modal>
+  )
+}
+
+// BC2: "Which location is this? Name it." The share a picked file lies on,
+// with a name to start from (its own); naming it makes it one of the
+// company's footage locations, and the batch is read again inside it. Where
+// the caller cannot name locations (no company), the banner says what to do.
+function NameShareBanner({ root, count, onNameLocation, disabled }) {
+  const [name, setName] = useState(() => suggestLocationName(root))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const go = async () => {
+    const n = name.trim()
+    if (!n || !onNameLocation) return
+    setBusy(true); setError(null)
+    try { await onNameLocation(root, n) }
+    catch (e) { setError(String(e?.message || e).replace(/^\[(supabase|localServer)\]\s*/, '')) }
+    finally { setBusy(false) }
+  }
+  return (
+    <Banner tone="info" Icon={Server} className="mb-3 rounded-control" data-testid="name-share">
+      <div className="flex flex-col gap-2">
+        <span>
+          {count === 1 ? 'One file is' : `${count} files are`} on <span className="font-mono">{root}</span>, which is not one of the company's footage locations yet.
+          {onNameLocation ? ' Which location is this? Name it to add them.' : ' Name it in Settings, Storage, Footage locations to add them.'}
+        </span>
+        {onNameLocation && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <TextInput value={name} onChange={setName} aria-label={`Name for ${root}`} placeholder="Footage NAS" className="!w-56" disabled={busy || disabled} />
+            <Btn small primary onClick={go} disabled={busy || disabled || !name.trim()}>{busy ? 'Adding…' : 'Add as a footage location'}</Btn>
+          </div>
+        )}
+        {error && <span role="alert" style={{ color: C.text }}>{error}</span>}
+      </div>
+    </Banner>
   )
 }

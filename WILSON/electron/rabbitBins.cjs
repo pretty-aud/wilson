@@ -1555,6 +1555,39 @@ function resolveCloudFilePath(locations, locationId, relativePath) {
   return joined;
 }
 
+/**
+ * BC2: the registered location a path on THIS computer lies in, and the
+ * path inside it the database's way (forward slashes). A location's folder
+ * on this computer (B2's fallback) is tried before its network address;
+ * containment by the ROOT's shape, case-folded where Windows folds. Null
+ * when the path is in none of them.
+ */
+function locateCloudPath(locations, abs) {
+  if (typeof abs !== 'string' || !abs) return null;
+  for (const loc of locations.values()) {
+    for (const root of [loc.local_path, loc.unc_path].filter(Boolean)) {
+      const mod = rootPathModule(root);
+      if (rootPathModule(abs) !== mod) continue;
+      const fold = (p) => (mod === path.win32 ? p.toLowerCase() : p);
+      const r = mod.resolve(root).replace(/[\\/]+$/, '');
+      const a = mod.resolve(abs).replace(/[\\/]+$/, '');
+      if (fold(a) === fold(r)) return { location: loc, relative_path: '' };
+      if (fold(a).startsWith(fold(r) + mod.sep)) {
+        return { location: loc, relative_path: a.slice(r.length + 1).split(mod.sep).join('/') };
+      }
+    }
+  }
+  return null;
+}
+// The share a network path lies in (\\server\share), when it is one a
+// location could be: never this computer, never an administrative share.
+function shareRootOfPath(p) {
+  const m = /^\\\\([^\\/]+)[\\/]([^\\/]+)/.exec(String(p || ''));
+  if (!m) return null;
+  const root = `\\\\${m[1]}\\${m[2]}`;
+  return isUncPath(root) ? root : null;
+}
+
 function mountCloudBins(expressApp, deps) {
   const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
   const localPaths = makeLocalPathStore(deps.cloudBinsLocalPaths || null);
@@ -1665,6 +1698,147 @@ function mountCloudBins(expressApp, deps) {
     if (loc) cloudLocations.set(id, { ...loc, local_path: null });
     if (!had && !loc) return res.status(404).json({ error: 'no folder is saved for that location on this computer', code: 'not_found' });
     res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, reachable: loc ? reachable(loc.unc_path) : false, root: loc?.unc_path ?? null });
+  });
+
+  // ── Adding clips from a location (BC2 item 3) ──
+  // The OS dialogs, opened here (a page never types a path into a request
+  // it then reads), starting at the first registered location this computer
+  // reaches. Nothing is added to the process-wide picked set: `prepare`
+  // below reads only inside the company's registered locations anyway.
+  const firstReachableRoot = () => {
+    for (const loc of cloudLocations.values()) {
+      const root = loc.local_path || loc.unc_path;
+      if (reachable(root)) return root;
+    }
+    return undefined;
+  };
+  expressApp.post(`${C}/pick-files`, async (_req, res) => {
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      title: 'Add clips from a footage location',
+      defaultPath: firstReachableRoot(),
+    });
+    if (result.canceled) return res.json({ paths: [], canceled: true });
+    res.json({ paths: result.filePaths, canceled: false });
+  });
+  expressApp.post(`${C}/pick-folder`, async (req, res) => {
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: String(req.body?.title || 'Add a folder from a footage location').slice(0, 120),
+      defaultPath: firstReachableRoot(),
+    });
+    if (result.canceled || !result.filePaths.length) return res.json({ path: null, canceled: true });
+    res.json({ path: result.filePaths[0], canceled: false });
+  });
+
+  // The location a picked path lies in. A drive letter that is a mapped
+  // network share is read through to its network address (the OS's own
+  // answer, realpath), so a share mapped as Z: still lands on its location.
+  function locate(abs) {
+    const hit = locateCloudPath(cloudLocations, abs);
+    if (hit) return { ...hit, seen: abs };
+    if (/^[A-Za-z]:[\\/]/.test(abs)) {
+      let real = null;
+      try { real = fs.realpathSync.native(abs); } catch { real = null; }
+      if (real && real !== abs) {
+        const viaReal = locateCloudPath(cloudLocations, real);
+        if (viaReal) return { ...viaReal, seen: real };
+        return { outside: true, real };
+      }
+    }
+    return null;
+  }
+  function outsideItem(p, real = null) {
+    const net = shareRootOfPath(real || p);
+    return {
+      kind: 'file', status: 'outside', source_path: p, original_name: path.basename(p),
+      reason: net ? 'no_location' : 'not_a_share', share_root: net,
+    };
+  }
+  function cloudFileItem(abs, rel, loc, name, subBin) {
+    if (!isSafeRelativePath(rel)) return { kind: 'file', status: 'unsafe_name', source_path: abs, original_name: name };
+    let st; try { st = fs.statSync(abs); } catch { return { kind: 'file', status: 'missing', source_path: abs, original_name: name }; }
+    const ext = extOf(name);
+    return {
+      kind: 'file', status: 'ok', location_id: loc.id, relative_path: rel,
+      source_path: abs, original_name: name, extension: ext, mime_type: guessMime(ext),
+      size_bytes: st.size, mtime: st.mtime.toISOString(),
+      media_type: guessMediaType(ext), is_sequence: false,
+      display_name: name.replace(/\.[A-Za-z0-9]{1,12}$/, ''),
+      suggestions: parseNameSuggestions(name),
+      sub_bin: subBin || null,
+    };
+  }
+  function cloudSequenceItem(dir, rel, loc, seq, subBin) {
+    const name = path.basename(dir);
+    if (!isSafeRelativePath(rel)) return { kind: 'sequence', status: 'unsafe_name', source_path: dir, original_name: name };
+    return {
+      kind: 'sequence', status: 'ok', location_id: loc.id, relative_path: rel,
+      source_path: dir, original_name: name, extension: seq.ext, mime_type: guessMime(seq.ext),
+      size_bytes: seq.size_bytes, mtime: seq.mtime, media_type: 'sequence',
+      is_sequence: true, sequence_pattern: seq.pattern, frame_count: seq.frame_count,
+      display_name: name,
+      sequence: { pattern: seq.pattern, frame_count: seq.frame_count, first_frame: seq.first_frame, last_frame: seq.last_frame, missing_frames: seq.missing_frames, sidecars: seq.sidecars || 0 },
+      suggestions: parseNameSuggestions(name),
+      sub_bin: subBin || null,
+    };
+  }
+
+  // paths → the add dialog's plan, by location. A path in none of the
+  // company's registered locations is REFUSED, never walked and never
+  // silently added: `status: 'outside'`, with the share it lies on when it
+  // is one (`share_root`, the add flow's "Which location is this? Name it.").
+  // Inside a location: a file, a frame sequence (one item per folder) or a
+  // folder walked as the signed-out prepare walks it (bounded; subfolders
+  // become nested bins unless folderAsBin is false). A name the database
+  // cannot store (a segment ending in a dot or a space) is `unsafe_name`.
+  // Duplicates (B8) are the renderer's to find: the cloud's rows are there.
+  expressApp.post(`${C}/prepare`, (req, res) => {
+    // Absolute by either shape (BC1's trap 2: CI runs this on Linux, where a
+    // \\server\share path is not absolute to path.isAbsolute and would be
+    // dropped silently instead of refused by name).
+    const anyAbs = (p) => typeof p === 'string' && p.length > 0 && (path.win32.isAbsolute(p) || path.posix.isAbsolute(p));
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter(anyAbs) : [];
+    if (!paths.length) return res.status(400).json({ error: 'paths required (absolute)' });
+    const folderAsBin = req.body?.folderAsBin !== false;
+    const items = []; const folders = []; let truncated = false;
+    const seen = new Set();
+    const push = (item) => { const k = String(item.source_path).toLowerCase(); if (seen.has(k)) return; seen.add(k); items.push(item); };
+    const joinSub = (prefix, rel) => [prefix, rel].filter(Boolean).join('/') || null;
+    const joinRel = (base, rel) => [base, rel].filter(Boolean).join('/');
+    for (const p of paths) {
+      const where = locate(p);
+      if (!where || where.outside) { push(outsideItem(p, where?.real || null)); continue; }
+      const { location: loc, relative_path: baseRel } = where;
+      if (isFile(p)) { push(cloudFileItem(p, baseRel, loc, path.basename(p), null)); continue; }
+      if (!isDir(p)) { push({ kind: 'file', status: 'missing', source_path: p, original_name: path.basename(p) }); continue; }
+      const seq = detectSequence(p);
+      if (seq) { push(cloudSequenceItem(p, baseRel, loc, seq, null)); continue; }
+      const prefix = folderAsBin && baseRel ? path.basename(p) : null;
+      folders.push({ path: p, name: path.basename(p), sub_bin: prefix, location_id: loc.id });
+      const r = walkFolder(p, {
+        maxEntries: 5000, maxDepth: 8,
+        onDir: (abs, rel) => {
+          const s = detectSequence(abs);
+          if (s) {
+            const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+            push(cloudSequenceItem(abs, joinRel(baseRel, rel), loc, s, joinSub(prefix, parentRel)));
+            return false;
+          }
+          return true;
+        },
+        onFile: (abs, rel, name) => {
+          const sub = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+          push(cloudFileItem(abs, joinRel(baseRel, rel), loc, name, joinSub(prefix, sub)));
+        },
+      });
+      if (r.truncated) truncated = true;
+    }
+    res.json({ items, folders, truncated });
   });
 
   // files: [{ id, location_id, relative_path, is_sequence }] → what this
@@ -1804,6 +1978,8 @@ module.exports = {
   guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
   // BC1: the cloud clip's address on this computer (the cloud-bins routes).
   isUncPath, isSafeRelativePath, resolveCloudFilePath,
+  // BC2: the location a picked path lies in, and the share a network path is on.
+  locateCloudPath, shareRootOfPath,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
   MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };

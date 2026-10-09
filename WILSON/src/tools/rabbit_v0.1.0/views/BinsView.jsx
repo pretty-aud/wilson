@@ -56,6 +56,10 @@ import { useNavigateTarget } from '../state/rabbitNavigate'
 // 1). The words are the Caption step, sentence as written.
 const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
 
+// BC2: where no computer can reach the footage to pick it (the cloud, in a
+// browser), the add verbs say why. The desktop app signed in can.
+export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a computer that can reach the footage.'
+
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
   { name: 'Audio', kind: 'audio', color: 'green' },
@@ -73,8 +77,19 @@ const TYPE_STARTER = [
  */
 export default function BinsView({ pageActive = false } = {}) {
   const ctx = useRabbit()
-  const { canWrite, writeReason } = useProjectAccess()
+  // BC2 (B6): bins are gated on `project.bins.write` — the twin of the shot
+  // list gate, which admits REVIEWERS (Audrey: "Reviewers same as members").
+  // `project.entity.write` refused them. On the signed-out desktop the two
+  // read the same (no roles: both open), so B12 holds.
+  const { can, reasonFor } = useProjectAccess()
+  const canWrite = can('project.bins.write')
+  const writeReason = reasonFor('project.bins.write')
   const supports = !!ctx?.supportsBins
+  // What this backend can do with a FILE (BC1's capability object). Null
+  // before the first list: read as "yes" so the signed-out desktop's tab is
+  // unchanged while it loads (B12).
+  const caps = ctx?.binsInfo?.capabilities || null
+  const canPick = caps ? caps.pickFiles !== false : true
   const projectId = ctx?.activeProjectId
   const bins = ctx?.bins || []
   const files = ctx?.binFiles || []
@@ -342,6 +357,17 @@ export default function BinsView({ pageActive = false } = {}) {
   useNavigateTarget('bins', onNavigate, projectId)
 
   // ── Adding files ──
+  // BC2 (B8): on the cloud the desktop's walk does not know the project's
+  // rows; the provider does. A clip already in the project (same location,
+  // same file) arrives unticked, "already in …", as the signed-out dialog
+  // has always done — Skip, or tick it to add it anyway (an instance).
+  const findDuplicateBinFiles = ctx?.findDuplicateBinFiles
+  const withDuplicates = useCallback((plan) => {
+    if (!plan?.items?.some(it => it.location_id) || typeof findDuplicateBinFiles !== 'function') return plan
+    const dupes = findDuplicateBinFiles(plan.items.map(it => (it.location_id ? { location_id: it.location_id, relative_path: it.relative_path } : null)))
+    return { ...plan, items: plan.items.map((it, i) => (dupes[i] ? { ...it, duplicate: dupes[i] } : it)) }
+  }, [findDuplicateBinFiles])
+
   const addPathsTo = useCallback(async (binId, paths) => {
     if (!paths?.length || !canWrite) return
     const bin = binsById.get(binId)
@@ -362,12 +388,24 @@ export default function BinsView({ pageActive = false } = {}) {
       if (single && !looksLikeFile) folderAsBin = false
     }
     try {
-      const plan = await ctx.prepareBinFiles(paths, { folderAsBin })
+      const plan = withDuplicates(await ctx.prepareBinFiles(paths, { folderAsBin }))
       if (!plan?.items?.length) { say('Nothing to add: no files were found at what was dropped.', 'warn'); return }
       setAddError(null)
-      setAddDlg({ bin: bin || pending, plan })
+      // The paths stay with the dialog (BC2): naming the share a file lies on
+      // reads the same batch again, now inside a location.
+      setAddDlg({ bin: bin || pending, plan, paths, folderAsBin })
     } catch (e) { say(e?.message || String(e), 'error') }
-  }, [ctx, canWrite, binsById, say])
+  }, [ctx, canWrite, binsById, say, withDuplicates])
+
+  // BC2: "Which location is this? Name it." — a picked file on a share the
+  // company has not named: the share becomes a location, and the batch is
+  // read again (now inside it). The dialog stays open throughout.
+  const nameShareAsLocation = useCallback(async (shareRoot, name) => {
+    if (!addDlg) return
+    await ctx.addBinLocation({ name, unc_path: shareRoot })
+    const plan = withDuplicates(await ctx.prepareBinFiles(addDlg.paths, { folderAsBin: addDlg.folderAsBin }))
+    setAddDlg(d => (d ? { ...d, plan, planRev: (d.planRev || 0) + 1 } : d))
+  }, [addDlg, ctx, withDuplicates])
 
   const pickFiles = useCallback(async (binId) => {
     try { const r = await ctx.pickBinFiles(); if (r?.paths?.length) await addPathsTo(binId, r.paths) }
@@ -389,7 +427,10 @@ export default function BinsView({ pageActive = false } = {}) {
         bin = await ctx.addBin({ name: bin.name, kind: bin.kind || 'footage' })
         setAddDlg(d => (d ? { ...d, bin } : d))
       }
-      const res = await ctx.addBinFiles(bin.id, items, createSubBins, addDlg.plan?.roots || null)
+      // BC2: on the desktop signed in, each clip's columns are read on the
+      // share before the add — said, so the wait has a count.
+      const onProgress = ({ done, total }) => setAddProgress(`Reading ${done} of ${total} on the share…`)
+      const res = await ctx.addBinFiles(bin.id, items, createSubBins, addDlg.plan?.roots || null, { onProgress })
       const added = (res.results || []).filter(r => r.status === 'added').length
       const missing = (res.results || []).filter(r => r.status === 'missing').length
       const other = (res.results || []).length - added - missing
@@ -752,10 +793,13 @@ export default function BinsView({ pageActive = false } = {}) {
                 <Chip active={includeNested} onClick={() => setIncludeNested(v => !v)} title="Show files of nested bins too">nested</Chip>
               )}
               <div className="relative">
-                <Btn primary small disabled={!canWrite} title={canWrite ? 'Add files or a folder' : writeReason || 'Read-only'}
+                <Btn primary small disabled={!canWrite} title={canWrite ? (canPick ? 'Add files or a folder' : ADD_NEEDS_DESKTOP) : writeReason || 'Read-only'}
                   onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4, items: [
-                    { label: 'Files…', Icon: FilePlus, onClick: () => pickFiles(currentBinId) },
-                    { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, onClick: () => pickFolder(currentBinId) },
+                    // BC2: where no computer can pick a file (the cloud in a
+                    // browser), the two picks say why instead of failing.
+                    !canPick && { header: ADD_NEEDS_DESKTOP },
+                    { label: 'Files…', Icon: FilePlus, disabled: !canPick, onClick: () => pickFiles(currentBinId) },
+                    { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, disabled: !canPick, onClick: () => pickFolder(currentBinId) },
                     { divider: true },
                     { label: 'New bin', Icon: Plus, onClick: () => createBin(currentBinId) },
                   ] })}>
@@ -825,15 +869,19 @@ export default function BinsView({ pageActive = false } = {}) {
                   <Btn primary onClick={() => createStarter('types')}><Layers className="w-3 h-3" /> One bin per media type</Btn>
                   {scenes.length > 0 && <Btn onClick={() => createStarter('scenes')}><Film className="w-3 h-3" /> One bin per scene ({scenes.length})</Btn>}
                   <Btn onClick={() => createStarter('days')}><FolderPlus className="w-3 h-3" /> Dailies + Selects</Btn>
-                  <Btn onClick={() => pickFolder(null)}><FolderOpen className="w-3 h-3" /> Import a folder…</Btn>
+                  {canPick && <Btn onClick={() => pickFolder(null)}><FolderOpen className="w-3 h-3" /> Import a folder…</Btn>}
                   <Btn onClick={() => createBin(null)}><Plus className="w-3 h-3" /> Empty bin</Btn>
                 </>}
                 {!canWrite && <span className="text-dense" style={{ color: C.dim }}>{writeReason || 'Read-only'}</span>}
               </EmptyState>
             ) : scopeFiles.length === 0 ? (
               <EmptyState Icon={FilePlus} title={currentBin ? `"${currentBin.name}" is empty` : 'No files in any bin yet'}
-                body="Add files or a folder, or drop them here from Explorer. Files stay where they are; the bin keeps a reference, a poster frame and the logging.">
-                {canWrite && <>
+                body={canPick
+                  ? (caps?.locations
+                    ? 'Add files or a folder from one of the company\'s footage locations, or drop them here from Explorer. Clips stay where they are on the share; the bin keeps a reference, a poster frame and the logging.'
+                    : 'Add files or a folder, or drop them here from Explorer. Files stay where they are; the bin keeps a reference, a poster frame and the logging.')
+                  : ADD_NEEDS_DESKTOP}>
+                {canWrite && canPick && <>
                   <Btn primary onClick={() => pickFiles(currentBinId)}><FilePlus className="w-3 h-3" /> Add files…</Btn>
                   <Btn onClick={() => pickFolder(currentBinId)}><FolderPlus className="w-3 h-3" /> Add a folder…</Btn>
                 </>}
@@ -903,7 +951,8 @@ export default function BinsView({ pageActive = false } = {}) {
           <p className="text-dense" style={{ color: C.text }}>The files on disk stay where they are. Undo is in the toast.</p>
         </Modal>
       )}
-      {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }} />}
+      {addDlg && <AddFilesDialog key={addDlg.planRev || 0} bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }}
+        onNameLocation={ctx?.binsInfo?.capabilities?.locations ? nameShareAsLocation : null} />}
       {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onCancel={() => { if (!deleteBusy) { setDeleteDlg(null); setDeleteError(null) } }} />}
       {relinkOpen && (
         <RelinkBinsDialog offlineRows={offlineAll} roots={roots}

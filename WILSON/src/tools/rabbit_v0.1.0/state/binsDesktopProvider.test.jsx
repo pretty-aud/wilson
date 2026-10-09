@@ -79,6 +79,11 @@ function makeCloud(mode = 'supabase') {
     listBinLocations: async () => clone(db.locations),
     createBinLocation: async (loc) => { const row = { id: loc.id || `loc-${++n}`, workspace_id: 'w1', name: loc.name, unc_path: loc.unc_path }; db.locations = [...db.locations.filter(l => l.id !== row.id), row]; return clone(row) },
     removeBinLocation: async (lid) => { const row = db.locations.find(l => l.id === lid); db.locations = db.locations.filter(l => l.id !== lid); return clone(row) },
+    addBinFiles: async (_pid, binId, items) => {
+      const created = items.map((it, i) => ({ id: `n${++n}`, project_id: 'p1', workspace_id: 'w1', bin_id: binId, display_name: it.relative_path, sort_order: 10 + i, ...it }))
+      db.files = [...db.files, ...created]
+      return clone({ created, bins: [], results: created.map(r => ({ status: 'added', id: r.id })) })
+    },
     binFileThumbnailUrl: () => null,
     binFileStreamUrl: () => null,
   }
@@ -93,6 +98,7 @@ function makeFiles({ pingOk = true } = {}) {
     resolveCloudBinFiles: vi.fn(async (list) => { calls.push(['resolve', list.map(f => f.id)]); return { files: list.map(f => ({ id: f.id, online: f.id === 'f1' })) } }),
     cloudBinFileThumbnailUrl: (loc, rel) => `thumb:${loc}:${rel}`,
     cloudBinFileStreamUrl: (loc, rel) => `stream:${loc}:${rel}`,
+    probeCloudBinFile: vi.fn(async () => ({ duration_sec: 3, width: 1920, height: 1080, probe_status: 'done' })),
     pickCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['pickLocal', id]); return { id, local_path: 'Z:\\footage', local_path_source: 'saved', reachable: true } }),
     forgetCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['forgetLocal', id]); return { id, local_path: null } }),
   }
@@ -233,6 +239,41 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
     const err = await ctxRef.pickBinLocationLocalPath('L1').catch(e => e)
     expect(err).toBeInstanceOf(Error)
     expect(err.message).toContain('needs the desktop app')
+  })
+})
+
+describe('BC2 — adding clips from a location, through the provider', () => {
+  it('the add reads each clip here first (its progress reaches the caller) and stores what it read', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    const progress = []
+    let res
+    await act(async () => {
+      res = await ctxRef.addBinFiles('b1', [{ kind: 'file', location_id: 'L1', relative_path: 'A002/T5.mov', source_path: '\\\\nas\\footage\\A002\\T5.mov', media_type: 'video' }], true, null, { onProgress: (p) => progress.push(p) })
+    })
+    expect(holder.files.probeCloudBinFile).toHaveBeenCalledWith(expect.objectContaining({ location_id: 'L1', relative_path: 'A002/T5.mov', fps: 25 }))
+    expect(progress).toEqual([{ done: 1, total: 1 }])
+    const stored = holder.adapter.db.files.find(f => f.relative_path === 'A002/T5.mov')
+    expect(stored).toMatchObject({ duration_sec: 3, width: 1920, probe_status: 'done' })
+    expect('source_path' in stored).toBe(false)
+    expect(res.created[0].online).toBe(true)
+  })
+
+  it('naming a location registers it with this computer at once (the add flow reads the batch again straight after)', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    let row; let duringAdd
+    await act(async () => {
+      row = await ctxRef.addBinLocation({ name: 'Sound', unc_path: '\\\\nas\\sound' })
+      // Read INSIDE the act, before React flushes the re-render and its
+      // effects: only the mutator's own registration can have landed. (The
+      // first version read after the act, where the effect's registration
+      // also counts — plant P41 survived it.)
+      duringAdd = holder.files.calls.filter(c => c[0] === 'register').at(-1)[1].map(l => l.id)
+    })
+    expect(duringAdd.sort()).toEqual(['L1', row.id].sort())
   })
 })
 

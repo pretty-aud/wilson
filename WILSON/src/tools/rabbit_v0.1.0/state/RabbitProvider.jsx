@@ -4656,10 +4656,12 @@ export function RabbitProvider({ children }) {
   // same list is not sent twice for one load.
   const binLocationsKey = (bundle.binLocations || []).map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
   const registeredKeyRef = useRef(null);
-  const registerBinLocationsNow = useCallback(async () => {
+  // `explicit`: the list as a mutator just made it (state lands a render
+  // later than the mutator's next line).
+  const registerBinLocationsNow = useCallback(async (explicit = null) => {
     const a = binsBackend();
     if (typeof a?.registerBinLocations !== 'function') return [];
-    const list = bundleRef.current.binLocations || [];
+    const list = explicit || bundleRef.current.binLocations || [];
     const status = await a.registerBinLocations(list);
     registeredKeyRef.current = list.map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
     setBinsInfo(i => ({ ...i, locations: status }));
@@ -4982,10 +4984,13 @@ export function RabbitProvider({ children }) {
 
   // roots (optional): the folders the batch was picked or dropped from, as
   // prepare reported them; the server records those as the known roots.
-  const addBinFiles = useCallback(async (binId, items, createSubBins = true, roots = null) => {
+  // BC2: `opts.onProgress({ done, total })` while the desktop signed in reads
+  // each clip's columns before the add (the composite); other backends
+  // ignore it.
+  const addBinFiles = useCallback(async (binId, items, createSubBins = true, roots = null, opts = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
-    const res = await a.addBinFiles(pid, binId, items, createSubBins, roots);
+    const res = await a.addBinFiles(pid, binId, items, createSubBins, roots, opts);
     if (activeProjectIdRef.current !== pid) return res;
     const created = res.created || [];
     const bins = res.bins || [];
@@ -5190,12 +5195,17 @@ export function RabbitProvider({ children }) {
     if (typeof a.createBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
     const created = await a.createBinLocation(location);
     setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [created]) }));
+    // BC2: this computer learns the new address at once — the add flow's
+    // "Which location is this? Name it." reads the batch again right after.
+    if (desktopBinFilesRef.current) {
+      await registerBinLocationsNow([...(bundleRef.current.binLocations || []).filter(l => l.id !== created.id), created]).catch(() => {});
+    }
     pushHistory({
       undoOps: [() => mutationsRef.current.removeBinLocation(created.id)],
       redoOps: [() => mutationsRef.current.addBinLocation(created)],
     });
     return created;
-  }, [locationsAdapter]);
+  }, [locationsAdapter, registerBinLocationsNow]);
 
   const updateBinLocation = useCallback(async (id, patch) => {
     const a = locationsAdapter();
@@ -5208,6 +5218,12 @@ export function RabbitProvider({ children }) {
       () => a.updateBinLocation(id, patch),
     );
     if (result) setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [result]) }));
+    // BC2: a re-address reaches this computer at once (and every clip of the
+    // location is resolved at the new share).
+    if (desktopBinFilesRef.current && result) {
+      await registerBinLocationsNow((bundleRef.current.binLocations || []).map(l => (l.id === id ? { ...l, ...result } : l))).catch(() => {});
+      scheduleBinResolveRef.current?.();
+    }
     if (old) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateBinLocation(id, oldValues)],
@@ -5215,7 +5231,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [locationsAdapter, optimistic]);
+  }, [locationsAdapter, optimistic, registerBinLocationsNow]);
 
   const removeBinLocation = useCallback(async (id) => {
     const a = locationsAdapter();

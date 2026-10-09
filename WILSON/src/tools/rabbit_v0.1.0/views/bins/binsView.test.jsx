@@ -26,7 +26,9 @@ import { dirname, resolve } from 'node:path'
 
 const state = vi.hoisted(() => ({ ctx: null }))
 vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
-vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrite: true, writeReason: null }) }))
+// BC2: the tab gates on can('project.bins.write') (B6, reviewers included);
+// the mock answers the hook's whole shape, every action allowed.
+vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrite: true, writeReason: null, can: () => true, reasonFor: () => null }) }))
 const { default: BinsView } = await import('../BinsView')
 const { BINS_SHORTCUTS } = await import('../../rabbitHelpContent')
 const { COLORS } = await import('../../bins/binMedia')
