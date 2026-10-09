@@ -15,7 +15,9 @@ import React from 'react'
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
 
 const state = vi.hoisted(() => ({ ctx: null }))
-vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
+// The tile reads the provider's value from the context module (never the
+// provider's own module: binPosterNoProvider.test.jsx).
+vi.mock('../../state/rabbitContext', () => ({ useRabbitContext: () => state.ctx }))
 const { default: BinPoster } = await import('./BinPoster')
 const { needsCloudPoster } = await import('../../bins/cloudPosters')
 

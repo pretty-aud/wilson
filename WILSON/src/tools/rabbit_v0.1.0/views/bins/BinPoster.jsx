@@ -13,7 +13,9 @@ import { Film, Image as ImageIcon, Music, Layers, Sparkles, FileText, File as Fi
 import { C } from './binUi'
 import { MEDIA_TYPE_META } from '../../bins/binMedia'
 import { NOT_ON_THIS_COMPUTER } from '../../bins/binLocations'
-import { useRabbit } from '../../state/RabbitProvider'
+// The provider's value from the context module, never the provider's own
+// module: that builds the cloud client on import (CI has no Supabase address).
+import { useRabbitContext } from '../../state/rabbitContext'
 
 // ── BC2: a cloud clip's picture where THIS computer has none ──
 // A clip of a company (it has a footage location) shows its picture even
@@ -25,7 +27,7 @@ import { useRabbit } from '../../state/RabbitProvider'
 const signedPosters = new Map() // poster_path → { url, until }
 const SIGNED_FOR_MS = 50 * 60 * 1000
 function useCloudPoster(row, wanted) {
-  const ctx = useRabbit()
+  const ctx = useRabbitContext()
   const sign = ctx?.binFilePosterUrl
   const key = wanted && row?.poster_path && typeof sign === 'function' ? row.poster_path : null
   const [url, setUrl] = useState(() => {

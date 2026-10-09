@@ -21,7 +21,6 @@
 // is otter-data/otter-settings.json).
 
 import React, {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -30,6 +29,9 @@ import React, {
   useState,
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+// The context object lives in its own module (BC2): a leaf that only reads
+// it — BinPoster — need not import this file, which builds the cloud client.
+import { RabbitContext } from './rabbitContext';
 // Session 26: the project folder's self-description. Built here from the
 // loaded bundle and handed to the adapter, so both backends mirror the
 // same shape — that is the one job a portable manifest has.
@@ -118,8 +120,6 @@ import { revertOwnChange } from './revertOwnChange';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
-
-const RabbitContext = createContext(null);
 
 // ─── Settings persistence (otter-settings via localData: Express in
 //     Electron, localStorage on the web — Session 12) ─────────────
