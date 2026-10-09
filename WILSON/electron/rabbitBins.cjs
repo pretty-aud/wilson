@@ -1430,6 +1430,9 @@ function mountRabbitBins(expressApp, deps) {
   mountCloudBins(expressApp, {
     gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow,
     dialog, getMainWindow, shell, cloudBinsLocalPaths: deps.cloudBinsLocalPaths || null,
+    // How long a location's root is given to answer, and its answer kept
+    // (defaults 2 s and 15 s; a test passes shorter ones).
+    cloudBinsRootWaitMs: deps.cloudBinsRootWaitMs, cloudBinsRootTtlMs: deps.cloudBinsRootTtlMs,
   });
 }
 
@@ -1613,7 +1616,51 @@ function mountCloudBins(expressApp, deps) {
   function isAbs(p) { return typeof p === 'string' && p.length > 0 && path.isAbsolute(p); }
   function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
   function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
-  function reachable(p) { try { return fs.existsSync(p); } catch { return false; } }
+  // ── A location's ROOT, asked once and never on the main thread's clock ──
+  // Found on a real network path (BC2): Windows can hold a filesystem call
+  // on a share whose server does not answer for a long time — measured 5 s
+  // for a name that does not resolve and 42 s for an address nothing
+  // answers — and every route here runs in the desktop's MAIN process,
+  // where a synchronous call freezes the whole window. So a location's root
+  // is asked asynchronously, given ROOT_WAIT_MS to answer, and the answer is
+  // kept ROOT_TTL_MS; one question per root is in flight at a time (a pool
+  // thread waiting on a dead server is not asked again until it returns);
+  // and a clip under a root that did not answer is "not on this computer"
+  // without a call of its own. A root that answers after the limit counts
+  // from then on.
+  const ROOT_WAIT_MS = Number(deps.cloudBinsRootWaitMs) > 0 ? Number(deps.cloudBinsRootWaitMs) : 2000;
+  const ROOT_TTL_MS = Number(deps.cloudBinsRootTtlMs) > 0 ? Number(deps.cloudBinsRootTtlMs) : 15000;
+  const rootAnswers = new Map();
+  function rootReachable(root) {
+    if (typeof root !== 'string' || !root) return Promise.resolve(false);
+    const k = root.toLowerCase();
+    const c = rootAnswers.get(k) || { ok: false, at: 0, asking: null, waiting: null };
+    if (c.waiting) return c.waiting;
+    if (c.asking || Date.now() - c.at < ROOT_TTL_MS) return Promise.resolve(c.ok);
+    const asking = fs.promises.stat(root).then((s) => s.isDirectory(), () => false);
+    asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null }); });
+    let timer = null;
+    const waiting = Promise.race([asking, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
+      clearTimeout(timer);
+      const cur = rootAnswers.get(k) || {};
+      if (v === null) { rootAnswers.set(k, { ...cur, ok: false, at: Date.now(), waiting: null }); return false; }
+      rootAnswers.set(k, { ...cur, waiting: null });
+      return v;
+    });
+    rootAnswers.set(k, { ...c, asking, waiting });
+    return waiting;
+  }
+  const rootOf = (loc) => (loc ? loc.local_path || loc.unc_path : null);
+  // The clip's location answers right now (a request's location_id).
+  const hereNow = (q) => rootReachable(rootOf(cloudLocations.get(String(q?.location_id || ''))));
+  // A file or a folder, asked without holding the thread.
+  const statKind = (p, kind) => fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false);
+  async function mapLimit(list, limit, fn) {
+    const out = new Array(list.length); let next = 0;
+    const run = async () => { while (next < list.length) { const i = next++; out[i] = await fn(list[i], i); } };
+    await Promise.all(Array.from({ length: Math.min(limit, list.length) }, run));
+    return out;
+  }
   function resolveBody(q) {
     const abs = resolveCloudFilePath(cloudLocations, q?.location_id, q?.relative_path);
     return abs;
@@ -1629,8 +1676,10 @@ function mountCloudBins(expressApp, deps) {
   // pick-local below, for the address it was chosen for — or a body
   // local_path that is a folder picked this session (BC1); any other body
   // local_path is dropped with its reason, never kept. Answers what this
-  // computer can reach right now.
-  expressApp.post(`${C}/locations`, (req, res) => {
+  // computer can reach right now — each root asked once, in parallel, within
+  // ROOT_WAIT_MS (a server that is off answers "not reachable", it does not
+  // freeze the window).
+  expressApp.post(`${C}/locations`, async (req, res) => {
     const list = Array.isArray(req.body?.locations) ? req.body.locations : null;
     if (!list) return res.status(400).json({ error: 'locations required' });
     cloudLocations.clear();
@@ -1654,11 +1703,12 @@ function mountCloudBins(expressApp, deps) {
       cloudLocations.set(id, { id, unc_path: l.unc_path, local_path });
       const root = local_path || l.unc_path;
       out.push({
-        id, unc_path: l.unc_path, local_path, status: 'registered', reachable: reachable(root), root,
+        id, unc_path: l.unc_path, local_path, status: 'registered', reachable: false, root,
         ...(localSource ? { local_path_source: localSource } : {}),
         ...(localReason ? { local_path_reason: localReason } : {}),
       });
     }
+    await Promise.all(out.map(async (o) => { if (o.status === 'registered') o.reachable = await rootReachable(o.root); }));
     res.json({ locations: out });
   });
 
@@ -1686,18 +1736,18 @@ function mountCloudBins(expressApp, deps) {
     const local_path = path.resolve(picked);
     localPaths.set(loc.id, { unc_path: loc.unc_path, local_path, saved_at: new Date().toISOString() });
     cloudLocations.set(loc.id, { ...loc, local_path });
-    res.json({ id: loc.id, unc_path: loc.unc_path, local_path, local_path_source: 'saved', reachable: reachable(local_path), root: local_path });
+    res.json({ id: loc.id, unc_path: loc.unc_path, local_path, local_path_source: 'saved', reachable: await rootReachable(local_path), root: local_path });
   });
 
   // Forget this computer's folder for a location: its clips are read at the
   // network address again. → { id, local_path: null, reachable, root }
-  expressApp.delete(`${C}/locations/:id/local`, (req, res) => {
+  expressApp.delete(`${C}/locations/:id/local`, async (req, res) => {
     const id = String(req.params.id);
     const had = localPaths.remove(id);
     const loc = cloudLocations.get(id);
     if (loc) cloudLocations.set(id, { ...loc, local_path: null });
     if (!had && !loc) return res.status(404).json({ error: 'no folder is saved for that location on this computer', code: 'not_found' });
-    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, reachable: loc ? reachable(loc.unc_path) : false, root: loc?.unc_path ?? null });
+    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, reachable: loc ? await rootReachable(loc.unc_path) : false, root: loc?.unc_path ?? null });
   });
 
   // ── Adding clips from a location (BC2 item 3) ──
@@ -1705,12 +1755,12 @@ function mountCloudBins(expressApp, deps) {
   // it then reads), starting at the first registered location this computer
   // reaches. Nothing is added to the process-wide picked set: `prepare`
   // below reads only inside the company's registered locations anyway.
-  const firstReachableRoot = () => {
-    for (const loc of cloudLocations.values()) {
-      const root = loc.local_path || loc.unc_path;
-      if (reachable(root)) return root;
-    }
-    return undefined;
+  // Every root asked at once (each within ROOT_WAIT_MS, most already known):
+  // the dialog opens at the first, in the company's order, that answered.
+  const firstReachableRoot = async () => {
+    const roots = [...cloudLocations.values()].map(rootOf);
+    const oks = await Promise.all(roots.map(rootReachable));
+    return roots.find((_r, i) => oks[i]) || undefined;
   };
   expressApp.post(`${C}/pick-files`, async (_req, res) => {
     const win = deps.getMainWindow ? deps.getMainWindow() : null;
@@ -1718,7 +1768,7 @@ function mountCloudBins(expressApp, deps) {
     const result = await deps.dialog.showOpenDialog(win, {
       properties: ['openFile', 'multiSelections'],
       title: 'Add clips from a footage location',
-      defaultPath: firstReachableRoot(),
+      defaultPath: await firstReachableRoot(),
     });
     if (result.canceled) return res.json({ paths: [], canceled: true });
     res.json({ paths: result.filePaths, canceled: false });
@@ -1729,7 +1779,7 @@ function mountCloudBins(expressApp, deps) {
     const result = await deps.dialog.showOpenDialog(win, {
       properties: ['openDirectory'],
       title: String(req.body?.title || 'Add a folder from a footage location').slice(0, 120),
-      defaultPath: firstReachableRoot(),
+      defaultPath: await firstReachableRoot(),
     });
     if (result.canceled || !result.filePaths.length) return res.json({ path: null, canceled: true });
     res.json({ path: result.filePaths[0], canceled: false });
@@ -1797,7 +1847,7 @@ function mountCloudBins(expressApp, deps) {
   // become nested bins unless folderAsBin is false). A name the database
   // cannot store (a segment ending in a dot or a space) is `unsafe_name`.
   // Duplicates (B8) are the renderer's to find: the cloud's rows are there.
-  expressApp.post(`${C}/prepare`, (req, res) => {
+  expressApp.post(`${C}/prepare`, async (req, res) => {
     // Absolute by either shape (BC1's trap 2: CI runs this on Linux, where a
     // \\server\share path is not absolute to path.isAbsolute and would be
     // dropped silently instead of refused by name).
@@ -1814,6 +1864,11 @@ function mountCloudBins(expressApp, deps) {
       const where = locate(p);
       if (!where || where.outside) { push(outsideItem(p, where?.real || null)); continue; }
       const { location: loc, relative_path: baseRel } = where;
+      // Its location answers first (a body can name a path in a location
+      // whose server is off; it is missing here, not a frozen window).
+      // The share the path itself names, else (a folder on this computer)
+      // the location's root here.
+      if (!(await rootReachable(shareRootOfPath(p) || rootOf(loc)))) { push({ kind: 'file', status: 'missing', source_path: p, original_name: path.basename(p) }); continue; }
       if (isFile(p)) { push(cloudFileItem(p, baseRel, loc, path.basename(p), null)); continue; }
       if (!isDir(p)) { push({ kind: 'file', status: 'missing', source_path: p, original_name: path.basename(p) }); continue; }
       const seq = detectSequence(p);
@@ -1844,13 +1899,18 @@ function mountCloudBins(expressApp, deps) {
   // files: [{ id, location_id, relative_path, is_sequence }] → what this
   // computer can reach. A file whose location is not registered, or whose
   // path is not the database's shape, reads online:false with a reason.
-  expressApp.post(`${C}/resolve`, (req, res) => {
+  // Each location's root is asked once for the whole list; a clip under one
+  // that did not answer is not on this computer without a call of its own
+  // (reason location_unreachable); the rest are asked a few at a time, off
+  // the main thread.
+  expressApp.post(`${C}/resolve`, async (req, res) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : null;
     if (!files) return res.status(400).json({ error: 'files required' });
-    const out = files.map((f) => {
+    const out = await mapLimit(files, 8, async (f) => {
       const abs = resolveBody(f);
       if (!abs) return { id: f?.id ?? null, path: null, online: false, reason: cloudLocations.has(String(f?.location_id || '')) ? 'bad_path' : 'unknown_location' };
-      const online = f?.is_sequence ? isDir(abs) : isFile(abs);
+      if (!(await hereNow(f))) return { id: f?.id ?? null, path: abs, online: false, reason: 'location_unreachable' };
+      const online = await statKind(abs, f?.is_sequence ? 'dir' : 'file');
       return { id: f?.id ?? null, path: abs, online };
     });
     res.json({ files: out });
@@ -1864,7 +1924,7 @@ function mountCloudBins(expressApp, deps) {
     const abs = resolveBody(req.body);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = req.body?.is_sequence === true;
-    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     const row = { source_path: abs, is_sequence: isSeq, media_type: String(req.body?.media_type || guessMediaType(extOf(abs))), extension: String(req.body?.extension || extOf(abs)) };
     const fps = Number(req.body?.fps);
     try {
@@ -1901,11 +1961,11 @@ function mountCloudBins(expressApp, deps) {
   // switch-gated step). The same narrowing as the signed-out route: a
   // registered location, the file present, a JPEG by its magic number, at
   // most 256 KB, the path contained under the cache.
-  expressApp.post(`${C}/thumbnail`, (req, res) => {
+  expressApp.post(`${C}/thumbnail`, async (req, res) => {
     const abs = resolveBody(req.body);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = req.body?.is_sequence === true;
-    if (!(isSeq ? isDir(abs) : isFile(abs))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     const base64 = req.body?.base64;
     if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: 'base64 required' });
     let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
@@ -1922,7 +1982,9 @@ function mountCloudBins(expressApp, deps) {
     const abs = resolveBody(req.query);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
-    if (!(isSeq ? isDir(abs) : isFile(abs))) {
+    // One tile asks this per clip: the location answers first, so a server
+    // that is off costs one question for the whole grid, not one per tile.
+    if (!(await hereNow(req.query)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) {
       // Not reachable right now (B3): a poster this computer made earlier
       // still shows — found by the clip's stored mtime, as the signed-out
       // route finds an offline row's. Nothing is made while it is out.
@@ -1977,6 +2039,7 @@ function mountCloudBins(expressApp, deps) {
     const abs = resolveBody(req.body);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     if (!deps.shell) return res.status(503).json({ error: 'no shell in this process', code: 'no_shell' });
+    if (!(await hereNow(req.body))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     const reveal = req.body?.reveal === true;
     const isSeq = req.body?.is_sequence === true;
     let target = abs;
@@ -2004,9 +2067,10 @@ function mountCloudBins(expressApp, deps) {
   // The bytes, Range-capable, allowlisted Content-Type, never a folder (a
   // sequence streams its middle frame). Query: location_id, relative_path,
   // is_sequence.
-  expressApp.get(`${C}/stream`, (req, res) => {
+  expressApp.get(`${C}/stream`, async (req, res) => {
     let abs = resolveBody(req.query);
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    if (!(await hereNow(req.query))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
     if (isSeq) {
       const seq = detectSequence(abs);
