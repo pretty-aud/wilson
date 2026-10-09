@@ -123,6 +123,8 @@ beforeAll(async () => {
     userAuthorizedDirs: new Set(), dialog, getMainWindow: () => ({}), shell,
     cloudBinsLocalPaths,
     cloudBinsRootWaitMs: WAIT_MS, cloudBinsRootTtlMs: TTL_MS, cloudBinsRootOffTtlMs: OFF_TTL_MS,
+    // The cap's mechanism, at four (the desktop's default is sixteen).
+    cloudBinsRootMaxAsking: 4,
     // The root question through the spied fs.promises.stat: the desktop's own
     // asks it in a worker thread, whose fs no spy here reaches (that one is
     // held by rabbitCloudBinsDesktop.routes.test.js, on real folders).

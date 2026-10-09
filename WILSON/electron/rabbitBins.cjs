@@ -1700,7 +1700,10 @@ function mountCloudBins(expressApp, deps) {
   // question holds that thread, never the pool (the same read: 2 ms).
   // `deps.cloudBinsAskRoot(root) → Promise<boolean>` replaces it in a test.
   const ROOT_OFF_TTL_MS = Number(deps.cloudBinsRootOffTtlMs) > 0 ? Number(deps.cloudBinsRootOffTtlMs) : 60000;
-  const ROOT_MAX_ASKING = Number(deps.cloudBinsRootMaxAsking) > 0 ? Number(deps.cloudBinsRootMaxAsking) : 4;
+  // Sixteen: a held question costs a parked worker thread, not a pool slot
+  // (measured: with a cap of four, six servers that do not answer kept a
+  // live share's question waiting past the limit, "not reachable").
+  const ROOT_MAX_ASKING = Number(deps.cloudBinsRootMaxAsking) > 0 ? Number(deps.cloudBinsRootMaxAsking) : 16;
   const askRoot = typeof deps.cloudBinsAskRoot === 'function' ? deps.cloudBinsAskRoot : askRootInWorker;
   let askingNow = 0;
   const slotWaiters = [];
