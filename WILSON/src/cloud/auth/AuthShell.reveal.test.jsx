@@ -260,14 +260,20 @@ describe('only the sign-in lands on the welcome', () => {
 })
 
 // ── App's half of the seam ───────────────────────────────────────────────────
-// App mounts its bars on COMPRESSED and starts the welcome in the SAME commit
-// as the hand-over. App.jsx is not rendered here (it is the whole application);
-// the frame instrument (scripts/signin-welcome-frames.mjs --check) is the
-// end-to-end proof, and these pin the three lines it depends on.
+// At the hand-over App's bars must STAND at COMPRESSED — a cut, in the same
+// commit that removes the sign-in screen — whether the chrome mounts then or
+// was already mounted under it (review round 1, R1-01: a resumed session on a
+// recovery link). App.jsx is not rendered here (it is the whole application);
+// the frame instrument is the end-to-end proof —
+// `scripts/signin-welcome-frames.mjs --check`, and `--resumed` for the second
+// path — and these pin the lines it depends on. Round 1 (R1-02) found the
+// first draft's pins accepted "the welcome a tick late"; each pin below has a
+// control built from exactly that kind of near miss.
 describe('App picks the welcome up where the reveal left it', () => {
   const app = read('../../App.jsx')
   const welcomeFn = () => {
     const at = app.indexOf('const playWelcome = useCallback(')
+    expect(at).toBeGreaterThan(0)
     return app.slice(at, app.indexOf('}, []);', at))
   }
   // The real mount, not the `<LoginScreen/>` a comment above handleAuth names.
@@ -276,21 +282,71 @@ describe('App picks the welcome up where the reveal left it', () => {
     expect(at).toBeGreaterThan(0)
     return app.slice(at, app.indexOf('/>', at))
   }
+  // The whole hand-over handler: these two calls, comments, then playWelcome()
+  // as its LAST statement — nothing wrapped around it, nothing deferred.
+  const HANDLER = /onAuthenticated=\{\(session\) => \{\s*handleAuth\(session\);\s*handleAnimationComplete\(\);\s*(?:\/\/[^\n]*\n\s*)*playWelcome\(\);\s*\}\}/
+  // Each bar's transition is a cut while `welcomeCut` holds.
+  const barStyle = (marker) => {
+    const at = app.indexOf(marker)
+    expect(at, marker).toBeGreaterThan(0)
+    return app.slice(at, app.indexOf('}}', at))
+  }
 
   it('the welcome bars are the seam, read from the registry', () => {
     expect(app).toMatch(/const COMPRESSED = \{ top: COMPRESSED_BAR_HEIGHT, bottom: COMPRESSED_BAR_HEIGHT \};/)
     expect(app).not.toMatch(/'calc\(50vh - 20px\)'/)
+    // …and 'compressing' is one of the states that puts the bars there, so
+    // the hand-over's first state already stands at COMPRESSED.
+    expect(app).toMatch(/const isCompressed = transitionState === 'compressing' \|\| transitionState === 'title-hold';/)
+    expect(app).toMatch(/const topHeight = isCompressed \? COMPRESSED\.top : pageBars\.top;/)
+    expect(app).toMatch(/const bottomHeight = isCompressed \? COMPRESSED\.bottom : pageBars\.bottom;/)
   })
 
-  it('the hand-over starts the welcome itself, not an effect a paint later', () => {
-    expect(loginHandler()).toMatch(/handleAuth\(session\);\s*handleAnimationComplete\(\);[\s\S]*?playWelcome\(\);/)
+  it('the hand-over starts the welcome itself, not an effect or a tick later', () => {
+    expect(loginHandler()).toMatch(HANDLER)
     expect(app).not.toMatch(/setWelcomeQueued/)
   })
 
-  it('the welcome does not compress again: compressing, then title-hold two frames later', () => {
+  it('CONTROL: the handler pin refuses the welcome a tick late', () => {
+    const now = `onAuthenticated={(session) => {
+            handleAuth(session);
+            handleAnimationComplete();
+            // S6a: in this commit
+            playWelcome();
+          }}`
+    expect(now).toMatch(HANDLER)
+    for (const late of [
+      now.replace('playWelcome();', 'setTimeout(() => { playWelcome(); }, 0);'),
+      now.replace('playWelcome();', 'requestAnimationFrame(() => { playWelcome(); });'),
+      now.replace('playWelcome();', 'setTimeout(playWelcome, 0);'),
+      now.replace('playWelcome();', 'setWelcomeQueued(true);'),
+      now.replace('handleAnimationComplete();', 'handleAnimationComplete();\n            await settle();'),
+    ]) expect(late).not.toMatch(HANDLER)
+  })
+
+  it('the bars cut at the hand-over: no transition until title-hold', () => {
+    for (const marker of ['{/* ===== TOP ORANGE BAR ===== */}', '{/* ===== NAV STRIP', '{/* ===== BOTTOM ORANGE BAR']) {
+      expect(barStyle(marker), marker).toMatch(/transition: welcomeCut \? 'none' : `height /)
+    }
     const fn = welcomeFn()
-    expect(fn).toMatch(/setTransitionState\('compressing'\);\s*requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{\s*setTransitionState\('title-hold'\);/)
+    // the cut is set with 'compressing' and lifted with 'title-hold'
+    expect(fn).toMatch(/setWelcomeCut\(true\);\s*setTransitionState\('compressing'\);/)
+    expect(fn).toMatch(/setWelcomeCut\(false\);\s*setTransitionState\('title-hold'\);/)
+  })
+
+  it('CONTROL: a bar that keeps its tween at the hand-over fails the cut pin', () => {
+    const before = "<div className=\"wilson-chrome\" style={{\n            height: topHeight,\n            transition: `height 600ms ${EASE}`,\n          }}"
+    expect(before).not.toMatch(/transition: welcomeCut \? 'none' : `height /)
+  })
+
+  it('the welcome does not compress again, and a hidden window cannot park it', () => {
+    const fn = welcomeFn()
     expect(fn).not.toMatch(/TRANSITION\.compress/)
+    // title-hold two frames later, or after the fallback when no frames run
+    // (R1-03), whichever is first — and only once.
+    expect(fn).toMatch(/const holdTitle = \(\) => \{\s*if \(held\) return;\s*held = true;/)
+    expect(fn).toMatch(/requestAnimationFrame\(\(\) => requestAnimationFrame\(holdTitle\)\);\s*setTimeout\(holdTitle, WELCOME_FRAMES_FALLBACK_MS\);/)
+    expect(app).toMatch(/const WELCOME_FRAMES_FALLBACK_MS = \d+;/)
   })
 
   it('CONTROL: the pre-S6a welcome reads as a second compress', () => {
@@ -301,6 +357,6 @@ describe('App picks the welcome up where the reveal left it', () => {
     }, TRANSITION.compress);
   }, []);`
     expect(before).toMatch(/TRANSITION\.compress/)
-    expect(before).not.toMatch(/requestAnimationFrame\(\(\) => requestAnimationFrame/)
+    expect(before).not.toMatch(/requestAnimationFrame\(\(\) => requestAnimationFrame\(holdTitle\)\)/)
   })
 })

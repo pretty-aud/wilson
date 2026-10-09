@@ -254,6 +254,12 @@ const TRANSITION = {
   fadeIn:   250,
 };
 
+// S6a: the welcome's title-hold waits two animation frames, or this long when
+// a hidden window runs none (see playWelcome). Measured in a visible window
+// the frames land ~70-120ms after the hand-over, so they always win; this is
+// not a duration anyone sees.
+const WELCOME_FRAMES_FALLBACK_MS = 500;
+
 // ═══════════════════════════════════════════════════════════════════
 //  PET CONSTANTS AND THE COLD-START RULES — now in src/lib/petLifecycle.js
 // ═══════════════════════════════════════════════════════════════════
@@ -353,6 +359,12 @@ export default function App() {
   const [transitionState, setTransitionState] = useState('idle');
   const [transitionTitle, setTransitionTitle] = useState('');
   const transitionRef = useRef(false);
+  // S6a: true for the welcome's first two frames only. The sign-in's reveal
+  // has already closed the bars to COMPRESSED, so the chrome must STAND there
+  // at the hand-over — a cut, not a tween — whether it mounts in that commit
+  // or was already mounted under the sign-in screen at its resting bars (a
+  // resumed session on a recovery or invite link; review round 1, R1-01).
+  const [welcomeCut, setWelcomeCut] = useState(false);
 
   // Nav menu state (for DOG hamburger)
   const [showNavMenu, setShowNavMenu] = useState(false);
@@ -2151,8 +2163,9 @@ export default function App() {
   //    announces an arrival rather than covering one.
   //  - No fade-out and NO COMPRESS. The sign-in's own reveal has already
   //    closed the bars to COMPRESSED (AuthShell's `revealTo="welcome"`, the
-  //    welcome seam in src/layout/pages.js), so the app mounts with its bars
-  //    there and the WELCOME title fades into the 40px the reveal left.
+  //    welcome seam in src/layout/pages.js), so the app's bars are put there
+  //    in the hand-over's commit WITHOUT a tween (`welcomeCut`) and the
+  //    WELCOME title fades into the 40px the reveal left.
   //
   // 🚨 Post-overhaul S6a (Audrey, 2026-10-09): "instead of expanding and then
   // collapsing to the size to fit the welcome title, it should just collapse
@@ -2165,11 +2178,27 @@ export default function App() {
   // the S6a hand-off (scripts/signin-welcome-frames.mjs).
   //
   // ⚠️ Called from the hand-over's own handler, never from an effect: the
-  // 'compressing' state has to be in the SAME commit that mounts the app, or
-  // the bars paint once at Home's height and the jump is back. 'compressing'
-  // rather than 'title-hold' so the title's span mounts at opacity 0 and its
-  // 200ms fade runs (a node that mounts at 1 has nothing to fade from); two
-  // frames later it is title-hold, and from there the chain is unchanged.
+  // 'compressing' state has to be in the SAME commit that removes the sign-in
+  // screen, or the bars paint once at their resting height and the jump is
+  // back. 'compressing' rather than 'title-hold' so the title's span mounts
+  // at opacity 0 and its 200ms fade runs (a node that mounts at 1 has nothing
+  // to fade from); two frames later it is title-hold, and from there the
+  // chain is unchanged.
+  //
+  // ⚠️ `welcomeCut` and not the mount is what makes the first state a cut.
+  // The chrome is usually mounted in this same commit (nothing to tween
+  // from), but it can already be up under the sign-in screen at its resting
+  // bars — a session resumed at boot on a recovery or invite link keeps the
+  // overlay, and the reset wizard signs out without unmounting the app. Its
+  // bars' own 600ms transition then ran them 540 → 40 after the reveal had
+  // landed on 40: the expand, back (review round 1, R1-01, measured with
+  // `signin-welcome-frames.mjs --resumed`).
+  //
+  // The title-hold step races two frames against a timer, run once: a hidden
+  // window (a background tab, a minimised app) runs no animation frames, and
+  // the chain used to run on timers alone — without this it would park at
+  // 'compressing' with navigation refused and the pet hidden until the window
+  // was shown (R1-03). In a visible window the frames win by ~400ms.
   const playWelcome = useCallback(() => {
     if (transitionRef.current || welcomePlayedRef.current) return;
     welcomePlayedRef.current = true;
@@ -2177,8 +2206,13 @@ export default function App() {
     setTransitionTitle('Welcome');
     setPetVisible(false);
     setCompanionOpen(false);
+    setWelcomeCut(true);
     setTransitionState('compressing');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    let held = false;
+    const holdTitle = () => {
+      if (held) return;
+      held = true;
+      setWelcomeCut(false);
       setTransitionState('title-hold');
       setTimeout(() => {
         setTransitionState('expanding');
@@ -2192,7 +2226,9 @@ export default function App() {
           }, TRANSITION.fadeIn);
         }, TRANSITION.expand);
       }, TRANSITION.hold);
-    }));
+    };
+    requestAnimationFrame(() => requestAnimationFrame(holdTitle));
+    setTimeout(holdTitle, WELCOME_FRAMES_FALLBACK_MS);
   }, []);
 
   // Back/forward buttons re-enter through navigateTo (with the animation).
@@ -2537,7 +2573,8 @@ export default function App() {
             position: 'relative',
             display: 'flex',
             alignItems: 'flex-end',
-            transition: `height 600ms ${EASE}`,
+            // S6a: a cut at the sign-in's hand-over (see welcomeCut).
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
             overflow: 'hidden',
             zIndex: 10,
           }}>
@@ -2560,7 +2597,7 @@ export default function App() {
             backgroundColor: '#ea580c',
             overflow: 'hidden',
             height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
-            transition: `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
+            transition: welcomeCut ? 'none' : `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
@@ -2730,7 +2767,7 @@ export default function App() {
             backgroundColor: '#ea580c',
             height: bottomHeight,
             flexShrink: 0,
-            transition: `height 600ms ${EASE}`,
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
             zIndex: 10,
           }} />
 

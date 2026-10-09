@@ -307,6 +307,12 @@ export const PAGE_TITLES = Object.freeze(
 // '268px' in AuthShell and a literal '268px' in the bar table — two copies of
 // one number, and the first thing anyone sees after signing in is the two
 // disagreeing.
+//
+// ⚠️ S6a (2026-10-09): the note above is history for the SIGN-IN itself. Its
+// reveal now lands on COMPRESSED_BAR_HEIGHT (below) and that is where
+// playWelcome picks the bars up; this value is still where the other AuthShell
+// consumers' reveals land (the two gates, the two password wizards) and where
+// Home's bars rest.
 export const HOME_BAR_HEIGHT = PAGE_BARS.home.top;
 
 // 🚨 THE WELCOME SEAM (post-overhaul S6a, 2026-10-09). The height every page

@@ -89,9 +89,18 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // reveal test pins: the split bar is at most 24vh, and 24vh is under
 // 50vh − 20px for any window taller than 77px.
 //
-// The other four consumers keep landing on Home: the gates hand over to Home
-// itself (the welcome has already played under them), and the two password
-// wizards hand back to the sign-in screen, which starts over from its logo.
+// The other four consumers keep landing on Home's resting bars, as before: the
+// two gates hand over to the app at its resting bars (Home's, unless a web
+// deep link opened another page — a mismatch older than S6a) with the welcome
+// already played under them, and the two password wizards hand back to the
+// sign-in screen, which starts over.
+//
+// ⚠️ Landing on 40px is only seamless because App puts its bars there with
+// NO tween in the same commit (`welcomeCut` in App.jsx). App's chrome can
+// already be mounted under this screen — a session resumed on a recovery or
+// invite link keeps the overlay up over a mounted app — and its own 600ms
+// height transition ran 540 → 40 after this reveal had landed: review round
+// 1, R1-01, `scripts/signin-welcome-frames.mjs --resumed`.
 const REVEAL_TARGETS = Object.freeze({
   home:    REVEAL_BAR_HEIGHT,
   welcome: COMPRESSED_BAR_HEIGHT,
@@ -366,8 +375,9 @@ export default function AuthShell({
   // We intentionally do NOT fade the bars/bg to 0: App.jsx's root div is
   // dark-orange, so a panels-fade would flash that orange between our final
   // state and the app's first paint. Keeping the bars at full opacity means
-  // the app's identically-sized orange bars — Home's, or the welcome's —
-  // take over invisibly.
+  // the app's identically-sized orange bars — Home's, or the welcome's, which
+  // App cuts to in the same commit (see REVEAL_TARGETS) — take over
+  // invisibly.
   useEffect(() => {
     if (!isRevealing || revealStartedRef.current) return
     revealStartedRef.current = true

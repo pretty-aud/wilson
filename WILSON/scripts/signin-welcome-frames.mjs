@@ -7,7 +7,18 @@
  * WELCOME title is on screen, in one motion.
  *
  *   node scripts/signin-welcome-frames.mjs <port> [--size 1440x900] [--reduced]
- *        [--json out.json] [--strip out.png [--frames dir]] [--chart out.svg] [--check]
+ *        [--resumed] [--json out.json] [--strip out.png [--frames dir]]
+ *        [--chart out.svg] [--check]
+ *   node scripts/signin-welcome-frames.mjs --recheck saved.json --check
+ *
+ * Two starting points. By default a FRESH device: nothing stored, so App's
+ * chrome mounts only at the hand-over. --resumed (S6a review round 1, R1-01)
+ * is the other one: a stored session is resumed at boot on a recovery link
+ * (`#/recovery`), so App's chrome is ALREADY mounted, at Home's resting bars,
+ * under the reset wizard; "Back to login" puts the sign-in screen over it and
+ * the form is driven from there. The fix's first draft passed the fresh path
+ * and regressed this one (the mounted bars tweened 540 → 40 after the reveal
+ * had already landed on 40).
  *
  * Drives the REAL sign-in form (company, username, password) of a dev server
  * started WITHOUT the dev auto sign-in. The password step runs for real in the
@@ -48,6 +59,7 @@ const SAVED = RECHECK ? JSON.parse(readFileSync(RECHECK, 'utf8')) : null;
 const [W, H] = (SAVED?.summary.size || flag('--size') || '1440x900').split('x').map(Number);
 const REDUCED = SAVED ? SAVED.summary.reducedMotion : has('--reduced');
 const CHECK = has('--check');
+const RESUMED = SAVED ? !!SAVED.summary.resumed : has('--resumed');
 const TOL = 0.75;
 
 // ── The stubbed account. Test values made up here; none is a credential. ───
@@ -215,10 +227,18 @@ await stubNetwork(context, stubbed);
 const page = await context.newPage();
 page.on('pageerror', (e) => console.error(`  pageerror: ${e.message}`));
 await page.addInitScript(installSampler);
-await page.addInitScript(() => {
-  // A clean device: no remembered company, no stored session.
-  try { if (!sessionStorage.getItem('s6a-cleared')) { localStorage.clear(); sessionStorage.setItem('s6a-cleared', '1'); } } catch { /* none */ }
-});
+await page.addInitScript((seed) => {
+  // A clean device: no remembered company, no stored session — or, for
+  // --resumed, the stubbed session stored under the web build's key
+  // (src/cloud/auth/sessionStorage.js) so the boot resumes it.
+  try {
+    if (!sessionStorage.getItem('s6a-cleared')) {
+      localStorage.clear();
+      if (seed) localStorage.setItem('wilson.dev.session', JSON.stringify(seed));
+      sessionStorage.setItem('s6a-cleared', '1');
+    }
+  } catch { /* none */ }
+}, RESUMED ? SESSION : null);
 
 // `?fixtures=member` (the fixtures' own S4b variant) seats the reviewer as a
 // plain member. The default fixtures reviewer is an ADMIN, and an admin with
@@ -226,15 +246,27 @@ await page.addInitScript(() => {
 // hand-over — an idle AuthShell whose two 50vh panels paint the whole window
 // orange over the welcome (measured: the first S6a run's strips). Audrey's
 // own sign-in reaches the welcome, so the gate is not her path.
-await page.goto(`http://localhost:${PORT}/?fixtures=member`, { waitUntil: 'domcontentloaded' });
-await page.getByText(/^login$/i).waitFor({ timeout: 30_000 });
-await page.getByLabel('Company').waitFor();
+// The fields by their autocomplete role: with App's chrome mounted (--resumed)
+// Settings' own inputs share the labels, so a label locator is ambiguous.
+const field = (role) => page.locator(`input[autocomplete=${role}]`);
+let chromeUnderLogin = 0;
+if (RESUMED) {
+  await page.goto(`http://localhost:${PORT}/?fixtures=member#/recovery`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /back to login/i }).waitFor({ timeout: 30_000 });
+  await sleep(300);
+  await page.getByRole('button', { name: /back to login/i }).click();
+} else {
+  await page.goto(`http://localhost:${PORT}/?fixtures=member`, { waitUntil: 'domcontentloaded' });
+}
+await field('organization').waitFor({ timeout: 30_000 });
+chromeUnderLogin = await page.evaluate(() => document.querySelectorAll('.wilson-chrome').length);
+if (RESUMED && chromeUnderLogin < 2) throw new Error('--resumed: App\'s chrome is not mounted under the sign-in screen');
 await sleep(1800); // the split's hold ends before the form is live
-await page.getByLabel('Company').fill('smoke');
+await field('organization').fill('smoke');
 await page.getByRole('button', { name: /^continue$/i }).click();
-await page.getByLabel('Username').waitFor({ timeout: 10_000 });
-await page.getByLabel('Username').fill('smoke_admin');
-await page.getByLabel('Password').fill(PASSWORD);
+await field('username').waitFor({ timeout: 10_000 });
+await field('username').fill('smoke_admin');
+await field('current-password').fill(PASSWORD);
 await sleep(400);
 
 // The screencast for the frame strip: every frame the compositor produces,
@@ -251,6 +283,18 @@ if (flag('--strip')) {
 await page.evaluate(() => window.__s6a.start());
 await sleep(150);
 await page.getByRole('button', { name: /^sign in$/i }).click();
+// A click that never submits is a DRIVING failure, not a motion result: say
+// so rather than letting --check report "never reached accepted" as if the
+// welcome had failed (seen once, a --resumed run at 1280x700 in S6a's
+// round-1 matrix; the same case passed three re-runs in a row).
+// `node --check` this file after editing: the run exits 2 on this path.
+try {
+  await page.waitForFunction(() => window.__s6a.t0 != null, null, { timeout: 3000 });
+} catch {
+  console.error('DRIVER: the Sign in click did not submit the form — re-run; this is not a measurement');
+  await browser.close();
+  process.exit(2);
+}
 
 // Until the welcome has run its course: the title came and went and the bars
 // have been still for 400ms — or 9s, whichever is first.
@@ -296,7 +340,7 @@ for (let i = 1; i < timed.length; i++) {
 const moving = segs.filter((s) => s.dir !== 'still' && Math.abs(s.bandTo - s.bandFrom) > TOL);
 
 const summary = {
-  size: `${W}x${H}`, reducedMotion: REDUCED, frames: timed.length,
+  size: `${W}x${H}`, reducedMotion: REDUCED, resumed: RESUMED, frames: timed.length,
   submitToAccepted: accepted ? accepted.t : null,
   acceptedToTitle: accepted && titled ? +(titled.t - accepted.t).toFixed(1) : null,
   bandAtSubmit: bandStart,
