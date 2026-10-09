@@ -24,8 +24,9 @@ import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDur
 import { mixedValue } from '../../bins/binSelectors'
 import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 import { navigateTo } from '../../state/rabbitNavigate'
-// BC2: a company's clip (a footage location + a path inside it).
-import { NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence } from '../../bins/binLocations'
+// BC2: a company's clip (a footage location + a path inside it). BC3: the
+// browser's sentence under it, and what Space does there.
+import { NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence, browserClipSentence, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT } from '../../bins/binLocations'
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -78,6 +79,14 @@ export default function BinInspector({
   // BC2: for a company's clip, its footage location (row → { name,
   // unc_path } | null) and who added it (row → words | null), B11.
   locationOf = null, addedByOf = null,
+  // BC3: what this backend can do with a FILE (the capability object, read
+  // by BinsView's binsModeOf). A control is offered only where its verb is
+  // answered — never disabled with no reason beside it: no Open or Reveal
+  // without `openInOs`, no "read the columns again" without `probe`, and
+  // where nothing streams the preview is the picture with the sentence that
+  // says why. `catalogue`: a browser (B5) — the sentence under a clip is the
+  // browser's, and Space shows the picture large.
+  canStream = true, canOpen = true, canProbe = true, catalogue = false,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -161,8 +170,8 @@ export default function BinInspector({
       <div className="flex-1 overflow-y-auto">
         {single && (
           <Section title="Preview" open={previewOpen} onToggle={() => setPreviewOpen(o => !o)}>
-            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={streamUrlFor?.(single.id)} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive}
-              location={locationOf?.(single) || null} />
+            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={canStream ? streamUrlFor?.(single.id) : null} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive}
+              location={locationOf?.(single) || null} canStream={canStream} canOpen={canOpen} catalogue={catalogue} />
           </Section>
         )}
 
@@ -279,13 +288,15 @@ export default function BinInspector({
 
         {single && (
           <Section title="File" open={techOpen} onToggle={() => setTechOpen(o => !o)}
-            right={single.online !== false && canWrite ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
+            right={single.online !== false && canWrite && canProbe ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
             <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg}
               location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} />
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
-              <Btn small onClick={() => onOpen?.(single.id, true)} disabled={single.online === false} title="Show the file in Explorer"><FolderOpen className="w-3 h-3" /> Reveal</Btn>
-            </div>
+            {canOpen && (
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
+                <Btn small onClick={() => onOpen?.(single.id, true)} disabled={single.online === false} title="Show the file in Explorer"><FolderOpen className="w-3 h-3" /> Reveal</Btn>
+              </div>
+            )}
           </Section>
         )}
       </div>
@@ -344,7 +355,7 @@ function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null }
   )
 }
 
-function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false, location = null }) {
+function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false, location = null, canStream = true, canOpen = true, catalogue = false }) {
   const kind = previewKindFor(row)
   const [failed, setFailed] = useState(null)
   const [playing, setPlaying] = useState(false)
@@ -381,7 +392,9 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
 
   // BC2 (B3): a company's clip this computer cannot reach still shows its
   // picture (the one cached here, else the cloud's) and everything but
-  // playback, marked "not on this computer".
+  // playback, marked "not on this computer". BC3: in a browser the sentence
+  // is the browser's (no share is read here; the desktop app plays it), and
+  // Space shows the picture large.
   if (row.online === false && row.location_id) {
     return (
       <div className="flex flex-col gap-1.5" data-testid="not-here">
@@ -389,7 +402,24 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
           <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
         </div>
         <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> Not on this computer</div>
-        <div className="text-dense px-1" style={{ color: C.dim }}>{location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)}</div>
+        <div className="text-dense px-1" style={{ color: C.dim }}>
+          {catalogue ? browserClipSentence(location?.name) : location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)}
+        </div>
+        {!canStream && <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>}
+      </div>
+    )
+  }
+  // BC3: a backend that streams no bytes (a browser whose rows the backend
+  // answers for, as the dev fixtures do): the picture, the sentence that
+  // says why nothing plays, and no Open button where the OS is not here.
+  if (!canStream) {
+    return (
+      <div className="flex flex-col gap-1.5" data-testid="no-stream">
+        <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
+          <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
+        </div>
+        <div className="text-dense px-1" style={{ color: C.dim }}>{PLAY_NEEDS_DESKTOP}</div>
+        <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>
       </div>
     )
   }
@@ -452,7 +482,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
         <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
       </div>
       {notice(posterNotice)}
-      <div><Btn small onClick={() => onOpen?.(row.id, false)}><ExternalLink className="w-3 h-3" /> Open in default app</Btn></div>
+      {canOpen && <div><Btn small onClick={() => onOpen?.(row.id, false)}><ExternalLink className="w-3 h-3" /> Open in default app</Btn></div>}
     </div>
   )
 }

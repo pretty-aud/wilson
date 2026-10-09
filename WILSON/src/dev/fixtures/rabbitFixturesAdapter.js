@@ -120,9 +120,14 @@ const FIXTURES_BINS_CAPABILITIES = Object.freeze({
   pickFiles: false, probe: false, stream: false, resolveFiles: true, relink: false, openInOs: false,
   posters: 'cloud', locations: true, remoteViewingSwitch: true,
 })
+// BC3 (`?bins=browser`): the fake cloud as the real cloud answers a BROWSER —
+// it cannot say what this computer reaches, so no row carries `online` and
+// the provider marks every one "not on this computer" (B3). The same keys,
+// one answer changed (binsBrowserVariant.test.js pins it).
+const FIXTURES_BROWSER_BINS_CAPABILITIES = Object.freeze({ ...FIXTURES_BINS_CAPABILITIES, resolveFiles: false })
 // For binsAdapterParity.test.js: the sentences and the capability object,
 // pinned against the cloud adapter's.
-export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES }
+export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES, FIXTURES_BROWSER_BINS_CAPABILITIES }
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -229,8 +234,15 @@ function validateVersioned(row, noun) {
   }
 }
 
-export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }) {
+// `browser` (BC3): answer the bins as the cloud does in a browser — the
+// capability object above with `resolveFiles` false, and no `online` on any
+// clip row (the provider marks them from the capability object).
+export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false } = {}) {
   const by = userId
+  const binsCaps = browser ? FIXTURES_BROWSER_BINS_CAPABILITIES : FIXTURES_BINS_CAPABILITIES
+  // A clip row as this backend hands it out: answered for (online) where the
+  // dataset answers, bare where a browser's cloud would not know.
+  const withOnline = (row) => { if (!browser) return { ...row, online: true }; const { online: _o, ...bare } = row; return bare }
   const stampBy = (row) => ({ ...row, updated_by: by, last_updated_by: by, last_updated_at: now() })
   const projectOf = (id) => findById(store.projects, id)
 
@@ -299,7 +311,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     const orphanTakes = store.shotTakes.filter(t => !fileIds.has(t.bin_file_id) || !shotIds.has(t.shot_id))
     return { affectedShotIds: [...new Set(affectedShotIds)], shotTakes: clone(liveTakes), orphanTakes: clone(orphanTakes), ...extra }
   }
-  const binFilesWithOnline = () => store.binFiles.map(f => ({ ...f, online: true }))
+  const binFilesWithOnline = () => store.binFiles.map(withOnline)
 
   // ── Shot lists (0084) ──────────────────────────────────────────────────────
   // A trashed project hides its lists in the cloud (the SELECT hop to a LIVE
@@ -1270,7 +1282,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // CASCADE), a location in use cannot be removed (RESTRICT), the
     // location's address has the database's shape, and a clip's picture is
     // kept only while the company's remote-viewing switch is on (B4).
-    binsCapabilities() { return FIXTURES_BINS_CAPABILITIES },
+    binsCapabilities() { return binsCaps },
     async listBins(projectId) {
       const answer = takesAnswer([])
       return {
@@ -1281,7 +1293,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         shotTakes: answer.shotTakes.filter(t => t.project_id === projectId),
         orphanTakes: answer.orphanTakes.filter(t => t.project_id === projectId),
         ffmpeg: false,
-        capabilities: FIXTURES_BINS_CAPABILITIES,
+        capabilities: binsCaps,
       }
     },
     // ── Footage locations (BC1, 0091 §2; Audrey's B2) ────────────────────────
@@ -1436,20 +1448,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       }
       return { created, bins, results }
     },
-    async updateBinFile(_projectId, id, fields) { return clone({ ...patch(store.binFiles, id, fields), online: true }) },
+    async updateBinFile(_projectId, id, fields) { return clone(withOnline(patch(store.binFiles, id, fields))) },
     async bulkUpdateBinFiles(_projectId, ids, fields) {
       const updated = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); updated.push(clone({ ...row, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); updated.push(clone(withOnline(row))) } }
       return { updated }
     },
     async moveBinFiles(_projectId, ids, binId) {
       const moved = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); moved.push(clone({ ...row, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); moved.push(clone(withOnline(row))) } }
       return { moved }
     },
     async copyBinFiles(_projectId, ids, binId) {
       const created = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone({ ...copy, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone(withOnline(copy))) } }
       return { created }
     },
     // Removes the ROWS only (B10). BC1: a removed clip's takes go with it
@@ -1473,13 +1485,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         if (findById(store.binFiles, r.id)) { skipped.push({ id: r.id, reason: 'invalid' }); continue }
         const { online, ...row } = r
         store.binFiles.push(row) // the poster map is keyed by id and survives a remove
-        restored.push(clone({ ...row, online: true }))
+        restored.push(clone(withOnline(row)))
       }
       const affected = restored.flatMap(r => store.shotTakes.filter(t => t.bin_file_id === r.id).map(t => t.shot_id))
       for (const s of new Set(affected)) normaliseTakes(s)
       return { restored, skipped, ...takesAnswer(affected) }
     },
-    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); return clone({ ...row, online: true }) },
+    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); return clone(withOnline(row)) },
     binFileThumbnailUrl(_projectId, id) { return store.posters.get(id) ?? null },
     // No bytes to stream: the poster stands in for the frame (the panel's <img>).
     binFileStreamUrl(_projectId, id) { return store.posters.get(id) ?? null },

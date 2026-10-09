@@ -331,6 +331,17 @@
   .bn-poster-icon { color: var(--poster-icon); opacity: 0.9; }
   .bn-poster[data-offline="true"] .bn-poster-icon { color: var(--color-ink-3); opacity: 0.6; }
 
+  /* ── The picture, large (BC3: Space in a browser, where nothing plays) ──
+     Laid over the files pane like the rename bar (z 30): the Bins keys keep
+     working under it, so arrows move the clip it shows and S / R / U mark
+     it. One raised surface, one hairline; the frame is the recessed paper
+     so a picture's letterbox reads as the frame, not as a gap. */
+  .bn-poster-large {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+  }
+  .bn-poster-large-frame { background-color: var(--color-paper-recessed); }
+
   /* ── Pick lists: assign to shot, the take picker ────────────────────── */
   .bn-pick-row {
     background-color: transparent;

@@ -75,7 +75,9 @@ export function posterGlyphSize(width, iconSize = null) {
   return ICON_STEPS.find((s) => s <= want) ?? ICON_STEPS[ICON_STEPS.length - 1]
 }
 
-export default function BinPoster({ row, src, width = 32, height = null, radius = 3, className = '', style = {}, iconSize = null, primary = false }) {
+// `contain`: the whole picture inside the frame (BC3's large view in a
+// browser); every tile and row keeps the cover crop.
+export default function BinPoster({ row, src, width = 32, height = null, radius = 3, className = '', style = {}, iconSize = null, primary = false, contain = false }) {
   // WHICH sources failed (S40), a set: a local poster and a cloud one may
   // both fail, and neither may be retried in a loop.
   const [failed, setFailed] = useState(() => new Set())
@@ -100,7 +102,7 @@ export default function BinPoster({ row, src, width = 32, height = null, radius 
       {showImg ? (
         <img key={shown} src={shown} alt="" loading="lazy" draggable={false}
           onError={() => setFailed(s => new Set(s).add(shown))}
-          className="object-cover" style={{ width: '100%', height: '100%' }} />
+          className={contain ? 'object-contain' : 'object-cover'} style={{ width: '100%', height: '100%' }} />
       ) : (
         <Icon className="bn-poster-icon" style={{ width: glyph, height: glyph, '--poster-icon': meta.color }} />
       )}

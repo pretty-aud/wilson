@@ -90,6 +90,26 @@ export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a comput
 // it cannot be played there."
 export const NOT_ON_THIS_COMPUTER = 'not on this computer'
 
+// ── BC3: the browser (Audrey's B5: the catalogue until the gateway) ──
+// "until the gateway exists, the browser shows the catalogue only — every
+// bin and clip, pictures where they exist, log, flag, assign takes, remove —
+// and says plainly that adding files and playing them needs the desktop
+// app." One notice at the top of the tab says it, once; no control is
+// disabled without this reason beside it.
+export const PLAY_NEEDS_DESKTOP = 'Playing a clip needs the desktop app on a computer that can reach the footage.'
+export const CATALOGUE_SENTENCE = 'This is the catalogue: every bin and clip, with its picture where the company allows one, its logging, its marks and its takes. Adding clips and playing them need the desktop app on a computer that can reach the footage.'
+export const CATALOGUE_EMPTY_BINS_SENTENCE = 'A bin lists clips where they sit on the company\'s footage locations. Start from a set here; clips are added from the desktop app on a computer that reaches the footage.'
+/** What Space does where nothing can play: the picture, large. */
+export const POSTER_LARGE_HINT = 'Space shows the picture large.'
+/**
+ * The sentence under a company's clip in a browser (B3, in BC3's words): a
+ * browser reads no share, so "not reachable from this computer" would
+ * counsel a folder question that no browser can answer. It names what to do.
+ */
+export function browserClipSentence(locationName) {
+  return `A browser cannot read ${locationName ? `"${locationName}"` : 'its footage location'}, so the clip cannot be played here; open the project in the desktop app on a computer that reaches the share to play it. It can still be logged, flagged and assigned to a shot.`
+}
+
 // ── Consent before contact (BC2 review round 1) ──
 // Any member can name a company location; this computer connects to its
 // address only once its own person agrees (the desktop's native "Connect

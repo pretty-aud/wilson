@@ -116,6 +116,19 @@
       "port": 5285
     },
     {
+      "_comment": "BC3 (Bins on the cloud, the browser): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the catalogue a browser gets; `?bins=browser` on the URL makes the fixtures answer as the cloud does in a browser (no row reachable). Proven by fetching src/tools/rabbit_v0.1.0/bins/browserCatalogue.js, a BC3-only module, from it.",
+      "name": "bc3-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/vigorous-matsumoto-07c0ff/WILSON",
+        "--port",
+        "5286",
+        "--strictPort"
+      ],
+      "port": 5286
+    },
+    {
       "_comment": "V1: the SIGN-IN screens, without editing .env.local. Vite ranks a variable already in the process environment above .env files, so this sets VITE_DEV_AUTOLOGIN to a value the app ignores (App.jsx signs in only on the exact string tester) and the auth screens render while .env.local still says tester. Port 5246; the signed-in server stays on 5245.",
       "name": "v1-auth",
       "runtimeExecutable": "cmd",

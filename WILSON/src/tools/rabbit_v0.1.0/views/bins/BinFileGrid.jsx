@@ -16,9 +16,14 @@ import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
 import { canHoverScrub, techLine, slateLine, COLOR_HEX } from '../../bins/binMedia'
 
+// `markOffline` (BC3): a row this computer cannot reach is dimmed (bins.css'
+// dim) only where some row COULD be reached. In a browser none can (B3: every
+// row is "not on this computer"), the tab's notice says so once, and a whole
+// catalogue in the disabled ink would read as a tab that does not work; the
+// poster's own "not on this computer" mark stays on every tile.
 export default function BinFileGrid({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor, streamUrlFor,
-  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin, usageCount = null,
+  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin, usageCount = null, markOffline = true,
 }) {
   const currentRef = useRef(null)
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
@@ -35,7 +40,7 @@ export default function BinFileGrid({
             thumbUrl={thumbUrlFor?.(row.id)} streamUrl={canHoverScrub(row) && row.online !== false ? streamUrlFor?.(row.id) : null}
             binName={showBin ? (binsById?.get(row.bin_id)?.name || '') : null} binColor={binsById?.get(row.bin_id)?.color || null}
             used={usageCount?.get(row.id) || 0}
-            canWrite={canWrite}
+            canWrite={canWrite} markOffline={markOffline}
             onClick={e => onRowClick?.(row.id, e)}
             onDoubleClick={() => onRowDoubleClick?.(row.id)}
             onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, row.id) }}
@@ -51,7 +56,7 @@ export default function BinFileGrid({
   )
 }
 
-function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, used = 0, canWrite, onClick, onDoubleClick, onContextMenu, onDragStart }) {
+function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, used = 0, canWrite, markOffline = true, onClick, onDoubleClick, onContextMenu, onDragStart }) {
   const [hover, setHover] = useState(false)
   const [scrubFrac, setScrubFrac] = useState(null)
   const [failed, setFailed] = useState(false)
@@ -85,7 +90,7 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
       className="bn-tile rounded-control overflow-hidden cursor-default flex flex-col"
       data-selected={selected ? 'true' : undefined}
       data-current={current ? 'true' : undefined}
-      data-offline={row.online === false ? 'true' : undefined}>
+      data-offline={row.online === false && markOffline ? 'true' : undefined}>
       <div ref={boxRef} className="relative w-full" style={{ aspectRatio: '16 / 9', backgroundColor: C.deep }}>
         <BinPoster row={row} src={thumbUrl} width="100%" height="100%" radius={0} style={{ border: 'none', position: 'absolute', inset: 0 }} iconSize={36} />
         {scrubbing && (

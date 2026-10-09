@@ -24,11 +24,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, FolderPlus, FilePlus, LayoutGrid, List as ListIcon, Search, X, Filter, ChevronDown,
   Unplug, Link2, Check, Ban, Circle, Trash2, FolderInput, Copy, ExternalLink, FolderOpen, RefreshCw,
-  Edit3, ArrowUp, ArrowDown, CornerLeftUp, Layers, Clapperboard, AlertTriangle, Film, UploadCloud,
+  Edit3, ArrowUp, ArrowDown, CornerLeftUp, Layers, Clapperboard, AlertTriangle, Film, UploadCloud, Monitor,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { needsCloudPoster } from '../bins/cloudPosters'
-import { addedByName, NOT_ON_THIS_COMPUTER, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CONNECT_TITLE } from '../bins/binLocations'
+import { addedByName, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CONNECT_TITLE, CATALOGUE_SENTENCE, CATALOGUE_EMPTY_BINS_SENTENCE } from '../bins/binLocations'
+// BC3: what this backend can do with a FILE, read from the capability object.
+import { binsModeOf } from '../bins/browserCatalogue'
+import PosterLarge from './bins/PosterLarge'
 import { useProjectAccess } from '../state/useProjectAccess'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
@@ -93,9 +96,14 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const supports = !!ctx?.supportsBins
   // What this backend can do with a FILE (BC1's capability object). Null
   // before the first list: read as "yes" so the signed-out desktop's tab is
-  // unchanged while it loads (B12).
+  // unchanged while it loads (B12). BC3: `mode` is the one reading of it —
+  // `catalogue` is the browser (B5: no picking, no bytes; one notice, New
+  // bin in place of Add, the picture large on Space); the four verbs gate
+  // their controls, so nothing is disabled without its reason.
   const caps = ctx?.binsInfo?.capabilities || null
-  const canPick = caps ? caps.pickFiles !== false : true
+  const mode = binsModeOf(caps)
+  const canPick = mode.canPick
+  const catalogue = mode.catalogue
   // The desktop app signed in: this computer's own answers about the files.
   const desktopCloud = caps?.backend === 'desktop_cloud'
   const projectId = ctx?.activeProjectId
@@ -153,6 +161,11 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const [loadError, setLoadError] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [removeAsk, setRemoveAsk] = useState(null)   // the ids awaiting "remove more than five?" (W9)
+  // BC3: the browser's notice, said once (the page stays mounted, so a
+  // dismissal lasts the session); and the picture large (Space where
+  // nothing can play), which follows the current row.
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const [posterLarge, setPosterLarge] = useState(false)
   const paneRef = useRef(null)
   const autoRelinkRef = useRef(null)
   const noticeTimer = useRef(null)
@@ -228,7 +241,13 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // ── Derived ──
   const binsById = useMemo(() => new Map(bins.map(b => [b.id, b])), [bins])
   const counts = useMemo(() => countsByBin(bins, files), [bins, files])
-  const offlineCounts = useMemo(() => countsByBin(bins, files.filter(f => f.online === false)), [bins, files])
+  // The rows this computer cannot reach, COUNTED: on the desktop they are
+  // the relink's list and the tree's and toolbar's counts. BC3: where the
+  // backend cannot say what this computer reaches (a browser), every row is
+  // "not on this computer" (B3) and a count of them says nothing — each clip
+  // keeps its mark and its sentence, and the notice at the top says it once.
+  const offlineAll = useMemo(() => (mode.nothingReachable ? [] : files.filter(f => f.online === false)), [files, mode.nothingReachable])
+  const offlineCounts = useMemo(() => countsByBin(bins, offlineAll), [bins, offlineAll])
   const currentBin = currentBinId ? binsById.get(currentBinId) : null
   useEffect(() => { if (currentBinId && !binsById.has(currentBinId)) setCurrentBinId(null) }, [currentBinId, binsById])
 
@@ -241,8 +260,11 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const orderedIds = useMemo(() => rows.map(r => r.id), [rows])
   const stats = useMemo(() => binStats(scopeFiles), [scopeFiles])
   const shownStats = useMemo(() => binStats(rows), [rows])
-  const offlineAll = useMemo(() => files.filter(f => f.online === false), [files])
   const selectedRows = useMemo(() => rows.filter(r => selection.has(r.id)), [rows, selection])
+  // BC3: the row the picture-large view shows (the current one); the view
+  // closes when there is none.
+  const currentRow = useMemo(() => (currentId ? files.find(f => f.id === currentId) || null : null), [files, currentId])
+  useEffect(() => { if (!currentRow) setPosterLarge(false) }, [currentRow])
   const scenesById = useMemo(() => new Map(allScenes.map(s => [s.id, s])), [allScenes])
   const filterCount = activeFilterCount(filters)
   // Where each file is used (milestone 2): the inspector's "Used in shots",
@@ -279,7 +301,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const addedByOf = useCallback((row) => (row?.location_id ? addedByName(row.added_by, people) : null), [people])
   // The word for a clip this computer cannot reach: a company's clip is
   // "not on this computer" (B3); the signed-out desktop's says "offline".
-  const offlineWord = caps?.locations ? NOT_ON_THIS_COMPUTER : 'offline'
+  const offlineWord = mode.offlineWord
 
   // ── Selection ──
   const selectRow = useCallback((id, e) => {
@@ -565,22 +587,25 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       canWrite && { header: 'Copy to (as an instance)' },
       ...(canWrite ? binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds(ids, t.id) })) : []),
       canWrite && { divider: true },
-      n === 1 && { label: 'Open in default app', Icon: ExternalLink, disabled: row?.online === false, onClick: () => openFile(id, false) },
-      n === 1 && { label: 'Reveal in Explorer', Icon: FolderOpen, disabled: row?.online === false, onClick: () => openFile(id, true) },
-      n === 1 && canWrite && { label: 'Read columns again', Icon: RefreshCw, disabled: row?.online === false, onClick: () => probe(id) },
+      // BC3: the OS and the decoder are offered only where the backend has
+      // them (the desktop); a browser's menu says nothing it cannot do.
+      n === 1 && mode.canOpen && { label: 'Open in default app', Icon: ExternalLink, disabled: row?.online === false, onClick: () => openFile(id, false) },
+      n === 1 && mode.canOpen && { label: 'Reveal in Explorer', Icon: FolderOpen, disabled: row?.online === false, onClick: () => openFile(id, true) },
+      n === 1 && canWrite && mode.canProbe && { label: 'Read columns again', Icon: RefreshCw, disabled: row?.online === false, onClick: () => probe(id) },
       n === 1 && canWrite && { label: 'Rename', Icon: Edit3, hint: 'F2', onClick: () => setRenamingFileId(id) },
       canWrite && { divider: true },
       canWrite && { label: n === 1 ? 'Remove from bin' : `Remove ${n} from bin`, Icon: Trash2, danger: true, hint: 'Del', onClick: () => removeIds(ids) },
     ]
     setMenu({ x: e.clientX, y: e.clientY, items })
-  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds, shots.length, openAssign])
+  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds, shots.length, openAssign, mode.canOpen, mode.canProbe])
 
   const binMenu = useCallback((e, bin) => {
     const sub = descendantIds(bins, bin.id)
     const items = [
       { header: binPathLabel(bins, bin.id) },
-      canWrite && { label: 'Add files…', Icon: FilePlus, onClick: () => pickFiles(bin.id) },
-      canWrite && { label: 'Add a folder…', Icon: FolderPlus, onClick: () => pickFolder(bin.id) },
+      // BC3: no picking where no computer can (a browser): the notice says why.
+      canWrite && canPick && { label: 'Add files…', Icon: FilePlus, onClick: () => pickFiles(bin.id) },
+      canWrite && canPick && { label: 'Add a folder…', Icon: FolderPlus, onClick: () => pickFolder(bin.id) },
       canWrite && { label: 'New bin inside', Icon: Plus, onClick: () => createBin(bin.id) },
       canWrite && { label: 'Rename', Icon: Edit3, hint: 'F2', onClick: () => setRenamingBinId(bin.id) },
       canWrite && { divider: true },
@@ -598,7 +623,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       canWrite && { label: 'Delete bin…', Icon: Trash2, danger: true, onClick: () => setDeleteDlg(bin) },
     ]
     setMenu({ x: e.clientX, y: e.clientY, items })
-  }, [bins, canWrite, pickFiles, pickFolder, createBin, patchBin, shiftBin, nestBin])
+  }, [bins, canWrite, canPick, pickFiles, pickFolder, createBin, patchBin, shiftBin, nestBin])
 
   // ── Keyboard ──
   const onKeyDown = useCallback((e) => {
@@ -652,7 +677,14 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       case 'ArrowLeft': return view === 'grid' ? move(-1) : undefined
       case 'Home': return move(-orderedIds.length)
       case 'End': return move(orderedIds.length)
-      case 'Escape': e.preventDefault(); return clearSelection()
+      // BC3: where nothing can play (a browser), Space shows the current
+      // clip's picture large, and again puts it away; where a preview plays,
+      // Space is the inspector's (BinInspector's own handler) and this does
+      // nothing. A held key does not flicker it.
+      case ' ': if (!mode.canStream && currentId && !e.repeat) { e.preventDefault(); setPosterLarge(v => !v) } return
+      // Escape closes the picture first, keeping the selection; then it
+      // clears the selection as it always has.
+      case 'Escape': e.preventDefault(); if (posterLarge) return setPosterLarge(false); return clearSelection()
       case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } else if (ids.length) { e.preventDefault(); openAssign(ids) } return
       case 's': case 'S': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'select' }) } return
       case 'r': case 'R': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'reject' }) } return
@@ -663,7 +695,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
+  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign, mode.canStream, posterLarge])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
@@ -683,23 +715,30 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   }, [])
 
   // ── Drag and drop from the OS onto the files pane ──
+  // BC3: where no computer can pick a file (a browser), a drop from the OS
+  // is answered with the sentence, not with a path error — and the pane does
+  // not light up as a target for it.
   const onDragOverPane = (e) => {
     const types = e.dataTransfer?.types || []
-    if (types.includes('Files') && canWrite) { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; setDragOver(true) }
+    if (types.includes('Files') && canWrite && canPick) { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; setDragOver(true) }
   }
   const onDropPane = async (e) => {
     setDragOver(false)
     const types = e.dataTransfer?.types || []
     if (!types.includes('Files')) return
     e.preventDefault()
+    if (!canPick) { say(ADD_NEEDS_DESKTOP, 'info'); return }
     const paths = pathsFromFiles(e.dataTransfer.files)
     if (!paths.length) { say('Could not read the dropped files’ paths. Use Add files instead.', 'warn'); return }
     await addPathsTo(currentBinId, paths)
   }
   const onDropOnBin = useCallback(async (binId, payload) => {
     if (payload.ids) { if (payload.copy) await copyIds(payload.ids, binId); else await moveIds(payload.ids, binId); return }
-    if (payload.files) { const paths = pathsFromFiles(payload.files); if (paths.length) await addPathsTo(binId, paths); else say('Could not read the dropped files’ paths.', 'warn') }
-  }, [copyIds, moveIds, pathsFromFiles, addPathsTo, say])
+    if (payload.files) {
+      if (!canPick) { say(ADD_NEEDS_DESKTOP, 'info'); return }
+      const paths = pathsFromFiles(payload.files); if (paths.length) await addPathsTo(binId, paths); else say('Could not read the dropped files’ paths.', 'warn')
+    }
+  }, [copyIds, moveIds, pathsFromFiles, addPathsTo, say, canPick])
   // 🚨 Every surface of the tab takes an OS drop while it is mounted (review
   // round 2, HIGH). The pane and the bin rows handle theirs above; a drop on
   // anything else — the rail's empty space, its caption, the inspector, the
@@ -709,10 +748,14 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // promises.
   const dropAnywhereRef = useRef(null)
   dropAnywhereRef.current = {
-    canWrite,
+    // BC3: a drop is taken only where a computer can pick the file; in a
+    // browser it is answered with the sentence (no silent nothing).
+    canWrite: canWrite && canPick,
+    saysWhy: canWrite && !canPick,
     onPaths: (paths) => addPathsTo(currentBinId, paths),
     fromFiles: pathsFromFiles,
     complain: () => say('Could not read the dropped files’ paths. Use Add files instead.', 'warn'),
+    needsDesktop: () => say(ADD_NEEDS_DESKTOP, 'info'),
   }
   useEffect(() => {
     const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
@@ -721,7 +764,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       if (!hasFiles(e)) return
       const handled = e.defaultPrevented
       e.preventDefault()
-      if (handled || !dropAnywhereRef.current.canWrite) return
+      if (handled) return
+      if (!dropAnywhereRef.current.canWrite) { if (dropAnywhereRef.current.saysWhy) dropAnywhereRef.current.needsDesktop(); return }
       const paths = dropAnywhereRef.current.fromFiles(e.dataTransfer.files)
       if (paths.length) dropAnywhereRef.current.onPaths(paths); else dropAnywhereRef.current.complain()
     }
@@ -846,6 +890,22 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
         </Banner>
       )}
 
+      {/* BC3 (B5): in a browser, ONE notice says what this tab is and what
+          needs the desktop app — adding clips and playing them — once, in
+          place of a disabled Add, a dead preview and a count of clips "not on
+          this computer" that would be all of them. Dismissed, it stays
+          dismissed for the session (every page stays mounted).
+          Laws of UX: Selective attention and Cognitive load (one sentence at
+          the top, not a reason on every control); Paradox of the active user
+          (the catalogue is usable at once; the notice names the one thing to
+          go elsewhere for). */}
+      {catalogue && !noticeDismissed && (
+        <Banner className="flex-shrink-0" tone="info" Icon={Monitor} data-testid="catalogue-notice"
+          action={<IconBtn Icon={X} title="Got it" onClick={() => setNoticeDismissed(true)} />}>
+          <span className="block">{CATALOGUE_SENTENCE}</span>
+        </Banner>
+      )}
+
       {/* BC2 (item 6): a whole location out of reach — one notice naming it,
           not one per clip — with the per-computer question beside it. */}
       {notConnected.length > 0 && !notConnectedDismissed && (
@@ -921,7 +981,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                   {stats.sizeBytes > 0 && <span>· {formatBytes(stats.sizeBytes)}</span>}
                   {stats.selects > 0 && <span style={{ color: C.green }}>· {stats.selects} select{stats.selects === 1 ? '' : 's'}</span>}
                   {stats.circled > 0 && <span style={{ color: C.accentText }}>· {stats.circled} circled</span>}
-                  {stats.offline > 0 && (
+                  {/* BC3: no count where every row is "not on this computer" (a
+                      browser): the notice says it once, and the relink is the
+                      desktop's. */}
+                  {stats.offline > 0 && !mode.nothingReachable && (
                     <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }}
                       title={caps?.locations
                         ? `Find the footage locations of the clips not on this computer (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`
@@ -930,7 +993,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                     </button>
                   )}
                   {probing > 0 && <span className="inline-flex items-center gap-1">· <Loading className="text-caption" label={`reading ${probing}`} /></span>}
-                  {ffmpeg === false && <span title="Drop ffmpeg.exe into resources/ffmpeg to get posters and columns for every format" style={{ color: C.dimmer }}>· no decoder</span>}
+                  {/* BC3: the decoder is the desktop's; a browser has none to miss. */}
+                  {ffmpeg === false && mode.canProbe && <span title="Drop ffmpeg.exe into resources/ffmpeg to get posters and columns for every format" style={{ color: C.dimmer }}>· no decoder</span>}
                 </div>
               </div>
             </div>
@@ -938,20 +1002,32 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
               {currentBin && counts.get(currentBin.id) !== files.filter(f => f.bin_id === currentBin.id).length && (
                 <Chip active={includeNested} onClick={() => setIncludeNested(v => !v)} title="Show files of nested bins too">nested</Chip>
               )}
-              <div className="relative">
-                <Btn primary small disabled={!canWrite} title={canWrite ? (canPick ? 'Add files or a folder' : ADD_NEEDS_DESKTOP) : writeReason || 'Read-only'}
-                  onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4, items: [
-                    // BC2: where no computer can pick a file (the cloud in a
-                    // browser), the two picks say why instead of failing.
-                    !canPick && { header: ADD_NEEDS_DESKTOP },
-                    { label: 'Files…', Icon: FilePlus, disabled: !canPick, onClick: () => pickFiles(currentBinId) },
-                    { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, disabled: !canPick, onClick: () => pickFolder(currentBinId) },
-                    { divider: true },
-                    { label: 'New bin', Icon: Plus, onClick: () => createBin(currentBinId) },
-                  ] })}>
-                  <Plus className="w-3 h-3" /> Add <ChevronDown className="w-3 h-3" />
+              {/* BC3 (B5): where no computer can pick a file (a browser), the
+                  one thing this control can do is the control — New bin —
+                  rather than an Add menu of two disabled picks under a
+                  reason (Hick's law: one step; no disabled control without
+                  its reason, which the notice above carries once). The
+                  desktop keeps its menu. */}
+              {catalogue ? (
+                <Btn primary small disabled={!canWrite} title={canWrite ? 'New bin' : writeReason || 'Read-only'} onClick={() => createBin(currentBinId)}>
+                  <Plus className="w-3 h-3" /> New bin
                 </Btn>
-              </div>
+              ) : (
+                <div className="relative">
+                  <Btn primary small disabled={!canWrite} title={canWrite ? (canPick ? 'Add files or a folder' : ADD_NEEDS_DESKTOP) : writeReason || 'Read-only'}
+                    onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom + 4, items: [
+                      // BC2: where no computer can pick a file, the two picks
+                      // say why instead of failing.
+                      !canPick && { header: ADD_NEEDS_DESKTOP },
+                      { label: 'Files…', Icon: FilePlus, disabled: !canPick, onClick: () => pickFiles(currentBinId) },
+                      { label: 'Folder… (subfolders become nested bins)', Icon: FolderPlus, disabled: !canPick, onClick: () => pickFolder(currentBinId) },
+                      { divider: true },
+                      { label: 'New bin', Icon: Plus, onClick: () => createBin(currentBinId) },
+                    ] })}>
+                    <Plus className="w-3 h-3" /> Add <ChevronDown className="w-3 h-3" />
+                  </Btn>
+                </div>
+              )}
               <div className="flex items-center rounded-control" style={{ border: `1px solid ${C.line}` }}>
                 <IconBtn Icon={LayoutGrid} title="Frame view" active={view === 'grid'} onClick={() => setView('grid')} />
                 <IconBtn Icon={ListIcon} title="List view" active={view === 'list'} onClick={() => setView('list')} />
@@ -985,7 +1061,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
               <Chip active={filters.flags.includes('reject')} onClick={() => toggleIn('flags', 'reject')} color={C.red} count={countWhere(f => f.review_flag === 'reject')}><Ban className="w-3 h-3" /> rejects</Chip>
               <Chip active={filters.flags.includes('unflagged')} onClick={() => toggleIn('flags', 'unflagged')} count={countWhere(f => !f.review_flag || f.review_flag === 'unflagged')}>unflagged</Chip>
               <Chip active={filters.circled === true} onClick={() => setFilters(f => ({ ...f, circled: f.circled === true ? null : true }))} count={countWhere(f => f.circled)}><Circle className="w-3 h-3" /> circled</Chip>
-              <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> {offlineWord}</Chip>
+              {/* BC3: no filter by reach where every row is out of it (a browser). */}
+              {!mode.nothingReachable && <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> {offlineWord}</Chip>}
               <span style={{ width: 8 }} />
               {COLORS.filter(c => scopeFiles.some(f => f.color === c)).map(c => <Chip key={c} active={filters.colors.includes(c)} onClick={() => toggleIn('colors', c)} title={`Colour ${c}`} count={countWhere(f => f.color === c)}><ColorDot color={c} size={8} /></Chip>)}
               {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)} count={countWhere(f => f.camera === c)} className={DATA_CHIP}>{c} cam</Chip>)}
@@ -1010,7 +1087,9 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
               <div className="flex-1 flex items-center justify-center"><Loading label="Loading bins…" /></div>
             ) : noBins ? (
               <EmptyState Icon={Clapperboard} title="No bins yet"
-                body="A bin holds references to footage, stills, audio, graphics, VFX and documents where they sit on your drives. Start from a set, or drop a folder anywhere on this page.">
+                body={catalogue
+                  ? CATALOGUE_EMPTY_BINS_SENTENCE
+                  : 'A bin holds references to footage, stills, audio, graphics, VFX and documents where they sit on your drives. Start from a set, or drop a folder anywhere on this page.'}>
                 {canWrite && <>
                   <Btn primary onClick={() => createStarter('types')}><Layers className="w-3 h-3" /> One bin per media type</Btn>
                   {scenes.length > 0 && <Btn onClick={() => createStarter('scenes')}><Film className="w-3 h-3" /> One bin per scene ({scenes.length})</Btn>}
@@ -1038,17 +1117,27 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                 thumbUrlFor={thumbUrlFor} binsById={binsById} showBin={showBinColumn} sort={sort}
                 onSort={field => setSort(s => s.field === field ? { ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })}
                 onInlinePatch={(id, patch) => patchIds([id], patch)} canWrite={canWrite} scenesById={scenesById}
-                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount} />
+                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount}
+                markOffline={!mode.nothingReachable} />
             ) : (
+              // BC3: hover-scrub is off where nothing streams (streamUrlFor
+              // answers null there); the dim is off where no row could be
+              // reached (BinFileGrid says why).
               <BinFileGrid rows={rows} selection={selection} currentId={currentId} onRowClick={selectRow}
                 onRowDoubleClick={id => canWrite && setRenamingFileId(id)} onContextMenu={fileMenu}
-                thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor} tileWidth={tileWidth} canWrite={canWrite}
-                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} usageCount={usageCount} />
+                thumbUrlFor={thumbUrlFor} streamUrlFor={mode.canStream ? streamUrlFor : null} tileWidth={tileWidth} canWrite={canWrite}
+                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} usageCount={usageCount}
+                markOffline={!mode.nothingReachable} />
             )}
             {renamingFileId && view === 'grid' && (
               // Keyed by the file: F2 on another tile gets a fresh draft, not the
               // previous file's name (review round 2).
               <RenameBar key={renamingFileId} row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
+            )}
+            {/* BC3: the picture large (Space where nothing can play), over the
+                pane like the rename bar — the Bins keys keep working under it. */}
+            {posterLarge && currentRow && !mode.canStream && (
+              <PosterLarge row={currentRow} location={locationOf(currentRow)} catalogue={catalogue} onClose={() => setPosterLarge(false)} />
             )}
 
             {/* ── Selection bar ── */}
@@ -1078,7 +1167,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive}
-          locationOf={locationOf} addedByOf={addedByOf} />
+          locationOf={locationOf} addedByOf={addedByOf}
+          canStream={mode.canStream} canOpen={mode.canOpen} canProbe={mode.canProbe} catalogue={catalogue} />
       </div>
 
       {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys

@@ -97,6 +97,15 @@ export function fixtureVariant(search = typeof location === 'undefined' ? '' : l
   return v === 'game' || v === 'member' ? v : null
 }
 
+// BC3: `?bins=browser` makes the fake cloud answer the Bins tab as the real
+// cloud does in a BROWSER — no row reachable (`resolveFiles` false, no
+// `online` on any row), so the catalogue's "not on this computer" surfaces
+// can be rehearsed on the fixtures. The default stays what BC1 made it:
+// every row answered for.
+export function binsFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
+  return new URLSearchParams(search).get('bins') === 'browser' ? 'browser' : null
+}
+
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)

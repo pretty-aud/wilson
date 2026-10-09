@@ -86,16 +86,26 @@ describe('B6: the tab is gated on project.bins.write — a reviewer adds and log
 })
 
 describe('where no computer can pick a file, the add verbs say why', () => {
-  it('in a browser: the picks are disabled under the sentence; a new bin still works', async () => {
+  // BC3 (B5): a browser no longer gets an Add menu of two disabled picks
+  // under the sentence — the one thing it can do, New bin, is the control,
+  // and the sentence is the tab's notice, said once (binsViewBrowser.test.jsx
+  // pins the rest). The pin here keeps what mattered: no pick is ever
+  // called, a new bin still works, and the sentence is on screen.
+  it('in a browser: New bin in place of Add, no pick offered, the sentence said once at the top', async () => {
     await mount(BROWSER, reviewer())
-    expect(screen.getByRole('button', { name: /Add/ }).title).toBe(ADD_NEEDS_DESKTOP)
-    openAddMenu()
-    expect(document.body.textContent).toContain(ADD_NEEDS_DESKTOP)
-    const files = screen.getByRole('button', { name: /^Files…/ })
-    expect(files.disabled || files.getAttribute('aria-disabled') === 'true').toBe(true)
-    fireEvent.click(files)
+    expect(screen.queryByRole('button', { name: /^Add/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Files…/ })).toBeNull()
+    expect(document.querySelector('[data-testid="catalogue-notice"]').textContent).toContain('need the desktop app')
+    // The toolbar's text button (the tree's + is an icon button titled the same).
+    const newBin = screen.getAllByRole('button', { name: /^New bin/ }).find(b => /New bin/.test(b.textContent))
+    await act(async () => { fireEvent.click(newBin) })
+    expect(state.ctx.addBin).toHaveBeenCalled()
     expect(state.ctx.pickBinFiles).not.toHaveBeenCalled()
-    expect(screen.getAllByRole('button', { name: /^New bin/ }).length).toBeGreaterThan(0)
+  })
+  it('CONTROL: an empty bin in a browser still reads the add sentence where Add files… stood', async () => {
+    await mount(BROWSER, reviewer(), { binFiles: [] })
+    expect(document.body.textContent).toContain(ADD_NEEDS_DESKTOP)
+    expect(screen.queryByRole('button', { name: /Add files…/ })).toBeNull()
   })
 })
 

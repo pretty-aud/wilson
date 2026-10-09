@@ -66,9 +66,11 @@ const headerWidth = (c) => (floorOf(c) ? undefined : c.width)
 /** What the shown columns need side by side: the floor plus every px width. */
 const columnsWidth = (cols) => cols.reduce((sum, c) => sum + (floorOf(c) || parseFloat(c.width)), 0)
 
+// `markOffline` (BC3): the dim on a row this computer cannot reach, only
+// where some row could be (BinFileGrid says why; a browser passes false).
 export default function BinFileTable({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor,
-  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor, usageCount = null,
+  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor, usageCount = null, markOffline = true,
 }) {
   const cols = TABLE_COLUMNS.filter(c => showBin || c.id !== 'bin')
   const minWidth = columnsWidth(cols)
@@ -102,7 +104,7 @@ export default function BinFileTable({
               used={usageCount?.get(row.id) || 0}
               renaming={renamingId === row.id}
               onRenameEnd={onRenameEnd}
-              canWrite={canWrite}
+              canWrite={canWrite} markOffline={markOffline}
               onClick={e => onRowClick?.(row.id, e)}
               onDoubleClick={() => onRowDoubleClick?.(row.id)}
               onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, row.id) }}
@@ -123,7 +125,7 @@ export default function BinFileTable({
   )
 }
 
-function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
+function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, markOffline = true, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
   const [draft, setDraft] = useState(row.display_name || '')
   const inputRef = useRef(null)
   useEffect(() => { if (renaming) { setDraft(row.display_name || ''); setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0) } }, [renaming, row.display_name])
@@ -181,7 +183,7 @@ function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sc
       onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
       data-selected={selected ? 'true' : undefined}
       data-current={current ? 'true' : undefined}
-      data-offline={row.online === false ? 'true' : undefined}>
+      data-offline={row.online === false && markOffline ? 'true' : undefined}>
       {cols.map(c => (
         <Td key={c.id} numeric={c.align === 'right'} data-sans={c.mono === false ? 'true' : undefined}>{cell(c.id)}</Td>
       ))}
