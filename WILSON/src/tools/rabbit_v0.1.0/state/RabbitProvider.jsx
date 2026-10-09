@@ -290,10 +290,15 @@ export function RabbitProvider({ children }) {
   const [desktopBinFiles, setDesktopBinFiles] = useState(null);
   const desktopBinFilesRef = useRef(null);
   const desktopCompositeRef = useRef({ cloud: null, files: null, composite: null });
+  // "The backend is the cloud": the provider's own mode, which the dev
+  // fixtures share with the cloud adapter (they are the cloud in a dev
+  // build), not the adapter object's name.
+  const adapterModeRef = useRef(adapterMode);
+  adapterModeRef.current = adapterMode;
   const binsBackend = useCallback(() => {
     const a = adapterRef.current;
     const d = desktopBinFilesRef.current;
-    if (!a || !d || a.mode !== 'supabase') return a;
+    if (!a || !d || adapterModeRef.current !== 'supabase') return a;
     const memo = desktopCompositeRef.current;
     if (memo.cloud === a && memo.files === d && memo.composite) return memo.composite;
     const composite = composeDesktopCloudBins(a, d.files, {

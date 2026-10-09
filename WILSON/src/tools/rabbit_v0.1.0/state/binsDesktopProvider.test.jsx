@@ -153,6 +153,14 @@ describe('BC2 — the predicate: the desktop\'s file process is reachable', () =
     expect(ctxRef.binFileStreamUrl('f2')).toBeNull()
   })
 
+  it('the predicate follows the provider\'s backend: the dev fixtures in the cloud\'s slot (another adapter name) are composed too', async () => {
+    holder.adapter = { ...makeCloud(), mode: 'fixtures' }
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    expect(ctxRef.binsInfo.capabilities.backend).toBe('desktop_cloud')
+  })
+
   it('it is not the supportsManagedFiles mistake: the FILES store is decided as before (false on the cloud)', async () => {
     await mount()
     await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
