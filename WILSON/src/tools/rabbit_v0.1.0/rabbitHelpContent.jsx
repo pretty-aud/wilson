@@ -4,6 +4,9 @@
 
 import React from 'react';
 import { Kbd } from '../../ui';
+// BC2: the Bins page quotes the controls' own words.
+import { ADD_NEEDS_DESKTOP as ADD_NEEDS_DESKTOP_WORDS } from './bins/binLocations';
+import { REMOTE_VIEWING_LABEL as REMOTE_VIEWING_WORDS } from './bins/cloudPosters';
 
 // The Bins tab's keyboard, as BinsView's document handler binds it (and the
 // preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
@@ -49,6 +52,7 @@ export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-intake',       label: 'Intake wizard' },
   { id: 'rabbit-assets',       label: 'Assets' },
   { id: 'rabbit-scenes',       label: 'Scenes & shot lists' },
+  { id: 'rabbit-bins',         label: 'Bins' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
   { id: 'rabbit-phases',       label: 'Phases & tasks' },
   { id: 'rabbit-dependencies', label: 'Dependencies' },
@@ -437,6 +441,86 @@ export function RabbitHelpContent({ helpPage, theme }) {
     </div>
     );
   }
+
+  // BC2 (Bins on the cloud, the desktop signed in): what the Bins tab does,
+  // in the controls' own words (rabbitBinsHelp.test.jsx holds them to it).
+  if (helpPage === 'rabbit-bins') return (
+    <div className="space-y-5">
+      <section>
+        <h3 className={T.sectionTitle}>Bins</h3>
+        <p className={`${T.bodyText} mb-4`}>
+          A bin lists clips, stills, audio, frame sequences and documents
+          where they already are. WILSON never copies footage: it records
+          where each file is and reads it from there. Only a small picture of
+          each clip is kept.
+        </p>
+        <div className="space-y-3">
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Footage locations</h4>
+            <p className={T.listItem}>
+              Signed in to a company, a clip is a footage location (the
+              company&apos;s share, saved once by its network address, like
+              \\server\footage, and named) plus its path inside it, the same
+              on every computer. Name the company&apos;s shares in App
+              settings, Storage, Footage locations, or from Add when a picked
+              file lies on a share nobody has named yet. A file in no footage
+              location is refused, never added. A computer that sees a share
+              only as a drive letter is asked once, with Where is it on this
+              computer?, and only that computer keeps the answer.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Adding clips</h4>
+            <ul className={`${T.listItem} space-y-1 ml-2`}>
+              <li>• <span className={T.listBold}>Files or a folder</span> — Add, then Files… or Folder…; subfolders become nested bins, and a folder of numbered frames is one item.</li>
+              <li>• <span className={T.listBold}>Read before it is added</span> — on the desktop app signed in, each clip&apos;s length, size, frame and codec are read on the share first, so a teammate who cannot reach the file still sees them.</li>
+              <li>• <span className={T.listBold}>Already in this project</span> — a clip the project already holds arrives unticked: skip it, or tick it to add it anyway.</li>
+              <li>• <span className={T.listBold}>In a browser</span> — {ADD_NEEDS_DESKTOP_WORDS}</li>
+            </ul>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Not on this computer</h4>
+            <p className={T.listItem}>
+              A clip this computer cannot reach still shows, with its picture
+              and its details, marked not on this computer. It can be logged,
+              flagged and assigned to a shot; it cannot be played here. When a
+              whole footage location is out of reach, the tab names it once,
+              with Where is it on this computer? beside it. A clip keeps its
+              path for everyone, so it is found again by telling this computer
+              where its location is, never by changing its path.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Play and scrub</h4>
+            <p className={T.listItem}>
+              On a computer that reaches the share, the preview plays the clip
+              where it is and moving across a tile scrubs it; Open in default
+              app hands it to the computer&apos;s own player. Nothing is copied
+              to this computer.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Pictures and the company&apos;s switch</h4>
+            <p className={T.listItem}>
+              A clip&apos;s picture is made on a computer that reaches it and
+              kept there. It goes to the cloud only while a workspace admin
+              has turned on {REMOTE_VIEWING_WORDS} (App settings, Storage);
+              while it is off, no picture leaves the office network. Turned on
+              later, the Bins tab offers Upload pictures for the clips added
+              meanwhile. Turning it off deletes nothing.
+            </p>
+          </div>
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Who can change bins</h4>
+            <p className={T.listItem}>
+              A project&apos;s managers, members and reviewers add and remove
+              clips and bins, log and flag them, and assign takes to shots.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 
   if (helpPage === 'rabbit-timeline') return (
     <div className="space-y-5">

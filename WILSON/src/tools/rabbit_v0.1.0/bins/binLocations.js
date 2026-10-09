@@ -82,6 +82,10 @@ export function addedByName(userId, members) {
   return 'someone who has left'
 }
 
+// Where no computer can reach the footage to pick it (the cloud, in a
+// browser), the add verbs say why. The desktop app signed in can.
+export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a computer that can reach the footage.'
+
 // ── B3: a clip this computer cannot reach ──
 // "A clip a computer cannot reach still shows, with its details, marked
 // 'not on this computer'; it can be logged, flagged and assigned to a shot;

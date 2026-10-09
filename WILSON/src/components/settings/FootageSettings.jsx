@@ -44,14 +44,8 @@ import {
 } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Input, Switch } from '../../ui'
-
-// B5a's control, in the words the plan gives it.
-export const REMOTE_VIEWING_LABEL = 'Allow files to be viewed from outside the office network'
-// The storage design §4b sentence: what turning it on means for a studio
-// that needs TPN certification, at the point of the switch ("Turning on
-// external access is the moment a workspace leaves Gold eligibility. The UI
-// must say that, in those words, at the point of the switch").
-export const REMOTE_VIEWING_TPN_SENTENCE = 'Turning on external access is the moment this workspace leaves TPN Gold Shield eligibility: remote access to content then runs outside the VPN model TPN prescribes. A studio that needs TPN certification keeps this off and works over its VPN, or on one computer.'
+// B5a's control and the §4b sentence: one place, so Help quotes them exactly.
+import { REMOTE_VIEWING_LABEL, REMOTE_VIEWING_TPN_SENTENCE } from '../../tools/rabbit_v0.1.0/bins/cloudPosters'
 
 // The sentence a person reads, without the backend's bracketed prefix.
 function said(e) {

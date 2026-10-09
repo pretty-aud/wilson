@@ -22,7 +22,8 @@ import { resolve } from 'node:path'
 const state = vi.hoisted(() => ({ ctx: null, access: null }))
 vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
 vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => state.access }))
-const { default: BinsView, ADD_NEEDS_DESKTOP } = await import('../BinsView')
+const { default: BinsView } = await import('../BinsView')
+const { ADD_NEEDS_DESKTOP } = await import('../../bins/binLocations')
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 

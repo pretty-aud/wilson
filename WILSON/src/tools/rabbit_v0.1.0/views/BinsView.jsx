@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { needsCloudPoster } from '../bins/cloudPosters'
-import { addedByName, NOT_ON_THIS_COMPUTER } from '../bins/binLocations'
+import { addedByName, NOT_ON_THIS_COMPUTER, ADD_NEEDS_DESKTOP } from '../bins/binLocations'
 import { useProjectAccess } from '../state/useProjectAccess'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
@@ -58,10 +58,6 @@ import { useNavigateTarget } from '../state/rabbitNavigate'
 // step), which turned "camera-original" into "#CAMERA-ORIGINAL" (review round
 // 1). The words are the Caption step, sentence as written.
 const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
-
-// BC2: where no computer can reach the footage to pick it (the cloud, in a
-// browser), the add verbs say why. The desktop app signed in can.
-export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a computer that can reach the footage.'
 
 // BC2: "Footage NAS is", "Footage NAS and VFX are", "A, B and C are".
 function unreachableWords(names) {

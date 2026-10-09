@@ -24,7 +24,8 @@ vi.mock('../../permissions', () => ({ usePermissions: () => holder.perms }))
 vi.mock('../TeamMembers/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ members: [{ user_id: 'u1', display_name: 'Sofia Aldana' }] }) }))
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: null }))
 
-const { FootageLocationsSection, RemoteViewingSection, REMOTE_VIEWING_LABEL, REMOTE_VIEWING_TPN_SENTENCE } = await import('./FootageSettings')
+const { FootageLocationsSection, RemoteViewingSection } = await import('./FootageSettings')
+const { REMOTE_VIEWING_LABEL, REMOTE_VIEWING_TPN_SENTENCE } = await import('../../tools/rabbit_v0.1.0/bins/cloudPosters')
 const { BINS_REFUSALS } = await import('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter')
 
 function makeCtx(over = {}) {
