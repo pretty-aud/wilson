@@ -255,9 +255,14 @@ const TRANSITION = {
 };
 
 // S6a: the welcome's title-hold waits two animation frames, or this long when
-// a hidden window runs none (see playWelcome). Measured in a visible window
-// the frames land ~70-120ms after the hand-over, so they always win; this is
-// not a duration anyone sees.
+// a hidden window runs none (see playWelcome). Measured (review round 2): at
+// normal speed the second frame lands ~110ms after the hand-over and the
+// frames win by ~320-390ms; under a 4x CPU throttle they win by ~3ms, under
+// 6x the timer wins. Either is safe ONLY because holdTitle flushes style
+// before it lifts the cut. The floor still matters: the timer must outlast
+// React's commit of the hand-over (one long task), or the cut and its lifting
+// land in one render and the expand comes back (R1-01) — a 0 here did exactly
+// that on the --resumed path. Pinned at 300 or more.
 const WELCOME_FRAMES_FALLBACK_MS = 500;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -359,7 +364,8 @@ export default function App() {
   const [transitionState, setTransitionState] = useState('idle');
   const [transitionTitle, setTransitionTitle] = useState('');
   const transitionRef = useRef(false);
-  // S6a: true for the welcome's first two frames only. The sign-in's reveal
+  // S6a: true from the sign-in's hand-over until title-hold (two frames at
+  // normal speed, longer on a slow machine). The sign-in's reveal
   // has already closed the bars to COMPRESSED, so the chrome must STAND there
   // at the hand-over — a cut, not a tween — whether it mounts in that commit
   // or was already mounted under the sign-in screen at its resting bars (a
@@ -2198,7 +2204,16 @@ export default function App() {
   // window (a background tab, a minimised app) runs no animation frames, and
   // the chain used to run on timers alone — without this it would park at
   // 'compressing' with navigation refused and the pet hidden until the window
-  // was shown (R1-03). In a visible window the frames win by ~400ms.
+  // was shown (R1-03). At normal speed the frames win; on a slow machine the
+  // timer can (see WELCOME_FRAMES_FALLBACK_MS).
+  //
+  // 🚨 holdTitle FLUSHES STYLE before it lifts the cut (review round 2). A
+  // transition starts from the last style the browser COMPUTED, not the last
+  // one React committed: if the timer wins before any frame — a hidden
+  // window, a throttled one — the bars' compressed height with no transition
+  // has never been computed, and lifting the cut would let the mounted bars
+  // tween 540 → 40 when the window is next shown. Reading layout computes it
+  // first, so the lift changes nothing that can move.
   const playWelcome = useCallback(() => {
     if (transitionRef.current || welcomePlayedRef.current) return;
     welcomePlayedRef.current = true;
@@ -2212,6 +2227,7 @@ export default function App() {
     const holdTitle = () => {
       if (held) return;
       held = true;
+      void document.documentElement.getBoundingClientRect();
       setWelcomeCut(false);
       setTransitionState('title-hold');
       setTimeout(() => {
@@ -2583,7 +2599,11 @@ export default function App() {
               display: 'flex',
               alignItems: 'flex-end',
               opacity: contentFaded ? 0 : 1,
-              transition: 'opacity 250ms ease',
+              // S6a (review round 2, R2-03): the page header goes with the
+              // bars' cut at the sign-in's hand-over — on an app already
+              // mounted under the sign-in screen it would otherwise fade for
+              // 250ms over the WELCOME band.
+              transition: welcomeCut ? 'none' : 'opacity 250ms ease',
               // Same 250ms hole as the content area below — the hamburger was
               // live during 'fading-in' while navigateTo would still drop it.
               pointerEvents: isAnimating ? 'none' : 'auto',

@@ -343,10 +343,48 @@ describe('App picks the welcome up where the reveal left it', () => {
     const fn = welcomeFn()
     expect(fn).not.toMatch(/TRANSITION\.compress/)
     // title-hold two frames later, or after the fallback when no frames run
-    // (R1-03), whichever is first — and only once.
-    expect(fn).toMatch(/const holdTitle = \(\) => \{\s*if \(held\) return;\s*held = true;/)
+    // (R1-03), whichever is first — and only once, with style flushed before
+    // the cut is lifted (R2-02) so the lift cannot start a tween.
+    expect(fn).toMatch(/const holdTitle = \(\) => \{\s*if \(held\) return;\s*held = true;\s*void document\.documentElement\.getBoundingClientRect\(\);\s*setWelcomeCut\(false\);/)
     expect(fn).toMatch(/requestAnimationFrame\(\(\) => requestAnimationFrame\(holdTitle\)\);\s*setTimeout\(holdTitle, WELCOME_FRAMES_FALLBACK_MS\);/)
-    expect(app).toMatch(/const WELCOME_FRAMES_FALLBACK_MS = \d+;/)
+  })
+
+  // ── Review round 2 (R2-01): three plants passed every pin above. ──────────
+  // `playWelcome` deferring its OWN body, a fallback of 0 (measured: the
+  // --resumed path's expand came back), and a second place lifting the cut.
+  // The cut must be set synchronously, lifted in exactly one place, and the
+  // timer must outlast the hand-over's commit.
+  const preamble = (fnSrc) => fnSrc.slice(0, fnSrc.indexOf("setTransitionState('compressing');"))
+  const DEFERRAL = /setTimeout|requestAnimationFrame|queueMicrotask|await|Promise|\.then\(/
+  const fallbackMs = (src) => Number(/const WELCOME_FRAMES_FALLBACK_MS = (\d+);/.exec(src)?.[1])
+
+  it('the cut is set synchronously, in the hand-over\'s own call', () => {
+    const pre = preamble(welcomeFn())
+    expect(pre).toMatch(/^const playWelcome = useCallback\(\(\) => \{/)
+    expect(pre).toMatch(/setWelcomeCut\(true\);\s*$/)
+    expect(pre).not.toMatch(DEFERRAL)
+  })
+
+  it('the cut is lifted in exactly one place, and the fallback outlasts the commit', () => {
+    expect(app.match(/setWelcomeCut\(/g)).toHaveLength(2)
+    expect(fallbackMs(app)).toBeGreaterThanOrEqual(300)
+  })
+
+  it('CONTROL: the three round-2 plants fail those pins', () => {
+    const fn = welcomeFn()
+    // P1: playWelcome defers its own body
+    const deferred = fn.replace(/(const playWelcome = useCallback\(\(\) => \{)/, '$1\n    setTimeout(() => {')
+    expect(preamble(deferred)).toMatch(DEFERRAL)
+    // P2: a fallback of 0
+    expect(fallbackMs(app.replace(/WELCOME_FRAMES_FALLBACK_MS = \d+;/, 'WELCOME_FRAMES_FALLBACK_MS = 0;'))).toBeLessThan(300)
+    // P3: a second place lifting the cut
+    const lifted = `${app}\n  useLayoutEffect(() => { if (welcomeCut) setWelcomeCut(false); }, [welcomeCut]);`
+    expect(lifted.match(/setWelcomeCut\(/g)).not.toHaveLength(2)
+  })
+
+  it('the page header in the top bar cuts with the bars (R2-03)', () => {
+    const top = app.slice(app.indexOf('{/* ===== TOP ORANGE BAR ===== */}'), app.indexOf('{renderTopBarContent()}'))
+    expect(top).toMatch(/opacity: contentFaded \? 0 : 1,[\s\S]*?transition: welcomeCut \? 'none' : 'opacity 250ms ease',/)
   })
 
   it('CONTROL: the pre-S6a welcome reads as a second compress', () => {
