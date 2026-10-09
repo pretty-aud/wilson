@@ -34,7 +34,16 @@
 --    0082's one definer-side restatement passes_project_privacy). Never NULL.
 --    A workspace manager of ANOTHER workspace is not a manager here (the hop);
 --    a workspace manager who is not the creator of a PRIVATE project does not
---    see it at all (0072), so does not see its Legal files either.
+--    see it at all (0072), so does not see its Legal files either. The
+--    privacy arm is on the MANAGER leg: the money half is the money gate,
+--    called as it is, with whatever reach it has (a project_members manager
+--    seat on a private project reaches that project's money and so its Legal
+--    files too — OUTSTANDING S4d-01, older than this file). Copied with the
+--    hop are its two known limits: no deleted_at test (a trashed project's
+--    LEGAL keys answer to the Legal audience as its INVOICES keys answer to
+--    the money audience), and app_role read from the JWT claim (a demoted
+--    manager keeps the gate until the token refreshes; the membership row is
+--    read live, so a DEACTIVATED one loses it at once).
 -- 2. Three classifiers that tell a Legal thing from a money thing, each a
 --    SUBSET of its 0088 / 0074 twin so a Legal key is always still LOCKED:
 --    file_row_is_legal(flag, path) (a row: not flagged, under LEGAL),
@@ -58,9 +67,11 @@
 --      c. log_file_downloaded (§5), reserve_upload_bytes (§5b) and
 --         fn_trash_authz (§6): a Legal key or row admits the Legal audience,
 --         in the same refusal, with the same words and code;
---      d. edit_history (§8): rows snapshot is_legal beside is_financial, and
---         edit_history_select admits the Legal audience to a Legal file's
---         history;
+--      d. edit_history (§8): rows snapshot is_legal beside is_financial — by
+--         a verdict function of its own, edit_history_file_is_legal, beside
+--         0088's classifier, which keeps its signature so 0088 stays
+--         replayable — and edit_history_select admits the Legal audience to
+--         a Legal file's history;
 --      e. file_events_select (§9): a Legal file's events — the hourly sweep's
 --         upload_abandoned certificate included — are the Legal audience's;
 --         and Legal 1: the `purged` exception (ruling 22) is GONE. An
@@ -87,21 +98,41 @@
 -- invoice's), zero private projects, zero workspace managers. Nothing stored
 -- changes gate on apply; the CHECK adds with no violator.
 --
--- ORDERING — depends on, and must be re-run after a replay of: 0037
--- (can_access_project_money), 0042 / 0053 (the sixteen storage policies this
--- restates eight of), 0072 (projects.is_private — §0 refuses without it),
--- 0074 (file_events_select, rabbit_money_key), 0082 (passes_project_privacy),
--- 0083 and 0088 (the four files policies, log_file_downloaded,
--- reserve_upload_bytes, fn_trash_authz, edit_history_select, the edit-history
--- classifier and its trigger — their latest bodies; §0 refuses without 0088).
--- Replay pairs: re-running 0042 or 0053 reverts the eight money storage
--- policies to the money gate alone (a workspace manager loses the Legal
--- objects but nothing opens); 0088 reverts the files policies, the three
--- definer bodies and both read policies to the money gate (the same, nothing
--- opens — but a Legal file's purged certificate is a member's again under
--- 0088's ruling-22 arm); 0074 reverts file_events_select to ruling 22 for
--- invoices too. After ANY of those, re-run 0092. Its post-conditions are the
--- tripwire for each.
+-- ORDERING — depends on 0037 (can_access_project_money, called), 0072
+-- (projects.is_private — §0 refuses without it), 0082 (passes_project_privacy,
+-- called) and 0088 (§0 refuses without it), and restates, from its latest
+-- body, something every one of these last defined: 0012 (edit_history_select),
+-- 0014 / 0067 / 0082 (fn_trash_authz), 0027 / 0074 (file_events_select), 0038
+-- / 0083 / 0088 (the four files policies), 0042 / 0053 (the eight money
+-- storage policies), 0047 / 0074 / 0083 / 0088 (log_file_downloaded), 0073 /
+-- 0078 / 0083 / 0088 (reserve_upload_bytes), 0088 (the edit-history snapshot
+-- trigger and its function). 🚨 After a replay of ANY of them, re-run 0092;
+-- its post-conditions are the tripwire for each. What each replay does
+-- meanwhile:
+--   * 0042 or 0053: the eight money storage policies lose the Legal arm
+--     (0042 ALSO drops LEGAL from rabbit_money_segment — every project member
+--     can then read every Legal object and row through the base policies,
+--     0088's own replay note; re-run 0088, then 0092).
+--   * 0038 or 0083: the four files policies go back to the money gate alone
+--     (0083's without file_row_is_money: a Legal row opens to every reader —
+--     0088's note; re-run 0088, then 0092).
+--   * 0012: edit_history_select loses BOTH arms — every workspace manager
+--     reads every invoice's history (money widens; re-run 0088, then 0092).
+--   * 0027 or 0074: file_events_select regains ruling 22's purged exception —
+--     a member reads a deleted invoice's record again (0027: every invoice
+--     event; re-run 0074, 0088, then 0092).
+--   * 0088: the files policies, the three definer bodies, edit_history_select
+--     and file_events_select go back to the money gate — a workspace manager
+--     loses the Legal rows, bodies, history and events (nothing opens to the
+--     wrong person), the snapshot trigger stops setting is_legal (fails
+--     closed), and file_events_select regains 0088's arm: a deleted INVOICE's
+--     record is every member's again while a deleted Legal file's stays
+--     hidden. 0088 is replayable after 0092 because 0092 does not change the
+--     signature of anything 0088 defines (§8b).
+--   * 0014, 0047, 0067, 0073, 0078, 0082: one definer body each goes back to
+--     a pre-0088 shape (0088's notes); re-run 0088, then 0092.
+--   * 0037: can_access_project_money is restated as itself (post-condition 12
+--     pins exactly that); 0072 / 0082: the arm this predicate calls.
 --
 -- Idempotent: CREATE OR REPLACE / DROP-then-CREATE / ADD COLUMN IF NOT EXISTS
 -- / DROP CONSTRAINT IF EXISTS-then-ADD throughout; the is_legal backfill only
@@ -208,7 +239,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.can_access_project_legal(UUID) IS
-  '0092 (post-overhaul S4d) — the Legal gate: TRUE for everyone the money gate admits (a workspace admin of the project''s own workspace, or a project_members row with project_role = manager — can_access_project_money, 0037) and ALSO for a workspace-level MANAGER of the project''s own workspace holding a live membership, without a seat (Audrey, 2026-10-08: "Also workspace managers, without taking a seat"), subject to 0072''s privacy arm (passes_project_privacy, 0082): a private project''s Legal files are its creator''s and an admin''s. Never NULL. No unstaffed-project opening. Guards a LEGAL files row, object, thumbnail, event, history row, reservation and trash RPC; INVOICES / FINANCE and every money table stay on can_access_project_money.';
+  '0092 (post-overhaul S4d) — the Legal gate: TRUE for everyone the money gate admits (a workspace admin of the project''s own workspace, or a project_members row with project_role = manager — can_access_project_money, 0037, called as it is) and ALSO for a workspace-level MANAGER of the project''s own workspace holding a live membership, without a seat (Audrey, 2026-10-08: "Also workspace managers, without taking a seat"); that manager leg carries 0072''s privacy arm (passes_project_privacy, 0082), so a workspace manager who did not create a private project is refused it (the money half has the money gate''s own reach — OUTSTANDING S4d-01). Never NULL. No unstaffed-project opening. Guards a LEGAL files row, object, thumbnail, event, history row, reservation and trash RPC; INVOICES / FINANCE and every money table stay on can_access_project_money.';
 
 REVOKE ALL ON FUNCTION public.can_access_project_legal(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.can_access_project_legal(UUID) TO authenticated, service_role;
@@ -834,89 +865,77 @@ ALTER TABLE public.edit_history
 COMMENT ON COLUMN public.edit_history.is_legal IS
   '0092: for entity_type ''files'', true when the file was a LEGAL row (file_row_is_legal: under the LEGAL folder, not is_financial) at the time of the change, or by every old / new value the diff carries — snapshotted at capture by fn_edit_history_money_snapshot beside is_financial, so it survives the file''s deletion. A flagged row that is also is_legal is read by the Legal audience (can_access_project_legal: workspace managers included); a flagged row that is not is_legal (an invoice) stays the money audience''s. False for every other entity type.';
 
--- 8b. The classifier, with the Legal verdict added. DROP then CREATE: an OUT
---     column cannot be added under CREATE OR REPLACE. 0088's is_money logic
---     word for word; is_legal is the Legal path seen anywhere (the current
---     row, or any old / new value in the diff) AND no flag seen anywhere —
---     the stricter reading when the two disagree. Fails CLOSED: anything that
---     raises answers money and NOT Legal, which hides the row from everyone
---     below the money gate.
-DROP FUNCTION IF EXISTS public.edit_history_file_class(UUID, JSONB);
-
-CREATE FUNCTION public.edit_history_file_class(
-  p_entity_id UUID,
-  p_diff      JSONB,
-  OUT is_money   BOOLEAN,
-  OUT is_legal   BOOLEAN,
-  OUT project_id UUID
-)
+-- 8b. The Legal verdict — a function of its OWN beside 0088's classifier.
+--     edit_history_file_class(uuid, jsonb) keeps 0088's signature (OUT
+--     is_money, project_id) and is not restated here: an OUT column cannot
+--     be added under CREATE OR REPLACE, and dropping the function to grow it
+--     would make 0088 UN-REPLAYABLE after 0092 (its CREATE OR REPLACE would
+--     refuse to change the return type), which breaks every replay remedy in
+--     the handbook that ends "re-run 0088" (review round 1, finding 1).
+--     A 0088 replay after 0092 therefore still runs; it restates the trigger
+--     function WITHOUT the line below, so new history rows carry is_legal =
+--     false (fails closed: the Legal audience loses history until 0092 is
+--     re-run; post-condition 10 is the tripwire).
+--
+--     The verdict (review round 1, finding 2): a history entry is Legal only
+--     when EVERY (flag, path) pair it carries — the file's current row if it
+--     still exists, the diff's whole old / new row, and the diff's
+--     column-wise is_financial / storage_path values — passes
+--     file_row_is_legal (a LEGAL path, no flag), and at least one path was
+--     seen. "Any LEGAL path seen" would have called the history of an
+--     unflagged FINANCE or INVOICES row Legal, and the Legal arm of
+--     edit_history_select would have handed it to every workspace manager.
+--     A pair with no path and no true flag (a note-only diff) says nothing
+--     and is left out of the vote. DEFINER (it reads files with RLS
+--     bypassed: the row may be one the capture's caller cannot see). Fails
+--     CLOSED: anything that raises answers NOT Legal, which hides the row
+--     from everyone below the money gate.
+CREATE OR REPLACE FUNCTION public.edit_history_file_is_legal(p_entity_id UUID, p_diff JSONB)
+RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_flag  BOOLEAN;
-  v_path  TEXT;
-  v_proj  UUID;
-  v_found BOOLEAN;
-  v_flagged    BOOLEAN;
-  v_legal_path BOOLEAN;
+  v_flag      BOOLEAN;
+  v_path      TEXT;
+  v_found     BOOLEAN;
+  v_all_legal BOOLEAN;
+  v_any_path  BOOLEAN;
 BEGIN
-  is_money := true;  -- fail closed until proven otherwise
-  is_legal := false;
-  SELECT f.is_financial, f.storage_path, f.project_id
-    INTO v_flag, v_path, v_proj
+  SELECT f.is_financial, f.storage_path
+    INTO v_flag, v_path
     FROM public.files f WHERE f.id = p_entity_id;
   v_found := FOUND;
 
-  project_id := COALESCE(
-    v_proj,
-    public.fn_try_uuid(p_diff -> 'old' ->> 'project_id'),
-    public.fn_try_uuid(p_diff -> 'new' ->> 'project_id'),
-    public.fn_try_uuid(p_diff -> 'project_id' ->> 'new'),
-    public.fn_try_uuid(p_diff -> 'project_id' ->> 'old'));
+  SELECT bool_and(public.file_row_is_legal(t.f, t.p)) FILTER (WHERE t.p IS NOT NULL OR COALESCE(t.f, false)),
+         bool_or(t.p IS NOT NULL)
+    INTO v_all_legal, v_any_path
+    FROM (VALUES
+      (CASE WHEN v_found THEN v_flag END, CASE WHEN v_found THEN v_path END),
+      ((p_diff -> 'new' ->> 'is_financial')::boolean, p_diff -> 'new' ->> 'storage_path'),
+      ((p_diff -> 'old' ->> 'is_financial')::boolean, p_diff -> 'old' ->> 'storage_path'),
+      ((p_diff -> 'is_financial' ->> 'new')::boolean, p_diff -> 'storage_path' ->> 'new'),
+      ((p_diff -> 'is_financial' ->> 'old')::boolean, p_diff -> 'storage_path' ->> 'old')
+    ) AS t(f, p);
 
-  is_money :=
-       (v_found AND public.file_row_is_money(v_flag, v_path))
-    OR public.file_row_is_money((p_diff -> 'new' ->> 'is_financial')::boolean,
-                                p_diff -> 'new' ->> 'storage_path')
-    OR public.file_row_is_money((p_diff -> 'old' ->> 'is_financial')::boolean,
-                                p_diff -> 'old' ->> 'storage_path')
-    OR public.file_row_is_money((p_diff -> 'is_financial' ->> 'new')::boolean,
-                                p_diff -> 'storage_path' ->> 'new')
-    OR public.file_row_is_money((p_diff -> 'is_financial' ->> 'old')::boolean,
-                                p_diff -> 'storage_path' ->> 'old');
-
-  -- 0092: Legal is the LEGAL path seen anywhere, and the flag seen nowhere.
-  v_flagged :=
-       (v_found AND COALESCE(v_flag, false))
-    OR COALESCE((p_diff -> 'new' ->> 'is_financial')::boolean, false)
-    OR COALESCE((p_diff -> 'old' ->> 'is_financial')::boolean, false)
-    OR COALESCE((p_diff -> 'is_financial' ->> 'new')::boolean, false)
-    OR COALESCE((p_diff -> 'is_financial' ->> 'old')::boolean, false);
-  v_legal_path :=
-       (v_found AND public.rabbit_legal_segment(split_part(COALESCE(v_path, ''), '/', 3)))
-    OR public.rabbit_legal_segment(split_part(COALESCE(p_diff -> 'new' ->> 'storage_path', ''), '/', 3))
-    OR public.rabbit_legal_segment(split_part(COALESCE(p_diff -> 'old' ->> 'storage_path', ''), '/', 3))
-    OR public.rabbit_legal_segment(split_part(COALESCE(p_diff -> 'storage_path' ->> 'new', ''), '/', 3))
-    OR public.rabbit_legal_segment(split_part(COALESCE(p_diff -> 'storage_path' ->> 'old', ''), '/', 3));
-  is_legal := is_money AND v_legal_path AND NOT v_flagged;
+  RETURN COALESCE(v_all_legal, false) AND COALESCE(v_any_path, false);
 EXCEPTION WHEN OTHERS THEN
-  is_money := true;
-  is_legal := false;
+  RETURN false;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.edit_history_file_class(UUID, JSONB) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.edit_history_file_class(UUID, JSONB) TO service_role;
+REVOKE ALL ON FUNCTION public.edit_history_file_is_legal(UUID, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.edit_history_file_is_legal(UUID, JSONB) TO service_role;
 
-COMMENT ON FUNCTION public.edit_history_file_class(UUID, JSONB) IS
-  '0088 / 0092: classifies one files history entry — is_money (file_row_is_money over the file''s current row and every old/new value in the diff; true on any error, i.e. fails closed), is_legal (0092: a LEGAL path seen in the row or the diff and no is_financial flag seen anywhere; false on any error) and project_id. Used by trg_edit_history_money and the 0088 / 0092 backfills. DEFINER; no client role executes it.';
+COMMENT ON FUNCTION public.edit_history_file_is_legal(UUID, JSONB) IS
+  '0092: whether one files history entry is a LEGAL file''s — every (is_financial, storage_path) pair it carries (the file''s current row, the diff''s old / new rows, the diff''s column-wise values) passes file_row_is_legal and at least one path was seen; false on any error (fails closed). A subset of edit_history_file_class''s is_money (0088), which is NOT restated by 0092 so that 0088 stays replayable. Used by trg_edit_history_money and the 0092 backfill. DEFINER; no client role executes it.';
 
--- 8c. The snapshot, at capture — 0088's trigger function with the Legal
---     column added. The trigger itself (BEFORE INSERT, WHEN entity_type =
---     'files') is re-created so a replay of 0088 cannot leave a stale one.
+-- 8c. The snapshot, at capture — 0088's trigger function word for word, plus
+--     ONE line for the Legal column. The trigger itself (BEFORE INSERT, WHEN
+--     entity_type = 'files') is re-created so a replay of 0088 cannot leave a
+--     stale one; post-condition 10 pins its definition whole.
 CREATE OR REPLACE FUNCTION public.fn_edit_history_money_snapshot()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -927,11 +946,11 @@ BEGIN
   IF NEW.entity_type IS DISTINCT FROM 'files' THEN
     RETURN NEW;
   END IF;
-  SELECT c.is_money, c.is_legal, c.project_id
-    INTO NEW.is_financial, NEW.is_legal, NEW.project_id
+  SELECT c.is_money, c.project_id
+    INTO NEW.is_financial, NEW.project_id
     FROM public.edit_history_file_class(NEW.entity_id, NEW.diff) c;
   NEW.is_financial := COALESCE(NEW.is_financial, true);
-  NEW.is_legal := COALESCE(NEW.is_legal, false);
+  NEW.is_legal := COALESCE(public.edit_history_file_is_legal(NEW.entity_id, NEW.diff), false);
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
   NEW.is_financial := true;
@@ -949,16 +968,17 @@ CREATE TRIGGER trg_edit_history_money
   WHEN (NEW.entity_type = 'files')
   EXECUTE FUNCTION public.fn_edit_history_money_snapshot();
 
--- 8d. The history already written: is_legal SET where the classifier says
+-- 8d. The history already written: is_legal SET where the verdict says
 --     Legal (monotone, like 0088's flag — a Legal path never changes after
 --     the row is added, trg_files_legal_fixed); and 0088's own backfill
---     replayed, in case a money row was written between the two applies by a
---     writer that bypassed the trigger.
+--     replayed through 0088's classifier, in case a money row was written
+--     between the two applies by a writer that bypassed the trigger.
 UPDATE public.edit_history eh
    SET is_financial = eh.is_financial OR c.is_money,
        is_legal     = eh.is_legal OR c.is_legal,
        project_id   = COALESCE(eh.project_id, c.project_id)
-  FROM (SELECT x.id, cls.is_money, cls.is_legal, cls.project_id
+  FROM (SELECT x.id, cls.is_money, cls.project_id,
+               public.edit_history_file_is_legal(x.entity_id, x.diff) AS is_legal
           FROM public.edit_history x
          CROSS JOIN LATERAL public.edit_history_file_class(x.entity_id, x.diff) cls
          WHERE x.entity_type = 'files') c
@@ -1086,9 +1106,10 @@ DECLARE
   c_seg CONSTANT TEXT := 'rabbit_money_segment((storage.foldername(name))[3])';
 BEGIN
   -- 1. The predicate: present, STABLE DEFINER, search_path pinned, callable by
-  --    authenticated and not by anon, and its comment-stripped body carries
-  --    exactly the three pieces — the money gate, the manager leg with 0037's
-  --    hop, and 0082's privacy restatement — each once.
+  --    authenticated and not by anon, and its body WHOLE (whitespace
+  --    collapsed — a pin by pieces lets an additive leg through; review
+  --    round 1, finding 3): the money gate called once, the manager leg with
+  --    0037's hop, 0082's privacy restatement, both halves COALESCEd.
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure
                   AND prosecdef AND provolatile = 's' AND proconfig @> ARRAY['search_path=public']) THEN
     RAISE EXCEPTION '0092 post-condition 1 failed: can_access_project_legal is missing, not SECURITY DEFINER, not STABLE, or its search_path is not pinned';
@@ -1097,50 +1118,42 @@ BEGIN
      OR has_function_privilege('anon', 'public.can_access_project_legal(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION '0092 post-condition 1 failed: can_access_project_legal must be executable by authenticated and not by anon (and so not PUBLIC)';
   END IF;
-  v_body := regexp_replace(regexp_replace(
-              pg_get_functiondef('public.can_access_project_legal(uuid)'::regprocedure),
-              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
-  FOREACH t IN ARRAY ARRAY['COALESCE(public.can_access_project_money(p_project), false)',
-                           'public.current_app_role() = ''manager''',
-                           'p.workspace_id = public.current_workspace_id()',
-                           'public.has_active_membership(p.workspace_id)',
-                           'public.passes_project_privacy(p_project)'] LOOP
-    v_hits := (length(v_body) - length(replace(v_body, t, ''))) / length(t);
-    IF v_hits <> 1 THEN
-      RAISE EXCEPTION '0092 post-condition 1 failed: can_access_project_legal names % % times (expected 1)', t, v_hits;
-    END IF;
-  END LOOP;
-  IF v_body ~ 'current_app_role\(\) = ''admin''' OR v_body ~ 'project_role_for' OR v_body ~ 'project_is_staffed' THEN
-    RAISE EXCEPTION '0092 post-condition 1 failed: can_access_project_legal restates a money leg or opens an unstaffed project — the money half is can_access_project_money, called, not copied';
+  SELECT btrim(regexp_replace(regexp_replace(regexp_replace(prosrc, '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+    INTO v_body FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure;
+  IF v_body IS DISTINCT FROM 'SELECT COALESCE(public.can_access_project_money(p_project), false) OR COALESCE( public.current_app_role() = ''manager'' AND EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project), false);' THEN
+    RAISE EXCEPTION '0092 post-condition 1 failed: can_access_project_legal''s body is not the one 0092 wrote — it reads %', v_body;
   END IF;
 
   -- 2. The classifiers on known inputs, never NULL, each a SUBSET of its twin.
-  IF NOT public.file_row_is_legal(false, 'projects/p/LEGAL/x/1-a.pdf')
-     OR NOT public.file_row_is_legal(false, 'projects/p/legal/x/1-a.pdf')
-     OR NOT public.file_row_is_legal(NULL, 'projects/p/LEGAL/x/1-a.pdf')
-     OR public.file_row_is_legal(true, 'projects/p/LEGAL/x/1-a.pdf')
-     OR public.file_row_is_legal(false, 'projects/p/INVOICES/x/1-a.pdf')
-     OR public.file_row_is_legal(true, 'projects/p/project/x/1-a.pdf')
-     OR public.file_row_is_legal(false, 'projects/p/ASSETS/x/1-a.pdf')
-     OR public.file_row_is_legal(false, 'a-local-file.pdf')
-     OR public.file_row_is_legal(NULL, NULL) IS DISTINCT FROM false THEN
+  --    IS NOT TRUE / IS NOT FALSE throughout: `IF NOT f(...)` over a NULL
+  --    fails OPEN (0047's lesson; review round 1, finding 3).
+  IF public.file_row_is_legal(false, 'projects/p/LEGAL/x/1-a.pdf') IS NOT TRUE
+     OR public.file_row_is_legal(false, 'projects/p/legal/x/1-a.pdf') IS NOT TRUE
+     OR public.file_row_is_legal(NULL, 'projects/p/LEGAL/x/1-a.pdf') IS NOT TRUE
+     OR public.file_row_is_legal(true, 'projects/p/LEGAL/x/1-a.pdf') IS NOT FALSE
+     OR public.file_row_is_legal(false, 'projects/p/INVOICES/x/1-a.pdf') IS NOT FALSE
+     OR public.file_row_is_legal(false, 'projects/p/FINANCE/RATES.json') IS NOT FALSE
+     OR public.file_row_is_legal(true, 'projects/p/project/x/1-a.pdf') IS NOT FALSE
+     OR public.file_row_is_legal(false, 'projects/p/ASSETS/x/1-a.pdf') IS NOT FALSE
+     OR public.file_row_is_legal(false, 'a-local-file.pdf') IS NOT FALSE
+     OR public.file_row_is_legal(NULL, NULL) IS NOT FALSE THEN
     RAISE EXCEPTION '0092 post-condition 2 failed: file_row_is_legal does not read both axes, or returns NULL';
   END IF;
-  IF NOT public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/LEGAL/x/1-a.pdf')
-     OR NOT public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/legal/x/1-a.pdf')
-     OR public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/INVOICES/x/1-a.pdf')
-     OR public.rabbit_legal_key('LEGAL/x/1-a.pdf')
-     OR public.rabbit_legal_key('files/p/LEGAL/x/1-a.pdf')
-     OR public.rabbit_legal_key(NULL) IS DISTINCT FROM false
-     OR NOT public.file_event_is_legal(NULL, 'projects/p/LEGAL/x/1-a.pdf')
-     OR NOT public.file_event_is_legal('projects/p/LEGAL/x/1-a.pdf', NULL)
-     OR public.file_event_is_legal('projects/p/INVOICES/x/1-a.pdf', NULL)
-     OR public.file_event_is_legal(NULL, NULL) IS DISTINCT FROM false THEN
+  IF public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/LEGAL/x/1-a.pdf') IS NOT TRUE
+     OR public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/legal/x/1-a.pdf') IS NOT TRUE
+     OR public.rabbit_legal_key('projects/00000000-0000-0000-0000-000000000001/INVOICES/x/1-a.pdf') IS NOT FALSE
+     OR public.rabbit_legal_key('LEGAL/x/1-a.pdf') IS NOT FALSE
+     OR public.rabbit_legal_key('files/p/LEGAL/x/1-a.pdf') IS NOT FALSE
+     OR public.rabbit_legal_key(NULL) IS NOT FALSE
+     OR public.file_event_is_legal(NULL, 'projects/p/LEGAL/x/1-a.pdf') IS NOT TRUE
+     OR public.file_event_is_legal('projects/p/LEGAL/x/1-a.pdf', NULL) IS NOT TRUE
+     OR public.file_event_is_legal('projects/p/INVOICES/x/1-a.pdf', NULL) IS NOT FALSE
+     OR public.file_event_is_legal(NULL, NULL) IS NOT FALSE THEN
     RAISE EXCEPTION '0092 post-condition 2 failed: rabbit_legal_key / file_event_is_legal do not classify the known inputs, or return NULL';
   END IF;
   FOREACH t IN ARRAY ARRAY['projects/p/LEGAL/x/1-a.pdf', 'projects/p/legal/x/1-a.pdf', 'projects/p/Legal/x/1-a.pdf'] LOOP
-    IF (public.file_row_is_legal(false, t) AND NOT public.file_row_is_money(false, t))
-       OR (public.rabbit_legal_key(t) AND NOT public.rabbit_money_key(t)) THEN
+    IF (public.file_row_is_legal(false, t) IS TRUE AND public.file_row_is_money(false, t) IS NOT TRUE)
+       OR (public.rabbit_legal_key(t) IS TRUE AND public.rabbit_money_key(t) IS NOT TRUE) THEN
       RAISE EXCEPTION '0092 post-condition 2 failed: % is Legal but not locked — a Legal key would be readable by every project member', t;
     END IF;
   END LOOP;
@@ -1274,6 +1287,17 @@ BEGIN
                   AND policyname = 'petal_storage_quota_insert' AND permissive = 'RESTRICTIVE') THEN
     RAISE EXCEPTION '0092 post-condition 5 failed: petal_storage_quota_insert is missing or no longer RESTRICTIVE';
   END IF;
+  -- No OTHER policy on storage.objects says anything about Legal: permissive
+  -- policies OR together, so one added beside the sixteen under any other
+  -- name would be a new door (review round 1, planted fault D10).
+  SELECT string_agg(policyname, ', ') INTO v FROM pg_policies
+   WHERE schemaname = 'storage' AND tablename = 'objects'
+     AND policyname NOT LIKE 'rabbit\_files\_money\_%'
+     AND policyname NOT LIKE 'rabbit\_thumbnails\_money\_%'
+     AND (COALESCE(qual, '') || COALESCE(with_check, '')) ~* 'legal';
+  IF v IS NOT NULL THEN
+    RAISE EXCEPTION '0092 post-condition 5 failed: a storage.objects policy outside the eight money ones names Legal: %', v;
+  END IF;
 
   -- 6. log_file_downloaded: the Legal clause beside 0088's both-axes arm, and
   --    everything 0083 / 0088 pinned.
@@ -1317,8 +1341,11 @@ BEGIN
      OR strpos(v_body, 'public.file_row_is_money(v_flag, v_path)') = 0
      OR strpos(v_body, 'AND NOT (public.file_row_is_legal(v_flag, v_path)') = 0
      OR strpos(v_body, 'AND COALESCE(public.can_access_project_legal(v_project), false))') = 0
-     OR strpos(v_body, 'NOT COALESCE(public.can_access_project_money(v_project), false)') = 0 THEN
-    RAISE EXCEPTION '0092 post-condition 7 failed: fn_trash_authz lost a gate, the files money arm or the Legal clause';
+     OR strpos(v_body, 'NOT COALESCE(public.can_access_project_money(v_project), false)') = 0
+     -- Nothing in the body ever GRANTS: v_allowed is set by the CASE and then
+     -- only ever lowered (review round 1, planted fault D11).
+     OR strpos(v_body, 'v_allowed := true') > 0 THEN
+    RAISE EXCEPTION '0092 post-condition 7 failed: fn_trash_authz lost a gate, the files money arm or the Legal clause — or grants where it should only refuse';
   END IF;
   v_hits := (length(v_body) - length(replace(v_body, 'passes_project_privacy(', ''))) / length('passes_project_privacy(');
   IF v_hits <> 1 THEN
@@ -1394,11 +1421,14 @@ BEGIN
     RAISE EXCEPTION '0092 post-condition 9 failed: the files arm of fn_realtime_broadcast does not test both NEW and OLD for money before broadcasting, or has grown a Legal arm (a broadcast has no per-recipient filter)';
   END IF;
 
-  -- 10. edit_history: both snapshot columns; the classifier with its three OUT
-  --     columns, closed to clients; the trigger (BEFORE INSERT, FOR EACH ROW,
-  --     its function); the policy whole; exactly one policy; and no files
-  --     history row of a Legal file left without is_legal, nor one of a
-  --     non-Legal file carrying it.
+  -- 10. edit_history: both snapshot columns; 0088's classifier UNCHANGED in
+  --     shape (so 0088 stays replayable) and the Legal verdict beside it,
+  --     both closed to clients; the verdict on synthetic diffs (review round
+  --     1, finding 2: an unflagged FINANCE or INVOICES row is never Legal,
+  --     nor a diff that mixes a LEGAL path with a money one); the trigger
+  --     DEFINITION whole and its function's two snapshot lines; the policy
+  --     whole; exactly one policy; and no files history row of a Legal file
+  --     left without is_legal, nor one of a non-Legal file carrying it.
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
                   AND table_name = 'edit_history' AND column_name = 'is_financial'
                   AND is_nullable = 'NO' AND column_default = 'false')
@@ -1410,26 +1440,57 @@ BEGIN
     RAISE EXCEPTION '0092 post-condition 10 failed: edit_history.is_financial / is_legal / project_id are missing or mis-shaped';
   END IF;
   IF (SELECT proargnames FROM pg_proc WHERE oid = 'public.edit_history_file_class(uuid, jsonb)'::regprocedure)
-     IS DISTINCT FROM ARRAY['p_entity_id', 'p_diff', 'is_money', 'is_legal', 'project_id']::text[]
+     IS DISTINCT FROM ARRAY['p_entity_id', 'p_diff', 'is_money', 'project_id']::text[]
      OR has_function_privilege('anon', 'public.edit_history_file_class(uuid, jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.edit_history_file_class(uuid, jsonb)', 'EXECUTE')
      OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.edit_history_file_class(uuid, jsonb)'::regprocedure
                      AND prosecdef AND proconfig @> ARRAY['search_path=public']) THEN
-    RAISE EXCEPTION '0092 post-condition 10 failed: edit_history_file_class does not answer (is_money, is_legal, project_id), or is open to a client role, or lost SECURITY DEFINER / its search_path';
+    RAISE EXCEPTION '0092 post-condition 10 failed: edit_history_file_class is not 0088''s (is_money, project_id), or is open to a client role, or lost SECURITY DEFINER / its search_path';
   END IF;
-  SELECT tg.tgtype INTO v_tgtype FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
-   WHERE tg.tgrelid = 'public.edit_history'::regclass AND tg.tgname = 'trg_edit_history_money'
-     AND p.proname = 'fn_edit_history_money_snapshot' AND tg.tgenabled = 'O';
-  IF v_tgtype IS NULL OR (v_tgtype & 1) = 0 OR (v_tgtype & 2) = 0 OR (v_tgtype & 4) = 0 THEN
-    RAISE EXCEPTION '0092 post-condition 10 failed: trg_edit_history_money is missing, disabled, or not BEFORE INSERT FOR EACH ROW (tgtype %)', v_tgtype;
+  IF to_regprocedure('public.edit_history_file_is_legal(uuid, jsonb)') IS NULL
+     OR has_function_privilege('anon', 'public.edit_history_file_is_legal(uuid, jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.edit_history_file_is_legal(uuid, jsonb)', 'EXECUTE')
+     OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.edit_history_file_is_legal(uuid, jsonb)'::regprocedure
+                     AND prosecdef AND provolatile = 's' AND proconfig @> ARRAY['search_path=public']) THEN
+    RAISE EXCEPTION '0092 post-condition 10 failed: edit_history_file_is_legal is missing, open to a client role, not STABLE, or lost SECURITY DEFINER / its search_path';
+  END IF;
+  -- The verdict and 0088's classifier on synthetic diffs (an entity id no
+  -- files row has, so only the diff speaks): Legal exactly for the pure
+  -- LEGAL shapes; money for every locked path; never NULL.
+  IF public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/LEGAL/x/1-a.pdf", "is_financial": false}}') IS NOT TRUE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/legal/x/1-a.pdf", "is_financial": false}}') IS NOT TRUE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1-a.pdf", "new": "projects/p/LEGAL/x/2-a.pdf"}}') IS NOT TRUE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/FINANCE/RATES.json", "is_financial": false}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/INVOICES/x/1-a.pdf", "is_financial": false}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/LEGAL/x/1-a.pdf", "is_financial": true}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/INVOICES/x/1-a.pdf", "new": "projects/p/LEGAL/x/1-a.pdf"}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1-a.pdf"}, "is_financial": {"new": true}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"description": {"old": "a", "new": "b"}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/project/x/1-a.pdf", "is_financial": false}}') IS NOT FALSE
+     OR public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', NULL) IS NOT FALSE
+     OR public.edit_history_file_is_legal(NULL, '{"new": {"storage_path": "projects/p/LEGAL/x/1-a.pdf"}}') IS NOT TRUE THEN
+    RAISE EXCEPTION '0092 post-condition 10 failed: edit_history_file_is_legal does not call exactly the pure-LEGAL shapes Legal (an unflagged FINANCE or INVOICES row, a flagged row, a mixed diff and a note-only diff must all be false)';
+  END IF;
+  IF (SELECT c.is_money FROM public.edit_history_file_class('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/FINANCE/RATES.json", "is_financial": false}}') c) IS NOT TRUE
+     OR (SELECT c.is_money FROM public.edit_history_file_class('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/LEGAL/x/1-a.pdf", "is_financial": false}}') c) IS NOT TRUE
+     OR (SELECT c.is_money FROM public.edit_history_file_class('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/project/x/1-a.pdf", "is_financial": false}}') c) IS NOT FALSE THEN
+    RAISE EXCEPTION '0092 post-condition 10 failed: edit_history_file_class (0088) no longer calls a locked path money, or calls a plain one money';
+  END IF;
+  IF (SELECT pg_get_triggerdef(tg.oid) FROM pg_trigger tg
+       WHERE tg.tgrelid = 'public.edit_history'::regclass AND tg.tgname = 'trg_edit_history_money' AND tg.tgenabled = 'O')
+     IS DISTINCT FROM 'CREATE TRIGGER trg_edit_history_money BEFORE INSERT ON public.edit_history FOR EACH ROW WHEN ((new.entity_type = ''files''::text)) EXECUTE FUNCTION fn_edit_history_money_snapshot()' THEN
+    RAISE EXCEPTION '0092 post-condition 10 failed: trg_edit_history_money is missing, disabled, or not the BEFORE INSERT FOR EACH ROW WHEN entity_type = files trigger on fn_edit_history_money_snapshot (reads %)',
+      (SELECT pg_get_triggerdef(tg.oid) FROM pg_trigger tg WHERE tg.tgrelid = 'public.edit_history'::regclass AND tg.tgname = 'trg_edit_history_money');
   END IF;
   v_body := regexp_replace(regexp_replace(
               pg_get_functiondef('public.fn_edit_history_money_snapshot()'::regprocedure),
               '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
-  IF strpos(v_body, 'INTO NEW.is_financial, NEW.is_legal, NEW.project_id') = 0
-     OR strpos(v_body, 'NEW.is_legal := COALESCE(NEW.is_legal, false);') = 0
+  IF strpos(v_body, 'SELECT c.is_money, c.project_id') = 0
+     OR strpos(v_body, 'INTO NEW.is_financial, NEW.project_id') = 0
+     OR strpos(v_body, 'NEW.is_financial := COALESCE(NEW.is_financial, true);') = 0
+     OR strpos(v_body, 'NEW.is_legal := COALESCE(public.edit_history_file_is_legal(NEW.entity_id, NEW.diff), false);') = 0
      OR has_function_privilege('authenticated', 'public.fn_edit_history_money_snapshot()', 'EXECUTE') THEN
-    RAISE EXCEPTION '0092 post-condition 10 failed: fn_edit_history_money_snapshot does not snapshot is_legal, or is open to a client role';
+    RAISE EXCEPTION '0092 post-condition 10 failed: fn_edit_history_money_snapshot does not snapshot is_financial from 0088''s classifier and is_legal from the Legal verdict, or is open to a client role';
   END IF;
   SELECT qual INTO v FROM pg_policies WHERE schemaname = 'public' AND tablename = 'edit_history' AND policyname = 'edit_history_select';
   IF v IS DISTINCT FROM '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))))' THEN
@@ -1478,24 +1539,18 @@ BEGIN
     RAISE EXCEPTION '0092 post-condition 11 failed: RLS is no longer enabled on file_events or edit_history';
   END IF;
 
-  -- 12. 🚨 MONEY DOES NOT WIDEN. can_access_project_money is 0037's: the admin
-  --     leg and the project-manager leg, 0037's hop, and NO app-manager leg,
-  --     NO Legal predicate, NO unstaffed opening. A planted fault that admits
-  --     a workspace manager to INVOICES through the money gate fails here.
-  v_body := regexp_replace(regexp_replace(
-              pg_get_functiondef('public.can_access_project_money(uuid)'::regprocedure),
-              '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
-  IF strpos(v_body, 'public.current_app_role() = ''admin''') = 0
-     OR strpos(v_body, 'public.project_role_for(p_project) = ''manager''') = 0
-     OR strpos(v_body, 'p.workspace_id = public.current_workspace_id()') = 0
-     OR strpos(v_body, 'public.has_active_membership(p.workspace_id)') = 0
-     OR v_body ~ 'current_app_role\(\)\s*(=|IN)\s*\(?''manager'''
-     OR v_body ~ 'ANY \(ARRAY\[''admin''::text, ''manager''::text\]\)'
-     OR strpos(v_body, 'can_access_project_legal') > 0
-     OR strpos(v_body, 'project_is_staffed') > 0
+  -- 12. 🚨 MONEY DOES NOT WIDEN. can_access_project_money is 0037's body
+  --     WHOLE (comments stripped, whitespace collapsed — a pin by pieces lets
+  --     an additive leg through; review round 1, finding 3): the admin leg
+  --     and the project-manager leg, 0037's hop, nothing else. A planted
+  --     fault that admits a workspace manager to INVOICES through the money
+  --     gate fails here.
+  SELECT btrim(regexp_replace(regexp_replace(regexp_replace(prosrc, '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+    INTO v_body FROM pg_proc WHERE oid = 'public.can_access_project_money(uuid)'::regprocedure;
+  IF v_body IS DISTINCT FROM 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );'
      OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.can_access_project_money(uuid)'::regprocedure
-                     AND prosecdef AND proconfig @> ARRAY['search_path=public']) THEN
-    RAISE EXCEPTION '0092 post-condition 12 failed: can_access_project_money is not 0037''s body — a workspace manager must reach money only through the project''s manager seat';
+                     AND prosecdef AND provolatile = 's' AND proconfig @> ARRAY['search_path=public']) THEN
+    RAISE EXCEPTION '0092 post-condition 12 failed: can_access_project_money is not 0037''s body — a workspace manager must reach money only through the project''s manager seat (it reads %)', v_body;
   END IF;
   -- …and no money table policy names the Legal predicate.
   SELECT string_agg(tablename || '.' || policyname, ', ') INTO v FROM pg_policies

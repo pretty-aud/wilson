@@ -822,7 +822,8 @@ describe('the Files table: its dates (V2)', () => {
 describe('Add as Legal (S4b)', () => {
   // S4d (0092): the audience names workspace managers too.
   const LEGAL_ADD_HINT = 'Only project managers, workspace managers and workspace admins will see these files.'
-  const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+  // S4d (0092): the sentence names both migrations — the folder's lock and the gate.
+  const LEGAL_UNAVAILABLE = 'Legal files need a database update (migrations 0088 and 0092) that has not reached this workspace yet.'
   const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
   const legalAdapter = (supported = true) => () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => supported })
 

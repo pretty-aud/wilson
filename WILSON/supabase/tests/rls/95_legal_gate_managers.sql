@@ -19,8 +19,17 @@
 --   user_n  workspace MANAGER with NO seat on project A — the same, and the
 --           creator of the private project P3
 --   user_b  workspace B's admin, acting as B's workspace manager; anon
+--   user_c  is ALSO a workspace MANAGER of workspace B (§P, review round 1):
+--           carrying B's claim, the workspace term of the hop must keep them
+--           out of A's Legal files although their A membership is live
 --   P2      a PRIVATE project in workspace A created by user_d (its manager)
 --   P3      a PRIVATE project in workspace A created by user_n (no seats)
+--   §P      review round 1's additions: two UNFLAGGED money rows (a FINANCE
+--           note, an INVOICES receipt with is_financial false — money by
+--           path alone), the two-workspace member, a budget version so the
+--           money-table probe is not vacuous, a read-back after a Legal
+--           edit, the reviewer's trash, and the edit-history trigger smoked
+--           on synthetic diffs
 --
 -- WHAT THIS PINS, in order of how badly it would hurt:
 --   * 🚨 MONEY DOES NOT WIDEN (§C, §D, §F, §O): user_m and user_n read no
@@ -57,7 +66,7 @@
 
 BEGIN;
 
-SELECT plan(151);
+SELECT plan(168);
 
 SELECT * FROM tests.rls_setup();
 
@@ -89,8 +98,25 @@ VALUES
   ('11111111-1111-1111-1111-111111111111', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'user',    'user_d',   'User D', true),
   ('11111111-1111-1111-1111-111111111111', '95950000-0000-0000-0000-0000000000a1', 'user',    'user_r95', 'User R', true),
   ('11111111-1111-1111-1111-111111111111', '95950000-0000-0000-0000-0000000000a2', 'manager', 'user_m95', 'User M', true),
-  ('11111111-1111-1111-1111-111111111111', '95950000-0000-0000-0000-0000000000a3', 'manager', 'user_n95', 'User N', true)
+  ('11111111-1111-1111-1111-111111111111', '95950000-0000-0000-0000-0000000000a3', 'manager', 'user_n95', 'User N', true),
+  -- user_c is a MANAGER in workspace B as well (§P): the one fixture that
+  -- tests the hop's workspace term rather than its membership term.
+  ('22222222-2222-2222-2222-222222222222', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'manager', 'user_c_b', 'User C (B)', true)
 ON CONFLICT (workspace_id, user_id) DO NOTHING;
+
+-- A plain object in workspace B's project, as postgres: §P's presence control
+-- for "another workspace's claim reads nothing of A".
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/bbbb2222-0000-0000-0000-000000000001/project/bbbb2222-0000-0000-0000-000000000001/1-b-brief.pdf',
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '{"size": 50}'::jsonb);
+
+-- A budget version on project A, as postgres: probe 146 (the workspace
+-- manager reads no money table row) must have a row to refuse, and §P reads
+-- it as the project manager for the control.
+INSERT INTO public.budget_versions (id, project_id, workspace_id, name)
+VALUES ('95950000-0000-0000-0000-0000000000b1', 'aaaa1111-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'S4d probe version');
 
 INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role)
 VALUES
@@ -165,9 +191,11 @@ SELECT ok(
   (SELECT body !~ 'current_app_role\(\) = ''admin''' AND body !~ 'project_role_for' AND body !~ 'project_is_staffed' FROM legal95_body),
   'it copies no money leg and opens no unstaffed project — Legal fails closed like money');                 -- 3
 
--- A4: 🚨 the money predicate is 0037's — no app-manager leg, no Legal gate.
+-- A4: 🚨 the money predicate is 0037's — no app-manager leg, no Legal gate
+-- (the pieces; probe 167 pins the body WHOLE, so an additive leg of any
+-- shape fails there — review round 1, finding 3).
 SELECT ok(
-  (SELECT b !~ 'current_app_role\(\)\s*(=|IN)\s*\(?''manager'''
+  (SELECT b !~ 'current_app_role\(\)\s*(=|IN|<>)\s*\(?''(manager|user)'''
       AND b !~ 'ARRAY\[''admin''::text, ''manager''::text\]'
       AND strpos(b, 'can_access_project_legal') = 0
       AND strpos(b, 'public.project_role_for(p_project) = ''manager''') > 0
@@ -295,12 +323,13 @@ SELECT ok(
   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'edit_history'
            AND column_name = 'is_legal' AND is_nullable = 'NO' AND column_default = 'false')
   AND (SELECT proargnames FROM pg_proc WHERE oid = 'public.edit_history_file_class(uuid, jsonb)'::regprocedure)
-      = ARRAY['p_entity_id', 'p_diff', 'is_money', 'is_legal', 'project_id']::text[]
+      = ARRAY['p_entity_id', 'p_diff', 'is_money', 'project_id']::text[]
+  AND to_regprocedure('public.edit_history_file_is_legal(uuid, jsonb)') IS NOT NULL
   AND EXISTS (SELECT 1 FROM pg_trigger tg JOIN pg_proc p ON p.oid = tg.tgfoid
                WHERE tg.tgrelid = 'public.edit_history'::regclass AND tg.tgname = 'trg_edit_history_money'
                  AND p.proname = 'fn_edit_history_money_snapshot' AND tg.tgenabled = 'O'
                  AND (tg.tgtype & 1) <> 0 AND (tg.tgtype & 2) <> 0 AND (tg.tgtype & 4) <> 0),
-  'edit_history.is_legal (NOT NULL DEFAULT false), the classifier answers (is_money, is_legal, project_id), the BEFORE INSERT trigger stands'); -- 19
+  'edit_history.is_legal (NOT NULL DEFAULT false); 0088''s classifier keeps its (is_money, project_id) answer and the Legal verdict is a function beside it; the BEFORE INSERT trigger stands'); -- 19
 SELECT ok(
   NOT has_function_privilege('authenticated', 'public.edit_history_file_class(uuid, jsonb)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.edit_history_file_class(uuid, jsonb)', 'EXECUTE')
@@ -362,6 +391,21 @@ SELECT lives_ok(
      WHERE id = 'f9500000-0000-0000-0000-000000000001'$$,
   'the project manager edits the Legal file''s note, and the invoice''s (edit history is written for both)'); -- 23
 UPDATE public.files SET description = 'net 30 (approved)' WHERE id = 'f9500000-0000-0000-0000-000000000003';
+
+-- §P's two UNFLAGGED money rows (review round 1, finding 2): money by the
+-- path alone — a note filed under FINANCE and a receipt under INVOICES, both
+-- with is_financial false — each edited once so they have history.
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
+VALUES ('f9500000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'rates-note.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/aaaa1111-0000-0000-0000-000000000001/1-rates-note.pdf',
+        40, false, 'rates discussion'),
+       ('f9500000-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'receipt.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
+        30, false, 'taxi receipt');
+UPDATE public.files SET description = 'rates discussion (final)' WHERE id = 'f9500000-0000-0000-0000-00000000000a';
+UPDATE public.files SET description = 'taxi receipt (filed)' WHERE id = 'f9500000-0000-0000-0000-00000000000b';
 
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id IN ('f9500000-0000-0000-0000-000000000001', 'f9500000-0000-0000-0000-000000000003')),
@@ -1272,6 +1316,147 @@ SELECT ok(
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events'),
   1, 'file_events keeps exactly its one policy (SELECT): clients write nothing');                        -- 151
+
+
+-- ══ P. Review round 1 — unflagged money rows, the hop's workspace term, the
+--    vacuous probes given a control, the trigger smoked ═════════════════════
+-- The round-1 reviewer found: (1) a history classifier that called "any LEGAL
+-- path seen" Legal would have handed an unflagged FINANCE or INVOICES row's
+-- history to every workspace manager, and no fixture had such a row; (2)
+-- nothing probed the hop's workspace term apart from a post-condition; (3)
+-- probe 146 read a table with no rows, probe 48 had no read-back, and the
+-- reviewer's trash was unprobed; (4) the snapshot trigger was pinned by
+-- needles. The fixtures are in §B and at the top; the probes are here so the
+-- numbering above stands.
+
+-- The unflagged money rows: money by their path, never Legal.
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+SELECT is(
+  (SELECT count(*)::int FROM public.files WHERE id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')),
+  2, 'CONTROL: the project manager reads the unflagged FINANCE note and INVOICES receipt (money by the path alone)'); -- 152
+SELECT is(
+  (SELECT count(*)::int FROM public.budget_versions WHERE id = '95950000-0000-0000-0000-0000000000b1'),
+  1, 'CONTROL for 146: the project manager reads the project''s budget version');                        -- 153
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+SELECT ok(
+  (SELECT count(*) FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')) >= 4
+  AND NOT EXISTS (SELECT 1 FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')
+      AND (NOT is_financial OR is_legal)),
+  '🚨 the unflagged money rows'' history (created, edited) is is_financial and NOT is_legal — a locked path is money, only LEGAL is Legal'); -- 154
+
+SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a2', 'manager');
+SELECT is(
+  (SELECT count(*)::int FROM public.files WHERE id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')),
+  0, '🚨 the workspace manager reads neither unflagged money row (file_row_is_legal reads the folder, not the flag alone)'); -- 155
+SELECT is(
+  (SELECT count(*)::int FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')),
+  0, '🚨 nor their history (money widens through history if the verdict is too wide)');                   -- 156
+SELECT is(
+  (SELECT count(*)::int FROM public.budget_versions WHERE id = '95950000-0000-0000-0000-0000000000b1'),
+  0, '🚨 146 again, with the row present: the workspace manager reads no budget version');               -- 157
+-- A Legal edit with a read-back (probe 48 had none; an UPDATE of a row that
+-- is not offered lands on nothing and raises nothing — trap 5).
+SELECT lives_ok(
+  $$UPDATE public.files SET description = 'nda, countersigned'
+     WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
+  'the workspace manager edits their Legal file''s note…');                                             -- 158
+SELECT is(
+  (SELECT description FROM public.files WHERE id = 'f9500000-0000-0000-0000-000000000008'),
+  'nda, countersigned', '…and reads the new note back: the UPDATE reached the row (files_update USING offered it)'); -- 159
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a3', 'manager');
+SELECT is(
+  (SELECT count(*)::int FROM public.edit_history
+    WHERE entity_type = 'files' AND entity_id IN ('f9500000-0000-0000-0000-00000000000a', 'f9500000-0000-0000-0000-00000000000b')),
+  0, 'the workspace manager with no seat reads none of the unflagged money rows'' history either');       -- 160
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The reviewer cannot trash a plain file (can_write_project is false for a
+-- reviewer seat): the trash gate only ever lowers v_allowed.
+SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a1', 'user');
+SELECT throws_ok(
+  $$SELECT public.soft_delete_row('files', 'f9500000-0000-0000-0000-000000000009')$$,
+  'not allowed to soft-delete or restore this row',
+  'the reviewer cannot trash a plain file by id — fn_trash_authz never grants, it only refuses');       -- 161
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The hop's WORKSPACE term: user_c is a manager in B and a plain member in A.
+-- Carrying B's claim their A membership is live, so has_active_membership
+-- alone would let them in; p.workspace_id = current_workspace_id() must not.
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'manager', '22222222-2222-2222-2222-222222222222');
+SELECT ok(
+  public.can_access_project_legal('aaaa1111-0000-0000-0000-000000000001') IS FALSE
+  AND (SELECT count(*) FROM storage.objects WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/legal/%') = 0
+  AND (SELECT count(*) FROM public.files WHERE id = 'f9500000-0000-0000-0000-000000000008') = 0,
+  '🚨 a manager of workspace B who is a live MEMBER of workspace A, carrying B''s claim, reaches none of A''s Legal files (the hop''s workspace term)'); -- 162
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+SELECT pg_temp.act_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE name = 'projects/bbbb2222-0000-0000-0000-000000000001/project/bbbb2222-0000-0000-0000-000000000001/1-b-brief.pdf'),
+  1, 'PRESENCE CONTROL: workspace B''s admin, with B''s claim, reads B''s own object');                    -- 163
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The snapshot trigger, smoked on synthetic rows (as postgres: clients hold
+-- SELECT alone on edit_history). Three diffs for entity ids no files row has,
+-- so only the diff speaks: a LEGAL rename (money and Legal), an unflagged
+-- INVOICES create (money, NOT Legal — the shape that tells a swapped SELECT
+-- list from a right one), a plain create (neither).
+INSERT INTO public.edit_history (workspace_id, entity_type, entity_id, action, diff)
+VALUES
+  ('11111111-1111-1111-1111-111111111111', 'files', '95950000-0000-0000-0000-00000000e001', 'update',
+   '{"storage_path": {"old": "projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-s.pdf", "new": "projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-t.pdf"}}'),
+  ('11111111-1111-1111-1111-111111111111', 'files', '95950000-0000-0000-0000-00000000e002', 'create',
+   '{"new": {"storage_path": "projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-u.pdf", "is_financial": false}}'),
+  ('11111111-1111-1111-1111-111111111111', 'files', '95950000-0000-0000-0000-00000000e003', 'create',
+   '{"new": {"storage_path": "projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-v.pdf", "is_financial": false}}');
+SELECT ok(
+  (SELECT is_financial AND is_legal FROM public.edit_history WHERE entity_id = '95950000-0000-0000-0000-00000000e001')
+  AND (SELECT is_financial AND NOT is_legal FROM public.edit_history WHERE entity_id = '95950000-0000-0000-0000-00000000e002')
+  AND (SELECT NOT is_financial AND NOT is_legal FROM public.edit_history WHERE entity_id = '95950000-0000-0000-0000-00000000e003'),
+  '🚨 trg_edit_history_money, smoked: a LEGAL rename is money and Legal, an unflagged INVOICES create is money and NOT Legal, a plain create is neither'); -- 164
+SELECT ok(
+  public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/INVOICES/x/1.pdf", "new": "projects/p/LEGAL/x/1.pdf"}}') IS FALSE
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"new": {"storage_path": "projects/p/FINANCE/RATES.json", "is_financial": false}}') IS FALSE
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": true}}') IS FALSE
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"description": {"old": "a", "new": "b"}}') IS FALSE
+  -- A flag that arrives WITHOUT a path of its own (a column-wise diff whose
+  -- new side carries only is_financial = true beside an old LEGAL path)
+  -- still votes: not Legal. (Breaker B19 drops exactly that vote.)
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf"}, "is_financial": {"new": true}}') IS FALSE
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"storage_path": {"old": "projects/p/LEGAL/x/1.pdf", "new": "projects/p/LEGAL/x/2.pdf"}, "is_financial": {"old": false, "new": true}}') IS FALSE
+  AND public.edit_history_file_is_legal('00000000-0000-0000-0000-000000000000', '{"old": {"storage_path": "projects/p/LEGAL/x/1.pdf", "is_financial": false}}') IS TRUE
+  AND public.edit_history_file_is_legal('f9500000-0000-0000-0000-000000000008', '{"description": {"old": "a", "new": "b"}}') IS TRUE
+  AND public.edit_history_file_is_legal('f9500000-0000-0000-0000-00000000000b', '{"description": {"old": "a", "new": "b"}}') IS FALSE,
+  'the verdict: a mixed diff, an unflagged FINANCE row, a flagged LEGAL row and a note-only diff of nothing are not Legal; a purged Legal file''s old row and a note-only diff of a live Legal file are; of a live unflagged INVOICES row is not'); -- 165
+SELECT ok(
+  (SELECT proargnames FROM pg_proc WHERE oid = 'public.edit_history_file_class(uuid, jsonb)'::regprocedure)
+    = ARRAY['p_entity_id', 'p_diff', 'is_money', 'project_id']::text[]
+  AND NOT has_function_privilege('authenticated', 'public.edit_history_file_is_legal(uuid, jsonb)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.edit_history_file_is_legal(uuid, jsonb)', 'EXECUTE')
+  AND (SELECT pg_get_triggerdef(tg.oid) FROM pg_trigger tg
+        WHERE tg.tgrelid = 'public.edit_history'::regclass AND tg.tgname = 'trg_edit_history_money' AND tg.tgenabled = 'O')
+      = 'CREATE TRIGGER trg_edit_history_money BEFORE INSERT ON public.edit_history FOR EACH ROW WHEN ((new.entity_type = ''files''::text)) EXECUTE FUNCTION fn_edit_history_money_snapshot()',
+  '0088''s classifier keeps its signature (so 0088 stays replayable), the verdict is closed to clients, and the trigger''s definition is whole'); -- 166
+SELECT ok(
+  (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_money(uuid)'::regprocedure)
+    = 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );',
+  '🚨 can_access_project_money''s body is 0037''s, WHOLE (whitespace collapsed) — no additive leg of any kind');          -- 167
+SELECT ok(
+  (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure)
+    = 'SELECT COALESCE(public.can_access_project_money(p_project), false) OR COALESCE( public.current_app_role() = ''manager'' AND EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project), false);',
+  'can_access_project_legal''s body is 0092''s, WHOLE — the money gate called once, the manager leg with the hop and the privacy arm, nothing added'); -- 168
 
 SELECT * FROM finish();
 ROLLBACK;

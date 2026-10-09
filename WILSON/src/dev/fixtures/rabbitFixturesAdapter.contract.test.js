@@ -180,7 +180,11 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(await fx.listFileEvents(legal.id)).toEqual([])
     const cleared = buildDevFixtures()
     cleared.store.fileEvents.push(event)
-    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id)).toEqual(['ev-legal'])
+    // S4d: the dataset seeds the Legal file's own upload event, so the
+    // money-cleared reader lists it beside the pushed one; the member above
+    // listed neither.
+    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id).sort())
+      .toEqual(['ev-legal', fid('fileEvent', 4)].sort())
   })
 
   it('`?fixtures=manager` reads as a workspace manager with a member seat: the Legal file and its events, not the invoice nor its events (S4d, 0092)', async () => {
@@ -208,9 +212,10 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(bundle.files.some((f) => f.is_financial)).toBe(false)
     // D8: no budget, no bid versions for a workspace manager without the seat.
     expect(bundle.budgetVersions).toEqual([])
-    // Her file activity: the Legal file's, and not the invoice's deletion
-    // record (Legal 1: a deleted file's record follows the file's gate).
-    expect((await fx.listFileEvents(legal.id)).map((e) => e.id)).toEqual(['ev-legal-wm'])
+    // Her file activity: the Legal file's (the dataset's seeded upload and
+    // the pushed event), and not the invoice's deletion record (Legal 1: a
+    // deleted file's record follows the file's gate).
+    expect((await fx.listFileEvents(legal.id)).map((e) => e.id).sort()).toEqual(['ev-legal-wm', fid('fileEvent', 4)].sort())
     expect(await fx.listFileEvents(invoice.id)).toEqual([])
     // CONTROLS: the member variant reads neither; the default reviewer reads both.
     const member = buildDevFixtures({ variant: 'member' })

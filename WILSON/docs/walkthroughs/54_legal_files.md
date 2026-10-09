@@ -235,7 +235,7 @@ staging lines. The test data does not need it: `/rabbit` is the admin,
 | # | Do | You should see |
 |---|----|----------------|
 | 1 | Open **`/rabbit?fixtures=manager`** and click **Files** | The **LEGAL** folder with *Location_release_Saltmarsh_Light.pdf* in it, and **Add as Legal** on the toolbar; pointing at it says *"Only project managers, workspace managers and workspace admins will see these files."* The **INVOICES** folder holds nothing for her, and there is **no Budget tab**. The count line is the admin's count less the invoices. |
-| 2 | Still as the workspace manager, open the Legal file and then **File activity** | Under **Tags** the locked Legal chip and *"Added as Legal. To change this, add the file again. Only project managers, workspace managers and workspace admins can see this file."* File activity lists its events; the foot of the drawer ends with *"Records of a deleted invoice or Legal file are shown only to the people who could see the file."* |
+| 2 | Still as the workspace manager, open the Legal file and then **File activity** | Under **Tags** the locked Legal chip and *"Added as Legal. To change this, add the file again. Only project managers, workspace managers and workspace admins can see this file."* File activity lists its one event, *Uploaded* by Theo Lindqvist; the foot of the drawer ends with *"Records of a deleted invoice or Legal file are shown only to the people who could see the file."* |
 | 3 | Open **`/rabbit?fixtures=member`** and click **Files** | Unchanged from S4b: no LEGAL folder, no Add as Legal, the count without the Legal file and the invoices, and the Legal file's activity empty. |
 
 **The numbers, measured (2026-10-09).**
@@ -265,10 +265,12 @@ staging lines. The test data does not need it: `/rabbit` is the admin,
 
 **Still not right, and not this session's to change:** the two S4b items
 that were already open (a manager's second window refreshes to see a new
-Legal file, S4b-03; a money-cleared person can rename a Legal object out of
-LEGAL through the Storage API, S4b-10), and one older gap S4d found and
-recorded (OUTSTANDING S4d-01: the invoice-file rules in storage carry no
-private-project check of their own).
+Legal file, S4b-03; a money-cleared person — and now a workspace manager —
+can rename a Legal object out of LEGAL through the Storage API, S4b-10, your
+decision), and two older gaps S4d found and recorded (OUTSTANDING S4d-01:
+the invoice-file rules in storage carry no private-project check of their
+own; S4d-02: a private project's ordinary edit history is readable by every
+workspace admin and manager).
 
 **What was checked, and what was not.** The development copy with its test
 data at 1440x900 (the three things above), the development database in

@@ -284,12 +284,23 @@ async function fileTagsAvailable(client) {
 // it. So only a positive `true` counts; false, an error or no answer means
 // "not offered", and only `true` is remembered (a database migrated
 // mid-session is picked up on the next ask).
+// S4d (0092): and the Legal GATE must be there too — can_access_project_legal,
+// asked with the nil uuid (a project nobody has: it answers false where the
+// function exists and "no such function" where it does not). A database with
+// 0088 but not 0092 locks the folder for the money audience only; Add as
+// Legal is greyed there with LEGAL_UNAVAILABLE naming both migrations, and a
+// Legal upload is refused by the same sentence — not by the gate's, which
+// would tell a project manager they are not one (review round 1, finding 8).
+const NIL_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 let legalFilesKnown = false;
 async function legalFilesAvailable(client) {
   if (legalFilesKnown) return true;
   try {
     const { data, error } = await client.rpc('rabbit_money_segment', { seg: LEGAL_SEGMENT });
-    if (!error && data === true) legalFilesKnown = true;
+    if (error || data !== true) return false;
+    const gate = await client.rpc('can_access_project_legal', { p_project: NIL_PROJECT_ID });
+    if (gate?.error) return false;
+    legalFilesKnown = true;
   } catch { /* not now */ }
   return legalFilesKnown;
 }
@@ -297,12 +308,9 @@ async function legalFilesAvailable(client) {
 // a workspace manager of the project's own workspace, with 0072's privacy
 // arm; executable by authenticated), asked before a Legal upload moves a
 // byte: the database would refuse the object and the row anyway, but only
-// after the transfer. Until 0092 this asked the money gate; a database
-// without 0092 answers "no such function", which is a no — and on such a
-// database legalFilesAvailable's LEGAL probe still says the folder is locked
-// (0088), so a Legal upload there is refused by this sentence rather than
-// filed; the money audience is told to apply 0092, not shown a half-open
-// door. Fails CLOSED — an error is a no.
+// after the transfer. Until 0092 this asked the money gate. Fails CLOSED —
+// an error, a null or anything but `true` is a no (legalFilesAvailable has
+// already said the function exists, so a no here is the gate's own answer).
 async function canAccessProjectLegal(client, projectId) {
   try {
     const { data, error } = await client.rpc('can_access_project_legal', { p_project: projectId });

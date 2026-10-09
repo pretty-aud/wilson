@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(60);
+SELECT plan(61);
 
 SELECT * FROM tests.rls_setup();
 
@@ -294,7 +294,10 @@ SELECT is(
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
-DELETE FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-000000007802';
+-- The plain file is purged beside the invoice: its certificate is the
+-- presence control for probe 21's absence (the suite's last probe, 61).
+DELETE FROM public.files WHERE id IN ('aaaa1111-0000-0000-0000-000000007802',
+                                      'aaaa1111-0000-0000-0000-000000007801');
 
 SELECT is(
   (SELECT is_financial FROM public.file_events
@@ -854,6 +857,21 @@ SELECT is(
     WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
   1, '🚨 TRAP 2 MEASURED (EXPECTED 1): the member who cannot read the receipt ROW can STILL read its BLOB. If this is 0 the blob gate was CLOSED — that is good news, and handbook §12.9, OUTSTANDING residual 1 and this probe must all be updated together');
                                                                             -- 60
+
+-- 61 (0092, S4d review round 1): the PRESENCE CONTROL for probe 21's absence.
+-- The plain file 7801 was purged beside the invoice in §5; its certificate is
+-- the member's to read, so 21's 0 is a refusal and not an empty stream.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007801' AND event = 'purged'),
+  1, 'PRESENCE CONTROL for 21: the plain member reads the plain file''s deletion certificate');
+                                                                            -- 61
 
 SELECT * FROM finish();
 ROLLBACK;

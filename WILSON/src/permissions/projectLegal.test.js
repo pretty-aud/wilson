@@ -117,6 +117,17 @@ describe('the Legal sites ask the Legal gate; the money sites keep the money gat
     expect(old).not.toMatch(/const legalOffered = onTab && canSeeLegal\b/)
   })
 
+  it('nothing in the explorer or the adapter re-defines the gate it imports (a local shadow passed every pin above — review round 1, R01)', () => {
+    const explorer = code(read(EXPLORER))
+    expect(explorer).not.toMatch(/\b(const|let|var|function)\s+canSeeProjectLegal\b/)
+    expect(explorer).not.toMatch(/\bcanSeeProjectLegal\s*=/)
+    expect((explorer.match(/\bcanSeeProjectLegal\b/g) || []).length).toBe(2) // the import and the one call
+    const adapter = code(read(ADAPTER))
+    expect((adapter.match(/\b(const|let|var|function)\s+canAccessProjectLegal\b/g) || []).length).toBe(1) // the one definition
+    expect(adapter).not.toMatch(/\bcanAccessProjectLegal\s*=/)
+    expect(adapter).toMatch(/if \(gate\?\.error\) return false;\s*legalFilesKnown = true;/) // the 0092 probe
+  })
+
   it('the cloud adapter asks can_access_project_legal before a Legal upload, and never names the money RPC', () => {
     const src = code(read(ADAPTER))
     expect(src).toMatch(/async function canAccessProjectLegal\(client, projectId\) \{[\s\S]*?client\.rpc\('can_access_project_legal', \{ p_project: projectId \}\)/)

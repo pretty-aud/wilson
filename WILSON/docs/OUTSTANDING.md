@@ -2316,6 +2316,14 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   object (a resumable upload completing, a thumbnail regenerated), and that
   cannot be smoke-tested from a session. Owner: Audrey's decision; if yes,
   its own migration with a resumable-upload smoke test on dev first.
+  **2026-10-09 (S4d, 0092):** the same person set now includes a WORKSPACE
+  MANAGER without a seat: they pass `rabbit_files_money_update`'s USING for
+  a LEGAL key (the Legal arm) and `rabbit_files_update`'s WITH CHECK for an
+  ordinary key, so they too can rename or copy a Legal body or thumbnail to
+  where members read it (S4d review round 1, finding 7; not measured — the
+  same OR of permissive policies S4b measured). With remote viewing on,
+  0091's `petal_bin_posters_update` is a second route for a thumbnail. The
+  fix above closes both for everyone; the decision is still Audrey's.
 - **S4b-11 · Files migrated desktop→cloud before S4b may hold the app's own
   page instead of their contents.** Until S4b's review round 1 the migration
   read each body from `/files/:id`, a route the Local Server never had; the
@@ -2942,11 +2950,28 @@ S4b-11 are untouched and still hers.
   a project_members row with project_role = manager on a private project it
   answers true whoever created the project. The ROW is hidden (files_select
   hops), and such a seat can only be placed by someone who can already see
-  the project; the Legal arm 0092 added does carry the privacy arm (inside
-  can_access_project_legal, suite 95 §H). Would settle it: seat a second
-  manager on a private project and read `storage.objects` under
-  `projects/<id>/INVOICES/` as them. Fix: the hop in all eight money
-  policies, or `passes_project_privacy` inside can_access_project_money
-  (0037's body is pinned by 0092's post-condition 12 and suite 95 probe 4;
-  both move with it). Owner: a session on private projects, with Audrey's
-  nod (it narrows the money gate for a non-creator manager).
+  the project; the MANAGER leg 0092 added does carry the privacy arm
+  (inside can_access_project_legal, suite 95 §H), while the predicate's
+  money half is the money gate called as it is — so a non-creator holding a
+  manager seat on a private project reaches its Legal objects through the
+  money half exactly as it reaches its invoice objects (S4d review round 1,
+  finding 9). Would settle it: seat a second manager on a private project
+  and read `storage.objects` under `projects/<id>/INVOICES/` as them. Fix:
+  the hop in all eight money policies, or `passes_project_privacy` inside
+  can_access_project_money (0037's body is pinned WHOLE by 0092's
+  post-condition 12 and suite 95 probe 167; both move with it). Owner: a
+  session on private projects, with Audrey's nod (it narrows the money gate
+  for a non-creator manager).
+- **S4d-02 · `edit_history_select` has no private-project arm, so every
+  workspace admin and manager reads a private project's ordinary edit
+  history.** PRE-EXISTING (0012 / 0072). INFERRED from the policy text while
+  0092 restated it (S4d review round 1, finding 10): the policy is workspace
+  + app role admin/manager + membership + the money / Legal arms, with no
+  hop through `projects` and no `passes_project_privacy`; `edit_history`
+  rows carry `project_id` only for `files` entries (0088), so a hop would
+  need the column for every entity type first. A private project's money
+  rows are already the money audience's and its Legal rows the Legal
+  audience's (the arms); what is open is the rest — a task's or scene's
+  history, with names and notes in the diff. Would settle it: read
+  `edit_history` for a private project's task as a workspace manager who
+  did not create it. Owner: a session on private projects.

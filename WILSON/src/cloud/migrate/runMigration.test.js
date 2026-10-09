@@ -279,7 +279,8 @@ describe('files keep their gate on the way to the cloud (S4b)', () => {
     expect(rowOf('f-legal')).toBeUndefined()
     expect(fetched).not.toContain('f-legal')
     expect(fake.state.uploads.some(u => u.includes('nda'))).toBe(false)
-    expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^Legal file not migrated: Legal files need a database update \(migration 0088\)/)
+    // S4d (0092): the sentence names both migrations — the lock (0088) and the gate (0092).
+    expect(report.errors.find(e => e.id === 'f-legal')?.message).toMatch(/^Legal file not migrated: Legal files need a database update \(migrations 0088 and 0092\)/)
     // CONTROL: the others still go.
     expect(rowOf('f-plain')).toBeTruthy()
     expect(rowOf('f-inv')).toBeTruthy()
@@ -369,7 +370,7 @@ describe('what a run cannot do, it says (S4b review round 2)', () => {
     fake.state.legalLocked = false
     const later = []
     await runMigration({ workspaceId: 'ws1', dryRun: true, onProgress: (m) => later.push(m) })
-    expect(later.some(l => l.startsWith('  1 Legal file will stay on this computer: Legal files need a database update (migration 0088)'))).toBe(true)
+    expect(later.some(l => l.startsWith('  1 Legal file will stay on this computer: Legal files need a database update (migrations 0088 and 0092)'))).toBe(true)
     expect(fake.state.uploads).toEqual([])
     expect(fake.state.inserts).toEqual({})
   })

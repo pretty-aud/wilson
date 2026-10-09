@@ -76,8 +76,8 @@ export const LEGAL_NOT_CORE_REASON = 'A Legal file is never a core file: core fi
 /** The Local Server has no roles (A9): the one line that says so. */
 export const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
 
-/** Refused before any byte moves: a database without 0088. */
-export const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+/** Refused before any byte moves: a database without 0088, or (S4d) without 0092's Legal gate. */
+export const LEGAL_UNAVAILABLE = 'Legal files need a database update (migrations 0088 and 0092) that has not reached this workspace yet.'
 
 /** Refused before any byte moves: someone outside the Legal gate (0092). */
 export const LEGAL_GATE_REFUSAL = 'Only project managers, workspace managers and workspace admins can add Legal files.'

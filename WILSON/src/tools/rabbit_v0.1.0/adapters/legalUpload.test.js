@@ -50,11 +50,14 @@ function fakeProvider(name) {
 
 /**
  * A client: `legal` is what rabbit_money_segment('LEGAL') answers (0088 or
- * not), `gate` what can_access_project_legal answers (0092; the money RPC is
- * never asked — a question for it answers nothing), `isPrivate` the
- * project's flag. Records inserts, updates and RPCs.
+ * not), `gate` what can_access_project_legal answers for the project (0092;
+ * the money RPC is never asked — a question for it answers nothing),
+ * `gateMissing` a database without 0092 (every call of the gate answers "no
+ * such function"; the nil-uuid probe answers false otherwise), `isPrivate`
+ * the project's flag. Records inserts, updates and RPCs.
  */
-function makeClient({ legal = true, gate = true, isPrivate = false, legalError = null, gateError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
+const NIL = '00000000-0000-0000-0000-000000000000'
+function makeClient({ legal = true, gate = true, gateMissing = false, isPrivate = false, legalError = null, gateError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
   const inserts = []
   const updates = []
   const rpcs = []
@@ -99,7 +102,11 @@ function makeClient({ legal = true, gate = true, isPrivate = false, legalError =
     rpc: async (fn, args) => {
       rpcs.push([fn, args])
       if (fn === 'rabbit_money_segment') return legalError ? { data: null, error: legalError } : { data: args.seg === 'LEGAL' ? legal : false, error: null }
-      if (fn === 'can_access_project_legal') return gateError ? { data: null, error: gateError } : { data: gate, error: null }
+      if (fn === 'can_access_project_legal') {
+        if (gateMissing) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.can_access_project_legal(p_project) in the schema cache' } }
+        if (args.p_project === NIL) return { data: false, error: null }
+        return gateError ? { data: null, error: gateError } : { data: gate, error: null }
+      }
       return { data: null, error: null }
     },
   }
@@ -258,8 +265,22 @@ describe('refused before any byte moves', () => {
     expect(client.inserts).toEqual([])
   })
 
-  it('on a database with 0088 but not 0092 (no such function): refused with the gate\'s sentence, nothing put', async () => {
-    const client = makeClient({ gateError: { code: 'PGRST202', message: 'Could not find the function public.can_access_project_legal' } })
+  it('on a database with 0088 but not 0092 (no such function): the "database update" sentence — never the gate\'s, which would call a project manager an outsider — nothing put', async () => {
+    const client = makeClient({ gateMissing: true })
+    globalThis.__testSupabase = client
+    await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_UNAVAILABLE)
+    expect(puts).toEqual([])
+    expect(client.inserts).toEqual([])
+    // The probe asked the gate with the nil project, found it missing, and
+    // the per-project question was never reached.
+    expect(client.rpcs).toContainEqual(['can_access_project_legal', { p_project: NIL }])
+    expect(client.rpcs).not.toContainEqual(['can_access_project_legal', { p_project: PID }])
+    // …and Add as Legal is greyed there (supportsLegalFiles is the same probe).
+    expect(await supabaseAdapter().supportsLegalFiles()).toBe(false)
+  })
+
+  it('a null answer from the gate is a no (it fails CLOSED on anything but true)', async () => {
+    const client = makeClient({ gate: null })
     globalThis.__testSupabase = client
     await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_GATE_REFUSAL)
     expect(puts).toEqual([])
