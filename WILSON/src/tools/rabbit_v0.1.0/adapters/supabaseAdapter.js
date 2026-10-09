@@ -293,13 +293,19 @@ async function legalFilesAvailable(client) {
   } catch { /* not now */ }
   return legalFilesKnown;
 }
-// The money gate itself (0037's can_access_project_money, executable by
-// authenticated), asked before a Legal upload moves a byte: the database
-// would refuse the object and the row anyway, but only after the transfer.
-// Fails CLOSED — an error is a no.
-async function canAccessProjectMoney(client, projectId) {
+// The Legal gate itself (0092's can_access_project_legal — the money gate OR
+// a workspace manager of the project's own workspace, with 0072's privacy
+// arm; executable by authenticated), asked before a Legal upload moves a
+// byte: the database would refuse the object and the row anyway, but only
+// after the transfer. Until 0092 this asked the money gate; a database
+// without 0092 answers "no such function", which is a no — and on such a
+// database legalFilesAvailable's LEGAL probe still says the folder is locked
+// (0088), so a Legal upload there is refused by this sentence rather than
+// filed; the money audience is told to apply 0092, not shown a half-open
+// door. Fails CLOSED — an error is a no.
+async function canAccessProjectLegal(client, projectId) {
   try {
-    const { data, error } = await client.rpc('can_access_project_money', { p_project: projectId });
+    const { data, error } = await client.rpc('can_access_project_legal', { p_project: projectId });
     return !error && data === true;
   } catch {
     return false;
@@ -2527,8 +2533,13 @@ export function supabaseAdapter() {
       // ties the two), and the Supabase pin in the same three branches that
       // pin money. Both refusals below come BEFORE any byte moves: a database
       // without 0088 would file it in an ordinary folder every member can
-      // read, and someone outside the money gate would be refused by the
-      // storage policy only after the transfer.
+      // read, and someone outside the gate would be refused by the storage
+      // policy only after the transfer.
+      // S4d (0092, Audrey 2026-10-08): the gate asked is the LEGAL gate —
+      // can_access_project_legal, the money audience plus workspace managers
+      // — never the money gate (legalUpload.test.js pins which RPC is named;
+      // files_legal_not_financial_chk refuses a Legal row that is also an
+      // invoice in the database, as the first refusal here does).
       const legal = !!scope.legal;
       if (legal && scope.financial) {
         throw new Error('A file is added as Legal or as an invoice or receipt, not both.');
@@ -2538,7 +2549,7 @@ export function supabaseAdapter() {
       if (legal && scope.isCoreDefiner) throw new Error(LEGAL_NOT_CORE_REASON);
       if (legal) {
         if (!(await legalFilesAvailable(client))) throw new Error(LEGAL_UNAVAILABLE);
-        if (!(await canAccessProjectMoney(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
+        if (!(await canAccessProjectLegal(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
       }
       // Money-gated: under a locked folder, and never out of Supabase.
       const moneyGated = !!scope.financial || legal;

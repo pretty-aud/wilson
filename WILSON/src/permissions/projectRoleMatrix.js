@@ -136,6 +136,46 @@ export function canSeeMoneyHere({ adapterMode, appRole, projectRole } = {}) {
 }
 
 /**
+ * Post-overhaul S4d — LEGAL. Who sees a Legal file: the money audience, AND
+ * a workspace-level manager without a seat on the project.
+ *
+ * Audrey, 2026-10-08, asked who else should see Legal files besides
+ * workspace admins and the project's managers: "Also workspace managers,
+ * without taking a seat." And 2026-10-02: "inherently workspace manager may
+ * need to access a folder to review things." Money does NOT widen (D8: only
+ * project admins reach the budget): a workspace manager still reaches
+ * invoices, budgets and rates only by taking the project's manager seat, so
+ * this is a function of its own beside canSeeProjectMoney, never a change to
+ * it — projectLegal.test.js pins that every money site still asks the money
+ * gate and no Legal site asks it.
+ *
+ * Like money, deliberately NOT a PROJECT_ACTIONS entry: no unstaffed-project
+ * opening (Legal fails CLOSED), no `ready` opening (a Legal control arrives a
+ * beat late for a project manager rather than being shown to a member and
+ * snatched back — the S23 pattern). It differs from money in exactly one row
+ * of the (appRole × projectRole) table: `appRole === 'manager'` with any seat
+ * or none. The Local Server has no roles at all; its callers open the gate
+ * themselves (`noRoles`), as they do for money.
+ *
+ * This is the client mirror of `can_access_project_legal(uuid)` (0092):
+ * can_access_project_money OR current_app_role() = 'manager', with 0037's
+ * workspace hop and 0072's privacy arm — neither of which the client has in
+ * hand, so a workspace manager looking at another workspace's project, or at
+ * a private project they did not create, is told yes here and refused by the
+ * database (RLS is the gate; this exists so the Add as Legal control and the
+ * LEGAL folder's words are right for the people the database admits).
+ *
+ * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
+ *           projectRole: 'manager'|'reviewer'|'member'|null|undefined }} ctx
+ * @returns {boolean}
+ */
+export function canSeeProjectLegal(ctx) {
+  const { appRole, projectRole } = ctx || {}
+  if (canSeeProjectMoney({ appRole, projectRole })) return true
+  return appRole === 'manager'
+}
+
+/**
  * Session 28 — TASK TEMPLATES. Like canSeeProjectMoney, deliberately NOT a
  * PROJECT_ACTIONS entry: a template is workspace-level with an optional
  * project pin, so canOnProject's (appRole, projectRole, isStaffed) shape does

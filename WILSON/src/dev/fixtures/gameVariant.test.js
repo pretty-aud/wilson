@@ -64,6 +64,9 @@ describe('the game variant', () => {
     expect(fixtureVariant('?x=1&fixtures=game')).toBe('game')
     // S4b: the plain-member view (the money gate's absences).
     expect(fixtureVariant('?fixtures=member')).toBe('member')
+    // S4d: the workspace-manager view (the Legal gate's presences, 0092).
+    expect(fixtureVariant('?fixtures=manager')).toBe('manager')
+    expect(fixtureVariant('?fixtures=MANAGER')).toBe(null)
     expect(fixtureVariant('')).toBe(null)
     expect(fixtureVariant('?fixtures=other')).toBe(null)
     expect(fixtureVariant('?fixtures=')).toBe(null)

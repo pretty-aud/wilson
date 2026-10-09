@@ -145,7 +145,7 @@ import { useNavigateTarget } from '../../tools/rabbit_v0.1.0/state/rabbitNavigat
 import { useProjectAccess } from '../../tools/rabbit_v0.1.0/state/useProjectAccess'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
-import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
+import { canSeeProjectMoney, canSeeProjectLegal } from '../../permissions/projectRoleMatrix'
 import GatedAction from '../../permissions/GatedAction'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
@@ -483,6 +483,12 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const canSeeMoney = noRoles || (isOpenProject
     ? canSeeProjectMoney({ appRole, projectRole: ctx?.myProjectRole })
     : appRole === 'admin')
+  // Post-overhaul S4d (0092): the Legal gate is the money gate OR a workspace
+  // manager (canSeeProjectLegal), so with no seat in hand a workspace manager
+  // still qualifies — the one row where the two gates differ.
+  const canSeeLegal = noRoles || (isOpenProject
+    ? canSeeProjectLegal({ appRole, projectRole: ctx?.myProjectRole })
+    : (appRole === 'admin' || appRole === 'manager'))
   const writeReason = !backendWrites
     ? 'This backend is read-only.'
     : (isOpenProject
@@ -525,11 +531,15 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
 
   // ── Post-overhaul S4b: Add as Legal (Audrey, 2026-10-01) ─────────────────
   // "its just the folder that is locked": a Legal file goes into the
-  // project's LEGAL folder WHEN IT IS ADDED, and only the people who see the
-  // project's money see it (can_access_project_money, migration 0088). So
-  // the control is drawn only for them (canSeeMoney) — a member or reviewer
-  // is not shown a door they cannot use — and nowhere else: not a tag chip
-  // (fileTags.tagSettable), not a menu, not a mode on Add files.
+  // project's LEGAL folder WHEN IT IS ADDED, and only the people who see
+  // Legal files see it. Until S4d that was the money audience (0088); since
+  // 0092 (S4d, Audrey 2026-10-08: "Also workspace managers, without taking a
+  // seat") it is the Legal gate, can_access_project_legal — the money
+  // audience plus workspace managers. So the control is drawn only for them
+  // (canSeeLegal, never canSeeMoney: projectLegal.test.js pins the line) —
+  // a member or reviewer is not shown a door they cannot use — and nowhere
+  // else: not a tag chip (fileTags.tagSettable), not a menu, not a mode on
+  // Add files.
   //
   // The picker opens first; the confirmation comes AFTER it, naming the
   // picked files and who will see them, at the one moment that cannot be
@@ -547,7 +557,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   // On the Local Server (no roles) the control says what that backend can
   // and cannot do — LEGAL_LOCAL_NOTE — and never that only managers will see
   // the files, which there is not true (R1-BEH-02).
-  const legalOffered = onTab && canSeeMoney
+  const legalOffered = onTab && canSeeLegal
   const [legalSupported, setLegalSupported] = useState(null)
   useEffect(() => {
     if (!legalOffered) { setLegalSupported(false); return undefined }

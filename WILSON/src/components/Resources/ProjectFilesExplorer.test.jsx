@@ -820,7 +820,8 @@ describe('the Files table: its dates (V2)', () => {
 // then each upload carries `legal: true`. Where the database lacks 0088 the
 // control is greyed with the reason.
 describe('Add as Legal (S4b)', () => {
-  const LEGAL_ADD_HINT = 'Only project managers and workspace admins will see these files.'
+  // S4d (0092): the audience names workspace managers too.
+  const LEGAL_ADD_HINT = 'Only project managers, workspace managers and workspace admins will see these files.'
   const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
   const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
   const legalAdapter = (supported = true) => () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => supported })
@@ -960,17 +961,36 @@ describe('Add as Legal (S4b)', () => {
   it('a refusal is READ on screen, in the same banner as Add files\'', async () => {
     seat('admin', null)
     ctx.getAdapter = legalAdapter(true)
-    ctx.uploadFile = async () => { throw new Error('Only project managers and workspace admins can add Legal files.') }
+    ctx.uploadFile = async () => { throw new Error('Only project managers, workspace managers and workspace admins can add Legal files.') }
     onTab()
     await waitFor(() => expect(legalInput()).toBeTruthy())
     pick(['nda.pdf'])
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Add as Legal' }))
-    const banner = await screen.findByText('Only project managers and workspace admins can add Legal files.')
+    const banner = await screen.findByText('Only project managers, workspace managers and workspace admins can add Legal files.')
     expect(banner.closest('[data-upload-error]')).toBeTruthy()
   })
 
-  it('a member, a reviewer, and a workspace manager without a manager seat are not shown it at all', async () => {
-    for (const [appRole, projectRole] of [['member', 'member'], ['member', 'reviewer'], ['manager', 'member'], ['manager', null]]) {
+  // S4d (0092, Audrey 2026-10-08: "Also workspace managers, without taking a
+  // seat"): a workspace manager holding a member seat, a reviewer seat or no
+  // seat IS shown it now — the one row where the Legal gate parts from the
+  // money gate — with the same hint and the same probe of the database.
+  it('a workspace manager without a manager seat is shown it (S4d): the hint, and the database is asked', async () => {
+    for (const [appRole, projectRole] of [['manager', 'member'], ['manager', 'reviewer'], ['manager', null]]) {
+      seat(appRole, projectRole)
+      let probed = false
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { probed = true; return true } })
+      const { unmount } = onTab()
+      await screen.findByRole('tab', { name: 'Table' })
+      await waitFor(() => expect(legalInput(), `${appRole}/${projectRole}`).toBeTruthy())
+      expect(legalButton(), `${appRole}/${projectRole}`).toBeTruthy()
+      expect(legalButton().getAttribute('title'), `${appRole}/${projectRole}`).toBe(LEGAL_ADD_HINT)
+      expect(probed, `${appRole}/${projectRole}`).toBe(true)
+      unmount()
+    }
+  })
+
+  it('a member, a reviewer, and someone with no seat and no app role above user are not shown it at all', async () => {
+    for (const [appRole, projectRole] of [['member', 'member'], ['member', 'reviewer'], ['member', null]]) {
       seat(appRole, projectRole)
       let probed = false
       ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { probed = true; return true } })

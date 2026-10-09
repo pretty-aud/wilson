@@ -240,10 +240,19 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   // any file read, exactly as the cloud's RLS hides them (0038, 0088). The
   // default reviewer passes (Mara: admin and manager); `?fixtures=member`
   // does not.
+  // S4d (0092): the LEGAL gate, as can_access_project_legal answers it — the
+  // money gate OR a workspace manager (the project's own workspace; the
+  // fixtures have one). A Legal row (isLegalRow: Legal and not an invoice —
+  // files_legal_not_financial_chk) is readable past EITHER gate; an invoice
+  // only past the money gate. `?fixtures=manager` is Mara as a workspace
+  // manager holding a member seat: she sees the Legal file and not the
+  // invoice, as the cloud's RLS answers her (0092).
   const passesMoneyGate = (projectId) => appRole === 'admin'
     || store.projectMembers.some(m => m.project_id === projectId && m.user_id === userId && m.project_role === 'manager')
+  const passesLegalGate = (projectId) => passesMoneyGate(projectId) || appRole === 'manager'
   const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
-  const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id))
+  const isLegalRow = (f) => isLegalFile(f) && !f?.is_financial
+  const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id) || (isLegalRow(f) && passesLegalGate(f.project_id)))
 
   // 0090 (S5b): the set-aside stamp is written only by setAsideRows — never
   // by an ordinary write (the store MERGES, so a stale copy re-sent with
@@ -613,9 +622,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async listFileEvents(fileId) {
       // S4b: a money file's history is the money gate's, like its row (0074,
-      // 0088's certificate arm for Legal).
+      // 0088's certificate arm for Legal). S4d (0092, Audrey's Legal 1): a
+      // Legal file's history — its deletion record included — is the Legal
+      // audience's, an invoice's the money audience's; a member or reviewer
+      // reads neither. (The fake cloud never carried ruling 22's purged
+      // exception; it now matches the real one.)
       const f = findById(store.files, fileId)
-      if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id)) return []
+      if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id) && !(isLegalRow(f) && passesLegalGate(f.project_id))) return []
       return clone(store.fileEvents.filter(e => e.file_id === fileId).sort((a, b) => b.created_at.localeCompare(a.created_at)))
     },
     // S4a (E13): the cloud's log_file_downloaded, as an event the activity

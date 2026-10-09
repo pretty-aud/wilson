@@ -91,10 +91,25 @@ export function applyMemberVariant(store, userId) {
   return store
 }
 
-/** `game` or `member` from `?fixtures=…`, else null. */
+/**
+ * Post-overhaul S4d: `?fixtures=manager` — the same project seen by a
+ * WORKSPACE MANAGER holding only a member seat (Audrey, 2026-10-08: "Also
+ * workspace managers, without taking a seat"). Mara's seat is lowered to
+ * 'member' and her app role to 'manager', and the fixtures adapter then
+ * gives her the Legal file and its activity (the Legal gate, 0092) but not
+ * the invoice, the budget or the bid versions (the money gate, unchanged) —
+ * the one row where the two gates differ, on screen.
+ */
+export function applyWorkspaceManagerVariant(store, userId) {
+  for (const m of store.projectMembers) if (m.user_id === userId) m.project_role = 'member'
+  for (const m of store.members) if (m.user_id === userId) m.app_role = 'manager'
+  return store
+}
+
+/** `game`, `member` or `manager` from `?fixtures=…`, else null. */
 export function fixtureVariant(search = typeof location === 'undefined' ? '' : location.search) {
   const v = new URLSearchParams(search).get('fixtures')
-  return v === 'game' || v === 'member' ? v : null
+  return v === 'game' || v === 'member' || v === 'manager' ? v : null
 }
 
 export function createStore() {
