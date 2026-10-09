@@ -163,6 +163,70 @@ describe('item 5: play in place, and "not on this computer" (B3)', () => {
   })
 })
 
+describe('item 6: offline and relink against LOCATIONS', () => {
+  const rows = [
+    { id: 'f1', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T1.mov', display_name: 'T1', original_name: 'T1.mov', media_type: 'video', online: false, review_flag: 'unflagged', sort_order: 0 },
+    { id: 'f2', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T2.mov', display_name: 'T2', original_name: 'T2.mov', media_type: 'video', online: false, review_flag: 'unflagged', sort_order: 1 },
+    { id: 'f3', bin_id: 'b1', location_id: 'L2', relative_path: 'plates/p.exr', display_name: 'P', original_name: 'p.exr', media_type: 'vfx', online: false, review_flag: 'unflagged', sort_order: 2 },
+  ]
+  const locations = [{ id: 'L1', name: 'Footage NAS', unc_path: '\\\\nas\\footage' }, { id: 'L2', name: 'VFX', unc_path: '\\\\nas\\vfx' }]
+  const go = async (status, over = {}) => {
+    state.ctx = makeCtx(DESKTOP, {
+      binFiles: rows, binLocations: locations,
+      binsInfo: { ffmpeg: true, capabilities: DESKTOP, locations: status },
+      pickBinLocationLocalPath: vi.fn(async () => ({ local_path: 'Z:\\' })),
+      forgetBinLocationLocalPath: vi.fn(async () => ({ local_path: null })),
+      ...over,
+    })
+    state.access = reviewer()
+    render(<BinsView pageActive />)
+    await act(async () => {})
+  }
+
+  it('one location out of reach: ONE notice naming it, and the per-computer question beside it', async () => {
+    await go([{ id: 'L1', status: 'registered', reachable: false }, { id: 'L2', status: 'registered', reachable: true }])
+    expect(document.body.textContent).toContain('"Footage NAS" is not reachable from this computer, so their clips cannot be played here.')
+    expect(document.body.textContent).not.toContain('"VFX" is not reachable')
+    await act(async () => { fireEvent.click(screen.getByText('Where is it on this computer?')) })
+    expect(state.ctx.pickBinLocationLocalPath).toHaveBeenCalledWith('L1')
+    expect(document.body.textContent).toContain('"Footage NAS" is set for this computer.')
+  })
+
+  it('two out of reach: one notice naming both; the relink lists each location with its count — and never rewrites a path', async () => {
+    await go([{ id: 'L1', status: 'registered', reachable: false }, { id: 'L2', status: 'registered', reachable: false, local_path: 'Y:\\vfx' }])
+    expect(document.body.textContent).toContain('"Footage NAS" and "VFX" are not reachable from this computer')
+    fireEvent.click(screen.getByText('Choose where they are…'))
+    const cards = document.querySelectorAll('[data-testid="relink-location"]')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].textContent).toContain('Footage NAS')
+    expect(cards[0].textContent).toContain('2 clips')
+    expect(cards[1].textContent).toContain('Not reachable from this computer (looked in Y:\\vfx)')
+    expect(cards[1].textContent).toContain('Forget this computer\'s folder')
+    expect(state.ctx.binRelinkApply).toBeUndefined()
+    await act(async () => { fireEvent.click(cards[1].querySelector('button')) })
+    expect(state.ctx.pickBinLocationLocalPath).toHaveBeenCalledWith('L2')
+  })
+
+  it('a clip missing inside a location this computer DOES reach: said, with what to do — no relink of its path', async () => {
+    await go([{ id: 'L1', status: 'registered', reachable: true }, { id: 'L2', status: 'registered', reachable: true }])
+    expect(document.body.textContent).not.toContain('not reachable from this computer, so')
+    fireEvent.click(screen.getByText(/3 not on this computer/))
+    const missing = document.querySelector('[data-testid="relink-missing"]')
+    expect(missing.textContent).toContain('These 3 clips are not at their paths on a share this computer reaches')
+    expect(missing.textContent).toContain('put the file back where it was on the share, or remove the clip from its bin')
+  })
+
+  it('B12: the signed-out desktop opens its own relink (re-pick a folder)', async () => {
+    const legacy = { ...DESKTOP, backend: 'local_server', locations: false, remoteViewingSwitch: false, posters: 'local' }
+    state.ctx = makeCtx(legacy, { binFiles: [{ ...rows[0], location_id: undefined, source_path: 'D:\\x\\T1.mov' }], binsInfo: { ffmpeg: true, capabilities: legacy } })
+    state.access = reviewer()
+    render(<BinsView pageActive />)
+    await act(async () => {})
+    fireEvent.click(screen.getByTitle(/^Relink the project's offline files/))
+    expect(screen.getByRole('dialog', { name: /Relink offline files/ })).toBeTruthy()
+  })
+})
+
 describe('B4: the catch-up when the switch is on', () => {
   it('on the desktop signed in, switch on: the count named, and one click uploads', async () => {
     await mount(DESKTOP, reviewer(), {

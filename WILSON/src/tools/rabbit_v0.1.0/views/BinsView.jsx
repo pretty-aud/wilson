@@ -38,6 +38,7 @@ import BinInspector from './bins/BinInspector'
 import AddFilesDialog from './bins/AddFilesDialog'
 import DeleteBinDialog from './bins/DeleteBinDialog'
 import RelinkBinsDialog from './bins/RelinkBinsDialog'
+import RelinkLocationsDialog from './bins/RelinkLocationsDialog'
 import { matchMissingFiles } from '../components/relinkMatcher'
 import {
   descendantIds, countsByBin, binPathLabel, filterBinFiles, sortBinFiles, SORT_FIELDS, EMPTY_FILTERS,
@@ -61,6 +62,13 @@ const DATA_CHIP = 'text-caption font-normal normal-case tracking-normal'
 // BC2: where no computer can reach the footage to pick it (the cloud, in a
 // browser), the add verbs say why. The desktop app signed in can.
 export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a computer that can reach the footage.'
+
+// BC2: "Footage NAS is", "Footage NAS and VFX are", "A, B and C are".
+function unreachableWords(names) {
+  const q = names.map(n => `"${n}"`)
+  if (q.length === 1) return `${q[0]} is`
+  return `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]} are`
+}
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -92,6 +100,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // unchanged while it loads (B12).
   const caps = ctx?.binsInfo?.capabilities || null
   const canPick = caps ? caps.pickFiles !== false : true
+  // The desktop app signed in: this computer's own answers about the files.
+  const desktopCloud = caps?.backend === 'desktop_cloud'
   const projectId = ctx?.activeProjectId
   const bins = ctx?.bins || []
   const files = ctx?.binFiles || []
@@ -716,10 +726,33 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop) }
   }, [])
 
+  // ── BC2 (item 6): a whole location this computer cannot reach ──
+  // Named once, with its clip count, from what the desktop answered when
+  // the company's locations were registered (binsInfo.locations).
+  const unreachable = useMemo(() => {
+    if (!desktopCloud) return []
+    const counts = new Map()
+    for (const f of offlineAll) if (f.location_id) counts.set(f.location_id, (counts.get(f.location_id) || 0) + 1)
+    return (ctx?.binsInfo?.locations || [])
+      .filter(st => st && st.status !== 'refused' && st.reachable === false && counts.get(st.id))
+      .map(st => ({ st, loc: locationById.get(st.id) || { id: st.id, name: 'A footage location' }, count: counts.get(st.id) }))
+  }, [desktopCloud, offlineAll, ctx?.binsInfo?.locations, locationById])
+  const [unreachableDismissed, setUnreachableDismissed] = useState(false)
+  const [reachBusy, setReachBusy] = useState(false)
+  const pickOneUnreachable = useCallback(async () => {
+    const one = unreachable[0]
+    if (!one || typeof ctx?.pickBinLocationLocalPath !== 'function') return
+    setReachBusy(true)
+    try {
+      const r = await ctx.pickBinLocationLocalPath(one.loc.id)
+      if (!r?.canceled) say(`"${one.loc.name}" is set for this computer.`, 'ok', 5000)
+    } catch (e) { say(e?.message || String(e), 'error') }
+    finally { setReachBusy(false) }
+  }, [unreachable, ctx, say])
+
   // ── BC2 (B4): pictures to the cloud, while the company allows it ──
   // The catch-up for clips added while the switch was off: counted from the
   // rows this computer reaches that have no picture in the cloud.
-  const desktopCloud = caps?.backend === 'desktop_cloud'
   const posterCatchUp = useMemo(
     () => (desktopCloud && ctx?.binsInfo?.remoteViewing === true ? files.filter(needsCloudPoster).length : 0),
     [desktopCloud, ctx?.binsInfo?.remoteViewing, files],
@@ -779,6 +812,22 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
             <IconBtn Icon={X} title="Dismiss" onClick={() => { setNotice(null); setLoadError(null) }} />
           </>}>
           <span className="block truncate">{loadError ? `Could not load the bins: ${loadError}` : notice?.text}</span>
+        </Banner>
+      )}
+
+      {/* BC2 (item 6): a whole location out of reach — one notice naming it,
+          not one per clip — with the per-computer question beside it. */}
+      {unreachable.length > 0 && !unreachableDismissed && (
+        <Banner className="flex-shrink-0" tone="warning" Icon={Unplug}
+          action={<>
+            {unreachable.length === 1
+              ? <Btn small disabled={reachBusy} onClick={pickOneUnreachable}>{unreachable[0].st?.local_path ? 'Choose another folder…' : 'Where is it on this computer?'}</Btn>
+              : <Btn small onClick={() => setRelinkOpen(true)}>Choose where they are…</Btn>}
+            <IconBtn Icon={X} title="Not now" onClick={() => setUnreachableDismissed(true)} />
+          </>}>
+          <span className="block">
+            {unreachableWords(unreachable.map(u => u.loc.name))} not reachable from this computer, so {unreachable.reduce((s, u) => s + u.count, 0) === 1 ? 'its clip cannot' : 'their clips cannot'} be played here.
+          </span>
         </Banner>
       )}
 
@@ -1005,7 +1054,15 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       {addDlg && <AddFilesDialog key={addDlg.planRev || 0} bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }}
         onNameLocation={ctx?.binsInfo?.capabilities?.locations ? nameShareAsLocation : null} />}
       {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onCancel={() => { if (!deleteBusy) { setDeleteDlg(null); setDeleteError(null) } }} />}
-      {relinkOpen && (
+      {/* BC2 (item 6): on the cloud a clip is found again by telling THIS
+          computer where its location is — never by rewriting its path for
+          everyone. The signed-out desktop keeps its dialog (B12). */}
+      {relinkOpen && caps?.locations && (
+        <RelinkLocationsDialog offlineRows={offlineAll} locations={ctx?.binLocations || []} locationStatus={ctx?.binsInfo?.locations || []}
+          onPickLocal={(id) => ctx.pickBinLocationLocalPath(id)} onForgetLocal={(id) => ctx.forgetBinLocationLocalPath(id)}
+          onClose={() => setRelinkOpen(false)} />
+      )}
+      {relinkOpen && !caps?.locations && (
         <RelinkBinsDialog offlineRows={offlineAll} roots={roots}
           onPickFolder={async () => { const r = await ctx.pickBinFolder('Choose the folder the files moved to'); return r?.path || null }}
           onScan={(p) => ctx.binRelinkScan(p)}
