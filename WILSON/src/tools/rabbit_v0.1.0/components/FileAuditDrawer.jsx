@@ -8,9 +8,18 @@
 // per-file drawer; FILE_EVENT_META carries its label for the surfaces that do
 // render it.) In cloud mode that is the trigger-fed
 // file_events table (migration 0027, readable by every project reader,
-// not just admins — unlike edit_history); in local_server mode it is the
-// bundle.fileEvents log the Express routes append to. This is
-// TPN-CONT-002's chain-of-custody surface in product clothing.
+// not just admins — unlike edit_history; since 0074 an invoice's events are
+// the money audience's, since 0088 a Legal file's too, and since 0092 —
+// post-overhaul S4d, Audrey's Legal 1, 2026-10-09: "keep legal docs and
+// invoices hidden from members and reviewers" — a deleted invoice's or Legal
+// file's `purged` certificate follows the file's own gate as well: the money
+// audience for an invoice, the Legal audience (workspace managers included)
+// for a Legal file, and a member or reviewer sees neither. The policy
+// decides; this drawer shows what comes back and its foot says so, so an
+// empty stream for a manager's deleted invoice reads as the rule, not a
+// fault); in local_server mode it is the bundle.fileEvents log the Express
+// routes append to. This is TPN-CONT-002's chain-of-custody surface in
+// product clothing.
 //
 // UX laws applied (Session 9 requirement, ≥5 named):
 //   - Jakob's Law: same drawer anatomy as EditHistoryDrawer — users who
@@ -127,7 +136,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
       footer={(
         <p className="rb-audit-foot">
           {adapterMode === 'supabase'
-            ? 'Recorded server-side for every upload, move, relink, trash, restore and purge.'
+            ? 'Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file.'
             : 'Recorded locally for uploads, relinks and deletes in this project.'}
         </p>
       )}

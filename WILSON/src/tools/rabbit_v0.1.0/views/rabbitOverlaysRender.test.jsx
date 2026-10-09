@@ -272,8 +272,10 @@ describe('FileAuditDrawer — the kit Drawer', () => {
     cleanup()
     audit()
     await settled(auditDrawer())
+    // S4d (0092, Legal 1): the cloud foot says who sees a deleted invoice's or
+    // Legal file's record, so an empty stream reads as the rule, not a fault.
     expect(auditDrawer().querySelector('.rb-audit-foot').textContent)
-      .toBe('Recorded server-side for every upload, move, relink, trash, restore and purge.')
+      .toBe('Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file.')
   })
 
   it('the Close, Escape and a click on the backdrop each close it', async () => {
