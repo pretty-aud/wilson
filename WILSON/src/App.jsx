@@ -28,7 +28,7 @@ import { canCreateNewEgg, mintEggFrom,
          derivePetState, applyOfflineDecay } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
 import { installCompanionShiftHotkey } from './lib/companionHotkey'
-import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
+import { PAGES, PAGE_BARS, PAGE_TITLES, COMPRESSED_BAR_HEIGHT, getPage, navPages } from './layout/pages'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
@@ -125,7 +125,9 @@ function PetCompanionWithAgent(props) {
 // the three hand-maintained lists a new page had to be added to, and the one
 // the Files page WAS added to while missing the bar table (review F32 / F-R04).
 
-const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+// S6a: the value is the registry's, because the sign-in's reveal now lands on
+// it too (the welcome seam in src/layout/pages.js).
+const COMPRESSED = { top: COMPRESSED_BAR_HEIGHT, bottom: COMPRESSED_BAR_HEIGHT };
 
 // One page wrapper for all twelve pages (F2). The scroll class and the focus
 // / caret / selection scope both come from the registry's `surface`, so the
@@ -252,6 +254,17 @@ const TRANSITION = {
   fadeIn:   250,
 };
 
+// S6a: the welcome's title-hold waits two animation frames, or this long when
+// a hidden window runs none (see playWelcome). Measured (review round 2): at
+// normal speed the second frame lands ~110ms after the hand-over and the
+// frames win by ~320-390ms; under a 4x CPU throttle they win by ~3ms, under
+// 6x the timer wins. Either is safe ONLY because holdTitle flushes style
+// before it lifts the cut. The floor still matters: the timer must outlast
+// React's commit of the hand-over (one long task), or the cut and its lifting
+// land in one render and the expand comes back (R1-01) — a 0 here did exactly
+// that on the --resumed path. Pinned at 300 or more.
+const WELCOME_FRAMES_FALLBACK_MS = 500;
+
 // ═══════════════════════════════════════════════════════════════════
 //  PET CONSTANTS AND THE COLD-START RULES — now in src/lib/petLifecycle.js
 // ═══════════════════════════════════════════════════════════════════
@@ -351,6 +364,13 @@ export default function App() {
   const [transitionState, setTransitionState] = useState('idle');
   const [transitionTitle, setTransitionTitle] = useState('');
   const transitionRef = useRef(false);
+  // S6a: true from the sign-in's hand-over until title-hold (two frames at
+  // normal speed, longer on a slow machine). The sign-in's reveal
+  // has already closed the bars to COMPRESSED, so the chrome must STAND there
+  // at the hand-over — a cut, not a tween — whether it mounts in that commit
+  // or was already mounted under the sign-in screen at its resting bars (a
+  // resumed session on a recovery or invite link; review round 1, R1-01).
+  const [welcomeCut, setWelcomeCut] = useState(false);
 
   // Nav menu state (for DOG hamburger)
   const [showNavMenu, setShowNavMenu] = useState(false);
@@ -654,18 +674,19 @@ export default function App() {
     setShowOverlay(false);
   };
 
-  // Session 43: the welcome transition is QUEUED at sign-in and played once
-  // the post-login gates have cleared. Playing it immediately would run it
-  // underneath NewUserWelcome or MfaEnrollGate — both are full-screen
-  // AuthShell overlays — so the one person who would never see it is the
-  // brand-new user it is meant to greet.
+  // The welcome plays ONCE per sign-in, started at the hand-over itself (the
+  // LoginScreen mount below) — post-overhaul S6a, see playWelcome.
   //
-  // ⚠️ pendingOnboarding resolves from an async query keyed on `authed`, so on
-  // a first login it can still be null at this point and flip a moment later.
-  // The welcome may then start under the overlay that follows. Cosmetic, and
-  // only on the very first sign-in of a new account; noted rather than fixed
-  // with a spurious settle delay.
-  const [welcomeQueued, setWelcomeQueued] = useState(false);
+  // Session 43 QUEUED it instead, to play once the post-login gates
+  // (NewUserWelcome, MfaEnrollGate) had cleared, so a brand-new user would not
+  // miss it under a gate. That deferral never took effect at a sign-in: both
+  // gates resolve from async queries keyed on `authed`, so at the commit that
+  // signs in they are still null/false and the queue played at once — which
+  // the queue's own note recorded as "cosmetic, noted rather than fixed". S6a
+  // needs the welcome's first state in the SAME commit that mounts the app
+  // (an effect runs a paint too late; see playWelcome), so the queue went and
+  // its timing did not change: a new user's gate still mounts over a welcome
+  // already under way, as it did.
   const welcomePlayedRef = useRef(false);
 
   // Close confirmation dialog (Electron only)
@@ -2136,32 +2157,78 @@ export default function App() {
     }, TRANSITION.fadeOut);
   }, [currentPage]);
 
-  // ── Post-sign-in welcome (Session 43) ─────────────────────────────────
+  // ── Post-sign-in welcome (Session 43; S6a) ────────────────────────────
   // Audrey, 2026-08-10: "when the login is done, after the auth code, lets add
   // a welcome animation. have it work like the transition animation from page
   // to page. but instead of naming the upcoming page say 'Welcome'."
   //
-  // Same chain, same durations, same overlay as navigateTo. Two differences,
-  // both deliberate:
+  // Same chain, same durations, same overlay as navigateTo, minus the page
+  // swap, the fade-out and the compress:
   //
   //  - No page swap. The user is already arriving at Home; this transition
   //    announces an arrival rather than covering one.
-  //  - It starts at 'compressing', not 'fading-out'. There is nothing to fade
-  //    out — AuthShell has been covering the app and its reveal has only just
-  //    handed over, so fading content the user has never seen would read as a
-  //    flicker before the bars move. AuthShell's reveal settles the bars at
-  //    PAGE_BARS.home (imported by both, see src/layout/pageBars.js — Phase 4
-  //    made it viewport-responsive) and this picks them up from there, so
-  //    the two animations read as one continuous movement: the bars close,
-  //    say WELCOME, and open onto Home.
+  //  - No fade-out and NO COMPRESS. The sign-in's own reveal has already
+  //    closed the bars to COMPRESSED (AuthShell's `revealTo="welcome"`, the
+  //    welcome seam in src/layout/pages.js), so the app's bars are put there
+  //    in the hand-over's commit WITHOUT a tween (`welcomeCut`) and the
+  //    WELCOME title fades into the 40px the reveal left.
+  //
+  // 🚨 Post-overhaul S6a (Audrey, 2026-10-09): "instead of expanding and then
+  // collapsing to the size to fit the welcome title, it should just collapse
+  // to size it is when the welcome title appears". This used to START the
+  // compress here, from Home's resting bars, which is where the reveal had
+  // just landed: two tweens with a 130–300ms still between them, Home's
+  // page list painted for 50–100ms in that still, and — wherever Home's bar is
+  // thinner than the split bar (windows over ~1117px tall) — a first tween
+  // that GREW the band before this one shrank it. Measured frame by frame in
+  // the S6a hand-off (scripts/signin-welcome-frames.mjs).
+  //
+  // ⚠️ Called from the hand-over's own handler, never from an effect: the
+  // 'compressing' state has to be in the SAME commit that removes the sign-in
+  // screen, or the bars paint once at their resting height and the jump is
+  // back. 'compressing' rather than 'title-hold' so the title's span mounts
+  // at opacity 0 and its 200ms fade runs (a node that mounts at 1 has nothing
+  // to fade from); two frames later it is title-hold, and from there the
+  // chain is unchanged.
+  //
+  // ⚠️ `welcomeCut` and not the mount is what makes the first state a cut.
+  // The chrome is usually mounted in this same commit (nothing to tween
+  // from), but it can already be up under the sign-in screen at its resting
+  // bars — a session resumed at boot on a recovery or invite link keeps the
+  // overlay, and the reset wizard signs out without unmounting the app. Its
+  // bars' own 600ms transition then ran them 540 → 40 after the reveal had
+  // landed on 40: the expand, back (review round 1, R1-01, measured with
+  // `signin-welcome-frames.mjs --resumed`).
+  //
+  // The title-hold step races two frames against a timer, run once: a hidden
+  // window (a background tab, a minimised app) runs no animation frames, and
+  // the chain used to run on timers alone — without this it would park at
+  // 'compressing' with navigation refused and the pet hidden until the window
+  // was shown (R1-03). At normal speed the frames win; on a slow machine the
+  // timer can (see WELCOME_FRAMES_FALLBACK_MS).
+  //
+  // 🚨 holdTitle FLUSHES STYLE before it lifts the cut (review round 2). A
+  // transition starts from the last style the browser COMPUTED, not the last
+  // one React committed: if the timer wins before any frame — a hidden
+  // window, a throttled one — the bars' compressed height with no transition
+  // has never been computed, and lifting the cut would let the mounted bars
+  // tween 540 → 40 when the window is next shown. Reading layout computes it
+  // first, so the lift changes nothing that can move.
   const playWelcome = useCallback(() => {
-    if (transitionRef.current) return;
+    if (transitionRef.current || welcomePlayedRef.current) return;
+    welcomePlayedRef.current = true;
     transitionRef.current = true;
     setTransitionTitle('Welcome');
     setPetVisible(false);
     setCompanionOpen(false);
+    setWelcomeCut(true);
     setTransitionState('compressing');
-    setTimeout(() => {
+    let held = false;
+    const holdTitle = () => {
+      if (held) return;
+      held = true;
+      void document.documentElement.getBoundingClientRect();
+      setWelcomeCut(false);
       setTransitionState('title-hold');
       setTimeout(() => {
         setTransitionState('expanding');
@@ -2175,17 +2242,10 @@ export default function App() {
           }, TRANSITION.fadeIn);
         }, TRANSITION.expand);
       }, TRANSITION.hold);
-    }, TRANSITION.compress);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(holdTitle));
+    setTimeout(holdTitle, WELCOME_FRAMES_FALLBACK_MS);
   }, []);
-
-  useEffect(() => {
-    if (!welcomeQueued || !authed) return;
-    if (showOverlay || pendingOnboarding || pendingMfaEnroll) return;
-    if (welcomePlayedRef.current) return;
-    welcomePlayedRef.current = true;
-    setWelcomeQueued(false);
-    playWelcome();
-  }, [welcomeQueued, authed, showOverlay, pendingOnboarding, pendingMfaEnroll, playWelcome]);
 
   // Back/forward buttons re-enter through navigateTo (with the animation).
   // The ref keeps the listener stable across navigateTo's re-creation.
@@ -2529,7 +2589,8 @@ export default function App() {
             position: 'relative',
             display: 'flex',
             alignItems: 'flex-end',
-            transition: `height 600ms ${EASE}`,
+            // S6a: a cut at the sign-in's hand-over (see welcomeCut).
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
             overflow: 'hidden',
             zIndex: 10,
           }}>
@@ -2538,7 +2599,11 @@ export default function App() {
               display: 'flex',
               alignItems: 'flex-end',
               opacity: contentFaded ? 0 : 1,
-              transition: 'opacity 250ms ease',
+              // S6a (review round 2, R2-03): the page header goes with the
+              // bars' cut at the sign-in's hand-over — on an app already
+              // mounted under the sign-in screen it would otherwise fade for
+              // 250ms over the WELCOME band.
+              transition: welcomeCut ? 'none' : 'opacity 250ms ease',
               // Same 250ms hole as the content area below — the hamburger was
               // live during 'fading-in' while navigateTo would still drop it.
               pointerEvents: isAnimating ? 'none' : 'auto',
@@ -2552,7 +2617,7 @@ export default function App() {
             backgroundColor: '#ea580c',
             overflow: 'hidden',
             height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
-            transition: `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
+            transition: welcomeCut ? 'none' : `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
@@ -2722,7 +2787,7 @@ export default function App() {
             backgroundColor: '#ea580c',
             height: bottomHeight,
             flexShrink: 0,
-            transition: `height 600ms ${EASE}`,
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
             zIndex: 10,
           }} />
 
@@ -2794,7 +2859,8 @@ export default function App() {
           onAuthenticated={(session) => {
             handleAuth(session);
             handleAnimationComplete();
-            setWelcomeQueued(true);
+            // S6a: in this commit, not an effect's — see playWelcome.
+            playWelcome();
           }}
         />
       )}
