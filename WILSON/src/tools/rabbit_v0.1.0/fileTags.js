@@ -16,6 +16,13 @@
 // cloud's third path segment, files_legal_folder_chk; the Local Server's
 // LEGAL directory beside INVOICES), is written once by uploadFile, and is
 // neither set nor cleared afterwards by anyone.
+// "For now" ended with post-overhaul S4d (migration 0092), Audrey 2026-10-08:
+// "Also workspace managers, without taking a seat." A Legal file's audience
+// is the Legal gate — workspace admins, the project's managers AND workspace
+// managers (can_access_project_legal; canSeeProjectLegal on the client);
+// invoices, budgets and rates stay on the money gate. The three sentences
+// below that name the audience say so; the Legal rules themselves (chosen at
+// add, never core, never an invoice) are unchanged.
 //
 // ONE vocabulary in three places, held together by fileTags.test.js:
 // FILE_TAG_IDS here, `FILE_TAG_IDS` in electron/fileTags.cjs (the Local
@@ -51,11 +58,11 @@ export const GATED_TAG = 'legal'
  */
 export const LEGAL_SEGMENT = 'LEGAL'
 
-/** Who sees a Legal file — Audrey's ruling, "same as money files". */
-export const LEGAL_HINT = 'Only project managers and workspace admins can see this file.'
+/** Who sees a Legal file — the Legal gate (0092): the money audience and workspace managers. */
+export const LEGAL_HINT = 'Only project managers, workspace managers and workspace admins can see this file.'
 
-/** Beside Add files' Legal choice (only people past the money gate see it). */
-export const LEGAL_ADD_HINT = 'Only project managers and workspace admins will see these files.'
+/** Beside Add files' Legal choice (only people past the Legal gate see it). */
+export const LEGAL_ADD_HINT = 'Only project managers, workspace managers and workspace admins will see these files.'
 
 /** The Legal chip on a Legal file: a fact, not a toggle. */
 export const LEGAL_LOCKED_REASON = 'Added as Legal. To change this, add the file again.'
@@ -69,11 +76,11 @@ export const LEGAL_NOT_CORE_REASON = 'A Legal file is never a core file: core fi
 /** The Local Server has no roles (A9): the one line that says so. */
 export const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
 
-/** Refused before any byte moves: a database without 0088. */
-export const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+/** Refused before any byte moves: a database without 0088, or (S4d) without 0092's Legal gate. */
+export const LEGAL_UNAVAILABLE = 'Legal files need a database update (migrations 0088 and 0092) that has not reached this workspace yet.'
 
-/** Refused before any byte moves: someone outside the money gate. */
-export const LEGAL_GATE_REFUSAL = 'Only project managers and workspace admins can add Legal files.'
+/** Refused before any byte moves: someone outside the Legal gate (0092). */
+export const LEGAL_GATE_REFUSAL = 'Only project managers, workspace managers and workspace admins can add Legal files.'
 
 const ORDER = new Map(FILE_TAG_IDS.map((id, i) => [id, i]))
 

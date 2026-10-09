@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, fixtureVariant, binsFixtureMode } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
@@ -21,13 +21,17 @@ import { BUILTIN } from '../../lib/aiModels'
 // Hours' levels and experiences on — B4's walk screens for those two views.
 // `variant: 'member'` (S4b) seats the reviewer as a plain project member, so
 // the money gate's absences can be seen (store.applyMemberVariant).
+// `variant: 'manager'` (S4d) makes her a workspace manager with a member
+// seat: the Legal gate's presences beside the money gate's absences
+// (store.applyWorkspaceManagerVariant).
 // `bins: 'browser'` (BC3, `?bins=browser`) makes the bins answer as the cloud
 // does in a browser: no row reachable (store.binsFixtureMode).
 export function buildDevFixtures({ variant = null, bins = null } = {}) {
   const store = createStore()
   if (variant === 'game') applyGameVariant(store)
   if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
-  const appRole = variant === 'member' ? 'user' : PERMISSIONS.role
+  if (variant === 'manager') applyWorkspaceManagerVariant(store, PERMISSIONS.userId)
+  const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : PERMISSIONS.role
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
   const binsOptions = { browser: bins === 'browser' }
   let rabbitAdapter = null

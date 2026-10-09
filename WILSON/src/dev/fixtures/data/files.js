@@ -308,4 +308,9 @@ export const FILE_EVENTS = [
   { id: fid('fileEvent', 1), file_id: fid('file', 10), project_id: PROJECT_ID, event: 'uploaded', actor_id: MEMBER_ID.dev, actor_name: 'Dev Patel', detail: { name: 'Boards_clean_v2.pdf' }, created_at: stamp(35, 11, 9) },
   { id: fid('fileEvent', 2), file_id: fid('file', 10), project_id: PROJECT_ID, event: 'moved', actor_id: MEMBER_ID.dev, actor_name: 'Dev Patel', detail: { from: 'ASSETS', to: assetFolderPath(4) }, created_at: stamp(35, 11, 30) },
   { id: fid('fileEvent', 3), file_id: fid('file', 1),  project_id: PROJECT_ID, event: 'uploaded', actor_id: MEMBER_ID.theo, actor_name: 'Theo Lindqvist', detail: { name: 'Salt_Hours_shooting_script_v4.pdf' }, created_at: stamp(16, 11, 0) },
+  // S4d (0092): the Legal file's own upload, by Theo who added it as Legal —
+  // so File activity has a line to show the people the Legal gate admits
+  // (the admin, the project manager, `?fixtures=manager`) and nothing for a
+  // member (`?fixtures=member`), as the cloud's file_events_select answers.
+  { id: fid('fileEvent', 4), file_id: LEGAL_FILE.id, project_id: PROJECT_ID, event: 'uploaded', actor_id: MEMBER_ID.theo, actor_name: 'Theo Lindqvist', detail: { name: 'Location_release_Saltmarsh_Light.pdf' }, created_at: stamp(22, 15, 40) },
 ]

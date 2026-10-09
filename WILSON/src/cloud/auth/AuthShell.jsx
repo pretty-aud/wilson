@@ -36,7 +36,9 @@
 //   'logo-out'   → logo fades out (500ms), background switches to light orange
 //   'idle'       → panels sit at 50vh each with no transform; 1000ms hold
 //   'split'      → panels push outward 20px (subtle "arrival"); child shown
-//   'revealing'  → panels compress to Home's resting bar height, bg fades out
+//   'revealing'  → panels close to the reveal's landing height (`revealTo`:
+//                  Home's resting bars, or — the sign-in only, S6a — the
+//                  welcome's 40px band), the child fades out
 //   'done'       → component returns null; parent may unmount
 //
 // Timings were originally matched to the pre-cloud PasswordScreen so the two
@@ -48,7 +50,7 @@
 import { forwardRef, useState, useEffect, useRef } from 'react'
 // F2 renamed the geometry module to `layout/pages` when it grew the PAGES
 // registry; this is the only line of D2 that had to move for it.
-import { HOME_BAR_HEIGHT } from '../../layout/pages'
+import { HOME_BAR_HEIGHT, COMPRESSED_BAR_HEIGHT } from '../../layout/pages'
 // The shared design tokens (UI overhaul F1). Every value below that used to
 // be a hex or a hand-tuned px is read from here, so the auth family cannot
 // drift from the rest of the app again — which is what happened between
@@ -72,6 +74,37 @@ const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
 // viewport-responsive, so a copied '268px' would now be wrong on any short
 // screen. See the seam note in src/layout/pages.js.
 const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
+// 🚨 …EXCEPT AFTER A PASSWORD (post-overhaul S6a, 2026-10-09). The sign-in
+// hands over to the WELCOME transition, not to Home, and the welcome's bars
+// stand at COMPRESSED_BAR_HEIGHT (the 40px band its title sits in). Landing
+// on Home first made the sign-in two tweens — reveal to Home's bars, then the
+// welcome's compress from there — with a 130–300ms still between them, and on a
+// window over ~1117px tall the first GREW the band (Home's bar caps at 268px
+// while the split bar is 24vh). Audrey: "it should just collapse to size it
+// is when the welcome title appears instead of expanding THEN collapsing".
+// So the sign-in's reveal lands on the welcome's height, in the same one
+// tween as before, and App mounts its bars already there (playWelcome).
+//
+// It shrinks the band at EVERY window height, which is the property the
+// reveal test pins: the split bar is at most 24vh, and 24vh is under
+// 50vh − 20px for any window taller than 77px.
+//
+// The other four consumers keep landing on Home's resting bars, as before: the
+// two gates hand over to the app at its resting bars (Home's, unless a web
+// deep link opened another page — a mismatch older than S6a) with the welcome
+// already played under them, and the two password wizards hand back to the
+// sign-in screen, which starts over.
+//
+// ⚠️ Landing on 40px is only seamless because App puts its bars there with
+// NO tween in the same commit (`welcomeCut` in App.jsx). App's chrome can
+// already be mounted under this screen — a session resumed on a recovery or
+// invite link keeps the overlay up over a mounted app — and its own 600ms
+// height transition ran 540 → 40 after this reveal had landed: review round
+// 1, R1-01, `scripts/signin-welcome-frames.mjs --resumed`.
+const REVEAL_TARGETS = Object.freeze({
+  home:    REVEAL_BAR_HEIGHT,
+  welcome: COMPRESSED_BAR_HEIGHT,
+})
 // Split-phase bar height — the number that decides how much room the tallest
 // auth screen has. Session 43 derived it from 28vh; UI overhaul D2 re-derived
 // it again, because AUTH-16 is explicit that this comes from a MEASUREMENT and
@@ -227,6 +260,10 @@ export default function AuthShell({
   onAnimationComplete,
   showLogoIntro = true,
   playStartupSound = false,
+  // Where the reveal lands: 'home' (Home's resting bars) or 'welcome' (the
+  // welcome transition's 40px band) — see REVEAL_TARGETS. Only the sign-in
+  // passes 'welcome'.
+  revealTo = 'home',
 }) {
   const [phase, setPhase] = useState(showLogoIntro ? 'logo-in' : 'idle')
   const [logoOpacity, setLogoOpacity] = useState(0)
@@ -331,13 +368,16 @@ export default function AuthShell({
   }, [phase, onIntroComplete])
 
   // ── isRevealing prop → drive the end animation ────────────────────────
-  // Compresses bars from SPLIT_BAR_HEIGHT (~24vh) down to REVEAL_BAR_HEIGHT —
-  // which IS PAGE_BARS.home.top, imported, not matched by hand — then hands
-  // off to the parent via onAnimationComplete. We intentionally do NOT fade
-  // the bars/bg to 0: App.jsx's root div is dark-orange, so a panels-fade
-  // would flash that orange between our final state and Home's first paint.
-  // Keeping the bars at full opacity means Home's identically-sized orange
-  // bars take over invisibly.
+  // Closes the bars from SPLIT_BAR_HEIGHT (~24vh) to the reveal's landing
+  // height — REVEAL_BAR_HEIGHT, which IS PAGE_BARS.home.top, imported, not
+  // matched by hand; or, for the sign-in, COMPRESSED_BAR_HEIGHT, the
+  // welcome's (S6a) — then hands off to the parent via onAnimationComplete.
+  // We intentionally do NOT fade the bars/bg to 0: App.jsx's root div is
+  // dark-orange, so a panels-fade would flash that orange between our final
+  // state and the app's first paint. Keeping the bars at full opacity means
+  // the app's identically-sized orange bars — Home's, or the welcome's, which
+  // App cuts to in the same commit (see REVEAL_TARGETS) — take over
+  // invisibly.
   useEffect(() => {
     if (!isRevealing || revealStartedRef.current) return
     revealStartedRef.current = true
@@ -366,6 +406,14 @@ export default function AuthShell({
   // cleanup" notes above).
   const reduceMotion = prefersReducedMotion()
   const motion = (value) => (reduceMotion ? 'none' : value)
+
+  // One expression for both panels, so the two cannot disagree. Every phase's
+  // value is named above; AuthShell.reveal.test.jsx resolves the sequence at
+  // a range of window heights and requires the band to shrink, never grow,
+  // from the split to the WELCOME title.
+  const panelHeight = isReveal
+    ? (REVEAL_TARGETS[revealTo] ?? REVEAL_BAR_HEIGHT)
+    : (phase === 'idle' ? '50vh' : SPLIT_BAR_HEIGHT)
 
   return (
     <>
@@ -406,14 +454,12 @@ export default function AuthShell({
       {/* Top orange panel — initially 50vh (bars touch at the middle, full-
           orange look), then animates down to SPLIT_BAR_HEIGHT as we enter
           the split phase, revealing the light-orange content area. On
-          reveal, compresses further to REVEAL_BAR_HEIGHT. */}
+          reveal, closes to the landing height (see REVEAL_TARGETS). */}
       {!isLogoPhase && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0,
           backgroundColor: COLOR_ORANGE, zIndex: 52,
-          height: isReveal
-            ? REVEAL_BAR_HEIGHT
-            : (phase === 'idle' ? '50vh' : SPLIT_BAR_HEIGHT),
+          height: panelHeight,
           transform: 'translateY(0)',
           opacity: panelsVisible ? 1 : 0,
           transition: motion(isReveal
@@ -428,9 +474,7 @@ export default function AuthShell({
         <div style={{
           position: 'fixed', bottom: 0, left: 0, right: 0,
           backgroundColor: COLOR_ORANGE, zIndex: 52,
-          height: isReveal
-            ? REVEAL_BAR_HEIGHT
-            : (phase === 'idle' ? '50vh' : SPLIT_BAR_HEIGHT),
+          height: panelHeight,
           transform: 'translateY(0)',
           opacity: panelsVisible ? 1 : 0,
           transition: motion(isReveal

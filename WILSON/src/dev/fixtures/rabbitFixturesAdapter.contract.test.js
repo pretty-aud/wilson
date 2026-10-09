@@ -180,7 +180,51 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(await fx.listFileEvents(legal.id)).toEqual([])
     const cleared = buildDevFixtures()
     cleared.store.fileEvents.push(event)
-    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id)).toEqual(['ev-legal'])
+    // S4d: the dataset seeds the Legal file's own upload event, so the
+    // money-cleared reader lists it beside the pushed one; the member above
+    // listed neither.
+    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id).sort())
+      .toEqual(['ev-legal', fid('fileEvent', 4)].sort())
+  })
+
+  it('`?fixtures=manager` reads as a workspace manager with a member seat: the Legal file and its events, not the invoice nor its events (S4d, 0092)', async () => {
+    const reviewer = buildDevFixtures().rabbitAdapter()
+    const all = await reviewer.listFiles(PROJECT_ID)
+    const legal = all.find((f) => f.tags.includes('legal'))
+    const invoice = all.find((f) => f.is_financial)
+    expect(legal).toBeTruthy()
+    expect(invoice).toBeTruthy()
+    const wm = buildDevFixtures({ variant: 'manager' })
+    expect(wm.permissions.role).toBe('manager')
+    expect(wm.store.members.find((m) => m.user_id === PERMISSIONS.userId).app_role).toBe('manager')
+    expect(wm.store.projectMembers.filter((m) => m.user_id === PERMISSIONS.userId).every((m) => m.project_role === 'member')).toBe(true)
+    const legalEvent = { id: 'ev-legal-wm', file_id: legal.id, project_id: PROJECT_ID, event: 'uploaded', actor_id: 'x', actor_name: 'Theo', detail: {}, created_at: '2026-09-20T10:00:00Z' }
+    const invoiceEvent = { id: 'ev-invoice-wm', file_id: invoice.id, project_id: PROJECT_ID, event: 'purged', actor_id: 'x', actor_name: 'Theo', detail: {}, created_at: '2026-09-21T10:00:00Z' }
+    wm.store.fileEvents.push(legalEvent, invoiceEvent)
+    const fx = wm.rabbitAdapter()
+    const seen = await fx.listFiles(PROJECT_ID)
+    // The Legal gate admits her; the money gate still does not.
+    expect(seen.find((f) => f.id === legal.id)).toBeTruthy()
+    expect(seen.find((f) => f.id === invoice.id)).toBeUndefined()
+    expect(seen.length).toBe(all.length - all.filter((f) => f.is_financial).length)
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.files.some((f) => f.tags.includes('legal'))).toBe(true)
+    expect(bundle.files.some((f) => f.is_financial)).toBe(false)
+    // D8: no budget, no bid versions for a workspace manager without the seat.
+    expect(bundle.budgetVersions).toEqual([])
+    // Her file activity: the Legal file's (the dataset's seeded upload and
+    // the pushed event), and not the invoice's deletion record (Legal 1: a
+    // deleted file's record follows the file's gate).
+    expect((await fx.listFileEvents(legal.id)).map((e) => e.id).sort()).toEqual(['ev-legal-wm', fid('fileEvent', 4)].sort())
+    expect(await fx.listFileEvents(invoice.id)).toEqual([])
+    // CONTROLS: the member variant reads neither; the default reviewer reads both.
+    const member = buildDevFixtures({ variant: 'member' })
+    member.store.fileEvents.push(legalEvent, invoiceEvent)
+    expect(await member.rabbitAdapter().listFileEvents(legal.id)).toEqual([])
+    expect(await member.rabbitAdapter().listFileEvents(invoice.id)).toEqual([])
+    const admin = buildDevFixtures()
+    admin.store.fileEvents.push(legalEvent, invoiceEvent)
+    expect((await admin.rabbitAdapter().listFileEvents(invoice.id)).map((e) => e.id)).toEqual(['ev-invoice-wm'])
   })
 
   it('"fixtures" is NOT a selectable mode — the adapter substitutes for the cloud slot', () => {

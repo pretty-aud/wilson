@@ -105,10 +105,19 @@ async function cloudFileRow(fileId) {
 // itself, as supabaseAdapter's probe asks (only a `true` counts). Before 0088
 // a LEGAL key is an ordinary folder every member can read, so a Legal file is
 // not migrated there at all; the report says why.
+// S4d (0092): and the Legal GATE must be there too — can_access_project_legal
+// asked with the nil project, the same probe the cloud adapter makes — so
+// the migration files Legal files only where the adapter would, and its
+// refusal names the same two migrations as LEGAL_UNAVAILABLE does. On a
+// 0088-only cloud a Legal file would land locked for the money audience
+// and a workspace manager running the migration would meet a raw refusal
+// instead (review round 2, finding 11).
 async function cloudLocksLegal() {
   try {
     const { data, error } = await supabase.rpc('rabbit_money_segment', { seg: LEGAL_SEGMENT })
-    return !error && data === true
+    if (error || data !== true) return false
+    const gate = await supabase.rpc('can_access_project_legal', { p_project: '00000000-0000-0000-0000-000000000000' })
+    return !gate?.error
   } catch {
     return false
   }

@@ -60,8 +60,10 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   folder, files.is_financial, and the body pinned to Supabase (0038/0050).
  * @property {boolean=} legal  Post-overhaul S4b: a Legal file — the LEGAL
  *   locked folder and the legal tag, written together at upload and never
- *   changed after; seen by workspace admins and the project's managers only
- *   (0088). Never combined with `financial`.
+ *   changed after; seen by the Legal gate's audience — workspace admins, the
+ *   project's managers and, since 0092 (S4d), workspace managers without a
+ *   seat (0088 / 0092). Never combined with `financial`: a Legal file is
+ *   never an invoice (files_legal_not_financial_chk).
  */
 
 /**

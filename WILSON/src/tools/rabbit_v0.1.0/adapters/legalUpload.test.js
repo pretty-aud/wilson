@@ -13,7 +13,9 @@
 //     private project's local disk, a NAS workspace, an s3 workspace (I4);
 //   * refuse BEFORE any byte moves on a database without 0088 (where LEGAL is
 //     an ordinary folder every member can read) and for someone outside the
-//     money gate.
+//     gate — since post-overhaul S4d (0092) the LEGAL gate,
+//     can_access_project_legal (the money audience plus workspace managers,
+//     Audrey 2026-10-08), never the money gate: the RPC named is pinned.
 // The fake client records what would have reached PostgREST, the fake
 // providers which store each body went to; every Legal case sits beside an
 // ordinary-upload CONTROL from the same branch.
@@ -48,10 +50,14 @@ function fakeProvider(name) {
 
 /**
  * A client: `legal` is what rabbit_money_segment('LEGAL') answers (0088 or
- * not), `money` what can_access_project_money answers, `isPrivate` the
- * project's flag. Records inserts, updates and RPCs.
+ * not), `gate` what can_access_project_legal answers for the project (0092;
+ * the money RPC is never asked — a question for it answers nothing),
+ * `gateMissing` a database without 0092 (every call of the gate answers "no
+ * such function"; the nil-uuid probe answers false otherwise), `isPrivate`
+ * the project's flag. Records inserts, updates and RPCs.
  */
-function makeClient({ legal = true, money = true, isPrivate = false, legalError = null, moneyError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
+const NIL = '00000000-0000-0000-0000-000000000000'
+function makeClient({ legal = true, gate = true, gateMissing = false, isPrivate = false, legalError = null, gateError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
   const inserts = []
   const updates = []
   const rpcs = []
@@ -96,7 +102,11 @@ function makeClient({ legal = true, money = true, isPrivate = false, legalError 
     rpc: async (fn, args) => {
       rpcs.push([fn, args])
       if (fn === 'rabbit_money_segment') return legalError ? { data: null, error: legalError } : { data: args.seg === 'LEGAL' ? legal : false, error: null }
-      if (fn === 'can_access_project_money') return moneyError ? { data: null, error: moneyError } : { data: money, error: null }
+      if (fn === 'can_access_project_legal') {
+        if (gateMissing) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.can_access_project_legal(p_project) in the schema cache' } }
+        if (args.p_project === NIL) return { data: false, error: null }
+        return gateError ? { data: null, error: gateError } : { data: gate, error: null }
+      }
       return { data: null, error: null }
     },
   }
@@ -145,6 +155,34 @@ describe('uploadFile({ legal: true }) on a database with 0088', () => {
     expect(row.tags).toEqual(['legal'])
     expect(row.is_financial).toBe(false)
     expect(row.storage_provider).toBe(FILE_PROVIDERS.SUPABASE)
+  })
+
+  it('a shot scope never moves a Legal or invoice body under the nested scene key (review round 2, finding 7)', async () => {
+    // The shot branch builds projects/<pid>/scenes/<scene>/shots/<shot>/… —
+    // a key no gate locks. It is skipped for money (`!moneyGated`); without
+    // that guard a Legal body would land where every member reads it until
+    // the row insert was refused.
+    for (const [scope, segment] of [[{ shotId: 'h1', legal: true }, 'LEGAL'], [{ shotId: 'h1', financial: true }, 'INVOICES']]) {
+      resetSupabaseAdapter()
+      puts = []
+      const client = makeClient()
+      globalThis.__testSupabase = client
+      await supabaseAdapter().uploadFile(PID, scope, pdf())
+      expect(puts, JSON.stringify(scope)).toHaveLength(1)
+      expect(thirdSegment(puts[0].path), JSON.stringify(scope)).toBe(segment)
+      const row = client.inserts.find(i => i.table === 'files').row
+      expect(thirdSegment(row.storage_path), JSON.stringify(scope)).toBe(segment)
+      expect(row.is_financial, JSON.stringify(scope)).toBe(segment === 'INVOICES')
+    }
+    // CONTROL: the same shot scope, neither Legal nor an invoice, takes an
+    // UNLOCKED key (the nested scenes/… key, or the older shots/… one when
+    // the fake knows no scene for the shot) — the branch is alive and only
+    // money skips it.
+    resetSupabaseAdapter()
+    puts = []
+    globalThis.__testSupabase = makeClient()
+    await supabaseAdapter().uploadFile(PID, { shotId: 'h1' }, pdf())
+    expect(['scenes', 'shots']).toContain(thirdSegment(puts[0].path))
   })
 
   it('is filed in no entity folder, whatever container or folder the scope names', async () => {
@@ -234,17 +272,43 @@ describe('refused before any byte moves', () => {
     expect(puts).toEqual([])
   })
 
-  it('for someone outside the money gate: the gate\'s sentence, nothing put', async () => {
-    const client = makeClient({ money: false })
+  it('for someone outside the Legal gate: the gate\'s sentence, nothing put — and it is the LEGAL gate that was asked (0092)', async () => {
+    const client = makeClient({ gate: false })
     globalThis.__testSupabase = client
     await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_GATE_REFUSAL)
     expect(puts).toEqual([])
     expect(client.inserts).toEqual([])
-    expect(client.rpcs).toContainEqual(['can_access_project_money', { p_project: PID }])
+    expect(client.rpcs).toContainEqual(['can_access_project_legal', { p_project: PID }])
+    // Never the money gate: a workspace manager without a seat passes the
+    // Legal gate and not the money gate, so asking money would refuse the
+    // very person 0092 admits.
+    expect(client.rpcs.map(r => r[0])).not.toContain('can_access_project_money')
   })
 
-  it('when the money gate cannot be asked (an error is a no — it fails CLOSED)', async () => {
-    const client = makeClient({ moneyError: { code: '42501', message: 'permission denied' } })
+  it('when the Legal gate cannot be asked (an error is a no — it fails CLOSED)', async () => {
+    const client = makeClient({ gateError: { code: '42501', message: 'permission denied' } })
+    globalThis.__testSupabase = client
+    await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_GATE_REFUSAL)
+    expect(puts).toEqual([])
+    expect(client.inserts).toEqual([])
+  })
+
+  it('on a database with 0088 but not 0092 (no such function): the "database update" sentence — never the gate\'s, which would call a project manager an outsider — nothing put', async () => {
+    const client = makeClient({ gateMissing: true })
+    globalThis.__testSupabase = client
+    await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_UNAVAILABLE)
+    expect(puts).toEqual([])
+    expect(client.inserts).toEqual([])
+    // The probe asked the gate with the nil project, found it missing, and
+    // the per-project question was never reached.
+    expect(client.rpcs).toContainEqual(['can_access_project_legal', { p_project: NIL }])
+    expect(client.rpcs).not.toContainEqual(['can_access_project_legal', { p_project: PID }])
+    // …and Add as Legal is greyed there (supportsLegalFiles is the same probe).
+    expect(await supabaseAdapter().supportsLegalFiles()).toBe(false)
+  })
+
+  it('a null answer from the gate is a no (it fails CLOSED on anything but true)', async () => {
+    const client = makeClient({ gate: null })
     globalThis.__testSupabase = client
     await expect(supabaseAdapter().uploadFile(PID, { legal: true }, pdf())).rejects.toThrow(LEGAL_GATE_REFUSAL)
     expect(puts).toEqual([])
@@ -259,9 +323,10 @@ describe('refused before any byte moves', () => {
   })
 
   it('CONTROL: an ordinary upload never asks either question', async () => {
-    const client = makeClient({ legal: false, money: false })
+    const client = makeClient({ legal: false, gate: false })
     globalThis.__testSupabase = client
     await supabaseAdapter().uploadFile(PID, { type: 'project' }, pdf())
+    expect(client.rpcs.map(r => r[0])).not.toContain('can_access_project_legal')
     expect(client.rpcs.map(r => r[0])).not.toContain('can_access_project_money')
     expect(client.rpcs.map(r => r[0])).not.toContain('rabbit_money_segment')
     expect(puts).toHaveLength(1)
