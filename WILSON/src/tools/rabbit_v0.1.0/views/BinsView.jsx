@@ -141,6 +141,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const anchorRef = useRef(null)
   const [renamingBinId, setRenamingBinId] = useState(null)
   const [renamingFileId, setRenamingFileId] = useState(null)
+  // Bumped on Enter / F2: the open rename field focuses again (review round 2).
+  const [renameFocusKey, setRenameFocusKey] = useState(0)
   const [menu, setMenu] = useState(null)
   const [addDlg, setAddDlg] = useState(null)
   const [addBusy, setAddBusy] = useState(false)
@@ -693,7 +695,9 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       case 'Delete': case 'Backspace': if (ids.length) { e.preventDefault(); removeIds(ids) } return
       // A rename under the picture large would be typed blind (the rename
       // bar sits below it, review round 1): the picture closes first.
-      case 'Enter': case 'F2': if (currentId && canWrite) { e.preventDefault(); setPosterLarge(false); setRenamingFileId(currentId) } return
+      // The picture large closes first; a rename field already open for this
+      // clip (focus had left it) takes the keys back (review round 2).
+      case 'Enter': case 'F2': if (currentId && canWrite) { e.preventDefault(); setPosterLarge(false); setRenamingFileId(currentId); setRenameFocusKey(k => k + 1) } return
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
@@ -762,6 +766,20 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   useEffect(() => {
     const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
     const over = (e) => { if (!hasFiles(e)) return; if (!e.defaultPrevented) e.dataTransfer.dropEffect = dropAnywhereRef.current.canWrite ? 'link' : 'none'; e.preventDefault() }
+    // Where no computer can pick the file, `over` answers 'none': the cursor
+    // says the file is not taken, and — by the drag-and-drop model — no drop
+    // event follows, so the sentence is said as the file ENTERS the page
+    // (once per drag: a long hover re-says it, which keeps the same toast
+    // up). Review round 2: saying it on the drop alone meant no sentence in
+    // a real browser, only a no-drop cursor.
+    let saidAt = 0
+    const enter = (e) => {
+      if (!hasFiles(e) || !dropAnywhereRef.current.saysWhy) return
+      const now = Date.now()
+      if (now - saidAt < 2500) return
+      saidAt = now
+      dropAnywhereRef.current.needsDesktop()
+    }
     const drop = (e) => {
       if (!hasFiles(e)) return
       const handled = e.defaultPrevented
@@ -771,9 +789,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       const paths = dropAnywhereRef.current.fromFiles(e.dataTransfer.files)
       if (paths.length) dropAnywhereRef.current.onPaths(paths); else dropAnywhereRef.current.complain()
     }
+    document.addEventListener('dragenter', enter)
     document.addEventListener('dragover', over)
     document.addEventListener('drop', drop)
-    return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop) }
+    return () => { document.removeEventListener('dragenter', enter); document.removeEventListener('dragover', over); document.removeEventListener('drop', drop) }
   }, [])
 
   // ── BC2 (item 6): a whole location this computer cannot reach ──
@@ -1120,7 +1139,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                 thumbUrlFor={thumbUrlFor} binsById={binsById} showBin={showBinColumn} sort={sort}
                 onSort={field => setSort(s => s.field === field ? { ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })}
                 onInlinePatch={(id, patch) => patchIds([id], patch)} canWrite={canWrite} scenesById={scenesById}
-                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount}
+                renamingId={renamingFileId} renameFocusKey={renameFocusKey} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount}
                 markOffline={!mode.nothingReachable} />
             ) : (
               // BC3: hover-scrub is off where nothing streams (streamUrlFor
@@ -1135,7 +1154,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
             {renamingFileId && view === 'grid' && (
               // Keyed by the file: F2 on another tile gets a fresh draft, not the
               // previous file's name (review round 2).
-              <RenameBar key={renamingFileId} row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
+              <RenameBar key={renamingFileId} focusKey={renameFocusKey} row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
             )}
             {/* BC3: the picture large (Space where nothing can play), over the
                 pane like the rename bar — the Bins keys keep working under it. */}
@@ -1220,14 +1239,19 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   )
 }
 
-function RenameBar({ row, onCommit, onCancel }) {
+function RenameBar({ row, onCommit, onCancel, focusKey = 0 }) {
   const [v, setV] = useState(row?.display_name || '')
+  const inputRef = useRef(null)
+  // Enter or F2 again while the bar is open (focus had gone to a tile, the
+  // picture large over it): the field takes the keys back, the draft kept
+  // (review round 2).
+  useEffect(() => { inputRef.current?.focus() }, [focusKey])
   if (!row) return null
   return (
     <div className="absolute left-3 right-3 bottom-3 z-30 flex items-center gap-2 px-3 py-2 rounded-float shadow-float" style={{ backgroundColor: C.panel, border: `1px solid ${C.accent}` }}>
       <Edit3 className="w-3 h-3" style={{ color: C.accentText }} />
       <span className="text-label uppercase" style={{ color: C.dim }}>Rename</span>
-      <input autoFocus value={v} onChange={e => setV(e.target.value)} aria-label="New name"
+      <input ref={inputRef} autoFocus value={v} onChange={e => setV(e.target.value)} aria-label="New name"
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
         className="ui-input flex-1" data-size="sm" />
       <span className="text-dense font-mono truncate" style={{ color: C.dimmer, maxWidth: 240 }}>{row.original_name}</span>

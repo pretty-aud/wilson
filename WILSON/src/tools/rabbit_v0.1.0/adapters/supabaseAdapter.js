@@ -1068,13 +1068,18 @@ async function listDependenciesWith(client, projectId) {
 // page until a short page. The query is built afresh per page (a builder
 // is single-use) and must carry a total order, so no row straddles two.
 const READ_PAGE = 1000;
-async function readAllPages(makeQuery) {
+// `unwrapPage` reads one page's answer (unwrapOptionalTable by default; the
+// bins' lists bring their own, which remember whether 0091 is there).
+async function readAllPagesWith(makeQuery, unwrapPage) {
   const out = [];
   for (let from = 0; ; from += READ_PAGE) {
-    const page = unwrapOptionalTable(await makeQuery().range(from, from + READ_PAGE - 1));
+    const page = unwrapPage(await makeQuery().range(from, from + READ_PAGE - 1));
     out.push(...page);
     if (page.length < READ_PAGE) return out;
   }
+}
+async function readAllPages(makeQuery) {
+  return readAllPagesWith(makeQuery, unwrapOptionalTable);
 }
 
 function listFoldersWith(client, projectId) {
@@ -1852,22 +1857,27 @@ function probeBins(result) {
 // same way, binsOrder.js): bins and files by sort_order then id; takes by
 // shot, position, then id; locations by name then id.
 function listBinsWith(client, projectId) {
-  return client.from('bins').select('*').eq('project_id', projectId)
-    .order('sort_order').order('id').then(probeBins);
+  // Every list is PAGED (BC3 review round 2): PostgREST answers at most
+  // max_rows (1,000, supabase/config.toml) and says nothing about the rest,
+  // so an unpaged read showed a browser's catalogue — "every bin and clip" —
+  // cut at the thousandth clip of a larger project. Each order is total
+  // (its last key is the id), so no row straddles two pages.
+  return readAllPagesWith(() => client.from('bins').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id'), probeBins);
 }
 function listBinFilesWith(client, projectId) {
-  return client.from('bin_files').select('*').eq('project_id', projectId)
-    .order('sort_order').order('id').then(unwrapOptionalShotListTable);
+  return readAllPagesWith(() => client.from('bin_files').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id'), unwrapOptionalShotListTable);
 }
 function listShotTakesWith(client, projectId) {
-  return client.from('shot_takes').select('*').eq('project_id', projectId)
-    .order('shot_id').order('position').order('id').then(unwrapOptionalShotListTable);
+  return readAllPagesWith(() => client.from('shot_takes').select('*').eq('project_id', projectId)
+    .order('shot_id').order('position').order('id'), unwrapOptionalShotListTable);
 }
 // The caller's workspace's locations: RLS scopes the read to it, so no
 // workspace id is needed (and none is trusted from a caller).
 function listBinLocationsWith(client) {
-  return client.from('bin_locations').select('*')
-    .order('name').order('id').then(unwrapOptionalShotListTable);
+  return readAllPagesWith(() => client.from('bin_locations').select('*')
+    .order('name').order('id'), unwrapOptionalShotListTable);
 }
 
 function missing0091Table(error) {

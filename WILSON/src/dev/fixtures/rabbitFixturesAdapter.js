@@ -108,8 +108,10 @@ const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
 function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
   // BC3 review round 1: no control, zero-width, bidi, separator or
-  // formatting character (the desktop's and the renderer's list).
-  if (/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/.test(p)) return false
+  // formatting character; round 2: by Unicode property, one regex on every
+  // backend (the desktop's and the renderer's, held equal by
+  // binsAdapterParity.test.js).
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(p)) return false
   const segs = p.split('\\')
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
   return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3])

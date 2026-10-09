@@ -28,7 +28,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [] }
+  const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null }
   const builder = (table) => {
     const q = { table, cols: null, filters: [], range: null }
     const api = {
@@ -70,6 +70,8 @@ const fake = vi.hoisted(() => {
           select() { u.selected = true; return chain },
           then(resolve) {
             state.updates.push(u)
+            // A teammate's removal between the insert and this PATCH.
+            if (state.dropOnUpdate) state.lists[table] = (state.lists[table] || []).filter(r => !state.dropOnUpdate(table, r, u))
             const hit = (state.lists[table] || []).filter(r => u.filters.every(([c, v]) => r[c] === v))
             for (const r of hit) Object.assign(r, patch)
             return resolve({ data: u.selected ? hit.map(r => ({ id: r.id })) : null, error: null })
@@ -103,7 +105,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock('../auth/supabaseClient', () => ({ supabase: fake.client }))
 
-const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF } = await import('./runMigration')
+const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES } = await import('./runMigration')
 const { pathKey } = await import('./binsMigration')
 const { BINS, BIN_FILES, SHOT_TAKES, SCENES, SHOTS, BIN_LOCATIONS } = await import('../../dev/fixtures/data/scenes')
 const { PROJECT } = await import('../../dev/fixtures/data/project')
@@ -207,7 +209,7 @@ function serve(bundles) {
 }
 
 beforeEach(() => {
-  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [] })
+  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [], dropOnUpdate: null })
   fake.state.single.workspaces = { [WS]: { remote_viewing_enabled: false } }
   posterStatus = {}
   bundleWrites = []
@@ -227,7 +229,10 @@ describe('the dry run: counted, asked, nothing written', () => {
     expect(fake.state.uploads).toEqual([])
     // The counts against an empty cloud: everything would be inserted — except
     // the clips, none of which can go until its root is named.
-    expect(report).toMatchObject({ scenes: { total: 1, inserted: 1 }, shots: { total: 2, inserted: 2 }, bins: { total: 5, inserted: 5 }, binFiles: { total: 0 }, shotTakes: { total: 3, inserted: 3 } })
+    // (The takes wait with their clips: none goes until its root is named.)
+    expect(report).toMatchObject({ scenes: { total: 1, inserted: 1 }, shots: { total: 2, inserted: 2 }, bins: { total: 5, inserted: 5 }, binFiles: { total: 0 }, shotTakes: { total: 3, inserted: 0, leftBehind: 3, orphans: 0 } })
+    // The scene's and the shot's pictures are files on this computer: not carried, said.
+    expect(report.notCarried).toEqual([{ key: 'thumbnails', label: 'scene and shot pictures', count: 2 }])
     // No answer given: the runner names nothing on its own (the panel
     // suggests; the person answers), and every root is a question.
     expect(report.footageRoots.map(r => [r.root, r.kind, r.count, r.resolved])).toEqual([
@@ -326,7 +331,7 @@ describe('the real run on a bundle shaped like her projects', () => {
     // The takes, every one (their shots and clips landed), ids kept.
     expect(ins('shot_takes').map(t => t.id)).toEqual(['t1', 't2', 't3'])
     expect(ins('shot_takes')[1]).toMatchObject({ shot_id: 'sh1', bin_file_id: 'c2', role: 'alt', position: 1, notes: 'Keep for the trailer.', workspace_id: WS, project_id: 'p-real' })
-    expect(report.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, leftBehind: 0 })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, leftBehind: 0, orphans: 0 })
     // The switch off: no picture moved (the two clips, the sequence and the
     // still have one to send; the audio has none), said once.
     expect(fake.state.uploads).toEqual([])
@@ -380,7 +385,9 @@ describe('the real run on a bundle shaped like her projects', () => {
     const again = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
     expect(again.bins).toEqual({ total: 5, inserted: 0, skipped: 5, failed: 0 })
     expect(again.binFiles).toEqual({ total: 4, inserted: 0, skipped: 4, failed: 0, leftBehind: 1 })
-    expect(again.shotTakes).toEqual({ total: 3, inserted: 0, skipped: 3, failed: 0, leftBehind: 0 })
+    expect(again.shotTakes).toEqual({ total: 3, inserted: 0, skipped: 3, failed: 0, leftBehind: 0, orphans: 0 })
+    // A take already there is skipped without a write (review round 2).
+    expect(fake.state.log.filter(t => t === 'shot_takes')).toHaveLength(3)
     // The location the first run made is the company's now: matched by
     // address, nothing to make, nothing to skip.
     expect(again.binLocations).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0 })
@@ -406,15 +413,17 @@ describe('the real run on a bundle shaped like her projects', () => {
       expect.objectContaining({ scope: 'shot_take', id: 't3', message: 'take not migrated: its shot is not in the cloud' }),
     ]))
     expect(ins('shot_takes').map(t => t.id)).toEqual(['t1', 't2'])
-    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 1, leftBehind: 0 })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 1, leftBehind: 0, orphans: 0 })
   })
 
   // Review round 1: a take of a clip LEFT on this computer waits with it —
   // left behind, not failed, no error (an error would mark the run unclean
-  // for a thing the person chose); a shot whose primary take was left gets
-  // one from what landed, positions in order (0091's invariant, which only
-  // its RPCs keep).
-  it('a take of a clip left for now is left behind, not failed; a shot whose primary stayed behind gets a primary from what landed', async () => {
+  // for a thing the person chose). Review round 2: NOTHING is promoted in
+  // the primary's place (promoting a landed take left the shot with two
+  // primaries once the real one arrived on the next run): the shot waits
+  // for its primary, which lands as the primary when its root is named,
+  // after the takes already there — no row in the cloud is moved.
+  it('a take of a clip left for now is left behind, not failed; its shot gets no primary until it arrives, and then exactly one', async () => {
     const b = realBundle()
     // c1 (the primary of sh1) is moved to the scratch drive, which is left for now.
     b.binFiles[0].source_path = 'E:\\Scratch\\A001_C001.mov'
@@ -423,10 +432,122 @@ describe('the real run on a bundle shaped like her projects', () => {
     const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
     expect(byId('bin_files', 'c1')).toBeUndefined()
     expect(report.binFiles.leftBehind).toBe(2)
-    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1, orphans: 0 })
     expect(report.errors).toEqual([])
-    const sh1 = ins('shot_takes').filter(t => t.shot_id === 'sh1')
-    expect(sh1).toEqual([expect.objectContaining({ id: 't2', role: 'primary', position: 0 })])
+    expect(ins('shot_takes').filter(t => t.shot_id === 'sh1')).toEqual([expect.objectContaining({ id: 't2', role: 'alt', position: 0 })])
+    // The scratch drive named: the clip and its take arrive, the take as the primary.
+    const again = await runMigration({ workspaceId: WS, locations: { ...REAL_ANSWERS, [pathKey('E:\\Scratch')]: { unc_path: '\\\\nas\\scratch', name: 'Scratch' } } })
+    expect(byId('bin_files', 'c1')).toMatchObject({ relative_path: 'A001_C001.mov' })
+    expect(again.binFiles.leftBehind).toBe(0)
+    expect(again.shotTakes).toEqual({ total: 3, inserted: 1, skipped: 2, failed: 0, leftBehind: 0, orphans: 0 })
+    expect(ins('shot_takes').filter(t => t.shot_id === 'sh1').map(t => [t.id, t.role, t.position])).toEqual([['t2', 'alt', 0], ['t1', 'primary', 1]])
+    expect(fake.state.updates.filter(u => u.table === 'shot_takes')).toEqual([])
+    expect(again.errors).toEqual([])
+  })
+
+  // Review round 2: the desktop keeps a take of a removed shot or clip for
+  // undo and shows it to nobody; the raw bundle carries it. Not carried,
+  // not an error — as an error it made an ordinary project never reach Done.
+  it('a take of a shot or clip removed on this computer is not carried and not an error; the dry run agrees', async () => {
+    const b = realBundle()
+    b.shotTakes.push(
+      { id: 't-gone-clip', project_id: 'p-real', shot_id: 'sh1', bin_file_id: 'c-gone', role: 'alt', position: 2 },
+      { id: 't-gone-shot', project_id: 'p-real', shot_id: 'sh-gone', bin_file_id: 'c2', role: 'primary', position: 0 },
+    )
+    serve([b])
+    seedNas()
+    const lines = []
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: REAL_ANSWERS, onProgress: (m) => lines.push(m) })
+    expect(dry.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, leftBehind: 0, orphans: 2 })
+    expect(lines).toContain(`  ${ORPHAN_TAKES(2)}`)
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, leftBehind: 0, orphans: 2 })
+    expect(report.errors).toEqual([])
+    expect(ins('shot_takes').map(t => t.id)).toEqual(['t1', 't2', 't3'])
+  })
+
+  it('the dry run counts the takes as the real run lands them (one in the cloud by its shot+clip pair skipped, one whose clip stays waiting) and the pictures that will upload while the switch is on', async () => {
+    const b = realBundle()
+    b.binFiles[0].source_path = 'E:\\Scratch\\A001_C001.mov' // c1 left for now: t1 waits
+    serve([b])
+    seedNas()
+    fake.state.lists.shot_takes = [{ id: 'theirs', project_id: 'p-real', shot_id: 'sh1', bin_file_id: 'c2', role: 'alt', position: 0 }] // t2's pair, under another id
+    fake.state.single.workspaces[WS].remote_viewing_enabled = true
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: REAL_ANSWERS })
+    expect(dry.shotTakes).toEqual({ total: 3, inserted: 1, skipped: 1, failed: 0, leftBehind: 1, orphans: 0 })
+    // c2 (video), the sequence and the still have a picture to send; c1 stays; the audio has none.
+    expect(dry.posters).toEqual({ total: 3, uploaded: 3, skipped: 0, failed: 0, switchOff: 0 })
+    expect(fake.state.log).toEqual([])
+    // The real run lands the same: t2 skipped on its pair, no insert tried.
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 1, skipped: 1, failed: 0, leftBehind: 1, orphans: 0 })
+    expect(ins('shot_takes').map(t => t.id)).toEqual(['t3'])
+    expect(report.posters).toMatchObject({ total: 3, uploaded: 3 })
+  })
+
+  // Review round 2 (security): a row's id that belongs to ANOTHER project
+  // (a copied project file; the same desktop moved into a second company)
+  // is a failure with its reason, never "already in the cloud" — and a shot
+  // never hangs off another project's scene (0040's scene link is a plain
+  // foreign key, with no project in it).
+  it('an id in the cloud under another project is a failure, said; a shot whose scene is another project\'s loses the link, said; the same ids under THIS project are skipped', async () => {
+    serve([realBundle()])
+    seedNas()
+    fake.state.lists.scenes = [{ id: 'sc1', project_id: 'p-other' }]
+    fake.state.lists.bins = [{ id: 'b-vfx', project_id: 'p-other' }]
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(report.scenes).toEqual({ total: 1, inserted: 0, skipped: 0, failed: 1 })
+    expect(report.bins).toEqual({ total: 5, inserted: 4, skipped: 0, failed: 1 })
+    expect(report.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: 'scene', id: 'sc1', message: expect.stringMatching(/not this project's/) }),
+      expect.objectContaining({ scope: 'bin', id: 'b-vfx', message: expect.stringMatching(/not this project's/) }),
+      expect.objectContaining({ scope: 'shot', id: 'sh1', message: expect.stringMatching(/its scene is not in the cloud, so the shot's scene link was left empty/) }),
+    ]))
+    expect(byId('shots', 'sh1')).toMatchObject({ scene_id: null })
+    expect(byId('shots', 'sh2')).toMatchObject({ scene_id: null })
+    // CONTROL: the same ids under this project are skipped, the links kept.
+    Object.assign(fake.state, { inserts: {}, lists: {}, log: [] })
+    seedNas()
+    fake.state.lists.scenes = [{ id: 'sc1', project_id: 'p-real' }]
+    fake.state.lists.bins = [{ id: 'b-vfx', project_id: 'p-real' }]
+    const again = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(again.scenes).toEqual({ total: 1, inserted: 0, skipped: 1, failed: 0 })
+    expect(again.bins).toEqual({ total: 5, inserted: 4, skipped: 1, failed: 0 })
+    expect(byId('shots', 'sh1')).toMatchObject({ scene_id: 'sc1' })
+    expect(again.errors).toEqual([])
+  })
+
+  it('a re-run with a changed answer makes no location for clips already in the cloud, and says they keep theirs (review round 2)', async () => {
+    serve([realBundle()])
+    seedNas()
+    await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(ins('bin_locations').map(l => l.unc_path)).toEqual(['\\\\nas\\dailies'])
+    const lines = []
+    const again = await runMigration({ workspaceId: WS, onProgress: (m) => lines.push(m), locations: { ...REAL_ANSWERS, [pathKey('D:\\Dailies')]: { unc_path: '\\\\nas2\\scratch', name: 'Elsewhere' } } })
+    expect(again.binLocations).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0 })
+    expect(ins('bin_locations').map(l => l.unc_path)).toEqual(['\\\\nas\\dailies'])
+    expect(again.binFiles).toMatchObject({ inserted: 0, skipped: 4 })
+    expect(lines).toContain('  D:\\Dailies: 1 clip already in the cloud keeps the footage location it has there (the answer given now moves no clip)')
+    expect(again.errors).toEqual([])
+  })
+
+  it('what the migration does not carry is counted, summed over the projects, in the dry run and the real one', async () => {
+    const a = realBundle()
+    a.comments = [{ id: 'k1' }]; a.budgetLines = [{ id: 'bl1' }, { id: 'bl2' }]; a.shotLists = [{ id: 'sl1' }]
+    const b = { project: { id: 'p-two', title: 'Two' }, phases: [], assets: [], tasks: [], files: [], dependencies: [], comments: [{ id: 'k2' }] }
+    serve([a, b])
+    seedNas()
+    // Summed over the two projects, the word in the right number for the sum.
+    const expected = [
+      { key: 'comments', label: 'comments', count: 2 },
+      { key: 'budgetLines', label: 'budget lines', count: 2 },
+      { key: 'shotLists', label: 'shot list', count: 1 },
+      { key: 'thumbnails', label: 'scene and shot pictures', count: 2 },
+    ]
+    const dry = await runMigration({ workspaceId: WS, dryRun: true, locations: REAL_ANSWERS })
+    expect(dry.notCarried).toEqual(expected)
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(report.notCarried).toEqual(expected)
   })
 
   it('a sequence folder picked as its own root belongs to the folder above it, so it has a path inside its location — and a clip the cloud cannot take makes no location first', async () => {
@@ -456,26 +577,37 @@ describe('the real run on a bundle shaped like her projects', () => {
     serve([b])
     seedNas()
     fake.state.single.workspaces[WS].remote_viewing_enabled = true
-    // 1,200 clips already in the cloud with a picture each, c1 among them.
-    fake.state.lists.bin_files = Array.from({ length: 1200 }, (_, i) => ({ id: i === 0 ? 'c1' : `old-${String(i).padStart(4, '0')}`, project_id: 'p-real', poster_path: 'x' }))
+    // 1,200 clips already in the cloud with a picture each, c1 among them —
+    // and LAST by id, so it sits on the second page (review round 2: it
+    // used to sort first, where a runner that dropped page two still found it).
+    fake.state.lists.bin_files = Array.from({ length: 1200 }, (_, i) => ({ id: i === 0 ? 'c1' : `a-old-${String(i).padStart(4, '0')}`, project_id: 'p-real', poster_path: 'x' }))
     const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
     expect(fake.state.ranges.filter(r => r[0] === 'bin_files').map(r => [r[1], r[2]])).toEqual([[0, 999], [1000, 1999]])
     expect(fake.state.uploads.some(u => /\/bin_files\/c1\//.test(u.path))).toBe(false)
     expect(report.posters.skipped).toBe(1)
   })
 
-  it('a picture whose row is not this project\'s is taken back (the PATCH matched nothing), and said', async () => {
+  it('a picture whose row is gone from this project by the time its key is written (removed meanwhile) is taken back, and said; a clip whose id is another project\'s never has a picture tried', async () => {
     serve([realBundle()])
     seedNas()
     fake.state.single.workspaces[WS].remote_viewing_enabled = true
-    // c2's id already belongs to another project's row: its insert is skipped
-    // by key, and the PATCH of its picture matches no row of this project.
-    fake.state.lists.bin_files = [{ id: 'c2', project_id: 'p-other', poster_path: null }]
+    // A teammate removes c2 between its insert and the PATCH of its picture:
+    // the PATCH matches no row of this project, so the object is taken back.
+    fake.state.dropOnUpdate = (table, row) => table === 'bin_files' && row.id === 'c2'
     const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
     const key = fake.state.uploads.find(u => /\/bin_files\/c2\//.test(u.path))?.path
     expect(key).toBeTruthy()
     expect(fake.state.removed).toContain(key)
-    expect(report.errors).toEqual(expect.arrayContaining([expect.objectContaining({ scope: 'poster', id: 'c2', message: expect.stringMatching(/not this project's/) })]))
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'poster', id: 'c2', message: expect.stringMatching(/taken back/) })])
+    // CONTROL (review round 2): an id that belongs to another project's row
+    // is a failure of the clip itself — no picture is uploaded for it.
+    Object.assign(fake.state, { inserts: {}, lists: {}, uploads: [], removed: [], dropOnUpdate: null })
+    seedNas()
+    fake.state.lists.bin_files = [{ id: 'c2', project_id: 'p-other', poster_path: null }]
+    const again = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(fake.state.uploads.some(u => /\/bin_files\/c2\//.test(u.path))).toBe(false)
+    expect(again.binFiles).toMatchObject({ failed: 1 })
+    expect(again.errors).toEqual(expect.arrayContaining([expect.objectContaining({ scope: 'bin_file', id: 'c2', message: expect.stringMatching(/not this project's/) })]))
   })
 
   it('a clip logged to a shot that did not land keeps its row, its link let go and said', async () => {
@@ -512,8 +644,8 @@ describe('the real run on a bundle shaped like her projects', () => {
     expect(fake.state.uploads).toEqual([])
     expect(report.posters.uploaded).toBe(0)
     expect(report.errors.some(e => e.scope === 'bin_files' && /no picture was uploaded for it/.test(e.message))).toBe(true)
-    // CONTROL: the clips themselves landed.
-    expect(report.errors.filter(e => e.scope !== 'bin_files' && e.scope !== 'bin_locations')).toEqual([])
+    // CONTROL: the clips themselves landed (every failed READ is said, per table; nothing else is).
+    expect(report.errors.filter(e => !['bin_files', 'bin_locations', 'scenes', 'shots', 'bins', 'shot_takes'].includes(e.scope))).toEqual([])
     expect(report.binFiles.inserted).toBe(4)
   })
 

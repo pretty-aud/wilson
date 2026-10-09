@@ -30,8 +30,8 @@ vi.mock('./runMigration', async (orig) => {
 })
 vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 
-const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE } = await import('./MigrationPanel')
-const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF } = await import('./runMigration')
+const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE, NO_PATH_LEFT, ARCHIVE_KEEPS_NOT_CARRIED } = await import('./MigrationPanel')
+const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
 const bucket = (total = 0) => ({ total, inserted: 0, skipped: 0, failed: 0 })
@@ -213,6 +213,96 @@ describe('the question, once per root', () => {
     state.reports.push(report({ dryRun: false, footageRoots: [] }))
     await act(async () => { fireEvent.click(migrate()) })
     expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: { [pathKey('\\\\other\\dailies\\Day01')]: expect.objectContaining({ unc_path: '\\\\other\\dailies', confirmed: true }) } }))
+  })
+
+  // Review round 2: leaving the field, tabbing through the row, "Leave for
+  // now" and "Name it" confirmed a suggestion as well — and the button sat
+  // after the fields, so a keyboard never reached it before it vanished.
+  it('leaving the field, "Leave for now", "Name it" and typing the NAME alone confirm nothing: the button stays, and the run receives no suggestion', async () => {
+    await dryRun(report({
+      footageRoots: [{ root: '\\\\other\\dailies\\Day01', key: pathKey('\\\\other\\dailies\\Day01'), kind: 'unc', count: 2, projects: ['p1'], resolved: 'unanswered' }],
+      footageLocations: [],
+    }))
+    const row = rootRow('\\\\other\\dailies\\Day01')
+    const address = within(row).getByLabelText('Network address')
+    await act(async () => { address.focus(); address.blur() })
+    fireEvent.blur(address)
+    expect(row.getAttribute('data-resolved')).toBe('suggested')
+    fireEvent.change(within(row).getByLabelText('Location name'), { target: { value: 'Our dailies' } })
+    expect(row.getAttribute('data-resolved')).toBe('suggested')
+    await act(async () => { fireEvent.click(within(row).getByRole('button', { name: LEAVE_FOR_NOW })) })
+    await act(async () => { fireEvent.click(within(row).getByRole('button', { name: NAME_IT_INSTEAD })) })
+    expect(row.getAttribute('data-resolved')).toBe('suggested')
+    expect(within(row).getByTestId('root-resolution').textContent).toMatch(/^Suggested: A new location "Our dailies"/)
+    expect(screen.getByTestId('roots-progress').textContent).toBe('0 of 1 answered')
+    expect(migrate().disabled).toBe(true)
+    // The button comes after the fields in the row, so Tab reaches it.
+    const controls = [...row.querySelectorAll('input, button')]
+    expect(controls.indexOf(within(row).getByRole('button', { name: USE_THIS_ADDRESS }))).toBeGreaterThan(controls.indexOf(within(row).getByLabelText('Network address')))
+    state.reports.push(report({ footageRoots: [], footageLocations: [] }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dry-run' })) })
+    expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: {} }))
+  })
+
+  it('a suggestion nobody touched is replaced by the company\'s answer when a teammate names the share meanwhile; a typed answer is kept (review round 2)', async () => {
+    const roots = [
+      { root: '\\\\other\\dailies\\Day01', key: pathKey('\\\\other\\dailies\\Day01'), kind: 'unc', count: 2, projects: ['p1'], resolved: 'unanswered' },
+      { root: 'D:\\Dailies', key: pathKey('D:\\Dailies'), kind: 'local', count: 1, projects: ['p1'], resolved: 'unanswered' },
+    ]
+    await dryRun(report({ footageRoots: roots, footageLocations: [] }))
+    fireEvent.change(within(rootRow('D:\\Dailies')).getByLabelText('Network address'), { target: { value: '\\\\nas\\dailies' } })
+    expect(screen.getByTestId('roots-progress').textContent).toBe('1 of 2 answered')
+    // Dry-run again: the share is one of the company's now.
+    state.reports.push(report({ footageRoots: roots, footageLocations: [{ id: 'L9', name: 'Their dailies', unc_path: '\\\\other\\dailies' }] }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dry-run' })) })
+    const row = rootRow('\\\\other\\dailies\\Day01')
+    expect(row.getAttribute('data-resolved')).toBe('existing')
+    expect(within(row).getByTestId('root-resolution').textContent).toBe('The company\'s "Their dailies" (\\\\other\\dailies): 2 clips at Day01/….')
+    expect(within(rootRow('D:\\Dailies')).getByLabelText('Network address').value).toBe('\\\\nas\\dailies')
+    expect(screen.getByTestId('roots-progress').textContent).toBe('2 of 2 answered')
+    expect(migrate().disabled).toBe(false)
+    state.reports.push(report({ dryRun: false, footageRoots: [] }))
+    await act(async () => { fireEvent.click(migrate()) })
+    expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: {
+      [pathKey('\\\\other\\dailies\\Day01')]: expect.objectContaining({ unc_path: '\\\\other\\dailies' }),
+      [pathKey('D:\\Dailies')]: expect.objectContaining({ unc_path: '\\\\nas\\dailies', confirmed: true }),
+    } }))
+  })
+
+  it('the last report and the question stay on screen while a run is on, and the pressed button says so (review round 2)', async () => {
+    await dryRun()
+    let resolve
+    state.reports.push(new Promise((r) => { resolve = r }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dry-run' })) })
+    expect(screen.getByRole('button', { name: 'Running…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Migrate' })).toBeTruthy()
+    expect(rootRow('D:\\Dailies')).toBeTruthy()
+    expect(document.querySelector('.s-table')).toBeTruthy()
+    await act(async () => { resolve(report({ footageRoots: [] })) })
+    expect(screen.getByRole('button', { name: 'Dry-run' })).toBeTruthy()
+    expect(rootRow('D:\\Dailies')).toBeNull()
+    state.reports.push(new Promise((r) => { resolve = r }))
+    await act(async () => { fireEvent.click(migrate()) })
+    expect(screen.getByRole('button', { name: 'Migrating…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Dry-run' })).toBeTruthy()
+    await act(async () => { resolve(report({ dryRun: false, footageRoots: [] })) })
+    expect(migrate().title).toBe(MIGRATE_DONE)
+  })
+
+  it('what the migration does not carry is listed under the report before the archive is offered, and the archive button says so; an orphan take is one line, no error', async () => {
+    await dryRun(report({ dryRun: false, footageRoots: [], notCarried: [{ key: 'budgetLines', label: 'budget lines', count: 12 }, { key: 'thumbnails', label: 'scene and shot pictures', count: 3 }], shotTakes: { ...bucket(2), inserted: 2, leftBehind: 0, orphans: 1 } }))
+    expect(screen.getByTestId('not-carried').textContent).toBe(NOT_CARRIED_SENTENCE([{ count: 12, label: 'budget lines' }, { count: 3, label: 'scene and shot pictures' }]))
+    expect(screen.getByTestId('not-carried').textContent).toContain('12 budget lines, 3 scene and shot pictures')
+    expect(screen.getByTestId('orphan-takes').textContent).toBe(`${ORPHAN_TAKES(1)}.`)
+    expect(screen.getByRole('button', { name: /Archive and clear local/ }).title).toBe(ARCHIVE_KEEPS_NOT_CARRIED)
+    expect(migrate().title).toBe(MIGRATE_DONE)
+  })
+
+  it('a clip with no path recorded gets its own sentence on Migrate: there is no question to send the person to (review round 2)', async () => {
+    await dryRun(report({ dryRun: false, footageRoots: [], binFiles: { ...bucket(2), inserted: 1, leftBehind: 1 }, clipsLeftBehind: [{ projectId: 'p1', id: 'g', name: 'ghost', root: null }], errors: [{ scope: 'bin_file', id: 'g', message: 'ghost: no path recorded, so it was left on this computer' }] }))
+    expect(migrate().title).toBe(NO_PATH_LEFT(1))
+    expect(screen.queryByRole('button', { name: /Archive and clear local/ })).toBeNull()
+    expect(screen.getByTestId('clips-left-behind').textContent).toContain('ghost')
   })
 
   it('every root\'s field has its own id, whatever its punctuation', async () => {

@@ -35,7 +35,7 @@ import { isLegalFile, LEGAL_SEGMENT, LEGAL_UNAVAILABLE } from '../../tools/rabbi
 // BC3 (B9): the bins' part — the roots, the question's answers, the cloud
 // row shape — is pure and lives beside this file.
 import {
-  binRootsOf, mergeRoots, pathKey, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, POSTER_MEDIA,
+  binRootsOf, mergeRoots, pathKey, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey, notCarriedOf, notCarriedLabel, POSTER_MEDIA,
 } from './binsMigration'
 
 const RABBIT_BASE = '/api/rabbit'
@@ -45,6 +45,14 @@ const POSTER_MAX_BYTES = 262144 // the bucket's own cap (0053)
 // The sentences the bins' part says (the panel and the tests quote them).
 export const BINS_LEFT_BEHIND = (n) => `${n} clip${n === 1 ? '' : 's'} left on this computer: name ${n === 1 ? 'its' : 'their'} footage location and run the migration again`
 export const POSTERS_SWITCH_OFF = 'pictures stay on this computer: the company has not allowed files to be viewed from outside the office network (a workspace admin can turn that on in App settings, Storage)'
+// A take of a shot or clip removed on this computer (the desktop keeps the
+// row for undo, and shows it to nobody) is not carried, and not an error
+// (review round 2: every such row failed every run, so an ordinary project
+// never reached Done).
+export const ORPHAN_TAKES = (n) => `${n} take${n === 1 ? '' : 's'} of a shot or clip removed on this computer (kept there for undo) not carried`
+// What the migration does not carry, said under the report BEFORE the
+// archive is offered (review round 2).
+export const NOT_CARRIED_SENTENCE = (list) => `Stays on this computer (the migration does not carry it): ${list.map(x => `${x.count} ${x.label}`).join(', ')}. Archive and clear local keeps a copy in the archive file only.`
 
 async function fetchLocalProjectsList() {
   const res = await localFetch(`${RABBIT_BASE}/projects`)
@@ -130,10 +138,18 @@ export function withoutSetAside(row) {
   return rest
 }
 
-async function insertOrSkip(table, row) {
+// `ours(row)`, when the caller read what the cloud holds for this project:
+// a duplicate is "already in the cloud" only if it is this project's row. An
+// id that belongs to another project's row (a copied project file; the same
+// desktop moved into a second company) is a FAILURE with its reason, never a
+// quiet skip that reads as done (review round 2).
+async function insertOrSkip(table, row, ours = null) {
   const { error } = await supabase.from(table).insert(row)
   if (!error) return { status: 'inserted' }
-  if (error.code === '23505') return { status: 'skipped' } // unique_violation
+  if (error.code === '23505') { // unique_violation
+    if (!ours || ours(row)) return { status: 'skipped' }
+    throw new Error(`${table}: a row with this id is in the cloud but is not this project's, so nothing was written for it (${error.message})`)
+  }
   throw new Error(`${table}: ${error.message}`)
 }
 
@@ -214,7 +230,7 @@ async function uploadPoster(projectId, fileId, bytes) {
   const { data: rows, error: rowErr } = await supabase.from('bin_files').update({ poster_path: key }).eq('id', fileId).eq('project_id', projectId).select('id')
   if (rowErr || !Array.isArray(rows) || rows.length !== 1) {
     try { await supabase.storage.from(POSTER_BUCKET).remove([key]) } catch { /* the refusal below is the answer */ }
-    throw new Error(rowErr ? `bin_files: ${rowErr.message}` : 'bin_files: the clip\'s row is not this project\'s, so its picture was taken back')
+    throw new Error(rowErr ? `bin_files: ${rowErr.message}` : 'bin_files: the clip\'s row is no longer in the cloud under this project (removed meanwhile), so its picture was taken back')
   }
   return key
 }
@@ -240,8 +256,13 @@ function makeReport() {
     bins:          { total: 0, inserted: 0, skipped: 0, failed: 0 },
     binLocations:  { total: 0, inserted: 0, skipped: 0, failed: 0 },
     binFiles:      { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
-    shotTakes:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
+    // `orphans`: takes of a shot or clip removed on this computer — not
+    // carried, not counted in `total`, not an error (ORPHAN_TAKES).
+    shotTakes:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0, orphans: 0 },
     posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
+    // What the bundles hold that the runner does not carry (notCarriedOf),
+    // summed over the projects: `[{ key, label, count }]`.
+    notCarried: [],
     // The question: every distinct root of every project's clips, with what
     // the answers (if any) resolved it to — `[{ root, key, kind, count,
     // projects, resolved }]` — and the company's locations it was asked
@@ -295,6 +316,26 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // switch (read once, when a clip could have a picture), the roots of every
   // project (the question), and the locations made in this run.
   const binsState = { locations: null, locationsError: null, switch: null, roots: [], answers: locations || {} }
+  const notCarried = new Map()
+  const countNotCarried = (bundle) => {
+    for (const { key, count } of notCarriedOf(bundle)) {
+      const e = notCarried.get(key) || { key, count: 0 }
+      e.count += count
+      e.label = notCarriedLabel(key, e.count)
+      notCarried.set(key, e)
+    }
+  }
+  // The live takes of a bundle: those whose shot and clip are in it. The rest
+  // are the desktop's orphans (kept for undo, shown to nobody): not carried.
+  const liveTakesOf = (bundle) => {
+    const takes = bundle.shotTakes ?? []
+    const shots = new Set((bundle.shots ?? []).map(s => s?.id))
+    const clips = new Set((bundle.binFiles ?? []).map(c => c?.id))
+    const live = takes.filter(t => t && shots.has(t.shot_id) && clips.has(t.bin_file_id))
+    const orphans = takes.length - live.length
+    if (orphans) { report.shotTakes.orphans += orphans; note(`  ${ORPHAN_TAKES(orphans)}`) }
+    return live
+  }
   const companyLocations = async () => {
     if (binsState.locations) return binsState.locations
     const r = await cloudLocations(workspaceId)
@@ -415,7 +456,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       await wouldWrite(report.scenes, 'scenes', bundle.scenes ?? [])
       await wouldWrite(report.shots, 'shots', bundle.shots ?? [])
       await wouldWrite(report.bins, 'bins', bundle.bins ?? [])
-      await wouldWrite(report.shotTakes, 'shot_takes', bundle.shotTakes ?? [])
+      countNotCarried(bundle)
       if ((bundle.bins ?? []).length || (bundle.binFiles ?? []).length) {
         const clips = bundle.binFiles ?? []
         const roots = binRootsOf(bundle)
@@ -452,6 +493,20 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           report.binFiles.total++
           if (there.has(clip.id)) report.binFiles.skipped++; else report.binFiles.inserted++
         }
+        // The takes, counted as the real run lands them (review round 2):
+        // the live ones only; one in the cloud (by id or by its pair) is
+        // skipped; one whose clip goes (or is there) is inserted; one whose
+        // clip stays waits with it.
+        const liveTakes = liveTakesOf(bundle)
+        const haveTakes = liveTakes.length ? await listCloud('shot_takes', 'project_id', projectId, 'id, shot_id, bin_file_id') : { rows: [] }
+        if (haveTakes.error) report.errors.push({ scope: 'shot_takes', projectId, message: `could not read what the cloud already holds: ${haveTakes.error.message || haveTakes.error}` })
+        const thereTakes = new Set((haveTakes.rows || []).flatMap(t => [t.id, takePairKey(t)]))
+        for (const t of liveTakes) {
+          report.shotTakes.total++
+          if (thereTakes.has(t.id) || thereTakes.has(takePairKey(t))) report.shotTakes.skipped++
+          else if (named.has(t.bin_file_id) || there.has(t.bin_file_id)) report.shotTakes.inserted++
+          else report.shotTakes.leftBehind++
+        }
         // Pictures, for the clips that will go: said now, so the switch is
         // no surprise after the run; one already in the cloud is skipped.
         const withPicture = clips.filter(f => named.has(f.id) && POSTER_MEDIA.has(f.media_type))
@@ -461,7 +516,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         report.posters.skipped += havePicture
         if (toUpload > 0) {
           const on = await switchOn()
-          if (on) note(`  ${plural(toUpload, 'picture')} will upload (the company allows viewing from outside the office network)`)
+          if (on) { report.posters.uploaded += toUpload; note(`  ${plural(toUpload, 'picture')} will upload (the company allows viewing from outside the office network)`) }
           else { report.posters.switchOff += toUpload; note(`  ${plural(toUpload, 'picture')}: ${POSTERS_SWITCH_OFF}`) }
         }
       }
@@ -645,9 +700,22 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // row keeps its id (the desktop's UUIDs are 0091's), so a second run
     // skips what is there.
     const landed = { scenes: new Set(), shots: new Set(), bins: new Set(), clips: new Set() }
+    countNotCarried(bundle)
+    // What the cloud already holds for THIS project, per table, so that a
+    // duplicate key is "already there" only for this project's own row
+    // (review round 2). A read that fails is said; its table then skips a
+    // duplicate as before.
+    const known = {}
+    for (const [key, table] of [['scenes', 'scenes'], ['shots', 'shots'], ['bins', 'bins']]) {
+      if (!(bundle[key] ?? []).length) continue
+      const r = await cloudIds(table, projectId)
+      if (r.error) { known[table] = null; report.errors.push({ scope: table, projectId, message: `could not read what the cloud already holds, so a row refused as a duplicate reads as already there: ${r.error.message || r.error}` }) }
+      else known[table] = r.ids
+    }
+    const oursIn = (table) => (known[table] ? (row) => known[table].has(row.id) : null)
     for (const sc of bundle.scenes ?? []) {
       try {
-        const r = await insertOrSkip('scenes', toColumns('scenes', withoutSetAside(cloudRowOf(sc, projectId))))
+        const r = await insertOrSkip('scenes', toColumns('scenes', withoutSetAside(cloudRowOf(sc, projectId))), oursIn('scenes'))
         r.status === 'inserted' ? bumpInserted(report.scenes) : bumpSkipped(report.scenes)
         landed.scenes.add(sc.id)
       } catch (err) {
@@ -658,8 +726,12 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     for (const sh of bundle.shots ?? []) {
       try {
         const row = withoutSetAside(cloudRowOf(sh, projectId))
-        if (row.scene_id && !landed.scenes.has(row.scene_id)) row.scene_id = null
-        const r = await insertOrSkip('shots', toColumns('shots', row))
+        // 0040's scene link is a plain FK (no project in it): a scene that
+        // did not land here — failed, or another project's — is let go, and
+        // said (review round 2, security: a migrated shot must not hang off
+        // a scene of another project).
+        if (row.scene_id && !landed.scenes.has(row.scene_id)) { report.errors.push({ scope: 'shot', projectId, id: sh.id, message: `${sh.name || sh.id}: its scene is not in the cloud, so the shot's scene link was left empty` }); row.scene_id = null }
+        const r = await insertOrSkip('shots', toColumns('shots', row), oursIn('shots'))
         r.status === 'inserted' ? bumpInserted(report.shots) : bumpSkipped(report.shots)
         landed.shots.add(sh.id)
       } catch (err) {
@@ -669,7 +741,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     for (const b of binsParentsFirst(bundle.bins ?? [])) {
       try {
-        const r = await insertOrSkip('bins', toColumns('bins', { ...cloudRowOf(b, projectId), workspace_id: workspaceId }))
+        const r = await insertOrSkip('bins', toColumns('bins', { ...cloudRowOf(b, projectId), workspace_id: workspaceId }), oursIn('bins'))
         r.status === 'inserted' ? bumpInserted(report.bins) : bumpSkipped(report.bins)
         landed.bins.add(b.id)
       } catch (err) {
@@ -690,12 +762,16 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // unknown, and a second upload would orphan the first in the bucket.
     let cloudClipsUnknown = false
     if (clips.length) {
-      const have = await listCloud('bin_files', 'project_id', projectId, 'id, poster_path')
+      const have = await listCloud('bin_files', 'project_id', projectId, 'id, poster_path, location_id')
       if (have.error) { cloudClipsUnknown = true; report.errors.push({ scope: 'bin_files', projectId, message: `could not read the project's clips already in the cloud, so no picture was uploaded for it: ${have.error.message || have.error}` }) }
       else cloudClips = new Map(have.rows.map(r => [r.id, r]))
     }
     const wantPicture = []
     const leftClips = new Set()
+    // A clip already in the cloud keeps the location it has there: the
+    // answer given now does not move it. Said once per root (review round 2:
+    // the answer used to make an empty location for clips all already there).
+    const keptLocation = new Map()
     for (const clip of clips) {
       const root = rootByClip.get(clip.id)
       const name = clip.display_name || clip.original_name || clip.id
@@ -718,6 +794,18 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         continue
       }
       try {
+        // Already in the cloud (a second run): skipped BEFORE any location
+        // is made for it, and its picture completed if it still has none.
+        const already = cloudClips.get(clip.id)
+        if (already) {
+          const namedId = resolved.kind === 'existing' ? resolved.location.id : resolved.location?.id
+          if (already.location_id && already.location_id !== namedId) keptLocation.set(root.key, (keptLocation.get(root.key) || 0) + 1)
+          bumpSkipped(report.binFiles)
+          landed.clips.add(clip.id)
+          if (POSTER_MEDIA.has(clip.media_type) && !already.poster_path && !cloudClipsUnknown) wantPicture.push(clip)
+          else if (POSTER_MEDIA.has(clip.media_type)) { report.posters.total++; report.posters.skipped++ }
+          continue
+        }
         if (!landed.bins.has(clip.bin_id)) throw new Error(`its bin (${clip.bin_id}) is not in the cloud`)
         // The row is built BEFORE a location is made for it (review round
         // 1): a clip the cloud cannot take leaves no empty location behind.
@@ -728,27 +816,42 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         // A scene or shot link to a row that did not land is let go, and said.
         if (row.scene_id && !landed.scenes.has(row.scene_id)) { report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: its scene is not in the cloud, so the clip's scene link was left empty` }); row.scene_id = null }
         if (row.shot_id && !landed.shots.has(row.shot_id)) { report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: its shot is not in the cloud, so the clip's shot link was left empty` }); row.shot_id = null }
-        const already = cloudClips.get(clip.id)
-        const r = already ? { status: 'skipped' } : await insertOrSkip('bin_files', toColumns('bin_files', row))
+        const r = await insertOrSkip('bin_files', toColumns('bin_files', row), cloudClipsUnknown ? null : (x) => cloudClips.has(x.id))
         r.status === 'inserted' ? bumpInserted(report.binFiles) : bumpSkipped(report.binFiles)
         landed.clips.add(clip.id)
-        if (POSTER_MEDIA.has(clip.media_type) && !already?.poster_path && !cloudClipsUnknown) wantPicture.push(clip)
+        if (POSTER_MEDIA.has(clip.media_type) && !cloudClipsUnknown) wantPicture.push(clip)
         else if (POSTER_MEDIA.has(clip.media_type)) { report.posters.total++; report.posters.skipped++ }
       } catch (err) {
         report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: ${err.message}` })
         bumpFailed(report.binFiles)
       }
     }
-    // The takes: those whose shot and clip landed, with one primary per shot
-    // and positions in order (takesToLand); a take of a clip left on this
-    // computer waits with it (left behind, not failed); a take whose shot or
-    // clip FAILED is said.
-    const takes = bundle.shotTakes ?? []
-    const landing = takesToLand(takes, landed.shots, landed.clips)
+    for (const [key, n] of keptLocation) {
+      const root = roots.find(r => r.key === key)
+      note(`  ${root?.root || key}: ${plural(n, 'clip')} already in the cloud ${n === 1 ? 'keeps' : 'keep'} the footage location ${n === 1 ? 'it has' : 'they have'} there (the answer given now moves no clip)`)
+    }
+    // The takes: the live ones (a take of a shot or clip removed on this
+    // computer is the desktop's own, for undo: not carried, not an error)
+    // whose shot and clip landed, their role and position settled against
+    // the takes the cloud already holds for the shot (takesToLand): one
+    // already there is skipped without a write; a take of a clip left on
+    // this computer waits with it (left behind, not failed); a take whose
+    // shot or clip FAILED is said.
+    const takes = liveTakesOf(bundle)
+    let cloudTakes = []
+    let cloudTakesUnknown = false
+    if (takes.length) {
+      const have = await listCloud('shot_takes', 'project_id', projectId, 'id, shot_id, bin_file_id, role, position')
+      if (have.error) { cloudTakesUnknown = true; report.errors.push({ scope: 'shot_takes', projectId, message: `could not read the project's takes already in the cloud, so a duplicate reads as already there: ${have.error.message || have.error}` }) }
+      else cloudTakes = have.rows
+    }
+    const thereTakes = new Set(cloudTakes.flatMap(t => [t.id, takePairKey(t)]))
+    const landing = takesToLand(takes, landed.shots, landed.clips, cloudTakes)
     const landingIds = new Set(landing.map(t => t.id))
     for (const t of takes) {
       if (landingIds.has(t.id)) continue
       report.shotTakes.total++
+      if (thereTakes.has(t.id) || thereTakes.has(takePairKey(t))) { report.shotTakes.skipped++; continue }
       if (leftClips.has(t.bin_file_id)) { report.shotTakes.leftBehind++; continue }
       const why = !landed.shots.has(t.shot_id) ? 'its shot is not in the cloud' : 'its clip is not in the cloud'
       report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: `take not migrated: ${why}` })
@@ -756,8 +859,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     for (const t of landing) {
       report.shotTakes.total++
+      const was = takes.find(x => x.id === t.id)
+      if (was?.role === 'primary' && t.role !== 'primary') {
+        const clip = clips.find(c => c.id === t.bin_file_id)
+        note(`  ${clip?.display_name || clip?.original_name || t.bin_file_id}: lands as an alternative take — its shot already has a primary take in the cloud`)
+      }
       try {
-        const r = await insertOrSkip('shot_takes', toColumns('shot_takes', { ...cloudRowOf(t, projectId), workspace_id: workspaceId }))
+        const r = await insertOrSkip('shot_takes', toColumns('shot_takes', { ...cloudRowOf(t, projectId), workspace_id: workspaceId }), cloudTakesUnknown ? null : (x) => thereTakes.has(x.id) || thereTakes.has(takePairKey(x)))
         r.status === 'inserted' ? report.shotTakes.inserted++ : report.shotTakes.skipped++
       } catch (err) {
         report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: err.message })
@@ -794,12 +902,14 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     if (clips.length) {
       const left = report.clipsLeftBehind.filter(c => c.projectId === projectId).length
-      note(`  ${plural(report.bins.inserted + report.bins.skipped, 'bin')}, ${plural(landed.clips.size, 'clip')} and ${plural(landing.length, 'take')} in the cloud` +
+      const takesThere = landing.length + takes.filter(t => !landingIds.has(t.id) && (thereTakes.has(t.id) || thereTakes.has(takePairKey(t)))).length
+      note(`  ${plural(report.bins.inserted + report.bins.skipped, 'bin')}, ${plural(landed.clips.size, 'clip')} and ${plural(takesThere, 'take')} in the cloud` +
         (left ? `; ${BINS_LEFT_BEHIND(left)}` : ''))
     }
   }
 
   report.footageRoots = mergeRoots(binsState.roots).map(r => ({ ...r, resolved: (resolvedAnswers.get(r.key) || { kind: 'unanswered' }).kind }))
+  report.notCarried = [...notCarried.values()]
   report.finishedAt = new Date().toISOString()
   return report
 }

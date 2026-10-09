@@ -105,21 +105,50 @@ walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
 few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
 worker thread, as the root question now is.
 
-### The desktop→cloud migration carries no shot lists, list items, edits or folders
-**INFERRED (BC3, 2026-10-09; read from `src/cloud/migrate/runMigration.js`).**
-The runner copies projects, phases, assets, tasks, the two edge tables,
-files, and — since BC3, because a take needs its shot — scenes, shots, bins,
-footage locations, clips and takes. It still copies no `shot_lists`,
-`shot_list_items`, `edits` or `folders`: S3a (`active_shot_list_id` dropped,
-scope#9) chose not to carry lists, and nothing since has. A desktop project
-with several shot lists or saved edits arrives in the cloud with every scene
-and shot in no list (D10's "every scene and shot shows") and no edits; its
-project folders are not copied either, so the Files tab rebuilds them from
-the rows. Settle it by migrating a desktop project that has two lists and an
-edit and opening its Scenes tab in the cloud. Fix shape: carry
+### The desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks
+**INFERRED (BC3, 2026-10-09; read from `src/cloud/migrate/runMigration.js`;
+widened by review round 2).** The runner copies projects, phases, assets,
+tasks, the two edge tables, files, and — since BC3, because a take needs its
+shot — scenes, shots, bins, footage locations, clips and takes. It copies
+none of the desktop bundle's other collections: `shotLists`,
+`shotListItems`, `edits`, `folders` (S3a, `active_shot_list_id` dropped,
+scope#9, chose not to carry lists, and nothing since has), nor `comments`,
+`assetVersions`, `milestones`, `budgetVersions`, `budgetLines`,
+`budgetActuals`, `expenses`, `projectRateOverrides`, `levels`,
+`experiences`, `teamAssignments`, `projectTeam` or `taskLinks` — each a
+route the desktop serves (`rabbitSubentityRoutes` in `electron/main.cjs`)
+and keeps in the same bundle; nor a scene's or shot's `thumbnail_image` (a
+file on the desktop's disk). "Archive and clear local" then moves the only
+copy of all of it into the archive JSON, which no screen reads back. Since
+review round 2 the report names what stays, by count, BEFORE the archive is
+offered (`NOT_CARRIED` / `notCarriedOf` in `src/cloud/migrate/binsMigration.js`,
+the panel's "Stays on this computer (the migration does not carry it)"
+line, the archive button's hover), so "Done" means what moved and this says
+what did not. Settle it by migrating a desktop project that has a budget,
+two lists and an edit and opening its tabs in the cloud. Fix shape: carry
 `shot_lists` and `shot_list_items` after the shots (ids kept; the composite
 FKs of 0084 allow it), then `edits`, with `active_shot_list_id` set last;
-`folders` after the files.
+`folders` after the files; the budget tables in their own order (versions,
+lines, actuals, expenses, overrides); comments, asset versions, milestones,
+levels, experiences and the team after their parents — and the archive
+button waiting until the list is empty.
+
+### The cloud's own address CHECK admits control and formatting characters
+**INFERRED (BC2 review round 2 deferred it; BC3 review rounds 1 and 2 widened
+the guards; read from `supabase/migrations/0091_bins_on_the_cloud.sql`
+`bin_locations_unc_path_shape_chk` and the three `isUncPath` guards).** The
+desktop's, the renderer's and the fixtures' guards refuse every control and
+format character, both separators and every default-ignorable code point
+(`UNC_FORBIDDEN_CHARS_RE`, one Unicode-property regex, held equal by
+`binsAdapterParity.test.js`); 0091's CHECK refuses the path's shape and the
+nine Windows-forbidden characters only. A location written past the app —
+through the REST API with a member's key — can carry a right-to-left
+override or a zero-width space into every Connect question in the company.
+Settle it with `psql`: insert a `bin_locations` row whose `unc_path` holds
+U+202E and watch it land. Fix shape: a migration (0093 or later) adding the
+same refusal to the CHECK through a small SQL function (PostgreSQL's regex
+has no Unicode-property classes; the function tests the code points), and
+the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
 
 ### A second desktop→cloud migration brings back rows a teammate removed from the cloud
 **INFERRED (BC3 review round 1, 2026-10-09; read from `src/cloud/migrate/runMigration.js`
@@ -1518,7 +1547,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul BC3 (2026-10-09; `po/bc3-bins-web` into `feat/post-overhaul-edit-versioning`) — the browser's Bins tab (the catalogue, B5) and a desktop project's bins moving to the cloud (B9); two review rounds | **three entries under Broken features:** *the desktop→cloud migration carries no shot lists, list items, edits or folders* (INFERRED; pre-existing, found while adding the bins' part; scenes and shots are carried since BC3); *a second desktop→cloud migration brings back rows a teammate removed from the cloud* (INFERRED, review round 1; pre-existing for every table, widened by BC3); *the cloud keeps no sample rate or channel count on a clip* (INFERRED, review round 1; 0091). | nothing. |
+| Post-overhaul BC3 (2026-10-09; `po/bc3-bins-web` into `feat/post-overhaul-edit-versioning`) — the browser's Bins tab (the catalogue, B5) and a desktop project's bins moving to the cloud (B9); two review rounds | **four entries under Broken features:** *the desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks* (INFERRED; pre-existing, found while adding the bins' part, widened to every collection by review round 2, which also made the report name what stays before the archive is offered; scenes and shots are carried since BC3); *a second desktop→cloud migration brings back rows a teammate removed from the cloud* (INFERRED, review round 1; pre-existing for every table, widened by BC3); *the cloud keeps no sample rate or channel count on a clip* (INFERRED, review round 1; 0091); *the cloud's own address CHECK admits control and formatting characters* (INFERRED; BC2 deferred the migration, BC3's guards refuse them by Unicode property since review round 2). | nothing. |
 | Post-overhaul S2a (2026-09-30; `po/s2a-settings-placement` into `feat/post-overhaul-edit-versioning`) — settings at each strip's right end, the orange Audrey named, the pet's Shift tap; two review rounds | **one section at the end: seven entries the two review rounds found and S2a did not fix** (other sessions' files, the kit, or not S2a's to change): S2a-01 🚨 Bins' keys act from every page (Delete removes up to five selected files without a question; MEASURED for Enter), S2a-02 the hand-rolled modals the Shift rule cannot see, S2a-03 the kit Drawer's focus, S2a-04 the workspace chooser's Enter, S2a-05 the unlayered scrollbar rule, S2a-06 D.O.G.'s Enter during the leave transition, S2a-07 the Timeline drawer's "RABBIT settings". Dated notes on P1-02, P1-03 (now the one place Enter does something else; a stranded Search freezes the keys) and P1-04 (D.O.G.'s Alt, arrows and Ctrl+Z have no page check). | **P1-01 closed**: a bare Shift tap toggles the pet and Enter presses the focused control (`05bf5fe`, `edb7fa9`, `07d34d6`). |
 | UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
 | Track C / **migration 0078** (2026-09-09) — the quota exemption bounded by size; pgTAP suite **77 extended** (probes 54-68), five breakers; two review rounds | **nothing.** | **One entry CLOSED: a receipt was exempt from the Petal storage quota at any size.** C4 made a receipt land under an `INVOICES/` segment so it would be money-gated, and that segment is what `rabbit_quota_exempt_path` (0055) keys on — so a receipt could not be refused however large, while `workspace_petal_committed_bytes` kept counting its bytes against the allowance that refuses ordinary media. Measured ceiling: the bucket's own **50 GiB** per object. Not a security hole (0037 gates `expenses`), a billing one. Audrey's ruling, asked and answered this session: **bound the exemption by size**, not cap the picker. 0078 adds `public.rabbit_quota_exempt_max_bytes()` = **25 MiB** as the one definition, plus `rabbit_quota_exempt_bytes(name,bytes)` and `rabbit_quota_exempt_object(name,md)` composed over it; `rabbit_quota_exempt_path` is UNCHANGED and delegated to, so suite 65's probes 13-17 stay green. 🚨 **THE HAND-OFF NAMED ONE ENFORCEMENT SITE AND THERE ARE TWO.** Besides the RESTRICTIVE `petal_storage_quota_insert`, `reserve_upload_bytes` (0073, C1) returned NULL early for any exempt path — and that is the one the CLIENT calls, before any byte moves. Bounding only the policy would have let a large receipt reserve nothing, upload, and be refused at commit, which is the exact failure C1 exists to remove. Breaker B3 proves it: bound the policy alone and probe 55 is the ONLY probe that reddens. 🚨 **`COALESCE(bytes, 0)` is load-bearing and the polarity is the counter-intuitive one: an UNKNOWN size KEEPS the exemption**, because a bare comparison yields NULL and a NULL DENIES under a RESTRICTIVE policy — every manifest and rates-mirror write with absent metadata would fail with a symptom indistinguishable from the bound working. Safe because `completeUpload` writes storage-api's own `size`. ⚠️ **A STATED LIMIT, not a hole: only bodies over 50 MiB reserve at all** (`RESUMABLE_THRESHOLD_BYTES`), so between 25 and 50 MiB the refusal lands at the policy AFTER the bytes move, and as a raw RLS error rather than the friendly PT402 sentence — walkthrough 13 step 3 now says so. ⚠️ **The bound applies to the manifest and mirror arms too**, since `rabbit_quota_exempt_path` is one predicate; the cost is stated in handbook §12.10 and pinned by probe 57. **REVIEW ROUND 1** found the 25-50 MiB band; that the header misquoted 0055's three reasons and dropped the decisive one (invoices are how a company pays Petal — the reason 0078 actually overrides above the bound, now argued rather than hidden); that post-conditions 6a and 7 asserted SUBSTRINGS a polarity inversion walks straight through (`%rabbit-files%` is true of `bucket_id = 'rabbit-files'`); and that a retyped 100-line SECURITY DEFINER function had two LIKE probes as its whole evidence. **REVIEW ROUND 2 then found four defects in round 1's own corrections**, which is why the track runs two: 🚨 **§12.10 — the section every other file forwards to — was never corrected at all** (the handbook diff had exactly ONE hunk, in §17), so four round-0 defects survived in the canonical place; 🚨 **round 1 silently DELETED the manifest's positive assertion** and then wrote "the manifest arm was untested", which is the defect class probe 10's own note warns about, three sections later in the same file — restored as probe 68 at a stricter fixture; probe 57 asserted a bare PT402 while probe 55's comment, written by the same round, argues at length that a bare PT402 is not enough; and the bound-duplication inventory was stale in the commit that introduced it (round 1 wrote "probes 55, 60 and 61" while adding 54, 57 and 66). Also: `site 1`/`site 2` meant opposite things in 0078 and suite 77; post-condition 9b was narrowed by a `public.` prefix an unqualified call would slip past; §12.9's four present-tense clauses were still false. **Five breakers, each reddening exactly what it should:** B1 (size axis dropped) → the refusal probes 55, 57, 60, 61; B2 (COALESCE removed) → 63 only; B3 (policy bounded, reservation not) → 55 only; B4 (bucket arm inverted) → post-condition 7; B5 (exemption arm negated) → post-condition 6a — B4 and B5 both PASSED the original LIKE form. ⚠️ **Measured and recorded, not fixed:** `storage.foldername` and `fn_try_uuid` are `proparallel = 'u'`, yet `rabbit_money_segment` (0042) and `rabbit_quota_exempt_path` (0055) are labelled PARALLEL SAFE while calling them; the new functions inherit that pre-existing mislabel by delegating to the chain. Someone should fix 0042/0055 together. State: 0078 on **dev** by query (statements first, history row second; recorded md5 `56277f68cccf8285571e77a96f145d12`, 44828 bytes / 43744 chars, equal to the file's LF blob). Suite 77 **68/68**; suites 65/66/77/78 **198/198**; full `tap-all` sweep **73 suites, 72 clean, 1394/1394, 0 failed** — the one problem is `67_member_full_time`'s known `col_type_is` shim gap, not this track's. ⚠️ That sweep ran while suite 77 stood at 67; review round 2 added probe 68 afterwards, so the next full sweep reads **1395**, not 1394 — the figures are from two moments, not a contradiction. Vitest **1815 / 76**. Migration number taken with Audrey's explicit permission; **Track D moves to 0079** and the ledger says so. **CI GREEN on both pushed heads** — `bb896c1` (run 34436340815) and the final `bcc6815` (run 34436440185), each success with all four jobs (pgTAP, Vitest, issue-session smoke, Playwright auth); the pgTAP job is what proves 0078 and suite 77's 68 probes outside hosted dev, since it builds a clean database from every migration including 0065. Handbook §12.10. |

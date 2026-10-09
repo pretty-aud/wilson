@@ -1537,9 +1537,12 @@ function isUncPath(p) {
   // (0091's CHECK still admits them: deferred, a migration.) BC3 review
   // round 1: the C1 controls, the zero-width and bidi marks, the line and
   // paragraph separators, the invisible formatting characters and a BOM
-  // too — the renderer's UNC_FORBIDDEN_CHARS_RE, held to this one by
-  // binsAdapterParity.test.js.
-  if (/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/.test(p)) return false;
+  // too; review round 2: by Unicode property (every control and format
+  // character, both separators, every default-ignorable code point — the
+  // Arabic letter mark, the TAG characters, the Hangul filler and the
+  // variation selectors were past the list) — the renderer's
+  // UNC_FORBIDDEN_CHARS_RE, held to this one by binsAdapterParity.test.js.
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(p)) return false;
   const segs = p.split('\\'); // ['', '', host, share, ...]
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false;
   // BC2 review round 1: Windows' WebDAV forms put a port or SSL after the

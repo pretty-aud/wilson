@@ -71,7 +71,18 @@ async function desktopBundle(page) {
       { id: 'r-share', project_id: d.PROJECT.id, path: share, label: 'footage' },
       { id: 'r-stills', project_id: d.PROJECT.id, path: 'D:\\Set photos', label: 'Set photos' },
     ],
-    shotTakes: d.SHOT_TAKES.map(({ workspace_id, ...t }) => t),
+    shotTakes: [
+      ...d.SHOT_TAKES.map(({ workspace_id, ...t }) => t),
+      // A take of a clip removed on this computer: the desktop keeps it for
+      // undo and shows it to nobody (review round 2: not carried, one line).
+      { id: 'take-orphan', project_id: d.PROJECT.id, shot_id: d.SHOTS[0].id, bin_file_id: 'clip-removed', role: 'alt', position: 9, notes: '' },
+    ],
+    // What a desktop project also holds, which the migration does not carry
+    // (review round 2): the report names it before the archive is offered.
+    comments: [1, 2, 3].map(n => ({ id: `comment-${n}`, project_id: d.PROJECT.id, body: `Note ${n}` })),
+    shotLists: [{ id: 'list-1', project_id: d.PROJECT.id, name: 'Shot list 1' }],
+    shotListItems: [1, 2, 3, 4].map(n => ({ id: `item-${n}`, project_id: d.PROJECT.id, shot_list_id: 'list-1' })),
+    folders: [1, 2, 3].map(n => ({ id: `folder-${n}`, project_id: d.PROJECT.id, path: `ASSETS/${n}` })),
   };
 }
 

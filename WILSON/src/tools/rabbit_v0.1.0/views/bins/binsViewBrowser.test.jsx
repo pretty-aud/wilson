@@ -337,6 +337,22 @@ describe('Space shows the picture large where nothing plays', () => {
     expect(large()).toBeNull()
     expect(screen.getByLabelText('New name')).toBeTruthy()
   })
+  it('F2 while the rename field is open but unfocused (the picture large over it) gives the field the keys back, the draft kept (review round 2)', async () => {
+    await mount(BROWSER)
+    await key({ key: 'ArrowDown' })
+    await key({ key: 'F2' })
+    const field = screen.getByLabelText('New name')
+    expect(document.activeElement).toBe(field)
+    fireEvent.change(field, { target: { value: 'half typed' } })
+    await act(async () => { field.blur() })
+    expect(document.activeElement).not.toBe(field)
+    await key({ key: ' ', code: 'Space' })
+    expect(large()).toBeTruthy()
+    await key({ key: 'F2' })
+    expect(large()).toBeNull()
+    expect(document.activeElement).toBe(screen.getByLabelText('New name'))
+    expect(screen.getByLabelText('New name').value).toBe('half typed')
+  })
 })
 
 describe('keyboard review works with no preview; hover-scrub is off; a drop from the OS is answered', () => {
@@ -379,6 +395,24 @@ describe('keyboard review works with no preview; hover-scrub is off; a drop from
     // …and a drop anywhere else on the page (the tree, the inspector) too.
     await act(async () => { fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [{ name: 'y.mov' }] } }) })
     expect(state.ctx.prepareBinFiles).not.toHaveBeenCalled()
+  })
+  // Review round 2: a dragover answered 'none' is a no-drop cursor, and by
+  // the drag-and-drop model no drop event follows it — so in a real browser
+  // the sentence (said on the drop alone) never showed. It is said as the
+  // file enters the page.
+  it('a file dragged INTO the page says the sentence; a drag of anything else, or on the desktop, says nothing', async () => {
+    await mount(BROWSER)
+    await act(async () => { fireEvent.dragEnter(document.body, { dataTransfer: { types: ['Files'], files: [] } }) })
+    expect(document.body.textContent).toContain(ADD_NEEDS_DESKTOP)
+    expect(state.ctx.prepareBinFiles).not.toHaveBeenCalled()
+    cleanup()
+    await mount(BROWSER)
+    await act(async () => { fireEvent.dragEnter(document.body, { dataTransfer: { types: ['text/plain'], files: [] } }) })
+    expect(document.body.textContent).not.toContain(ADD_NEEDS_DESKTOP)
+    cleanup()
+    await mount(DESKTOP)
+    await act(async () => { fireEvent.dragEnter(document.body, { dataTransfer: { types: ['Files'], files: [] } }) })
+    expect(document.body.textContent).not.toContain(ADD_NEEDS_DESKTOP)
   })
   it('a bin in the rail neither lights for files from the OS nor reads them: the sentence again (review round 1)', async () => {
     await mount(BROWSER)

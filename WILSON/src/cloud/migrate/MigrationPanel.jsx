@@ -36,7 +36,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePermissions } from '../../permissions'
-import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF } from './runMigration'
+import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF, ORPHAN_TAKES, NOT_CARRIED_SENTENCE } from './runMigration'
 import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import '../../components/settings/settings.css'
@@ -46,16 +46,25 @@ import { Button, Input } from '../../ui'
 export const MIGRATE_TITLE = 'Migrate to cloud'
 export const USE_THIS_ADDRESS = 'Use this address'
 export const MIGRATE_AGAIN_LEFT = (n) => `${n} clip${n === 1 ? ' is' : 's are'} still on this computer: name ${n === 1 ? 'its' : 'their'} footage location below and Migrate again.`
+// A clip with no path recorded has no root to name (review round 2: the
+// sentence above sent the person to a question that was not there).
+export const NO_PATH_LEFT = (n) => `${n} clip${n === 1 ? ' has' : 's have'} no path recorded, so ${n === 1 ? 'it' : 'they'} cannot move: remove ${n === 1 ? 'it' : 'them'} from ${n === 1 ? 'its' : 'their'} bin on this computer, or keep this computer's copy.`
 export const MIGRATE_DONE = 'Done. Re-running skips every row already in the cloud (and brings back a row removed from the cloud since).'
+export const ARCHIVE_KEEPS_NOT_CARRIED = 'Archives every project on this computer, including what the migration does not carry (listed under the report), then clears the live copy.'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
   // dev fixtures' in a dev build) — one source, not a second session read.
   const { workspaceId: activeWorkspaceId, ready } = usePermissions()
   const [busy, setBusy]         = useState(false)
+  // Which run is on ('dry' | 'real' | null): the pressed button says so. The
+  // last report stays on screen meanwhile — the question with it (review
+  // round 2: clearing the report at the start of a run made the question
+  // vanish for the run's length, and "Migrating…" was never shown).
+  const [running, setRunning]   = useState(null)
   const [progress, setProgress] = useState([])
   const [report, setReport]     = useState(null)
-  const [archived, setArchived] = useState(false)
+  const [archived, setArchived] = useState(null)
   const [error, setError]       = useState(null)
   // BC3: the answers to the roots' question, keyed by the root's key.
   const [answers, setAnswers]   = useState({})
@@ -63,34 +72,35 @@ export default function MigrationPanel() {
   const runOnce = useCallback(async (dryRun) => {
     if (busy || !activeWorkspaceId) return
     setBusy(true)
+    setRunning(dryRun ? 'dry' : 'real')
     setError(null)
-    setReport(null)
-    setArchived(false)
+    setArchived(null)
     setProgress([])
     try {
       const r = await runMigration({
         workspaceId: activeWorkspaceId,
         dryRun,
-        // Only an answer the person gave (typed, "Use this address", or
-        // left for now) reaches the run; a suggestion nobody touched does not.
-        locations: confirmedAnswers(answers),
+        // Only an answer the person gave (typed, "Use this address", left
+        // for now) or one the company's list gives (an address one of its
+        // locations holds) reaches the run; a suggested NEW location nobody
+        // touched does not.
+        locations: confirmedAnswers(answers, report?.footageLocations || []),
         onProgress: (msg) => setProgress((p) => [...p, msg]),
       })
       setReport(r)
-      if (!dryRun && r.errors.length === 0) {
-        // Clean run — offer to archive & clear local data.
-        // The user can skip archiving by simply not clicking the button.
-      }
     } catch (err) {
       setError(err.message || String(err))
     } finally {
       setBusy(false)
+      setRunning(null)
     }
-  }, [busy, activeWorkspaceId, answers])
+  }, [busy, activeWorkspaceId, answers, report])
 
   // Each root a run found (a dry run, or a real one that left a root
   // unnamed) starts from what the system can suggest; an answer already
-  // given is kept.
+  // given is kept. (A suggestion nobody touched that a teammate's new
+  // location has since come to hold is the company's answer: resolved as
+  // "existing" below, and sent by confirmedAnswers — review round 2.)
   useEffect(() => {
     if (!report?.footageRoots?.length) return
     setAnswers((prev) => {
@@ -112,8 +122,11 @@ export default function MigrationPanel() {
   }
   const answered = roots.filter(isAnswered).length
   const everyRootAnswered = roots.length === 0 || answered === roots.length
-  // Typing is confirming; "Use this address" confirms a suggestion as it is.
-  const setAnswer = (key, patch) => setAnswers((a) => ({ ...a, [key]: { ...(a[key] || { unc_path: '', name: '', skip: false }), confirmed: true, ...patch } }))
+  // What confirms a suggested address: typing in the address field, or "Use
+  // this address" — and nothing else (review round 2: leaving the field,
+  // tabbing through the row, "Leave for now" and "Name it" all confirmed
+  // it; a keyboard never reached the button). Each caller says.
+  const setAnswer = (key, patch) => setAnswers((a) => ({ ...a, [key]: { ...(a[key] || { unc_path: '', name: '', skip: false }), ...patch } }))
 
   const archiveAndClear = useCallback(async () => {
     const api = window.electronAPI?.rabbit
@@ -123,7 +136,7 @@ export default function MigrationPanel() {
     try {
       const res = await api.archiveLocalData()
       if (!res?.ok) throw new Error(res?.error || 'archive failed')
-      setArchived(true)
+      setArchived({ path: res.archivePath || null })
     } catch (err) {
       setError(err.message || String(err))
     } finally {
@@ -144,13 +157,19 @@ export default function MigrationPanel() {
   // (review round 1: a run that left a root's clips here must not offer to
   // archive and clear the only copy of them).
   const leftBehind = report && !report.dryRun ? (report.binFiles?.leftBehind || 0) : 0
+  // Of those, the clips with a root to name below; the rest have no path
+  // recorded, and no question (review round 2).
+  const leftRooted = report && !report.dryRun ? (report.clipsLeftBehind || []).filter((c) => c.root).length : 0
+  const leftNoPath = Math.max(0, leftBehind - leftRooted)
   const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0
+  const notCarried = report?.notCarried || []
   // The real run waits for a dry run that found the roots, and for their
   // answers (never a disabled control without its reason: the title says).
   const migrateWhy = !report ? 'Dry-run first: it lists what will move and asks about each footage root.'
     : !everyRootAnswered ? MIGRATE_WAITS
       : completed ? MIGRATE_DONE
-        : leftBehind ? MIGRATE_AGAIN_LEFT(leftBehind) : null
+        : leftRooted ? MIGRATE_AGAIN_LEFT(leftRooted)
+          : leftNoPath ? NO_PATH_LEFT(leftNoPath) : null
 
   return (
     <Section
@@ -167,13 +186,13 @@ export default function MigrationPanel() {
             These were the last SHOUTED labels on the surface. */}
         <Row label="Migration">
           <MigrateButton onClick={() => runOnce(true)} disabled={busy}>
-            {busy && !report ? 'Running…' : 'Dry-run'}
+            {running === 'dry' ? 'Running…' : 'Dry-run'}
           </MigrateButton>
           <MigrateButton onClick={() => runOnce(false)} disabled={busy || completed || !report || !everyRootAnswered} primary title={migrateWhy || undefined}>
-            {busy && report ? 'Migrating…' : 'Migrate'}
+            {running === 'real' ? 'Migrating…' : 'Migrate'}
           </MigrateButton>
           {completed && (
-            <MigrateButton onClick={archiveAndClear} disabled={busy || archived}>
+            <MigrateButton onClick={archiveAndClear} disabled={busy || !!archived} title={notCarried.length ? ARCHIVE_KEEPS_NOT_CARRIED : undefined}>
               {archived ? 'Archived' : 'Archive and clear local'}
             </MigrateButton>
           )}
@@ -209,7 +228,8 @@ export default function MigrationPanel() {
                 </div>
                 {!a.skip && (
                   <div className="flex gap-2 flex-wrap">
-                    <Input id={id} surface="light" size="sm" aria-label="Network address" value={a.unc_path} onChange={(v) => setAnswer(root.key, { unc_path: v })}
+                    {/* Typing the address confirms it; leaving the field only tidies its spelling. */}
+                    <Input id={id} surface="light" size="sm" aria-label="Network address" value={a.unc_path} onChange={(v) => setAnswer(root.key, { unc_path: v, confirmed: true })}
                       onBlur={() => setAnswer(root.key, { unc_path: normalizeUncInput(a.unc_path) })}
                       placeholder={'\\\\server\\footage'} className="flex-[2] min-w-[220px] s-data" />
                     {r.kind === 'new' || (r.kind !== 'existing' && a.name) ? (
@@ -251,7 +271,7 @@ export default function MigrationPanel() {
 
       {archived && (
         <p className="s-feedback mt-4" data-tone="ok" role="status">
-          Local rabbit-data archived. R.A.B.B.I.T. is now cloud-first.
+          Local rabbit-data archived{archived.path ? <> to <span className="s-data">{archived.path}</span></> : null}. R.A.B.B.I.T. is now cloud-first.
         </p>
       )}
     </Section>
@@ -359,6 +379,14 @@ function ReportTable({ r }) {
         <p className="s-row-desc mt-2" data-testid="posters-switch-off">
           {r.posters.switchOff} picture{r.posters.switchOff === 1 ? '' : 's'}: {POSTERS_SWITCH_OFF}.
         </p>
+      )}
+      {r.shotTakes?.orphans > 0 && (
+        <p className="s-row-desc mt-2" data-testid="orphan-takes">{ORPHAN_TAKES(r.shotTakes.orphans)}.</p>
+      )}
+      {/* Said BEFORE the archive is offered, so "Done" means what moved and
+          this names what did not (review round 2). */}
+      {r.notCarried?.length > 0 && (
+        <p className="s-row-desc mt-2" data-testid="not-carried">{NOT_CARRIED_SENTENCE(r.notCarried)}</p>
       )}
       {/* This <details> is the one disclosure on the surface that is NOT a
           C1 problem: it hides a list of error text, not a control, and it was

@@ -12,8 +12,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   pathKey, isUnder, relativeUnder, isCloudRelativePath, shareRootOf, rootKind, rootOfClip, binRootsOf, mergeRoots,
-  suggestedAnswer, confirmedAnswers, holdingLocation, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand,
-  POSTER_MEDIA, ADDRESS_NEEDED,
+  suggestedAnswer, confirmedAnswers, holdingLocation, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand, takePairKey,
+  notCarriedOf, notCarriedLabel, NOT_CARRIED, POSTER_MEDIA, ADDRESS_NEEDED,
 } from './binsMigration'
 
 // The refusal sentence is the cloud adapter's, word for word. The adapter's
@@ -130,14 +130,22 @@ describe('the question\'s answer', () => {
     expect(holdingLocation('\\\\nas\\footage\\Day02', LOCATIONS)).toMatchObject({ id: 'L1' })
     expect(holdingLocation('\\\\other\\x', LOCATIONS)).toBeNull()
   })
-  it('confirmedAnswers: a suggestion nobody touched is no answer; a typed address, a confirmed one and "left for now" are (review round 1, security)', () => {
-    expect(confirmedAnswers({
+  it('confirmedAnswers: a suggestion of a NEW location nobody touched is no answer; a typed address, a confirmed one, "left for now" and an address the company already holds are (review rounds 1 and 2, security)', () => {
+    const answers = {
       a: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: false },
       b: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: true },
       c: { unc_path: '\\\\nas\\x' },
       d: { skip: true, unc_path: '\\\\nas\\vfx', confirmed: false },
       e: null,
-    })).toEqual({ b: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: true }, c: { unc_path: '\\\\nas\\x' }, d: { skip: true, unc_path: '\\\\nas\\vfx', confirmed: false } })
+      // Unconfirmed, but inside the company's "Footage NAS": the company's
+      // answer, no new location (review round 2: a share a teammate named
+      // after the dry run read as answered and was never sent).
+      f: { unc_path: 'smb://NAS/Footage/Day02/', name: '', confirmed: false },
+      g: { unc_path: 'D:\\Footage', name: '', confirmed: false },
+    }
+    expect(confirmedAnswers(answers, LOCATIONS)).toEqual({ b: answers.b, c: answers.c, d: answers.d, f: answers.f })
+    // CONTROL: with no company list, the held one is a suggestion like any other.
+    expect(confirmedAnswers(answers)).toEqual({ b: answers.b, c: answers.c, d: answers.d })
   })
   it('an existing location by address: the one NAMED wins, else the longest holder; the root\'s path inside it is the prefix', () => {
     expect(resolveRootAnswer(unc, { unc_path: NAS }, LOCATIONS)).toEqual({ kind: 'existing', location: LOCATIONS[0], prefix: 'Day01/A001' })
@@ -212,17 +220,52 @@ describe('the takes that can land', () => {
     { id: 't4', shot_id: 's2', bin_file_id: 'c1', role: 'primary', position: 0 },
     { id: 't5', shot_id: 's9', bin_file_id: 'c1', role: 'primary', position: 0 },
   ]
-  it('leaves out a take whose shot or clip did not land; keeps the rest in order with their roles', () => {
+  it('leaves out a take whose shot or clip did not land; keeps the rest in order with their roles, positions 0..n-1 on a first run', () => {
     const out = takesToLand(takes, new Set(['s1', 's2']), new Set(['c1', 'c2', 'c3']))
     expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t1', 'primary', 0], ['t2', 'part', 1], ['t3', 'alt', 2], ['t4', 'primary', 0]])
   })
-  it('a shot whose primary did not land gets one (the first by position), positions renumbered; a second primary becomes an alt', () => {
+  it('a shot whose primary did not land gets NO primary — nothing is promoted in its place (review round 2); a second claimant, or a garbage role, is an alt', () => {
     const out = takesToLand(takes, new Set(['s1']), new Set(['c2', 'c3']))
-    expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t2', 'primary', 0], ['t3', 'alt', 1]])
-    const two = takesToLand([{ id: 'a', shot_id: 's', bin_file_id: 'x', role: 'primary', position: 1 }, { id: 'b', shot_id: 's', bin_file_id: 'y', role: 'primary', position: 0 }], new Set(['s']), new Set(['x', 'y']))
-    expect(two.map(t => [t.id, t.role])).toEqual([['b', 'primary'], ['a', 'alt']])
+    expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t2', 'part', 0], ['t3', 'alt', 1]])
+    const two = takesToLand([
+      { id: 'a', shot_id: 's', bin_file_id: 'x', role: 'primary', position: 1 },
+      { id: 'b', shot_id: 's', bin_file_id: 'y', role: 'primary', position: 0 },
+      { id: 'c', shot_id: 's', bin_file_id: 'z', role: 'hero', position: 2 },
+    ], new Set(['s']), new Set(['x', 'y', 'z']))
+    expect(two.map(t => [t.id, t.role])).toEqual([['b', 'primary'], ['a', 'alt'], ['c', 'alt']])
     // The input is not mutated.
     expect(takes[0].position).toBe(2)
+  })
+  it('against the cloud: a take already there (by id, or by its shot+clip pair) is not landed again; a primary arriving where the shot has one lands as an alt; positions continue after the cloud\'s (review round 2)', () => {
+    const cloud = [
+      { id: 't2', shot_id: 's1', bin_file_id: 'c2', role: 'primary', position: 0 },
+      { id: 'theirs', shot_id: 's1', bin_file_id: 'c3', role: 'alt', position: 1 },
+    ]
+    const out = takesToLand(takes, new Set(['s1', 's2']), new Set(['c1', 'c2', 'c3']), cloud)
+    expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t1', 'alt', 2], ['t4', 'primary', 0]])
+    // CONTROL: the cloud holds an alt only for the shot — the bundle's
+    // primary is the primary, placed after it.
+    const alone = takesToLand(takes, new Set(['s1']), new Set(['c1', 'c2', 'c3']), [{ id: 'theirs', shot_id: 's1', bin_file_id: 'c9', role: 'alt', position: 4 }])
+    expect(alone.map(t => [t.id, t.role, t.position])).toEqual([['t1', 'primary', 5], ['t2', 'part', 6], ['t3', 'alt', 7]])
+    expect(takePairKey({ shot_id: 's1', bin_file_id: 'c2' })).toBe('s1|c2')
+  })
+})
+
+describe('what the migration does not carry', () => {
+  it('names each non-empty collection the runner leaves on this computer, and the scenes\' and shots\' pictures, in the right number; nothing the runner carries is in the list', () => {
+    expect(notCarriedOf({ comments: [{}], budgetLines: [{}, {}], shotLists: [], scenes: [{ thumbnail_image: 'C:\\a.jpg' }, {}], shots: [{ thumbnail_image: 'C:\\b.jpg' }] })).toEqual([
+      { key: 'comments', label: 'comment', count: 1 },
+      { key: 'budgetLines', label: 'budget lines', count: 2 },
+      { key: 'thumbnails', label: 'scene and shot pictures', count: 2 },
+    ])
+    expect(notCarriedOf({})).toEqual([])
+    expect(notCarriedOf(null)).toEqual([])
+    expect(notCarriedLabel('taskLinks', 1)).toBe('link on tasks')
+    expect(notCarriedLabel('taskLinks', 2)).toBe('links on tasks')
+    expect(notCarriedLabel('thumbnails', 1)).toBe('scene and shot picture')
+    expect(notCarriedLabel('expenses', 1)).toBe('expense')
+    for (const k of ['scenes', 'shots', 'bins', 'binFiles', 'binRoots', 'shotTakes', 'phases', 'assets', 'tasks', 'dependencies', 'files', 'project']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(false)
+    for (const k of ['comments', 'milestones', 'budgetLines', 'expenses', 'shotLists', 'shotListItems', 'edits', 'folders', 'levels', 'experiences', 'thumbnails']) expect(NOT_CARRIED.some(([key]) => key === k), k).toBe(true)
   })
 })
 

@@ -27,11 +27,16 @@ const ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i
 const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
 
 // A character no address needs and a Connect question must never carry:
-// the C0 and C1 controls, a soft hyphen, the zero-width and bidi marks, the
-// line and paragraph separators, the invisible formatting characters and a
-// byte-order mark (BC2 review round 2 refused the C0 controls; BC3 review
-// round 1 found a migrated project file could carry the rest).
-export const UNC_FORBIDDEN_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/
+// every control (C0, C1) and format character (a soft hyphen, the zero-width
+// and bidi marks, the Arabic letter mark, the TAG characters, a byte-order
+// mark), the line and paragraph separators, and every default-ignorable code
+// point (the Hangul filler, the variation selectors, the combining grapheme
+// joiner) — by Unicode property, so no list is a step behind the standard.
+// BC2 review round 2 refused the C0 controls; BC3 review round 1 found a
+// migrated project file could carry the rest, by list; round 2 found the
+// list's gaps. The desktop's and the fixtures' guards carry the same regex,
+// held to this one by binsAdapterParity.test.js.
+export const UNC_FORBIDDEN_CHARS_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
 
 export function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false

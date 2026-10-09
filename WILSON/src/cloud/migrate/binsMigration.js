@@ -196,15 +196,20 @@ export function suggestedAnswer(root, existing) {
 }
 
 /**
- * The answers the run may act on: a root left for now, or an address the
- * person confirmed (typed, or "Use this address"). A suggestion nobody
- * touched is no answer.
+ * The answers the run may act on: a root left for now, an address the
+ * person confirmed (typed, or "Use this address"), or an address one of the
+ * company's locations already holds — that is the company's answer, and no
+ * new location comes of it (review round 2: a share a teammate named after
+ * the dry run resolved to "the company's", counted as answered, and was
+ * never sent). A suggestion of a NEW location nobody touched is no answer.
  */
-export function confirmedAnswers(answers) {
+export function confirmedAnswers(answers, existing = []) {
   const out = {}
   for (const [key, a] of Object.entries(answers || {})) {
     if (!a) continue
-    if (a.skip || a.confirmed !== false) out[key] = a
+    if (a.skip || a.confirmed !== false) { out[key] = a; continue }
+    const typed = normalizeUncInput(a.unc_path ?? '')
+    if (typed && isUncPath(typed) && holdingLocation(typed, existing)) out[key] = a
   }
   return out
 }
@@ -328,29 +333,98 @@ export function cloudRowOf(row, projectId) {
   return out
 }
 
+/** A take's key in the cloud's unique constraint: one row per (shot, clip). */
+export const takePairKey = (t) => `${t?.shot_id}|${t?.bin_file_id}`
+
 /**
- * The takes a project can land, by shot: a take whose shot or clip did not
- * land is left out (the caller says why); within a shot, exactly one primary
- * (the first flagged, else the first by position) and positions 0..n-1 —
- * 0091's invariant, which only its RPCs keep and a plain insert does not
- * (review round 1).
+ * The takes a project can land NOW, by shot — the rows to insert, with
+ * their role and position settled against what the cloud already holds for
+ * the shot (`cloudTakes`: its rows, `{ id, shot_id, bin_file_id, role,
+ * position }`):
+ *   - a take whose shot or clip did not land is left out (the caller says
+ *     why), and so is one already in the cloud (by id, or by its (shot,
+ *     clip) pair, 0091's unique key);
+ *   - the bundle's primary stays primary only where the cloud has none for
+ *     the shot yet; a second claimant, or one arriving where a teammate (or
+ *     an earlier run) already set a primary, lands as an alt. NOTHING IS
+ *     PROMOTED in a primary's place: a shot whose primary take stayed on
+ *     this computer waits for it, as the desktop does while a primary's
+ *     file is out (review round 2: promoting a landed take left the shot
+ *     with two primaries once the real one arrived on the next run);
+ *   - positions continue after the cloud's for the shot (0..n-1 on a first
+ *     run), so no row takes a position already taken.
+ * 0091's invariant is otherwise its RPCs' to keep, which a plain insert
+ * does not (review round 1).
  */
-export function takesToLand(shotTakes, landedShots, landedClips) {
+export function takesToLand(shotTakes, landedShots, landedClips, cloudTakes = []) {
+  const there = new Set()
+  const theirs = new Map()
+  for (const t of cloudTakes || []) {
+    if (!t) continue
+    there.add(t.id); there.add(takePairKey(t))
+    if (!theirs.has(t.shot_id)) theirs.set(t.shot_id, [])
+    theirs.get(t.shot_id).push(t)
+  }
   const byShot = new Map()
   for (const t of shotTakes || []) {
     if (!t || !landedShots.has(t.shot_id) || !landedClips.has(t.bin_file_id)) continue
+    if (there.has(t.id) || there.has(takePairKey(t))) continue
     if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, [])
     byShot.get(t.shot_id).push({ ...t })
   }
   const out = []
-  for (const list of byShot.values()) {
+  for (const [shotId, list] of byShot) {
     list.sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || '')))
-    const primary = list.find(t => t.role === 'primary') || list[0]
-    list.forEach((t, i) => {
-      t.position = i
-      t.role = t === primary ? 'primary' : (t.role === 'primary' || !['part', 'alt'].includes(t.role) ? 'alt' : t.role)
+    const cloud = theirs.get(shotId) || []
+    let primaryTaken = cloud.some(t => t.role === 'primary')
+    let position = cloud.reduce((m, t) => Math.max(m, (Number(t.position) || 0) + 1), 0)
+    for (const t of list) {
+      if (t.role === 'primary' && !primaryTaken) primaryTaken = true
+      else t.role = t.role === 'part' ? 'part' : 'alt'
+      t.position = position++
       out.push(t)
-    })
+    }
+  }
+  return out
+}
+
+// ── What the migration does not carry ───────────────────────────────────────
+
+/**
+ * The desktop bundle's collections the runner does not copy (S3a chose not
+ * to carry lists; nothing since has carried the rest). Named so the report
+ * can say what stays on this computer BEFORE the archive is offered (review
+ * round 2: "Done" was said, and the desktop's copy offered for clearing,
+ * with a project's budget, comments and shot lists in it alone). The labels
+ * are the report's words.
+ */
+export const NOT_CARRIED = Object.freeze([
+  ['comments', 'comments'], ['assetVersions', 'asset versions'], ['milestones', 'milestones'],
+  ['budgetVersions', 'budget versions'], ['budgetLines', 'budget lines'], ['budgetActuals', 'budget actuals'],
+  ['expenses', 'expenses'], ['projectRateOverrides', 'rate overrides'],
+  ['levels', 'levels'], ['experiences', 'experiences'],
+  ['teamAssignments', 'team assignments'], ['projectTeam', 'project team members'], ['taskLinks', 'links on tasks', 'link on tasks'],
+  ['shotLists', 'shot lists'], ['shotListItems', 'shot list items'], ['edits', 'edits'], ['folders', 'folders'],
+  // Not a collection: a scene's or shot's picture is a file on this computer (cloudRowOf sends no path to it).
+  ['thumbnails', 'scene and shot pictures'],
+].map(Object.freeze))
+
+/** The report's word for `count` of `key`: the plural, or the one given for a single (the plural less its s, else). */
+export function notCarriedLabel(key, count) {
+  const entry = NOT_CARRIED.find(([k]) => k === key)
+  if (!entry) return key
+  const [, many, one] = entry
+  return count === 1 ? (one || many.replace(/s$/, '')) : many
+}
+
+/** What a bundle holds that the migration leaves on this computer: `[{ key, label, count }]`, only the non-empty. */
+export function notCarriedOf(bundle) {
+  const out = []
+  for (const [key] of NOT_CARRIED) {
+    const n = key === 'thumbnails'
+      ? [...(bundle?.scenes ?? []), ...(bundle?.shots ?? [])].filter(r => r?.thumbnail_image).length
+      : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
+    if (n) out.push({ key, label: notCarriedLabel(key, n), count: n })
   }
   return out
 }

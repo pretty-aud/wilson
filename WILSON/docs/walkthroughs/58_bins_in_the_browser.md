@@ -47,7 +47,7 @@ data answer as the cloud does in a browser)
 | 3 | Press **Space** | The picture, large, over the files pane, with the clip's name, its marks, its slate line, and *Space or Esc closes · arrows move · S, R, U mark*. Press **↓**: the next clip's picture. Press **S**: it is selected (the mark appears in the header). **Esc** closes the picture and keeps the clip selected; a second **Esc** clears the selection. (`po-bc3-03-bins-picture-large-space`) |
 | 4 | Move the mouse across a tile | Nothing scrubs (there is nothing to scrub from); the tile keeps its picture. |
 | 5 | Right-click a clip | Select, Reject, Unflag, Circle, Assign to shot…, the colours, Move to, Copy to, Rename, Remove — and no *Open in default app*, no *Reveal in Explorer*, no *Read columns again*. (`po-bc3-05-bins-file-menu-no-open`) |
-| 6 | Drag a file from your computer onto the page | Nothing lights up as a target, and the notice bar says once: *Adding clips needs the desktop app on a computer that can reach the footage.* Nothing is read. |
+| 6 | Drag a file from your computer onto the page | Nothing lights up as a target and the cursor says the file is not taken; as the file enters the page the notice bar says once: *Adding clips needs the desktop app on a computer that can reach the footage.* Nothing is read. |
 | 7 | Switch to the **list view** (the ≡ button) | The same rows and columns as on the desktop; no row is dimmed. (`po-bc3-08-bins-list-view`) |
 | 8 | In an empty project (no bins) | *No bins yet*: *A bin lists clips where they sit on the company's footage locations. Start from a set here; clips are added from the desktop app on a computer that reaches the footage.* The starter sets and **Empty bin** work; there is no *Import a folder…*. |
 
@@ -69,17 +69,17 @@ to the company; the project's bins were made with nobody signed in)
 | # | Do | You should see |
 |---|----|----------------|
 | 16 | **App settings → Storage → Migrate to cloud → Dry-run** | The log counts, per project, *N bins, M clips in K footage roots, T takes* and, for each root, *\\server\share\Day01: 6 clips — which footage location is this? (not named yet)*; the dry-run report's table has rows for scenes, shots, bins, footage locations, clips, takes and pictures. Nothing is written. Under the report, **Footage locations**, *0 of K answered*, and ONE question per root: *Which footage location is this?*, the folder in mono, *N clips in M projects · a share on the network* or *· a folder on this computer: give its address as the network sees it*. **Migrate** stays off and says why on hover. (`po-bc3-11-migrate-dry-run-question`) |
-| 17 | A root on a network share | Its address field starts from the company's location that already holds it (matched by address, any spelling) — that counts as answered — or from the share itself with a suggested name as a NEW location, which does not: *Suggested: A new location "Footage" at \\nas\footage: 14 clips at its top. Use this address, or type another.* with a **Use this address** button (a new company location is made only from an address you confirmed, never from a project file alone). Under the field, in words, what will happen: *The company's "Footage NAS" (\\nas\footage): 6 clips at Day01/…* |
+| 17 | A root on a network share | Its address field starts from the company's location that already holds it (matched by address, any spelling) — that counts as answered — or from the share itself with a suggested name as a NEW location, which does not: *Suggested: A new location "Footage" at \\nas\footage: 14 clips at its top. Use this address, or type another.* with a **Use this address** button (a new company location is made only from an address you confirmed, never from a project file alone). Leaving the field, tabbing through the row, **Leave on this computer for now** and **Name it** confirm nothing: only **Use this address**, or typing the address, does. A share a teammate names meanwhile shows as the company's on the next Dry-run and counts as answered by itself. Under the field, in words, what will happen: *The company's "Footage NAS" (\\nas\footage): 6 clips at Day01/…* |
 | 18 | A root that is a drive letter (`D:\Set photos`) | Its field starts empty (a drive letter is this computer's alone; the cloud refuses it as an address, B2). Type the folder's network address — `smb://nas/set photos/` or `\\nas\set photos`, any way you have it — and it is tidied to the one shape the cloud stores; a name field appears for a new location; the sentence under it says where the clips will land. A drive letter typed as the address is refused before the run with the cloud's own sentence. (`po-bc3-12-migrate-answers`) |
 | 19 | **Leave on this computer for now** on a root | Its clips stay on this computer, listed in the report; the root counts as answered, so Migrate lights up once every root is. **Name it** takes you back to the field. (`po-bc3-13-migrate-leave-for-now`) |
-| 20 | **Migrate** | The log: *Footage location "…" (\\…) named* for each new one, *Pictures: n of m* while the switch is on, then *7 bins, 16 clips and 9 takes in the cloud; 2 clips left on this computer: name their footage location and run the migration again*. The report table counts every table; under it the clips left behind, by name and folder (and their takes, which wait with them), and *N pictures: pictures stay on this computer: the company has not allowed files to be viewed from outside the office network…* when the switch is off. While anything is left on this computer there is NO **Archive and clear local** (it would delete the only copy); Migrate stays on and says *N clips are still on this computer: name their footage location below and Migrate again*, and the question stays under it. (`po-bc3-14-migrate-report`, `po-bc3-15-migrate-report-table`) |
-| 21 | Open the project in the cloud (the desktop app signed in, or a browser) | The bins as they were, nested as they were; every clip under its location at the path it had inside the folder you named (its id kept, so the desktop's own project folders and the cloud agree); every take on its shot (a shot whose primary take stayed behind takes its first landed take as primary); the pictures where the switch was on. On a desktop that reaches the share, each clip plays from it. |
-| 22 | Name the root you left for now, **Migrate** again | Its clips arrive, with their takes. Every row already there is skipped, no second location is made (a location you named is the company's now, matched by address), and a picture the first run could not make — the clip was not reachable then — is uploaded now. The desktop's own project file is never modified by the migration. Once nothing is left, Migrate reads *Done* and **Archive and clear local** appears. |
+| 20 | **Migrate** | The log: *Footage location "…" (\\…) named* for each new one, *Pictures: n of m* while the switch is on, then *7 bins, 16 clips and 9 takes in the cloud; 2 clips left on this computer: name their footage location and run the migration again*. The report table counts every table; under it the clips left behind, by name and folder (and their takes, which wait with them), and *N pictures: pictures stay on this computer: the company has not allowed files to be viewed from outside the office network…* when the switch is off. While anything is left on this computer there is NO **Archive and clear local** (it would delete the only copy); Migrate stays on and says *N clips are still on this computer: name their footage location below and Migrate again*, and the question stays under it. Under the table, *Stays on this computer (the migration does not carry it): 3 comments, 12 budget lines, 1 shot list, 2 scene and shot pictures…* lists what the project holds that the migration does not move, and *N takes of a shot or clip removed on this computer (kept there for undo) not carried* when the desktop keeps such rows; neither is an error. While a run is on, the last report and the question stay on screen and the pressed button reads *Running…* or *Migrating…*. (`po-bc3-14-migrate-report`, `po-bc3-15-migrate-report-table`) |
+| 21 | Open the project in the cloud (the desktop app signed in, or a browser) | The bins as they were, nested as they were; every clip under its location at the path it had inside the folder you named (its id kept, so the desktop's own project folders and the cloud agree); every take on its shot (a shot whose primary take stayed behind has no primary until that take arrives: nothing is promoted in its place); the pictures where the switch was on. On a desktop that reaches the share, each clip plays from it. |
+| 22 | Name the root you left for now, **Migrate** again | Its clips arrive, with their takes — a primary as the primary, placed after the takes already there (no row in the cloud is moved). Every row already there is skipped without a write, no second location is made (a location you named is the company's now, matched by address; a clip already in the cloud keeps the location it has there, and the log says so if your answer differs), and a picture the first run could not make — the clip was not reachable then — is uploaded now. The desktop's own project file is never modified by the migration. Once nothing is left, Migrate reads *Done* and **Archive and clear local** appears; where the project holds things the migration does not carry, the button's hover says the archive file keeps them. |
 | 23 | **Dry-run** after a teammate removed a clip in the cloud | The dry run's *Would insert* column counts it again: a second run brings back a row removed from the cloud since the first (the runner has always worked by id, for every table; Help says so). Remove it again in the cloud, or archive and clear the desktop's copy once everything is there. |
 
 ## 2. How to check it
 
-- The tests: `npx vitest run src/tools/rabbit_v0.1.0/views/bins src/cloud/migrate src/dev/fixtures src/tools/rabbit_v0.1.0/rabbitBinsHelp.test.jsx` — among them `binsViewBrowser.test.jsx` (the catalogue: the notice, New bin, no control without its verb, no dim, the inspector's sentence, Space, the keys, the drop, the empty states, a shot's takes' word, the launch entry), `binsViewCloud.test.jsx` (BC2's, with the browser's Add pin rewritten), `binsBrowserVariant.test.js` (`?bins=browser`), `binsMigration.test.js` (the roots, the question's answers, the cloud row, bins parents first), `runMigrationBins.test.js` (the dry run and the real run on the fixtures' Salt Hours in the desktop's shape and on a bundle shaped like your projects; a second run; what cannot land is said), `migrationPanelBins.test.jsx` (the question in the panel), `rabbitBinsHelp.test.jsx` (Help quotes the controls' words).
+- The tests: `npx vitest run src/tools/rabbit_v0.1.0/views/bins src/cloud/migrate src/dev/fixtures src/tools/rabbit_v0.1.0/rabbitBinsHelp.test.jsx` — among them `binsViewBrowser.test.jsx` (the catalogue: the notice, New bin, no control without its verb, no dim, the inspector's sentence, Space, the keys, the drop, the empty states, a shot's takes' word, the launch entry), `binsViewCloud.test.jsx` (BC2's, with the browser's Add pin rewritten), `binsBrowserVariant.test.js` (`?bins=browser`), `binsMigration.test.js` (the roots, the question's answers, the cloud row, bins parents first), `runMigrationBins.test.js` (the dry run and the real run on the fixtures' Salt Hours in the desktop's shape and on a bundle shaped like your projects; a second run; what cannot land is said), `migrationPanelBins.test.jsx` (the question in the panel), `rabbitBinsHelp.test.jsx` (Help quotes the controls' words), `src/tools/rabbit_v0.1.0/adapters/binsListsPaged.test.js` (the cloud's bins reads paged past a thousand rows).
 - The development copy (port 5286, the test data): `/rabbit?bins=browser` shows the catalogue as a browser gets it (every clip *not on this computer*); `/rabbit` alone shows the test data answering for every clip (the inspector then reads *Playing a clip needs the desktop app on a computer that can reach the footage.* with no Open button).
 - The real thing: the beta signed in as a smoke user, a project with bins made on a desktop signed in to the same company (BC2's walkthrough 57 makes one); and the desktop app signed in, with a project whose bins were made signed out, through Migrate to cloud. §5's checklist.
 
@@ -110,11 +110,23 @@ to the company; the project's bins were made with nobody signed in)
 
 ## 4. Still not right, and not this session's to change
 
-- **The migration carries no shot lists, list items, edits or folders.** It
-  never did (S3a noted it carried no scenes or shots either; BC3 added
-  those, since a take needs its shot). A migrated project shows every scene
-  and shot with no active list (D10); its edits and its project folders are
-  not copied. Named in `docs/OUTSTANDING.md`.
+- **The migration carries no shot lists, list items, edits, folders,
+  comments, milestones, budgets, expenses, levels, experiences, team or
+  links on tasks.** It never did (S3a noted it carried no scenes or shots
+  either; BC3 added those, since a take needs its shot). A migrated project
+  shows every scene and shot with no active list (D10); the rest stays on
+  this computer, and since review round 2 the report names it, by count,
+  before the archive is offered. Named in `docs/OUTSTANDING.md`.
+- **Takes that arrive on a second run sit after those that arrived first**
+  (their positions continue after the cloud's, so no row is moved): a
+  shot's primary that stayed behind on the first run is last in the list
+  once it arrives, until someone reorders. The cloud's own reorder keeps the
+  invariant from there.
+- **0091's CHECK on a location's address admits the control and formatting
+  characters the three guards refuse** (the desktop's, the renderer's and
+  the fixtures' — one Unicode-property regex since review round 2): a row
+  written past the app, with a member's key, could carry them. BC2 deferred
+  the migration; named in `docs/OUTSTANDING.md`.
 - **A clip whose root nobody names cannot be given "an empty location"**: the
   cloud's `bin_files.location_id` is NOT NULL (0091). So such a clip stays on
   this computer, listed, and a later run brings it — the nearest honest thing
@@ -183,12 +195,26 @@ to the company; the project's bins were made with nobody signed in)
     already under one of the company's locations counts as answered by
     itself. One more click per new share, so that no project file can name
     a location by itself. Keep, or let the suggestion count?
+11. **A take of a shot or clip removed on this computer is not carried, and
+    not an error** (review round 2). The desktop keeps such a row for undo
+    and shows it to nobody; the report counts them in one line. Right, or
+    should they be carried (the cloud's foreign keys would refuse them)?
+12. **Done, with things not carried.** The report names what stays on this
+    computer (comments, budgets, shot lists, edits, the scenes' and shots'
+    pictures…) and the archive is still offered, its hover saying the
+    archive file keeps them. Right, or should the archive wait until the
+    migration carries everything?
+13. **A shot waits for its primary** rather than promoting a landed take in
+    its place (review round 2; the desktop does the same while a primary's
+    file is out), and the primary lands after the takes already there. Right?
 
 ## What was checked, and what was not
 
 Checked: §1 A and B steps 1–7, 9, 11–13 and §1 C steps 16–20 at 1440x900
-and 1280x700 on the test data (screenshots `docs/sessions/handoffs/img/po-bc3-*`),
-the migration's writes against a stub inside the page (§3); the tests in §2;
+and 1280x700 on the test data (screenshots `docs/sessions/handoffs/img/po-bc3-*`,
+shot again after review round 2 with a project that also holds comments, a
+shot list, folders and an orphan take, so the report's new lines show), the
+migration's writes against a stub inside the page (§3); the tests in §2;
 the full suite (`npx vitest run`: the counts are in the hand-off). Not
 checked: the beta or the desktop app signed in to wilson-dev (§3), a real
 move into a real company, a second person's screen updating live, a Mac, a

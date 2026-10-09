@@ -547,6 +547,15 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Running it again skips every row already in the cloud; a row a
               teammate removed from the cloud since comes back with it, so
               archive and clear the desktop&apos;s copy once everything is there.
+              What the migration does not carry — comments, milestones,
+              budgets, expenses, levels, experiences, the team, shot lists,
+              edits, folders, and the scenes&apos; and shots&apos; pictures —
+              stays on this computer, and the report lists it before the
+              archive is offered. A take of a shot or clip removed on this
+              computer (kept there for undo) is not carried, and not an error.
+              A shot whose primary take stayed behind waits for it: nothing is
+              promoted in its place, and it lands as the primary once its
+              folder is named.
             </p>
           </div>
           <div className={T.card}>

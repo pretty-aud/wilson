@@ -70,7 +70,7 @@ const columnsWidth = (cols) => cols.reduce((sum, c) => sum + (floorOf(c) || pars
 // where some row could be (BinFileGrid says why; a browser passes false).
 export default function BinFileTable({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor,
-  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor, usageCount = null, markOffline = true,
+  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, renameFocusKey = 0, onRenameEnd, dragIdsFor, usageCount = null, markOffline = true,
 }) {
   const cols = TABLE_COLUMNS.filter(c => showBin || c.id !== 'bin')
   const minWidth = columnsWidth(cols)
@@ -102,7 +102,7 @@ export default function BinFileTable({
               binName={showBin ? (binsById.get(row.bin_id)?.name || '—') : null}
               sceneName={row.scene_id ? (scenesById.get(row.scene_id)?.name || '?') : ''}
               used={usageCount?.get(row.id) || 0}
-              renaming={renamingId === row.id}
+              renaming={renamingId === row.id} renameFocusKey={renameFocusKey}
               onRenameEnd={onRenameEnd}
               canWrite={canWrite} markOffline={markOffline}
               onClick={e => onRowClick?.(row.id, e)}
@@ -125,10 +125,13 @@ export default function BinFileTable({
   )
 }
 
-function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, markOffline = true, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
+function FileRow({ row, cols, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, renameFocusKey = 0, onRenameEnd, canWrite, markOffline = true, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
   const [draft, setDraft] = useState(row.display_name || '')
   const inputRef = useRef(null)
-  useEffect(() => { if (renaming) { setDraft(row.display_name || ''); setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0) } }, [renaming, row.display_name])
+  useEffect(() => { if (renaming) setDraft(row.display_name || '') }, [renaming, row.display_name])
+  // Focused when the rename starts, and again on Enter / F2 while it is
+  // open (focus had left the field): the draft is kept (review round 2).
+  useEffect(() => { if (renaming) setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0) }, [renaming, renameFocusKey])
   const commit = () => { const v = draft.trim(); if (v && v !== row.display_name) onPatch({ display_name: v }); onRenameEnd?.() }
   // A cell's ink is its <td>'s (ink-2, bins.css); a span says where it is not.
   const cell = (id) => {

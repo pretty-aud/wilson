@@ -77,7 +77,14 @@ const UNC_CONTROL = ['\\\\server\\sh\tare', '\\\\server\\sh\rare', '\\\\server\\
   // BC3 review round 1: a migrated project file could carry these past the
   // C0 check — a C1 control, the line separator, a right-to-left override,
   // a zero-width space, a soft hyphen, a word joiner, a byte-order mark.
-  '\\\\nas\\foot\u0085age', '\\\\nas\\footage\u2028Press Connect', '\\\\nas\\foot\u202eage', '\\\\nas\\foot\u200bage', '\\\\nas\\foot\u00adage', '\\\\nas\\foot\u2060age', '\\\\nas\\\ufefffootage']
+  '\\\\nas\\foot\u0085age', '\\\\nas\\footage\u2028Press Connect', '\\\\nas\\foot\u202eage', '\\\\nas\\foot\u200bage', '\\\\nas\\foot\u00adage', '\\\\nas\\foot\u2060age', '\\\\nas\\\ufefffootage',
+  // BC3 review round 2: past round 1's list \u2014 the Arabic letter mark, a TAG
+  // character (invisible, even in the host), the Mongolian vowel separator,
+  // an interlinear annotation anchor, the combining grapheme joiner, the
+  // Hangul filler, a variation selector. The guard reads Unicode's own
+  // properties now, so the list is not a step behind the standard.
+  ...[0x061c, 0xe0041, 0x180e, 0xfff9, 0x034f, 0x3164, 0xfe0f].map(cp => '\\\\nas\\foot' + String.fromCodePoint(cp) + 'age'),
+  '\\\\n' + String.fromCodePoint(0xe0041) + 'as\\footage']
 const UNC_ADMITTED_WEBDAV = ['\\\\nas@SSL\\DavWWWRoot', '\\\\nas@8080\\footage', '\\\\SUSAN-FAIRCHILD@8765\\footage']
 
 describe('the network-address guard is one guard on every backend (review round 1)', () => {
@@ -114,10 +121,12 @@ describe('the network-address guard is one guard on every backend (review round 
 
   it('the fixtures refuse the same addresses with the cloud\'s sentence, and admit the same shares', async () => {
     const fixtures = buildDevFixtures().rabbitAdapter()
-    for (const bad of UNC_REFUSED) {
+    // The control and formatting characters too (review round 2: the loop
+    // above exercised the desktop's and the renderer's guards, never this one).
+    for (const bad of [...UNC_REFUSED, ...UNC_CONTROL]) {
       const err = await fixtures.createBinLocation({ name: 'x', unc_path: bad }).catch(e => e)
-      expect(err, bad).toBeInstanceOf(Error)
-      expect(err.message, bad).toContain(BINS_REFUSALS.locationShape)
+      expect(err, JSON.stringify(bad)).toBeInstanceOf(Error)
+      expect(err.message, JSON.stringify(bad)).toContain(BINS_REFUSALS.locationShape)
     }
     for (const ok of UNC_ADMITTED) {
       const row = await fixtures.createBinLocation({ name: ok.split('\\').pop(), unc_path: ok })
