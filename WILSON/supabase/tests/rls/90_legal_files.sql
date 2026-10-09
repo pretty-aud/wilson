@@ -13,7 +13,14 @@
 --   user_c  workspace 'user', project MEMBER — the person the gate is for
 --   user_r  workspace 'user', project REVIEWER
 --   user_m  workspace MANAGER holding only a project MEMBER seat — the money
---           gate's own edge: can_write_project says yes, money says no
+--           gate's own edge: can_write_project says yes, money says no.
+--           🚨 Since 0092 (post-overhaul S4d, Audrey 2026-10-08: "Also
+--           workspace managers, without taking a seat") the LEGAL gate says
+--           YES to them while money still says no: §E's probes flipped from
+--           absence to presence (54-56, 58, 60-62), the policy pins (5-9) carry
+--           the Legal arm, and probe 79 flipped with her Legal 1 (2026-10-09):
+--           an invoice's purged certificate is no longer every member's. The
+--           money-side refusals for user_m are suite 95's.
 --   user_b  workspace B's admin; anon
 --
 -- WHAT THIS PINS, in order of how badly it would hurt:
@@ -49,7 +56,7 @@
 
 BEGIN;
 
-SELECT plan(108);
+SELECT plan(109);
 
 SELECT * FROM tests.rls_setup();
 
@@ -148,30 +155,32 @@ SELECT ok(
   AND NOT has_function_privilege('authenticated', 'public.fn_edit_history_money_snapshot()', 'EXECUTE'),
   'the helpers the policies call are authenticated-only; the DEFINER classifier and trigger are closed'); -- 4
 
--- 5-9: the four files policies, clause by clause, WHOLE (S4a trap 16).
+-- 5-9: the four files policies, clause by clause, WHOLE (S4a trap 16). Since
+-- 0092 the money arm carries the Legal arm beside it (suite 95 §A pins the
+-- same texts; both suites must move together).
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_select'),
   '((deleted_at IS NULL) AND (workspace_id = current_workspace_id()) AND (EXISTS ( SELECT 1' || chr(10)
-  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id)))',
-  'files_select is 0038''s body with the money arm on both axes');                                      -- 5
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
+  'files_select is 0038''s body with the money arm on both axes, and 0092''s Legal arm');               -- 5
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_insert'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id)) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
-  'files_insert is 0083''s body with the money arm on both axes');                                      -- 6
+  'files_insert is 0083''s body with the money arm on both axes, and 0092''s Legal arm');               -- 6
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id)))',
-  'files_update USING is 0083''s with the money arm on both axes');                                    -- 7
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
+  'files_update USING is 0083''s with the money arm on both axes, and 0092''s Legal arm');             -- 7
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id)) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
-  'files_update WITH CHECK is 0083''s with the money arm on both axes');                               -- 8
+  'files_update WITH CHECK is 0083''s with the money arm on both axes, and 0092''s Legal arm');        -- 8
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id)))',
-  'files_delete is 0038''s body with the money arm on both axes');                                      -- 9
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
+  'files_delete is 0038''s body with the money arm on both axes, and 0092''s Legal arm');               -- 9
 
 SELECT is(
   (SELECT array_agg(policyname::TEXT ORDER BY policyname) FROM pg_policies
@@ -488,6 +497,10 @@ RESET ROLE;
 
 
 -- ══ E. A WORKSPACE MANAGER holding a MEMBER seat (user_m) — the gate's edge ═══
+-- Until 0092 every probe here was an absence: the money gate refused them.
+-- Since 0092 (S4d) the LEGAL gate admits a workspace manager without a seat,
+-- so the same probes are presences now — and the invoice (59) stays closed.
+-- The rest of their money refusals are suite 95 §C.
 
 SELECT pg_temp.act_as('90900000-0000-0000-0000-0000000000a2', 'manager');
 
@@ -496,13 +509,13 @@ SELECT is(
   1, 'PRESENCE CONTROL: the workspace manager reads the plain file');                                    -- 53
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id = 'f9000000-0000-0000-0000-000000000001'),
-  0, '🚨 a workspace manager with a member seat cannot read the Legal row');                             -- 54
+  1, '🚨 a workspace manager with a member seat READS the Legal row (0092: the Legal gate admits them)'); -- 54
 SELECT is(
   (SELECT count(*)::int FROM storage.objects WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/legal/%'),
-  0, 'nor its body or thumbnail');                                                                       -- 55
+  2, '…and its body and thumbnail');                                                                     -- 55
 SELECT is(
   (SELECT count(*)::int FROM public.file_events WHERE file_id = 'f9000000-0000-0000-0000-000000000001'),
-  0, 'nor its events');                                                                                  -- 56
+  1, '…and its events');                                                                                 -- 56
 SELECT ok(
   (SELECT count(*) FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000002') > 0,
@@ -510,26 +523,40 @@ SELECT ok(
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000001'),
-  0, '🚨 nor the Legal file''s edit history — measured open for invoices before 0088');                  -- 58
+  2, '…and the Legal file''s edit history (is_legal rows; closed to them under 0088)');                   -- 58
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000003'),
-  0, '…and an invoice''s history is closed to them too');                                                -- 59
-SELECT throws_ok(
-  $$SELECT public.soft_delete_row('files', 'f9000000-0000-0000-0000-000000000001')$$,
-  'not allowed to soft-delete or restore this row',
-  'can_write_project says yes to a workspace manager; the money arm still refuses the trash');           -- 60
-SELECT throws_ok(
+  0, '🚨 …and an invoice''s history is still closed to them (money does not widen)');                     -- 59
+-- Trash and restore, recorded: true,true is the pass (the row is back for §G).
+CREATE TEMP TABLE legal90_wm (k TEXT, v TEXT);
+GRANT ALL ON legal90_wm TO PUBLIC;
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO legal90_wm VALUES ('1-trash', public.soft_delete_row('files', 'f9000000-0000-0000-0000-000000000001')::text);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO legal90_wm VALUES ('1-trash', SQLSTATE);
+  END;
+  BEGIN
+    INSERT INTO legal90_wm VALUES ('2-restore', public.restore_soft_deleted('files', 'f9000000-0000-0000-0000-000000000001')::text);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO legal90_wm VALUES ('2-restore', SQLSTATE);
+  END;
+END $$;
+SELECT is(
+  (SELECT string_agg(v, ',' ORDER BY k) FROM legal90_wm),
+  'true,true', 'can_write_project says yes to a workspace manager, and since 0092 so does the trash gate''s Legal clause'); -- 60
+SELECT lives_ok(
   $$SELECT public.log_file_downloaded('f9000000-0000-0000-0000-000000000001')$$,
-  'log_file_downloaded: file not found or not readable',
-  'nor may they log a read of it');                                                                      -- 61
-SELECT throws_ok(
+  '…and they may log a read of it');                                                                     -- 61
+SELECT lives_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9000000-0000-0000-0000-0000000000c2', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'w.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'nor add a Legal row');                                                                 -- 62
+  '…and add a Legal row (Add as Legal works for them)');                                                 -- 62
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
@@ -566,7 +593,7 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000001'),
-  2, 'the workspace admin reads the Legal file''s history (created, note edited)');                      -- 67
+  4, 'the workspace admin reads the Legal file''s history (created, note edited; §E''s trash and restore since 0092)'); -- 67
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
@@ -574,7 +601,7 @@ SELECT pg_temp.act_as('90900000-0000-0000-0000-0000000000a3', 'manager');
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000001'),
-  2, 'a workspace manager who MANAGES the project reads it (edit_history''s money arm admits them)');    -- 68
+  4, 'a workspace manager who MANAGES the project reads it (edit_history''s money arm admits them)');    -- 68
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
@@ -663,18 +690,22 @@ RESET ROLE;
 
 
 -- ══ I. The deletion certificate ══════════════════════════════════════════════
--- Purged as the nightly sweep does (postgres). Ruling 22 keeps an invoice's
--- certificate visible to every project reader; a Legal file's names it, so
--- 0088 hides it from non-money readers.
+-- Purged as the nightly sweep does (postgres). Ruling 22 kept an invoice's
+-- certificate visible to every project reader while 0088 hid a Legal file's;
+-- since 0092 (Audrey's Legal 1, 2026-10-09) a deleted file's record follows
+-- the file's own gate for both, so the member reads neither. The member's
+-- OWN plain file (04) is purged beside them: its certificate is the presence
+-- control (the suite's last probe, 109).
 
 DELETE FROM public.files WHERE id IN ('f9000000-0000-0000-0000-000000000001',
-                                      'f9000000-0000-0000-0000-000000000003');
+                                      'f9000000-0000-0000-0000-000000000003',
+                                      'f9000000-0000-0000-0000-000000000004');
 
 SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
 SELECT is(
   (SELECT count(*)::int FROM public.file_events
     WHERE file_id = 'f9000000-0000-0000-0000-000000000003' AND event = 'purged'),
-  1, 'CONTROL (ruling 22): the member still reads the INVOICE''s deletion certificate');                -- 79
+  0, '🚨 the member no longer reads the INVOICE''s deletion certificate (0092, Legal 1: ruling 22 narrowed)'); -- 79
 SELECT is(
   (SELECT count(*)::int FROM public.file_events WHERE file_id = 'f9000000-0000-0000-0000-000000000001'),
   0, '🚨 the member reads nothing of the Legal file — its deletion certificate included');               -- 80
@@ -988,6 +1019,17 @@ SELECT ok(
   NOT has_function_privilege('authenticated', 'public.fn_file_events_money_snapshot()', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.workspace_upload_reserved_bytes(uuid, text)', 'EXECUTE'),
   'the trigger function and the reserved-bytes meter stay closed to client roles');                      -- 108
+
+-- The presence control for §I's two absences (79, 80): the member's own plain
+-- file was purged beside the invoice and the Legal file, and its certificate
+-- is theirs to read.
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'f9000000-0000-0000-0000-000000000004' AND event = 'purged'),
+  1, 'PRESENCE CONTROL for §I: the member reads the plain file''s deletion certificate');                -- 109
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -115,16 +115,21 @@ SELECT is(
 
 -- Restated, not replaced: the money arm AND both of 0027's arms are in the one
 -- definition (the 0059 lesson — a DROP + CREATE that forgets an arm is green).
+-- 0092 (post-overhaul S4d, Audrey's Legal 1, 2026-10-09): the `purged`
+-- exception is GONE — a deleted invoice's record follows the money gate like
+-- its other events — and the Legal arm sits beside the money arm. Suites 90
+-- and 95 pin the whole text; this keeps the shape.
 SELECT ok(
-  (SELECT qual LIKE '%is_financial%' AND qual LIKE '%purged%'
+  (SELECT qual LIKE '%is_financial%' AND qual NOT LIKE '%purged%'
       AND qual LIKE '%can_access_project_money%'
+      AND qual LIKE '%can_access_project_legal%'
       AND qual LIKE '%can_read_project_topic%'
       AND qual LIKE '%current_app_role%'
       AND qual LIKE '%has_active_membership%'
      FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'file_events'
       AND policyname = 'file_events_select'),
-  'file_events_select carries the money arm and both 0027 arms');            -- 4
+  'file_events_select carries the money arm, the Legal arm (0092) and both 0027 arms — and no purged exception'); -- 4
 
 -- ══ 2. The one definition, never NULL ═══════════════════════════════════════
 
@@ -279,7 +284,13 @@ SELECT is(
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000007802'),
   5, 'a workspace admin reads all five invoice events');                     -- 19
 
--- ══ 5. The certificate stays visible ════════════════════════════════════════
+-- ══ 5. The certificate follows the invoice's gate (0092, Legal 1) ═══════════
+-- Ruling 22 (2026-09-04) kept a deleted invoice's record visible to every
+-- project reader; Audrey's Legal 1 (2026-10-09) — "keep legal docs and
+-- invoices hidden from members and reviewers. admins and managers should
+-- have the ability to see it" — narrows it: the certificate is the money
+-- audience's like the invoice's other events. Suite 95 §I probes every
+-- reader for both kinds, beside a plain file's certificate as the control.
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -299,7 +310,7 @@ SELECT tests.login_as(
 SELECT is(
   (SELECT count(*)::int FROM public.file_events
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000007802' AND event = 'purged'),
-  1, '🚨 a plain member reads the invoice''s deletion certificate (ruling 22: deletion records stay visible)');
+  0, '🚨 a plain member no longer reads the invoice''s deletion certificate (0092, Legal 1: ruling 22 narrowed)');
                                                                             -- 21
 
 SELECT is(

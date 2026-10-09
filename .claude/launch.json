@@ -124,6 +124,19 @@
         "set VITE_DEV_AUTOLOGIN=off&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/quirky-dewdney-93d080/WILSON --port 5246 --strictPort"
       ],
       "port": 5246
+    },
+    {
+      "_comment": "S4d (the Legal gate of its own: workspace managers see Legal files without a seat, migration 0092): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). /rabbit is the admin, /rabbit?fixtures=member the plain member, /rabbit?fixtures=manager (new) the workspace manager with a member seat who now sees the Legal file and still not the invoice.",
+      "name": "s4d-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/cool-burnell-1ba7f3/WILSON",
+        "--port",
+        "5287",
+        "--strictPort"
+      ],
+      "port": 5287
     }
   ]
 }
