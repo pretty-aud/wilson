@@ -97,6 +97,7 @@ beforeAll(async () => {
       // (here.mov), any other is not.
       if (String(p).toLowerCase() === SLOW.toLowerCase()) { calls.asyncSlow++; return slow.next }
       if (String(p).endsWith('here.mov')) return Promise.resolve({ isFile: () => true, isDirectory: () => false, mtime: new Date(0) })
+      if (String(p).endsWith('hang.mov')) return new Promise(() => {})
       return Promise.reject(Object.assign(new Error('not here'), { code: 'ENOENT' }))
     }
     return realStat(p, ...rest)
@@ -122,6 +123,10 @@ beforeAll(async () => {
     userAuthorizedDirs: new Set(), dialog, getMainWindow: () => ({}), shell,
     cloudBinsLocalPaths,
     cloudBinsRootWaitMs: WAIT_MS, cloudBinsRootTtlMs: TTL_MS, cloudBinsRootOffTtlMs: OFF_TTL_MS,
+    // The root question through the spied fs.promises.stat: the desktop's own
+    // asks it in a worker thread, whose fs no spy here reaches (that one is
+    // held by rabbitCloudBinsDesktop.routes.test.js, on real folders).
+    cloudBinsAskRoot: (root) => fs.promises.stat(root).then((s) => s.isDirectory(), () => false),
   })
   await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve) })
   base = `http://127.0.0.1:${server.address().port}`
@@ -254,6 +259,13 @@ describe('after a root answered: the share is touched only off the main thread',
     const made = await api('/thumbnail?location_id=loc-slow&relative_path=A001%2Fhere.mov&media_type=video')
     expect([415, 422]).toContain(made.status)
     expect(calls.syncDead).toEqual([])
+    // A clip whose own check is never answered (the server died after its
+    // root answered): 410 within the limit, and the ROOT is marked off at
+    // once — the next clip on it is not asked.
+    const [hang, hangMs] = await timed(async () => (await api('/stream?location_id=loc-slow&relative_path=A001%2Fhang.mov')).status)
+    expect(hang).toBe(410)
+    expect(hangMs).toBeLessThan(WAIT_MS + 1500)
+    expect((await register([L_SLOW]))[0].reachable).toBe(false)
     // A path on a drive letter outside every location: refused by name, its
     // real path asked asynchronously (a disconnected mapped drive).
     const items = (await (await api('/prepare', J({ paths: ['Q:\\footage\\x.mov'] }))).json()).items
@@ -361,11 +373,7 @@ describe('several servers that do not answer', () => {
   })
 })
 
-describe('the desktop widens libuv\'s pool before anything uses it', () => {
-  it('main.cjs sets UV_THREADPOOL_SIZE (16) as its first statement, before any require', () => {
-    const src = fs.readFileSync(path.resolve(process.cwd(), 'electron/main.cjs'), 'utf8')
-    const code = src.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('//'))
-    expect(code[0]).toBe("if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';")
-    expect(src.indexOf('UV_THREADPOOL_SIZE')).toBeLessThan(src.indexOf('require('))
-  })
-})
+// (A test that main.cjs widened libuv's pool stood here: measured in the
+// desktop app, the line read 16 and changed nothing — the pool is set up
+// before main.cjs runs. The root question moved to a worker thread instead;
+// rabbitCloudBinsDesktop.routes.test.js holds that.)

@@ -1,10 +1,3 @@
-// BC2 review round 1: libuv's pool (Node's default 4 threads) serves every
-// asynchronous file call in this process — the app's own files, posters,
-// streams — and a question to a company share whose server does not answer
-// holds one thread for as long as the server keeps it (42 s measured).
-// rabbitBins.cjs keeps at most four such questions out; sixteen threads
-// leave twelve for everything else. Set before anything uses the pool.
-if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';
 const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, session } = require('electron');
 const express = require('express');
 const cors = require('cors');

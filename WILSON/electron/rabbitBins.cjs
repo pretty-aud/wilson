@@ -42,6 +42,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Worker } = require('node:worker_threads');
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
 const { refuseToOpen } = require('./openPath.cjs');
@@ -1435,6 +1436,9 @@ function mountRabbitBins(expressApp, deps) {
     // (defaults 2 s, 15 s, 60 s, 4; a test passes its own).
     cloudBinsRootWaitMs: deps.cloudBinsRootWaitMs, cloudBinsRootTtlMs: deps.cloudBinsRootTtlMs,
     cloudBinsRootOffTtlMs: deps.cloudBinsRootOffTtlMs, cloudBinsRootMaxAsking: deps.cloudBinsRootMaxAsking,
+    // How a root is asked (default: a worker thread, off libuv's pool); a
+    // test passes one built on the fs it spies.
+    cloudBinsAskRoot: deps.cloudBinsAskRoot,
   });
 }
 
@@ -1610,6 +1614,23 @@ function shareRootOfPath(p) {
   return isUncPath(root) ? root : null;
 }
 
+// A location root's one question, asked OFF libuv's pool (BC2, after review
+// round 1): a synchronous stat in a short-lived worker thread, which answers
+// whether the root is a folder and ends. A server that does not answer holds
+// that thread — never one of the four the main process's own files share.
+// The root is passed as data (workerData), never as code.
+const ROOT_WORKER_CODE = "const { workerData, parentPort } = require('node:worker_threads'); const fs = require('node:fs'); let ok = false; try { ok = fs.statSync(workerData).isDirectory(); } catch { ok = false; } parentPort.postMessage(ok);";
+function askRootInWorker(root) {
+  return new Promise((resolve) => {
+    let w;
+    try { w = new Worker(ROOT_WORKER_CODE, { eval: true, workerData: String(root) }); } catch { resolve(false); return; }
+    w.once('message', (ok) => resolve(ok === true));
+    w.once('error', () => resolve(false));
+    w.once('exit', () => resolve(false)); // no message: not reachable
+    w.unref();
+  });
+}
+
 function mountCloudBins(expressApp, deps) {
   const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
   const localPaths = makeLocalPathStore(deps.cloudBinsLocalPaths || null);
@@ -1664,13 +1685,23 @@ function mountCloudBins(expressApp, deps) {
   const ROOT_WAIT_MS = Number(deps.cloudBinsRootWaitMs) > 0 ? Number(deps.cloudBinsRootWaitMs) : 2000;
   const ROOT_TTL_MS = Number(deps.cloudBinsRootTtlMs) > 0 ? Number(deps.cloudBinsRootTtlMs) : 15000;
   // Review round 1: a root known to be off is asked again less often, and
-  // at most ROOT_MAX_ASKING questions are out at once process-wide — each
-  // holds one of libuv's pool threads for as long as the server keeps it
-  // (42 s measured), and the pool also serves the app's own files, posters
-  // and streams (main.cjs widens it to 16). A question past the cap waits
-  // for a free slot, inside the same ROOT_WAIT_MS.
+  // at most ROOT_MAX_ASKING questions are out at once — a question to a
+  // server that does not answer is held for as long as the server keeps it
+  // (42 s measured). A question past the cap waits for a free slot, inside
+  // the same ROOT_WAIT_MS.
+  //
+  // Where the question is asked (measured in the desktop app itself, after
+  // round 1): NOT on libuv's pool. Electron's main process has four pool
+  // threads, they serve the app's own files, posters and streams, and they
+  // cannot be widened from main.cjs (UV_THREADPOOL_SIZE set there read 16
+  // and changed nothing: with six such questions out, a local file read
+  // waited the full 8 s). Each question is a synchronous stat in its own
+  // short-lived worker thread instead (about 16 ms, measured): a held
+  // question holds that thread, never the pool (the same read: 2 ms).
+  // `deps.cloudBinsAskRoot(root) → Promise<boolean>` replaces it in a test.
   const ROOT_OFF_TTL_MS = Number(deps.cloudBinsRootOffTtlMs) > 0 ? Number(deps.cloudBinsRootOffTtlMs) : 60000;
   const ROOT_MAX_ASKING = Number(deps.cloudBinsRootMaxAsking) > 0 ? Number(deps.cloudBinsRootMaxAsking) : 4;
+  const askRoot = typeof deps.cloudBinsAskRoot === 'function' ? deps.cloudBinsAskRoot : askRootInWorker;
   let askingNow = 0;
   const slotWaiters = [];
   const takeSlot = () => (askingNow < ROOT_MAX_ASKING ? (askingNow++, Promise.resolve()) : new Promise((r) => slotWaiters.push(r)));
@@ -1682,7 +1713,7 @@ function mountCloudBins(expressApp, deps) {
     const c = rootAnswers.get(k) || { ok: false, at: 0, asking: null, waiting: null };
     if (c.waiting) return c.waiting;
     if (c.asking || Date.now() - c.at < (c.ok ? ROOT_TTL_MS : ROOT_OFF_TTL_MS)) return Promise.resolve(c.ok);
-    const asking = takeSlot().then(() => fs.promises.stat(root).then((s) => s.isDirectory(), () => false).finally(freeSlot));
+    const asking = takeSlot().then(() => Promise.resolve().then(() => askRoot(root)).then((ok) => ok === true, () => false).finally(freeSlot));
     asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null }); });
     // Known to be off and due again: "not reachable" at once, asked again
     // behind it — a location that stays off costs nothing after the first
@@ -1707,8 +1738,32 @@ function mountCloudBins(expressApp, deps) {
   const rootOf = (loc) => (loc ? loc.local_path || (isConnectedUnc(loc.unc_path) ? loc.unc_path : null) : null);
   // The clip's location answers right now (a request's location_id).
   const hereNow = (q) => rootReachable(rootOf(cloudLocations.get(String(q?.location_id || ''))));
-  // A file or a folder, asked without holding the thread.
-  const statKind = (p, kind) => fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false);
+  // A file or a folder, asked without holding the thread — and within
+  // ROOT_WAIT_MS: a server that died after its root answered marks that
+  // root off at once, so the next clip on it is not asked (after review
+  // round 1; each such call can hold a pool thread until the server lets go).
+  const statKind = (p, kind) => {
+    let timer = null;
+    return Promise.race([
+      fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false),
+      new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); }),
+    ]).then((v) => {
+      clearTimeout(timer);
+      if (v === null) { markRootOffFor(p); return false; }
+      return v;
+    });
+  };
+  function markRootOffFor(p) {
+    const lp = String(p).toLowerCase();
+    for (const loc of cloudLocations.values()) {
+      const root = rootOf(loc);
+      if (!root) continue;
+      const k = root.toLowerCase().replace(/[\\/]+$/, '');
+      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
+        rootAnswers.set(k === root.toLowerCase() ? k : root.toLowerCase(), { ...(rootAnswers.get(root.toLowerCase()) || {}), ok: false, at: Date.now() });
+      }
+    }
+  }
   async function mapLimit(list, limit, fn) {
     const out = new Array(list.length); let next = 0;
     const run = async () => { while (next < list.length) { const i = next++; out[i] = await fn(list[i], i); } };

@@ -150,6 +150,24 @@ describe('B2\'s fallback, per computer: the folder from this computer\'s setting
     expect(back.locations[0]).toMatchObject({ local_path: media, local_path_source: 'saved', connected: true, reachable: true })
   })
 
+  // After review round 1 (measured in the desktop app: Electron's four pool
+  // threads cannot be widened from main.cjs): a location's root is asked in
+  // a short-lived worker thread — a synchronous stat THERE — so a server that
+  // does not answer holds that thread, never the pool the app's own files use.
+  it('a location\'s root is asked off the main thread (a worker): right answers, and not one main-thread call on the root', async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media }, 'loc-b': { unc_path: '\\\\other-nas\\gone', local_path: path.join(root, 'no-such-folder') } } }
+    const stat = vi.spyOn(fs.promises, 'stat')
+    const statSync = vi.spyOn(fs, 'statSync')
+    const exists = vi.spyOn(fs, 'existsSync')
+    try {
+      const locs = (await (await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }, { id: 'loc-b', unc_path: '\\\\other-nas\\gone' }] }))).json()).locations
+      expect(locs.map(l => [l.id, l.reachable])).toEqual([['loc-a', true], ['loc-b', false]])
+      const roots = [media, path.join(root, 'no-such-folder')].map(r => r.toLowerCase())
+      const touched = [...stat.mock.calls, ...statSync.mock.calls, ...exists.mock.calls].map(c => String(c[0]).toLowerCase()).filter(p => roots.includes(p))
+      expect(touched).toEqual([])
+    } finally { stat.mockRestore(); statSync.mockRestore(); exists.mockRestore() }
+  })
+
   it('the dialog for one REGISTERED location saves its folder in this computer\'s settings — not in the process-wide picked set', async () => {
     saved.value = null
     const before = new Set(userAuthorizedDirs)
