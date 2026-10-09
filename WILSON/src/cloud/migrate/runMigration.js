@@ -634,9 +634,13 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     // What the cloud already holds for this project (a second run): the
     // rows to skip, and which of them still want a picture.
     let cloudClips = new Map()
+    // The read failed: the rows still go (a row already there is skipped by
+    // its key), but no picture does — which rows already have one is
+    // unknown, and a second upload would orphan the first in the bucket.
+    let cloudClipsUnknown = false
     if (clips.length) {
       const have = await listCloud('bin_files', 'project_id', projectId, 'id, poster_path')
-      if (have.error) report.errors.push({ scope: 'bin_files', projectId, message: `could not read the project's clips already in the cloud: ${have.error.message || have.error}` })
+      if (have.error) { cloudClipsUnknown = true; report.errors.push({ scope: 'bin_files', projectId, message: `could not read the project's clips already in the cloud, so no picture was uploaded for it: ${have.error.message || have.error}` }) }
       else cloudClips = new Map(have.rows.map(r => [r.id, r]))
     }
     const wantPicture = []
@@ -671,7 +675,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
         const r = already ? { status: 'skipped' } : await insertOrSkip('bin_files', toColumns('bin_files', row))
         r.status === 'inserted' ? bumpInserted(report.binFiles) : bumpSkipped(report.binFiles)
         landed.clips.add(clip.id)
-        if (POSTER_MEDIA.has(clip.media_type) && !already?.poster_path) wantPicture.push(clip)
+        if (POSTER_MEDIA.has(clip.media_type) && !already?.poster_path && !cloudClipsUnknown) wantPicture.push(clip)
         else if (POSTER_MEDIA.has(clip.media_type)) { report.posters.total++; report.posters.skipped++ }
       } catch (err) {
         report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: ${err.message}` })

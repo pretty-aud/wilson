@@ -399,6 +399,21 @@ describe('the real run on a bundle shaped like her projects', () => {
     expect(report.errors).toEqual([])
   })
 
+  it('the project\'s cloud rows unreadable: the rows still go (skipped by key where they are there), no picture does, and the report says why', async () => {
+    serve([realBundle()])
+    fake.state.single.workspaces[WS].remote_viewing_enabled = true
+    // Every list read fails (the company's locations too, so the answers
+    // name new locations, which the inserts still take).
+    fake.state.listError = { message: 'network down' }
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(fake.state.uploads).toEqual([])
+    expect(report.posters.uploaded).toBe(0)
+    expect(report.errors.some(e => e.scope === 'bin_files' && /no picture was uploaded for it/.test(e.message))).toBe(true)
+    // CONTROL: the clips themselves landed.
+    expect(report.errors.filter(e => e.scope !== 'bin_files' && e.scope !== 'bin_locations')).toEqual([])
+    expect(report.binFiles.inserted).toBe(4)
+  })
+
   it('the switch unreadable: no picture leaves (fail closed), and the report says the read failed', async () => {
     serve([realBundle()])
     seedNas()
