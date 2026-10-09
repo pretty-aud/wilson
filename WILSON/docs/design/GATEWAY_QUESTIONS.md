@@ -42,7 +42,21 @@ Your choice on 2026-10-06 ("okay lets go with option a"): a small WILSON service
 - A gateway that is installed but switched off answers inside the network only, and from outside answers nothing — provably the same as no gateway at all.
 - The desktop app signed in keeps reading files directly (BC2); the gateway is for browsers.
 
-## The answer block (copy, change what you disagree with, paste back)
+## Her answers, 2026-10-09 (asked in chat as multiple choice; recorded verbatim)
+
+- **G1:** "Either, the company picks (Recommended)".
+- **G2:** "It registers itself with the cloud (Recommended)".
+- **G3:** "The company exposes it themselves (Recommended)".
+- **G4 + G5:** "Project people past the Bins gate; bin clips only (Recommended)".
+- **G6:** "Only reads from outside the network" — office viewing is NOT logged; remote viewing is, with who, which clip, when and how much, visible to workspace admins.
+- **G7:** "Only what a browser plays as it is (Recommended)".
+- **G8:** "Yes, the viewer's name over remote playback (Recommended)".
+- **G9 + G10:** "Self-updating; design session first (Recommended)".
+- **Decided without asking:** not objected to.
+
+The design session's brief: `docs/sessions/briefs/po-bc4-gateway-design.md`.
+
+## The answer block that was offered (superseded by the answers above)
 
 ```
 g1 either, the company picks
