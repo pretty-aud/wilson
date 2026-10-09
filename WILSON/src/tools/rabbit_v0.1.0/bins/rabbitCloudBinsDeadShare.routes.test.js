@@ -172,8 +172,25 @@ describe('a slow server: one question in flight, a late answer counts, a kept an
     expect(calls.asyncSlow).toBe(1)
     await sleep(TTL_MS + 50)
     slow.next = Promise.resolve({ isDirectory: () => false }) // gone again
-    expect((await register([L_SLOW]))[0].reachable).toBe(false)
+    expect((await register([L_SLOW]))[0].reachable).toBe(false) // it WAS reachable: waited for
     expect(calls.asyncSlow).toBe(2)
+    expect(calls.syncDead).toEqual([])
+  })
+
+  it('a location known to be off answers at once when its answer is due again, and is asked again behind it', async () => {
+    calls.asyncSlow = 0
+    // Known off now (the last answer above). Due again after the time kept:
+    await sleep(TTL_MS + 50)
+    let back
+    slow.next = new Promise(r => { back = r })
+    const [again, ms] = await timed(() => register([L_SLOW]))
+    expect(again[0].reachable).toBe(false)
+    expect(ms).toBeLessThan(WAIT_MS) // not the limit: answered at once
+    expect(calls.asyncSlow).toBe(1) // …and asked again, behind the answer
+    back({ isDirectory: () => true }) // the server is back
+    await sleep(10)
+    expect((await register([L_SLOW]))[0].reachable).toBe(true)
+    expect(calls.asyncSlow).toBe(1)
     expect(calls.syncDead).toEqual([])
   })
 })

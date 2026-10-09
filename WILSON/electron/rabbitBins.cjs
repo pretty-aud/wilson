@@ -1639,6 +1639,12 @@ function mountCloudBins(expressApp, deps) {
     if (c.asking || Date.now() - c.at < ROOT_TTL_MS) return Promise.resolve(c.ok);
     const asking = fs.promises.stat(root).then((s) => s.isDirectory(), () => false);
     asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null }); });
+    // Known to be off and due again: "not reachable" at once, asked again
+    // behind it — a location that stays off costs nothing after the first
+    // time, one that comes back counts from the next question. (A root that
+    // WAS reachable is waited for, so a server that just went down is not
+    // read clip by clip.)
+    if (c.at > 0 && !c.ok) { rootAnswers.set(k, { ...c, asking }); return Promise.resolve(false); }
     let timer = null;
     const waiting = Promise.race([asking, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
       clearTimeout(timer);
