@@ -24,6 +24,8 @@ import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDur
 import { mixedValue } from '../../bins/binSelectors'
 import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 import { navigateTo } from '../../state/rabbitNavigate'
+// BC2: a company's clip (a footage location + a path inside it).
+import { NOT_ON_THIS_COMPUTER, notHereSentence } from '../../bins/binLocations'
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -73,6 +75,9 @@ export default function BinInspector({
   // is already logged to, always); `homeOf` names the list that holds each
   // shot a file is used in (linkHomes.homeIndex; null: no words).
   allScenes = null, allShots = null, homeOf = null,
+  // BC2: for a company's clip, its footage location (row → { name,
+  // unc_path } | null) and who added it (row → words | null), B11.
+  locationOf = null, addedByOf = null,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -156,7 +161,8 @@ export default function BinInspector({
       <div className="flex-1 overflow-y-auto">
         {single && (
           <Section title="Preview" open={previewOpen} onToggle={() => setPreviewOpen(o => !o)}>
-            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={streamUrlFor?.(single.id)} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive} />
+            <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={streamUrlFor?.(single.id)} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive}
+              location={locationOf?.(single) || null} />
           </Section>
         )}
 
@@ -274,7 +280,8 @@ export default function BinInspector({
         {single && (
           <Section title="File" open={techOpen} onToggle={() => setTechOpen(o => !o)}
             right={single.online !== false && canWrite ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
-            <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg} />
+            <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg}
+              location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} />
             <div className="flex items-center gap-1.5 flex-wrap pt-1">
               <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
               <Btn small onClick={() => onOpen?.(single.id, true)} disabled={single.online === false} title="Show the file in Explorer"><FolderOpen className="w-3 h-3" /> Reveal</Btn>
@@ -296,7 +303,8 @@ function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   )
 }
 
-function TechRows({ row, fps, binPath, ffmpeg }) {
+function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null }) {
+  const cloudRow = !!row.location_id
   const R = ({ k, v, title }) => v == null || v === '' ? null : (
     <div className="flex items-baseline gap-2 text-dense min-w-0">
       <span className="flex-shrink-0" style={{ color: C.dimmer, minWidth: 70 }}>{k}</span>
@@ -310,8 +318,18 @@ function TechRows({ row, fps, binPath, ffmpeg }) {
     <div className="flex flex-col gap-1">
       <R k="Bin" v={binPath} />
       <R k="File" v={row.original_name} />
-      <R k="Path" v={row.source_path} />
-      {row.online === false && <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> offline — the file is not at this path</div>}
+      {/* BC2: a company's clip is a footage location + a path inside it,
+          the same on every computer; who added it (B11). */}
+      {cloudRow ? (
+        <>
+          <R k="Location" v={location ? location.name : 'a location no longer in the list'} title={location?.unc_path || undefined} />
+          <R k="Path" v={row.relative_path} />
+          <R k="Added by" v={addedBy} />
+        </>
+      ) : <R k="Path" v={row.source_path} />}
+      {row.online === false && (cloudRow
+        ? <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> {NOT_ON_THIS_COMPUTER}</div>
+        : <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> offline — the file is not at this path</div>)}
       <R k="Size" v={formatBytes(row.size_bytes)} />
       {row.is_sequence && <R k="Frames" v={`${row.frame_count ?? '?'}${row.sequence_pattern ? ` · ${row.sequence_pattern}` : ''}`} />}
       <R k="Duration" v={row.duration_sec ? `${formatDuration(row.duration_sec)} · ${secondsToTimecode(row.duration_sec, row.fps || fps)}` : null} />
@@ -326,7 +344,7 @@ function TechRows({ row, fps, binPath, ffmpeg }) {
   )
 }
 
-function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false }) {
+function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false, location = null }) {
   const kind = previewKindFor(row)
   const [failed, setFailed] = useState(null)
   const [playing, setPlaying] = useState(false)
@@ -361,6 +379,20 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false 
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
+  // BC2 (B3): a company's clip this computer cannot reach still shows its
+  // picture (the one cached here, else the cloud's) and everything but
+  // playback, marked "not on this computer".
+  if (row.online === false && row.location_id) {
+    return (
+      <div className="flex flex-col gap-1.5" data-testid="not-here">
+        <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
+          <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
+        </div>
+        <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> Not on this computer</div>
+        <div className="text-dense px-1" style={{ color: C.dim }}>{notHereSentence(location?.name)}</div>
+      </div>
+    )
+  }
   if (row.online === false) {
     return (
       <div className="rounded-control flex flex-col items-center justify-center gap-1 py-6 text-center" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}` }}>

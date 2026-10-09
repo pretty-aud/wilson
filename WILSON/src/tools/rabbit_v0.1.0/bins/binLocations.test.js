@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { isUncPath, normalizeUncInput, shareRootOf, suggestLocationName, addedByName, locationReachWords } from './binLocations'
+import { isUncPath, normalizeUncInput, shareRootOf, suggestLocationName, addedByName, locationReachWords, notHereSentence, NOT_ON_THIS_COMPUTER } from './binLocations'
 
 describe('normalizeUncInput: what a person pastes, in the stored shape', () => {
   const cases = [
@@ -70,6 +70,14 @@ describe('in words', () => {
     expect(addedByName('u2', members)).toBe('mara')
     expect(addedByName('gone', members)).toBe('someone who has left')
     expect(addedByName(null, members)).toBeNull()
+    // The roster's shape too ({ id, name }): what the Bins tab is handed.
+    expect(addedByName('u3', [{ id: 'u3', name: 'Mara Okonkwo' }])).toBe('Mara Okonkwo')
+  })
+
+  it('notHereSentence (B3): the location named, playback refused, logging kept', () => {
+    expect(notHereSentence('Footage NAS')).toBe('"Footage NAS" is not reachable from this computer, so the clip cannot be played here. It can still be logged, flagged and assigned to a shot.')
+    expect(notHereSentence(null)).toContain('Its footage location is not reachable')
+    expect(NOT_ON_THIS_COMPUTER).toBe('not on this computer')
   })
 
   it('locationReachWords: what this computer said, or nothing where no desktop answered', () => {

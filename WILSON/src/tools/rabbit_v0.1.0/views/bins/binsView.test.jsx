@@ -274,7 +274,8 @@ describe('S2a-01 — the Bins keys act only on R.A.B.B.I.T.\'s own page, with no
 
   it('Rabbit.jsx says it: pageActive is currentPage === \'rabbit\'', () => {
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../Rabbit.jsx'), 'utf8')
-    expect(src).toContain("{activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}")
+    // BC2: the tab is also handed the roster (B11); pageActive is unchanged.
+    expect(src).toContain("{activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} people={rosterMembers} />}")
   })
 
   describe('a drawer over the view (R.A.B.B.I.T.\'s settings): the keys stand down', () => {

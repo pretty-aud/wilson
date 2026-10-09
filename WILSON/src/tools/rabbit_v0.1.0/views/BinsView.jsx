@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { needsCloudPoster } from '../bins/cloudPosters'
+import { addedByName, NOT_ON_THIS_COMPUTER } from '../bins/binLocations'
 import { useProjectAccess } from '../state/useProjectAccess'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
@@ -76,7 +77,7 @@ const TYPE_STARTER = [
  * gets keys that do nothing, which a test sees, rather than keys that act
  * from every page, which nobody does (S2a-01).
  */
-export default function BinsView({ pageActive = false } = {}) {
+export default function BinsView({ pageActive = false, people = [] } = {}) {
   const ctx = useRabbit()
   // BC2 (B6): bins are gated on `project.bins.write` — the twin of the shot
   // list gate, which admits REVIEWERS (Audrey: "Reviewers same as members").
@@ -258,6 +259,13 @@ export default function BinsView({ pageActive = false } = {}) {
   const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev + (ctx?.binsInfo?.posterRev || 0)), [ctx, thumbRev])
   const streamUrlFor = useCallback((id) => ctx?.binFileStreamUrl?.(id), [ctx])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
+  // BC2: a company's clip names its footage location and who added it (B11).
+  const locationById = useMemo(() => new Map((ctx?.binLocations || []).map(l => [l.id, l])), [ctx?.binLocations])
+  const locationOf = useCallback((row) => (row?.location_id ? locationById.get(row.location_id) || null : null), [locationById])
+  const addedByOf = useCallback((row) => (row?.location_id ? addedByName(row.added_by, people) : null), [people])
+  // The word for a clip this computer cannot reach: a company's clip is
+  // "not on this computer" (B3); the signed-out desktop's says "offline".
+  const offlineWord = caps?.locations ? NOT_ON_THIS_COMPUTER : 'offline'
 
   // ── Selection ──
   const selectRow = useCallback((id, e) => {
@@ -822,7 +830,7 @@ export default function BinsView({ pageActive = false } = {}) {
                   {stats.offline > 0 && (
                     <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }}
                       title={`Relink the project's offline files (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`}>
-                      · <Unplug className="w-3 h-3" /> {stats.offline} offline
+                      · <Unplug className="w-3 h-3" /> {stats.offline} {offlineWord}
                     </button>
                   )}
                   {probing > 0 && <span className="inline-flex items-center gap-1">· <Loading className="text-caption" label={`reading ${probing}`} /></span>}
@@ -881,7 +889,7 @@ export default function BinsView({ pageActive = false } = {}) {
               <Chip active={filters.flags.includes('reject')} onClick={() => toggleIn('flags', 'reject')} color={C.red} count={countWhere(f => f.review_flag === 'reject')}><Ban className="w-3 h-3" /> rejects</Chip>
               <Chip active={filters.flags.includes('unflagged')} onClick={() => toggleIn('flags', 'unflagged')} count={countWhere(f => !f.review_flag || f.review_flag === 'unflagged')}>unflagged</Chip>
               <Chip active={filters.circled === true} onClick={() => setFilters(f => ({ ...f, circled: f.circled === true ? null : true }))} count={countWhere(f => f.circled)}><Circle className="w-3 h-3" /> circled</Chip>
-              <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> offline</Chip>
+              <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> {offlineWord}</Chip>
               <span style={{ width: 8 }} />
               {COLORS.filter(c => scopeFiles.some(f => f.color === c)).map(c => <Chip key={c} active={filters.colors.includes(c)} onClick={() => toggleIn('colors', c)} title={`Colour ${c}`} count={countWhere(f => f.color === c)}><ColorDot color={c} size={8} /></Chip>)}
               {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)} count={countWhere(f => f.camera === c)} className={DATA_CHIP}>{c} cam</Chip>)}
@@ -973,7 +981,8 @@ export default function BinsView({ pageActive = false } = {}) {
           fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
-          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive} />
+          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive}
+          locationOf={locationOf} addedByOf={addedByOf} />
       </div>
 
       {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys

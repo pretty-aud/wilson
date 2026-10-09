@@ -72,13 +72,24 @@ export function suggestLocationName(unc) {
 /**
  * Who added a location or a clip, in words (B11): the member's name, else
  * "someone who has left" for an id no longer in the company, else null when
- * nothing is recorded. `members` is the workspace directory's rows.
+ * nothing is recorded. `members` is the workspace directory's rows
+ * ({ user_id, display_name, username }) or the roster's ({ id, name }).
  */
 export function addedByName(userId, members) {
   if (!userId) return null
-  const m = (members || []).find(x => x.user_id === userId)
-  if (m) return m.display_name || m.username || 'a teammate'
+  const m = (members || []).find(x => x.user_id === userId || x.id === userId)
+  if (m) return m.display_name || m.name || m.username || 'a teammate'
   return 'someone who has left'
+}
+
+// ── B3: a clip this computer cannot reach ──
+// "A clip a computer cannot reach still shows, with its details, marked
+// 'not on this computer'; it can be logged, flagged and assigned to a shot;
+// it cannot be played there."
+export const NOT_ON_THIS_COMPUTER = 'not on this computer'
+/** The sentence under a company's clip that cannot be played here. */
+export function notHereSentence(locationName) {
+  return `${locationName ? `"${locationName}"` : 'Its footage location'} is not reachable from this computer, so the clip cannot be played here. It can still be logged, flagged and assigned to a shot.`
 }
 
 /**

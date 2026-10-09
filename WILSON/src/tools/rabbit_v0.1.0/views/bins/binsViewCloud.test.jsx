@@ -16,6 +16,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const state = vi.hoisted(() => ({ ctx: null, access: null }))
 vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
@@ -93,6 +95,71 @@ describe('where no computer can pick a file, the add verbs say why', () => {
     fireEvent.click(files)
     expect(state.ctx.pickBinFiles).not.toHaveBeenCalled()
     expect(screen.getAllByRole('button', { name: /^New bin/ }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('item 5: play in place, and "not on this computer" (B3)', () => {
+  const twoRows = [
+    { id: 'f1', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T1.mp4', display_name: 'T1', original_name: 'T1.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged', sort_order: 0, added_by: 'u1' },
+    { id: 'f9', bin_id: 'b1', location_id: 'L1', relative_path: 'A001/T9.mov', display_name: 'T9', original_name: 'T9.mov', extension: '.mov', media_type: 'video', online: false, review_flag: 'unflagged', sort_order: 1, added_by: 'u1' },
+  ]
+  const people = [{ id: 'u1', name: 'Sofia Aldana' }]
+  const mountRows = async (caps) => {
+    state.ctx = makeCtx(caps, {
+      binFiles: twoRows,
+      binFileStreamUrl: vi.fn((id) => (id === 'f1' ? '/api/rabbit/cloud-bins/stream?location_id=L1&relative_path=A001%2FT1.mp4' : null)),
+      binFileThumbnailUrl: vi.fn(() => null),
+    })
+    state.access = reviewer()
+    render(<BinsView pageActive people={people} />)
+    await act(async () => {})
+  }
+  const pick = (name) => fireEvent.click([...document.querySelectorAll('[role="gridcell"]')].find(t => t.textContent.includes(name)))
+
+  it('a reachable clip plays through the desktop by location + path', async () => {
+    await mountRows(DESKTOP)
+    pick('T1')
+    const video = document.querySelector('video[controls]')
+    expect(video.getAttribute('src')).toBe('/api/rabbit/cloud-bins/stream?location_id=L1&relative_path=A001%2FT1.mp4')
+  })
+
+  it('a clip this computer cannot reach: "Not on this computer", its location named, everything but playback', async () => {
+    await mountRows(DESKTOP)
+    pick('T9')
+    const here = document.querySelector('[data-testid="not-here"]')
+    expect(here.textContent).toContain('Not on this computer')
+    expect(here.textContent).toContain('"Footage NAS" is not reachable from this computer')
+    expect(here.textContent).toContain('can still be logged, flagged and assigned to a shot')
+    expect(document.querySelector('video[controls]')).toBeNull()
+    // The file section: its location, its path inside it, who added it (B11).
+    const text = document.body.textContent
+    expect(text).toContain('LocationFootage NAS')
+    expect(text).toContain('PathA001/T9.mov')
+    expect(text).toContain('Added bySofia Aldana')
+    expect(screen.getByTitle('Open with the default app').disabled).toBe(true)
+    // …and it can still be logged (B3): the marks are live.
+    expect(screen.getAllByTitle('Select (S)').some(b => !b.disabled)).toBe(true)
+  })
+
+  it('the toolbar and the filter say "not on this computer" for a company\'s clips', async () => {
+    await mountRows(DESKTOP)
+    expect(document.body.textContent).toContain('1 not on this computer')
+  })
+
+  it('Rabbit hands the Bins tab the roster it already reads (no second directory call), so B11 has names', () => {
+    const rabbit = readFileSync(resolve(process.cwd(), 'src/tools/rabbit_v0.1.0/Rabbit.jsx'), 'utf8')
+    expect(rabbit).toMatch(/<BinsView pageActive=\{currentPage === 'rabbit'\} people=\{rosterMembers\} \/>/)
+    expect(rabbit).toMatch(/const \{ members: rosterMembers \} = useRosterMembers\(\)/)
+  })
+
+  it('B12: the signed-out desktop still says "offline"', async () => {
+    const legacy = { ...DESKTOP, backend: 'local_server', locations: false, remoteViewingSwitch: false, posters: 'local' }
+    state.ctx = makeCtx(legacy, { binFiles: [{ ...twoRows[1], location_id: undefined, relative_path: undefined, source_path: 'D:\\x\\T9.mov' }] })
+    state.access = reviewer()
+    render(<BinsView pageActive />)
+    await act(async () => {})
+    expect(document.body.textContent).toContain('1 offline')
+    expect(document.body.textContent).not.toContain('not on this computer')
   })
 })
 

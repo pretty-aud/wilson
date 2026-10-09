@@ -1966,6 +1966,41 @@ function mountCloudBins(expressApp, deps) {
     }
   });
 
+  // ── "Open in default app" / "Reveal in Explorer" (BC2 item 5) ──
+  // By location + path, never a body path. The signed-out route's rule
+  // stands (post-overhaul S4a R2-SEC-01, openPath.cjs, deny by default): a
+  // FILE opens only if it is a document, picture, video, audio or 3D file,
+  // judged by where it really leads, and what opens is what was judged — a
+  // share holds whatever its folders hold, `Take3.mov.cmd` included. A
+  // sequence opens its middle frame; Reveal shows the folder.
+  expressApp.post(`${C}/open`, async (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    if (!deps.shell) return res.status(503).json({ error: 'no shell in this process', code: 'no_shell' });
+    const reveal = req.body?.reveal === true;
+    const isSeq = req.body?.is_sequence === true;
+    let target = abs;
+    if (isSeq && !reveal) { const seq = detectSequence(abs); if (seq) target = seq.middle_frame_path; }
+    if (!(isSeq && reveal ? isDir(target) : isFile(target) || isDir(target))) {
+      return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    }
+    try {
+      if (reveal) { deps.shell.showItemInFolder(target); return res.json({ ok: true }); }
+      let opened = target;
+      if (isFile(target)) {
+        const real = fs.realpathSync(target);
+        const refusal = refuseToOpen(real) || refuseToOpen(target);
+        if (refusal) return res.status(422).json({ error: refusal, code: 'refused_type' });
+        opened = real;
+      }
+      const err = await deps.shell.openPath(opened);
+      if (err) return res.status(422).json({ error: String(err), code: 'open_failed' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || 'open failed' });
+    }
+  });
+
   // The bytes, Range-capable, allowlisted Content-Type, never a folder (a
   // sequence streams its middle frame). Query: location_id, relative_path,
   // is_sequence.

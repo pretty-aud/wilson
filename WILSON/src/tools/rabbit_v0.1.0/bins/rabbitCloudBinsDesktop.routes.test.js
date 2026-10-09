@@ -44,6 +44,9 @@ const saved = { value: null, writes: 0 }
 const cloudBinsLocalPaths = { read: () => (saved.value ? JSON.parse(JSON.stringify(saved.value)) : null), write: (v) => { saved.value = JSON.parse(JSON.stringify(v)); saved.writes++ } }
 // The OS dialog: answers whatever the test sets next.
 const dialogAnswer = { filePaths: [], canceled: true }
+// The OS shell: records what the desktop would open or reveal.
+const shellCalls = []
+const shell = { openPath: async (p) => { shellCalls.push(['open', p]); return '' }, showItemInFolder: (p) => { shellCalls.push(['reveal', p]) } }
 const dialogCalls = []
 const dialog = { showOpenDialog: async (_win, opts) => { dialogCalls.push(opts); return { ...dialogAnswer } } }
 
@@ -60,6 +63,7 @@ beforeAll(async () => {
   other = path.join(root, 'elsewhere'); fs.mkdirSync(other)
   fs.writeFileSync(path.join(media, 'A001', 'clip.mp4'), Buffer.alloc(1024, 3))
   fs.writeFileSync(path.join(other, 'secret.mov'), Buffer.alloc(16, 1))
+  fs.writeFileSync(path.join(media, 'A001', 'run.mov.cmd'), 'echo hi')
   fs.writeFileSync(path.join(media, 'A001', 'A001C003_240612_R1AB_T4.mov'), Buffer.alloc(64, 2))
   fs.mkdirSync(path.join(media, 'A001', 'stills'))
   fs.writeFileSync(path.join(media, 'A001', 'stills', 'frame.png'), Buffer.alloc(32, 4))
@@ -78,7 +82,7 @@ beforeAll(async () => {
     getThumbCacheDir: () => thumbDir,
     generateVideoThumbOnce: async () => ({ ok: false, reason: 'ffmpeg_missing' }),
     safeMediaContentType,
-    userAuthorizedDirs, dialog, getMainWindow: () => ({}), shell: null,
+    userAuthorizedDirs, dialog, getMainWindow: () => ({}), shell,
     cloudBinsLocalPaths,
   })
   await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve) })
@@ -338,5 +342,39 @@ describe('a cloud clip\'s poster on this computer', () => {
       const r = await api(`/thumbnail${q('STILLS/png_seq', `&is_sequence=true&media_type=sequence&mtime=${encodeURIComponent(asPostgres(stored))}`)}`)
       expect(r.status).toBe(200)
     } finally { fs.renameSync(dir + '_away', dir) }
+  })
+})
+
+// ── Open in the default app, reveal (item 5) ────────────────────────────────
+describe('"Open in default app" and "Reveal in Explorer", by location + path', () => {
+  const reg = async () => {
+    saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
+    await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))
+  }
+  it('a clip opens with the OS (what was judged is what opens); reveal shows it in its folder', async () => {
+    await reg(); shellCalls.length = 0
+    expect(await (await api('/open', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4' }))).json()).toEqual({ ok: true })
+    expect(shellCalls[0][0]).toBe('open')
+    expect(shellCalls[0][1].toLowerCase()).toBe(fs.realpathSync(path.join(media, 'A001', 'clip.mp4')).toLowerCase())
+    expect(await (await api('/open', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4', reveal: true }))).json()).toEqual({ ok: true })
+    expect(shellCalls[1][0]).toBe('reveal')
+  })
+
+  it('a program in a footage folder is never handed to the OS (deny by default)', async () => {
+    await reg(); shellCalls.length = 0
+    const r = await api('/open', J({ location_id: 'loc-a', relative_path: 'A001/run.mov.cmd' }))
+    expect(r.status).toBe(422)
+    expect((await r.json()).code).toBe('refused_type')
+    expect(shellCalls).toEqual([])
+  })
+
+  it('a sequence opens its middle frame; an unregistered location is 403; a missing file 410; the gate stands', async () => {
+    await reg(); shellCalls.length = 0
+    expect((await api('/open', J({ location_id: 'loc-a', relative_path: 'VFX/plate_seq', is_sequence: true }))).status).toBe(200)
+    expect(path.basename(shellCalls[0][1])).toMatch(/^plate\.000[23]\.exr$/)
+    expect((await api('/open', J({ location_id: 'nope', relative_path: 'A001/clip.mp4' }))).status).toBe(403)
+    expect((await api('/open', J({ location_id: 'loc-a', relative_path: 'A001/missing.mp4' }))).status).toBe(410)
+    expect((await api('/open', J({ location_id: 'loc-a', relative_path: '../escape.mp4' }))).status).toBe(403)
+    expect((await raw('/open', J({ location_id: 'loc-a', relative_path: 'A001/clip.mp4' }))).status).toBe(403)
   })
 })

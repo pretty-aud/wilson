@@ -274,7 +274,8 @@ export default function Rabbit({ currentPage } = {}) {
                 act only while R.A.B.B.I.T. is on screen, and its "Recently
                 removed" mark ends when the person leaves it. */}
             {activeView === 'scenes'      && <ScenesView pageActive={currentPage === 'rabbit'} />}
-            {activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} />}
+            {/* BC2 (B11): the roster read once above names who added a clip. */}
+            {activeView === 'bins'        && <BinsView pageActive={currentPage === 'rabbit'} people={rosterMembers} />}
             {activeView === 'levels'      && <LevelsView />}
             {activeView === 'experiences' && <ExperiencesView />}
             {/* pageActive (post-overhaul S3c, S4a-07): the Timeline's and the
