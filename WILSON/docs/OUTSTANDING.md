@@ -1476,6 +1476,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul S4d (2026-10-09; `po/s4d-legal-gate-managers` into `feat/post-overhaul-edit-versioning`) — the Legal gate of its own (0092): workspace managers see Legal files without a seat, money unchanged, a deleted file's record follows the file's gate; two review rounds | **one section at the end: S4d-01**, an older gap found while copying 0072's arm into the predicate (the eight money storage policies carry no private-project hop of their own, so a non-creator project manager reaches a private project's invoice OBJECT while its row is hidden; INFERRED from 0042's text). Dated notes on S4b-03 (the Legal audience refreshes too) and S4b-05 (the Legal half is moot). | nothing closed: S4b-10 and S4b-11 stay Audrey's. |
 | Post-overhaul S2a (2026-09-30; `po/s2a-settings-placement` into `feat/post-overhaul-edit-versioning`) — settings at each strip's right end, the orange Audrey named, the pet's Shift tap; two review rounds | **one section at the end: seven entries the two review rounds found and S2a did not fix** (other sessions' files, the kit, or not S2a's to change): S2a-01 🚨 Bins' keys act from every page (Delete removes up to five selected files without a question; MEASURED for Enter), S2a-02 the hand-rolled modals the Shift rule cannot see, S2a-03 the kit Drawer's focus, S2a-04 the workspace chooser's Enter, S2a-05 the unlayered scrollbar rule, S2a-06 D.O.G.'s Enter during the leave transition, S2a-07 the Timeline drawer's "RABBIT settings". Dated notes on P1-02, P1-03 (now the one place Enter does something else; a stranded Search freezes the keys) and P1-04 (D.O.G.'s Alt, arrows and Ctrl+Z have no page check). | **P1-01 closed**: a bare Shift tap toggles the pet and Enter presses the focused control (`05bf5fe`, `edb7fa9`, `07d34d6`). |
 | UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
 | Track C / **migration 0078** (2026-09-09) — the quota exemption bounded by size; pgTAP suite **77 extended** (probes 54-68), five breakers; two review rounds | **nothing.** | **One entry CLOSED: a receipt was exempt from the Petal storage quota at any size.** C4 made a receipt land under an `INVOICES/` segment so it would be money-gated, and that segment is what `rabbit_quota_exempt_path` (0055) keys on — so a receipt could not be refused however large, while `workspace_petal_committed_bytes` kept counting its bytes against the allowance that refuses ordinary media. Measured ceiling: the bucket's own **50 GiB** per object. Not a security hole (0037 gates `expenses`), a billing one. Audrey's ruling, asked and answered this session: **bound the exemption by size**, not cap the picker. 0078 adds `public.rabbit_quota_exempt_max_bytes()` = **25 MiB** as the one definition, plus `rabbit_quota_exempt_bytes(name,bytes)` and `rabbit_quota_exempt_object(name,md)` composed over it; `rabbit_quota_exempt_path` is UNCHANGED and delegated to, so suite 65's probes 13-17 stay green. 🚨 **THE HAND-OFF NAMED ONE ENFORCEMENT SITE AND THERE ARE TWO.** Besides the RESTRICTIVE `petal_storage_quota_insert`, `reserve_upload_bytes` (0073, C1) returned NULL early for any exempt path — and that is the one the CLIENT calls, before any byte moves. Bounding only the policy would have let a large receipt reserve nothing, upload, and be refused at commit, which is the exact failure C1 exists to remove. Breaker B3 proves it: bound the policy alone and probe 55 is the ONLY probe that reddens. 🚨 **`COALESCE(bytes, 0)` is load-bearing and the polarity is the counter-intuitive one: an UNKNOWN size KEEPS the exemption**, because a bare comparison yields NULL and a NULL DENIES under a RESTRICTIVE policy — every manifest and rates-mirror write with absent metadata would fail with a symptom indistinguishable from the bound working. Safe because `completeUpload` writes storage-api's own `size`. ⚠️ **A STATED LIMIT, not a hole: only bodies over 50 MiB reserve at all** (`RESUMABLE_THRESHOLD_BYTES`), so between 25 and 50 MiB the refusal lands at the policy AFTER the bytes move, and as a raw RLS error rather than the friendly PT402 sentence — walkthrough 13 step 3 now says so. ⚠️ **The bound applies to the manifest and mirror arms too**, since `rabbit_quota_exempt_path` is one predicate; the cost is stated in handbook §12.10 and pinned by probe 57. **REVIEW ROUND 1** found the 25-50 MiB band; that the header misquoted 0055's three reasons and dropped the decisive one (invoices are how a company pays Petal — the reason 0078 actually overrides above the bound, now argued rather than hidden); that post-conditions 6a and 7 asserted SUBSTRINGS a polarity inversion walks straight through (`%rabbit-files%` is true of `bucket_id = 'rabbit-files'`); and that a retyped 100-line SECURITY DEFINER function had two LIKE probes as its whole evidence. **REVIEW ROUND 2 then found four defects in round 1's own corrections**, which is why the track runs two: 🚨 **§12.10 — the section every other file forwards to — was never corrected at all** (the handbook diff had exactly ONE hunk, in §17), so four round-0 defects survived in the canonical place; 🚨 **round 1 silently DELETED the manifest's positive assertion** and then wrote "the manifest arm was untested", which is the defect class probe 10's own note warns about, three sections later in the same file — restored as probe 68 at a stricter fixture; probe 57 asserted a bare PT402 while probe 55's comment, written by the same round, argues at length that a bare PT402 is not enough; and the bound-duplication inventory was stale in the commit that introduced it (round 1 wrote "probes 55, 60 and 61" while adding 54, 57 and 66). Also: `site 1`/`site 2` meant opposite things in 0078 and suite 77; post-condition 9b was narrowed by a `public.` prefix an unqualified call would slip past; §12.9's four present-tense clauses were still false. **Five breakers, each reddening exactly what it should:** B1 (size axis dropped) → the refusal probes 55, 57, 60, 61; B2 (COALESCE removed) → 63 only; B3 (policy bounded, reservation not) → 55 only; B4 (bucket arm inverted) → post-condition 7; B5 (exemption arm negated) → post-condition 6a — B4 and B5 both PASSED the original LIKE form. ⚠️ **Measured and recorded, not fixed:** `storage.foldername` and `fn_try_uuid` are `proparallel = 'u'`, yet `rabbit_money_segment` (0042) and `rabbit_quota_exempt_path` (0055) are labelled PARALLEL SAFE while calling them; the new functions inherit that pre-existing mislabel by delegating to the chain. Someone should fix 0042/0055 together. State: 0078 on **dev** by query (statements first, history row second; recorded md5 `56277f68cccf8285571e77a96f145d12`, 44828 bytes / 43744 chars, equal to the file's LF blob). Suite 77 **68/68**; suites 65/66/77/78 **198/198**; full `tap-all` sweep **73 suites, 72 clean, 1394/1394, 0 failed** — the one problem is `67_member_full_time`'s known `col_type_is` shim gap, not this track's. ⚠️ That sweep ran while suite 77 stood at 67; review round 2 added probe 68 afterwards, so the next full sweep reads **1395**, not 1394 — the figures are from two moments, not a contradiction. Vitest **1815 / 76**. Migration number taken with Audrey's explicit permission; **Track D moves to 0079** and the ledger says so. **CI GREEN on both pushed heads** — `bb896c1` (run 34436340815) and the final `bcc6815` (run 34436440185), each success with all four jobs (pgTAP, Vitest, issue-session smoke, Playwright auth); the pgTAP job is what proves 0078 and suite 77's 68 probes outside hosted dev, since it builds a clean database from every migration including 0065. Handbook §12.10. |
@@ -2226,6 +2227,11 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   `realtime.broadcast_changes` is not possible — a broadcast has no
   per-recipient filter — so the fix is a second, money-only topic whose join
   gate is `can_access_project_money`. Owner: the next session on realtime.
+  **2026-10-09 (S4d, 0092):** the same for the Legal audience — a Legal row
+  stays off the topic (its audience is wider than money's and still narrower
+  than the topic's), so a workspace manager's second window refreshes to see
+  a new Legal file too. The fix would then be TWO extra topics, or one per
+  gate: the Legal one joined on `can_access_project_legal`.
 - ~~**S4b-04 · A desktop file tagged Legal during S4a's label period stays
   in the project's files folder.**~~ **Fixed in the same bundle (review
   rounds 1 and 2):** the Local Server removes such a LABEL once per project
@@ -2262,6 +2268,10 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   money files by taking its manager seat, and nothing records that step.
   Not to be "fixed" without a new ruling (`POST_OVERHAUL_ANSWERS.md`,
   2026-10-02).
+  **2026-10-09 (S4d, 0092):** the Legal half is moot — a workspace manager
+  sees Legal files WITHOUT the seat now (`can_access_project_legal`, Audrey
+  2026-10-08). The money half stands as accepted: invoices, the budget and
+  the rates still need the seat, and taking it is still unrecorded.
 - **S4b-06 · Storage totals tell a member when a hidden file arrives, and
   one function answers any company's.** PRE-EXISTING (0055/0057/0073).
   MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
@@ -2907,3 +2917,36 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   rows by `parent_id` and puts the path right; the upload's old prefix is
   what the offer is for, and the offer returns. Owner: none (deploy windows
   only).
+
+## Post-overhaul S4d (`po/s4d-legal-gate-managers`) — left open (2026-10-09)
+
+S4d gave Legal files a gate of their own (migration 0092,
+`can_access_project_legal`: the money gate OR a workspace manager, with
+0037's workspace hop and 0072's privacy arm), re-pointed every closure 0088
+had made through the money gate, and — Audrey's Legal 1 — made a deleted
+file's record follow the file's gate for invoices and Legal files alike.
+Money is unchanged and pinned (0092's post-condition 12). Questions for
+Audrey are in walkthrough 54 §6 and the S4d hand-off, not here. S4b-10 and
+S4b-11 are untouched and still hers.
+
+- **S4d-01 · The eight money storage policies carry no private-project hop
+  of their own, so a project manager who did not create a private project
+  can read its invoice OBJECTS while its rows are hidden.** PRE-EXISTING
+  (0042 / 0053 / 0072). INFERRED from the policy text while 0092 copied
+  0072's arm into the Legal predicate: `rabbit_files_money_select` and its
+  seven siblings are `bucket … AND rabbit_money_segment(seg) AND
+  can_access_project_money(project)`, with no `EXISTS (SELECT 1 FROM
+  projects p …)` hop — the eight BASE policies have one, which is how a
+  private project's ordinary objects follow projects_select. The money
+  predicate is SECURITY DEFINER and reads projects with RLS bypassed, so for
+  a project_members row with project_role = manager on a private project it
+  answers true whoever created the project. The ROW is hidden (files_select
+  hops), and such a seat can only be placed by someone who can already see
+  the project; the Legal arm 0092 added does carry the privacy arm (inside
+  can_access_project_legal, suite 95 §H). Would settle it: seat a second
+  manager on a private project and read `storage.objects` under
+  `projects/<id>/INVOICES/` as them. Fix: the hop in all eight money
+  policies, or `passes_project_privacy` inside can_access_project_money
+  (0037's body is pinned by 0092's post-condition 12 and suite 95 probe 4;
+  both move with it). Owner: a session on private projects, with Audrey's
+  nod (it narrows the money gate for a non-creator manager).

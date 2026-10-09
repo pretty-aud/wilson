@@ -881,6 +881,15 @@ Since **0088 (post-overhaul S4b)** the list the function holds is `INVOICES`,
 the eight `rabbit-thumbnails` policies (0053) moved together and none was
 restated (0088's post-condition 8 re-counts all sixteen).
 
+Since **0092 (post-overhaul S4d)** the eight MONEY policies on both buckets
+are restated once more, with the lock unchanged and the audience split: the
+gate is `(can_access_project_money(project) OR (rabbit_legal_segment(seg)
+AND can_access_project_legal(project)))`. A LEGAL object opens for the Legal
+audience — the money audience plus workspace managers — and an INVOICES or
+FINANCE object for the money audience alone; the eight base policies still
+negate the one list and were not touched. 0092's post-condition 5 pins all
+eight money policies WHOLE and the eight base ones by shape.
+
 ⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
 `rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
 all three explicitly** and replaced them with the money four. Any document still
@@ -942,6 +951,7 @@ only matter if someone **replays a migration by hand**:
 | `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 | `0028` **or** `0031` | `0055` | **(S41)** 0055 widens the same CHECK a second time, to 19 values, with the four `storage_plan.*` actions. **The rule now goes both ways**: a bare re-run of EITHER earlier file restores a list without them, and every `operator-storage-plans` audit write then fails the same silent way — 200 to the operator, no certificate written. 🚨 **0031's own post-condition does not notice**: it greps the constraint for `%model.approved%`, which a 0031 replay satisfies perfectly. Only 0055's post-condition checks for `storage_plan.set`. |
+| `0037`, `0042`, `0053`, `0072`, `0074`, `0082`, `0083` **or** `0088` | `0092` | **(Post-overhaul S4d)** 0092 restates, from each one's latest body, everything that decides which AUDIENCE a Legal thing has: the four `files_*` policies and the eight money storage policies on both buckets (a replay of 0042 / 0053 / 0088 puts them back on the money gate alone — nothing opens, but every workspace manager loses the Legal files Audrey gave them), `log_file_downloaded`, `reserve_upload_bytes`, `fn_trash_authz`, the edit-history classifier, its trigger and `edit_history_select` (a replay of 0088 drops the `is_legal` answer and the Legal arm), and `file_events_select` (a replay of 0074 or 0088 brings back ruling 22's `purged` exception, so a member reads a deleted invoice's record again — 0074 — or a deleted Legal file's stays hidden while an invoice's opens — 0088). It calls, and does not restate, `can_access_project_money` (0037) and `passes_project_privacy` (0082); post-condition 12 pins the money body to 0037's and post-condition 1 the Legal body to its three pieces. Re-run 0092 after any of them. |
 | `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. |
 | `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
 
@@ -1781,6 +1791,18 @@ the exception (0088):** it names the file, so a certificate whose `old_path`
 was under `LEGAL/` is hidden from non-money readers too — put to Audrey in the
 S4b hand-off, reversible by deleting that one arm. One policy, every arm restated (a replay of
 0027 would drop the money arm; 0074's post-condition 3 is the tripwire).
+**Since 0092 (post-overhaul S4d, Audrey's Legal 1, 2026-10-09: "keep legal
+docs and invoices hidden from members and reviewers. admins and managers
+should have the ability to see it") the `purged` exception is GONE for both
+kinds.** A financial row — its deletion certificate included — is read by a
+workspace admin, the project's managers (`can_access_project_money`) or, when
+either path is a Legal key (`file_event_is_legal`), the Legal audience
+(`can_access_project_legal`: workspace managers without a seat as well).
+Ruling 22 is narrowed; a member or reviewer reads no event of an invoice or
+a Legal file at all. The hourly sweep's `upload_abandoned` certificate for a
+LEGAL key follows the same arm. 0092's post-condition 11 pins the policy
+whole and refuses any `purged` arm; suites 95 §I, 90 (probe 79) and 78
+(probe 21) probe every reader for both kinds.
 Limit: the flag is a snapshot — a file that becomes financial LATER keeps its
 earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
 no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
@@ -2922,7 +2944,41 @@ clean-up runs once per project (`bundle.legalLabelsSettled`). The Projects
 page lists Legal files to the people the database gives them to, with the
 Core box locked — it is where a project file is deleted. Left open, put to
 Audrey: a money-cleared person can rename a Legal OBJECT out of `LEGAL`
-through the Storage API (OUTSTANDING S4b-10). There are
+through the Storage API (OUTSTANDING S4b-10).
+
+**S4d (0092, 2026-10-09): the Legal gate of its own.** "Same as money files
+for now" ended with Audrey's 2026-10-08 answer, "Also workspace managers,
+without taking a seat." `public.can_access_project_legal(project)` =
+`can_access_project_money(project)` (called, not copied) OR `current_app_role()
+= 'manager'` with 0037's hop copied whole (the project in the caller's own
+workspace by the projects row, a live membership) and 0072's privacy arm
+through `passes_project_privacy` (0082); COALESCEd, so never NULL. Three
+classifiers tell a Legal thing from a money thing, each a subset of its
+twin so a Legal key stays locked: `file_row_is_legal(flag, path)` (under
+LEGAL and NOT `is_financial`), `rabbit_legal_key(obj)` and
+`file_event_is_legal(old, new)`; `files_legal_not_financial_chk` makes a
+Legal row never an invoice, so the row's gate and its object's cannot
+disagree. Every closure 0088 made through the money gate asks the Legal gate
+for a LEGAL row, key or event and the money gate for everything else: the
+four `files_*` policies and the eight money storage policies (`… OR
+(file_row_is_legal(…) AND can_access_project_legal(project_id))`),
+`log_file_downloaded`, `reserve_upload_bytes` (the Legal clause inside the
+FIRST refusal, same words, same code), `fn_trash_authz`, `edit_history`
+(a second snapshot column `is_legal`, the classifier's third answer, the
+Legal arm on `edit_history_select`) and `file_events_select` (above).
+Unchanged and said so: `fn_realtime_broadcast` (a Legal row is still never
+broadcast — one topic, no per-recipient filter), `trg_file_events_money`,
+the reserved-bytes meter, the quota exemption and `files_money_provider_chk`.
+🚨 **Money does not widen** (D8): post-condition 12 pins
+`can_access_project_money` to 0037's body (no app-manager leg, no Legal
+predicate) and suite 95 probes a workspace manager — with a member seat and
+with none — against every money closure. The client mirror is
+`canSeeProjectLegal` (`projectRoleMatrix.js`) beside `canSeeProjectMoney`,
+differing on exactly the three app-manager rows; Add as Legal, the cloud
+adapter's pre-upload check (`can_access_project_legal` over RPC, never the
+money RPC) and the dev fixtures (`?fixtures=manager`) read it, and
+`projectLegal.test.js` pins on the source that every Legal site asks it and
+no money site does. There are
 exactly two: `adapters/index.js` registers three adapters and Google Drive's
 `uploadFile` is `readOnly()` — a function that throws (`googleDriveAdapter.js:267`)
 — so Drive cannot write an ungated receipt because it cannot write at all.
@@ -4695,7 +4751,10 @@ of a session — this section is limits by design, that file is faults.
   `LEGAL`).** Its row twin is `public.file_row_is_money(flag, path)` (0088):
   every `files` row decision — the four row policies, `log_file_downloaded`,
   `fn_trash_authz`, the realtime skip, the edit-history snapshot — asks that,
-  never the flag alone. The Edge Function `storage-presign` carries a copy of
+  never the flag alone. Since 0092 each of those also asks the Legal twins
+  (`file_row_is_legal`, `rabbit_legal_key`, `file_event_is_legal`) to pick
+  the Legal audience (`can_access_project_legal`) over the money audience
+  for a LEGAL row, key or event; the lock is the same, the audience is not. The Edge Function `storage-presign` carries a copy of
   the list (`supabase/functions/_shared/moneySegments.ts`), held to the
   function by `storagePresignBoundary.test.js`. The three base `rabbit-files` storage
   policies negate it; the four money policies assert it. Adding a third
@@ -4796,6 +4855,15 @@ of a session — this section is limits by design, that file is faults.
   member trash and restore an invoice by id (a write past the gate and an
   existence oracle); a money row now needs `can_access_project_money`. All
   three hold for Legal files too (suite 90).
+- **A Legal thing's audience is the Legal gate since 0092 (S4d), and two
+  limits are stated with it.** (1) A `file_events` row of a file that was
+  BOTH `is_financial` and under `LEGAL` before 0092 cannot be told from a
+  Legal file's by its paths, so the Legal audience would read it; none
+  exists on dev (measured 2026-10-09: zero rows, objects or events under
+  LEGAL), the client has refused Legal + financial since S4b, and
+  `files_legal_not_financial_chk` refuses such a row from 0092 on. (2) A
+  workspace manager's second window sees a new Legal file on its next
+  refresh, not live, for the reason a project manager's does (S4b-03).
 - **Invoices live in a folder called `INVOICES`** — a sibling of
   `<slug>_FILES` in the project folder on Local Server, and the reserved
   third path segment in cloud storage. 🚨 **The case of that segment is
