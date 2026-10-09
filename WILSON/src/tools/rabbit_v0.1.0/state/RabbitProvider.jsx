@@ -5295,9 +5295,10 @@ export function RabbitProvider({ children }) {
         redoOps: [() => mutationsRef.current.setRemoteViewingEnabled(now, { workspaceId })],
       });
       if (token != null) {
+        // Short enough for the undo toast's one line (480 px, truncated).
         showUndoToast(now
-          ? 'Turned on viewing files from outside the office network'
-          : 'Turned off viewing files from outside the office network', () => undoHistoryEntry(token));
+          ? 'Viewing from outside the office turned on'
+          : 'Viewing from outside the office turned off', () => undoHistoryEntry(token));
       }
     }
     return now;

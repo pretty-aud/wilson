@@ -252,7 +252,10 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
       await act(async () => { await ctxRef.setRemoteViewingEnabled(true, { workspaceId: 'w1' }) })
       expect(holder.adapter.db.switchWrites).toEqual([['w1', true]])
       expect(ctxRef.binsInfo.remoteViewing).toBe(true)
-      expect(ctxRef.undoToast?.message).toBe('Turned on viewing files from outside the office network')
+      // Short enough for the undo toast (480 px, one truncating line: the
+      // BC2 rehearsal's screenshot cut "…from outside the office netwo…").
+      expect(ctxRef.undoToast?.message).toBe('Viewing from outside the office turned on')
+      expect(ctxRef.undoToast.message.length).toBeLessThanOrEqual(48)
       await act(async () => { await ctxRef.undo() })
       await waitFor(() => expect(holder.adapter.db.switchWrites).toEqual([['w1', true], ['w1', false]]))
       expect(ctxRef.binsInfo.remoteViewing).toBe(false)
