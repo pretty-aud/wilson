@@ -224,9 +224,10 @@ and managers should have the ability to see it."* So:
   next refresh, as a project manager's does.
 
 **Before you start.** On the cloud this needs **migration 0092** after
-0088. Its state on the development database is in the S4d hand-off
-(`docs/sessions/handoffs/po-s4d-2026-10-09.md`, "For the beta"), with the
-staging lines. The test data does not need it: `/rabbit` is the admin,
+0088. It has been on the development database since 2026-10-09 (applied
+and checked there); staging still needs it, and the lines are in the S4d
+hand-off (`docs/sessions/handoffs/po-s4d-2026-10-09.md`, "For the beta")
+and in `Desktop\WILSON walkthroughs\Post-overhaul\migrations-to-apply\00_HOW_TO_APPLY.md`. The test data does not need it: `/rabbit` is the admin,
 `/rabbit?fixtures=member` the plain member, and **`/rabbit?fixtures=manager`
 (new) is Mara as a workspace manager holding only a member seat.**
 
@@ -266,9 +267,9 @@ staging lines. The test data does not need it: `/rabbit` is the admin,
   taken out suite 95 went red for each — 33 and 40 checks red for the two
   money-widening ones. A copy with only the checks taken out, and no fault,
   stayed green.
-- **Tests**: 296 files / 7,067 tests at the start of the bundle; the count
-  at its end is in the hand-off (two new test files and about twenty new
-  tests). Twenty-one deliberately broken versions of the client code were
+- **Tests**: 296 files / 7,067 tests at the start of the bundle, **297 /
+  7,088** at its end (one new test file and twenty-one new tests), all
+  passing. Twenty-one deliberately broken versions of the client code were
   planted — sixteen after the build, five more after the two reviews — and
   every one was caught. The reviewers planted their own as well; each
   survivor they found is among the twenty-one, caught now.
