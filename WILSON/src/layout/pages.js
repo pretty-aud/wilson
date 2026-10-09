@@ -309,6 +309,27 @@ export const PAGE_TITLES = Object.freeze(
 // disagreeing.
 export const HOME_BAR_HEIGHT = PAGE_BARS.home.top;
 
+// 🚨 THE WELCOME SEAM (post-overhaul S6a, 2026-10-09). The height every page
+// transition closes the bars to — the 40px of light orange the transition's
+// title sits in, WELCOME included — and, since S6a, the height the sign-in's
+// reveal lands on. It was a literal in App.jsx's `COMPRESSED`; it lives here
+// because it now has two readers, and two copies of one number is the defect
+// the Home seam above was written about.
+//
+// Audrey, 2026-10-09: after the password, the light-orange band "expands and
+// becomes taller and then goes to the welcome" — it should go straight to the
+// size it has when the welcome title appears. Measured (S6a hand-off): the
+// reveal landed on HOME_BAR_HEIGHT and the welcome then compressed from there,
+// two tweens with a 130–300ms still between them, and wherever Home's bar is
+// THINNER than the split bar (windows taller than ~1117px, where Home's caps
+// at 268px and the split bar is 24vh) the first one grew the band. The Home
+// value was never the fault — the order was — so HOME_BAR_HEIGHT is unchanged
+// and still where every OTHER AuthShell consumer's reveal lands.
+//
+// ⚠️ Change it and the page transition changes with it: the overhaul plan's
+// §3.4 (C2) keeps that transition exactly as it is.
+export const COMPRESSED_BAR_HEIGHT = 'calc(50vh - 20px)';
+
 /**
  * The nav strip's page items for one column, minus the page you are on.
  * The RESOURCES trigger and a tool's own settings item are NOT pages and are
