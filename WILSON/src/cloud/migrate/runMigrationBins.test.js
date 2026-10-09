@@ -28,21 +28,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fake = vi.hoisted(() => {
-  const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null }
+  const state = { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [] }
   const builder = (table) => {
-    const q = { table, cols: null, filters: [] }
+    const q = { table, cols: null, filters: [], range: null }
     const api = {
       select(cols) { q.cols = cols; return api },
       eq(col, value) { q.filters.push([col, value]); return api },
+      order() { return api },
+      range(from, to) { q.range = [from, to]; state.ranges.push([table, from, to]); return api },
       maybeSingle: async () => {
         if (state.singleError) return { data: null, error: state.singleError }
         const by = q.filters.find(f => f[0] === 'id')
         return { data: state.single[table]?.[by?.[1]] ?? null, error: null }
       },
-      // A list read: `await client.from(t).select(c).eq(k, v)`.
+      // A list read: `await client.from(t).select(c).eq(k, v).order().range()`.
+      // PostgREST's own cap: at most 1,000 rows an answer (config.toml max_rows).
       then(resolve) {
         if (state.listError) return resolve({ data: null, error: state.listError })
-        const rows = (state.lists[table] || []).filter(r => q.filters.every(([c, v]) => r[c] === v))
+        const all = (state.lists[table] || []).filter(r => q.filters.every(([c, v]) => r[c] === v)).sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        const rows = q.range ? all.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + 1000)) : all.slice(0, 1000)
         return resolve({ data: rows.map(r => ({ ...r })), error: null })
       },
       insert: async (row) => {
@@ -60,13 +64,15 @@ const fake = vi.hoisted(() => {
         return { error: null }
       },
       update(patch) {
-        const u = { table, patch, filters: [] }
+        const u = { table, patch, filters: [], selected: false }
         const chain = {
           eq(col, value) { u.filters.push([col, value]); return chain },
+          select() { u.selected = true; return chain },
           then(resolve) {
             state.updates.push(u)
-            for (const r of state.lists[table] || []) if (u.filters.every(([c, v]) => r[c] === v)) Object.assign(r, patch)
-            return resolve({ error: null })
+            const hit = (state.lists[table] || []).filter(r => u.filters.every(([c, v]) => r[c] === v))
+            for (const r of hit) Object.assign(r, patch)
+            return resolve({ data: u.selected ? hit.map(r => ({ id: r.id })) : null, error: null })
           },
         }
         return chain
@@ -135,9 +141,11 @@ function realBundle() {
   return {
     project: { id: pid, title: 'Real' },
     phases: [], assets: [], tasks: [], files: [], dependencies: [],
-    scenes: [{ id: 'sc1', project_id: pid, name: 'Lighthouse', scene_number: 1 }],
+    // A scene's and a shot's thumbnail_image is a path on this computer's
+    // disk on the desktop; created_by is whoever the file says.
+    scenes: [{ id: 'sc1', project_id: pid, name: 'Lighthouse', scene_number: 1, thumbnail_image: 'C:\\Users\\audrey\\Pictures\\lighthouse.jpg', created_by: 'u-forged' }],
     shots: [
-      { id: 'sh1', project_id: pid, scene_id: 'sc1', name: 'Wide', shot_number: 1 },
+      { id: 'sh1', project_id: pid, scene_id: 'sc1', name: 'Wide', shot_number: 1, thumbnail_image: 'C:\\Users\\audrey\\Pictures\\wide.jpg' },
       { id: 'sh2', project_id: pid, scene_id: 'sc1', name: 'Close', shot_number: 2 },
     ],
     bins: [
@@ -148,7 +156,7 @@ function realBundle() {
       { id: 'b-stills', project_id: pid, name: 'Stills', kind: 'stills', parent_bin_id: null, sort_order: 2 },
     ],
     binFiles: [
-      { id: 'c1', project_id: pid, bin_id: 'b-a001', source_path: '\\\\nas\\footage\\Day01\\A001\\A001_C001.mov', display_name: 'A001_C001', original_name: 'A001_C001.mov', extension: '.mov', media_type: 'video', review_flag: 'select', circled: true, scene_id: 'sc1', shot_id: 'sh1', shoot_day: '2026-09-24', sort_order: 0, online: true },
+      { id: 'c1', project_id: pid, bin_id: 'b-a001', source_path: '\\\\nas\\footage\\Day01\\A001\\A001_C001.mov', display_name: 'A001_C001', original_name: 'A001_C001.mov', extension: '.mov', media_type: 'video', review_flag: 'select', circled: true, scene_id: 'sc1', shot_id: 'sh1', shoot_day: '2026-09-24', sort_order: 0, online: true, added_by: 'u-forged', created_at: '2026-09-24T10:00:00Z', sample_rate: 48000, channels: 2 },
       { id: 'c2', project_id: pid, bin_id: 'b-a001', source_path: '\\\\nas\\footage\\Day01\\A001\\A001_C002.mov', display_name: 'A001_C002', original_name: 'A001_C002.mov', extension: '.mov', media_type: 'video', review_flag: 'reject', sort_order: 1, online: true },
       { id: 'seq', project_id: pid, bin_id: 'b-vfx', source_path: '\\\\nas\\footage\\VFX\\storm_plate_v01', display_name: 'storm_plate_v01', original_name: 'storm_plate_v01', extension: '.exr', media_type: 'sequence', is_sequence: true, sequence_pattern: 'storm_plate_v01.####.exr', frame_count: 240, sort_order: 0, online: true },
       { id: 'd1', project_id: pid, bin_id: 'b-stills', source_path: 'D:\\Dailies\\stills\\lamp_room.png', display_name: 'lamp_room', original_name: 'lamp_room.png', extension: '.png', media_type: 'still', sort_order: 0, online: true },
@@ -199,7 +207,7 @@ function serve(bundles) {
 }
 
 beforeEach(() => {
-  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null })
+  Object.assign(fake.state, { inserts: {}, updates: [], log: [], failWith: null, uploads: [], removed: [], lists: {}, listError: null, single: {}, singleError: null, ranges: [] })
   fake.state.single.workspaces = { [WS]: { remote_viewing_enabled: false } }
   posterStatus = {}
   bundleWrites = []
@@ -217,7 +225,9 @@ describe('the dry run: counted, asked, nothing written', () => {
     const report = await runMigration({ workspaceId: WS, dryRun: true, onProgress: (m) => lines.push(m) })
     expect(fake.state.log).toEqual([])
     expect(fake.state.uploads).toEqual([])
-    expect(report).toMatchObject({ scenes: { total: 1 }, shots: { total: 2 }, bins: { total: 5 }, binFiles: { total: 5 }, shotTakes: { total: 3 } })
+    // The counts against an empty cloud: everything would be inserted — except
+    // the clips, none of which can go until its root is named.
+    expect(report).toMatchObject({ scenes: { total: 1, inserted: 1 }, shots: { total: 2, inserted: 2 }, bins: { total: 5, inserted: 5 }, binFiles: { total: 0 }, shotTakes: { total: 3, inserted: 3 } })
     // No answer given: the runner names nothing on its own (the panel
     // suggests; the person answers), and every root is a question.
     expect(report.footageRoots.map(r => [r.root, r.kind, r.count, r.resolved])).toEqual([
@@ -228,13 +238,34 @@ describe('the dry run: counted, asked, nothing written', () => {
     ])
     expect(lines).toContain('  5 bins, 5 clips in 4 footage roots, 3 takes')
     expect(lines).toContain('    \\\\nas\\footage\\Day01\\A001: 2 clips — which footage location is this? (not named yet)')
-    // Nothing named yet: every clip would stay, and the report lists them.
-    expect(report.binFiles.leftBehind).toBe(5)
+    // Nothing named yet: every clip would stay, and the report lists them;
+    // no picture is counted for a clip that is not going.
+    expect(report.binFiles).toMatchObject({ total: 0, inserted: 0, leftBehind: 5 })
     expect(report.clipsLeftBehind.map(c => c.id).sort()).toEqual(['c1', 'c2', 'd1', 'e1', 'seq'])
-    // The switch, asked once, off: the pictures stay, said.
-    expect(report.posters).toMatchObject({ total: 4, switchOff: 4 })
-    expect(report.remoteViewing).toBe(false)
-    expect(lines.some(l => l.includes(POSTERS_SWITCH_OFF))).toBe(true)
+    expect(report.posters).toMatchObject({ total: 0, switchOff: 0 })
+    expect(report.remoteViewing).toBeNull()
+    expect(lines.some(l => l.includes(POSTERS_SWITCH_OFF))).toBe(false)
+  })
+
+  it('with the roots answered, the dry run counts what would be inserted against what the cloud holds, and the pictures that would go; a clip with no path is listed', async () => {
+    const b = realBundle()
+    b.binFiles.push({ id: 'nopath', project_id: 'p-real', bin_id: 'b-stills', source_path: '', display_name: 'ghost', original_name: 'ghost.png', media_type: 'still', sort_order: 9 })
+    serve([b])
+    seedNas()
+    fake.state.lists.bins = [{ id: 'b-footage', project_id: 'p-real' }]
+    fake.state.lists.bin_files = [{ id: 'c1', project_id: 'p-real', poster_path: 'projects/p-real/bin_files/c1/1-poster.jpg' }]
+    const lines = []
+    const report = await runMigration({ workspaceId: WS, dryRun: true, onProgress: (m) => lines.push(m), locations: REAL_ANSWERS })
+    expect(fake.state.log).toEqual([])
+    expect(report.bins).toEqual({ total: 5, inserted: 4, skipped: 1, failed: 0 })
+    expect(report.binFiles).toEqual({ total: 4, inserted: 3, skipped: 1, failed: 0, leftBehind: 2 })
+    expect(report.clipsLeftBehind).toEqual(expect.arrayContaining([
+      { projectId: 'p-real', id: 'e1', name: 'odd', root: 'E:\\Scratch' },
+      { projectId: 'p-real', id: 'nopath', name: 'ghost', root: null },
+    ]))
+    // Pictures: c1 has one already (skipped); c2, seq and d1 would go; the switch is off.
+    expect(report.posters).toMatchObject({ total: 4, skipped: 1, switchOff: 3 })
+    expect(lines.some(l => l.includes(`3 pictures: ${POSTERS_SWITCH_OFF}`))).toBe(true)
   })
 
   it('with answers given, the dry run says where each root will go; an existing location is matched by address (any case); a root left for now is said', async () => {
@@ -280,9 +311,12 @@ describe('the real run on a bundle shaped like her projects', () => {
     expect(report.binLocations).toEqual({ total: 1, inserted: 1, skipped: 0, failed: 0 })
     // Each clip: its id, its location, its path inside it; nothing of the desktop's.
     const c1 = byId('bin_files', 'c1')
-    expect(c1).toMatchObject({ id: 'c1', bin_id: 'b-a001', location_id: 'L1', relative_path: 'Day01/A001/A001_C001.mov', workspace_id: WS, review_flag: 'select', circled: true, scene_id: 'sc1', shot_id: 'sh1', shoot_day: '2026-09-24', poster_path: null })
-    expect(c1).not.toHaveProperty('source_path')
-    expect(c1).not.toHaveProperty('online')
+    expect(c1).toMatchObject({ id: 'c1', project_id: 'p-real', bin_id: 'b-a001', location_id: 'L1', relative_path: 'Day01/A001/A001_C001.mov', workspace_id: WS, review_flag: 'select', circled: true, scene_id: 'sc1', shot_id: 'sh1', shoot_day: '2026-09-24', poster_path: null })
+    for (const k of ['source_path', 'online', 'added_by', 'created_at', 'sample_rate', 'channels']) expect(c1, k).not.toHaveProperty(k)
+    // A scene's or shot's picture is a path on this computer: not sent; nor who the file says made it.
+    expect(ins('scenes')[0]).toMatchObject({ thumbnail_image: null })
+    expect(ins('scenes')[0]).not.toHaveProperty('created_by')
+    expect(ins('shots')[0]).toMatchObject({ thumbnail_image: null })
     expect(byId('bin_files', 'seq')).toMatchObject({ location_id: 'L1', relative_path: 'VFX/storm_plate_v01', is_sequence: true, frame_count: 240 })
     expect(byId('bin_files', 'd1')).toMatchObject({ location_id: ins('bin_locations')[0].id, relative_path: 'stills/lamp_room.png' })
     expect(byId('bin_files', 'e1')).toBeUndefined()
@@ -291,8 +325,8 @@ describe('the real run on a bundle shaped like her projects', () => {
     expect(lines.some(l => l.includes(BINS_LEFT_BEHIND(1)))).toBe(true)
     // The takes, every one (their shots and clips landed), ids kept.
     expect(ins('shot_takes').map(t => t.id)).toEqual(['t1', 't2', 't3'])
-    expect(ins('shot_takes')[1]).toMatchObject({ shot_id: 'sh1', bin_file_id: 'c2', role: 'alt', position: 1, notes: 'Keep for the trailer.', workspace_id: WS })
-    expect(report.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0 })
+    expect(ins('shot_takes')[1]).toMatchObject({ shot_id: 'sh1', bin_file_id: 'c2', role: 'alt', position: 1, notes: 'Keep for the trailer.', workspace_id: WS, project_id: 'p-real' })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 3, skipped: 0, failed: 0, leftBehind: 0 })
     // The switch off: no picture moved (the two clips, the sequence and the
     // still have one to send; the audio has none), said once.
     expect(fake.state.uploads).toEqual([])
@@ -346,7 +380,7 @@ describe('the real run on a bundle shaped like her projects', () => {
     const again = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
     expect(again.bins).toEqual({ total: 5, inserted: 0, skipped: 5, failed: 0 })
     expect(again.binFiles).toEqual({ total: 4, inserted: 0, skipped: 4, failed: 0, leftBehind: 1 })
-    expect(again.shotTakes).toEqual({ total: 3, inserted: 0, skipped: 3, failed: 0 })
+    expect(again.shotTakes).toEqual({ total: 3, inserted: 0, skipped: 3, failed: 0, leftBehind: 0 })
     // The location the first run made is the company's now: matched by
     // address, nothing to make, nothing to skip.
     expect(again.binLocations).toEqual({ total: 0, inserted: 0, skipped: 0, failed: 0 })
@@ -372,7 +406,76 @@ describe('the real run on a bundle shaped like her projects', () => {
       expect.objectContaining({ scope: 'shot_take', id: 't3', message: 'take not migrated: its shot is not in the cloud' }),
     ]))
     expect(ins('shot_takes').map(t => t.id)).toEqual(['t1', 't2'])
-    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 1 })
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 1, leftBehind: 0 })
+  })
+
+  // Review round 1: a take of a clip LEFT on this computer waits with it —
+  // left behind, not failed, no error (an error would mark the run unclean
+  // for a thing the person chose); a shot whose primary take was left gets
+  // one from what landed, positions in order (0091's invariant, which only
+  // its RPCs keep).
+  it('a take of a clip left for now is left behind, not failed; a shot whose primary stayed behind gets a primary from what landed', async () => {
+    const b = realBundle()
+    // c1 (the primary of sh1) is moved to the scratch drive, which is left for now.
+    b.binFiles[0].source_path = 'E:\\Scratch\\A001_C001.mov'
+    serve([b])
+    seedNas()
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(byId('bin_files', 'c1')).toBeUndefined()
+    expect(report.binFiles.leftBehind).toBe(2)
+    expect(report.shotTakes).toEqual({ total: 3, inserted: 2, skipped: 0, failed: 0, leftBehind: 1 })
+    expect(report.errors).toEqual([])
+    const sh1 = ins('shot_takes').filter(t => t.shot_id === 'sh1')
+    expect(sh1).toEqual([expect.objectContaining({ id: 't2', role: 'primary', position: 0 })])
+  })
+
+  it('a sequence folder picked as its own root belongs to the folder above it, so it has a path inside its location — and a clip the cloud cannot take makes no location first', async () => {
+    const b = realBundle()
+    b.binRoots.push({ id: 'r-seq', project_id: 'p-real', path: '\\\\nas\\footage\\VFX\\storm_plate_v01', label: 'storm_plate_v01' })
+    serve([b])
+    seedNas()
+    const report = await runMigration({ workspaceId: WS, locations: { ...REAL_ANSWERS, [pathKey('\\\\nas\\footage\\VFX')]: { unc_path: '\\\\nas\\footage' } } })
+    expect(byId('bin_files', 'seq')).toMatchObject({ location_id: 'L1', relative_path: 'VFX/storm_plate_v01' })
+    expect(report.footageRoots.map(r => r.root)).not.toContain('\\\\nas\\footage\\VFX\\storm_plate_v01')
+    // CONTROL: a clip whose path the cloud refuses (a segment ending in a
+    // dot) fails BEFORE any location is made for its root.
+    const c = realBundle()
+    c.binFiles = [{ ...c.binFiles[3], source_path: 'D:\\Dailies\\stills.\\lamp_room.png' }]
+    c.binRoots = [{ id: 'r-d', project_id: 'p-real', path: 'D:\\Dailies', label: 'Dailies' }]
+    c.shotTakes = []
+    serve([c])
+    Object.assign(fake.state, { inserts: {}, lists: {} })
+    seedNas()
+    const r2 = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(r2.binFiles.failed).toBe(1)
+    expect(ins('bin_locations')).toEqual([])
+  })
+
+  it('every list read is paged by id, so a project past a thousand clips is read whole (no picture uploaded twice)', async () => {
+    const b = realBundle()
+    serve([b])
+    seedNas()
+    fake.state.single.workspaces[WS].remote_viewing_enabled = true
+    // 1,200 clips already in the cloud with a picture each, c1 among them.
+    fake.state.lists.bin_files = Array.from({ length: 1200 }, (_, i) => ({ id: i === 0 ? 'c1' : `old-${String(i).padStart(4, '0')}`, project_id: 'p-real', poster_path: 'x' }))
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    expect(fake.state.ranges.filter(r => r[0] === 'bin_files').map(r => [r[1], r[2]])).toEqual([[0, 999], [1000, 1999]])
+    expect(fake.state.uploads.some(u => /\/bin_files\/c1\//.test(u.path))).toBe(false)
+    expect(report.posters.skipped).toBe(1)
+  })
+
+  it('a picture whose row is not this project\'s is taken back (the PATCH matched nothing), and said', async () => {
+    serve([realBundle()])
+    seedNas()
+    fake.state.single.workspaces[WS].remote_viewing_enabled = true
+    // c2's id already belongs to another project's row: its insert is skipped
+    // by key, and the PATCH of its picture matches no row of this project.
+    fake.state.lists.bin_files = [{ id: 'c2', project_id: 'p-other', poster_path: null }]
+    const report = await runMigration({ workspaceId: WS, locations: REAL_ANSWERS })
+    const key = fake.state.uploads.find(u => /\/bin_files\/c2\//.test(u.path))?.path
+    expect(key).toBeTruthy()
+    expect(fake.state.removed).toContain(key)
+    expect(report.errors).toEqual(expect.arrayContaining([expect.objectContaining({ scope: 'poster', id: 'c2', message: expect.stringMatching(/not this project's/) })]))
   })
 
   it('a clip logged to a shot that did not land keeps its row, its link let go and said', async () => {

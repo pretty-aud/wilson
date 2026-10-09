@@ -69,13 +69,13 @@ to the company; the project's bins were made with nobody signed in)
 | # | Do | You should see |
 |---|----|----------------|
 | 16 | **App settings → Storage → Migrate to cloud → Dry-run** | The log counts, per project, *N bins, M clips in K footage roots, T takes* and, for each root, *\\server\share\Day01: 6 clips — which footage location is this? (not named yet)*; the dry-run report's table has rows for scenes, shots, bins, footage locations, clips, takes and pictures. Nothing is written. Under the report, **Footage locations**, *0 of K answered*, and ONE question per root: *Which footage location is this?*, the folder in mono, *N clips in M projects · a share on the network* or *· a folder on this computer: give its address as the network sees it*. **Migrate** stays off and says why on hover. (`po-bc3-11-migrate-dry-run-question`) |
-| 17 | A root on a network share | Its address field starts from the company's location that already holds it (matched by address, any spelling), or from the share itself with a suggested name as a new location; under the field, in words, what will happen: *The company's "Footage NAS" (\\nas\footage): 6 clips at Day01/…* or *A new location "Footage" at \\nas\footage: 14 clips at its top.* |
+| 17 | A root on a network share | Its address field starts from the company's location that already holds it (matched by address, any spelling) — that counts as answered — or from the share itself with a suggested name as a NEW location, which does not: *Suggested: A new location "Footage" at \\nas\footage: 14 clips at its top. Use this address, or type another.* with a **Use this address** button (a new company location is made only from an address you confirmed, never from a project file alone). Under the field, in words, what will happen: *The company's "Footage NAS" (\\nas\footage): 6 clips at Day01/…* |
 | 18 | A root that is a drive letter (`D:\Set photos`) | Its field starts empty (a drive letter is this computer's alone; the cloud refuses it as an address, B2). Type the folder's network address — `smb://nas/set photos/` or `\\nas\set photos`, any way you have it — and it is tidied to the one shape the cloud stores; a name field appears for a new location; the sentence under it says where the clips will land. A drive letter typed as the address is refused before the run with the cloud's own sentence. (`po-bc3-12-migrate-answers`) |
 | 19 | **Leave on this computer for now** on a root | Its clips stay on this computer, listed in the report; the root counts as answered, so Migrate lights up once every root is. **Name it** takes you back to the field. (`po-bc3-13-migrate-leave-for-now`) |
-| 20 | **Migrate** | The log: *Footage location "…" (\\…) named* for each new one, *Pictures: n of m* while the switch is on, then *7 bins, 16 clips and 9 takes in the cloud; 2 clips left on this computer: name their footage location and run the migration again*. The report table counts every table; under it the clips left behind, by name and folder, and *N pictures: pictures stay on this computer: the company has not allowed files to be viewed from outside the office network…* when the switch is off. (`po-bc3-14-migrate-report`, `po-bc3-15-migrate-report-table`) |
-| 21 | Open the project in the cloud (the desktop app signed in, or a browser) | The bins as they were, nested as they were; every clip under its location at the path it had inside the folder you named (its id kept, so the desktop's own project folders and the cloud agree); every take on its shot; the pictures where the switch was on. On a desktop that reaches the share, each clip plays from it. |
-| 22 | **Migrate** again | Nothing changes: every row already there is skipped, no second location is made (a location you named is the company's now, matched by address), and a picture the first run could not make — the clip was not reachable then — is uploaded now. The desktop's own project file is never modified by the migration. |
-| 23 | Name the root you left for now, **Migrate** again | Its clips arrive, and only they. |
+| 20 | **Migrate** | The log: *Footage location "…" (\\…) named* for each new one, *Pictures: n of m* while the switch is on, then *7 bins, 16 clips and 9 takes in the cloud; 2 clips left on this computer: name their footage location and run the migration again*. The report table counts every table; under it the clips left behind, by name and folder (and their takes, which wait with them), and *N pictures: pictures stay on this computer: the company has not allowed files to be viewed from outside the office network…* when the switch is off. While anything is left on this computer there is NO **Archive and clear local** (it would delete the only copy); Migrate stays on and says *N clips are still on this computer: name their footage location below and Migrate again*, and the question stays under it. (`po-bc3-14-migrate-report`, `po-bc3-15-migrate-report-table`) |
+| 21 | Open the project in the cloud (the desktop app signed in, or a browser) | The bins as they were, nested as they were; every clip under its location at the path it had inside the folder you named (its id kept, so the desktop's own project folders and the cloud agree); every take on its shot (a shot whose primary take stayed behind takes its first landed take as primary); the pictures where the switch was on. On a desktop that reaches the share, each clip plays from it. |
+| 22 | Name the root you left for now, **Migrate** again | Its clips arrive, with their takes. Every row already there is skipped, no second location is made (a location you named is the company's now, matched by address), and a picture the first run could not make — the clip was not reachable then — is uploaded now. The desktop's own project file is never modified by the migration. Once nothing is left, Migrate reads *Done* and **Archive and clear local** appears. |
+| 23 | **Dry-run** after a teammate removed a clip in the cloud | The dry run's *Would insert* column counts it again: a second run brings back a row removed from the cloud since the first (the runner has always worked by id, for every table; Help says so). Remove it again in the cloud, or archive and clear the desktop's copy once everything is there. |
 
 ## 2. How to check it
 
@@ -121,6 +121,17 @@ to the company; the project's bins were made with nobody signed in)
   to the brief's "migrated with its location left empty". Making the column
   nullable is a migration (0093 at the earliest) and a change to every
   reader; not taken.
+- **A second run brings back a row a teammate removed from the cloud since
+  the first.** The runner works by id — a row already there is skipped, a
+  row not there is inserted — for every table, and always has; BC3 made
+  the dry run count what would come back and Help say it. Remembering what
+  a run carried (per computer) is the fix; named in `docs/OUTSTANDING.md`.
+- **The cloud keeps no sample rate or channel count on a clip** (0091 has no
+  column): the desktop reads them, the migration cannot carry them, and the
+  inspector's Audio line is empty in the cloud. Named in `docs/OUTSTANDING.md`.
+- **Every tile signs its own picture** (one request per clip on a grid, no
+  batching): fine for a project's bins, slow for thousands of clips in
+  "All files". A batched signing is the fix; a known limit in the hand-off.
 - **Live updates reach the browser as the cloud broadcasts them** (B7):
   `bins`, `bin_files` and `shot_takes`; a location renamed by a teammate is
   read again on the next load or add (`bin_locations` is not broadcast, BC1).
@@ -166,6 +177,12 @@ to the company; the project's bins were made with nobody signed in)
    location** (`\\nas\footage\dailies` typed for a drive letter lands the
    clips under "Footage NAS" at `dailies/…`), and an address that is one of
    the company's exactly wins over a deeper one. Keep?
+10. **A new company location is made only from an address you confirmed**
+    (review round 1, security): a share WILSON suggests from the project
+    file waits for **Use this address** or a typed address, while a root
+    already under one of the company's locations counts as answered by
+    itself. One more click per new share, so that no project file can name
+    a location by itself. Keep, or let the suggestion count?
 
 ## What was checked, and what was not
 

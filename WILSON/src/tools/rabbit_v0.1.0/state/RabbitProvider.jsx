@@ -724,8 +724,14 @@ export function RabbitProvider({ children }) {
       // supersedes this snapshot — never land stale data over it.
       if (loadSeq === bundleLoadSeqRef.current) {
         // BC2: clip rows read as what this computer can reach (never stored).
-        const binFiles = markLoadedBinFiles(next?.binFiles, null, binsCapabilitiesOf(binsBackend()));
+        // BC3: the capability object is known the moment the project is
+        // (review round 1: the Bins tab read a null object as the signed-out
+        // desktop until the first list, and for good when that list failed).
+        const caps = binsCapabilitiesOf(binsBackend());
+        const binFiles = markLoadedBinFiles(next?.binFiles, null, caps);
         setBundle({ ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) });
+        binsCapsRef.current = caps;
+        setBinsInfo(i => (i.capabilities === caps ? i : { ...i, capabilities: caps }));
         scheduleBinResolveRef.current?.();
       }
     } catch (err) {
@@ -4776,6 +4782,13 @@ export function RabbitProvider({ children }) {
     for (const r of incoming || []) byId.set(r.id, { ...(byId.get(r.id) || {}), ...r });
     return [...byId.values()];
   };
+  // BC3: a clip row a mutation hands back (a copy, a restore, a patch) carries
+  // no `online` where the backend cannot say what this computer reaches (a
+  // browser): it is "not on this computer" like every other (B3), never
+  // read as reachable for want of the mark (review round 1).
+  const mergeFileRows = (rows, incoming) => mergeRows(rows, binsCapsRef.current?.resolveFiles === false
+    ? (incoming || []).map(r => ({ ...r, online: false }))
+    : incoming);
 
   const refreshBins = useCallback(async () => {
     if (!adapterRef.current || !activeProjectId) return null;
@@ -4870,7 +4883,7 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const res = await a.restoreBinFiles(pid, rows);
     if (activeProjectIdRef.current !== pid) return res.restored;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.restored) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.restored) }));
     // The takes of the shots these files serve, as the server presents them
     // now that the files are back.
     applyTakeResponse(res);
@@ -4985,7 +4998,7 @@ export function RabbitProvider({ children }) {
     // The project may have been switched during the await (the refreshBins
     // rule): project B must not receive project A's row.
     if (activeProjectIdRef.current !== pid) return row;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [row]) }));
     // No decoder on this machine: the renderer's own probe, right where the
     // verdict lands (after an add, a re-probe, "Read columns again").
     if (needsBrowserProbe(row)) {
@@ -5070,7 +5083,7 @@ export function RabbitProvider({ children }) {
     if (activeProjectIdRef.current !== pid) return res;
     const created = res.created || [];
     const bins = res.bins || [];
-    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeRows(prev.binFiles, created) }));
+    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeFileRows(prev.binFiles, created) }));
     if (created.length) {
       pushHistory({
         undoOps: [async () => {
@@ -5139,7 +5152,7 @@ export function RabbitProvider({ children }) {
       () => a.updateBinFile(pid, id, patch),
     );
     if (activeProjectIdRef.current !== pid) return result;
-    if (result) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [result]) }));
+    if (result) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [result]) }));
     if (old) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateBinFile(id, oldValues)],
@@ -5161,7 +5174,7 @@ export function RabbitProvider({ children }) {
       () => a.bulkUpdateBinFiles(pid, ids, patch),
     );
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.updated) }));
     if (olds.length) {
       pushHistory({
         undoOps: [async () => {
@@ -5194,7 +5207,7 @@ export function RabbitProvider({ children }) {
       () => a.moveBinFiles(pid, ids, binId, sortOrders),
     );
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.binFiles) }));
+    if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.binFiles) }));
     if (before.length) {
       pushHistory({
         undoOps: [async () => {
@@ -5217,7 +5230,7 @@ export function RabbitProvider({ children }) {
     const res = await a.copyBinFiles(pid, ids, binId);
     if (activeProjectIdRef.current !== pid) return res.created || [];
     const created = res.created || [];
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, created) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, created) }));
     if (created.length) {
       pushHistory({
         undoOps: [() => mutationsRef.current.removeBinFiles(created.map(r => r.id), { quiet: true })],
@@ -5245,7 +5258,7 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const res = await a.binRelinkApply(pid, mappings);
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.updated) }));
     const reprobe = rowsToReprobeAfterRelink(res?.updated);
     if (reprobe.length) probeBinFiles(reprobe).catch(() => {});
     return res;
@@ -5500,7 +5513,7 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const row = await a.updateBinFile(pid, id, { ...patch, probe_status: patch.probe_status || 'done' });
     if (activeProjectIdRef.current !== pid) return row;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [row]) }));
     return row;
   }, [binsAdapter, activeProjectId]);
   // BC2: through binsBackend() — on the desktop signed in, the poster cache

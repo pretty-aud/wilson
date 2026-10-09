@@ -1534,8 +1534,12 @@ function isUncPath(p) {
   // Review round 2: no control character (a newline, a tab, a NUL…) — the
   // address is shown verbatim in the native "Connect this computer to …?"
   // question, and a row-writer must not be able to write lines into it.
-  // (0091's CHECK still admits them: deferred, a migration.)
-  if (/[\u0000-\u001f\u007f]/.test(p)) return false;
+  // (0091's CHECK still admits them: deferred, a migration.) BC3 review
+  // round 1: the C1 controls, the zero-width and bidi marks, the line and
+  // paragraph separators, the invisible formatting characters and a BOM
+  // too — the renderer's UNC_FORBIDDEN_CHARS_RE, held to this one by
+  // binsAdapterParity.test.js.
+  if (/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/.test(p)) return false;
   const segs = p.split('\\'); // ['', '', host, share, ...]
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false;
   // BC2 review round 1: Windows' WebDAV forms put a port or SSL after the

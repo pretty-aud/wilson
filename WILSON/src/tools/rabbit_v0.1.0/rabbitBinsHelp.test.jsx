@@ -85,9 +85,10 @@ describe('the "Bins" help page (BC2)', () => {
     // The Space row of the keyboard list says both.
     const space = BINS_SHORTCUTS.find(s => s.keys.flat().includes('Space'))
     expect(space.does).toBe('Play or pause the preview; in a browser, show the picture large')
-    // …and the view has the words it quotes (a renamed control reaches Help or fails here).
+    // …and the view has the words it quotes (a renamed control reaches Help
+    // or fails here): the toolbar's button, as written.
     expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toContain('CATALOGUE_SENTENCE')
-    expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toContain('New bin')
+    expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toMatch(/<Plus className="w-3 h-3" \/> New bin\s*<\/Btn>/)
   })
 
   // BC3 (B9): the move, in the panel's own words.
@@ -98,9 +99,13 @@ describe('the "Bins" help page (BC2)', () => {
     expect(text).toContain(LEAVE_FOR_NOW)
     expect(text).toContain('never dropped')
     expect(text).toContain(`only while ${REMOTE_VIEWING_LABEL} is on`)
-    expect(text).toContain('Running it again changes nothing already there.')
+    // Review round 1: a second run brings back a row removed from the cloud
+    // since (every table of the runner always did); Help says so plainly.
+    expect(text).toContain('Running it again skips every row already in the cloud; a row a teammate removed from the cloud since comes back with it')
+    expect(text).toContain('Use this address')
     const panel = src('src/cloud/migrate/MigrationPanel.jsx')
     expect(panel).toContain("MIGRATE_TITLE = 'Migrate to cloud'")
+    expect(panel).toContain("USE_THIS_ADDRESS = 'Use this address'")
     expect(panel).toContain('LOCATION_QUESTION')
     expect(panel).toContain('LEAVE_FOR_NOW')
     expect(src('src/components/SettingsPage.jsx')).toContain("{ key: 'rabbit',  label: 'Storage' }")

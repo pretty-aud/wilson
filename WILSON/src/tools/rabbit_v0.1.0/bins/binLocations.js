@@ -26,11 +26,18 @@ const LOOPBACK_HOST_RE = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+)$/i
 const ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i
 const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
 
+// A character no address needs and a Connect question must never carry:
+// the C0 and C1 controls, a soft hyphen, the zero-width and bidi marks, the
+// line and paragraph separators, the invisible formatting characters and a
+// byte-order mark (BC2 review round 2 refused the C0 controls; BC3 review
+// round 1 found a migrated project file could carry the rest).
+export const UNC_FORBIDDEN_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/
+
 export function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
   // Review round 2: no control character (the desktop shows the address
   // verbatim in its native Connect question).
-  if (/[\u0000-\u001f\u007f]/.test(p)) return false
+  if (UNC_FORBIDDEN_CHARS_RE.test(p)) return false
   const segs = p.split('\\')
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
   // BC2 review round 1: a WebDAV address's port or SSL after the host
@@ -98,7 +105,7 @@ export const NOT_ON_THIS_COMPUTER = 'not on this computer'
 // disabled without this reason beside it.
 export const PLAY_NEEDS_DESKTOP = 'Playing a clip needs the desktop app on a computer that can reach the footage.'
 export const CATALOGUE_SENTENCE = 'This is the catalogue: every bin and clip, with its picture where the company allows one, its logging, its marks and its takes. Adding clips and playing them need the desktop app on a computer that can reach the footage.'
-export const CATALOGUE_EMPTY_BINS_SENTENCE = 'A bin lists clips where they sit on the company\'s footage locations. Start from a set here; clips are added from the desktop app on a computer that reaches the footage.'
+export const CATALOGUE_EMPTY_BINS_SENTENCE = 'A bin lists clips where they sit on the company\'s footage locations. Clips are added from the desktop app on a computer that reaches the footage.'
 /** What Space does where nothing can play: the picture, large. */
 export const POSTER_LARGE_HINT = 'Space shows the picture large.'
 /**

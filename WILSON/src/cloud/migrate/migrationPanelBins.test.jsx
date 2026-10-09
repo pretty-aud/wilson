@@ -30,7 +30,7 @@ vi.mock('./runMigration', async (orig) => {
 })
 vi.mock('../auth/supabaseClient', () => ({ supabase: {} }))
 
-const { default: MigrationPanel, MIGRATE_TITLE } = await import('./MigrationPanel')
+const { default: MigrationPanel, MIGRATE_TITLE, USE_THIS_ADDRESS, MIGRATE_AGAIN_LEFT, MIGRATE_DONE } = await import('./MigrationPanel')
 const { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF } = await import('./runMigration')
 const { pathKey, ADDRESS_NEEDED, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } = await import('./binsMigration')
 
@@ -38,7 +38,7 @@ const bucket = (total = 0) => ({ total, inserted: 0, skipped: 0, failed: 0 })
 const report = (over = {}) => ({
   dryRun: true, workspaceId: 'ws1',
   projects: bucket(1), phases: bucket(), assets: bucket(), tasks: bucket(), taskLinks: bucket(), phaseLinks: bucket(), files: { ...bucket(), bytes: 0 },
-  scenes: bucket(1), shots: bucket(2), bins: bucket(3), binLocations: bucket(), binFiles: { ...bucket(4), leftBehind: 0 }, shotTakes: bucket(2),
+  scenes: bucket(1), shots: bucket(2), bins: bucket(3), binLocations: bucket(), binFiles: { ...bucket(4), leftBehind: 0 }, shotTakes: { ...bucket(2), leftBehind: 0 },
   posters: { total: 3, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
   footageRoots: [
     { root: '\\\\nas\\footage\\Day01', key: pathKey('\\\\nas\\footage\\Day01'), kind: 'unc', count: 3, projects: ['p1'], resolved: 'unanswered' },
@@ -140,11 +140,12 @@ describe('the question, once per root', () => {
     expect(migrate().disabled).toBe(true)
   })
 
-  it('the real run is called with the answers, keyed by root', async () => {
+  it('the real run is called with the answers, keyed by root; a run that left clips here offers no archive, keeps the question and says to Migrate again', async () => {
     await dryRun()
     const d = rootRow('D:\\Dailies')
     await act(async () => { fireEvent.click(within(d).getByRole('button', { name: LEAVE_FOR_NOW })) })
-    state.reports.push(report({ dryRun: false, binFiles: { ...bucket(4), inserted: 3, leftBehind: 1 }, clipsLeftBehind: [{ projectId: 'p1', id: 'e1', name: 'odd', root: 'D:\\Dailies' }], posters: { total: 3, uploaded: 0, skipped: 0, failed: 0, switchOff: 3 } }))
+    const left = report({ dryRun: false, binFiles: { ...bucket(4), inserted: 3, leftBehind: 1 }, shotTakes: { ...bucket(2), inserted: 1, leftBehind: 1 }, clipsLeftBehind: [{ projectId: 'p1', id: 'e1', name: 'odd', root: 'D:\\Dailies' }], posters: { total: 3, uploaded: 0, skipped: 0, failed: 0, switchOff: 3 } })
+    state.reports.push(left)
     await act(async () => { fireEvent.click(migrate()) })
     expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceId: 'ws1', dryRun: false,
@@ -153,12 +154,76 @@ describe('the question, once per root', () => {
         [pathKey('D:\\Dailies')]: expect.objectContaining({ skip: true }),
       },
     }))
-    // The report: the clips left behind, listed; the pictures that stayed, said.
-    expect(screen.getByTestId('clips-left-behind').textContent).toContain(BINS_LEFT_BEHIND(1))
+    // The report: the clips left behind, listed, with their takes; the pictures that stayed, said.
+    expect(screen.getByTestId('clips-left-behind').textContent).toContain(`${BINS_LEFT_BEHIND(1)}, with 1 take of theirs.`)
     expect(screen.getByTestId('clips-left-behind').textContent).toContain('odd · D:\\Dailies')
     expect(screen.getByTestId('posters-switch-off').textContent).toContain(`3 pictures: ${POSTERS_SWITCH_OFF}`)
     expect(document.querySelector('.s-table').textContent).toContain('clips')
     expect(document.querySelector('.s-table').textContent).toContain('footage locations')
     expect(document.querySelector('.s-table').textContent).toContain('pictures')
+    // Review round 1 (High): a clip left on this computer is the only copy —
+    // no "Archive and clear local" while any is; the question stays, so the
+    // root can be named and Migrate pressed again.
+    expect(screen.queryByRole('button', { name: /Archive and clear local/ })).toBeNull()
+    expect(migrate().disabled).toBe(false)
+    expect(migrate().title).toBe(MIGRATE_AGAIN_LEFT(1))
+    expect(rootRow('D:\\Dailies')).toBeTruthy()
+    await act(async () => { fireEvent.click(within(rootRow('D:\\Dailies')).getByRole('button', { name: NAME_IT_INSTEAD })) })
+    fireEvent.change(within(rootRow('D:\\Dailies')).getByLabelText('Network address'), { target: { value: '\\\\nas\\dailies' } })
+    state.reports.push(report({ dryRun: false, binFiles: { ...bucket(4), inserted: 1, skipped: 3, leftBehind: 0 } }))
+    await act(async () => { fireEvent.click(migrate()) })
+    expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: expect.objectContaining({ [pathKey('D:\\Dailies')]: expect.objectContaining({ unc_path: '\\\\nas\\dailies', skip: false }) }) }))
+    // CONTROL: a clean run with nothing left offers the archive, and says it is done.
+    expect(screen.getByRole('button', { name: /Archive and clear local/ })).toBeTruthy()
+    expect(migrate().disabled).toBe(true)
+    expect(migrate().title).toBe(MIGRATE_DONE)
+  })
+
+  // Review round 1 (security): a new company location is made only from an
+  // address the person confirmed — a share suggested from a project file is
+  // not an answer until "Use this address" or a typed one.
+  it('a share suggested as a NEW location waits for "Use this address"; the run never receives a suggestion nobody touched', async () => {
+    await dryRun(report({
+      footageRoots: [{ root: '\\\\other\\dailies\\Day01', key: pathKey('\\\\other\\dailies\\Day01'), kind: 'unc', count: 2, projects: ['p1'], resolved: 'unanswered' }],
+      footageLocations: [],
+    }))
+    const row = rootRow('\\\\other\\dailies\\Day01')
+    expect(row.getAttribute('data-resolved')).toBe('suggested')
+    expect(within(row).getByLabelText('Network address').value).toBe('\\\\other\\dailies')
+    expect(within(row).getByTestId('root-resolution').textContent).toBe(`Suggested: A new location "Dailies" at \\\\other\\dailies: 2 clips at Day01/…. ${USE_THIS_ADDRESS}, or type another.`)
+    expect(screen.getByTestId('roots-progress').textContent).toBe('0 of 1 answered')
+    expect(migrate().disabled).toBe(true)
+    // Dry-run again: the suggestion is not sent.
+    state.reports.push(report({ footageRoots: [], footageLocations: [] }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dry-run' })) })
+    expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: {} }))
+  })
+
+  it('"Use this address" confirms the suggestion; so does typing', async () => {
+    await dryRun(report({
+      footageRoots: [{ root: '\\\\other\\dailies\\Day01', key: pathKey('\\\\other\\dailies\\Day01'), kind: 'unc', count: 2, projects: ['p1'], resolved: 'unanswered' }],
+      footageLocations: [],
+    }))
+    const row = rootRow('\\\\other\\dailies\\Day01')
+    await act(async () => { fireEvent.click(within(row).getByRole('button', { name: USE_THIS_ADDRESS })) })
+    expect(row.getAttribute('data-resolved')).toBe('new')
+    expect(within(row).queryByRole('button', { name: USE_THIS_ADDRESS })).toBeNull()
+    expect(screen.getByTestId('roots-progress').textContent).toBe('1 of 1 answered')
+    expect(migrate().disabled).toBe(false)
+    state.reports.push(report({ dryRun: false, footageRoots: [] }))
+    await act(async () => { fireEvent.click(migrate()) })
+    expect(runMigration).toHaveBeenLastCalledWith(expect.objectContaining({ locations: { [pathKey('\\\\other\\dailies\\Day01')]: expect.objectContaining({ unc_path: '\\\\other\\dailies', confirmed: true }) } }))
+  })
+
+  it('every root\'s field has its own id, whatever its punctuation', async () => {
+    await dryRun(report({
+      footageRoots: [
+        { root: 'D:\\a b', key: pathKey('D:\\a b'), kind: 'local', count: 1, projects: ['p1'], resolved: 'unanswered' },
+        { root: 'D:\\a_b', key: pathKey('D:\\a_b'), kind: 'local', count: 1, projects: ['p1'], resolved: 'unanswered' },
+      ],
+    }))
+    const ids = [...document.querySelectorAll('[data-footage-root] input[aria-label="Network address"]')].map(i => i.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const id of ids) expect(document.querySelector(`label[for="${id}"]`)).toBeTruthy()
   })
 })

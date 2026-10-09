@@ -23,6 +23,10 @@ export default function BinTree({
   // BC2: a company's clips are "not on this computer" (B3); the signed-out
   // desktop's say "offline", as they always have (B12).
   offlineWord = 'offline',
+  // BC3: a bin lights up for files dragged from the OS only where a
+  // computer can pick them (not in a browser: the drop is answered with the
+  // sentence, and a target that cannot take it must not light).
+  acceptsOsFiles = true,
 }) {
   const tree = buildBinTree(bins)
   const rows = flattenTree(tree, expanded)
@@ -30,7 +34,7 @@ export default function BinTree({
 
   const accepts = (e) => {
     const t = e.dataTransfer?.types || []
-    return t.includes('Files') || t.includes(DND_FILES) || t.includes(DND_BIN)
+    return (acceptsOsFiles && t.includes('Files')) || t.includes(DND_FILES) || t.includes(DND_BIN)
   }
   const handleDrop = (e, binId) => {
     e.preventDefault(); e.stopPropagation()

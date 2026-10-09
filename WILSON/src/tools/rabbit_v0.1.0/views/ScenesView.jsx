@@ -106,6 +106,8 @@ import { binPathLabel } from '../bins/binSelectors'
 import ShotTakeChips from './bins/ShotTakeChips'
 import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
 import TakePickerDialog from './bins/TakePickerDialog'
+// BC3: in a browser no clip is reachable, so the picker does not dim them all.
+import { binsModeOf } from '../bins/browserCatalogue'
 import BinPoster from './bins/BinPoster'
 // S4a-07 (S3b step 7): the Bins keys' own "is something in front of me?".
 import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/binUi'
@@ -1817,6 +1819,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           <div className="wilson-dark-scroll">
             <TakePickerDialog shot={shot} scene={sceneById?.(shot.scene_id) || null} files={binFiles} bins={bins}
               assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+              markOffline={!binsModeOf(ctx?.binsInfo?.capabilities).nothingReachable}
               onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
           </div>,
           document.body,

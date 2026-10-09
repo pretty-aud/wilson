@@ -19,13 +19,15 @@ import { NOT_ON_THIS_COMPUTER } from './binLocations'
 /**
  * @param {object|null} caps the backend's capability object
  * @returns {{ catalogue: boolean, canPick: boolean, canStream: boolean,
- *   canProbe: boolean, canOpen: boolean, canRelink: boolean,
+ *   canProbe: boolean, canOpen: boolean,
  *   nothingReachable: boolean, offlineWord: string }}
  *   - `catalogue`: no computer here can pick a file or read its bytes — the
  *     browser (the cloud adapter, the fixtures): one notice, New bin instead
  *     of Add, the picture large on Space, no drop from the OS;
- *   - `canPick` … `canRelink`: the four verbs a control is offered for only
- *     where the backend answers them (no disabled control without a reason);
+ *   - `canPick` … `canOpen`: the four verbs a control is offered for only
+ *     where the backend answers them (no disabled control without a reason;
+ *     the relink is the desktop's own dialog, opened by a count this mode
+ *     hides where it would be every row);
  *   - `nothingReachable`: the backend cannot say what this computer reaches
  *     (`resolveFiles` false), so every row is "not on this computer" (B3) and
  *     a count of them says nothing — the notice says it once instead;
@@ -41,7 +43,6 @@ export function binsModeOf(caps) {
     canStream: yes('stream'),
     canProbe: yes('probe'),
     canOpen: yes('openInOs'),
-    canRelink: yes('relink'),
     nothingReachable: !!c && c.resolveFiles === false,
     offlineWord: c?.locations ? NOT_ON_THIS_COMPUTER : 'offline',
   })

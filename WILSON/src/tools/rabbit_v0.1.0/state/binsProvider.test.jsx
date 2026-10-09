@@ -186,6 +186,31 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
+// BC3 review round 1: the capability object is known the moment the project
+// is (a browser read a null object as the signed-out desktop until the first
+// list, and for good when that list failed); and a clip row a mutation hands
+// back (a restore, a copy) is "not on this computer" like every other where
+// the backend cannot say what this computer reaches.
+describe('BC3 — a browser knows what it is from the project load, and keeps every row marked', () => {
+  it('binsInfo.capabilities is the cloud\'s once the project has loaded, even when the bins list then fails', async () => {
+    holder.adapter.listBins = async () => { throw new Error('the list failed') }
+    render(<RabbitProvider><Probe /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.project?.id).toBe('p1'))
+    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    await act(async () => { await expect(ctxRef.refreshBins()).rejects.toThrow('the list failed') })
+    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    expect(ctxRef.binFiles.every(f => f.online === false)).toBe(true)
+  })
+
+  it('a row the undo of a removal puts back is marked "not on this computer" again', async () => {
+    await mount()
+    await act(async () => { await ctxRef.removeBinFiles(['f1'], { quiet: true }) })
+    await act(async () => { await ctxRef.undo() })
+    await waitFor(() => expect(ctxRef.binFiles.map(f => f.id).sort()).toEqual(['f1', 'f2']))
+    expect(ctxRef.binFiles.find(f => f.id === 'f1').online).toBe(false)
+  })
+})
+
 describe('BC1 — bins on the cloud through the real provider', () => {
   it('supportsBins is true in supabase mode; binsInfo carries the capability object and the switch', async () => {
     await mount()

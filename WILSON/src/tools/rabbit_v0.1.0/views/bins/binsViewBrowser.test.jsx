@@ -101,16 +101,16 @@ const treeRow = (name) => [...document.querySelectorAll('[role="treeitem"]')].fi
 describe('binsModeOf: the capability object, read once', () => {
   it('a browser is the catalogue: no pick, no stream, nothing reachable; its word is "not on this computer"', () => {
     const m = binsModeOf(BROWSER)
-    expect(m).toEqual({ catalogue: true, canPick: false, canStream: false, canProbe: false, canOpen: false, canRelink: false, nothingReachable: true, offlineWord: NOT_ON_THIS_COMPUTER })
+    expect(m).toEqual({ catalogue: true, canPick: false, canStream: false, canProbe: false, canOpen: false, nothingReachable: true, offlineWord: NOT_ON_THIS_COMPUTER })
     expect(Object.isFrozen(m)).toBe(true)
   })
   it('the fixtures are the catalogue too, with every row answered for', () => {
     expect(binsModeOf(FIXTURES)).toMatchObject({ catalogue: true, nothingReachable: false, canStream: false })
   })
   it('the desktop signed in is not; the signed-out desktop says "offline"; null reads as the signed-out desktop (B12)', () => {
-    expect(binsModeOf(DESKTOP)).toMatchObject({ catalogue: false, canPick: true, canStream: true, canProbe: true, canOpen: true, canRelink: true, nothingReachable: false, offlineWord: NOT_ON_THIS_COMPUTER })
+    expect(binsModeOf(DESKTOP)).toMatchObject({ catalogue: false, canPick: true, canStream: true, canProbe: true, canOpen: true, nothingReachable: false, offlineWord: NOT_ON_THIS_COMPUTER })
     expect(binsModeOf({ ...DESKTOP, backend: 'local_server', locations: false }).offlineWord).toBe('offline')
-    expect(binsModeOf(null)).toMatchObject({ catalogue: false, canPick: true, canStream: true, canProbe: true, canOpen: true, canRelink: true, nothingReachable: false, offlineWord: 'offline' })
+    expect(binsModeOf(null)).toMatchObject({ catalogue: false, canPick: true, canStream: true, canProbe: true, canOpen: true, nothingReachable: false, offlineWord: 'offline' })
   })
   it('CONTROL: one capability alone does not make the catalogue — picking off with bytes on is the desktop composite mid-load, not a browser', () => {
     expect(binsModeOf({ ...DESKTOP, pickFiles: false }).catalogue).toBe(false)
@@ -329,6 +329,14 @@ describe('Space shows the picture large where nothing plays', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(large().closest('.bn-pane')).toBeTruthy()
   })
+  it('F2 (or Enter) under the picture closes it first, so the rename is never typed blind (review round 1)', async () => {
+    await mount(BROWSER)
+    await key({ key: 'ArrowDown' })
+    await key({ key: ' ', code: 'Space' })
+    await key({ key: 'F2' })
+    expect(large()).toBeNull()
+    expect(screen.getByLabelText('New name')).toBeTruthy()
+  })
 })
 
 describe('keyboard review works with no preview; hover-scrub is off; a drop from the OS is answered', () => {
@@ -372,6 +380,22 @@ describe('keyboard review works with no preview; hover-scrub is off; a drop from
     await act(async () => { fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [{ name: 'y.mov' }] } }) })
     expect(state.ctx.prepareBinFiles).not.toHaveBeenCalled()
   })
+  it('a bin in the rail neither lights for files from the OS nor reads them: the sentence again (review round 1)', async () => {
+    await mount(BROWSER)
+    const row = treeRow('Day 1')
+    const over = createEvent.dragOver(row, { dataTransfer: { types: ['Files'], files: [], dropEffect: 'copy' } })
+    fireEvent(row, over)
+    expect(row.getAttribute('data-drag-over')).toBeNull()
+    await act(async () => { fireEvent.drop(row, { dataTransfer: { types: ['Files'], files: [{ name: 'x.mov' }] } }) })
+    expect(state.ctx.prepareBinFiles).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain(ADD_NEEDS_DESKTOP)
+    cleanup()
+    // CONTROL: on the desktop the bin lights.
+    await mount(DESKTOP)
+    const d = treeRow('Day 1')
+    fireEvent(d, createEvent.dragOver(d, { dataTransfer: { types: ['Files'], files: [], dropEffect: 'copy' } }))
+    expect(d.getAttribute('data-drag-over')).toBe('true')
+  })
 })
 
 describe('the empty states in a browser', () => {
@@ -396,6 +420,17 @@ describe('the empty states in a browser', () => {
 describe('a shot\'s takes: the word for a clip this computer cannot reach', () => {
   const shot = { id: 'sh1', name: 'Shot 1', shot_number: 1, frame_count: 0 }
   const entry = (file) => ({ take: { id: 't1', shot_id: 'sh1', bin_file_id: file.id, role: 'primary', position: 0, notes: '' }, file })
+  it('the take picker dims no clip where none could be reached (markOffline false), and dims an unreachable one where some could (review round 1)', async () => {
+    const { default: TakePickerDialog } = await import('./TakePickerDialog')
+    const files = [{ id: 'f1', bin_id: 'b1', display_name: 'A', original_name: 'a.mov', media_type: 'video', location_id: 'L1', online: false }]
+    render(<TakePickerDialog shot={shot} scene={null} files={files} bins={[]} assignedFileIds={[]} hasPrimary={false} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} markOffline={false} />)
+    expect(document.querySelectorAll('.bn-pick-row[data-offline="true"]')).toHaveLength(0)
+    cleanup()
+    render(<TakePickerDialog shot={shot} scene={null} files={files} bins={[]} assignedFileIds={[]} hasPrimary={false} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} />)
+    expect(document.querySelectorAll('.bn-pick-row[data-offline="true"]')).toHaveLength(1)
+    // ScenesView hands the picker the capability object's answer.
+    expect(readFileSync(resolve(process.cwd(), 'src/tools/rabbit_v0.1.0/views/ScenesView.jsx'), 'utf8')).toContain('markOffline={!binsModeOf(ctx?.binsInfo?.capabilities).nothingReachable}')
+  })
   it('a company\'s clip says "not on this computer" (B3); the signed-out desktop\'s says "offline" (B12)', () => {
     render(<ShotTakesPanel shot={shot} entries={[entry({ id: 'f1', display_name: 'T1', original_name: 'T1.mp4', media_type: 'video', location_id: 'L1', online: false })]} fps={24} canWrite />)
     expect(document.body.textContent).toContain(NOT_ON_THIS_COMPUTER)

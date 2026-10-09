@@ -207,12 +207,20 @@ try {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
     }
     if (req.method() === 'POST') { cloud.inserts++; return route.fulfill({ status: 201, contentType: 'application/json', body: '[]' }); }
-    if (req.method() === 'PATCH') return route.fulfill({ status: 204, body: '' });
+    // A PATCH that asks for the row back (`.select('id')`: the picture's
+    // key lands on THIS project's row, or the object is taken back) answers
+    // the one row the query names, as PostgREST does.
+    if (req.method() === 'PATCH') {
+      const id = (url.searchParams.get('id') || '').replace(/^eq\./, '');
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(id ? [{ id }] : []) });
+    }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
   await page.route('**/storage/v1/**', async (route) => {
-    cloud.uploads++;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ Key: route.request().url().split('/object/')[1] || 'x' }) });
+    const req = route.request();
+    if (req.method() === 'POST' && /\/object\/rabbit-thumbnails\//.test(req.url())) cloud.uploads++;
+    else if (req.method() === 'DELETE' || /\/object\/rabbit-thumbnails$/.test(req.url())) cloud.removes = (cloud.removes || 0) + 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ Key: req.url().split('/object/')[1] || 'x' }) });
   });
   await page.goto(`http://localhost:${PORT}/settings`, { waitUntil: 'networkidle' });
   await page.addStyleTag({ content: quiet });
@@ -232,8 +240,15 @@ try {
   await shot('migrate-dry-run-question');
   console.log(`  roots: ${(await page.locator('[data-footage-root]').allTextContents()).map(t => t.replace(/\s+/g, ' ').slice(0, 140)).join(' || ')}`);
 
-  // The drive letter's folder, named as the network sees it; the share kept
-  // as the suggestion (a new location "Footage" at the share).
+  // The share root: suggested as a new location, which waits for "Use this
+  // address" (review round 1: a new company location comes only from an
+  // address the person confirmed). The drive letter's folder, named as the
+  // network sees it.
+  const share = page.locator('[data-footage-root="\\\\\\\\salthours-nas\\\\footage"]');
+  await must(share, 'the share root');
+  console.log(`  share root before confirming: ${share.getAttribute ? await share.getAttribute('data-resolved') : ''} · ${await page.locator('[data-testid="roots-progress"]').textContent()}`);
+  await click(share.getByRole('button', { name: 'Use this address', exact: true }), 'Use this address');
+  await sleep(200);
   const stills = page.locator('[data-footage-root="D:\\\\Set photos"]');
   await must(stills, 'the D: root');
   await stills.getByLabel('Network address').fill('smb://salthours-nas/set photos/');
@@ -262,7 +277,7 @@ try {
   await page.locator('.s-table tbody tr', { hasText: 'pictures' }).evaluate(el => el.scrollIntoView({ block: 'end' }));
   await sleep(200);
   await shot('migrate-report-table');
-  console.log(`  cloud stub: ${cloud.inserts} inserts, ${cloud.uploads} uploads`);
+  console.log(`  cloud stub: ${cloud.inserts} inserts, ${cloud.uploads} uploads, ${cloud.removes || 0} removes`);
   console.log(`  report: ${(await page.locator('.s-table').textContent()).replace(/\s+/g, ' ').slice(0, 400)}`);
   console.log(`  log tail: ${(await page.locator('pre.s-log').textContent()).split('\n').slice(-6).join(' | ')}`);
 } finally {

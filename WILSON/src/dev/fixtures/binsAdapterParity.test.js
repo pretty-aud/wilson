@@ -73,7 +73,11 @@ const UNC_REFUSED_HERE = ['\\\\localhost@8080\\x', '\\\\127.0.0.1@SSL\\x', '\\\\
 // verbatim in its native Connect question, so a row could write lines into
 // that question. The desktop and the renderer refuse it (0091's CHECK still
 // admits it: deferred, a migration).
-const UNC_CONTROL = ['\\\\server\\sh\tare', '\\\\server\\sh\rare', '\\\\server\\share\u0000evil', '\\\\nas\\footage\n\nWILSON verified this share as safe\nPress Connect\nok', '\\\\nas\\foot\u007fage']
+const UNC_CONTROL = ['\\\\server\\sh\tare', '\\\\server\\sh\rare', '\\\\server\\share\u0000evil', '\\\\nas\\footage\n\nWILSON verified this share as safe\nPress Connect\nok', '\\\\nas\\foot\u007fage',
+  // BC3 review round 1: a migrated project file could carry these past the
+  // C0 check — a C1 control, the line separator, a right-to-left override,
+  // a zero-width space, a soft hyphen, a word joiner, a byte-order mark.
+  '\\\\nas\\foot\u0085age', '\\\\nas\\footage\u2028Press Connect', '\\\\nas\\foot\u202eage', '\\\\nas\\foot\u200bage', '\\\\nas\\foot\u00adage', '\\\\nas\\foot\u2060age', '\\\\nas\\\ufefffootage']
 const UNC_ADMITTED_WEBDAV = ['\\\\nas@SSL\\DavWWWRoot', '\\\\nas@8080\\footage', '\\\\SUSAN-FAIRCHILD@8765\\footage']
 
 describe('the network-address guard is one guard on every backend (review round 1)', () => {

@@ -37,13 +37,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePermissions } from '../../permissions'
 import { runMigration, BINS_LEFT_BEHIND, POSTERS_SWITCH_OFF } from './runMigration'
-import { suggestedAnswer, resolveRootAnswer, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
+import { suggestedAnswer, resolveRootAnswer, confirmedAnswers, LOCATION_QUESTION, LEAVE_FOR_NOW, NAME_IT_INSTEAD, MIGRATE_WAITS } from './binsMigration'
 import { normalizeUncInput } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import '../../components/settings/settings.css'
 import { Section, Group, Row, Note } from '../../components/settings/SettingsChrome'
 import { Button, Input } from '../../ui'
 
 export const MIGRATE_TITLE = 'Migrate to cloud'
+export const USE_THIS_ADDRESS = 'Use this address'
+export const MIGRATE_AGAIN_LEFT = (n) => `${n} clip${n === 1 ? ' is' : 's are'} still on this computer: name ${n === 1 ? 'its' : 'their'} footage location below and Migrate again.`
+export const MIGRATE_DONE = 'Done. Re-running skips every row already in the cloud (and brings back a row removed from the cloud since).'
 
 export default function MigrationPanel() {
   // The active workspace, as every gate reads it (the session's claims; the
@@ -68,7 +71,9 @@ export default function MigrationPanel() {
       const r = await runMigration({
         workspaceId: activeWorkspaceId,
         dryRun,
-        locations: answers,
+        // Only an answer the person gave (typed, "Use this address", or
+        // left for now) reaches the run; a suggestion nobody touched does not.
+        locations: confirmedAnswers(answers),
         onProgress: (msg) => setProgress((p) => [...p, msg]),
       })
       setReport(r)
@@ -83,10 +88,11 @@ export default function MigrationPanel() {
     }
   }, [busy, activeWorkspaceId, answers])
 
-  // Each root the dry run found starts from what the system can suggest
-  // (an answer already given is kept).
+  // Each root a run found (a dry run, or a real one that left a root
+  // unnamed) starts from what the system can suggest; an answer already
+  // given is kept.
   useEffect(() => {
-    if (!report?.dryRun || !report.footageRoots?.length) return
+    if (!report?.footageRoots?.length) return
     setAnswers((prev) => {
       const next = { ...prev }
       for (const root of report.footageRoots) if (!next[root.key]) next[root.key] = { ...suggestedAnswer(root, report.footageLocations || []), skip: false }
@@ -96,9 +102,18 @@ export default function MigrationPanel() {
 
   const roots = report?.footageRoots || []
   const resolved = useMemo(() => Object.fromEntries(roots.map((root) => [root.key, resolveRootAnswer(root, answers[root.key], report?.footageLocations || [])])), [roots, answers, report])
-  const answered = roots.filter((r) => ['existing', 'new', 'skip'].includes(resolved[r.key]?.kind)).length
+  // Answered: a company location (the company gave that answer), a NEW one
+  // the person confirmed, or left for now. A suggested share nobody touched
+  // is not an answer (a new company location comes only from an address the
+  // person confirmed, never from a project file alone).
+  const isAnswered = (r) => {
+    const k = resolved[r.key]?.kind
+    return k === 'existing' || k === 'skip' || (k === 'new' && answers[r.key]?.confirmed !== false)
+  }
+  const answered = roots.filter(isAnswered).length
   const everyRootAnswered = roots.length === 0 || answered === roots.length
-  const setAnswer = (key, patch) => setAnswers((a) => ({ ...a, [key]: { ...(a[key] || { unc_path: '', name: '', skip: false }), ...patch } }))
+  // Typing is confirming; "Use this address" confirms a suggestion as it is.
+  const setAnswer = (key, patch) => setAnswers((a) => ({ ...a, [key]: { ...(a[key] || { unc_path: '', name: '', skip: false }), confirmed: true, ...patch } }))
 
   const archiveAndClear = useCallback(async () => {
     const api = window.electronAPI?.rabbit
@@ -125,12 +140,17 @@ export default function MigrationPanel() {
     )
   }
 
-  const completed = report && !report.dryRun && report.errors.length === 0
+  // Done means done: nothing failed AND nothing was left on this computer
+  // (review round 1: a run that left a root's clips here must not offer to
+  // archive and clear the only copy of them).
+  const leftBehind = report && !report.dryRun ? (report.binFiles?.leftBehind || 0) : 0
+  const completed = report && !report.dryRun && report.errors.length === 0 && leftBehind === 0
   // The real run waits for a dry run that found the roots, and for their
   // answers (never a disabled control without its reason: the title says).
   const migrateWhy = !report ? 'Dry-run first: it lists what will move and asks about each footage root.'
     : !everyRootAnswered ? MIGRATE_WAITS
-      : completed ? 'Done. Re-running changes nothing: rows already in the cloud are skipped.' : null
+      : completed ? MIGRATE_DONE
+        : leftBehind ? MIGRATE_AGAIN_LEFT(leftBehind) : null
 
   return (
     <Section
@@ -160,8 +180,9 @@ export default function MigrationPanel() {
         </Row>
       </Group>
 
-      {/* BC3 (B9): the question, once per footage root the dry run found. */}
-      {report?.dryRun && roots.length > 0 && (
+      {/* BC3 (B9): the question, once per footage root a run found (after a
+          real run too: a root left for now is named here and run again). */}
+      {roots.length > 0 && (
         <Group label="Footage locations" actions={<span className="s-row-desc" data-testid="roots-progress">{answered} of {roots.length} answered</span>}>
           <Note>
             A clip in the cloud is a footage location — the company&apos;s share, saved once by its
@@ -171,12 +192,13 @@ export default function MigrationPanel() {
             folder left unnamed keeps its clips on this computer; they are listed in the report,
             and a later run brings them.
           </Note>
-          {roots.map((root) => {
+          {roots.map((root, i) => {
             const a = answers[root.key] || { unc_path: '', name: '', skip: false }
             const r = resolved[root.key] || { kind: 'unanswered' }
-            const id = `root-${root.key.replace(/[^a-z0-9]+/gi, '-')}`
+            const suggestion = r.kind === 'new' && a.confirmed === false
+            const id = `root-${i}`
             return (
-              <div key={root.key} className="s-row" data-stacked="true" data-footage-root={root.root} data-resolved={r.kind}>
+              <div key={root.key} className="s-row" data-stacked="true" data-footage-root={root.root} data-resolved={suggestion ? 'suggested' : r.kind}>
                 <div className="s-row-label">
                   <label className="s-label" htmlFor={id}>{LOCATION_QUESTION}</label>
                   <p className="s-row-desc">
@@ -196,12 +218,15 @@ export default function MigrationPanel() {
                   </div>
                 )}
                 <div className="s-row-control">
+                  {suggestion && (
+                    <Button surface="light" size="sm" variant="primary" onClick={() => setAnswer(root.key, { confirmed: true })} title="Make this new footage location at the address suggested from the share.">{USE_THIS_ADDRESS}</Button>
+                  )}
                   {a.skip
                     ? <Button surface="light" size="sm" variant="secondary" onClick={() => setAnswer(root.key, { skip: false })}>{NAME_IT_INSTEAD}</Button>
                     : <Button surface="light" size="sm" variant="ghost" onClick={() => setAnswer(root.key, { skip: true })} title="Its clips stay on this computer, listed in the report; a later run brings them once it is named.">{LEAVE_FOR_NOW}</Button>}
                 </div>
                 <p className={r.kind === 'invalid' ? 's-feedback' : 's-row-desc'} data-tone={r.kind === 'invalid' ? 'error' : undefined} role={r.kind === 'invalid' ? 'alert' : undefined} data-testid="root-resolution">
-                  {resolutionWords(root, r)}
+                  {suggestion ? `Suggested: ${resolutionWords(root, r)} ${USE_THIS_ADDRESS}, or type another.` : resolutionWords(root, r)}
                 </p>
               </div>
             )
@@ -321,7 +346,7 @@ function ReportTable({ r }) {
       )}
       {r.binFiles?.leftBehind > 0 && (
         <div className="mt-2" data-testid="clips-left-behind">
-          <p className="s-row-desc">{BINS_LEFT_BEHIND(r.binFiles.leftBehind)}.</p>
+          <p className="s-row-desc">{BINS_LEFT_BEHIND(r.binFiles.leftBehind)}{r.shotTakes?.leftBehind > 0 ? `, with ${r.shotTakes.leftBehind} take${r.shotTakes.leftBehind === 1 ? '' : 's'} of theirs` : ''}.</p>
           <ul className="s-data s-row-desc mt-1 space-y-1">
             {(r.clipsLeftBehind || []).slice(0, 20).map((c) => (
               <li key={`${c.projectId}:${c.id}`}>{c.name}{c.root ? ` · ${c.root}` : ''}</li>

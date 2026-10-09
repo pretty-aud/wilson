@@ -36,27 +36,39 @@ export function pathKey(p) {
   return s.toLowerCase()
 }
 
-/** Is `child` the same folder as `base`, or inside it? (Keys compared.) */
+// A path as segments, the original spelling kept (a drive root `D:\` is
+// one segment, `D:`; a network path's two leading backslashes are two empty
+// segments, so the host and the share line up with the base's).
+function segmentsOf(p) {
+  const s = String(p ?? '').trim().replace(/\//g, '\\').replace(/\\+$/, '')
+  return s === '' ? [] : s.split('\\')
+}
+const sameSegment = (a, b) => a.toLowerCase() === b.toLowerCase()
+
+/**
+ * Is `child` the same folder as `base`, or inside it? Compared segment by
+ * segment, case-blind (review round 1: a prefix of the lower-cased string
+ * misreads a letter whose lower case is two code units, such as İ).
+ */
 export function isUnder(child, base) {
-  const c = pathKey(child)
-  const b = pathKey(base)
-  if (!c || !b) return false
-  if (c === b) return true
-  const prefix = b.endsWith('\\') ? b : `${b}\\`
-  return c.startsWith(prefix)
+  const c = segmentsOf(child)
+  const b = segmentsOf(base)
+  if (!c.length || !b.length || c.length < b.length) return false
+  return b.every((seg, i) => sameSegment(seg, c[i]))
 }
 
 /**
  * `child`'s path inside `base`, in 0091's shape (forward slashes, no leading
- * or trailing slash): '' for the folder itself; null when not inside.
+ * or trailing slash), the child's own spelling kept: '' for the folder
+ * itself; null when not inside.
  */
 export function relativeUnder(child, base) {
   if (!isUnder(child, base)) return null
-  const c = String(child).trim().replace(/\//g, '\\').replace(/\\+$/, '')
-  const b = pathKey(base).replace(/\\+$/, '')
-  const rest = c.slice(b.length).replace(/^\\+/, '')
-  return rest.split('\\').filter(Boolean).join('/')
+  return segmentsOf(child).slice(segmentsOf(base).length).filter(Boolean).join('/')
 }
+
+/** How deep a path is (its segments): the measure of "the longest root". */
+const depthOf = (p) => segmentsOf(p).length
 
 /** 0091's relative_path shape, as the CHECK admits it. */
 export function isCloudRelativePath(rel) {
@@ -96,7 +108,10 @@ function folderOf(p) {
 /**
  * The root a clip belongs to: the LONGEST recorded root containing it; else,
  * for a network path, its share; else its own folder. A frame sequence's
- * `source_path` names its folder and is read like a file's.
+ * `source_path` names its folder and is read like a file's — and a sequence
+ * folder that was picked as a root ITSELF (the desktop records a picked
+ * folder as the root) belongs to the folder above it, so that it has a path
+ * inside its location (review round 1: the location itself is no path).
  */
 export function rootOfClip(clip, roots) {
   const p = clip?.source_path
@@ -105,8 +120,9 @@ export function rootOfClip(clip, roots) {
   for (const r of roots || []) {
     const rp = r?.path
     if (!rp || !isUnder(p, rp)) continue
-    if (!best || pathKey(rp).length > pathKey(best).length) best = rp
+    if (!best || depthOf(rp) > depthOf(best)) best = rp
   }
+  if (best && pathKey(best) === pathKey(p)) best = folderOf(best) || best
   if (best) return best
   return shareRootOf(p) || folderOf(p)
 }
@@ -166,12 +182,31 @@ export const MIGRATE_WAITS = 'Name each footage root first, or leave it on this 
  */
 export function suggestedAnswer(root, existing) {
   const held = holdingLocation(root.kind === 'unc' ? root.root : null, existing)
-  if (held) return { unc_path: held.unc_path, name: held.name }
+  // A company location the root is already under: an answer the company
+  // gave. A share nobody has named is only a SUGGESTION (review round 1,
+  // security): a new company location is made from an address the person
+  // confirmed, never from a path a project file carried — so it waits for
+  // "Use this address", or for the person to type.
+  if (held) return { unc_path: held.unc_path, name: held.name, confirmed: true }
   if (root.kind === 'unc') {
     const share = shareRootOf(root.root)
-    return share ? { unc_path: share, name: suggestLocationName(share) } : { unc_path: '', name: '' }
+    return share ? { unc_path: share, name: suggestLocationName(share), confirmed: false } : { unc_path: '', name: '', confirmed: false }
   }
-  return { unc_path: '', name: '' }
+  return { unc_path: '', name: '', confirmed: false }
+}
+
+/**
+ * The answers the run may act on: a root left for now, or an address the
+ * person confirmed (typed, or "Use this address"). A suggestion nobody
+ * touched is no answer.
+ */
+export function confirmedAnswers(answers) {
+  const out = {}
+  for (const [key, a] of Object.entries(answers || {})) {
+    if (!a) continue
+    if (a.skip || a.confirmed !== false) out[key] = a
+  }
+  return out
 }
 
 /** The company location whose address holds `anchor` (the longest), or null. */
@@ -180,7 +215,7 @@ export function holdingLocation(anchor, existing) {
   let best = null
   for (const l of existing || []) {
     if (!l?.unc_path || !isUnder(anchor, l.unc_path)) continue
-    if (!best || pathKey(l.unc_path).length > pathKey(best.unc_path).length) best = l
+    if (!best || depthOf(l.unc_path) > depthOf(best.unc_path)) best = l
   }
   return best
 }
@@ -223,22 +258,28 @@ export function resolveRootAnswer(root, answer, existing) {
 
 // What the desktop keeps on a clip row that the cloud does not: the absolute
 // path (a location + a relative path now), the reading computer's `online`,
-// and the desktop's bin-root bookkeeping if any rode along.
-const DESKTOP_ONLY = new Set(['source_path', 'online', 'root_id'])
+// the desktop's bin-root bookkeeping if any rode along, its own stamp
+// (`created_at`; the cloud's is `added_at`), the audio columns 0091 has no
+// place for (`sample_rate`, `channels`: docs/OUTSTANDING.md), and who added
+// it — the cloud stamps `added_by` from the sign-in, never from a file on
+// disk (review round 1, security).
+const DESKTOP_ONLY = new Set(['source_path', 'online', 'root_id', 'created_at', 'sample_rate', 'channels', 'added_by'])
 
 /**
  * A clip row in the cloud's shape, for a root resolved to a location:
  * `{ row }` or `{ error }`. Ids are kept (0091's are the desktop's UUIDs);
- * the date goes through dates.js; the picture's key is left empty (a poster
+ * the project is the one being migrated (never the row's own claim); the
+ * date goes through dates.js; the picture's key is left empty (a poster
  * uploads only while the switch is on, and only the runner knows).
  */
-export function cloudBinFileRow(clip, { root, locationId, prefix, workspaceId }) {
+export function cloudBinFileRow(clip, { root, locationId, prefix, workspaceId, projectId }) {
   const inside = relativeUnder(clip?.source_path, root)
   if (inside == null) return { error: `${clip?.original_name || clip?.id}: not inside ${root}` }
   const relative_path = [prefix, inside].filter(Boolean).join('/')
   if (!isCloudRelativePath(relative_path)) return { error: `${clip?.original_name || clip?.id}: its path inside the location is not one the cloud takes (${relative_path || 'the location itself'})` }
   const row = {}
   for (const [k, v] of Object.entries(clip)) if (!DESKTOP_ONLY.has(k)) row[k] = v
+  row.project_id = projectId
   row.location_id = locationId
   row.relative_path = relative_path
   row.workspace_id = workspaceId
@@ -270,3 +311,46 @@ export function binsParentsFirst(bins) {
 
 /** The media a poster can be made of (the desktop's route answers none for the rest). */
 export const POSTER_MEDIA = new Set(['video', 'still', 'sequence', 'vfx', 'graphic'])
+
+/**
+ * A desktop row of any other table, for the cloud: the project is the one
+ * being migrated, and nothing says who made it — the cloud stamps
+ * `created_by` / `updated_by` from the sign-in (review round 1, security:
+ * a project file is a file on disk). A scene's or shot's `thumbnail_image`
+ * is a path on this computer's disk on the desktop: not a thing to send
+ * (and not a picture the cloud could show).
+ */
+export function cloudRowOf(row, projectId) {
+  const out = { ...row, project_id: projectId }
+  delete out.created_by
+  delete out.updated_by
+  if ('thumbnail_image' in out) out.thumbnail_image = null
+  return out
+}
+
+/**
+ * The takes a project can land, by shot: a take whose shot or clip did not
+ * land is left out (the caller says why); within a shot, exactly one primary
+ * (the first flagged, else the first by position) and positions 0..n-1 —
+ * 0091's invariant, which only its RPCs keep and a plain insert does not
+ * (review round 1).
+ */
+export function takesToLand(shotTakes, landedShots, landedClips) {
+  const byShot = new Map()
+  for (const t of shotTakes || []) {
+    if (!t || !landedShots.has(t.shot_id) || !landedClips.has(t.bin_file_id)) continue
+    if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, [])
+    byShot.get(t.shot_id).push({ ...t })
+  }
+  const out = []
+  for (const list of byShot.values()) {
+    list.sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || '')))
+    const primary = list.find(t => t.role === 'primary') || list[0]
+    list.forEach((t, i) => {
+      t.position = i
+      t.role = t === primary ? 'primary' : (t.role === 'primary' || !['part', 'alt'].includes(t.role) ? 'alt' : t.role)
+      out.push(t)
+    })
+  }
+  return out
+}

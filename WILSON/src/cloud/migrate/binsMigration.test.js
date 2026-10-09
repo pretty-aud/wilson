@@ -12,7 +12,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   pathKey, isUnder, relativeUnder, isCloudRelativePath, shareRootOf, rootKind, rootOfClip, binRootsOf, mergeRoots,
-  suggestedAnswer, holdingLocation, resolveRootAnswer, cloudBinFileRow, binsParentsFirst, POSTER_MEDIA, ADDRESS_NEEDED,
+  suggestedAnswer, confirmedAnswers, holdingLocation, resolveRootAnswer, cloudBinFileRow, cloudRowOf, binsParentsFirst, takesToLand,
+  POSTER_MEDIA, ADDRESS_NEEDED,
 } from './binsMigration'
 
 // The refusal sentence is the cloud adapter's, word for word. The adapter's
@@ -55,6 +56,14 @@ describe('paths', () => {
     expect(relativeUnder('\\\\nas\\sound\\a.wav', NAS)).toBeNull()
     expect(relativeUnder('D:\\Footage\\Day01\\a.mov', 'D:\\')).toBe('Footage/Day01/a.mov')
   })
+  it('compares segment by segment, so a letter whose lower case is two code units (İ) cuts nothing (review round 1)', () => {
+    expect(relativeUnder('\\\\nas\\İİ\\Day01\\x.mov', '\\\\nas\\İİ')).toBe('Day01/x.mov')
+    expect(relativeUnder('\\\\nas\\İ\\Day01\\x.mov', '\\\\nas\\İ')).toBe('Day01/x.mov')
+    expect(isUnder('\\\\nas\\İİ\\Day01', '\\\\nas\\İİ')).toBe(true)
+    expect(isUnder('\\\\nas\\İİx\\Day01', '\\\\nas\\İİ')).toBe(false)
+    // The child's own spelling is kept.
+    expect(relativeUnder('\\\\nas\\footage\\DaY01\\A.MOV', '\\\\NAS\\FOOTAGE')).toBe('DaY01/A.MOV')
+  })
   it("isCloudRelativePath: 0091's CHECK, as it refuses", () => {
     expect(isCloudRelativePath('Day01/A001/a.mov')).toBe(true)
     for (const bad of ['', '/Day01/a.mov', 'Day01/a.mov/', 'Day01//a.mov', 'Day01\\a.mov', 'C:/a.mov', '../a.mov', 'Day01/../a.mov', 'Day01/./a.mov', 'Day01./a.mov', 'Day01 /a.mov', 'x'.repeat(1025)]) {
@@ -78,6 +87,13 @@ describe('roots', () => {
     expect(rootOfClip({ source_path: '\\\\nas\\footage\\Day01\\a.mov' }, roots)).toBe('\\\\nas\\footage\\Day01')
     expect(rootOfClip({ source_path: '\\\\nas\\footage\\Day02\\a.mov' }, roots)).toBe(NAS)
     expect(rootOfClip({ source_path: 'D:\\Footage\\Day01\\a.mov' }, roots)).toBe('D:\\Footage')
+  })
+  it('a sequence folder picked as its own root belongs to the folder above it (its path inside the location cannot be empty)', () => {
+    expect(rootOfClip({ source_path: '\\\\nas\\footage\\VFX\\plate_v01', is_sequence: true }, [{ path: '\\\\nas\\footage\\VFX\\plate_v01' }])).toBe('\\\\nas\\footage\\VFX')
+    expect(rootOfClip({ source_path: 'D:\\Renders\\shot010', is_sequence: true }, [{ path: 'D:\\Renders\\shot010' }])).toBe('D:\\Renders')
+    expect(rootOfClip({ source_path: 'D:\\shot010', is_sequence: true }, [{ path: 'D:\\shot010' }])).toBe('D:\\')
+    // CONTROL: a clip inside its root keeps the root.
+    expect(rootOfClip({ source_path: 'D:\\Renders\\shot010\\f.exr' }, [{ path: 'D:\\Renders\\shot010' }])).toBe('D:\\Renders\\shot010')
   })
   it('with no recorded root: a network path falls to its share, a local one to its own folder; no path, no root', () => {
     expect(rootOfClip({ source_path: '\\\\nas\\sound\\a.wav' }, roots)).toBe('\\\\nas\\sound')
@@ -107,12 +123,21 @@ describe('roots', () => {
 describe('the question\'s answer', () => {
   const unc = { root: '\\\\nas\\footage\\Day01\\A001', key: pathKey('\\\\nas\\footage\\Day01\\A001'), kind: 'unc' }
   const local = { root: 'D:\\Footage\\Day01', key: 'd:\\footage\\day01', kind: 'local' }
-  it('suggested: the company location that holds a network root (the longest), else its share as a new one; nothing for a drive letter', () => {
-    expect(suggestedAnswer(unc, LOCATIONS)).toEqual({ unc_path: '\\\\nas\\footage\\Day01', name: 'Day 1 only' })
-    expect(suggestedAnswer({ ...unc, root: '\\\\nas\\vfx\\plates', key: '\\\\nas\\vfx\\plates' }, LOCATIONS)).toEqual({ unc_path: '\\\\nas\\vfx', name: 'Vfx' })
-    expect(suggestedAnswer(local, LOCATIONS)).toEqual({ unc_path: '', name: '' })
+  it('suggested: the company location that holds a network root (the longest) is an answer; its share as a NEW one is only a suggestion; nothing for a drive letter', () => {
+    expect(suggestedAnswer(unc, LOCATIONS)).toEqual({ unc_path: '\\\\nas\\footage\\Day01', name: 'Day 1 only', confirmed: true })
+    expect(suggestedAnswer({ ...unc, root: '\\\\nas\\vfx\\plates', key: '\\\\nas\\vfx\\plates' }, LOCATIONS)).toEqual({ unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: false })
+    expect(suggestedAnswer(local, LOCATIONS)).toEqual({ unc_path: '', name: '', confirmed: false })
     expect(holdingLocation('\\\\nas\\footage\\Day02', LOCATIONS)).toMatchObject({ id: 'L1' })
     expect(holdingLocation('\\\\other\\x', LOCATIONS)).toBeNull()
+  })
+  it('confirmedAnswers: a suggestion nobody touched is no answer; a typed address, a confirmed one and "left for now" are (review round 1, security)', () => {
+    expect(confirmedAnswers({
+      a: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: false },
+      b: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: true },
+      c: { unc_path: '\\\\nas\\x' },
+      d: { skip: true, unc_path: '\\\\nas\\vfx', confirmed: false },
+      e: null,
+    })).toEqual({ b: { unc_path: '\\\\nas\\vfx', name: 'Vfx', confirmed: true }, c: { unc_path: '\\\\nas\\x' }, d: { skip: true, unc_path: '\\\\nas\\vfx', confirmed: false } })
   })
   it('an existing location by address: the one NAMED wins, else the longest holder; the root\'s path inside it is the prefix', () => {
     expect(resolveRootAnswer(unc, { unc_path: NAS }, LOCATIONS)).toEqual({ kind: 'existing', location: LOCATIONS[0], prefix: 'Day01/A001' })
@@ -150,27 +175,54 @@ describe('the cloud row', () => {
     id: 'f1', project_id: 'p1', bin_id: 'b1', source_path: '\\\\nas\\footage\\Day01\\A001\\a.mov', online: true, display_name: 'a', original_name: 'a.mov',
     extension: '.mov', media_type: 'video', shoot_day: '2026-09-24', review_flag: 'select', poster_path: null, tags: ['x'], sort_order: 3,
   }
-  it('keeps the id and every column, drops the desktop\'s own (source_path, online), sets the location, the cloud path, the workspace, no picture', () => {
-    const { row, error } = cloudBinFileRow(clip, { root: '\\\\nas\\footage\\Day01', locationId: 'L1', prefix: 'Day01', workspaceId: 'ws1' })
+  const opts = (over = {}) => ({ root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1', projectId: 'p1', ...over })
+  it('keeps the id and every column, drops the desktop\'s own (source_path, online, its stamp, the audio columns, who added it), sets the project, the location, the cloud path, the workspace, no picture', () => {
+    const { row, error } = cloudBinFileRow({ ...clip, project_id: 'p-claimed', added_by: 'u-forged', created_at: '2026-09-24T10:00:00Z', sample_rate: 48000, channels: 2 }, opts({ root: '\\\\nas\\footage\\Day01', prefix: 'Day01' }))
     expect(error).toBeUndefined()
-    expect(row).toMatchObject({ id: 'f1', bin_id: 'b1', location_id: 'L1', relative_path: 'Day01/A001/a.mov', workspace_id: 'ws1', poster_path: null, display_name: 'a', review_flag: 'select', tags: ['x'], sort_order: 3 })
-    expect(row).not.toHaveProperty('source_path')
-    expect(row).not.toHaveProperty('online')
+    expect(row).toMatchObject({ id: 'f1', project_id: 'p1', bin_id: 'b1', location_id: 'L1', relative_path: 'Day01/A001/a.mov', workspace_id: 'ws1', poster_path: null, display_name: 'a', review_flag: 'select', tags: ['x'], sort_order: 3 })
+    for (const k of ['source_path', 'online', 'added_by', 'created_at', 'sample_rate', 'channels']) expect(row, k).not.toHaveProperty(k)
   })
   it('a drive-letter root named on the network: the prefix is empty and the path is the clip\'s inside the folder', () => {
-    const { row } = cloudBinFileRow({ ...clip, source_path: 'D:\\Footage\\Day01\\A001\\a.mov' }, { root: 'D:\\Footage\\Day01', locationId: 'L9', prefix: '', workspaceId: 'ws1' })
+    const { row } = cloudBinFileRow({ ...clip, source_path: 'D:\\Footage\\Day01\\A001\\a.mov' }, opts({ root: 'D:\\Footage\\Day01', locationId: 'L9' }))
     expect(row.relative_path).toBe('A001/a.mov')
   })
   it('the date goes through dates.js (a stray spelling comes out as the DATE column stores it; garbage as nothing); a blank name takes the file\'s', () => {
-    expect(cloudBinFileRow({ ...clip, shoot_day: '2026-9-24' }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).row.shoot_day).toBe('2026-09-24')
-    expect(cloudBinFileRow({ ...clip, shoot_day: 'last Tuesday' }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).row.shoot_day).toBeNull()
-    expect(cloudBinFileRow({ ...clip, shoot_day: '2026-09-24' }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).row.shoot_day).toBe('2026-09-24')
-    expect(cloudBinFileRow({ ...clip, display_name: ' ' }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).row.display_name).toBe('a.mov')
+    expect(cloudBinFileRow({ ...clip, shoot_day: '2026-9-24' }, opts()).row.shoot_day).toBe('2026-09-24')
+    expect(cloudBinFileRow({ ...clip, shoot_day: 'last Tuesday' }, opts()).row.shoot_day).toBeNull()
+    expect(cloudBinFileRow({ ...clip, shoot_day: '2026-09-24' }, opts()).row.shoot_day).toBe('2026-09-24')
+    expect(cloudBinFileRow({ ...clip, display_name: ' ' }, opts()).row.display_name).toBe('a.mov')
   })
   it('a clip outside its root, or a path the cloud refuses, is an error — never a row', () => {
-    expect(cloudBinFileRow(clip, { root: '\\\\nas\\sound', locationId: 'L3', prefix: '', workspaceId: 'ws1' }).error).toMatch(/not inside/)
-    expect(cloudBinFileRow({ ...clip, source_path: '\\\\nas\\footage\\Day01\\A001.\\a.mov' }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).error).toMatch(/not one the cloud takes/)
-    expect(cloudBinFileRow({ ...clip, source_path: NAS }, { root: NAS, locationId: 'L1', prefix: '', workspaceId: 'ws1' }).error).toMatch(/the location itself/)
+    expect(cloudBinFileRow(clip, opts({ root: '\\\\nas\\sound', locationId: 'L3' })).error).toMatch(/not inside/)
+    expect(cloudBinFileRow({ ...clip, source_path: '\\\\nas\\footage\\Day01\\A001.\\a.mov' }, opts()).error).toMatch(/not one the cloud takes/)
+    expect(cloudBinFileRow({ ...clip, source_path: NAS }, opts()).error).toMatch(/the location itself/)
+  })
+  it('cloudRowOf: any other desktop row takes the project being migrated, loses who the file says made it, and sends no picture path of this computer', () => {
+    expect(cloudRowOf({ id: 'sc1', project_id: 'p-claimed', name: 'x', created_by: 'u-forged', updated_by: 'u-forged', thumbnail_image: 'C:\\Users\\a\\pic.jpg' }, 'p1'))
+      .toEqual({ id: 'sc1', project_id: 'p1', name: 'x', thumbnail_image: null })
+    expect(cloudRowOf({ id: 'b1', name: 'Footage' }, 'p1')).toEqual({ id: 'b1', project_id: 'p1', name: 'Footage' })
+  })
+})
+
+describe('the takes that can land', () => {
+  const takes = [
+    { id: 't3', shot_id: 's1', bin_file_id: 'c3', role: 'alt', position: 2 },
+    { id: 't1', shot_id: 's1', bin_file_id: 'c1', role: 'primary', position: 0 },
+    { id: 't2', shot_id: 's1', bin_file_id: 'c2', role: 'part', position: 1 },
+    { id: 't4', shot_id: 's2', bin_file_id: 'c1', role: 'primary', position: 0 },
+    { id: 't5', shot_id: 's9', bin_file_id: 'c1', role: 'primary', position: 0 },
+  ]
+  it('leaves out a take whose shot or clip did not land; keeps the rest in order with their roles', () => {
+    const out = takesToLand(takes, new Set(['s1', 's2']), new Set(['c1', 'c2', 'c3']))
+    expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t1', 'primary', 0], ['t2', 'part', 1], ['t3', 'alt', 2], ['t4', 'primary', 0]])
+  })
+  it('a shot whose primary did not land gets one (the first by position), positions renumbered; a second primary becomes an alt', () => {
+    const out = takesToLand(takes, new Set(['s1']), new Set(['c2', 'c3']))
+    expect(out.map(t => [t.id, t.role, t.position])).toEqual([['t2', 'primary', 0], ['t3', 'alt', 1]])
+    const two = takesToLand([{ id: 'a', shot_id: 's', bin_file_id: 'x', role: 'primary', position: 1 }, { id: 'b', shot_id: 's', bin_file_id: 'y', role: 'primary', position: 0 }], new Set(['s']), new Set(['x', 'y']))
+    expect(two.map(t => [t.id, t.role])).toEqual([['b', 'primary'], ['a', 'alt']])
+    // The input is not mutated.
+    expect(takes[0].position).toBe(2)
   })
 })
 

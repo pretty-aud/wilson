@@ -539,10 +539,14 @@ export function RabbitHelpContent({ helpPage, theme }) {
               drive letter is this computer&apos;s alone, so such a folder is
               given the address the network sees it by. {LEAVE_FOR_NOW_WORDS}
               {' '}keeps a folder&apos;s clips on this computer, listed in the
-              report, never dropped; a later run brings them. Pictures go up
-              only while {REMOTE_VIEWING_WORDS} is on; off, they stay on this
-              computer and the desktop makes them again where it reaches the
-              file. Running it again changes nothing already there.
+              report, never dropped; a later run brings them. A share WILSON
+              suggests from the project is a new location only once you say
+              Use this address, or type one. Pictures go up only while
+              {' '}{REMOTE_VIEWING_WORDS} is on; off, they stay on this computer
+              and the desktop makes them again where it reaches the file.
+              Running it again skips every row already in the cloud; a row a
+              teammate removed from the cloud since comes back with it, so
+              archive and clear the desktop&apos;s copy once everything is there.
             </p>
           </div>
           <div className={T.card}>

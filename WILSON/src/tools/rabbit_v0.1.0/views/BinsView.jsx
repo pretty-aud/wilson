@@ -691,7 +691,9 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       case 'u': case 'U': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'unflagged' }) } return
       case 'c': case 'C': if (!e.ctrlKey && ids.length) { e.preventDefault(); const cur = files.find(f => f.id === (currentId || ids[0])); patchIds(ids, { circled: !cur?.circled }) } return
       case 'Delete': case 'Backspace': if (ids.length) { e.preventDefault(); removeIds(ids) } return
-      case 'Enter': case 'F2': if (currentId && canWrite) { e.preventDefault(); setRenamingFileId(currentId) } return
+      // A rename under the picture large would be typed blind (the rename
+      // bar sits below it, review round 1): the picture closes first.
+      case 'Enter': case 'F2': if (currentId && canWrite) { e.preventDefault(); setPosterLarge(false); setRenamingFileId(currentId) } return
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
@@ -962,6 +964,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           renamingId={renamingBinId} onRenameEnd={() => setRenamingBinId(null)}
           onContextMenu={binMenu} onDropFiles={onDropOnBin} onDropBin={nestBin}
           allCount={files.length} allOffline={offlineAll.length} canWrite={canWrite} offlineWord={offlineWord}
+          acceptsOsFiles={canWrite && canPick}
         />
 
         <div className="bn-pane flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0}

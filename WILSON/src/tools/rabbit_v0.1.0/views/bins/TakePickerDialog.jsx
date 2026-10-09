@@ -18,7 +18,10 @@ import { MEDIA_TYPES, MEDIA_TYPE_META, slateLine, techLine } from '../../bins/bi
 import { matchesSearch, binPathLabel } from '../../bins/binSelectors'
 import { rankFilesForShot, TIER_LABELS, TAKE_ROLES, TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 
-export default function TakePickerDialog({ shot, scene, files, bins, assignedFileIds, hasPrimary, thumbUrlFor, onConfirm, onCancel, busy }) {
+// `markOffline` (BC3): a clip this computer cannot reach is dimmed only where
+// some clip could be reached; in a browser none can, and a whole picker in
+// the disabled ink would read as nothing to pick (BinFileGrid says why).
+export default function TakePickerDialog({ shot, scene, files, bins, assignedFileIds, hasPrimary, thumbUrlFor, onConfirm, onCancel, busy, markOffline = true }) {
   const assigned = useMemo(() => new Set(assignedFileIds || []), [assignedFileIds])
   const ranked = useMemo(() => rankFilesForShot(files, shot), [files, shot])
   const sceneHasFiles = useMemo(() => ranked.some(r => r.tier < 2), [ranked])
@@ -80,7 +83,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
             return (
               <div key={file.id}>
                 {header && <div className="bn-group-head px-3 py-1 text-label uppercase" data-preferred={tier === 0 ? 'true' : undefined} style={{ backgroundColor: C.deep, borderBottom: `1px solid ${C.line}` }}>{header}</div>}
-                <label className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !locked ? 'true' : undefined} data-locked={locked ? 'true' : undefined} data-offline={file.online === false ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
+                <label className="bn-pick-row flex items-center gap-2.5 px-2.5 py-1.5 cursor-pointer" data-picked={on && !locked ? 'true' : undefined} data-locked={locked ? 'true' : undefined} data-offline={file.online === false && markOffline ? 'true' : undefined} style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <input type="checkbox" className="accent-signal" checked={on} disabled={locked || busy} onChange={() => toggle(file.id)} />
                   <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={64} height={36} />
                   <div className="flex-1 min-w-0">
