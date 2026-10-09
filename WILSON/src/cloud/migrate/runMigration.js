@@ -10,7 +10,10 @@
 // Writes to Supabase via the shared authenticated client, scoped by RLS
 // to the target workspace. Tables, in order: projects, phases, assets,
 // tasks, task_dependencies + phase_dependencies (Track A A2 — the edges were
-// dropped on the floor before 2026-09-06), files. The migration is:
+// dropped on the floor before 2026-09-06), files, then — BC3 (Audrey's B9,
+// "bins move with the project") — scenes, shots, bins, bin_locations,
+// bin_files, shot_takes, and the clips' pictures to rabbit-thumbnails while
+// the company's switch is on. The migration is:
 //   - idempotent: already-migrated rows are detected by id and skipped
 //   - resumable: a mid-flight failure leaves the cloud in a consistent
 //                state; re-running picks up only the missing rows
@@ -29,8 +32,19 @@ import { DEPENDENCY_TABLE, dependencyKind, toColumns } from '../../tools/rabbit_
 // token; localFetch attaches it (same-origin URLs only).
 import { localFetch } from '../../lib/localServerFetch.js'
 import { isLegalFile, LEGAL_SEGMENT, LEGAL_UNAVAILABLE } from '../../tools/rabbit_v0.1.0/fileTags'
+// BC3 (B9): the bins' part — the roots, the question's answers, the cloud
+// row shape — is pure and lives beside this file.
+import {
+  binRootsOf, mergeRoots, rootOfClip, pathKey, resolveRootAnswer, cloudBinFileRow, binsParentsFirst, POSTER_MEDIA,
+} from './binsMigration'
 
 const RABBIT_BASE = '/api/rabbit'
+const POSTER_BUCKET = 'rabbit-thumbnails'
+const POSTER_MAX_BYTES = 262144 // the bucket's own cap (0053)
+
+// The sentences the bins' part says (the panel and the tests quote them).
+export const BINS_LEFT_BEHIND = (n) => `${n} clip${n === 1 ? '' : 's'} left on this computer: name ${n === 1 ? 'its' : 'their'} footage location and run the migration again`
+export const POSTERS_SWITCH_OFF = 'pictures stay on this computer: the company has not allowed files to be viewed from outside the office network (a workspace admin can turn that on in App settings, Storage)'
 
 async function fetchLocalProjectsList() {
   const res = await localFetch(`${RABBIT_BASE}/projects`)
@@ -123,6 +137,68 @@ async function insertOrSkip(table, row) {
   throw new Error(`${table}: ${error.message}`)
 }
 
+// ── BC3 (B9): the bins' reads and writes ──────────────────────────────────
+
+/** The rows of `table` where `column` = `value`, or `{ error }` (a read that fails is said, never read as "none"). */
+async function listCloud(table, column, value, columns = '*') {
+  try {
+    const { data, error } = await supabase.from(table).select(columns).eq(column, value)
+    return error ? { error } : { rows: Array.isArray(data) ? data : [] }
+  } catch (err) {
+    return { error: err }
+  }
+}
+
+/** The company's footage locations: `[{ id, name, unc_path }]`, or `{ error }`. */
+async function cloudLocations(workspaceId) {
+  const r = await listCloud('bin_locations', 'workspace_id', workspaceId, 'id, name, unc_path')
+  return r.error ? r : { rows: r.rows }
+}
+
+/**
+ * The company's switch (B4, B5a), read once per run. An error reads as OFF
+ * (fail closed: not a byte of a picture leaves while the answer is unknown),
+ * and the report says the read failed.
+ */
+async function remoteViewingOn(workspaceId) {
+  try {
+    const { data, error } = await supabase.from('workspaces').select('remote_viewing_enabled').eq('id', workspaceId).maybeSingle()
+    if (error) return { on: false, error }
+    return { on: data?.remote_viewing_enabled === true }
+  } catch (err) {
+    return { on: false, error: err }
+  }
+}
+
+/** The desktop's picture of a clip (its own poster cache, made on demand): JPEG bytes, or null with the reason. */
+async function fetchLocalPoster(projectId, fileId) {
+  const res = await localFetch(`${RABBIT_BASE}/projects/${projectId}/bin-files/${fileId}/thumbnail`)
+  if (!res.ok) return { bytes: null, why: `HTTP ${res.status}` }
+  const buf = new Uint8Array(await res.arrayBuffer())
+  if (buf.length < 3 || buf[0] !== 0xff || buf[1] !== 0xd8 || buf[2] !== 0xff) return { bytes: null, why: 'not a JPEG' }
+  if (buf.length > POSTER_MAX_BYTES) return { bytes: null, why: `${buf.length} bytes, over the ${POSTER_MAX_BYTES}-byte cap` }
+  return { bytes: buf }
+}
+
+/**
+ * One clip's picture to the cloud, the way BC2's upload does it: the key
+ * under the clip's own project (0091's shape), upsert off, the row's
+ * `poster_path` PATCHed after; an object whose row refuses it is taken back.
+ */
+async function uploadPoster(projectId, fileId, bytes) {
+  const key = `projects/${projectId}/bin_files/${fileId}/${Date.now()}-poster.jpg`
+  const { error: upErr } = await supabase.storage.from(POSTER_BUCKET).upload(key, bytes, { contentType: 'image/jpeg', upsert: false })
+  if (upErr) throw new Error(/row-level security|petal_bin_posters/.test(upErr.message || '') ? 'the company has not allowed files to be viewed from outside the office network' : `storage upload: ${upErr.message}`)
+  const { error: rowErr } = await supabase.from('bin_files').update({ poster_path: key }).eq('id', fileId).eq('project_id', projectId)
+  if (rowErr) {
+    try { await supabase.storage.from(POSTER_BUCKET).remove([key]) } catch { /* the refusal below is the answer */ }
+    throw new Error(`bin_files: ${rowErr.message}`)
+  }
+  return key
+}
+
+const BINS_BUCKETS = ['scenes', 'shots', 'bins', 'binLocations', 'binFiles', 'shotTakes']
+
 function makeReport() {
   return {
     dryRun: false,
@@ -134,6 +210,24 @@ function makeReport() {
     taskLinks:     { total: 0, inserted: 0, skipped: 0, failed: 0 },
     phaseLinks:    { total: 0, inserted: 0, skipped: 0, failed: 0 },
     files:         { total: 0, inserted: 0, skipped: 0, failed: 0, bytes: 0 },
+    // BC3 (B9): the bins' part. `binFiles.leftBehind` counts the clips whose
+    // root nobody named (listed in `clipsLeftBehind`, never dropped);
+    // `posters` counts the pictures (uploaded only while the switch is on).
+    scenes:        { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    shots:         { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    bins:          { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    binLocations:  { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    binFiles:      { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
+    shotTakes:     { total: 0, inserted: 0, skipped: 0, failed: 0 },
+    posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
+    // The question: every distinct root of every project's clips, with what
+    // the answers (if any) resolved it to — `[{ root, key, kind, count,
+    // projects, resolved }]` — and the company's locations it was asked
+    // against, so the panel can resolve a typed answer the same way.
+    footageRoots: [],
+    footageLocations: [],
+    clipsLeftBehind: [],
+    remoteViewing: null,
     errors: [],
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -161,15 +255,73 @@ function bumpFailed(bucket)   { bucket.total++; bucket.failed++ }
  * @param {string} opts.workspaceId Target workspace UUID.
  * @param {boolean} [opts.dryRun]   If true, enumerate only; no writes.
  * @param {(msg: string) => void} [opts.onProgress] Progress callback.
+ * @param {object} [opts.locations] BC3 (B9): the answers to "Which footage
+ *   location is this?", keyed by the root's key (binsMigration.pathKey):
+ *   `{ unc_path, name? }` names a location (an existing one by address, or
+ *   a new one), `{ skip: true }` leaves the root's clips on this computer.
+ *   The dry run lists the roots to ask about (`report.footageRoots`).
  * @returns {Promise<object>} Report object with per-table counters.
  */
-export async function runMigration({ workspaceId, dryRun = false, onProgress }) {
+export async function runMigration({ workspaceId, dryRun = false, onProgress, locations = {} }) {
   if (!workspaceId) throw new Error('workspaceId required')
   const report = makeReport()
   report.dryRun      = dryRun
   report.workspaceId = workspaceId
 
   const note = (m) => { try { onProgress?.(m) } catch { /* swallow */ } }
+  // BC3: the company's locations (read once, when a project has clips), the
+  // switch (read once, when a clip could have a picture), the roots of every
+  // project (the question), and the locations made in this run.
+  const binsState = { locations: null, locationsError: null, switch: null, roots: [], answers: locations || {} }
+  const companyLocations = async () => {
+    if (binsState.locations) return binsState.locations
+    const r = await cloudLocations(workspaceId)
+    if (r.error) { binsState.locationsError = r.error; binsState.locations = []; report.errors.push({ scope: 'bin_locations', message: `could not read the company's footage locations: ${r.error.message || r.error}` }) }
+    else binsState.locations = r.rows
+    report.footageLocations = binsState.locations.map(l => ({ id: l.id, name: l.name, unc_path: l.unc_path }))
+    return binsState.locations
+  }
+  const switchOn = async () => {
+    if (binsState.switch) return binsState.switch.on
+    binsState.switch = await remoteViewingOn(workspaceId)
+    report.remoteViewing = binsState.switch.on
+    if (binsState.switch.error) report.errors.push({ scope: 'posters', message: `could not read the company's remote-viewing switch, so no picture was uploaded: ${binsState.switch.error.message || binsState.switch.error}` })
+    return binsState.switch.on
+  }
+  // The answer for a root, resolved against the company's list: cached per
+  // root, so one new location serves every clip and every project under it.
+  const resolvedAnswers = new Map()
+  const resolveRoot = async (root) => {
+    if (resolvedAnswers.has(root.key)) return resolvedAnswers.get(root.key)
+    const existing = await companyLocations()
+    const r = resolveRootAnswer(root, binsState.answers[root.key], existing)
+    resolvedAnswers.set(root.key, r)
+    return r
+  }
+  // A location named now: made once (a race with a teammate naming the same
+  // share reads back the row they made).
+  const locationIdFor = async (resolved) => {
+    if (resolved.kind === 'existing') return resolved.location.id
+    if (resolved.location) return resolved.location.id
+    const row = { id: crypto.randomUUID(), workspace_id: workspaceId, name: resolved.name, unc_path: resolved.unc_path }
+    const r = await insertOrSkip('bin_locations', row)
+    if (r.status === 'inserted') {
+      bumpInserted(report.binLocations)
+      resolved.location = row
+      binsState.locations.push(row)
+      report.footageLocations.push({ id: row.id, name: row.name, unc_path: row.unc_path })
+      note(`  Footage location "${row.name}" (${row.unc_path}) named`)
+      return row.id
+    }
+    // Already there (another run, a teammate): read it back by address.
+    bumpSkipped(report.binLocations)
+    const again = await cloudLocations(workspaceId)
+    const hit = (again.rows || []).find(l => pathKey(l.unc_path) === pathKey(resolved.unc_path))
+    if (!hit) throw new Error(`bin_locations: "${resolved.unc_path}" is already in the company's list but could not be read back`)
+    resolved.location = hit
+    binsState.locations = again.rows
+    return hit.id
+  }
 
   // Fetch the local project list. On a fresh install there may be no local
   // server — handle a 404/network error as "nothing to migrate".
@@ -225,6 +377,44 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
           ? `  ${plural(legalCount, 'Legal file')} will go to the cloud's locked LEGAL folder`
           : `  ${plural(legalCount, 'Legal file')} will stay on this computer: ${LEGAL_UNAVAILABLE}`)
       }
+      // BC3 (B9): what the bins' part will do — counted, and the question
+      // the real run needs answered: each distinct root of the clips, with
+      // what the answers given so far make of it.
+      report.scenes.total += (bundle.scenes ?? []).length
+      report.shots.total += (bundle.shots ?? []).length
+      report.bins.total += (bundle.bins ?? []).length
+      report.binFiles.total += (bundle.binFiles ?? []).length
+      report.shotTakes.total += (bundle.shotTakes ?? []).length
+      if ((bundle.bins ?? []).length || (bundle.binFiles ?? []).length) {
+        const roots = binRootsOf(bundle)
+        binsState.roots.push({ projectId, roots })
+        note(`  ${plural((bundle.bins ?? []).length, 'bin')}, ${plural((bundle.binFiles ?? []).length, 'clip')} in ${plural(roots.length, 'footage root')}, ${plural((bundle.shotTakes ?? []).length, 'take')}`)
+        for (const root of roots) {
+          const resolved = await resolveRoot(root)
+          const what = resolved.kind === 'existing' ? `the company's "${resolved.location.name}"`
+            : resolved.kind === 'new' ? `a new location "${resolved.name}" (${resolved.unc_path})`
+              : resolved.kind === 'skip' ? 'left on this computer (not named)'
+                : resolved.kind === 'invalid' ? `not an address the cloud takes: ${resolved.problem}`
+                  : 'which footage location is this? (not named yet)'
+          note(`    ${root.root}: ${plural(root.count, 'clip')} — ${what}`)
+          if (resolved.kind === 'skip' || resolved.kind === 'unanswered' || resolved.kind === 'invalid') {
+            report.binFiles.leftBehind += root.count
+            for (const id of root.clipIds) {
+              const clip = (bundle.binFiles ?? []).find(f => f.id === id)
+              report.clipsLeftBehind.push({ projectId, id, name: clip?.display_name || clip?.original_name || id, root: root.root })
+            }
+          }
+        }
+        // Pictures: said now, so the switch is no surprise after the run.
+        const withPicture = (bundle.binFiles ?? []).filter(f => POSTER_MEDIA.has(f.media_type)).length
+        if (withPicture > 0) {
+          report.posters.total += withPicture
+          const on = await switchOn()
+          if (on) note(`  ${plural(withPicture, 'picture')} will upload (the company allows viewing from outside the office network)`)
+          else { report.posters.switchOff += withPicture; note(`  ${plural(withPicture, 'picture')}: ${POSTERS_SWITCH_OFF}`) }
+        }
+      }
+      report.footageRoots = mergeRoots(binsState.roots).map(r => ({ ...r, resolved: (resolvedAnswers.get(r.key) || { kind: 'unanswered' }).kind }))
       continue
     }
 
@@ -392,8 +582,153 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress }) 
         bumpFailed(report.files)
       }
     }
+
+    // ── BC3 (B9): the bins — "bins move with the project" ────────────────
+    // Scenes and shots first: a take links a shot to a clip, and a clip may
+    // be logged to a scene and a shot, so their rows must be in the cloud
+    // before the bins' (the runner carried neither before BC3, and 0084's
+    // lists are still not carried: the migrated project shows every scene
+    // and shot, D10). Then the bins, parents first; then each clip under the
+    // footage location its root was named as; then the takes whose shot and
+    // clip both landed; then the pictures, while the switch is on. Every
+    // row keeps its id (the desktop's UUIDs are 0091's), so a second run
+    // skips what is there.
+    const landed = { scenes: new Set(), shots: new Set(), bins: new Set(), clips: new Set() }
+    for (const sc of bundle.scenes ?? []) {
+      try {
+        const r = await insertOrSkip('scenes', toColumns('scenes', withoutSetAside({ ...sc, project_id: projectId })))
+        r.status === 'inserted' ? bumpInserted(report.scenes) : bumpSkipped(report.scenes)
+        landed.scenes.add(sc.id)
+      } catch (err) {
+        report.errors.push({ scope: 'scene', projectId, id: sc.id, message: err.message })
+        bumpFailed(report.scenes)
+      }
+    }
+    for (const sh of bundle.shots ?? []) {
+      try {
+        const row = withoutSetAside({ ...sh, project_id: projectId })
+        if (row.scene_id && !landed.scenes.has(row.scene_id)) row.scene_id = null
+        const r = await insertOrSkip('shots', toColumns('shots', row))
+        r.status === 'inserted' ? bumpInserted(report.shots) : bumpSkipped(report.shots)
+        landed.shots.add(sh.id)
+      } catch (err) {
+        report.errors.push({ scope: 'shot', projectId, id: sh.id, message: err.message })
+        bumpFailed(report.shots)
+      }
+    }
+    for (const b of binsParentsFirst(bundle.bins ?? [])) {
+      try {
+        const r = await insertOrSkip('bins', toColumns('bins', { ...b, project_id: projectId, workspace_id: workspaceId }))
+        r.status === 'inserted' ? bumpInserted(report.bins) : bumpSkipped(report.bins)
+        landed.bins.add(b.id)
+      } catch (err) {
+        report.errors.push({ scope: 'bin', projectId, id: b.id, message: err.message })
+        bumpFailed(report.bins)
+      }
+    }
+    const clips = bundle.binFiles ?? []
+    const roots = binRootsOf(bundle)
+    if (clips.length) binsState.roots.push({ projectId, roots })
+    const rootByClip = new Map()
+    for (const root of roots) for (const id of root.clipIds) rootByClip.set(id, root)
+    // What the cloud already holds for this project (a second run): the
+    // rows to skip, and which of them still want a picture.
+    let cloudClips = new Map()
+    if (clips.length) {
+      const have = await listCloud('bin_files', 'project_id', projectId, 'id, poster_path')
+      if (have.error) report.errors.push({ scope: 'bin_files', projectId, message: `could not read the project's clips already in the cloud: ${have.error.message || have.error}` })
+      else cloudClips = new Map(have.rows.map(r => [r.id, r]))
+    }
+    const wantPicture = []
+    for (const clip of clips) {
+      const root = rootByClip.get(clip.id)
+      const name = clip.display_name || clip.original_name || clip.id
+      if (!root) {
+        report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: no path recorded, so it was left on this computer` })
+        report.binFiles.leftBehind++
+        report.clipsLeftBehind.push({ projectId, id: clip.id, name, root: null })
+        continue
+      }
+      let resolved
+      try { resolved = await resolveRoot(root) } catch (err) { report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: err.message }); bumpFailed(report.binFiles); continue }
+      if (resolved.kind !== 'existing' && resolved.kind !== 'new') {
+        // Not named: left here, listed, never dropped. The desktop's bundle
+        // is untouched, and a second run after naming the root brings it.
+        report.binFiles.leftBehind++
+        report.clipsLeftBehind.push({ projectId, id: clip.id, name, root: root.root })
+        continue
+      }
+      try {
+        const locationId = await locationIdFor(resolved)
+        if (!landed.bins.has(clip.bin_id)) throw new Error(`its bin (${clip.bin_id}) is not in the cloud`)
+        const made = cloudBinFileRow(clip, { root: root.root, locationId, prefix: resolved.prefix, workspaceId })
+        if (made.error) throw new Error(made.error)
+        const row = made.row
+        // A scene or shot link to a row that did not land is let go, and said.
+        if (row.scene_id && !landed.scenes.has(row.scene_id)) { report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: its scene is not in the cloud, so the clip's scene link was left empty` }); row.scene_id = null }
+        if (row.shot_id && !landed.shots.has(row.shot_id)) { report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: its shot is not in the cloud, so the clip's shot link was left empty` }); row.shot_id = null }
+        const already = cloudClips.get(clip.id)
+        const r = already ? { status: 'skipped' } : await insertOrSkip('bin_files', toColumns('bin_files', row))
+        r.status === 'inserted' ? bumpInserted(report.binFiles) : bumpSkipped(report.binFiles)
+        landed.clips.add(clip.id)
+        if (POSTER_MEDIA.has(clip.media_type) && !already?.poster_path) wantPicture.push(clip)
+        else if (POSTER_MEDIA.has(clip.media_type)) { report.posters.total++; report.posters.skipped++ }
+      } catch (err) {
+        report.errors.push({ scope: 'bin_file', projectId, id: clip.id, message: `${name}: ${err.message}` })
+        bumpFailed(report.binFiles)
+      }
+    }
+    for (const t of bundle.shotTakes ?? []) {
+      report.shotTakes.total++
+      if (!landed.shots.has(t.shot_id) || !landed.clips.has(t.bin_file_id)) {
+        const why = !landed.shots.has(t.shot_id) ? 'its shot is not in the cloud' : 'its clip is not in the cloud'
+        report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: `take not migrated: ${why}` })
+        report.shotTakes.failed++
+        continue
+      }
+      try {
+        const r = await insertOrSkip('shot_takes', toColumns('shot_takes', { ...t, project_id: projectId, workspace_id: workspaceId }))
+        r.status === 'inserted' ? report.shotTakes.inserted++ : report.shotTakes.skipped++
+      } catch (err) {
+        report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: err.message })
+        report.shotTakes.failed++
+      }
+    }
+    // Pictures: only while the company's switch is on (B4) — asked once;
+    // off, the desktop keeps them and the report says so. The desktop makes
+    // each picture on demand from the file it reaches; a clip it cannot
+    // reach has none to send, which is said per clip.
+    if (wantPicture.length) {
+      report.posters.total += wantPicture.length
+      const on = await switchOn()
+      if (!on) {
+        report.posters.switchOff += wantPicture.length
+        note(`  ${plural(wantPicture.length, 'picture')}: ${POSTERS_SWITCH_OFF}`)
+      } else {
+        let done = 0
+        for (const clip of wantPicture) {
+          const name = clip.display_name || clip.original_name || clip.id
+          try {
+            const { bytes, why } = await fetchLocalPoster(projectId, clip.id)
+            if (!bytes) throw new Error(`no picture on this computer (${why})`)
+            await uploadPoster(projectId, clip.id, bytes)
+            report.posters.uploaded++
+          } catch (err) {
+            report.errors.push({ scope: 'poster', projectId, id: clip.id, message: `${name}: ${err.message}` })
+            report.posters.failed++
+          }
+          done++
+          if (done % 10 === 0 || done === wantPicture.length) note(`  Pictures: ${done} of ${wantPicture.length}`)
+        }
+      }
+    }
+    if (clips.length) {
+      note(`  ${plural(report.bins.inserted + report.bins.skipped, 'bin')}, ${plural(landed.clips.size, 'clip')} and ${plural(report.shotTakes.inserted + report.shotTakes.skipped, 'take')} in the cloud` +
+        (report.clipsLeftBehind.filter(c => c.projectId === projectId).length ? `; ${BINS_LEFT_BEHIND(report.clipsLeftBehind.filter(c => c.projectId === projectId).length)}` : ''))
+    }
   }
 
+  report.footageRoots = mergeRoots(binsState.roots).map(r => ({ ...r, resolved: (resolvedAnswers.get(r.key) || { kind: 'unanswered' }).kind }))
   report.finishedAt = new Date().toISOString()
   return report
 }
