@@ -78,6 +78,33 @@ after her report.
 
 ## Broken features
 
+### The signed-out desktop's bins freeze the window on a share whose server does not answer
+**MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
+(`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,
+relink scan, probe, thumbnail, stream) test each clip's path with
+synchronous `fs.existsSync` / `fs.statSync` in the desktop's MAIN process.
+Measured on Windows with Node, the first such call on a dead network
+address is held **5.0 s** for a name that does not resolve
+(`\\salthours-nas\footage`) and **42.1 s** for an address nothing answers
+(`\\10.255.255.1\…`); the window is frozen for that long. BC2 fixed the
+same thing for the cloud routes (`rootReachable`: one asynchronous question
+per location root, 2 s limit, kept 15 s — `rabbitCloudBinsDeadShare.routes.test.js`)
+but B12 kept the signed-out routes untouched. Fix shape: the same root
+question for each known bin root before its clips are touched.
+
+### Adding a big folder from a company share walks it on the desktop's main thread
+**INFERRED (BC2 review round 2, 2026-10-09).** `POST /api/rabbit/cloud-bins/prepare`
+(`electron/rabbitBins.cjs`) asks the location's ROOT off the main thread
+first, then walks the picked folder with the synchronous helpers the
+signed-out add uses (`walkFolder`, `detectSequence`, `cloudFileItem`'s
+`statSync`): up to 5,000 entries, one network round trip each, on the main
+process. A big folder on a slow share holds the window for seconds while the
+add dialog fills; a share that dies mid-walk holds it until Windows lets go
+(up to 42 s measured for one call). Measured only small: a 12-frame sequence
+walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
+few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
+worker thread, as the root question now is.
+
 ### A private project's media body is never purged from the desktop
 **INFERRED from the design (2026-09-11, the private-projects build,
 `4c10387`); a stated limit, not yet seen to matter.** Cloud rows with
