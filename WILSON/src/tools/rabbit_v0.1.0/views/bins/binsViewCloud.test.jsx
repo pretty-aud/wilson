@@ -147,6 +147,16 @@ describe('item 5: play in place, and "not on this computer" (B3)', () => {
     expect(document.body.textContent).toContain('1 not on this computer')
   })
 
+  it('…and so do the bin tree\'s footer and every tooltip: no "offline" left on a company\'s clips', async () => {
+    await mountRows(DESKTOP)
+    // The tree's footer (found in the BC2 rehearsal: "16 files in 7 bins · 16 offline").
+    expect(document.body.textContent).toContain('2 files in 1 bin · 1 not on this computer')
+    expect(document.body.textContent).not.toMatch(/\boffline\b/i)
+    const titles = [...document.querySelectorAll('[title]')].map(e => e.getAttribute('title')).join(' | ')
+    expect(titles).not.toMatch(/\boffline\b/i)
+    expect(titles).toContain('1 not on this computer')
+  })
+
   it('Rabbit hands the Bins tab the roster it already reads (no second directory call), so B11 has names', () => {
     const rabbit = readFileSync(resolve(process.cwd(), 'src/tools/rabbit_v0.1.0/Rabbit.jsx'), 'utf8')
     expect(rabbit).toMatch(/<BinsView pageActive=\{currentPage === 'rabbit'\} people=\{rosterMembers\} \/>/)
@@ -211,7 +221,8 @@ describe('item 6: offline and relink against LOCATIONS', () => {
   it('a clip missing inside a location this computer DOES reach: said, with what to do — no relink of its path', async () => {
     await go([{ id: 'L1', status: 'registered', reachable: true }, { id: 'L2', status: 'registered', reachable: true }])
     expect(document.body.textContent).not.toContain('not reachable from this computer, so')
-    fireEvent.click(screen.getByText(/3 not on this computer/))
+    // The toolbar's count (the tree's footer says it too, since the rehearsal).
+    fireEvent.click(screen.getByTitle(/^Find the footage locations of the clips not on this computer \(3 in this bin/))
     const missing = document.querySelector('[data-testid="relink-missing"]')
     expect(missing.textContent).toContain('These 3 clips are not at their paths on a share this computer reaches')
     expect(missing.textContent).toContain('put the file back where it was on the share, or remove the clip from its bin')

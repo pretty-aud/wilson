@@ -20,6 +20,9 @@ export default function BinTree({
   bins, counts, offlineCounts, currentBinId, onSelect, expanded, onToggleExpand,
   onCreateBin, onRenameBin, onRenameStart, onContextMenu, onDropFiles, onDropBin, renamingId, onRenameEnd,
   allCount, allOffline, canWrite, width = 232,
+  // BC2: a company's clips are "not on this computer" (B3); the signed-out
+  // desktop's say "offline", as they always have (B12).
+  offlineWord = 'offline',
 }) {
   const tree = buildBinTree(bins)
   const rows = flattenTree(tree, expanded)
@@ -57,7 +60,7 @@ export default function BinTree({
       </div>
       <div className="flex-1 overflow-y-auto py-1">
         <TreeRow
-          depth={0} label="All files" Icon={Layers} count={allCount} offline={allOffline}
+          depth={0} label="All files" Icon={Layers} count={allCount} offline={allOffline} offlineWord={offlineWord}
           active={currentBinId == null} dragOver={dragOverId === null}
           onClick={() => onSelect?.(null)}
           onDragOver={e => { if (accepts(e) && e.dataTransfer.types.includes(DND_BIN)) { e.preventDefault(); setDragOverId(null) } }}
@@ -73,7 +76,7 @@ export default function BinTree({
           <BinNode
             key={bin.id} bin={bin} depth={depth + 1} hasChildren={hasChildren}
             isExpanded={expanded.has(bin.id)} onToggle={() => onToggleExpand?.(bin.id)}
-            count={counts.get(bin.id) || 0} offline={offlineCounts.get(bin.id) || 0}
+            count={counts.get(bin.id) || 0} offline={offlineCounts.get(bin.id) || 0} offlineWord={offlineWord}
             active={currentBinId === bin.id} dragOver={dragOverId === bin.id}
             renaming={renamingId === bin.id} canWrite={canWrite}
             onSelect={() => onSelect?.(bin.id)}
@@ -91,7 +94,7 @@ export default function BinTree({
       <div className="px-3 py-2 flex-shrink-0 flex flex-col gap-1" style={{ borderTop: `1px solid ${C.line}` }}>
         {/* The project count the footer bar used to carry (Q10 removed the bar, C1 keeps the readout). */}
         <div className="text-caption tabular-nums" style={{ color: C.muted }} data-testid="bins-project-count">
-          {allCount} file{allCount === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{allOffline ? ` · ${allOffline} offline` : ''}
+          {allCount} file{allCount === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{allOffline ? ` · ${allOffline} ${offlineWord}` : ''}
         </div>
         <div className="text-caption" style={{ color: C.dimmer }}>
           Drop files or folders on a bin. Drag a bin onto another to nest it.
@@ -101,7 +104,7 @@ export default function BinTree({
   )
 }
 
-function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick, onDragOver, onDragLeave, onDrop }) {
+function TreeRow({ depth, label, Icon, count, offline, offlineWord = 'offline', active, dragOver, onClick, onDragOver, onDragLeave, onDrop }) {
   return (
     <div role="treeitem" aria-selected={active}
       onClick={onClick} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
@@ -112,13 +115,13 @@ function TreeRow({ depth, label, Icon, count, offline, active, dragOver, onClick
       <span style={{ width: 12 }} />
       <Icon className="bn-tree-icon w-3 h-3 flex-shrink-0" />
       <span className="flex-1 truncate">{label}</span>
-      {offline > 0 && <span title={`${offline} offline`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
+      {offline > 0 && <span title={`${offline} ${offlineWord}`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
       <span className="text-dense tabular-nums" style={{ color: C.dimmer }}>{count}</span>
     </div>
   )
 }
 
-function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline, active, dragOver, renaming, canWrite,
+function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline, offlineWord = 'offline', active, dragOver, renaming, canWrite,
   onSelect, onRename, onRenameCancel, onRenameStart, onContextMenu, onDragOver, onDragLeave, onDrop, onDragStart }) {
   const [draft, setDraft] = useState(bin.name || '')
   const inputRef = useRef(null)
@@ -149,7 +152,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
       ) : (
         <span className="flex-1 truncate" title={bin.description || bin.name}>{bin.name || 'Untitled'}</span>
       )}
-      {offline > 0 && <span title={`${offline} offline`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
+      {offline > 0 && <span title={`${offline} ${offlineWord}`}><Unplug className="w-3 h-3" style={{ color: C.amber }} /></span>}
       <span className="text-dense tabular-nums" style={{ color: C.dimmer }}>{count}</span>
     </div>
   )

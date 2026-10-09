@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { Film, Image as ImageIcon, Music, Layers, Sparkles, FileText, File as FileIcon, Unplug, PenTool } from 'lucide-react'
 import { C } from './binUi'
 import { MEDIA_TYPE_META } from '../../bins/binMedia'
+import { NOT_ON_THIS_COMPUTER } from '../../bins/binLocations'
 import { useRabbit } from '../../state/RabbitProvider'
 
 // ── BC2: a cloud clip's picture where THIS computer has none ──
@@ -104,7 +105,7 @@ export default function BinPoster({ row, src, width = 32, height = null, radius 
       {offline && (
         <div className="bn-scrim absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1">
           <Unplug style={{ width: 10, height: 10, color: C.amber }} />
-          {width >= 96 && <span className="text-label uppercase" style={{ color: C.amber }}>offline</span>}
+          {width >= 96 && <span className="text-label uppercase" style={{ color: C.amber }}>{cloudRow ? NOT_ON_THIS_COMPUTER : 'offline'}</span>}
         </div>
       )}
     </div>

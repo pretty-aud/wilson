@@ -32,6 +32,14 @@ describe('B3: a company\'s clip keeps its picture off this computer', () => {
     expect(state.ctx.binFilePosterUrl).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }), { expiresIn: 3600 })
   })
 
+  it('a wide tile names it in the B3 words; the signed-out desktop\'s still says "offline" (B12)', () => {
+    const { container, unmount } = render(<BinPoster row={cloudRow()} src={null} width={120} />)
+    expect(container.querySelector('.bn-scrim').textContent).toBe('not on this computer')
+    unmount()
+    const legacy = render(<BinPoster row={{ id: 'f2', media_type: 'video', source_path: 'D:\\x\\T2.mov', online: false }} src={null} width={120} />)
+    expect(legacy.container.querySelector('.bn-scrim').textContent).toBe('offline')
+  })
+
   it('a poster cached here is shown first, even while the file is out; the cloud is not asked', () => {
     render(<BinPoster row={cloudRow()} src="/api/rabbit/cloud-bins/thumbnail?x=1" width={120} />)
     expect(img().getAttribute('src')).toBe('/api/rabbit/cloud-bins/thumbnail?x=1')

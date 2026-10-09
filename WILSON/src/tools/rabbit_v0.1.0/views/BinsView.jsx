@@ -852,7 +852,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           onCreateBin={createBin} onRenameBin={renameBin} onRenameStart={id => canWrite && setRenamingBinId(id)}
           renamingId={renamingBinId} onRenameEnd={() => setRenamingBinId(null)}
           onContextMenu={binMenu} onDropFiles={onDropOnBin} onDropBin={nestBin}
-          allCount={files.length} allOffline={offlineAll.length} canWrite={canWrite}
+          allCount={files.length} allOffline={offlineAll.length} canWrite={canWrite} offlineWord={offlineWord}
         />
 
         <div className="bn-pane flex-1 min-w-0 flex flex-col" ref={paneRef} tabIndex={0}
@@ -874,7 +874,9 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                   {stats.circled > 0 && <span style={{ color: C.accentText }}>· {stats.circled} circled</span>}
                   {stats.offline > 0 && (
                     <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }}
-                      title={`Relink the project's offline files (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`}>
+                      title={caps?.locations
+                        ? `Find the footage locations of the clips not on this computer (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`
+                        : `Relink the project's offline files (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`}>
                       · <Unplug className="w-3 h-3" /> {stats.offline} {offlineWord}
                     </button>
                   )}
