@@ -64,6 +64,12 @@ const UNC_REFUSED = [
 ]
 const UNC_ADMITTED = ['\\\\nas\\footage', '\\\\10.0.0.5\\share', '\\\\nas\\footage$', '\\\\nas\\c$footage', '\\\\127-nas\\footage', '\\\\localhost2\\share',
   '\\\\nas-01.corp.local\\footage', '\\\\nas\\day 1\\footage', '\\\\3com-nas\\share']
+// BC2 review round 1: THIS computer behind Windows' WebDAV forms (a port or
+// SSL after the host). The desktop (which would connect) and the renderer
+// (which judges before sending) refuse them; 0091's CHECK still admits them
+// (deferred: aligning it needs a migration). A WebDAV share elsewhere stays.
+const UNC_REFUSED_HERE = ['\\\\localhost@8080\\x', '\\\\127.0.0.1@SSL\\x', '\\\\LOCALHOST@SSL@443\\DavWWWRoot', '\\\\127.1@80\\footage', '\\\\@8080\\x']
+const UNC_ADMITTED_WEBDAV = ['\\\\nas@SSL\\DavWWWRoot', '\\\\nas@8080\\footage', '\\\\SUSAN-FAIRCHILD@8765\\footage']
 
 describe('the network-address guard is one guard on every backend (review round 1)', () => {
   it('the desktop refuses and admits the same addresses as 0091\'s CHECK', () => {
@@ -77,6 +83,17 @@ describe('the network-address guard is one guard on every backend (review round 
   it('the renderer (Settings, the add flow) refuses and admits the same addresses', () => {
     for (const bad of UNC_REFUSED) expect(rendererLocations.isUncPath(bad), bad).toBe(false)
     for (const ok of UNC_ADMITTED) expect(rendererLocations.isUncPath(ok), ok).toBe(true)
+  })
+
+  it('the desktop and the renderer refuse THIS computer behind a WebDAV port or SSL, and admit a WebDAV share elsewhere', () => {
+    for (const bad of UNC_REFUSED_HERE) {
+      expect(desktopBins.isUncPath(bad), bad).toBe(false)
+      expect(rendererLocations.isUncPath(bad), bad).toBe(false)
+    }
+    for (const ok of UNC_ADMITTED_WEBDAV) {
+      expect(desktopBins.isUncPath(ok), ok).toBe(true)
+      expect(rendererLocations.isUncPath(ok), ok).toBe(true)
+    }
   })
 
   it('the fixtures refuse the same addresses with the cloud\'s sentence, and admit the same shares', async () => {

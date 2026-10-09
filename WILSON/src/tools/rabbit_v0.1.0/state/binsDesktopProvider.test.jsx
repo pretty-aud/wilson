@@ -115,6 +115,7 @@ function makeFiles({ pingOk = true } = {}) {
     cloudBinFileThumbnailBase64: vi.fn(async () => '/9j/AAAA'),
     pickCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['pickLocal', id]); return { id, local_path: 'Z:\\footage', local_path_source: 'saved', reachable: true } }),
     forgetCloudBinLocationLocalPath: vi.fn(async (id) => { calls.push(['forgetLocal', id]); return { id, local_path: null } }),
+    connectCloudBinLocation: vi.fn(async (id) => { calls.push(['connect', id]); return { id, connected: true, reachable: true } }),
   }
 }
 
@@ -274,6 +275,24 @@ describe('BC2 — the company\'s locations, managed from Settings', () => {
     expect(holder.files.resolveCloudBinFiles).toHaveBeenCalled()
     await act(async () => { await ctxRef.forgetBinLocationLocalPath('L1') })
     expect(holder.files.forgetCloudBinLocationLocalPath).toHaveBeenCalledWith('L1')
+  })
+
+  // Review round 1: consent before contact, through the provider.
+  it('Connect: the desktop asks for that location (registered first), then the list registered again and every clip resolved; Cancel changes nothing', async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
+    await act(async () => { await ctxRef.refreshBins() })
+    holder.files.connectCloudBinLocation.mockImplementationOnce(async () => ({ canceled: true }))
+    const registersBefore = holder.files.calls.filter(c => c[0] === 'register').length
+    holder.files.resolveCloudBinFiles.mockClear()
+    await act(async () => { expect(await ctxRef.connectBinLocation('L1')).toEqual({ canceled: true }) })
+    // Registered first (the desktop answers only for a registered location); nothing after a Cancel.
+    expect(holder.files.calls.filter(c => c[0] === 'register').length).toBe(registersBefore + 1)
+    expect(holder.files.resolveCloudBinFiles).not.toHaveBeenCalled()
+    await act(async () => { await ctxRef.connectBinLocation('L1') })
+    expect(holder.files.connectCloudBinLocation).toHaveBeenLastCalledWith('L1')
+    expect(holder.files.calls.filter(c => c[0] === 'register').length).toBe(registersBefore + 3)
+    expect(holder.files.resolveCloudBinFiles).toHaveBeenCalled()
   })
 
   it('in a browser the per-computer question is refused with a sentence, not a TypeError', async () => {

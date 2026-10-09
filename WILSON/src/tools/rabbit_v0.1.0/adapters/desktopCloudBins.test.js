@@ -79,6 +79,7 @@ function makeFiles({ reachable = new Set(['f1', 'f3']), fail = false } = {}) {
     cloudBinFileThumbnailUrl: (loc, rel, rev, opts) => `thumb:${loc}:${rel}:${rev}:${opts.mediaType}:${opts.mtime || ''}`,
     async pickCloudBinLocationLocalPath(id, body) { calls.push(['pickLocal', id, body]); return { local_path: 'Z:\\' } },
     async forgetCloudBinLocationLocalPath(id) { calls.push(['forgetLocal', id]); return { ok: true } },
+    async connectCloudBinLocation(id) { calls.push(['connectLocal', id]); return { id, connected: true } },
   }
 }
 
@@ -249,5 +250,12 @@ describe('relink: by location, per computer', () => {
       ['pickLocal', 'L1', { name: 'Footage NAS', unc_path: '\\\\nas\\footage' }],
       ['forgetLocal', 'L1'],
     ])
+  })
+
+  it('review round 1: Connect is asked of the desktop by the location\'s id alone (the desktop names the address it holds)', async () => {
+    const files = makeFiles()
+    const c = composeDesktopCloudBins(makeCloud(), files, { rowOf })
+    expect(await c.connectBinLocation(LOCS[0])).toEqual({ id: 'L1', connected: true })
+    expect(files.calls.filter(x => x[0] === 'connectLocal')).toEqual([['connectLocal', 'L1']])
   })
 })

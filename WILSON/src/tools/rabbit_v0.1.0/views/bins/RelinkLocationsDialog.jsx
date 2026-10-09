@@ -22,13 +22,13 @@
 import { useState } from 'react'
 import { Server, Unplug, FolderSearch, Check } from 'lucide-react'
 import { C, Btn, Modal } from './binUi'
-import { locationReachWords } from '../../bins/binLocations'
+import { locationReachWords, CONNECT_LABEL, CONNECT_TITLE } from '../../bins/binLocations'
 
 function said(e) {
   return String(e?.message || e || '').replace(/^\[(supabase|localServer)\]\s*/, '')
 }
 
-export default function RelinkLocationsDialog({ offlineRows, locations, locationStatus, onPickLocal, onForgetLocal, onClose }) {
+export default function RelinkLocationsDialog({ offlineRows, locations, locationStatus, onPickLocal, onForgetLocal, onConnect, onClose }) {
   const statusById = new Map((locationStatus || []).map(s => [s.id, s]))
   const byLocation = new Map()
   for (const r of offlineRows || []) {
@@ -71,7 +71,15 @@ export default function RelinkLocationsDialog({ offlineRows, locations, location
               {locationReachWords(st) || 'Not reachable from this computer'}. If this computer sees the share as a drive letter, or under another folder, choose that folder: only this computer keeps it.
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Btn small primary disabled={!!busy} onClick={() => run(loc.id, () => onPickLocal(loc.id), `"${loc.name}" is set for this computer.`)}>
+              {/* Review round 1: not agreed to on this computer yet — never
+                  contacted until its person says so (natively, naming the
+                  address). */}
+              {st?.connected === false && onConnect && (
+                <Btn small primary disabled={!!busy} title={CONNECT_TITLE} onClick={() => run(loc.id, () => onConnect(loc.id), `"${loc.name}" is connected on this computer.`)}>
+                  {CONNECT_LABEL}
+                </Btn>
+              )}
+              <Btn small primary={st?.connected !== false} disabled={!!busy} onClick={() => run(loc.id, () => onPickLocal(loc.id), `"${loc.name}" is set for this computer.`)}>
                 <FolderSearch className="w-3 h-3" /> {st?.local_path ? 'Choose another folder…' : 'Where is it on this computer?'}
               </Btn>
               {st?.local_path && (

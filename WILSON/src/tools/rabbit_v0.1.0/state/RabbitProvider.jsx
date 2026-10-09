@@ -5338,6 +5338,25 @@ export function RabbitProvider({ children }) {
     return res;
   }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
 
+  // BC2 review round 1: consent before contact. A company location's
+  // address is contacted from this computer only once its person agrees —
+  // the desktop's own native confirmation names the address (Cancel is the
+  // default). Then the list is registered again and every clip resolved.
+  // Like the folder above, this computer's answer, not company data: no
+  // history entry.
+  const connectBinLocation = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.connectBinLocation !== 'function') throw new Error('Connecting to a footage location needs the desktop app.');
+    const loc = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    if (!loc) throw new Error('That footage location is not in the company\'s list.');
+    await registerBinLocationsNow();
+    const res = await a.connectBinLocation(loc);
+    if (res?.canceled) return res;
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
+
   const forgetBinLocationLocalPath = useCallback(async (id) => {
     const a = locationsAdapter();
     if (typeof a.forgetBinLocationLocalPath !== 'function') throw new Error('This computer keeps no folder for footage locations outside the desktop app.');
@@ -7113,6 +7132,7 @@ export function RabbitProvider({ children }) {
   // BC2: every new mutator in the registry, history op or not.
   mutationsRef.current.pickBinLocationLocalPath = pickBinLocationLocalPath;
   mutationsRef.current.forgetBinLocationLocalPath = forgetBinLocationLocalPath;
+  mutationsRef.current.connectBinLocation = connectBinLocation;
   mutationsRef.current.uploadBinFilePosters = uploadBinFilePosters;
   // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
   // and undo SWALLOWS a throw — a mutator missing from this list fails
@@ -7459,7 +7479,7 @@ export function RabbitProvider({ children }) {
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     // BC2: the switch read without a project; where a location is on THIS computer;
     // pictures to the cloud only while the company allows it.
-    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters,
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, connectBinLocation,
     // Shot takes (milestone 2).
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
@@ -7549,7 +7569,7 @@ export function RabbitProvider({ children }) {
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
-    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, desktopBinFiles,
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, connectBinLocation, desktopBinFiles,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

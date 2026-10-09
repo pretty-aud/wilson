@@ -288,6 +288,9 @@ export function composeDesktopCloudBins(cloud, files, { rowOf = () => null, proj
   c.removeBinRoot = async () => { throw notHere(RELINK_BY_LOCATION_SENTENCE) }
   c.pickBinLocationLocalPath = (location) => files.pickCloudBinLocationLocalPath(location.id, { name: location.name || '', unc_path: location.unc_path || '' })
   c.forgetBinLocationLocalPath = (id) => files.forgetCloudBinLocationLocalPath(id)
+  // Review round 1: "Connect this computer to \\server\share?" — asked by
+  // the desktop itself; until then the address is never contacted here.
+  c.connectBinLocation = (location) => files.connectCloudBinLocation(location.id)
 
   return c
 }

@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -193,6 +193,36 @@ describe('item 6: offline and relink against LOCATIONS', () => {
     render(<BinsView pageActive />)
     await act(async () => {})
   }
+
+  // Review round 1: consent before contact. A location this computer's
+  // person has not agreed to connect to is never contacted: its own notice,
+  // naming it and its address, with Connect (the desktop asks natively).
+  it('a location not connected on this computer: its own notice with its address and Connect; not the "not reachable" one', async () => {
+    const connectBinLocation = vi.fn(async () => ({ connected: true }))
+    await go([{ id: 'L1', status: 'registered', connected: false, reachable: false }, { id: 'L2', status: 'registered', connected: true, reachable: true }], { connectBinLocation })
+    const notice = document.querySelector('[data-testid="not-connected"]')
+    expect(notice.textContent).toContain('"Footage NAS" (\\\\nas\\footage) is not connected on this computer yet, so its clips cannot be played here. Connect only to a share you recognise.')
+    expect(document.body.textContent).not.toContain('is not reachable from this computer, so')
+    await act(async () => { fireEvent.click(within(notice).getByText('Connect…')) })
+    expect(connectBinLocation).toHaveBeenCalledWith('L1')
+    expect(document.body.textContent).toContain('"Footage NAS" is connected on this computer.')
+  })
+
+  it('a clip of a location not connected here: the inspector says "not connected", and the relink offers Connect first', async () => {
+    const connectBinLocation = vi.fn(async () => ({ canceled: true }))
+    await go([{ id: 'L1', status: 'registered', connected: false, reachable: false }, { id: 'L2', status: 'registered', connected: true, reachable: false }], { connectBinLocation })
+    fireEvent.click([...document.querySelectorAll('[role="gridcell"]')].find(t => t.textContent.includes('T1')))
+    expect(document.querySelector('[data-testid="not-here"]').textContent).toContain('"Footage NAS" is not connected on this computer yet, so the clip cannot be played here.')
+    fireEvent.click(screen.getByTitle(/^Find the footage locations of the clips not on this computer/))
+    const cards = document.querySelectorAll('[data-testid="relink-location"]')
+    expect(cards[0].textContent).toContain('Not connected on this computer')
+    const first = cards[0].querySelector('button')
+    expect(first.textContent).toBe('Connect…')
+    await act(async () => { fireEvent.click(first) })
+    expect(connectBinLocation).toHaveBeenCalledWith('L1')
+    // A connected but unreachable location offers no Connect.
+    expect(cards[1].textContent).not.toContain('Connect…')
+  })
 
   it('one location out of reach: ONE notice naming it, and the per-computer question beside it', async () => {
     await go([{ id: 'L1', status: 'registered', reachable: false }, { id: 'L2', status: 'registered', reachable: true }])

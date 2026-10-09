@@ -40,7 +40,7 @@ import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 import { BINS_REFUSALS } from '../../tools/rabbit_v0.1.0/adapters/supabaseAdapter'
 import {
-  isUncPath, normalizeUncInput, addedByName, locationReachWords,
+  isUncPath, normalizeUncInput, addedByName, locationReachWords, CONNECT_LABEL, CONNECT_TITLE,
 } from '../../tools/rabbit_v0.1.0/bins/binLocations'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Input, Switch } from '../../ui'
@@ -85,11 +85,18 @@ export function FootageLocationsSection() {
     const problem = locationProblem(row, locations)
     if (problem) { setAddError(problem); return }
     setAdding(true); setAddError(null)
+    let created = null
     try {
-      await ctx.addBinLocation(row)
+      created = await ctx.addBinLocation(row)
       setDraft({ name: '', unc_path: '' })
     } catch (e) { setAddError(said(e)) }
     finally { setAdding(false) }
+    // Review round 1: on the desktop, the person who just typed the address
+    // is asked at once whether THIS computer may connect to it (the desktop's
+    // own confirmation, naming the address). Cancel leaves it unconnected.
+    if (created?.id && desktop && typeof ctx.connectBinLocation === 'function') {
+      await run(created.id, () => ctx.connectBinLocation(created.id))
+    }
   }
 
   const saveEdit = async () => {
@@ -167,6 +174,15 @@ export function FootageLocationsSection() {
                 {err && <p className="s-feedback mt-2" data-tone="error" role="alert">{err}</p>}
               </div>
               <div className="s-row-control">
+                {/* Review round 1: consent before contact — first, as the
+                    step that comes first; the folder question beside it
+                    still serves a computer that sees the share as Z:. */}
+                {desktop && st && st.connected === false && (
+                  <Button surface="light" size="sm" variant="primary" onClick={() => run(loc.id, () => ctx.connectBinLocation(loc.id))} disabled={busy}
+                    title={CONNECT_TITLE}>
+                    {CONNECT_LABEL}
+                  </Button>
+                )}
                 {desktop && st && !st.local_path && !st.reachable && (
                   <Button surface="light" size="sm" onClick={() => run(loc.id, () => ctx.pickBinLocationLocalPath(loc.id))} disabled={busy}
                     title="Choose the folder this share is under on this computer, for example the drive letter it is mapped to. Only this computer keeps it.">

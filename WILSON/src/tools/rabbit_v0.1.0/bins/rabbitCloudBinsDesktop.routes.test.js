@@ -17,7 +17,7 @@
 //     local_path nobody picked is still dropped (BC1's rule stands).
 // =============================================================================
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -134,13 +134,20 @@ describe('B2\'s fallback, per computer: the folder from this computer\'s setting
     expect(locations[0]).toMatchObject({ id: 'loc-a', status: 'registered', local_path: media, local_path_source: 'saved', reachable: true, root: media })
   })
 
-  it('the address compares as Windows compares (case), and a re-addressed location drops the folder', async () => {
+  // Review round 1 changed the second half: a re-addressed location does not
+  // FOLLOW the folder, but no longer deletes it — an edit the cloud refuses,
+  // or one undone, registered in between, must not cost this computer its
+  // answer. (Before: `saved.value.locations['loc-a']` was undefined here.)
+  it('the address compares as Windows compares (case); a re-addressed location does not follow the folder, and keeps it for its own address', async () => {
     saved.value = { version: 1, locations: { 'loc-a': { unc_path: UNC, local_path: media } } }
     const same = await (await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC.toUpperCase() }] }))).json()
     expect(same.locations[0].local_path_source).toBe('saved')
     const moved = await (await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: '\\\\new-nas\\footage' }] }))).json()
-    expect(moved.locations[0]).toMatchObject({ local_path: null, local_path_reason: 'address_changed', root: '\\\\new-nas\\footage' })
-    expect(saved.value.locations['loc-a']).toBeUndefined()
+    expect(moved.locations[0]).toMatchObject({ local_path: null, local_path_reason: 'address_changed', root: '\\\\new-nas\\footage', connected: false, reachable: false })
+    expect(saved.value.locations['loc-a']).toMatchObject({ unc_path: UNC, local_path: media })
+    // The address put back (the edit refused, or undone): the folder again.
+    const back = await (await api('/locations', J({ locations: [{ id: 'loc-a', unc_path: UNC }] }))).json()
+    expect(back.locations[0]).toMatchObject({ local_path: media, local_path_source: 'saved', connected: true, reachable: true })
   })
 
   it('the dialog for one REGISTERED location saves its folder in this computer\'s settings — not in the process-wide picked set', async () => {
@@ -342,6 +349,27 @@ describe('a cloud clip\'s poster on this computer', () => {
       const r = await api(`/thumbnail${q('STILLS/png_seq', `&is_sequence=true&media_type=sequence&mtime=${encodeURIComponent(asPostgres(stored))}`)}`)
       expect(r.status).toBe(200)
     } finally { fs.renameSync(dir + '_away', dir) }
+  })
+
+  // Review round 1, finding 2: every tile asks for its poster on every
+  // draw; a long plate on a share is thousands of frames, and listing and
+  // stat-ing each one per tile froze the main thread. A poster already made
+  // is found by the stored newest-frame time, without touching the folder.
+  it('a sequence poster already made is served by its stored time WITHOUT listing the folder or stat-ing a frame', async () => {
+    await reg()
+    const dir = path.join(media, 'STILLS', 'png_seq')
+    const { items } = await (await api('/prepare', J({ paths: [dir] }))).json()
+    const url = `/thumbnail${q('STILLS/png_seq', `&is_sequence=true&media_type=sequence&mtime=${encodeURIComponent(items[0].mtime)}`)}`
+    expect((await api(url)).status).toBe(200) // made: the folder is read once, to make it
+    const readdir = vi.spyOn(fs, 'readdirSync')
+    const stat = vi.spyOn(fs, 'statSync')
+    try {
+      const r = await api(url)
+      expect(r.status).toBe(200)
+      expect(r.headers.get('content-type')).toBe('image/jpeg')
+      const touched = [...readdir.mock.calls, ...stat.mock.calls].filter(c => String(c[0]).includes('png_seq'))
+      expect(touched).toEqual([])
+    } finally { readdir.mockRestore(); stat.mockRestore() }
   })
 })
 

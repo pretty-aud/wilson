@@ -30,7 +30,10 @@ export function isUncPath(p) {
   if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
   const segs = p.split('\\')
   if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
-  return !LOOPBACK_HOST_RE.test(segs[2]) && !ADMIN_SHARE_RE.test(segs[3])
+  // BC2 review round 1: a WebDAV address's port or SSL after the host
+  // (\\localhost@8080\x) does not make this computer another one.
+  const host = segs[2].split('@')[0]
+  return !!host && !LOOPBACK_HOST_RE.test(host) && !ADMIN_SHARE_RE.test(segs[3])
 }
 
 /**
@@ -91,6 +94,25 @@ export const ADD_NEEDS_DESKTOP = 'Adding clips needs the desktop app on a comput
 // 'not on this computer'; it can be logged, flagged and assigned to a shot;
 // it cannot be played there."
 export const NOT_ON_THIS_COMPUTER = 'not on this computer'
+
+// ── Consent before contact (BC2 review round 1) ──
+// Any member can name a company location; this computer connects to its
+// address only once its own person agrees (the desktop's native "Connect
+// this computer to \\server\share?", Cancel by default).
+export const NOT_CONNECTED_HERE = 'Not connected on this computer'
+export const CONNECT_LABEL = 'Connect…'
+export const CONNECT_TITLE = 'Let this computer read footage at this address. Windows asks you to confirm the address first; only this computer keeps the answer.'
+/** "Footage NAS" (\\nas\footage) is not connected on this computer yet… */
+export function notConnectedSentence(names, unc = null) {
+  const q = (names || []).map(n => `"${n}"`)
+  const one = `${q[0] || 'This footage location'}${unc ? ` (${unc})` : ''}`
+  const who = q.length <= 1 ? `${one} is` : `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]} are`
+  return `${who} not connected on this computer yet, so ${q.length <= 1 ? 'its clips' : 'their clips'} cannot be played here. Connect only to a share you recognise.`
+}
+/** The sentence under a clip whose location this computer has not connected to. */
+export function notConnectedClipSentence(locationName) {
+  return `${locationName ? `"${locationName}"` : 'Its footage location'} is not connected on this computer yet, so the clip cannot be played here. It can still be logged, flagged and assigned to a shot.`
+}
 /** The sentence under a company's clip that cannot be played here. */
 export function notHereSentence(locationName) {
   return `${locationName ? `"${locationName}"` : 'Its footage location'} is not reachable from this computer, so the clip cannot be played here. It can still be logged, flagged and assigned to a shot.`
@@ -103,6 +125,8 @@ export function notHereSentence(locationName) {
  */
 export function locationReachWords(status) {
   if (!status || status.status === 'refused') return null
+  // Review round 1: never contacted until this computer's person agrees.
+  if (status.connected === false) return NOT_CONNECTED_HERE
   if (status.local_path && status.reachable) return `On this computer at ${status.local_path}`
   if (status.local_path && !status.reachable) return `Not reachable from this computer (looked in ${status.local_path})`
   return status.reachable ? 'Reachable from this computer' : 'Not reachable from this computer'

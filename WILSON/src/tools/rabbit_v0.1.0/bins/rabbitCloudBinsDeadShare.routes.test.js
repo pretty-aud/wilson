@@ -34,19 +34,25 @@ const { mountRabbitBins } = require('../../../../electron/rabbitBins.cjs')
 
 const WAIT_MS = 80
 const TTL_MS = 400
+const OFF_TTL_MS = 800
 const DEAD = '\\\\dead-nas\\footage'
 const LIVE = '\\\\live-nas\\footage'
 const SLOW = '\\\\slow-nas\\footage'
+// Review round 1: a share nobody on this computer agreed to connect to (a
+// row any member can write). It answers as a live share would — once it may
+// be asked at all.
+const STRANGER = '\\\\stranger-nas\\footage'
 const under = (p, root) => String(p).toLowerCase().startsWith(root.toLowerCase())
 
-// What touched a dead or slow share, and how.
-const calls = { syncDead: [], asyncDead: [], asyncSlow: 0 }
+// What touched a dead, slow or stranger share, and how.
+const calls = { syncDead: [], asyncDead: [], asyncSlow: 0, stranger: [] }
 const slow = { next: null }
 const realStat = fs.promises.stat.bind(fs.promises)
 const realStatSync = fs.statSync
 const realExistsSync = fs.existsSync
 const realReaddirSync = fs.readdirSync
 const recordSync = (name, real) => vi.spyOn(fs, name).mockImplementation((p, ...rest) => {
+  if (under(p, STRANGER)) { calls.stranger.push([name, String(p)]); throw Object.assign(new Error('not here'), { code: 'ENOENT' }) }
   if (under(p, DEAD) || under(p, SLOW)) { calls.syncDead.push([name, String(p)]); throw Object.assign(new Error('not here'), { code: 'ENOENT' }) }
   return real.call(fs, p, ...rest)
 })
@@ -55,7 +61,12 @@ let root, media, thumbDir, server, base
 const saved = { value: null }
 const cloudBinsLocalPaths = { read: () => (saved.value ? JSON.parse(JSON.stringify(saved.value)) : null), write: (v) => { saved.value = JSON.parse(JSON.stringify(v)) } }
 const dialogCalls = []
-const dialog = { showOpenDialog: async (_win, opts) => { dialogCalls.push(opts); return { canceled: true, filePaths: [] } } }
+const dialogNext = { open: null, message: 1 } // open: filePaths or null (cancel); message: the button index pressed
+const messageCalls = []
+const dialog = {
+  showOpenDialog: async (_win, opts) => { dialogCalls.push(opts); const p = dialogNext.open; dialogNext.open = null; return p ? { canceled: false, filePaths: p } : { canceled: true, filePaths: [] } },
+  showMessageBox: async (_win, opts) => { messageCalls.push(opts); return { response: dialogNext.message } },
+}
 const shell = { openPath: async () => '', showItemInFolder: () => {} }
 const J = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 const api = (p, init = {}) => fetch(`${base}/api/rabbit/cloud-bins${p}`, { ...init, headers: { 'sec-fetch-site': 'same-origin', ...(init.headers || {}) } })
@@ -71,16 +82,35 @@ beforeAll(async () => {
   thumbDir = path.join(root, 'thumbs'); fs.mkdirSync(thumbDir)
   media = path.join(root, 'footage'); fs.mkdirSync(path.join(media, 'A001'), { recursive: true })
   fs.writeFileSync(path.join(media, 'A001', 'clip.mp4'), Buffer.alloc(1024, 3))
-  // The live location is seen on this computer as a folder (B2's fallback).
-  saved.value = { version: 1, locations: { 'loc-live': { unc_path: LIVE, local_path: media } } }
+  // The live location is seen on this computer as a folder (B2's fallback);
+  // the dead and slow ones are addresses this computer's person agreed to.
+  saved.value = {
+    version: 1,
+    locations: { 'loc-live': { unc_path: LIVE, local_path: media } },
+    connected: Object.fromEntries([DEAD, SLOW, `${DEAD}2`, `${DEAD}3`, `${DEAD}4`, `${DEAD}5`].map(u => [u.toLowerCase(), { unc_path: u }])),
+  }
   vi.spyOn(fs.promises, 'stat').mockImplementation((p, ...rest) => {
+    if (under(p, STRANGER)) { calls.stranger.push(['stat', String(p)]); return Promise.resolve({ isDirectory: () => String(p).toLowerCase() === STRANGER.toLowerCase(), isFile: () => /\.\w+$/.test(String(p)), mtime: new Date(0) }) }
     if (under(p, DEAD)) { calls.asyncDead.push(String(p)); return new Promise(() => {}) } // a server that never answers
-    if (under(p, SLOW)) { calls.asyncSlow++; return slow.next }
+    if (under(p, SLOW)) {
+      // The root answers as the test says; one file under it is there
+      // (here.mov), any other is not.
+      if (String(p).toLowerCase() === SLOW.toLowerCase()) { calls.asyncSlow++; return slow.next }
+      if (String(p).endsWith('here.mov')) return Promise.resolve({ isFile: () => true, isDirectory: () => false, mtime: new Date(0) })
+      return Promise.reject(Object.assign(new Error('not here'), { code: 'ENOENT' }))
+    }
     return realStat(p, ...rest)
+  })
+  vi.spyOn(fs.promises, 'realpath').mockImplementation(async (p) => {
+    if (under(p, STRANGER)) calls.stranger.push(['realpath', String(p)])
+    return String(p)
   })
   recordSync('statSync', realStatSync)
   recordSync('existsSync', realExistsSync)
   recordSync('readdirSync', realReaddirSync)
+  // A mapped drive's real path is asked off the main thread (review round 1).
+  calls.syncRealpath = []
+  vi.spyOn(fs.realpathSync, 'native').mockImplementation((p) => { calls.syncRealpath.push(String(p)); return String(p) })
   const app = express()
   app.use(express.json({ limit: '5mb' }))
   mountRabbitBins(app, {
@@ -91,7 +121,7 @@ beforeAll(async () => {
     safeMediaContentType: (m) => String(m || 'application/octet-stream'),
     userAuthorizedDirs: new Set(), dialog, getMainWindow: () => ({}), shell,
     cloudBinsLocalPaths,
-    cloudBinsRootWaitMs: WAIT_MS, cloudBinsRootTtlMs: TTL_MS,
+    cloudBinsRootWaitMs: WAIT_MS, cloudBinsRootTtlMs: TTL_MS, cloudBinsRootOffTtlMs: OFF_TTL_MS,
   })
   await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve) })
   base = `http://127.0.0.1:${server.address().port}`
@@ -179,8 +209,13 @@ describe('a slow server: one question in flight, a late answer counts, a kept an
 
   it('a location known to be off answers at once when its answer is due again, and is asked again behind it', async () => {
     calls.asyncSlow = 0
-    // Known off now (the last answer above). Due again after the time kept:
+    // Known off now (the last answer above). An "off" answer is kept longer
+    // than an "on" one (review round 1): not yet due after TTL_MS…
     await sleep(TTL_MS + 50)
+    expect((await register([L_SLOW]))[0].reachable).toBe(false)
+    expect(calls.asyncSlow).toBe(0)
+    // …due after OFF_TTL_MS:
+    await sleep(OFF_TTL_MS - TTL_MS)
     let back
     slow.next = new Promise(r => { back = r })
     const [again, ms] = await timed(() => register([L_SLOW]))
@@ -192,5 +227,145 @@ describe('a slow server: one question in flight, a late answer counts, a kept an
     expect((await register([L_SLOW]))[0].reachable).toBe(true)
     expect(calls.asyncSlow).toBe(1)
     expect(calls.syncDead).toEqual([])
+  })
+})
+
+// Review round 1, finding 3: once a root has answered, the routes still
+// touch the share — the file, its time, its real path — and a server that
+// dies in between must not freeze the window: those calls are asynchronous.
+describe('after a root answered: the share is touched only off the main thread', () => {
+  it('stream, open, probe and both poster routes for a clip on it make no synchronous call; a drive letter\'s real path is asked off-thread', async () => {
+    slow.next = Promise.resolve({ isDirectory: () => true })
+    await sleep(OFF_TTL_MS + 50)
+    expect((await register([L_SLOW]))[0].reachable).toBe(true)
+    calls.syncDead.length = 0
+    const body = { location_id: 'loc-slow', relative_path: 'A001/c1.mov' }
+    const q = 'location_id=loc-slow&relative_path=A001%2Fc1.mov'
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]).toString('base64')
+    expect([
+      (await api(`/stream?${q}`)).status,
+      (await api('/open', J(body))).status,
+      (await api('/probe', J(body))).status,
+      (await api(`/thumbnail?${q}`)).status,
+      (await api('/thumbnail', J({ ...body, base64: jpeg }))).status,
+    ]).toEqual([410, 410, 410, 410, 410])
+    // A clip that IS there: its poster is keyed by its time, read off-thread
+    // (no decoder in this test: refused after the key, never a sync call).
+    const made = await api('/thumbnail?location_id=loc-slow&relative_path=A001%2Fhere.mov&media_type=video')
+    expect([415, 422]).toContain(made.status)
+    expect(calls.syncDead).toEqual([])
+    // A path on a drive letter outside every location: refused by name, its
+    // real path asked asynchronously (a disconnected mapped drive).
+    const items = (await (await api('/prepare', J({ paths: ['Q:\\footage\\x.mov'] }))).json()).items
+    expect(items[0].status).toBe('outside')
+    expect(calls.syncRealpath).toEqual([])
+  })
+})
+
+// Review round 1, finding 1: any member can name or re-address a company
+// location, and every teammate's desktop registers the list. Without this
+// computer's person agreeing, nothing here may touch the address — or a
+// row could make every desktop connect, with its person's Windows sign-in,
+// to a host of the row-writer's choosing.
+describe('an address this computer\'s person has not agreed to', () => {
+  const L_STRANGER = { id: 'loc-stranger', unc_path: STRANGER }
+
+  it('is never contacted: registration says so; resolve, every route and prepare answer without touching it; the add dialog does not open there', async () => {
+    calls.stranger.length = 0
+    const locs = await register([L_STRANGER, L_LIVE])
+    expect(locs[0]).toMatchObject({ status: 'registered', connected: false, reachable: false })
+    expect(locs[1]).toMatchObject({ connected: true, reachable: true })
+    const files = [{ id: 's1', location_id: 'loc-stranger', relative_path: 'A001/c1.mov' }, { id: 's2', location_id: 'loc-stranger', relative_path: 'VFX/plate', is_sequence: true }]
+    const res = (await (await api('/resolve', J({ files }))).json()).files
+    expect(res.map(f => [f.online, f.reason])).toEqual([[false, 'not_connected'], [false, 'not_connected']])
+    const body = { location_id: 'loc-stranger', relative_path: 'A001/c1.mov' }
+    const q = 'location_id=loc-stranger&relative_path=A001%2Fc1.mov'
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]).toString('base64')
+    expect([
+      (await api('/probe', J(body))).status,
+      (await api('/thumbnail', J({ ...body, base64: jpeg }))).status,
+      (await api(`/thumbnail?${q}`)).status,
+      (await api('/open', J(body))).status,
+      (await api(`/stream?${q}`)).status,
+    ]).toEqual([410, 410, 410, 410, 410])
+    const prep = (await (await api('/prepare', J({ paths: [`${STRANGER}\\A001\\c1.mov`] }))).json()).items
+    expect(prep.map(i => i.status)).toEqual(['missing'])
+    await api('/pick-files', J({}))
+    expect(dialogCalls.at(-1).defaultPath).toBe(media)
+    expect(calls.stranger).toEqual([])
+  })
+
+  it('Connect asks natively, naming the address the cloud holds (never a name a page sends), Cancel by default; Connect keeps it and asks it at once', async () => {
+    calls.stranger.length = 0
+    await register([L_STRANGER])
+    expect((await api('/locations/nope/connect', J({}))).status).toBe(403)
+    dialogNext.message = 1 // Cancel
+    expect(await (await api('/locations/loc-stranger/connect', J({ name: 'Trusted company NAS' }))).json()).toEqual({ canceled: true })
+    const m = messageCalls.at(-1)
+    expect(m).toMatchObject({ type: 'question', buttons: ['Connect', 'Cancel'], defaultId: 1, cancelId: 1, message: `Connect this computer to ${STRANGER}?` })
+    expect(m.detail).toContain('Windows sign-in')
+    expect(JSON.stringify(m)).not.toContain('Trusted company NAS')
+    expect(calls.stranger).toEqual([])
+    expect(saved.value.connected?.[STRANGER.toLowerCase()]).toBeUndefined()
+    dialogNext.message = 0 // Connect
+    expect(await (await api('/locations/loc-stranger/connect', J({}))).json()).toMatchObject({ id: 'loc-stranger', connected: true, reachable: true, root: STRANGER })
+    expect(saved.value.connected[STRANGER.toLowerCase()]).toMatchObject({ unc_path: STRANGER })
+    expect(calls.stranger).toEqual([['stat', STRANGER]])
+    // From now on it is a location like any other on this computer; no
+    // second question.
+    const asked = messageCalls.length
+    expect((await register([L_STRANGER]))[0]).toMatchObject({ connected: true, reachable: true })
+    await api('/locations/loc-stranger/connect', J({}))
+    expect(messageCalls.length).toBe(asked)
+  })
+
+  it('the agreement is to an ADDRESS: a location re-addressed asks again', async () => {
+    const moved = `${STRANGER}2`
+    calls.stranger.length = 0
+    expect((await register([{ id: 'loc-stranger', unc_path: moved }]))[0]).toMatchObject({ connected: false, reachable: false })
+    expect(calls.stranger).toEqual([])
+  })
+
+  it('picking files on a share in this computer\'s own file dialog is the person\'s choice: a location on it connects, and so does a share picked first and named after', async () => {
+    const asked = messageCalls.length
+    const S3 = `${STRANGER}3`; const S4 = `${STRANGER}4`
+    await register([{ id: 'loc-p', unc_path: S3 }])
+    dialogNext.open = [`${S3}\\A001\\c1.mov`]
+    await api('/pick-files', J({}))
+    expect((await register([{ id: 'loc-p', unc_path: S3 }]))[0].connected).toBe(true)
+    // "Which location is this? Name it.": the share was picked before it was a location.
+    dialogNext.open = [`${S4}\\x.mov`]
+    await api('/pick-files', J({}))
+    expect((await register([{ id: 'loc-q', unc_path: S4 }]))[0].connected).toBe(true)
+    expect(messageCalls.length).toBe(asked)
+  })
+})
+
+// LAST: its four questions never answer, so every slot stays taken.
+// Review round 1, finding 3: each unanswered question holds one of libuv's
+// pool threads for as long as the server keeps it, and the pool also serves
+// the app's own files. At most four are out at once; a fifth waits for a
+// slot inside the same limit, and answers "not reachable" if none frees.
+describe('several servers that do not answer', () => {
+  it('at most four questions are out at once; the next waits for a slot and answers within the limit', async () => {
+    // DEAD's question from the first describe is still out (it never
+    // answers): three more fill the four slots, the fifth must wait.
+    const extra = [2, 3, 4, 5].map(n => ({ id: `loc-dead${n}`, unc_path: `${DEAD}${n}` }))
+    const [locs, ms] = await timed(() => register(extra))
+    expect(locs.map(l => l.reachable)).toEqual([false, false, false, false])
+    expect(ms).toBeLessThan(WAIT_MS + 1500)
+    const asked = new Set(calls.asyncDead)
+    expect([2, 3, 4].every(n => asked.has(`${DEAD}${n}`))).toBe(true)
+    expect(asked.has(`${DEAD}5`)).toBe(false) // queued: no fifth thread held
+    expect(calls.syncDead).toEqual([])
+  })
+})
+
+describe('the desktop widens libuv\'s pool before anything uses it', () => {
+  it('main.cjs sets UV_THREADPOOL_SIZE (16) as its first statement, before any require', () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'electron/main.cjs'), 'utf8')
+    const code = src.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('//'))
+    expect(code[0]).toBe("if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '16';")
+    expect(src.indexOf('UV_THREADPOOL_SIZE')).toBeLessThan(src.indexOf('require('))
   })
 })

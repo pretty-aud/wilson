@@ -25,7 +25,7 @@ import { mixedValue } from '../../bins/binSelectors'
 import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 import { navigateTo } from '../../state/rabbitNavigate'
 // BC2: a company's clip (a footage location + a path inside it).
-import { NOT_ON_THIS_COMPUTER, notHereSentence } from '../../bins/binLocations'
+import { NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence } from '../../bins/binLocations'
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -389,7 +389,7 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
           <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
         </div>
         <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> Not on this computer</div>
-        <div className="text-dense px-1" style={{ color: C.dim }}>{notHereSentence(location?.name)}</div>
+        <div className="text-dense px-1" style={{ color: C.dim }}>{location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)}</div>
       </div>
     )
   }

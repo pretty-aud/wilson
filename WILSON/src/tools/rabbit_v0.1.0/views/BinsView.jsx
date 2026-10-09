@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { needsCloudPoster } from '../bins/cloudPosters'
-import { addedByName, NOT_ON_THIS_COMPUTER, ADD_NEEDS_DESKTOP } from '../bins/binLocations'
+import { addedByName, NOT_ON_THIS_COMPUTER, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CONNECT_TITLE } from '../bins/binLocations'
 import { useProjectAccess } from '../state/useProjectAccess'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
@@ -267,7 +267,15 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
   // BC2: a company's clip names its footage location and who added it (B11).
   const locationById = useMemo(() => new Map((ctx?.binLocations || []).map(l => [l.id, l])), [ctx?.binLocations])
-  const locationOf = useCallback((row) => (row?.location_id ? locationById.get(row.location_id) || null : null), [locationById])
+  // The location, with whether THIS computer has agreed to connect to it
+  // (review round 1: the inspector says "not connected" rather than "not
+  // reachable" for a location never contacted here).
+  const statusByLocation = useMemo(() => new Map((ctx?.binsInfo?.locations || []).map(s => [s.id, s])), [ctx?.binsInfo?.locations])
+  const locationOf = useCallback((row) => {
+    const loc = row?.location_id ? locationById.get(row.location_id) || null : null
+    const st = loc ? statusByLocation.get(loc.id) : null
+    return loc && st?.connected === false ? { ...loc, connected: false } : loc
+  }, [locationById, statusByLocation])
   const addedByOf = useCallback((row) => (row?.location_id ? addedByName(row.added_by, people) : null), [people])
   // The word for a clip this computer cannot reach: a company's clip is
   // "not on this computer" (B3); the signed-out desktop's says "offline".
@@ -730,9 +738,31 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     const counts = new Map()
     for (const f of offlineAll) if (f.location_id) counts.set(f.location_id, (counts.get(f.location_id) || 0) + 1)
     return (ctx?.binsInfo?.locations || [])
-      .filter(st => st && st.status !== 'refused' && st.reachable === false && counts.get(st.id))
+      .filter(st => st && st.status !== 'refused' && st.reachable === false && st.connected !== false && counts.get(st.id))
       .map(st => ({ st, loc: locationById.get(st.id) || { id: st.id, name: 'A footage location' }, count: counts.get(st.id) }))
   }, [desktopCloud, offlineAll, ctx?.binsInfo?.locations, locationById])
+  // Review round 1: a location this computer's person has not agreed to
+  // connect to — never contacted until they do. Its own notice, first.
+  const notConnected = useMemo(() => {
+    if (!desktopCloud) return []
+    const counts = new Map()
+    for (const f of offlineAll) if (f.location_id) counts.set(f.location_id, (counts.get(f.location_id) || 0) + 1)
+    return (ctx?.binsInfo?.locations || [])
+      .filter(st => st && st.status !== 'refused' && st.connected === false && counts.get(st.id))
+      .map(st => ({ st, loc: locationById.get(st.id) || { id: st.id, name: 'A footage location', unc_path: st.unc_path }, count: counts.get(st.id) }))
+  }, [desktopCloud, offlineAll, ctx?.binsInfo?.locations, locationById])
+  const [notConnectedDismissed, setNotConnectedDismissed] = useState(false)
+  const [connectBusy, setConnectBusy] = useState(false)
+  const connectOne = useCallback(async () => {
+    const one = notConnected[0]
+    if (!one || typeof ctx?.connectBinLocation !== 'function') return
+    setConnectBusy(true)
+    try {
+      const r = await ctx.connectBinLocation(one.loc.id)
+      if (!r?.canceled) say(`"${one.loc.name}" is connected on this computer.`, 'ok', 5000)
+    } catch (e) { say(e?.message || String(e), 'error') }
+    finally { setConnectBusy(false) }
+  }, [notConnected, ctx, say])
   const [unreachableDismissed, setUnreachableDismissed] = useState(false)
   const [reachBusy, setReachBusy] = useState(false)
   const pickOneUnreachable = useCallback(async () => {
@@ -813,6 +843,20 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
 
       {/* BC2 (item 6): a whole location out of reach — one notice naming it,
           not one per clip — with the per-computer question beside it. */}
+      {notConnected.length > 0 && !notConnectedDismissed && (
+        <Banner className="flex-shrink-0" tone="info" Icon={Unplug} data-testid="not-connected"
+          action={<>
+            {notConnected.length === 1
+              ? <Btn small primary disabled={connectBusy} onClick={connectOne} title={CONNECT_TITLE}>{CONNECT_LABEL}</Btn>
+              : <Btn small onClick={() => setRelinkOpen(true)}>Choose which to connect…</Btn>}
+            <IconBtn Icon={X} title="Not now" onClick={() => setNotConnectedDismissed(true)} />
+          </>}>
+          <span className="block">
+            {notConnectedSentence(notConnected.map(u => u.loc.name), notConnected.length === 1 ? notConnected[0].loc.unc_path : null)}
+          </span>
+        </Banner>
+      )}
+
       {unreachable.length > 0 && !unreachableDismissed && (
         <Banner className="flex-shrink-0" tone="warning" Icon={Unplug}
           action={<>
@@ -1058,6 +1102,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       {relinkOpen && caps?.locations && (
         <RelinkLocationsDialog offlineRows={offlineAll} locations={ctx?.binLocations || []} locationStatus={ctx?.binsInfo?.locations || []}
           onPickLocal={(id) => ctx.pickBinLocationLocalPath(id)} onForgetLocal={(id) => ctx.forgetBinLocationLocalPath(id)}
+          onConnect={typeof ctx?.connectBinLocation === 'function' ? (id) => ctx.connectBinLocation(id) : null}
           onClose={() => setRelinkOpen(false)} />
       )}
       {relinkOpen && !caps?.locations && (

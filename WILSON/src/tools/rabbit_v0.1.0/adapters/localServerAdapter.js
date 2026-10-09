@@ -1087,6 +1087,11 @@ export function localServerAdapter() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, unc_path }),
     }),
     forgetCloudBinLocationLocalPath: (id) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/local`, { method: 'DELETE' }),
+    // Review round 1: consent before contact — the main process asks its
+    // person, natively, before this computer ever connects to the address.
+    connectCloudBinLocation: (id) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/connect`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
   };
 }
 

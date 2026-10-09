@@ -140,6 +140,40 @@ describe('the per-computer question (B2\'s fallback), on the desktop only', () =
   })
 })
 
+// Review round 1: consent before contact. Any member can name a company
+// location; this computer connects to its address only once its own person
+// agrees (the desktop's native confirmation, naming the address).
+describe('Connect: consent before this computer contacts an address', () => {
+  it('a location not connected here says so and offers Connect, which asks the desktop', async () => {
+    holder.ctx = makeCtx({ binsDesktopFiles: true, connectBinLocation: vi.fn(async () => ({ connected: true, reachable: true })), binsInfo: { locations: [{ id: 'L1', status: 'registered', connected: false, reachable: false }] } })
+    render(<FootageLocationsSection />)
+    expect(row('L1').textContent).toContain('Not connected on this computer')
+    const connect = within(row('L1')).getByText('Connect…')
+    expect(connect.getAttribute('title')).toContain('Windows asks you to confirm the address first')
+    fireEvent.click(connect)
+    await waitFor(() => expect(holder.ctx.connectBinLocation).toHaveBeenCalledWith('L1'))
+    // A connected location offers no Connect.
+    expect(within(row('L2')).queryByText('Connect…')).toBeNull()
+  })
+
+  it('the person who just added an address on the desktop is asked at once; in a browser, never', async () => {
+    holder.ctx = makeCtx({ binsDesktopFiles: true, connectBinLocation: vi.fn(async () => ({ canceled: true })) })
+    render(<FootageLocationsSection />)
+    fireEvent.change(nameField(), { target: { value: 'Office share' } })
+    fireEvent.change(addrField(), { target: { value: '\\\\office\\footage' } })
+    fireEvent.click(screen.getByText('Add location'))
+    await waitFor(() => expect(holder.ctx.connectBinLocation).toHaveBeenCalledWith('L9'))
+    cleanup()
+    holder.ctx = makeCtx({ connectBinLocation: vi.fn() })
+    render(<FootageLocationsSection />)
+    fireEvent.change(nameField(), { target: { value: 'Office share' } })
+    fireEvent.change(addrField(), { target: { value: '\\\\office\\footage' } })
+    fireEvent.click(screen.getByText('Add location'))
+    await waitFor(() => expect(holder.ctx.addBinLocation).toHaveBeenCalled())
+    expect(holder.ctx.connectBinLocation).not.toHaveBeenCalled()
+  })
+})
+
 describe('edit and remove', () => {
   it('rename and re-address send only what changed; the re-address is normalised', async () => {
     render(<FootageLocationsSection />)
