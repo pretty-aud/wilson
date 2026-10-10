@@ -173,6 +173,19 @@ export function isPrivateOrUla(input) {
 }
 
 /** The /24 around an IPv4 address or the /64 around an IPv6 one (design §3, D26). */
+/**
+ * The key a per-peer limit counts by on the OUTSIDE door: an IPv4 address, or
+ * an IPv6 address's /64 (one site's or one customer's prefix). Rotating
+ * through the addresses of one /64 must not buy a fresh budget each time
+ * (review round 2, R2-4). The office door counts by the full address: a LAN's
+ * own /64 is every office computer.
+ */
+export function outsidePeerKey(address) {
+  const ip = parseIp(String(address ?? ''));
+  if (!ip) return String(address);
+  return ip.family === 4 ? formatIp(ip) : formatCidr(surroundingNet(ip));
+}
+
 export function surroundingNet(input) {
   const ip = typeof input === 'string' ? parseIp(input) : input;
   if (!ip) return null;

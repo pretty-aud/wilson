@@ -84,7 +84,7 @@ export function parseConfig(text) {
     if (Array.isArray(list) && list.length <= 16 && list.every(isServerName)) c.connect_without_login = [...new Set(list.map((h) => h.toLowerCase()))];
     else problems.push('connect_without_login (a list of at most 16 server names: the "nas" of \\\\nas\\footage)');
   }
-  const { limits, ignored } = resolveLimits(raw.limits || {});
+  const { limits, ignored } = resolveLimits(raw.limits || {}, { floors: true });
   c.limits = raw.limits && typeof raw.limits === 'object' ? raw.limits : {};
   for (const k of ignored) problems.push(`limits.${k}`);
   return { config: c, limits, problems };

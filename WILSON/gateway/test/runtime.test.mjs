@@ -92,7 +92,9 @@ describe('enrolment (§2)', () => {
       expect(st).toMatchObject({ gateway_id: W.cloud.onlyGateway(), workspace_id: W.cloud.state.workspace.id, workspace_name: 'Salt Hours Studio', cloud_url: W.cloud.base });
       expect(W.lines.some((l) => /^Certificate fingerprint \(SHA-256\): ([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(l))).toBe(true);
       expect([...W.cloud.state.tokens.values()][0].usedAt).not.toBeNull();
-      expect(fs.readFileSync(path.join(W.stateDir, 'credential.bin'), 'utf8')).not.toContain('wgc_' + 'x'); // not a plain wgc_ line for the eye
+      // Written through the secrets layer (its marker first; DPAPI on a real install), never bare. (The
+      // old check, "does not contain wgc_x", failed whenever a random credential began with an x: CI, 00e25939.)
+      expect(fs.readFileSync(path.join(W.stateDir, 'credential.bin')).subarray(0, 8).toString('latin1')).toBe('WGPLAIN1');
       const enrolBody = W.cloud.state.gateways.get(W.cloud.onlyGateway()).enrolBody;
       expect(enrolBody).toMatchObject({ name: 'studio-nas', hostname: 'studio-nas', version: VERSION, inside_addresses: [], inside_names: ['studio-nas', 'studio-nas.local'] });
       expect(enrolBody.root_cert_pem).toMatch(/BEGIN CERTIFICATE/);

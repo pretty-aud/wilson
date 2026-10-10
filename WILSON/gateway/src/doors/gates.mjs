@@ -16,7 +16,7 @@
 // =============================================================================
 
 import { classifyInsidePeer } from '../rules/peers.mjs';
-import { normalizeIp } from '../rules/ip.mjs';
+import { normalizeIp, outsidePeerKey } from '../rules/ip.mjs';
 
 export function makeCounters() {
   return { loopback: 0, own_address: 0, co_located: 0, public: 0, unparseable: 0, rate: 0, pool: 0, sinceSync: { public: 0 } };
@@ -43,7 +43,7 @@ export function makeInsideGate({ peers, limiters, pools, counters }) {
 
 export function makeOutsideGate({ limiters, pools, counters }) {
   return (socket) => {
-    const key = normalizeIp(socket.remoteAddress) || String(socket.remoteAddress);
+    const key = outsidePeerKey(socket.remoteAddress);
     if (!limiters.connections.hit(key).ok || !limiters.handshakes.hit(key).ok) { counters.rate += 1; return { admit: false, reason: 'rate' }; }
     if (!pools.openConnection('outside')) { counters.pool += 1; return { admit: false, reason: 'pool' }; }
     return { admit: true, release: () => pools.closeConnection('outside') };

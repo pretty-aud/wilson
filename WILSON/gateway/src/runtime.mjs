@@ -633,7 +633,6 @@ export class Gateway {
       this.limiters.inside.connections.prune(); this.limiters.inside.handshakes.prune();
       this.limiters.outside.connections.prune(); this.limiters.outside.handshakes.prune();
       this.doorCtx.perPersonRequests.prune();
-      this.doorCtx.authFailures.prune();
     }
   }
 

@@ -22,7 +22,13 @@
 //   - no segment empty, '.', '..', or ending in a dot or a space (Windows
 //     strips both, so \\nas\C$. is C$), none of / : * ? " < > |;
 //   - no control or format character anywhere (the address is shown in the
-//     health line and the status page): the desktop's rule, copied.
+//     health line and the status page): the desktop's rule, copied;
+//   - the share is a share of files: not "pipe", "mailslot" or "IPC$", where
+//     \\server\pipe\name opens a named pipe, not a file (on a consented
+//     server, the gateway's own computer's name included, a pipe a local
+//     process made would be read as a clip and would see the service connect;
+//     review round 2, R2-N1), and no segment is a DOS device name (CON, PRN,
+//     AUX, NUL, COM1–9, LPT1–9, with or without an extension).
 // The container turns the result into a POSIX path under /locations.
 // =============================================================================
 
@@ -33,6 +39,8 @@ const SERVER_RE = new RegExp(`^${LABEL}(?:\\.${LABEL})*$`);
 const BAD_SEGMENT_CHARS_RE = /[/:*?"<>|]/;
 const TRAILING_DOT_OR_SPACE_RE = /[. ]$/;
 const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+const NOT_A_FILE_SHARE_RE = /^(pipe|mailslot|ipc\$)$/i;
+const DOS_DEVICE_RE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 
 /** A server's name as a share address may hold it (see above). */
 export function isServerName(host) {
@@ -47,8 +55,9 @@ export function parseUncPath(unc) {
   if (segs.length < 2) return null;
   const [host, share, ...rest] = segs;
   if (!isServerName(host)) return null;
+  if (NOT_A_FILE_SHARE_RE.test(share ?? '')) return null;
   for (const seg of [share, ...rest]) {
-    if (!seg || seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg) || BAD_SEGMENT_CHARS_RE.test(seg)) return null;
+    if (!seg || seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg) || BAD_SEGMENT_CHARS_RE.test(seg) || DOS_DEVICE_RE.test(seg)) return null;
   }
   return { host, share, rest };
 }

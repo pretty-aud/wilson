@@ -185,12 +185,14 @@ describe('the container\'s mount rule (R15)', () => {
       '\\\\nas:445\\footage', '\\\\fe80::1\\footage', '\\\\[::1]\\footage', '\\\\fe80::1%12\\footage', '\\\\na s\\footage', '\\\\-nas\\footage', '\\\\nas.\\footage',
       '\\\\nas\\C$.', '\\\\nas\\footage \\x', '\\\\nas\\footage\\Day 1.', '\\\\nas\\foot:age', '\\\\nas\\foot*age', '\\\\nas\\foot?age', '\\\\nas\\foot"age', '\\\\nas\\foot<age', '\\\\nas\\foot|age',
       '\\\\nas\\foot\u200bage', '\\\\nas\\footage\u202e', '\\\\nas\\foot\u0085age', '\\\\nas\u2028\\footage',
+      // round 2, R2-N1: not a share of files, or a DOS device name
+      '\\\\nas\\pipe\\evil.mp4', '\\\\SUSAN-FAIRCHILD\\PIPE', '\\\\nas\\mailslot\\x', '\\\\nas\\IPC$', '\\\\nas\\footage\\CON', '\\\\nas\\footage\\con.mp4', '\\\\nas\\LPT1\\x', '\\\\nas\\footage\\Nul\\clip.mp4', '\\\\nas\\footage\\COM9.txt',
     ]) {
       expect(parseUncPath(bad), JSON.stringify(bad)).toBeNull();
       expect(locationRoot(bad, 'windows'), JSON.stringify(bad)).toBeNull();
       expect(containerRootFor(bad), JSON.stringify(bad)).toBeNull();
     }
-    for (const good of ['\\\\SUSAN_PC\\footage', '\\\\192.168.1.20\\Footage', '\\\\fe80--1.ipv6-literal.net\\footage', '\\\\nas.corp.example.com\\Footage Share\\Day 1', '\\\\nas\\footage$', '\\\\NAS\\Día 02']) {
+    for (const good of ['\\\\SUSAN_PC\\footage', '\\\\192.168.1.20\\Footage', '\\\\fe80--1.ipv6-literal.net\\footage', '\\\\nas.corp.example.com\\Footage Share\\Day 1', '\\\\nas\\footage$', '\\\\NAS\\Día 02', '\\\\nas\\pipes', '\\\\nas\\footage\\console', '\\\\nas\\footage\\COM10', '\\\\nas\\footage\\CONTROL.mp4']) {
       expect(parseUncPath(good), good).not.toBeNull();
       expect(locationRoot(good, 'windows'), good).toBe(good);
     }

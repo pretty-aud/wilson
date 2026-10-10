@@ -57,6 +57,16 @@ describe('config.json (config.mjs)', () => {
       'limits.perPersonStreams',
     ]);
   });
+  it('limits: config.json may lower a limit, never past its floor (review round 2, R2-2: a planted "connections": 1 shut the doors)', () => {
+    const { limits, problems } = parseConfig(JSON.stringify({ limits: { connections: 1, streams: 3, authFailuresPerConnection: 0, requestsPerConnection: 5, perPersonRequestsPerMinute: 120, outside: { newConnectionsPerMinutePerPeer: 1 } } }));
+    expect(limits.connections).toBe(400);
+    expect(limits.streams).toBe(200);
+    expect(limits.authFailuresPerConnection).toBe(10);
+    expect(limits.requestsPerConnection).toBe(1000);
+    expect(limits.perPersonRequestsPerMinute).toBe(120); // above its floor: taken
+    expect(limits.outside.newConnectionsPerMinutePerPeer).toBe(60);
+    expect(problems).toEqual(['limits.connections (at least 16)', 'limits.streams (at least 8)', 'limits.authFailuresPerConnection', 'limits.requestsPerConnection (at least 10)', 'limits.outside.newConnectionsPerMinutePerPeer (at least 4)']);
+  });
   it('connect_without_login: server names only (lower-cased, at most 16); anything else named and not applied', () => {
     expect(parseConfig(JSON.stringify({ connect_without_login: ['NAS01', 'nas.corp.example.com', 'nas01'] })).config.connect_without_login).toEqual(['nas01', 'nas.corp.example.com']);
     for (const bad of [['evil.example.com@SSL@443'], ['?'], ['nas', 7], 'nas', ['\\\\nas'], Array.from({ length: 17 }, (_, i) => `nas${i}`)]) {

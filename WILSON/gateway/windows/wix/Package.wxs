@@ -116,6 +116,14 @@
       </Component>
     </ComponentGroup>
 
+    <!-- Before the two recursive steps below: the state folder must be a real folder (not a junction a local
+         user made before a first install, which icacls /T would follow as SYSTEM), hold no link, and hold
+         nothing made by another account (a planted config.json would be honoured). It sets the folder's own
+         ACL first, so nothing can be added after the check. A failure fails the install (review round 2,
+         R2-1, R2-2). -->
+    <SetProperty Id="CheckState" Value="&quot;[#CurrentNodeExe]&quot; &quot;[CurrentApp]src\installer.mjs&quot; check-state &quot;[StateDir].&quot;" Before="CheckState" Sequence="execute" />
+    <CustomAction Id="CheckState" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="check" Impersonate="no" />
+
     <!-- The state folder's OWNER first, Administrators on the folder and everything in it: ProgramData lets
          any user create a folder or file there, and one made before the install would stay its maker's, with
          the owner's right to rewrite the ACL set below (review round 1, finding 5). -->
@@ -140,7 +148,8 @@
     <CustomAction Id="WriteSummary" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="ignore" Impersonate="no" />
 
     <InstallExecuteSequence>
-      <Custom Action="SetStateOwner" After="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="CheckState" After="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="SetStateOwner" After="CheckState" Condition="NOT REMOVE" />
       <Custom Action="SetStateAcl" After="SetStateOwner" Condition="NOT REMOVE" />
       <Custom Action="FreshPipeKey" After="SetStateAcl" Condition="NOT REMOVE" />
       <Custom Action="WriteEnrolFile" After="FreshPipeKey" Condition="NOT REMOVE AND ENROLTOKEN" />

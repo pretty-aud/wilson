@@ -186,8 +186,11 @@ export class CloudClient {
     try { text = await readCapped(res); } catch (e) { return { ok: false, status: res.status, unreachable: true, error: e.code || 'read' }; }
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-    if (res.status === 401) return { ok: false, status: 401, revoked: true, error: data?.error, code: data?.code };
-    if (!res.ok) return { ok: false, status: res.status, unreachable: res.status >= 500 || res.status === 429, error: typeof data?.error === 'string' ? data.error.slice(0, 300) : null, code: data?.code };
+    // The cloud's own words for a refusal reach a terminal (`wilson-gateway enrol`)
+    // and the installer's summary: cleaned as its other words are (review round
+    // 2, R2-3).
+    if (res.status === 401) return { ok: false, status: 401, revoked: true, error: displayText(data?.error, 300), code: displayText(data?.code, 64) };
+    if (!res.ok) return { ok: false, status: res.status, unreachable: res.status >= 500 || res.status === 429, error: displayText(data?.error, 300), code: displayText(data?.code, 64) };
     if (data === null || typeof data !== 'object') return { ok: false, status: res.status, unreachable: true, error: 'not JSON' };
     return { ok: true, status: res.status, data };
   }

@@ -12,6 +12,9 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeShare, makeWorld, CLIP, CLIP2, SUB2, LOC } from './harness.mjs';
+import { outsidePeerKey } from '../src/rules/ip.mjs';
+import { resolveLimits, peerLimiters, Pools, FixedWindow } from '../src/rules/limits.mjs';
+import { makeOutsideGate, makeCounters } from '../src/doors/gates.mjs';
 
 let share;
 beforeAll(() => { share = makeShare(); });
@@ -381,7 +384,7 @@ describe('closing the outside door (§9 step 4; Appendix A, run 2)', () => {
   });
 });
 
-describe('a flood of forged tickets is answered before it costs a signature check (review round 1, finding 2)', () => {
+describe('a flood of forged tickets on one connection ends that connection (review round 1, finding 2; round 2, R2-5)', () => {
   let share;
   let W;
   let verifications = 0;
@@ -398,32 +401,93 @@ describe('a flood of forged tickets is answered before it costs a signature chec
     sig[5] ^= 0x10;
     return `${v}.${p}.${sig.toString('base64url')}`;
   };
+  // Many requests written at once on one TLS connection (HTTP/1.1 pipelining);
+  // resolves the raw bytes the door answered before the connection ended.
+  const pipelined = async (requests) => {
+    const tls = await import('node:tls');
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      const s = tls.connect({ host: '127.0.0.1', port: W.server.port, servername: 'studio-nas', ca: W.certs.root.certPem }, () => s.write(requests.join('')));
+      s.on('data', (c) => chunks.push(c));
+      s.on('error', reject);
+      s.on('close', () => resolve(Buffer.concat(chunks).toString('latin1')));
+      setTimeout(() => s.destroy(), 10_000).unref();
+    });
+  };
+  const get = (t) => `GET /v1/clips/${CLIP}?t=${t} HTTP/1.1\r\nHost: studio-nas:${W.server.port}\r\nRange: bytes=0-0\r\n\r\n`;
 
-  it('30 failed tickets in a minute from one peer; the 31st request, even a good one, is 429 with Retry-After and nothing of it is checked', async () => {
-    const budget = W.ctx.limits.authFailuresPerMinutePerPeer;
-    expect(budget).toBe(30);
-    for (let i = 0; i < budget; i++) expect((await W.request(W.clipUrl(forged()))).status).toBe(401);
-    expect(verifications).toBe(budget);
-    const locked = await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } });
-    expect(locked.status).toBe(429);
-    expect(Number(locked.headers['retry-after'])).toBeGreaterThan(0);
-    expect(locked.body.length).toBe(0);
-    const renewal = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: 'a'.repeat(32), t: W.ticket() }) });
-    expect(renewal.status).toBe(429);
-    expect(verifications).toBe(budget); // neither was parsed, let alone verified
-    expect(W.state.log.filter((e) => e.reason === 'auth_failures')).toHaveLength(2);
+  it('25 forged tickets pipelined in one write: the connection ends at the second, so at most one is ever checked (a browser never pipelines)', async () => {
+    const before = verifications;
+    const raw = await pipelined(Array.from({ length: 25 }, () => get(forged())));
+    expect(raw.split('HTTP/1.1 ').length - 1).toBeLessThanOrEqual(1);
+    expect(verifications - before).toBeLessThanOrEqual(1);
+    expect(W.state.log.some((e) => e.event === 'pipelined_refused')).toBe(true);
   });
-  it('the next minute the peer is served again', async () => {
-    W.clock.t += 60_000;
+  it('one request at a time on a kept-alive connection: the 10th failed ticket\'s answer says "Connection: close", and the next try is on a new connection', async () => {
+    const https = await import('node:https');
+    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const before = verifications;
+      const seen = [];
+      for (let i = 0; i < 11; i++) {
+        const r = await W.request(W.clipUrl(forged()), { agent });
+        seen.push([r.status, r.headers.connection]);
+      }
+      expect(seen.map((x) => x[0])).toEqual(Array(11).fill(401));
+      expect(seen.slice(0, 9).every((x) => x[1] === 'keep-alive')).toBe(true);
+      expect(seen[9][1]).toBe('close');
+      expect(seen[10][1]).toBe('keep-alive'); // a new connection, its own count
+      expect(verifications - before).toBe(11);
+      expect(W.state.log.filter((e) => e.event === 'clip_refused' && e.closing)).toHaveLength(1);
+    } finally { agent.destroy(); }
+  });
+  it('nobody else pays: a good ticket from the same address is served at once', async () => {
     expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } })).status).toBe(206);
   });
-  it('a renewal\'s failures spend the same budget', async () => {
-    W.clock.t += 60_000;
-    for (let i = 0; i < 30; i++) {
-      const r = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: 'b'.repeat(32), t: forged() }) });
-      expect(r.status).toBe(401);
-    }
-    expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } })).status).toBe(429);
+  it('a renewal\'s failures count on its connection the same way', async () => {
+    const https = await import('node:https');
+    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const seen = [];
+      for (let i = 0; i < 10; i++) {
+        const r = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: 'b'.repeat(32), t: forged() }), agent });
+        seen.push([r.status, r.headers.connection]);
+      }
+      expect(seen.map((x) => x[0])).toEqual(Array(10).fill(401));
+      expect(seen[8][1]).toBe('keep-alive');
+      expect(seen[9][1]).toBe('close');
+    } finally { agent.destroy(); }
+  });
+});
+
+describe('the outside door counts an IPv6 /64 as one peer (review round 2, R2-4)', () => {
+  it('outsidePeerKey: an IPv4 address as it is, an IPv6 address by its /64', () => {
+    expect(outsidePeerKey('203.0.113.7')).toBe('203.0.113.7');
+    expect(outsidePeerKey('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    expect(outsidePeerKey('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64');
+    expect(outsidePeerKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64');
+    expect(outsidePeerKey('2001:db8:1:3::1')).toBe('2001:db8:1:3::/64');
+  });
+  it('rotating through one /64 does not buy a fresh connection budget; another /64 or another IPv4 address has its own', () => {
+    const { limits } = resolveLimits({ outside: { newConnectionsPerMinutePerPeer: 4 } });
+    const limiters = peerLimiters(limits, () => 1_000).outside;
+    const pools = new Pools({ connections: limits.connections, streams: limits.streams, insideReserve: limits.insideReserve });
+    const counters = makeCounters();
+    const gate = makeOutsideGate({ limiters, pools, counters });
+    const from = (remoteAddress) => gate({ remoteAddress }).admit;
+    expect([1, 2, 3, 4, 5].map((n) => from(`2001:db8:1:2::${n}`))).toEqual([true, true, true, true, false]);
+    expect(from('2001:db8:1:3::1')).toBe(true);
+    expect([1, 2, 3, 4, 5].map((n) => from(`203.0.113.${n}`))).toEqual([true, true, true, true, true]);
+    expect(counters.rate).toBe(1);
+  });
+  it('a limiter\'s map prunes its spent windows itself when a flood of new keys reaches its cap (R2-N3)', () => {
+    let t = 0;
+    const w = new FixedWindow({ limit: 1, windowMs: 1_000, now: () => t, maxKeys: 100 });
+    for (let i = 0; i < 100; i++) w.hit(`k${i}`);
+    expect(w.size).toBe(100);
+    t = 5_000;
+    w.hit('fresh');
+    expect(w.size).toBe(1);
   });
 });
 

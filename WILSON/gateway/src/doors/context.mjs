@@ -83,9 +83,6 @@ export function makeDoorContext(d) {
     viewings,
     relay,
     perPersonRequests: new FixedWindow({ limit: L.perPersonRequestsPerMinute, windowMs: 60_000, now }),
-    // Failed tickets per peer and door (review round 1, finding 2): spent on
-    // every 401, read before anything of a request is parsed.
-    authFailures: new FixedWindow({ limit: L.authFailuresPerMinutePerPeer, windowMs: 60_000, now }),
     perPersonStreams: new Concurrency({ limit: L.perPersonStreams }),
     outsideBytes: new FixedWindow({ limit: L.outsideBytesPerHourPerPerson, windowMs: 3_600_000, now }),
     pools: new Pools({ connections: L.connections, streams: L.streams, insideReserve: L.insideReserve }),

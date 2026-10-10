@@ -67,6 +67,16 @@ describe('the cloud\'s address and the answers\' shapes (client.mjs)', () => {
     const e = cleanEnrolAnswer({ gateway_id: U(9), credential: makeCredential(), workspace_name: 'Salt\u001b[2JHours\u0085Studio' });
     expect(e.value.workspaceName).toBe('Salt [2JHours Studio');
   });
+  it('the cloud\'s words for a refusal lose every control character before anyone prints them (review round 2, R2-3)', async () => {
+    const answer = (status) => async () => new Response(JSON.stringify({ error: 'Refused\u001b]0;pwned\u0007\r\nfake line‮', code: 'bad\u001b[2J' }), { status });
+    for (const status of [400, 401]) {
+      const c = new CloudClient({ baseUrl: 'https://x.co/functions/v1', credential: () => 'wgc_cred', fetchImpl: answer(status) });
+      const r = await c.call('gateway-enrol', {});
+      expect(r.ok, String(status)).toBe(false);
+      expect(r.error, String(status)).toBe('Refused ]0;pwned fake line');
+      expect(r.code, String(status)).toBe('bad [2J');
+    }
+  });
   it('a call: Bearer, JSON, no redirects, a time limit; 401 is "forgotten", 5xx and the network "unreachable"', async () => {
     let seen = null;
     const fetchImpl = async (url, init) => { seen = { url, init }; return new Response(JSON.stringify({ ok: 1 }), { status: 200 }); };

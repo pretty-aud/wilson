@@ -49,6 +49,18 @@ export function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' })), ms); })]).finally(() => clearTimeout(timer));
 }
 
+// Failed tickets on one connection (review round 1, finding 2; round 2,
+// R2-5): at the limit the answer says "Connection: close" and Node ends the
+// connection after it, pipelined requests and all, so every further try costs
+// a new connection, which the door's per-peer caps count. Nobody else behind
+// the same address pays for it.
+const FAILED = Symbol('wilsonFailedTickets');
+function failedOnConnection(req, ctx) {
+  const socket = req.socket;
+  socket[FAILED] = (socket[FAILED] || 0) + 1;
+  return socket[FAILED] >= ctx.limits.authFailuresPerConnection;
+}
+
 async function authenticate(ctx, ticket) {
   let a = authenticateTicket(ticket, { keyFor: ctx.keyFor });
   if (!a.ok && a.reason === 'unknown_kid') {
@@ -70,18 +82,13 @@ function ticketFromUrl(url) {
 export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {} }) {
   const head = req.method === 'HEAD';
   const pathHeader = { 'Wilson-Gateway-Path': door };
-  // The peer, as the door sees it (the forwarded address behind a declared
-  // proxy): its failed tickets are counted, and past the budget it is
-  // answered before its ticket is even parsed (review round 1, finding 2).
   const source = ctx.sourceOf(req, door);
-  const peerKey = `${door}|${source.address}`;
   const deny = (status, reason, more = {}) => {
-    if (status === 401) ctx.authFailures.spend(peerKey, 1);
-    ctx.log('clip_refused', { door, status, reason });
-    const headers = { ...extraHeaders, ...(door === 'inside' ? pathHeader : {}), ...(more.headers || {}) };
+    const closing = status === 401 && failedOnConnection(req, ctx);
+    ctx.log('clip_refused', { door, status, reason, ...(closing ? { closing: true } : {}) });
+    const headers = { ...extraHeaders, ...(door === 'inside' ? pathHeader : {}), ...(more.headers || {}), ...(closing ? { Connection: 'close' } : {}) };
     respond(req, res, status, { headers, body: more.body ?? null });
   };
-  if (ctx.authFailures.remaining(peerKey) <= 0) return deny(429, 'auth_failures', { headers: { 'Retry-After': String(ctx.authFailures.retryAfterS(peerKey)) } });
 
   const ticket = ticketFromUrl(req.url);
   if (!ticket) return deny(401, 'no_ticket');
@@ -242,13 +249,11 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
  * → 204, or 401 for every failure (the wire); 413 when the body is over 8 KB.
  */
 export async function renewClip(ctx, req, res, { door, clipId, extraHeaders = {} }) {
-  const peerKey = `${door}|${ctx.sourceOf(req, door).address}`;
   const deny = (status, reason, headers = {}) => {
-    if (status === 401) ctx.authFailures.spend(peerKey, 1);
-    ctx.log('renew_refused', { door, status, reason });
-    respond(req, res, status, { headers: { ...extraHeaders, ...headers } });
+    const closing = status === 401 && failedOnConnection(req, ctx);
+    ctx.log('renew_refused', { door, status, reason, ...(closing ? { closing: true } : {}) });
+    respond(req, res, status, { headers: { ...extraHeaders, ...headers, ...(closing ? { Connection: 'close' } : {}) } });
   };
-  if (ctx.authFailures.remaining(peerKey) <= 0) return deny(429, 'auth_failures', { 'Retry-After': String(ctx.authFailures.retryAfterS(peerKey)) });
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const body = await readBody(req, ctx.limits.bodyBytes);
   if (body === null) return deny(413, 'body_too_large');

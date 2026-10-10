@@ -9,10 +9,13 @@
 //          IPv4 address and the /64 around each unique-local IPv6 address,
 //          never the interface's own mask when that is wider. Everything
 //          outside the permitted set is forbidden by the extension's own rule.
-//          Both name types are ALWAYS constrained: with no address the IP
-//          permitted set is the single unspecified address (nothing a leaf can
-//          use), with no valid hostname the DNS set is `invalid` (RFC 6761),
-//          so a type is never left unconstrained by being absent.
+//          Both name types are ALWAYS constrained: with no address there is
+//          no permitted IP entry and every IPv4 and IPv6 address is EXCLUDED
+//          (0.0.0.0/0 and ::/0), because a type with no permitted entry would
+//          be unconstrained (review round 1, finding 6: the first build wrote
+//          a permitted "0.0.0.0" with an all-zero mask, a /0 that permitted
+//          every IPv4 address; round 2, R2-N2, found this comment stale); with
+//          no valid hostname the DNS set is `invalid` (RFC 6761).
 //   leaf   ECDSA P-256, 397 days, SAN = the hostname, the .local name and every
 //          inside address; serverAuth; signed by the root.
 //

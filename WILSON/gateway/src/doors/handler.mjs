@@ -67,8 +67,22 @@ ${warnings ? `<ul>${warnings}</ul>` : ''}
  * @param {'inside'|'outside'} door
  * @param ctx the runtime's view: ids(), origins(), host(), health(), healthLine(), fingerprint(), reachNonce(), and the clip context
  */
+// One request at a time on a connection (review round 2, R2-5's follow-up): a
+// browser never pipelines HTTP/1.1, and Node runs the handler of every
+// pipelined request at once, queueing only their answers, so 25 forged
+// tickets written in one go were all checked before the answer that closes
+// the connection went out. A request that arrives while another is still
+// being answered on the same connection ends the connection instead.
+const IN_FLIGHT = Symbol('wilsonRequestInFlight');
+
 export function makeHandler(ctx, door) {
   return async function handle(req, res) {
+    const socket = req.socket;
+    if (socket[IN_FLIGHT]) { ctx.log('pipelined_refused', { door }); socket.destroy(); return; }
+    socket[IN_FLIGHT] = true;
+    const done = () => { socket[IN_FLIGHT] = false; };
+    res.once('finish', done);
+    res.once('close', done);
     try {
       if (door === 'inside') {
         if (hasProxyHeader(req.headers)) { ctx.log('proxy_header_refused', { door, peer: req.socket.remoteAddress }); respond(req, res, 403); return; }

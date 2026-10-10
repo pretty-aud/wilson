@@ -38,14 +38,26 @@ export const DEFAULT_LIMITS = Object.freeze({
   streamMaxMs: 4 * 60 * 60 * 1000,
   // Review round 1, finding 2: the caps on connections and handshakes did not
   // bound the requests ONE kept-alive connection may send, and every forged
-  // ticket costs a signature check on the one thread. A peer whose tickets
-  // fail this many times in a minute is answered 429 before anything of its
-  // request is parsed, and a connection serves at most this many requests.
-  authFailuresPerMinutePerPeer: 30,
+  // ticket costs a signature check on the one thread. A connection whose
+  // tickets fail this many times is closed after the last answer, so more
+  // tries cost a new connection, which the per-peer caps count; and a
+  // connection serves at most this many requests. (Review round 2, R2-5: a
+  // per-PEER budget answered 429 to everyone behind one address, a remote
+  // office's NAT, for a minute; per connection, nobody else pays.)
+  authFailuresPerConnection: 10,
   requestsPerConnection: 1000,
 });
 
-const POSITIVE_INT_KEYS = ['perPersonStreams', 'perPersonRequestsPerMinute', 'outsideBytesPerHourPerPerson', 'connections', 'streams', 'headerTimeoutMs', 'handshakeTimeoutMs', 'idleMs', 'bodyBytes', 'streamMaxMs', 'authFailuresPerMinutePerPeer', 'requestsPerConnection'];
+const POSITIVE_INT_KEYS = ['perPersonStreams', 'perPersonRequestsPerMinute', 'outsideBytesPerHourPerPerson', 'connections', 'streams', 'headerTimeoutMs', 'handshakeTimeoutMs', 'idleMs', 'bodyBytes', 'streamMaxMs', 'authFailuresPerConnection', 'requestsPerConnection'];
+
+// The design's bounds, which config.json may lower but never raise past.
+const CEILING = { headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 60_000, bodyBytes: 8 * 1024, streamMaxMs: 4 * 60 * 60 * 1000, authFailuresPerConnection: 100, requestsPerConnection: 10_000 };
+// And, for config.json (`floors: true`), the floors under them (review round
+// 2, R2-2: `"connections": 1` there would have shut the gateway's own doors);
+// the tests call without them to exercise a limit in a few requests. A
+// renewal's body must hold a 4096-character ticket.
+const FLOOR = { perPersonStreams: 1, perPersonRequestsPerMinute: 60, outsideBytesPerHourPerPerson: 1e9, connections: 16, streams: 8, headerTimeoutMs: 1_000, handshakeTimeoutMs: 1_000, idleMs: 1_000, bodyBytes: 6 * 1024, streamMaxMs: 60_000, authFailuresPerConnection: 1, requestsPerConnection: 10 };
+const DOOR_FLOOR = { newConnectionsPerMinutePerPeer: 4, handshakesPerSecondPerPeer: 1 };
 
 /**
  * The config's `limits` over the defaults. A value that is not a positive
@@ -53,15 +65,15 @@ const POSITIVE_INT_KEYS = ['perPersonStreams', 'perPersonRequestsPerMinute', 'ou
  * stream life may be lowered but never raised past the design's bounds,
  * because they are security bounds, not capacity.
  */
-export function resolveLimits(overrides = {}) {
+export function resolveLimits(overrides = {}, { floors = false } = {}) {
   const out = JSON.parse(JSON.stringify(DEFAULT_LIMITS));
   const ignored = [];
   const o = overrides && typeof overrides === 'object' ? overrides : {};
-  const CEILING = { headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 60_000, bodyBytes: 8 * 1024, streamMaxMs: 4 * 60 * 60 * 1000, authFailuresPerMinutePerPeer: 300, requestsPerConnection: 10_000 };
   for (const k of POSITIVE_INT_KEYS) {
     if (!(k in o)) continue;
     const v = o[k];
     if (!Number.isSafeInteger(v) || v <= 0) { ignored.push(k); continue; }
+    if (floors && v < FLOOR[k]) { ignored.push(`${k} (at least ${FLOOR[k]})`); continue; }
     out[k] = k in CEILING ? Math.min(v, CEILING[k]) : v;
   }
   for (const door of ['inside', 'outside']) {
@@ -69,6 +81,7 @@ export function resolveLimits(overrides = {}) {
       const v = o?.[door]?.[k];
       if (v === undefined) continue;
       if (!Number.isSafeInteger(v) || v <= 0) { ignored.push(`${door}.${k}`); continue; }
+      if (floors && v < DOOR_FLOOR[k]) { ignored.push(`${door}.${k} (at least ${DOOR_FLOOR[k]})`); continue; }
       out[door][k] = v;
     }
   }
@@ -81,16 +94,20 @@ export function resolveLimits(overrides = {}) {
 
 /** A fixed window per key: at most `limit` units per `windowMs`. */
 export class FixedWindow {
-  constructor({ limit, windowMs, now = Date.now }) {
+  constructor({ limit, windowMs, now = Date.now, maxKeys = 50_000 }) {
     this.limit = limit;
     this.windowMs = windowMs;
     this.now = now;
+    this.maxKeys = maxKeys;
     this.windows = new Map();
   }
   #window(key) {
     const t = this.now();
     let w = this.windows.get(key);
     if (!w || t >= w.start + this.windowMs) {
+      // A flood of new keys (one per address) prunes the spent windows itself
+      // instead of waiting for the runtime's sweep (review round 2, R2-N3).
+      if (!w && this.windows.size >= this.maxKeys) this.prune();
       w = { start: t, used: 0 };
       this.windows.set(key, w);
     }

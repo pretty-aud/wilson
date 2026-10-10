@@ -28,7 +28,7 @@ import { makeSecrets, runPowerShell } from '../src/platform/secrets.mjs';
 import { ShareLogins, shareOf, parseSmbConnections } from '../src/platform/shares.mjs';
 import { parseAdapters, linuxNetFacts } from '../src/platform/hostfacts.mjs';
 import { firewallArgs, firewallPortOk, FIREWALL_RULE } from '../updater/updater.mjs';
-import { summaryText, enrolFile, freshPipeKey } from '../src/installer.mjs';
+import { summaryText, enrolFile, freshPipeKey, checkState, serviceSid, TRUSTED_OWNERS, ownersOfWindows } from '../src/installer.mjs';
 import { stateDirFor } from '../src/platform/state.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +235,89 @@ describe('the command and the installer\'s helper', () => {
     expect(enrolFile(dir, 'wgt_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', 'https://x.supabase.co/functions/v1')).toEqual({ ok: true });
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'enrol.json'), 'utf8'))).toEqual({ token: 'wgt_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', cloud: 'https://x.supabase.co/functions/v1' });
     expect(enrolFile(dir, 'nope', null).ok).toBe(false);
+  });
+  it('the trusted owners: SYSTEM, Administrators, and the two services by the SIDs Windows derives (as `sc showsid` prints them)', () => {
+    expect(serviceSid('WilsonGateway')).toBe('S-1-5-80-2351811496-851956760-249805434-1859382024-3382191566');
+    expect(serviceSid('TrustedInstaller')).toBe('S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464');
+    expect(TRUSTED_OWNERS).toEqual(['S-1-5-18', 'S-1-5-32-544', serviceSid('TrustedInstaller'), serviceSid('WilsonGateway')]);
+  });
+  describe('check-state (the MSI, as SYSTEM, before the recursive owner and ACL steps; review round 2, R2-1 and R2-2)', () => {
+    const ADMINS = 'S-1-5-32-544';
+    const USER = 'S-1-5-21-1111111111-2222222222-3333333333-1001';
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    let base;
+    beforeAll(() => { base = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-checkstate-')); });
+    afterAll(() => { fs.rmSync(base, { recursive: true, force: true }); });
+    const tree = (name, files = {}) => {
+      const dir = path.join(base, name);
+      for (const [rel, body] of Object.entries(files)) { const p = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, body); }
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    };
+    const world = (owner = () => ADMINS) => {
+      const calls = [];
+      return {
+        calls,
+        ownersOf: (paths) => { calls.push(['owners', paths.map((p) => path.basename(p))]); return paths.map(owner); },
+        lockFolder: (dir) => { calls.push(['lock', path.basename(dir)]); },
+      };
+    };
+    it('a real folder whose every item is a trusted account\'s: the folder\'s owner read, THEN the folder locked, THEN its items walked and read', () => {
+      const dir = tree('clean', { 'config.json': '{}', 'certs/root.pem': 'x', 'journal/2026-10.jsonl': '' });
+      const w = world();
+      expect(checkState(dir, w)).toEqual({ ok: true, checked: 5 });
+      expect(w.calls.map((c) => c[0])).toEqual(['owners', 'lock', 'owners']);
+      expect(w.calls[0][1]).toEqual(['clean']);
+      expect(w.calls[2][1].sort()).toEqual(['2026-10.jsonl', 'certs', 'config.json', 'journal', 'root.pem']);
+    });
+    it('the state folder itself a link (a junction a local user made before the first install): refused, nothing locked, nothing read', () => {
+      const target = tree('elsewhere', { 'precious.txt': 'x' });
+      const link = path.join(base, 'linked');
+      fs.symlinkSync(target, link, linkType);
+      const w = world();
+      const r = checkState(link, w);
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/is a link \(a junction or a symbolic link\), not a folder\. The install stops/);
+      expect(w.calls).toEqual([]);
+    });
+    it('a link inside it: refused by name, after the lock (so none can be added after the check)', () => {
+      const dir = tree('withlink', { 'config.json': '{}' });
+      fs.symlinkSync(tree('elsewhere2', { 'x.txt': 'x' }), path.join(dir, 'certs'), linkType);
+      const w = world();
+      const r = checkState(dir, w);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain(`${path.join(dir, 'certs')} is a link`);
+      expect(w.calls.map((c) => c[0])).toEqual(['owners', 'lock']);
+    });
+    it('a config.json another account made (planted before the install): refused, naming it and its owner', () => {
+      const dir = tree('planted', { 'config.json': '{"connect_without_login":["attacker-nas"]}', 'state.json': '{}' });
+      const r = checkState(dir, world((p) => (path.basename(p) === 'config.json' ? USER : ADMINS)));
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain(`1 item(s) in ${path.resolve(dir)} were made by another account: config.json (${USER})`);
+    });
+    it('the folder itself made by another account: refused before it is locked', () => {
+      const dir = tree('theirs');
+      const w = world(() => USER);
+      expect(checkState(dir, w).error).toMatch(/was made by another account \(S-1-5-21-/);
+      expect(w.calls.map((c) => c[0])).toEqual(['owners']);
+    });
+    it('an owner that cannot be read is no trusted owner', () => {
+      const dir = tree('unreadable', { 'config.json': '{}' });
+      expect(checkState(dir, world((p) => (path.basename(p) === 'config.json' ? 'UNREADABLE' : ADMINS))).ok).toBe(false);
+    });
+    it.runIf(process.platform === 'win32')('Windows, for real: the owners read by PowerShell (any name, through base64) are this user\'s, so check-state refuses this folder; the command exits 1', () => {
+      const dir = tree('mine', { 'Día 02.txt': 'x', 'config.json': '{}' });
+      const owners = ownersOfWindows([dir, path.join(dir, 'Día 02.txt'), path.join(dir, 'config.json')]);
+      expect(owners).toHaveLength(3);
+      for (const o of owners) expect(o).toMatch(/^S-1-5-21-\d+-\d+-\d+-\d+$/);
+      expect(new Set(owners).size).toBe(1);
+      const r = checkState(dir, { ownersOf: ownersOfWindows, lockFolder: () => { throw new Error('must not lock a folder this user owns'); } });
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain(`was made by another account (${owners[0]})`);
+      const run = spawnSync(process.execPath, [path.join(HERE, '..', 'src', 'installer.mjs'), 'check-state', dir], { encoding: 'utf8' });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toMatch(/^check-state: .*was made by another account/);
+    });
   });
   it('fresh-pipe-key (the MSI, as SYSTEM, after the owner and the ACL): a planted pipe.key is replaced by 32 new random bytes, which the services then read (review round 1, finding 5)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-pipekey-'));
