@@ -321,8 +321,11 @@ SELECT is(
   'edit_history_select: 0012''s arms, 0088''s money arm, and the Legal arm on is_legal rows');            -- 17
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events' AND policyname = 'file_events_select'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))))',
-  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1)'); -- 18
+  -- 0093 (GW1) restated every arm below and added ONE conjunct: a
+  -- viewed_remote row is a LIVE admin's. The arms this suite pins are
+  -- unchanged; suite 96 re-proves each of them caller by caller.
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)))',
+  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings'); -- 18
 
 -- A19-A20: edit_history's is_legal snapshot column, the classifier's three
 -- answers, the trigger; the DEFINER pieces closed to clients.
