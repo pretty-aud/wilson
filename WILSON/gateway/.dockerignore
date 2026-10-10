@@ -1,0 +1,9 @@
+# Only package.json, src/ and updater/ go into the image.
+test
+windows
+container
+.config
+.wix
+out
+nuget.config
+*.md

@@ -1,0 +1,123 @@
+{
+  "description": "GW2 fixture: a throwaway Ed25519 key pair, never a real key. Tickets in the wire format of the GW1/GW2 briefs (\"The wire, fixed\"). Verdicts at `now` for gateway `gateway_id` in workspace `workspace_id`.",
+  "alg": "Ed25519",
+  "kid": "gw2fixture1",
+  "public_key": "/CUgYhkuJqd6QM7gYdljljOAox/cIzib5lvJY8auw6c=",
+  "private_key_pkcs8": "MC4CAQAwBQYDK2VwBCIEIMzIFdgqLvAaNgv8jCBJ/R4NPNAtM8SKPlyjG+g1SRsj",
+  "gateway_id": "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601",
+  "workspace_id": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+  "now": 1791590400,
+  "skew_s": 30,
+  "tickets": [
+    {
+      "name": "valid_rv_false",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJndzJmaXh0dXJlMSIsImd3IjoiNmYxYzJhM2ItNGQ1ZS00ZjYwLThhNzEtYjJjM2Q0ZTVmNjAxIiwid3MiOiIwYTFiMmMzZC00ZTVmLTRhNmItOWM3ZC04ZTlmYTBiMWMyZDMiLCJzdWIiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJjbGlwIjoiOTk5OTk5OTktODg4OC00Nzc3LWI2NjYtNTU1NTU1NTU1NTU1IiwibG9jIjoiYWFhYWFhYWEtYmJiYi00Y2NjLThkZGQtZWVlZWVlZWVlZWVlIiwicGF0aCI6IkRheSAwMS9BMDAxQzAwM18yNDA2MTJfUjFBQi5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNTkwMzkwLCJleHAiOjE3OTE1OTA1MTAsImp0aSI6IjNlYmFjZWQ0MjRlYzM4OGM2NDkzZTFmMGM4NGJkNmE3In0.yILpIB5-DbeZVvT7ry5Dic6q_CPegNNSsiglDF1jN390PsZ1fw9moKdv75U_tmwf7fgQbmi8SLsCCrcjKucHBA",
+      "claims": {
+        "v": 1,
+        "kid": "gw2fixture1",
+        "gw": "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601",
+        "ws": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+        "sub": "11111111-2222-4333-8444-555555555555",
+        "clip": "99999999-8888-4777-b666-555555555555",
+        "loc": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "path": "Day 01/A001C003_240612_R1AB.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791590390,
+        "exp": 1791590510,
+        "jti": "3ebaced424ec388c6493e1f0c84bd6a7"
+      },
+      "verdict": "valid",
+      "reason": null
+    },
+    {
+      "name": "valid_rv_true",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJndzJmaXh0dXJlMSIsImd3IjoiNmYxYzJhM2ItNGQ1ZS00ZjYwLThhNzEtYjJjM2Q0ZTVmNjAxIiwid3MiOiIwYTFiMmMzZC00ZTVmLTRhNmItOWM3ZC04ZTlmYTBiMWMyZDMiLCJzdWIiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJjbGlwIjoiOTk5OTk5OTktODg4OC00Nzc3LWI2NjYtNTU1NTU1NTU1NTU1IiwibG9jIjoiYWFhYWFhYWEtYmJiYi00Y2NjLThkZGQtZWVlZWVlZWVlZWVlIiwicGF0aCI6IkRheSAwMS9BMDAxQzAwM18yNDA2MTJfUjFBQi5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2Ijp0cnVlLCJpYXQiOjE3OTE1OTAzOTAsImV4cCI6MTc5MTU5MDUxMCwianRpIjoiM2FjMmM3NTYwYzhiYTVlMDQ0MDg0ODZlNzRjNDI3ZGIifQ.xJG-GlvoKYdana6b3ry_NHWw4OsjMBzEZCKjTvgRjbUxcW588lWimmGqUHWXQ6zU9bya09At5xrVwqHZbai2Aw",
+      "claims": {
+        "v": 1,
+        "kid": "gw2fixture1",
+        "gw": "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601",
+        "ws": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+        "sub": "11111111-2222-4333-8444-555555555555",
+        "clip": "99999999-8888-4777-b666-555555555555",
+        "loc": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "path": "Day 01/A001C003_240612_R1AB.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": true,
+        "iat": 1791590390,
+        "exp": 1791590510,
+        "jti": "3ac2c7560c8ba5e04408486e74c427db"
+      },
+      "verdict": "valid",
+      "reason": null
+    },
+    {
+      "name": "expired",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJndzJmaXh0dXJlMSIsImd3IjoiNmYxYzJhM2ItNGQ1ZS00ZjYwLThhNzEtYjJjM2Q0ZTVmNjAxIiwid3MiOiIwYTFiMmMzZC00ZTVmLTRhNmItOWM3ZC04ZTlmYTBiMWMyZDMiLCJzdWIiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJjbGlwIjoiOTk5OTk5OTktODg4OC00Nzc3LWI2NjYtNTU1NTU1NTU1NTU1IiwibG9jIjoiYWFhYWFhYWEtYmJiYi00Y2NjLThkZGQtZWVlZWVlZWVlZWVlIiwicGF0aCI6IkRheSAwMS9BMDAxQzAwM18yNDA2MTJfUjFBQi5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNTkwMDAwLCJleHAiOjE3OTE1OTAxMjAsImp0aSI6IjZlNGMyMTRmMzI5NjQ2MDBlMGU5MjhiOGVjY2Y1NTUyIn0.q-qGXPeLDMAlpGPmhTY-buMK55MGeszBqfH1Uyw7htxq-iAlX7aZneyT2iHtmIrPohV1wt5jcAvlGYbIVT3vBw",
+      "claims": {
+        "v": 1,
+        "kid": "gw2fixture1",
+        "gw": "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601",
+        "ws": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+        "sub": "11111111-2222-4333-8444-555555555555",
+        "clip": "99999999-8888-4777-b666-555555555555",
+        "loc": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "path": "Day 01/A001C003_240612_R1AB.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791590000,
+        "exp": 1791590120,
+        "jti": "6e4c214f32964600e0e928b8eccf5552"
+      },
+      "verdict": "invalid",
+      "reason": "expired"
+    },
+    {
+      "name": "another_gateway",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJndzJmaXh0dXJlMSIsImd3IjoiN2YxYzJhM2ItNGQ1ZS00ZjYwLThhNzEtYjJjM2Q0ZTVmNjAyIiwid3MiOiIwYTFiMmMzZC00ZTVmLTRhNmItOWM3ZC04ZTlmYTBiMWMyZDMiLCJzdWIiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJjbGlwIjoiOTk5OTk5OTktODg4OC00Nzc3LWI2NjYtNTU1NTU1NTU1NTU1IiwibG9jIjoiYWFhYWFhYWEtYmJiYi00Y2NjLThkZGQtZWVlZWVlZWVlZWVlIiwicGF0aCI6IkRheSAwMS9BMDAxQzAwM18yNDA2MTJfUjFBQi5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNTkwMzkwLCJleHAiOjE3OTE1OTA1MTAsImp0aSI6IjQ0YmE1NzQzYTA0YTcwNGVkMTY1NzFmZTc5MmIxZmM5In0.M8GAweB5buTUAbeVebvLZj_tALwUoLWQRm8CnXueo1LAUEm2CRfsE7Osb6BQ5LnZscjHcF3jzWJhO3AMQZelBQ",
+      "claims": {
+        "v": 1,
+        "kid": "gw2fixture1",
+        "gw": "7f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f602",
+        "ws": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+        "sub": "11111111-2222-4333-8444-555555555555",
+        "clip": "99999999-8888-4777-b666-555555555555",
+        "loc": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "path": "Day 01/A001C003_240612_R1AB.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791590390,
+        "exp": 1791590510,
+        "jti": "44ba5743a04a704ed16571fe792b1fc9"
+      },
+      "verdict": "invalid",
+      "reason": "wrong_gateway"
+    },
+    {
+      "name": "flipped_signature_byte",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJndzJmaXh0dXJlMSIsImd3IjoiNmYxYzJhM2ItNGQ1ZS00ZjYwLThhNzEtYjJjM2Q0ZTVmNjAxIiwid3MiOiIwYTFiMmMzZC00ZTVmLTRhNmItOWM3ZC04ZTlmYTBiMWMyZDMiLCJzdWIiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJjbGlwIjoiOTk5OTk5OTktODg4OC00Nzc3LWI2NjYtNTU1NTU1NTU1NTU1IiwibG9jIjoiYWFhYWFhYWEtYmJiYi00Y2NjLThkZGQtZWVlZWVlZWVlZWVlIiwicGF0aCI6IkRheSAwMS9BMDAxQzAwM18yNDA2MTJfUjFBQi5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNTkwMzkwLCJleHAiOjE3OTE1OTA1MTAsImp0aSI6IjVhZjQwOGNhOWQ1MTYzZTZjMGE5NTI5YTk3ZDJiZTBjIn0.brrKWK_nYnn8YzKTWTjl3lj_lAsiqgUZI5CXrruv84EIR9IvkxQXSBmFf2FpCAWXrrbLrQNhheV3xAyj6ggSAg",
+      "claims": {
+        "v": 1,
+        "kid": "gw2fixture1",
+        "gw": "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601",
+        "ws": "0a1b2c3d-4e5f-4a6b-9c7d-8e9fa0b1c2d3",
+        "sub": "11111111-2222-4333-8444-555555555555",
+        "clip": "99999999-8888-4777-b666-555555555555",
+        "loc": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "path": "Day 01/A001C003_240612_R1AB.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791590390,
+        "exp": 1791590510,
+        "jti": "5af408ca9d5163e6c0a9529a97d2be0c"
+      },
+      "verdict": "invalid",
+      "reason": "signature"
+    }
+  ]
+}
