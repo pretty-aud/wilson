@@ -567,8 +567,8 @@ SELECT throws_ok(
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT ok(
-  (SELECT reach_ok IS NULL AND reach_detail = 'address_changed' FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid),
-  'a new outside address clears reach_ok: nothing is published before a check (F16)');
+  (SELECT reach_ok IS NULL AND reach_checked_at IS NULL AND reach_detail = 'address_changed' FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid),
+  'a new outside address clears reach_ok and the last check''s time: nothing is published before a check of THIS address (F16), and the next sync begins one');
 SELECT is(
   (SELECT array_agg(action ORDER BY id) FROM public.workspace_audit
     WHERE gateway_id = current_setting('wg96.gw')::uuid

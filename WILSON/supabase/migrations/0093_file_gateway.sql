@@ -708,7 +708,11 @@ BEGIN
   END IF;
   NEW.name := btrim(NEW.name);
   IF NEW.outside_address IS DISTINCT FROM OLD.outside_address THEN
+    -- reach_checked_at too: the last check was of ANOTHER address, and a
+    -- NULL here is what makes the next sync begin a check at once
+    -- (measured on dev, GW1: without it a new address waited a day).
     NEW.reach_ok := NULL;
+    NEW.reach_checked_at := NULL;
     NEW.reach_detail := 'address_changed';
     NEW.reach_result := '{}'::jsonb;
     NEW.reach_check_id := NULL;
