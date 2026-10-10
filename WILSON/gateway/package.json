@@ -1,0 +1,17 @@
+{
+  "name": "wilson-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The WILSON file gateway: serves a company's bin clips from its share to the WILSON web app over two HTTPS doors. The design is docs/design/GATEWAY_DESIGN.md.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "wilson-gateway": "src/cli.mjs"
+  },
+  "dependencies": {},
+  "scripts": {
+    "test": "cd .. && npx vitest run gateway"
+  }
+}
