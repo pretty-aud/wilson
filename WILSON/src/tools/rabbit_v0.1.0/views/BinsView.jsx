@@ -33,6 +33,8 @@ import { addedByName, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CO
 import { binsModeOf } from '../bins/browserCatalogue'
 import PosterLarge from './bins/PosterLarge'
 import { useProjectAccess } from '../state/useProjectAccess'
+// GW1: the workspace matrix (pure), for the one admin-only line below.
+import { can as canInWorkspace } from '../../../permissions/roleMatrix'
 import { C, Btn, IconBtn, Chip, Menu, Modal, EmptyState, Kbd, Loading, MediaTag, ColorDot, Select, Banner, visibleOverlayOpen, OVER_THE_VIEW, drawerOnScreen } from './bins/binUi'
 import BinTree from './bins/BinTree'
 import BinFileTable from './bins/BinFileTable'
@@ -90,7 +92,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // list gate, which admits REVIEWERS (Audrey: "Reviewers same as members").
   // `project.entity.write` refused them. On the signed-out desktop the two
   // read the same (no roles: both open), so B12 holds.
-  const { can, reasonFor } = useProjectAccess()
+  const { can, reasonFor, gateCtx } = useProjectAccess()
   const canWrite = can('project.bins.write')
   const writeReason = reasonFor('project.bins.write')
   const supports = !!ctx?.supportsBins
@@ -288,6 +290,13 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   // the provider's browser probe posted, from any tab.
   const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev + (ctx?.binsInfo?.posterRev || 0)), [ctx, thumbRev])
   const streamUrlFor = useCallback((id) => ctx?.binFileStreamUrl?.(id), [ctx])
+  // GW1 (GATEWAY_DESIGN.md §6): "Viewed from outside 3 times, last by Priya
+  // on 9 Oct" — one line in the inspector, for a workspace admin only: the
+  // role (the switch's rule) AND the matrix's workspace.audit.read, as the
+  // database's live-admin read says. Everyone else is never asked about it.
+  const auditor = gateCtx?.appRole === 'admin' && canInWorkspace(gateCtx.appRole, 'workspace.audit.read')
+  const remoteViewsOfClip = ctx?.remoteViewsOfClip
+  const remoteViewsFor = useMemo(() => (auditor && typeof remoteViewsOfClip === 'function' ? remoteViewsOfClip : null), [auditor, remoteViewsOfClip])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
   // BC2: a company's clip names its footage location and who added it (B11).
   const locationById = useMemo(() => new Map((ctx?.binLocations || []).map(l => [l.id, l])), [ctx?.binLocations])
@@ -1189,7 +1198,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive}
-          locationOf={locationOf} addedByOf={addedByOf}
+          locationOf={locationOf} addedByOf={addedByOf} remoteViewsFor={remoteViewsFor}
           canStream={mode.canStream} canOpen={mode.canOpen} canProbe={mode.canProbe} catalogue={catalogue} />
       </div>
 

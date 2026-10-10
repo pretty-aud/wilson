@@ -973,6 +973,140 @@
     text-transform: uppercase;
     color: var(--color-ink-light);
   }
+
+  /* ── File gateway (GW1, 2026-10-10) ───────────────────────────────────
+     One ink here too, so the health line's states are carried by weight and
+     form (the scale's two weights, 400 and 600, and no new heavy edge): a
+     warning phrase is set at 600, the words §8 bolds inside it
+     (*not mounted*) carry a dashed underline as well, and the one error (the
+     office door reached from the internet) is the page's own error block,
+     never an inline colour. */
+  .s-gw-line {
+    max-width: none;
+  }
+  .s-gw-phrase[data-tone='warning'] {
+    font-weight: 600;
+  }
+  .s-gw-phrase b {
+    font-weight: 600;
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+    text-underline-offset: 2px;
+  }
+  [data-gateway-row] .s-row-label .s-feedback {
+    margin-top: 8px;
+  }
+  .s-gw-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .s-gw-edit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  /* A clip's name is one token: it breaks only where it must. */
+  .s-gw-table .s-gw-clip {
+    overflow-wrap: anywhere;
+  }
+  /* The token and the cloud address: data, read once and copied, so the
+     mono at the H3 step in a well, selectable as one word. */
+  .s-gw-token {
+    display: inline-block;
+    max-width: 100%;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: var(--text-h3);
+    letter-spacing: 0.04em;
+    overflow-wrap: anywhere;
+    user-select: all;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border: 1px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
+  }
+  .s-gw-token[data-size='small'] {
+    font-size: var(--text-dense);
+    letter-spacing: 0;
+  }
+  .s-gw-story,
+  .s-gw-cert {
+    margin-top: 12px;
+    max-width: var(--measure-reading);
+    font-size: var(--text-dense);
+    line-height: 1.5;
+    color: var(--color-ink-light);
+  }
+  .s-gw-story ol {
+    list-style: decimal;
+    margin: 8px 0;
+    padding-left: 20px;
+  }
+  .s-gw-story ol > li {
+    margin-top: 6px;
+  }
+  .s-gw-story ul {
+    list-style: disc;
+    margin-top: 4px;
+    padding-left: 18px;
+  }
+  /* The computed mount lines (Tesler): the admin's own locations, in a well
+     under the step that asks for them. */
+  .s-gw-story .s-gw-mounts {
+    list-style: none;
+    margin: 6px 0;
+    padding: 6px 10px;
+    background-color: var(--color-well-light);
+    border-radius: var(--radius-control);
+  }
+  .s-gw-props {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 12px;
+    align-items: center;
+    margin-top: 8px;
+    font-size: var(--text-caption);
+    color: var(--color-ink-light);
+  }
+  /* Peak-end: the first time the gateway is reached from outside. */
+  .s-gw-peak {
+    font-weight: 600;
+  }
+  .s-gw-group-desc {
+    margin-bottom: 8px;
+  }
+  .s-gw-table-wrap {
+    overflow-x: auto;
+  }
+  .s-gw-table th,
+  .s-gw-table td {
+    text-align: left;
+    vertical-align: top;
+  }
+  .s-gw-table th {
+    padding-top: 8px;
+  }
+  .s-gw-table td {
+    height: auto;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    line-height: 1.4;
+    overflow-wrap: break-word;
+  }
+  .s-gw-audit {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-dense);
+    color: var(--color-ink-light);
+  }
+  .s-gw-audit li {
+    padding: 6px 0;
+    line-height: 1.4;
+    border-bottom: 1px solid var(--color-rule-light);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════

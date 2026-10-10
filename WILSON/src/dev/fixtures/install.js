@@ -13,6 +13,7 @@ import { installDevFixtures } from '../devFixtures'
 import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
+import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
 import { BUILTIN } from '../../lib/aiModels'
@@ -64,6 +65,13 @@ export function buildDevFixtures({ variant = null, bins = null } = {}) {
     },
 
     otter: createOtterFixturesHandler(store, identity),
+
+    /**
+     * GW1: what src/cloud/gatewayApi.js answers from — Settings, Storage,
+     * File gateway and the Bins inspector's one line, without a database.
+     * `?gateways=empty` starts before the company's first gateway.
+     */
+    gateways: createGatewayFixtures(store, identity, { mode: gatewayFixtureMode() }),
 
     /** What useWorkspaceMembers / ProfileSection read and write. */
     workspace: {

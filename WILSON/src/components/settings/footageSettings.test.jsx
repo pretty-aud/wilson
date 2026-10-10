@@ -17,6 +17,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import React from 'react'
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const holder = vi.hoisted(() => ({ ctx: null, perms: { ready: true, role: 'admin', workspaceId: 'w1' } }))
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => holder.ctx }))
@@ -236,6 +238,25 @@ describe('the switch: admins only, off by default, the §4b sentence at the swit
     holder.ctx = switchCtx({ binsInfo: { locations: [], remoteViewing: null } })
     render(<RemoteViewingSection />)
     expect(screen.getByRole('switch').disabled).toBe(true)
+  })
+
+  // GW1 (2026-10-10): GATEWAY_DESIGN.md §9 point 7 — the card's description
+  // says what the switch now does to the gateway's outside door, word for
+  // word, in place of "comes with the WILSON file gateway, later"; the label
+  // and the TPN sentence are unchanged and first.
+  it('the description is §9 point 7\'s, verbatim; the label and the TPN sentence stay first', () => {
+    holder.ctx = switchCtx()
+    render(<RemoteViewingSection />)
+    const design = readFileSync(resolve(process.cwd(), 'docs/design/GATEWAY_DESIGN.md'), 'utf8')
+    const point7 = design.match(/^7\. \*\*The control\*\*.*? to \*(While it is on, the gateway[^*]+)\*/m)[1]
+    const desc = document.querySelector('.s-section-desc').textContent
+    expect(desc).toContain(point7)
+    expect(desc).not.toContain('comes with the WILSON file gateway, later')
+    // The VPN clause is there (review round 2, R9): a VPN user's viewing is not written down.
+    expect(point7).toContain('people on the office network or the company\'s VPN use the office door, which writes nothing down')
+    const label = theRow().querySelector('label.s-card-title')
+    expect(label.textContent).toBe(REMOTE_VIEWING_LABEL)
+    expect(label.nextElementSibling.textContent).toBe(REMOTE_VIEWING_TPN_SENTENCE)
   })
 
   it('everyone else: its state, the TPN sentence, and why they cannot change it — no switch', () => {

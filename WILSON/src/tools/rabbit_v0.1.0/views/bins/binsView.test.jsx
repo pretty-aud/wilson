@@ -28,13 +28,15 @@ const state = vi.hoisted(() => ({ ctx: null }))
 vi.mock('../../state/RabbitProvider', () => ({ useRabbit: () => state.ctx }))
 // BC2: the tab gates on can('project.bins.write') (B6, reviewers included);
 // the mock answers the hook's whole shape, every action allowed.
-vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrite: true, writeReason: null, can: () => true, reasonFor: () => null }) }))
+// GW1: `gateCtx.appRole` is the workspace role the inspector's admin line reads.
+const access = vi.hoisted(() => ({ appRole: undefined }))
+vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => ({ canWrite: true, writeReason: null, can: () => true, reasonFor: () => null, gateCtx: { appRole: access.appRole } }) }))
 const { default: BinsView } = await import('../BinsView')
 const { BINS_SHORTCUTS } = await import('../../rabbitHelpContent')
 const { COLORS } = await import('../../bins/binMedia')
 const { Dialog, Drawer } = await import('../../../../ui')
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); access.appRole = undefined })
 
 const makeCtx = (n) => ({
   supportsBins: true, activeProjectId: 'p1', project: { fps: 24 },
@@ -377,4 +379,43 @@ describe('the frame view moves by the grid\'s REAL column count (review part 5, 
     const at = [...document.querySelectorAll('[role="gridcell"]')].findIndex(t => t.getAttribute('aria-selected') === 'true')
     expect(at).toBe(5)
   })
+})
+
+// GW1 (GATEWAY_DESIGN.md §6): "Viewed from outside 3 times, last by Priya on
+// 9 Oct" — one line in the inspector for a workspace ADMIN, behind the role
+// and the matrix's workspace.audit.read; nobody else's inspector asks.
+describe('GW1 — the inspector\'s one line about viewings from outside', () => {
+  const cloud = (n) => {
+    const ctx = makeCtx(n)
+    ctx.binFiles = ctx.binFiles.map((f) => ({ ...f, location_id: 'L1', relative_path: `A001/${f.original_name}` }))
+    ctx.remoteViewsOfClip = vi.fn(async () => ({ count: 3, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' } }))
+    return ctx
+  }
+  const pickFirst = async () => { await act(async () => { fireEvent.keyDown(document.body, { key: 'Home' }) }) }
+
+  it('an admin selecting a company clip reads the line', async () => {
+    access.appRole = 'admin'
+    state.ctx = cloud(3)
+    render(<BinsView pageActive />)
+    await act(async () => {})
+    await pickFirst()
+    expect((await screen.findByTestId('bin-remote-views')).textContent).toBe('Viewed from outside 3 times, last by Priya on 9 Oct')
+    // Asked once, for the one clip selected (Home: the first in the view's order).
+    expect(state.ctx.remoteViewsOfClip).toHaveBeenCalledTimes(1)
+    const asked = state.ctx.remoteViewsOfClip.mock.calls[0][0]
+    expect(state.ctx.binFiles.map((f) => f.id)).toContain(asked)
+  })
+
+  for (const role of ['manager', 'user', undefined]) {
+    it(`a ${role ?? 'signed-out'} reader's inspector never asks (CONTROL)`, async () => {
+      access.appRole = role
+      state.ctx = cloud(3)
+      render(<BinsView pageActive />)
+      await act(async () => {})
+      await pickFirst()
+      expect(selectedCount()).toBe(1)
+      expect(state.ctx.remoteViewsOfClip).not.toHaveBeenCalled()
+      expect(screen.queryByTestId('bin-remote-views')).toBeNull()
+    })
+  }
 })

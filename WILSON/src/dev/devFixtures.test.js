@@ -45,6 +45,8 @@ const outsideDev = files.filter((p) => !rel(p).startsWith('dev/'))
 const SEAMS = [
   'cloud/adminApi.js',
   'cloud/auth/InviteMemberDialog.jsx',
+  // GW1 (2026-10-10): the file gateway's calls answer from the fixtures.
+  'cloud/gatewayApi.js',
   'components/AdminTerminal/MultiInviteDialog.jsx',
   'components/TeamMembers/TeamMembersPage.jsx',
   'components/TeamMembers/useWorkspaceMembers.js',
@@ -94,6 +96,8 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       ['cloud/adminApi.js', /fetch\(/],
       ['cloud/auth/InviteMemberDialog.jsx', /supabase\.auth\.getSession\(\)/],
       ['components/AdminTerminal/MultiInviteDialog.jsx', /supabase\.auth\.getSession\(\)/],
+      // GW1: Check reach is the one function call of the gateway's API.
+      ['cloud/gatewayApi.js', /fetch\(/],
     ]
     for (const [f, call] of guarded) {
       const code = codeLines(read(join(SRC, f))).join('\n')
@@ -158,7 +162,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // (shotRefiling.js — what is pending, and where it goes), so the fake
     // cloud re-files a project exactly as the real adapter does.
     const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels', 'tools/rabbit_v0.1.0/fileTags',
-      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath', 'tools/rabbit_v0.1.0/state/setAside', 'tools/rabbit_v0.1.0/shotRefiling']
+      'tools/rabbit_v0.1.0/state/budgetVersionModel', 'components/Budget/budgetMath', 'tools/rabbit_v0.1.0/state/setAside', 'tools/rabbit_v0.1.0/shotRefiling',
+      // GW1: the gateway card's rules (gatewayWords.js), so the fake cloud
+      // refuses an address or a range exactly as 0093's CHECKs do.
+      'components/settings/gatewayWords']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -176,6 +183,8 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // the first cut's `[^;\n]*` stopped at the first one).
     const importsSomething = (s) => /\bimport\b|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\b|\brequire\s*\(/.test(codeOf(s))
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js')))).toBe(false)
+    // The GW1 loosening, proven the same way: gatewayWords imports nothing.
+    expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The S5 loosening, proven the same way: budgetMath imports nothing, and
     // budgetVersionModel imports dates.js and only dates.js, which imports
     // nothing — so neither can carry the fixtures anywhere either.

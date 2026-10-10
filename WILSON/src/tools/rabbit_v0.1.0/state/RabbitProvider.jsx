@@ -5526,6 +5526,14 @@ export function RabbitProvider({ children }) {
     const a = binsBackend();
     return (a && typeof a.binFileStreamUrl === 'function' && activeProjectId) ? a.binFileStreamUrl(activeProjectId, id, opts) : null;
   }, [activeProjectId, binsBackend]);
+  // GW1 (0093): one clip's viewings from outside the office — the cloud's
+  // audit, so the project adapter answers it (on the desktop signed in as in
+  // a browser); null where no adapter keeps one (the Local Server). BinsView
+  // asks only for a workspace admin, and the policy answers no one else.
+  const remoteViewsOfClip = useCallback(async (id) => {
+    const a = adapterRef.current;
+    return (a && typeof a.remoteViewsOfClip === 'function') ? a.remoteViewsOfClip(id) : null;
+  }, []);
 
   // ── The renderer's own probe (no ffmpeg on this machine) ──
   // Chromium decodes H.264 MP4 / WebM, the common audio formats and images: a
@@ -7556,6 +7564,8 @@ export function RabbitProvider({ children }) {
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
+    // GW1: one clip's viewings from outside (the inspector's line, admins).
+    remoteViewsOfClip,
     // Footage locations and the company's switch (BC1).
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     // BC2: the switch read without a project; where a location is on THIS computer;
@@ -7648,7 +7658,7 @@ export function RabbitProvider({ children }) {
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
-    binRelinkScan, binRelinkApply, removeBinRoot,
+    binRelinkScan, binRelinkApply, removeBinRoot, remoteViewsOfClip,
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, connectBinLocation, desktopBinFiles,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,

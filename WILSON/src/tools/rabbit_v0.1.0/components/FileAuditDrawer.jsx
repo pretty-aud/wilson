@@ -6,7 +6,10 @@
 // from adapter.listFileEvents(). (The eighth term, upload_abandoned - 0073,
 // Track C - is written under a SURROGATE file_id and so never appears in this
 // per-file drawer; FILE_EVENT_META carries its label for the surfaces that do
-// render it.) In cloud mode that is the trigger-fed
+// render it. The ninth, viewed_remote — GW1, 0093 — is a clip played through
+// the file gateway's outside door, readable by live workspace admins only;
+// its `subject` says the id names a clip, and its card says through which
+// gateway, from where and how much.) In cloud mode that is the trigger-fed
 // file_events table (migration 0027, readable by every project reader,
 // not just admins — unlike edit_history; since 0074 an invoice's events are
 // the money audience's, since 0088 a Legal file's too, and since 0092 —
@@ -54,12 +57,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, RefreshCw, FileClock, Upload, Download, MoveRight, Link2, Trash2, RotateCcw, Flame,
-  CloudOff,
+  CloudOff, Globe,
 } from 'lucide-react'
 import { Drawer, IconButton, Badge, Banner, Loading, EmptyState } from '../../../ui'
 import '../views/rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
 import { formatHistoryTimestamp } from './editHistoryFormat'
+// GW1: a viewing from outside says how much, from where and through which
+// gateway in the Settings table's own words (one module, so they agree).
+import { howMuchWords, whereWords } from '../../../components/settings/gatewayWords'
 
 // `tone` is the badge's place in the colour language, read by the sheet
 // (`data-tone`): create | change | destroy | read.
@@ -80,6 +86,26 @@ export const FILE_EVENT_META = {
   // a future project-level stream) has a word for it rather than a blank.
   // Its tone is the destruction one (the track gave it trashed's colour).
   upload_abandoned: { label: 'Upload abandoned', tone: 'destroy', Icon: CloudOff },
+  // GW1 / 0093 (GATEWAY_DESIGN.md §6, her G6): a clip played through the file
+  // gateway's OUTSIDE door — one row per viewing, written by gateway-events
+  // and readable by live workspace admins only. A read, so the read tone the
+  // `downloaded` row uses. Its `subject` is 'bin_file': the id names a clip.
+  viewed_remote: { label: 'Viewed from outside', tone: 'read', Icon: Globe },
+}
+
+/**
+ * What a row's `file_id` names (0093's `subject`): 'file' (public.files,
+ * every event before 0093) or 'bin_file' (a clip in a bin, the viewings from
+ * outside). A row with no subject is a file's, as every row was before.
+ */
+function eventSubject(evt) {
+  return evt?.subject === 'bin_file' ? 'bin_file' : 'file'
+}
+
+/** A viewing from outside, in words: through which gateway, from where, how much. */
+function viewingLine(details = {}) {
+  const through = details.gateway_name ? `Through ${details.gateway_name}, from ` : 'From '
+  return `${through}${whereWords(details)} · ${howMuchWords(details)}`
 }
 
 export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }) {
@@ -179,6 +205,11 @@ function FileEventCard({ evt }) {
           {formatHistoryTimestamp(evt.created_at)}
         </span>
       </div>
+      {eventSubject(evt) === 'bin_file' && evt.details && (
+        <div className="rb-audit-paths">
+          <span className="rb-audit-path" data-subject="bin_file">{viewingLine(evt.details)}</span>
+        </div>
+      )}
       {(evt.old_path || evt.new_path) && (
         <div className="rb-audit-paths">
           {evt.old_path && (

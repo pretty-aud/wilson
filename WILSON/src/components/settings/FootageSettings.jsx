@@ -251,7 +251,7 @@ export function RemoteViewingSection() {
   return (
     <Section
       title="Viewing from outside the office network"
-      description="Off by default. While it is off, no picture of a clip leaves the office network: teammates on the network make their own from the file. While it is on, a small picture of each clip is kept in the cloud, so people who cannot reach the share still see what it is. Playing footage from outside the office comes with the WILSON file gateway, later. Turning it off deletes nothing: pictures already uploaded stay until their clips are removed."
+      description="Off by default. While it is off, no picture of a clip leaves the office network: teammates on the network make their own from the file. While it is on, a small picture of each clip is kept in the cloud, so people who cannot reach the share still see what it is. While it is on, the gateway's outside door is open and every viewing through it is written down (who, which clip, when, how much); people on the office network or the company's VPN use the office door, which writes nothing down; while it is off the outside door is closed and nothing answers from outside. Turning it off deletes nothing: pictures already uploaded stay until their clips are removed."
     >
       <Group>
         {/* The switch's label is a sentence, so it takes the sentence-case

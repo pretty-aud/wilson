@@ -3051,6 +3051,30 @@ export function supabaseAdapter() {
       return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
     },
 
+    // ── Viewed from outside (GW1, migration 0093) ─────────────
+    // One clip's viewings through the file gateway's OUTSIDE door, for the
+    // Bins inspector's one line: { count, last: { actor_label, created_at } }.
+    // file_events_select shows viewed_remote rows to LIVE workspace admins
+    // only, so anyone else counts none — and BinsView asks only for an admin.
+    // A database before 0093 has no `subject` column: none, not an error.
+    async remoteViewsOfClip(binFileId) {
+      const client = await requireClient();
+      const { data, error, count } = await client
+        .from('file_events')
+        .select('actor_label, created_at', { count: 'exact' })
+        .eq('event', 'viewed_remote')
+        .eq('subject', 'bin_file')
+        .eq('file_id', binFileId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || error.code === '22P02') return { count: 0, last: null };
+        lastError = error.message;
+        throw new Error(`[supabase] remoteViewsOfClip failed: ${error.message}`);
+      }
+      return { count: count ?? (data || []).length, last: (data || [])[0] ?? null };
+    },
+
     // ── File lifecycle events (Session 14, migration 0027) ────
     // Read-only: file_events is populated by DB triggers on files; RLS
     // scopes reads to project readers + workspace admins. Second arg

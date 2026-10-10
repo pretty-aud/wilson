@@ -648,6 +648,16 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id) && !(isLegalRow(f) && passesLegalGate(f.project_id))) return []
       return clone(store.fileEvents.filter(e => e.file_id === fileId).sort((a, b) => b.created_at.localeCompare(a.created_at)))
     },
+    // GW1 (0093): one clip's viewings from outside the office, as the cloud
+    // answers a LIVE workspace admin (and nobody else: file_events_select).
+    // The rows are the gateway fixture's (gatewayFixtures.js seeds them into
+    // the store), so Settings' table and the inspector's line agree.
+    async remoteViewsOfClip(binFileId) {
+      if (appRole !== 'admin') return { count: 0, last: null }
+      const rows = (store.gatewayViewings || []).filter(v => v.file_id === binFileId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      return { count: rows.length, last: rows[0] ? { actor_label: rows[0].actor_label, created_at: rows[0].created_at } : null }
+    },
     // S4a (E13): the cloud's log_file_downloaded, as an event the activity
     // drawer can show. No bytes exist here, so nothing calls it today (the
     // fixtures mint no preview URL); it is the contract, kept whole.

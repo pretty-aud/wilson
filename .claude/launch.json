@@ -150,6 +150,19 @@
         "--strictPort"
       ],
       "port": 5287
+    },
+    {
+      "_comment": "GW1 (the file gateway's cloud side, migration 0093): this worktree's dev server on the bundle's port, as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). App settings, Storage, File gateway renders from the fixtures' in-memory gateway cloud: /settings is the company with its NAS gateway, five viewings from outside and the trail; ?gateways=empty starts before the first gateway (Add a gateway, the token, the stories, the gateway appearing six seconds later); ?fixtures=member is a member's view.",
+      "name": "gw1-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/eloquent-clarke-66ab08/WILSON",
+        "--port",
+        "5288",
+        "--strictPort"
+      ],
+      "port": 5288
     }
   ]
 }

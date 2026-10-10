@@ -232,6 +232,33 @@ describe('FileAuditDrawer — the kit Drawer', () => {
     await settled(drawer)
   })
 
+  // GW1 (0093, GATEWAY_DESIGN.md §6): a clip played through the gateway's
+  // outside door is a READ — the downloaded row's tone — and its card reads
+  // `subject` to say what it was: through which gateway, from where, how much.
+  it('a viewing from outside: "Viewed from outside" in the read tone, and through which gateway, from where, how much', async () => {
+    const MB = 1024 * 1024
+    audit({ listFileEvents: vi.fn(async () => [
+      { id: 'v1', event: 'viewed_remote', subject: 'bin_file', actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z',
+        details: { gateway_name: 'Salt Hours NAS', source_address: '203.0.113.7', via: 'cloudflare', bytes: 920 * MB, clip_bytes: 1000 * MB, fraction: 0.92, read_in_full: true } },
+      // CONTROLS: a file's read carries no such line, and neither does a row
+      // that names a file (no subject: every row before 0093).
+      { id: 'v2', event: 'downloaded', actor_label: 'Theo Lindqvist', created_at: '2026-10-08T15:00:00Z', details: { gateway_name: 'x' } },
+      { id: 'v3', event: 'viewed_remote', actor_label: 'Ada', created_at: '2026-10-07T15:00:00Z', details: { gateway_name: 'y' } },
+    ]) })
+    const drawer = auditDrawer()
+    await within(drawer).findByText('Priya Raman')
+    const cards = [...drawer.querySelectorAll('.rb-audit-entry')]
+    const badge = cards[0].querySelector('.ui-badge.rb-audit-event')
+    expect(badge.textContent).toBe('Viewed from outside')
+    expect(badge.getAttribute('data-tone')).toBe(FILE_EVENT_META.downloaded.tone)
+    expect(FILE_EVENT_META.viewed_remote.tone).toBe('read')
+    expect(cards[0].querySelector('[data-subject="bin_file"]').textContent)
+      .toBe('Through Salt Hours NAS, from 203.0.113.7 via cloudflare · 920 MB of 1000 MB (92%) · read in full')
+    expect(cards[1].querySelector('[data-subject]')).toBeNull()
+    expect(cards[2].querySelector('[data-subject]')).toBeNull()
+    await settled(drawer)
+  })
+
   it('while the stream loads: the kit Loading, and Refresh\'s glyph turns — then it stops', async () => {
     let finish
     audit({ listFileEvents: vi.fn(() => new Promise((r) => { finish = r })) })

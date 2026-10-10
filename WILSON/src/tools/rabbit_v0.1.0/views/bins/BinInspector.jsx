@@ -27,6 +27,9 @@ import { navigateTo } from '../../state/rabbitNavigate'
 // BC2: a company's clip (a footage location + a path inside it). BC3: the
 // browser's sentence under it, and what Space does there.
 import { NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence, browserClipSentence, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT } from '../../bins/binLocations'
+// GW1: the one admin line about viewings from outside, in the Settings
+// table's own words (a pure module: it imports nothing).
+import { inspectorRemoteLine } from '../../../../components/settings/gatewayWords'
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -79,6 +82,9 @@ export default function BinInspector({
   // BC2: for a company's clip, its footage location (row → { name,
   // unc_path } | null) and who added it (row → words | null), B11.
   locationOf = null, addedByOf = null,
+  // GW1: (clipId) → Promise<{ count, last }> — given by BinsView for a
+  // workspace admin only; null for everyone else, who is never asked.
+  remoteViewsFor = null,
   // BC3: what this backend can do with a FILE (the capability object, read
   // by BinsView's binsModeOf). A control is offered only where its verb is
   // answered — never disabled with no reason beside it: no Open or Reveal
@@ -96,6 +102,7 @@ export default function BinInspector({
   const [notesOpen, setNotesOpen] = useState(true)
   const [usedOpen, setUsedOpen] = useState(true)
   const uses = single ? (usage?.get(single.id) || []) : []
+  const remoteLine = useRemoteViewsLine(single, remoteViewsFor)
   const usedRows = usage ? rows.filter(r => (usage.get(r.id) || []).length > 0).length : 0
 
   const mv = (k) => mixedValue(rows, k)
@@ -290,7 +297,7 @@ export default function BinInspector({
           <Section title="File" open={techOpen} onToggle={() => setTechOpen(o => !o)}
             right={single.online !== false && canWrite && canProbe ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
             <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg}
-              location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} />
+              location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} remoteLine={remoteLine} />
             {canOpen && (
               <div className="flex items-center gap-1.5 flex-wrap pt-1">
                 <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
@@ -314,7 +321,26 @@ function MarkBtn({ active, onClick, disabled, Icon, color, label, hint }) {
   )
 }
 
-function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null }) {
+// GW1: one clip's viewings from outside, read when a single company clip is
+// selected and the caller is an admin; null until it answers, and nothing at
+// all for a clip never viewed from outside.
+function useRemoteViewsLine(row, remoteViewsFor) {
+  const [line, setLine] = useState(null)
+  const id = row?.id ?? null
+  const cloudRow = !!row?.location_id
+  useEffect(() => {
+    setLine(null)
+    if (!id || !cloudRow || typeof remoteViewsFor !== 'function') return undefined
+    let live = true
+    Promise.resolve(remoteViewsFor(id))
+      .then((r) => { if (live) setLine(r ? inspectorRemoteLine(r) : null) })
+      .catch(() => { if (live) setLine(null) })
+    return () => { live = false }
+  }, [id, cloudRow, remoteViewsFor])
+  return line
+}
+
+function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, remoteLine = null }) {
   const cloudRow = !!row.location_id
   const R = ({ k, v, title }) => v == null || v === '' ? null : (
     <div className="flex items-baseline gap-2 text-dense min-w-0">
@@ -336,6 +362,7 @@ function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null }
           <R k="Location" v={location ? location.name : 'a location no longer in the list'} title={location?.unc_path || undefined} />
           <R k="Path" v={row.relative_path} />
           <R k="Added by" v={addedBy} />
+          {remoteLine && <div className="text-dense" data-testid="bin-remote-views" style={{ color: C.text }}>{remoteLine}</div>}
         </>
       ) : <R k="Path" v={row.source_path} />}
       {row.online === false && (cloudRow
