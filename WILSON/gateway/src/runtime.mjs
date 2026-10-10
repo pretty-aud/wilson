@@ -87,6 +87,7 @@ export class Gateway {
     this.keys = new Map();
     this.origins = [];
     this.locations = new Map();
+    this.reachRuns = new Set();
     this.remote = { switchOn: false, outsideAddress: null, minimumVersion: null, hardMinimumVersion: null, reachNonce: null, reach: null };
     this.officeRanges = { applied: [], refused: [] };
     this.choice = null;
@@ -466,7 +467,8 @@ export class Gateway {
       inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.inside.servers.get(a.address)?.port || this.config.inside.port })),
       inside_names: hostNames(this.hostname),
       root_fingerprint: st.rootFingerprint,
-      reach: Object.fromEntries([...this.locations.values()].map((l) => [l.id, l.state])),
+      // A location not checked yet is left out: the cloud takes the four words only.
+      reach: Object.fromEntries([...this.locations.values()].filter((l) => l.state !== 'unknown').map((l) => [l.id, l.state])),
       health: {
         doors: {
           inside: this.inside.servers.size ? 'open' : `closed_${this.inside.closed || 'unknown'}`,
@@ -549,7 +551,16 @@ export class Gateway {
     this.locations = next;
   }
 
-  async #checkReach() {
+  #checkReach() {
+    // Every run is kept until it lands, so a caller (the tests) can wait for
+    // the checks in flight instead of racing them.
+    const run = this.#reachOnce();
+    this.reachRuns.add(run);
+    run.catch(() => {}).finally(() => this.reachRuns.delete(run));
+    return run;
+  }
+
+  async #reachOnce() {
     const list = [...this.locations.values()];
     if (!list.length) return;
     const results = await this.reach.check(list.map((l) => ({ id: l.id, unc: l.unc })));

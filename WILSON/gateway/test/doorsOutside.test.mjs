@@ -208,8 +208,13 @@ describe('renewal (§5 step 7, R3): the five bindings', () => {
     expect((await renew({ jti: jtiOf(t), t: W.ticket(), x: 1 })).status).toBe(401);
     expect((await renew({ jti: jtiOf(t) })).status).toBe(401);
     expect((await renew({ jti: jtiOf(t), t: W.ticket() }, CLIP, 'text/plain')).status).toBe(401);
+    // Forged: one bit of the signature flipped (the last two characters set to
+    // "AA" changed nothing whenever the signature's last byte was already 0,
+    // which Ed25519's top byte is about one time in sixteen: a CI flake).
     const [v, p, s] = W.ticket().split('.');
-    expect((await renew({ jti: jtiOf(t), t: `${v}.${p}.${s.slice(0, -2)}AA` })).status).toBe(401);
+    const sig = Buffer.from(s, 'base64url');
+    sig[0] ^= 0x01;
+    expect((await renew({ jti: jtiOf(t), t: `${v}.${p}.${sig.toString('base64url')}` })).status).toBe(401);
     const big = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: jtiOf(t), t: 'x'.repeat(9000) }) });
     expect(big.status).toBe(413);
   });

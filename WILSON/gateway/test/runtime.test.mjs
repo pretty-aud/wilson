@@ -210,6 +210,7 @@ describe('the sync\'s report and the doors\' states', () => {
       W.cloud.state.minimumVersion = '0.0.1';
       W.gw.smbDialects = [{ unc: '\\nas\footage', dialect: '3.1.1' }, { unc: '\\old\share', dialect: '2.1' }];
       await switchOn(W);
+      await waitFor(() => W.gw.locations.get(LOC) && W.gw.locations.get(LOC).state !== 'unknown'); // the share named and checked once
       await W.gw.syncNow();
       const r = W.cloud.lastReport();
       for (const [field, ok] of Object.entries(keeps(r))) expect(ok, `${field}: ${JSON.stringify(field.split('.').reduce((o, k) => o?.[k], { ...r, ...r.health, ...r.health }))}`).toBe(true);
@@ -217,6 +218,22 @@ describe('the sync\'s report and the doors\' states', () => {
       expect(r.health.smb_dialect).toBe('2.1');
       expect(r.health.minimum_version_ok).toBe(true);
       expect(r.reach).toEqual({ [LOC]: expect.any(String) });
+    } finally { await W.close(); }
+  });
+  it('a location not checked yet is left out of the report\'s reach (GW1 takes the four words only)', async () => {
+    const W = await world();
+    try {
+      await waitFor(() => W.gw.locations.get(LOC)); // the first sync's answer named it
+      let next = 'unknown'; // every check from here answers what the test says
+      W.gw.reach.check = async (list) => new Map(list.map((l) => [l.id, { state: next, since: null }]));
+      await Promise.all([...W.gw.reachRuns]); // and the real ones already started have landed
+      W.gw.locations.get(LOC).state = 'unknown';
+      await W.gw.syncNow();
+      expect(W.cloud.lastReport().reach).toEqual({});
+      next = 'not_connected';
+      W.gw.locations.get(LOC).state = 'not_connected';
+      await W.gw.syncNow();
+      expect(W.cloud.lastReport().reach).toEqual({ [LOC]: 'not_connected' });
     } finally { await W.close(); }
   });
   it('a rename in Settings: the gateway takes the name, reports it, and the cloud stops naming it', async () => {
