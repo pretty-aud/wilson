@@ -264,3 +264,60 @@ describe('PowerShell as the secrets\' helper (the command line it runs)', () => 
     expect(stdin.trim()).toBe(Buffer.from('secret-bytes').toString('base64'));
   });
 });
+
+describe('the pipes\' limits and the platform\'s edges', () => {
+  it('a hello whose nonce is not 32 bytes of hex is cut without an answer', async () => {
+    const key = crypto.randomBytes(32);
+    const p = uniquePipe();
+    const server = await servePipe({ path: p, key, handler: async () => ({ ok: true }) });
+    try {
+      const got = await new Promise((resolve) => {
+        const s = net.connect({ path: p });
+        let data = '';
+        s.on('data', (d) => { data += d; });
+        s.on('connect', () => s.write(JSON.stringify({ c: '00' }) + '\n'));
+        s.on('close', () => resolve(data));
+        s.on('error', () => resolve(data));
+      });
+      expect(got).toBe('');
+    } finally { server.close(); }
+  });
+  it('a frame over 64 KB without a newline is cut', async () => {
+    const key = crypto.randomBytes(32);
+    const p = uniquePipe();
+    const server = await servePipe({ path: p, key, handler: async () => ({ ok: true }) });
+    try {
+      const closed = await new Promise((resolve) => {
+        const s = net.connect({ path: p });
+        s.on('connect', () => s.write('x'.repeat(70 * 1024)));
+        s.on('close', () => resolve(true));
+        s.on('error', () => resolve(true));
+        setTimeout(() => { s.destroy(); resolve(false); }, 5_000);
+      });
+      expect(closed).toBe(true);
+    } finally { server.close(); }
+  });
+  it('an empty /sys/class/net says nothing: not available', () => {
+    const empty = path.join(tmp, 'sys-empty');
+    fs.mkdirSync(empty, { recursive: true });
+    expect(linuxNetFacts({ root: empty }).available).toBe(false);
+  });
+  it('enrol with no token prints its usage', () => {
+    const r = spawnSync(process.execPath, [CLI, 'enrol'], { encoding: 'utf8', env: { ...process.env, WILSON_GATEWAY_STATE_DIR: path.join(tmp, 'cli-state') } });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/wilson-gateway enrol <token>/);
+  });
+  it('run, when the state folder cannot be written, says so in one line (in the image: whose write access it needs)', () => {
+    const notADir = path.join(tmp, 'a-file-not-a-folder');
+    fs.writeFileSync(notADir, 'x');
+    const r = spawnSync(process.execPath, [CLI, 'run'], { encoding: 'utf8', env: { ...process.env, WILSON_GATEWAY_STATE_DIR: notADir, WILSON_GATEWAY_IMAGE: '1' }, timeout: 30_000 });
+    expect(r.status).toBe(1);
+    expect(r.stderr.trim().split('\n')).toHaveLength(1);
+    expect(r.stderr).toMatch(/cannot write its folder .* this container’s user \(uid 65532\): give that user write access to the folder mounted at \/data/);
+  });
+  it('the installer keeps the cloud\'s address in its normal form', () => {
+    const dir = path.join(tmp, 'msi-state-2');
+    enrolFile(dir, 'wgt_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', 'https://x.supabase.co/functions/v1/');
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'enrol.json'), 'utf8')).cloud).toBe('https://x.supabase.co/functions/v1');
+  });
+});

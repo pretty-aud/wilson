@@ -205,3 +205,22 @@ describe('the relay signal (§4, §10 row 22)', () => {
     expect(CLIP).not.toBe(LOC);
   });
 });
+
+describe('the handshake timeout (the spike\'s second bound)', () => {
+  it('a TCP connection that never starts TLS is closed after handshakeTimeout', async () => {
+    const d = createDoorServer({ door: 'inside', host: '127.0.0.1', port: 0, tls: { cert: certs.leaf.certPem, key: certs.leaf.keyPem }, limits: { ...DEFAULT_LIMITS, handshakeTimeoutMs: 300 }, gate: () => ({ admit: true }), handler: (_q, r) => r.end() });
+    await d.listen();
+    try {
+      const t0 = Date.now();
+      const closedAfter = await new Promise((resolve) => {
+        const s = net.connect(d.port, '127.0.0.1');
+        s.on('error', () => {});
+        s.on('close', () => resolve(Date.now() - t0));
+        setTimeout(() => { s.destroy(); resolve(null); }, 5_000);
+      });
+      expect(closedAfter).not.toBeNull();
+      expect(closedAfter).toBeLessThan(3_000);
+      expect(closedAfter).toBeGreaterThanOrEqual(250);
+    } finally { await d.close(); }
+  });
+});

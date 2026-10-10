@@ -280,6 +280,27 @@ describe('tickets at the running gateway', () => {
   });
 });
 
+describe('the container\'s own mount rule, end to end', () => {
+  it('in the image, a location is read at /locations/<host>/<share>; missing, it is "not mounted" with the hint', async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-image-'));
+    fs.writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify({ outside: { port: 0, behind_local_proxy: true } }));
+    const cloud = createFakeCloud();
+    cloud.addLocation({ id: LOC, unc_path: '\\\\NAS-01\\Archive\\Day 1', name: 'Archive' });
+    const gw = new Gateway({ env: { WILSON_GATEWAY_IMAGE: '1', WILSON_CLOUD_URL: cloud.base, WILSON_ENROL_TOKEN: cloud.newToken() }, stateDir, hostname: 'nas-01', fetchImpl: cloud.fetch, secrets: plainSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {}, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
+    try {
+      await gw.start();
+      await gw.syncNow();
+      await waitFor(async () => { await gw.syncNow(); return W2line(gw).includes('not mounted'); }, 8_000);
+      expect(W2line(gw)).toContain('Archive: **not mounted** (mount the folder of \\\\NAS-01\\Archive\\Day 1 at /locations/nas-01/archive/Day 1)');
+      expect(cloud.lastReport().reach).toEqual({ [LOC]: 'not_mounted' });
+    } finally {
+      await gw.stop();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
+const W2line = (gw) => gw.healthLine().text;
+
 describe('what is written down reaches the cloud (§6)', () => {
   it('an outside viewing: journal start and end, posted as one row, acknowledged, the journal emptied', async () => {
     const W = await world();

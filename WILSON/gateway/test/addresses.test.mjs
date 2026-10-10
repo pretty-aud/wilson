@@ -207,3 +207,17 @@ describe('interfaces.mjs: which addresses the inside door binds', () => {
     expect(r).toMatchObject({ addresses: [], closed: 'no_address', sentence: SENTENCES.no_address });
   });
 });
+
+describe('interfaces.mjs: the edges', () => {
+  const ni = (address, cidr) => ({ address, family: 'IPv4', internal: false, cidr });
+  it('Docker\'s default bridge address is never a door, whatever the interface is called', () => {
+    const r = chooseInsideAddresses({ platform: 'linux', interfaces: { eth1: [ni('172.17.5.5', '172.17.5.5/16')], eth0: [ni('192.168.1.10', '192.168.1.10/24')] } });
+    expect(r.addresses.map((a) => a.address)).toEqual(['192.168.1.10']);
+    expect(r.refused).toEqual([{ iface: 'eth1', address: '172.17.5.5', reason: "Docker's default bridge (172.17.0.0/16)" }]);
+    expect(r.coLocatedNets).toContain('172.17.0.0/16');
+  });
+  it('in the image, an interface /sys says nothing about cannot prove host networking: closed as a bridge', () => {
+    const r = chooseInsideAddresses({ platform: 'linux', inImage: true, interfaces: { eth0: [ni('192.168.1.10', '192.168.1.10/24')] }, linuxFacts: { available: true, byName: {} } });
+    expect(r.closed).toBe('bridge');
+  });
+});
