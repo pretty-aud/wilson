@@ -103,8 +103,8 @@ async function main() {
   if (!(await waitLog(/ outside_open /))) throw new Error('the outside door did not open:\n' + log.join('\n'));
   report.first_log_lines = log.slice(0, 4);
   const rootPem = fs.readFileSync(path.join(dirs.state, 'certs', 'root.pem'), 'utf8');
-  const agent = new https.Agent({ keepAlive: true, maxSockets: 1, ca: rootPem, servername: 'x' });
   const hostname = os.hostname().toLowerCase();
+  const agent = new https.Agent({ keepAlive: true, maxSockets: 1, ca: rootPem, servername: hostname });
   const req = (p, { headers = {}, method = 'GET', body = null, abortAfter = null, keep = true } = {}) => new Promise((resolve, reject) => {
     const t0 = process.hrtime.bigint();
     const r = https.request({ host: '127.0.0.1', port: outsidePort, path: p, method, headers, agent: keep ? agent : false, ca: rootPem, servername: hostname }, (res) => {
@@ -220,8 +220,14 @@ async function main() {
   const closed = await waitLog(/ outside_closed /, 20_000);
   const closeLine = log.find((l) => / outside_closed /.test(l));
   report.switch_off = { closed, gateway_line: closeLine ? closeLine.slice(closeLine.indexOf('outside_closed')) : null };
-  const netstat = execFileSync(process.platform === 'win32' ? 'netstat' : 'sh', process.platform === 'win32' ? ['-an'] : ['-c', 'netstat -an || ss -ltn'], { encoding: 'utf8' });
-  report.switch_off.netstat_lines_for_port = netstat.split('\n').filter((l) => l.includes(`:${outsidePort} `) || l.includes(`:${outsidePort}\t`)).map((l) => l.trim());
+  const netstat = execFileSync(process.platform === 'win32' ? 'netstat' : 'sh', process.platform === 'win32' ? ['-an'] : ['-c', 'netstat -an || ss -ltn'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // Only sockets LISTENING on the port, or connections whose LOCAL end is the gateway's loopback port:
+  // other programs' outgoing connections may use the same number as an ephemeral port on another address.
+  const portRe = new RegExp(`^\\s*TCP\\s+(\\S+):${outsidePort}\\s+(\\S+)\\s+(\\S+)`, 'i');
+  report.switch_off.netstat_listening_or_loopback = netstat.split('\n').map((l) => l.trim()).filter((l) => {
+    const m = portRe.exec(l);
+    return !!m && (/LISTEN/i.test(m[3]) || /^(127\.0\.0\.1|\[::1\])$/.test(m[1]));
+  });
   report.switch_off.connect = await new Promise((resolve) => { const t1 = process.hrtime.bigint(); const s = net.connect(outsidePort, '127.0.0.1'); s.once('error', (e) => resolve({ code: e.code, ms: r2(Number(process.hrtime.bigint() - t1) / 1e6) })); s.once('connect', () => { s.destroy(); resolve({ code: 'connected' }); }); });
   agent.destroy();
 }

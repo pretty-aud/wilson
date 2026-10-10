@@ -55,11 +55,30 @@ export function makeDoorContext(d) {
   const streams = new Streams({ now, maxAgeMs: L.streamMaxMs });
   const viewings = new Viewings({ journal: d.journal, now, onEnded: d.onViewingEnded || (() => {}) });
   const relay = new RelayWatch({ now });
+  const files = d.fs || defaultFs;
+  // A location's root, resolved once per ten seconds: every clip request would
+  // otherwise pay a round trip through the share for it.
+  const roots = new Map();
+  async function realRoot(locId, root) {
+    const t = now();
+    const c = roots.get(locId);
+    if (c && c.root === root && t - c.at < 10_000) return c.real;
+    try {
+      const real = await files.realpath(root);
+      roots.set(locId, { root, real, at: t });
+      return real;
+    } catch (e) {
+      roots.delete(locId);
+      if (e?.code === 'ETIMEDOUT') throw e;
+      return null;
+    }
+  }
   return {
     ...d,
     now,
     limits: L,
-    fs: d.fs || defaultFs,
+    fs: files,
+    realRoot,
     streams,
     viewings,
     relay,

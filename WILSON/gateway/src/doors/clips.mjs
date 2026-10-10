@@ -33,7 +33,7 @@ import fs from 'node:fs';
 import { pipeline, Transform } from 'node:stream';
 import { authenticateTicket, checkTicketScope } from '../wire/ticket.mjs';
 import { JTI_RE } from '../wire/formats.mjs';
-import { joinUnderRoot, realContained, rootPathModule } from '../rules/paths.mjs';
+import { joinUnderRoot, isStrictlyUnder, rootPathModule } from '../rules/paths.mjs';
 import { detectSequence } from '../rules/sequence.mjs';
 import { mediaTypeForPath, isAllowedStill, mtAgrees } from '../rules/media.mjs';
 import { planRange, contentRange } from '../rules/range.mjs';
@@ -106,34 +106,53 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     return deny(404, cat.reason);
   }
 
+  // The disk, through the share: as few round trips as the checks allow (each
+  // open costs a trip through the SMB redirector, about a millisecond): the
+  // root's realpath is kept per location (refreshed every ten seconds), the
+  // clip's realpath is taken and contained, the type is read from that
+  // resolved name before anything is opened, then ONE open: fstat and the
+  // bytes come from the same handle.
   let target;
   let size;
+  let fh = null;
+  const closeHandle = () => { if (fh) { const h = fh; fh = null; h.close().catch(() => {}); } };
   try {
-    const resolved = await withTimeout(realContained(loc.root, joined, { realpath: ctx.fs.realpath }), FS_TIMEOUT_MS);
-    if (!resolved) return deny(404, 'contained');
+    const realRoot = await withTimeout(ctx.realRoot(authority.loc, loc.root), FS_TIMEOUT_MS);
+    if (!realRoot) return deny(404, 'root');
+    const resolved = await withTimeout(ctx.fs.realpath(joined), FS_TIMEOUT_MS).catch((e) => { if (e?.code === 'ETIMEDOUT') throw e; return null; });
+    if (!resolved || !isStrictlyUnder(realRoot, resolved)) return deny(404, 'contained');
     target = resolved;
     if (authority.seq) {
       const mod = rootPathModule(loc.root);
       const seq = await withTimeout(detectSequence(resolved, { readdir: ctx.fs.readdir, join: mod.join }), FS_TIMEOUT_MS);
       if (!seq) return deny(404, 'not_a_sequence');
-      const frame = await withTimeout(realContained(loc.root, seq.middle_frame_path, { realpath: ctx.fs.realpath }), FS_TIMEOUT_MS);
-      if (!frame) return deny(404, 'frame_contained');
+      const frame = await withTimeout(ctx.fs.realpath(seq.middle_frame_path), FS_TIMEOUT_MS).catch((e) => { if (e?.code === 'ETIMEDOUT') throw e; return null; });
+      if (!frame || !isStrictlyUnder(realRoot, frame)) return deny(404, 'frame_contained');
       if (!isAllowedStill(frame)) return deny(415, 'frame_type');
       target = frame;
     }
-    const st = await withTimeout(ctx.fs.stat(target), FS_TIMEOUT_MS);
-    if (!st.isFile()) return deny(404, 'not_a_file');
+    const type0 = mediaTypeForPath(target);
+    if (!type0 || !mtAgrees(authority.mt, type0)) {
+      // A refused type is a 415 only for a FILE; anything else is not a clip (404).
+      // The extra trip through the share is paid by refusals only.
+      const st = await withTimeout(ctx.fs.stat(target), FS_TIMEOUT_MS).catch(() => null);
+      if (!st || !st.isFile()) return deny(404, 'not_a_file');
+      return deny(415, type0 ? 'mt' : 'type');
+    }
+    fh = await withTimeout(ctx.fs.open(target), FS_TIMEOUT_MS).catch((e) => { if (e?.code === 'ETIMEDOUT') throw e; return null; });
+    if (!fh) return deny(404, 'open');
+    const st = await withTimeout(fh.stat(), FS_TIMEOUT_MS);
+    if (!st.isFile()) { closeHandle(); return deny(404, 'not_a_file'); }
     size = st.size;
   } catch (e) {
+    closeHandle();
     if (e?.code === 'ETIMEDOUT') ctx.locationSlow(authority.loc);
     return deny(404, e?.code === 'ETIMEDOUT' ? 'timeout' : 'stat');
   }
 
   const type = mediaTypeForPath(target);
-  if (!type) return deny(415, 'type');
-  if (!mtAgrees(authority.mt, type)) return deny(415, 'mt');
   const plan = planRange(req.headers.range, size);
-  if (plan.status === 416) return deny(416, plan.reason, { headers: { 'Content-Range': contentRange(plan, size), ...pathHeader } });
+  if (plan.status === 416) { closeHandle(); return deny(416, plan.reason, { headers: { 'Content-Range': contentRange(plan, size), ...pathHeader } }); }
 
   // From here the request is served: the stream is opened (a ticket's first use) and its source recorded.
   const stream = ctx.streams.open(door, claims);
@@ -149,6 +168,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     ...(plan.status === 206 ? { 'Content-Range': contentRange(plan, size) } : {}),
   };
   if (head) {
+    closeHandle();
     res.sendDate = false;
     for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
@@ -159,10 +179,10 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   }
 
   const release = ctx.perPersonStreams.acquire(authority.sub);
-  if (!release) return deny(429, 'streams', { headers: { 'Retry-After': '5' } });
-  if (!ctx.pools.openStream(door)) { release(); return deny(429, 'pool', { headers: { 'Retry-After': '5' } }); }
+  if (!release) { closeHandle(); return deny(429, 'streams', { headers: { 'Retry-After': '5' } }); }
+  if (!ctx.pools.openStream(door)) { release(); closeHandle(); return deny(429, 'pool', { headers: { 'Retry-After': '5' } }); }
   if (door === 'outside' && ctx.outsideBytes.remaining(authority.sub) <= 0) {
-    release(); ctx.pools.closeStream(door);
+    release(); ctx.pools.closeStream(door); closeHandle();
     return deny(429, 'bytes_budget', { headers: { 'Retry-After': String(ctx.outsideBytes.retryAfterS(authority.sub)) } });
   }
   const viewing = door === 'outside'
@@ -176,7 +196,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   res.writeHead(plan.status);
   if (plan.length === 0) {
     res.end();
-    release(); ctx.pools.closeStream(door);
+    release(); ctx.pools.closeStream(door); closeHandle();
     return undefined;
   }
 
@@ -203,7 +223,9 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
     ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
   };
-  const reader = ctx.fs.createReadStream(target, { start: plan.start, end: plan.end, highWaterMark: 256 * 1024 });
+  // The bytes from the handle that was checked (autoClose: the stream closes it).
+  const reader = fh.createReadStream({ start: plan.start, end: plan.end, highWaterMark: 256 * 1024, autoClose: true });
+  fh = null;
   pipeline(reader, counter, res, () => done());
   res.once('close', done);
   return undefined;
@@ -243,5 +265,6 @@ export const defaultFs = {
   realpath: (p) => fs.promises.realpath(p),
   readdir: (p, o) => fs.promises.readdir(p, o),
   stat: (p) => fs.promises.stat(p),
+  open: (p) => fs.promises.open(p, 'r'),
   createReadStream: (p, o) => fs.createReadStream(p, o),
 };
