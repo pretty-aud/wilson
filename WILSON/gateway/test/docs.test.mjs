@@ -10,6 +10,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { composeHealthLine } from '../src/rules/health.mjs';
+import { BASE_HEADERS, EXPOSED_HEADERS } from '../src/doors/http.mjs';
+import { NEVER_CONFIRMED_SENTENCE } from '../src/cloud/catalogue.mjs';
+import { PROXY_HEADERS } from '../src/rules/peers.mjs';
+import { DEFAULT_LIMITS } from '../src/rules/limits.mjs';
+import { CHANNEL_URL, RELEASE_KEYS_WIRE } from '../src/update/manifest.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WILSON = path.join(HERE, '..', '..');
@@ -69,5 +74,75 @@ describe('walkthrough 61 (the install on a Windows PC)', () => {
   it('never asks for real footage, and says what this computer could not do', () => {
     expect(walkthrough).toContain('No real footage: any short MP4.');
     expect(walkthrough).toMatch(/\*\*Not done here, by\s+rule:\*\* installing the MSI or either service, adding or changing a firewall\s+rule, clicking a Windows dialog\./);
+  });
+});
+
+describe('the GW2 hand-off (docs/sessions/handoffs/po-gw2-2026-10-10.md), held to the code', () => {
+  const handoff = read(WILSON, 'docs', 'sessions', 'handoffs', 'po-gw2-2026-10-10.md');
+  const design = read(WILSON, 'docs', 'design', 'GATEWAY_DESIGN.md');
+  const outstanding = read(WILSON, 'docs', 'OUTSTANDING.md');
+  const http = read(WILSON, 'gateway', 'src', 'doors', 'http.mjs');
+  const fakeCloud = read(WILSON, 'gateway', 'test', 'fakeCloud.mjs');
+  const dockerfile = read(WILSON, 'gateway', 'container', 'Dockerfile');
+  const tools = read(WILSON, 'gateway', '.config', 'dotnet-tools.json');
+
+  it('is in the protocol\'s order (§4), with "For GW3", "For GW4", "For GW5", "Deferred" and "Known limits" after §3, as the post-overhaul hand-offs place them', () => {
+    const heads = [...handoff.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(heads).toEqual([
+      '1. Where you are', '2. State, measured, not remembered', '3. Done and verified',
+      'For GW3 (the web app)', 'For GW4 (the release and the install stories)', 'For GW5 (what GW2 could not attack here)', 'Deferred', 'Known limits',
+      '4. In flight', '5. Traps hit', '6. Waiting on Audrey', '7. Next session\'s first three steps', '8. Auto-memory: none.',
+    ]);
+    expect(handoff).not.toMatch(/\{\{[A-Z0-9_]+\}\}/); // no placeholder left
+  });
+  it('the headers every answer carries, and CORS, as http.mjs sends them', () => {
+    for (const [k, v] of Object.entries(BASE_HEADERS)) expect(handoff, k).toContain(`\`${k}: ${v}\``);
+    expect(handoff).toContain(`\`Access-Control-Expose-Headers: ${EXPOSED_HEADERS}\``);
+    for (const said of ["'Access-Control-Allow-Methods': 'GET, HEAD, POST'", "'Access-Control-Allow-Headers': 'Range, Content-Type'", "'Access-Control-Max-Age': '600'"]) expect(http, said).toContain(said);
+    for (const said of ['`Access-Control-Allow-Methods: GET, HEAD, POST`', '`Access-Control-Allow-Headers: Range, Content-Type`', '`Access-Control-Max-Age: 600`']) expect(handoff, said).toContain(said);
+  });
+  it('the statuses\' numbers are the limits\' and the sentence is the catalogue\'s', () => {
+    expect(handoff).toContain(`\`${NEVER_CONFIRMED_SENTENCE}\``);
+    expect(handoff).toContain(`the ${PROXY_HEADERS.length} in \`gateway/src/rules/peers.mjs\` \`PROXY_HEADERS\``);
+    expect(handoff).toContain(`the ${DEFAULT_LIMITS.authFailuresPerConnection}th on one connection is answered with \`Connection: close\``);
+    expect(handoff).toContain(`${DEFAULT_LIMITS.outside.newConnectionsPerMinutePerPeer} new connections a minute per address outside, ${DEFAULT_LIMITS.inside.newConnectionsPerMinutePerPeer} inside`);
+    expect(handoff).toContain(`One connection serves at most ${DEFAULT_LIMITS.requestsPerConnection.toLocaleString('en-US')} requests`);
+    expect(handoff).toContain(`${DEFAULT_LIMITS.perPersonRequestsPerMinute} requests a minute per person`);
+    expect(handoff).toContain(`${DEFAULT_LIMITS.perPersonStreams} concurrent responses per person`);
+    expect(handoff).toContain(`${DEFAULT_LIMITS.outsideBytesPerHourPerPerson / 1e9} GB an hour`);
+    expect(handoff).toContain(`413 when the body is over ${DEFAULT_LIMITS.bodyBytes / 1024} KB`);
+  });
+  it('the fake cloud\'s control routes it names are the fake\'s', () => {
+    const named = [...handoff.matchAll(/`(?:GET |POST )?\/_control\/([a-z]+)/g)].map((m) => m[1]);
+    expect(named.length).toBeGreaterThanOrEqual(10);
+    for (const a of new Set(named)) expect(fakeCloud, a).toContain(`action === '${a}'`);
+    expect(handoff).toContain('`node WILSON/gateway/test/fakeCloud.mjs --port 9443 --dir <scratch>/fc`');
+    expect(fakeCloud).toContain("arg('--port'");
+  });
+  it('For GW4: the release key slots empty, the channel, WiX, the base image, the install\'s order', () => {
+    expect(RELEASE_KEYS_WIRE).toEqual([]);
+    expect(handoff).toContain(`(\`${CHANNEL_URL}\``);
+    expect(JSON.parse(tools).tools.wix.version).toBe('5.0.2');
+    expect(handoff).toContain('pinned to 5.0.2');
+    expect(dockerfile).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot$/m);
+    expect(handoff).toContain('`gcr.io/distroless/nodejs24-debian12:nonroot`');
+    let at = -1;
+    for (const action of ['SetStateOwner', 'SetStateAcl', 'FreshPipeKey', 'WriteEnrolFile']) {
+      expect(wxs, action).toContain(`<Custom Action="${action}"`);
+      const i = handoff.indexOf(`(\`${action}\``);
+      expect(i, action).toBeGreaterThan(at);
+      at = i;
+    }
+  });
+  it('the design\'s review history has GW2\'s dated lines, and no comment marker crept into the long documents', () => {
+    expect(design).toContain('### GW2, the gateway program (2026-10-10): where the built program no longer matches the text above');
+    expect((design.match(/<!--/g) || []).length).toBe(0);
+    expect((outstanding.match(/<!--/g) || []).length).toBe(4);
+    expect((readme.match(/<!--/g) || []).length).toBe(0);
+  });
+  it('OUTSTANDING\'s session log has GW2\'s row at the top', () => {
+    const log = outstanding.slice(outstanding.indexOf('## Session log'));
+    const firstRow = log.split('\n').find((l) => l.startsWith('| Post-overhaul') || l.startsWith('| Track') || l.startsWith('| UI'));
+    expect(firstRow).toMatch(/^\| Post-overhaul GW2 \(2026-10-10; `po\/gw2-gateway-service` into `feat\/post-overhaul-edit-versioning`\)/);
   });
 });
