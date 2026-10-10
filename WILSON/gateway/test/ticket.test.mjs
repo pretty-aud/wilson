@@ -243,7 +243,12 @@ describe('the fixed token, credential and key formats', () => {
     expect(signingKeyFromWire({ ...good, kid: 'ABC' })).toBeNull();
     expect(signingKeyFromWire({ ...good, public_key: good.public_key.replace('=', '') })).toBeNull();
     expect(signingKeyFromWire({ ...good, public_key: Buffer.alloc(31).toString('base64') })).toBeNull();
-    expect(signingKeyFromWire({ ...good, public_key: Buffer.from(good.public_key, 'base64').toString('base64url') + '=' })).toBeNull();
+    // The base64url spelling of a key differs from the standard one only when the
+    // key has a '+' or '/' in it (three keys in four): pick such a key.
+    let spelled = good;
+    for (let i = 0; i < 64 && !/[+/]/.test(spelled.public_key); i++) spelled = makeSigningKey('abc123').wire;
+    expect(spelled.public_key).toMatch(/[+/]/);
+    expect(signingKeyFromWire({ ...spelled, public_key: Buffer.from(spelled.public_key, 'base64').toString('base64url') + '=' })).toBeNull();
     expect(signingKeyFromWire(null)).toBeNull();
   });
   it('strict decoders refuse what Node would quietly accept', () => {

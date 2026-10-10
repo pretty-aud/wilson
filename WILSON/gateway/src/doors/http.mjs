@@ -71,22 +71,31 @@ export function preflight(req, res, { door, origins }) {
   respond(req, res, 204, { headers });
 }
 
-/** The request body, at most `max` bytes; null when it is longer (the caller answers 413). */
+/**
+ * The request body, at most `max` bytes; null when it is longer (the caller
+ * answers 413). An over-long body of up to DRAIN_MAX bytes is read to its end
+ * and dropped first, so the client has finished writing when the 413 comes
+ * (otherwise it may see a reset instead of the answer); a longer one is not
+ * read at all and the connection closes with the answer.
+ */
+export const DRAIN_MAX = 64 * 1024;
 export function readBody(req, max) {
   return new Promise((resolve) => {
     const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > max) { resolve(null); req.resume(); return; }
     const chunks = [];
     let n = 0;
+    let over = Number.isFinite(declared) && declared > max;
     let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    if (over && declared > DRAIN_MAX) { finish(null); return; }
     req.on('data', (c) => {
-      if (done) return;
       n += c.length;
-      if (n > max) { done = true; resolve(null); req.resume(); return; }
-      chunks.push(c);
+      if (n > DRAIN_MAX) { finish(null); req.destroy(); return; }
+      if (n > max) over = true;
+      if (!over) chunks.push(c);
     });
-    req.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
-    req.on('error', () => { if (!done) { done = true; resolve(null); } });
+    req.on('end', () => finish(over ? null : Buffer.concat(chunks)));
+    req.on('error', () => finish(null));
   });
 }
 
