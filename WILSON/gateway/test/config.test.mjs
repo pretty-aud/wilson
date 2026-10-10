@@ -57,6 +57,14 @@ describe('config.json (config.mjs)', () => {
       'limits.perPersonStreams',
     ]);
   });
+  it('connect_without_login: server names only (lower-cased, at most 16); anything else named and not applied', () => {
+    expect(parseConfig(JSON.stringify({ connect_without_login: ['NAS01', 'nas.corp.example.com', 'nas01'] })).config.connect_without_login).toEqual(['nas01', 'nas.corp.example.com']);
+    for (const bad of [['evil.example.com@SSL@443'], ['?'], ['nas', 7], 'nas', ['\\\\nas'], Array.from({ length: 17 }, (_, i) => `nas${i}`)]) {
+      const { config, problems } = parseConfig(JSON.stringify({ connect_without_login: bad }));
+      expect(config.connect_without_login, JSON.stringify(bad)).toEqual([]);
+      expect(problems[0], JSON.stringify(bad)).toMatch(/^connect_without_login \(a list of at most 16 server names/);
+    }
+  });
   it('behind_local_proxy exists for the OUTSIDE door only (§4): asking it of the inside door is refused by name', () => {
     const { config, problems } = parseConfig(JSON.stringify({ inside: { behind_local_proxy: true } }));
     expect(config.inside).not.toHaveProperty('behind_local_proxy');

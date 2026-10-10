@@ -56,6 +56,17 @@ describe('the cloud\'s address and the answers\' shapes (client.mjs)', () => {
     expect(a.dropped).toEqual(['bin_locations[]', 'hard_minimum_version']);
     expect(v({ signing_keys: undefined }).keysPresent).toBe(false);
   });
+  it('a location whose address is no share is dropped and named (review round 1, finding 1); the cloud\'s words lose every control character (finding 3)', () => {
+    const U = (n) => `aaaaaaaa-bbbb-4ccc-8ddd-${String(n).padStart(12, '0')}`;
+    const bad = ['\\\\?\\C:\\Windows', '\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3\\Users', '\\\\evil.example.com@SSL@443\\DavWWWRoot\\share', 'C:\\footage', '\\\\nas\\C$.', '\\\\nas\\foot\u001bage'];
+    const a = cleanSyncAnswer({ bin_locations: [{ id: U(0), unc_path: '\\\\nas\\footage', name: 'Foot\u001b]0;pwned\u0007age\r\nfake line' }, ...bad.map((unc, i) => ({ id: U(i + 1), unc_path: unc }))], renamed: 'Studio\u001b]0;pwned\u0007NAS\r\nfake line\u202e' });
+    expect(a.value.locations).toEqual([{ id: U(0), unc: '\\\\nas\\footage', name: 'Foot ]0;pwned age fake line' }]);
+    expect(a.dropped).toEqual(bad.map((_, i) => `bin_locations[${U(i + 1)}] (not a share address)`));
+    expect(a.value.renamed).toBe('Studio ]0;pwned NAS fake line');
+    expect(cleanSyncAnswer({ renamed: '\u0007\u200b ' }).value.renamed).toBeNull();
+    const e = cleanEnrolAnswer({ gateway_id: U(9), credential: makeCredential(), workspace_name: 'Salt\u001b[2JHours\u0085Studio' });
+    expect(e.value.workspaceName).toBe('Salt [2JHours Studio');
+  });
   it('a call: Bearer, JSON, no redirects, a time limit; 401 is "forgotten", 5xx and the network "unreachable"', async () => {
     let seen = null;
     const fetchImpl = async (url, init) => { seen = { url, init }; return new Response(JSON.stringify({ ok: 1 }), { status: 200 }); };
@@ -148,6 +159,13 @@ describe('reach per location (reach.mjs)', () => {
     const out = await r.check([loc('a', '\\\\nas1\\footage'), loc('b', '\\\\NAS2\\footage')]);
     expect(out.get('a').state).toBe('not_connected');
     expect(out.get('b').state).toBe('not_reachable');
+  });
+  it('Windows: a server this gateway may not contact yet is not_connected WITHOUT being asked (review round 1, finding 2)', async () => {
+    const asked = [];
+    const r = new ReachChecker({ platform: 'windows', ask: async (root) => { asked.push(root); return 'dir'; }, mayContact: (unc) => unc.toLowerCase().startsWith('\\\\nas\\') });
+    const out = await r.check([loc('a', '\\\\evil.example.com\\share'), loc('b', '\\\\NAS\\footage'), loc('c', '\\\\8.8.8.8\\x')]);
+    expect(Object.fromEntries([...out].map(([k, v]) => [k, v.state]))).toEqual({ a: 'not_connected', b: 'reachable', c: 'not_connected' });
+    expect(asked).toEqual(['\\\\NAS\\footage']);
   });
   it('one question per root at a time, and "since" kept while it stays down', async () => {
     let asked = 0;

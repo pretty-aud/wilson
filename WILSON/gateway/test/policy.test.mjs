@@ -178,6 +178,23 @@ describe('the container\'s mount rule (R15)', () => {
     }
     expect(parseUncPath('\\\\nas\\footage\\a')).toEqual({ host: 'nas', share: 'footage', rest: ['a'] });
   });
+  it('refuses what is no share address at all: the device namespace, WebDAV, aliases Windows strips, invisible characters (review round 1, finding 2)', () => {
+    for (const bad of [
+      '\\\\?\\C:\\Windows', '\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3\\Users', '\\\\?\\UNC\\nas\\footage', '\\\\.\\pipe\\WilsonGatewayAdmin',
+      '\\\\evil.example.com@SSL@443\\DavWWWRoot\\share', '\\\\evil.example.com@SSL\\share', '\\\\nas@8080\\footage',
+      '\\\\nas:445\\footage', '\\\\fe80::1\\footage', '\\\\[::1]\\footage', '\\\\fe80::1%12\\footage', '\\\\na s\\footage', '\\\\-nas\\footage', '\\\\nas.\\footage',
+      '\\\\nas\\C$.', '\\\\nas\\footage \\x', '\\\\nas\\footage\\Day 1.', '\\\\nas\\foot:age', '\\\\nas\\foot*age', '\\\\nas\\foot?age', '\\\\nas\\foot"age', '\\\\nas\\foot<age', '\\\\nas\\foot|age',
+      '\\\\nas\\foot\u200bage', '\\\\nas\\footage\u202e', '\\\\nas\\foot\u0085age', '\\\\nas\u2028\\footage',
+    ]) {
+      expect(parseUncPath(bad), JSON.stringify(bad)).toBeNull();
+      expect(locationRoot(bad, 'windows'), JSON.stringify(bad)).toBeNull();
+      expect(containerRootFor(bad), JSON.stringify(bad)).toBeNull();
+    }
+    for (const good of ['\\\\SUSAN_PC\\footage', '\\\\192.168.1.20\\Footage', '\\\\fe80--1.ipv6-literal.net\\footage', '\\\\nas.corp.example.com\\Footage Share\\Day 1', '\\\\nas\\footage$', '\\\\NAS\\Día 02']) {
+      expect(parseUncPath(good), good).not.toBeNull();
+      expect(locationRoot(good, 'windows'), good).toBe(good);
+    }
+  });
 });
 
 describe('the version', () => {

@@ -36,9 +36,16 @@ export const DEFAULT_LIMITS = Object.freeze({
   idleMs: 60_000,
   bodyBytes: 8 * 1024,
   streamMaxMs: 4 * 60 * 60 * 1000,
+  // Review round 1, finding 2: the caps on connections and handshakes did not
+  // bound the requests ONE kept-alive connection may send, and every forged
+  // ticket costs a signature check on the one thread. A peer whose tickets
+  // fail this many times in a minute is answered 429 before anything of its
+  // request is parsed, and a connection serves at most this many requests.
+  authFailuresPerMinutePerPeer: 30,
+  requestsPerConnection: 1000,
 });
 
-const POSITIVE_INT_KEYS = ['perPersonStreams', 'perPersonRequestsPerMinute', 'outsideBytesPerHourPerPerson', 'connections', 'streams', 'headerTimeoutMs', 'handshakeTimeoutMs', 'idleMs', 'bodyBytes', 'streamMaxMs'];
+const POSITIVE_INT_KEYS = ['perPersonStreams', 'perPersonRequestsPerMinute', 'outsideBytesPerHourPerPerson', 'connections', 'streams', 'headerTimeoutMs', 'handshakeTimeoutMs', 'idleMs', 'bodyBytes', 'streamMaxMs', 'authFailuresPerMinutePerPeer', 'requestsPerConnection'];
 
 /**
  * The config's `limits` over the defaults. A value that is not a positive
@@ -50,7 +57,7 @@ export function resolveLimits(overrides = {}) {
   const out = JSON.parse(JSON.stringify(DEFAULT_LIMITS));
   const ignored = [];
   const o = overrides && typeof overrides === 'object' ? overrides : {};
-  const CEILING = { headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 60_000, bodyBytes: 8 * 1024, streamMaxMs: 4 * 60 * 60 * 1000 };
+  const CEILING = { headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 60_000, bodyBytes: 8 * 1024, streamMaxMs: 4 * 60 * 60 * 1000, authFailuresPerMinutePerPeer: 300, requestsPerConnection: 10_000 };
   for (const k of POSITIVE_INT_KEYS) {
     if (!(k in o)) continue;
     const v = o[k];

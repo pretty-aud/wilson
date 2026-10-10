@@ -8,6 +8,13 @@
 //       under its own identity (NT SERVICE\WilsonGateway), never SYSTEM's
 //       or the installing administrator's. The token is spent by the cloud
 //       either way.
+//   fresh-pipe-key <stateDir>
+//       writes a new pipe.key (32 random bytes) after the state folder's owner
+//       and ACL are reset and before the services start, so a pipe.key a
+//       local user planted in the folder before the ACL step (ProgramData
+//       lets any user create files there) is replaced, never used (review
+//       round 1, finding 5). Unlike the other two, a failure fails the
+//       install.
 //   summary <stateDir> <outFile>
 //       waits up to 60 s for the enrolment's result and the gateway's status,
 //       then writes what the installer shows at the end: the addresses the
@@ -17,6 +24,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { FILES } from './platform/state.mjs';
 import { displayFingerprint } from './certs/x509.mjs';
 import { isEnrolToken } from './wire/formats.mjs';
@@ -33,6 +41,13 @@ export function enrolFile(stateDir, token, cloud) {
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(path.join(stateDir, FILES.enrol), JSON.stringify({ token: t, cloud: url }), { mode: 0o600 });
   return { ok: true };
+}
+
+export function freshPipeKey(stateDir) {
+  const file = path.join(stateDir, FILES.pipeKey);
+  fs.rmSync(file, { force: true });
+  fs.writeFileSync(file, crypto.randomBytes(32), { mode: 0o600, flag: 'wx' });
+  return file;
 }
 
 export function summaryText({ status, result, waitedS }) {
@@ -59,6 +74,10 @@ async function main() {
     if (!r.ok) { process.stderr.write(`enrol-file: ${r.error}\n`); process.exit(0); } // never fail the install: the summary says it
     return;
   }
+  if (cmd === 'fresh-pipe-key') {
+    try { freshPipeKey(args[0]); } catch (e) { process.stderr.write(`fresh-pipe-key: ${e.message}\n`); process.exit(1); }
+    return;
+  }
   if (cmd === 'summary') {
     const [stateDir, outFile] = args;
     const started = Date.now();
@@ -74,7 +93,7 @@ async function main() {
     fs.writeFileSync(outFile, summaryText({ status, result, waitedS: Math.round((Date.now() - started) / 1000) }));
     return;
   }
-  process.stderr.write('installer.mjs enrol-file <stateDir> <token> <cloud> | summary <stateDir> <outFile>\n');
+  process.stderr.write('installer.mjs enrol-file <stateDir> <token> <cloud> | fresh-pipe-key <stateDir> | summary <stateDir> <outFile>\n');
   process.exit(2);
 }
 

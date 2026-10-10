@@ -26,6 +26,7 @@ import path from 'node:path';
 import { normalizeCloudUrl } from './cloud/client.mjs';
 import { normalizeIp } from './rules/ip.mjs';
 import { resolveLimits } from './rules/limits.mjs';
+import { isServerName } from './rules/mountRule.mjs';
 
 export const DEFAULT_CONFIG = Object.freeze({
   cloud_url: null,
@@ -33,6 +34,11 @@ export const DEFAULT_CONFIG = Object.freeze({
   inside: { port: 8443, addresses: null, certificate: null },
   outside: { port: 8444, behind_local_proxy: false, declared_proxy: null, certificate: null },
   limits: {},
+  // Windows: the servers this gateway may contact without a share login (a
+  // domain whose computer account reads the share). Every other server is
+  // contacted only once an administrator has run share-login for it (review
+  // round 1, finding 2).
+  connect_without_login: [],
 });
 
 const isPort = (p) => Number.isInteger(p) && p >= 0 && p <= 65535;
@@ -73,6 +79,11 @@ export function parseConfig(text) {
     else problems.push('outside.declared_proxy ({ "addresses": ["…"], "name": "…" })');
   }
   c.outside.certificate = certificatePair(ro.certificate, problems, 'outside');
+  if (raw.connect_without_login != null) {
+    const list = raw.connect_without_login;
+    if (Array.isArray(list) && list.length <= 16 && list.every(isServerName)) c.connect_without_login = [...new Set(list.map((h) => h.toLowerCase()))];
+    else problems.push('connect_without_login (a list of at most 16 server names: the "nas" of \\\\nas\\footage)');
+  }
   const { limits, ignored } = resolveLimits(raw.limits || {});
   c.limits = raw.limits && typeof raw.limits === 'object' ? raw.limits : {};
   for (const k of ignored) problems.push(`limits.${k}`);

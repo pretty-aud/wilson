@@ -89,7 +89,7 @@ async function main() {
   const outsidePort = await freePort();
   cloud.state.switchOn = true;
   cloud.state.outsideAddress = { host: '127.0.0.1', port: outsidePort };
-  fs.writeFileSync(path.join(dirs.state, 'config.json'), JSON.stringify({ inside: { port: INSIDE_PORT }, outside: { port: outsidePort, behind_local_proxy: true } }, null, 2));
+  fs.writeFileSync(path.join(dirs.state, 'config.json'), JSON.stringify({ inside: { port: INSIDE_PORT }, outside: { port: outsidePort, behind_local_proxy: true }, connect_without_login: ['localhost'] }, null, 2));
   report.share = shareUnc;
   report.outside_port = outsidePort;
 

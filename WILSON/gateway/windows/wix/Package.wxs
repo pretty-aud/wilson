@@ -116,9 +116,20 @@
       </Component>
     </ComponentGroup>
 
+    <!-- The state folder's OWNER first, Administrators on the folder and everything in it: ProgramData lets
+         any user create a folder or file there, and one made before the install would stay its maker's, with
+         the owner's right to rewrite the ACL set below (review round 1, finding 5). -->
+    <SetProperty Id="SetStateOwner" Value="&quot;[System64Folder]icacls.exe&quot; &quot;[StateDir].&quot; /setowner *S-1-5-32-544 /T /C /Q" Before="SetStateOwner" Sequence="execute" />
+    <CustomAction Id="SetStateOwner" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="check" Impersonate="no" />
+
     <!-- The state folder's ACL, once the service's account exists (after InstallServices). -->
     <SetProperty Id="SetStateAcl" Value="&quot;[System64Folder]icacls.exe&quot; &quot;[StateDir].&quot; /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F &quot;NT SERVICE\WilsonGateway:(OI)(CI)M&quot; /T /C /Q" Before="SetStateAcl" Sequence="execute" />
     <CustomAction Id="SetStateAcl" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="check" Impersonate="no" />
+
+    <!-- A new pipe key, written as SYSTEM inside the locked folder before the services start: a pipe.key
+         planted before the ACL step is replaced, never used. A failure fails the install. -->
+    <SetProperty Id="FreshPipeKey" Value="&quot;[#CurrentNodeExe]&quot; &quot;[CurrentApp]src\installer.mjs&quot; fresh-pipe-key &quot;[StateDir].&quot;" Before="FreshPipeKey" Sequence="execute" />
+    <CustomAction Id="FreshPipeKey" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="check" Impersonate="no" />
 
     <!-- The token for the service to enrol itself with at its first start. HideTarget: never in the log. -->
     <SetProperty Id="WriteEnrolFile" Value="&quot;[#CurrentNodeExe]&quot; &quot;[CurrentApp]src\installer.mjs&quot; enrol-file &quot;[StateDir].&quot; &quot;[ENROLTOKEN]&quot; &quot;[CLOUDURL]&quot;" Before="WriteEnrolFile" Sequence="execute" />
@@ -129,8 +140,10 @@
     <CustomAction Id="WriteSummary" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Return="ignore" Impersonate="no" />
 
     <InstallExecuteSequence>
-      <Custom Action="SetStateAcl" After="InstallServices" Condition="NOT REMOVE" />
-      <Custom Action="WriteEnrolFile" After="SetStateAcl" Condition="NOT REMOVE AND ENROLTOKEN" />
+      <Custom Action="SetStateOwner" After="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="SetStateAcl" After="SetStateOwner" Condition="NOT REMOVE" />
+      <Custom Action="FreshPipeKey" After="SetStateAcl" Condition="NOT REMOVE" />
+      <Custom Action="WriteEnrolFile" After="FreshPipeKey" Condition="NOT REMOVE AND ENROLTOKEN" />
       <Custom Action="WriteSummary" After="StartServices" Condition="NOT REMOVE" />
     </InstallExecuteSequence>
 

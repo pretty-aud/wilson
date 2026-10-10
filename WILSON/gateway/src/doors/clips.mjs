@@ -70,11 +70,18 @@ function ticketFromUrl(url) {
 export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {} }) {
   const head = req.method === 'HEAD';
   const pathHeader = { 'Wilson-Gateway-Path': door };
+  // The peer, as the door sees it (the forwarded address behind a declared
+  // proxy): its failed tickets are counted, and past the budget it is
+  // answered before its ticket is even parsed (review round 1, finding 2).
+  const source = ctx.sourceOf(req, door);
+  const peerKey = `${door}|${source.address}`;
   const deny = (status, reason, more = {}) => {
+    if (status === 401) ctx.authFailures.spend(peerKey, 1);
     ctx.log('clip_refused', { door, status, reason });
     const headers = { ...extraHeaders, ...(door === 'inside' ? pathHeader : {}), ...(more.headers || {}) };
     respond(req, res, status, { headers, body: more.body ?? null });
   };
+  if (ctx.authFailures.remaining(peerKey) <= 0) return deny(429, 'auth_failures', { headers: { 'Retry-After': String(ctx.authFailures.retryAfterS(peerKey)) } });
 
   const ticket = ticketFromUrl(req.url);
   if (!ticket) return deny(401, 'no_ticket');
@@ -156,7 +163,6 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
 
   // From here the request is served: the stream is opened (a ticket's first use) and its source recorded.
   const stream = ctx.streams.open(door, claims);
-  const source = ctx.sourceOf(req, door);
   const shared = ctx.streams.addSource(stream, source.address);
   if (door === 'inside') ctx.relayWatch(req.socket.remoteAddress, authority.sub);
 
@@ -236,7 +242,13 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
  * → 204, or 401 for every failure (the wire); 413 when the body is over 8 KB.
  */
 export async function renewClip(ctx, req, res, { door, clipId, extraHeaders = {} }) {
-  const deny = (status, reason) => { ctx.log('renew_refused', { door, status, reason }); respond(req, res, status, { headers: extraHeaders }); };
+  const peerKey = `${door}|${ctx.sourceOf(req, door).address}`;
+  const deny = (status, reason, headers = {}) => {
+    if (status === 401) ctx.authFailures.spend(peerKey, 1);
+    ctx.log('renew_refused', { door, status, reason });
+    respond(req, res, status, { headers: { ...extraHeaders, ...headers } });
+  };
+  if (ctx.authFailures.remaining(peerKey) <= 0) return deny(429, 'auth_failures', { 'Retry-After': String(ctx.authFailures.retryAfterS(peerKey)) });
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const body = await readBody(req, ctx.limits.bodyBytes);
   if (body === null) return deny(413, 'body_too_large');

@@ -28,7 +28,7 @@ import { makeSecrets, runPowerShell } from '../src/platform/secrets.mjs';
 import { ShareLogins, shareOf, parseSmbConnections } from '../src/platform/shares.mjs';
 import { parseAdapters, linuxNetFacts } from '../src/platform/hostfacts.mjs';
 import { firewallArgs, firewallPortOk, FIREWALL_RULE } from '../updater/updater.mjs';
-import { summaryText, enrolFile } from '../src/installer.mjs';
+import { summaryText, enrolFile, freshPipeKey } from '../src/installer.mjs';
 import { stateDirFor } from '../src/platform/state.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -235,6 +235,25 @@ describe('the command and the installer\'s helper', () => {
     expect(enrolFile(dir, 'wgt_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', 'https://x.supabase.co/functions/v1')).toEqual({ ok: true });
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'enrol.json'), 'utf8'))).toEqual({ token: 'wgt_ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', cloud: 'https://x.supabase.co/functions/v1' });
     expect(enrolFile(dir, 'nope', null).ok).toBe(false);
+  });
+  it('fresh-pipe-key (the MSI, as SYSTEM, after the owner and the ACL): a planted pipe.key is replaced by 32 new random bytes, which the services then read (review round 1, finding 5)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-pipekey-'));
+    try {
+      const planted = Buffer.alloc(32, 7);
+      fs.writeFileSync(path.join(dir, 'pipe.key'), planted);
+      freshPipeKey(dir);
+      const k = fs.readFileSync(path.join(dir, 'pipe.key'));
+      expect(k.length).toBe(32);
+      expect(k.equals(planted)).toBe(false);
+      expect(loadOrMakePipeKey(path.join(dir, 'pipe.key')).equals(k)).toBe(true);
+      const run = (d) => spawnSync(process.execPath, [path.join(HERE, '..', 'src', 'installer.mjs'), 'fresh-pipe-key', d], { encoding: 'utf8' });
+      const ok = run(dir);
+      expect(ok.status).toBe(0);
+      expect(fs.readFileSync(path.join(dir, 'pipe.key')).equals(k)).toBe(false);
+      const failed = run(path.join(dir, 'no such folder'));
+      expect(failed.status).toBe(1); // the custom action is Return="check": the install fails, never a planted key
+      expect(failed.stderr).toMatch(/^fresh-pipe-key: /);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('the installer\'s last screen: the fingerprint, the addresses, what next', () => {
     const t = summaryText({ result: { ok: true, fingerprint_display: 'AB:CD' }, status: { doors: { inside: { open: [{ address: '192.168.1.10', port: 8443 }], refused: [{ address: '10.8.0.6', iface: 'OpenVPN', reason: 'VPN adapter' }] } }, health_line: '**PC** \u00b7 0.1.0' }, waitedS: 3 });

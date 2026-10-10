@@ -11,22 +11,45 @@
 //
 // The gateway serves whatever location list the cloud hands it and
 // second-guesses nothing about WHICH share it is (the cloud's CHECK refuses
-// localhost and C$, not this): it only refuses a shape it cannot turn into a
-// safe POSIX path (an empty, '.' or '..' segment, a slash, NUL, a control
-// character), because that would be a path out of /locations.
+// localhost and C$, not this). It refuses only what is not a share's address
+// at all, or what Windows would read as another path (review round 1,
+// finding 2):
+//   - the server must be a NAME: letters, digits, '-', '_' and dots (a DNS
+//     name, a NetBIOS name, an IPv4 address, an ipv6-literal.net name). So
+//     not "?" or "." (\\?\C:\Windows, \\?\GLOBALROOT\…, \\.\pipe\… are the
+//     device namespace), not "host@SSL@443" or "host@8080" (WebDAV over HTTP:
+//     another protocol, out to port 80 or 443), no ':' or '%';
+//   - no segment empty, '.', '..', or ending in a dot or a space (Windows
+//     strips both, so \\nas\C$. is C$), none of / : * ? " < > |;
+//   - no control or format character anywhere (the address is shown in the
+//     health line and the status page): the desktop's rule, copied.
+// The container turns the result into a POSIX path under /locations.
 // =============================================================================
 
 export const CONTAINER_LOCATIONS_ROOT = '/locations';
 
+const LABEL = '[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?';
+const SERVER_RE = new RegExp(`^${LABEL}(?:\\.${LABEL})*$`);
+const BAD_SEGMENT_CHARS_RE = /[/:*?"<>|]/;
+const TRAILING_DOT_OR_SPACE_RE = /[. ]$/;
+const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+
+/** A server's name as a share address may hold it (see above). */
+export function isServerName(host) {
+  return typeof host === 'string' && host.length <= 253 && SERVER_RE.test(host);
+}
+
 /** `\\host\share\rest…` → { host, share, rest: [] } | null. */
 export function parseUncPath(unc) {
   if (typeof unc !== 'string' || unc.length > 1024 || !unc.startsWith('\\\\')) return null;
+  if (INVISIBLE_RE.test(unc)) return null;
   const segs = unc.slice(2).split('\\');
   if (segs.length < 2) return null;
-  for (const seg of segs) {
-    if (!seg || seg === '.' || seg === '..' || seg.includes('/') || /[\u0000-\u001f\u007f]/.test(seg)) return null;
-  }
   const [host, share, ...rest] = segs;
+  if (!isServerName(host)) return null;
+  for (const seg of [share, ...rest]) {
+    if (!seg || seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg) || BAD_SEGMENT_CHARS_RE.test(seg)) return null;
+  }
   return { host, share, rest };
 }
 

@@ -380,3 +380,72 @@ describe('closing the outside door (§9 step 4; Appendix A, run 2)', () => {
     expect(refused).toBe('ECONNREFUSED');
   });
 });
+
+describe('a flood of forged tickets is answered before it costs a signature check (review round 1, finding 2)', () => {
+  let share;
+  let W;
+  let verifications = 0;
+  beforeAll(async () => {
+    share = makeShare();
+    W = await makeWorld({ door: 'outside', share, clock: { t: Date.parse('2026-10-10T12:00:00Z') } });
+    const keyFor = W.ctx.keyFor;
+    W.ctx.keyFor = (kid) => { verifications += 1; return keyFor(kid); };
+  });
+  afterAll(async () => { await W.close(); share.cleanup(); });
+  const forged = () => {
+    const [v, p, s] = W.ticket().split('.');
+    const sig = Buffer.from(s, 'base64url');
+    sig[5] ^= 0x10;
+    return `${v}.${p}.${sig.toString('base64url')}`;
+  };
+
+  it('30 failed tickets in a minute from one peer; the 31st request, even a good one, is 429 with Retry-After and nothing of it is checked', async () => {
+    const budget = W.ctx.limits.authFailuresPerMinutePerPeer;
+    expect(budget).toBe(30);
+    for (let i = 0; i < budget; i++) expect((await W.request(W.clipUrl(forged()))).status).toBe(401);
+    expect(verifications).toBe(budget);
+    const locked = await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } });
+    expect(locked.status).toBe(429);
+    expect(Number(locked.headers['retry-after'])).toBeGreaterThan(0);
+    expect(locked.body.length).toBe(0);
+    const renewal = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: 'a'.repeat(32), t: W.ticket() }) });
+    expect(renewal.status).toBe(429);
+    expect(verifications).toBe(budget); // neither was parsed, let alone verified
+    expect(W.state.log.filter((e) => e.reason === 'auth_failures')).toHaveLength(2);
+  });
+  it('the next minute the peer is served again', async () => {
+    W.clock.t += 60_000;
+    expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } })).status).toBe(206);
+  });
+  it('a renewal\'s failures spend the same budget', async () => {
+    W.clock.t += 60_000;
+    for (let i = 0; i < 30; i++) {
+      const r = await W.request(`/v1/clips/${CLIP}/renew`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jti: 'b'.repeat(32), t: forged() }) });
+      expect(r.status).toBe(401);
+    }
+    expect((await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' } })).status).toBe(429);
+  });
+});
+
+describe('one connection serves a bounded number of requests (review round 1, finding 2)', () => {
+  it('the last answer on a connection says "Connection: close", and the client connects again', async () => {
+    const https = await import('node:https');
+    const share = makeShare();
+    const W = await makeWorld({ door: 'outside', share, limits: { requestsPerConnection: 3 } });
+    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const seen = [];
+      for (let i = 0; i < 4; i++) {
+        const r = await W.request(W.clipUrl(W.ticket()), { headers: { range: 'bytes=0-0' }, agent });
+        seen.push([r.status, r.headers.connection]);
+      }
+      expect(seen.map((x) => x[0])).toEqual([206, 206, 206, 206]);
+      expect(seen[2][1]).toBe('close');
+      expect(seen[0][1]).toBe('keep-alive');
+    } finally {
+      agent.destroy();
+      await W.close();
+      share.cleanup();
+    }
+  });
+});

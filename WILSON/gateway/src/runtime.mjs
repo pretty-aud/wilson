@@ -41,7 +41,7 @@ import { Catalogue } from './cloud/catalogue.mjs';
 import { ReachChecker } from './cloud/reach.mjs';
 import { isEnrolToken } from './wire/formats.mjs';
 import { compareVersions } from './update/manifest.mjs';
-import { containerRootFor } from './rules/mountRule.mjs';
+import { containerRootFor, locationRoot, parseUncPath } from './rules/mountRule.mjs';
 
 export const NO_CLOUD_MS = 60_000;
 const SECOND = 1_000;
@@ -76,7 +76,9 @@ export class Gateway {
     this.print = o.print || ((line) => process.stdout.write(line + '\n'));
     // Tests only, by constructor: where a location's root is on this machine.
     // Not reachable from config.json, the environment or the command line.
-    this.rootFor = o.locationRootFor || ((unc) => (this.platform === 'container' ? containerRootFor(unc) : unc));
+    // The root by the mount rule's shape check on both platforms (review round 1,
+    // finding 2: Windows took the cloud's string as it came).
+    this.rootFor = o.locationRootFor || ((unc) => locationRoot(unc, this.platform));
     this.intervals = { tick: o.tickMs ?? SECOND, addresses: o.addressMs ?? 30 * SECOND, events: o.eventsMs ?? 60 * SECOND, status: o.statusMs ?? 5 * SECOND, enrolPoll: o.enrolPollMs ?? 3 * SECOND };
     this.timers = [];
     this.enrolOnly = o.enrolOnly === true;
@@ -138,7 +140,7 @@ export class Gateway {
     if (recovered.recovered) this.log('journal_recovered', recovered);
 
     this.catalogue = new Catalogue({ now: this.now, confirm: (items) => this.sync ? this.sync.confirm(items) : Promise.resolve({ reached: false }) });
-    this.reach = new ReachChecker({ platform: this.platform, hasShareLogin: (h) => this.shareLogins.has(h), now: this.now, rootFor: this.rootFor });
+    this.reach = new ReachChecker({ platform: this.platform, hasShareLogin: (h) => this.shareLogins.has(h), mayContact: (unc) => this.mayContact(unc), now: this.now, rootFor: this.rootFor });
     this.#buildDoorContext();
 
     this.enrolment = await this.#readJson('state');
@@ -330,7 +332,9 @@ export class Gateway {
       ids: () => ({ gatewayId: this.enrolment?.gateway_id || null, workspaceId: this.enrolment?.workspace_id || null }),
       keyFor: (kid) => this.keys.get(kid) || null,
       syncForUnknownKid: () => this.#syncForUnknownKid(),
-      location: (id) => this.locations.get(id) || null,
+      // A location whose server this gateway may not contact yet is not
+      // connected, whatever its last check said (review round 1, finding 2).
+      location: (id) => { const l = this.locations.get(id); if (!l) return null; return this.mayContact(l.unc) ? l : { ...l, state: 'not_connected' }; },
       catalogue: this.catalogue,
       journal: this.journal,
       now: this.now,
@@ -570,6 +574,20 @@ export class Gateway {
     }
   }
 
+  /**
+   * Windows: whether this gateway may contact a location's server at all. Only
+   * a server an administrator of this computer gave a share login for, or
+   * listed in config.json's connect_without_login; never another the cloud's
+   * list names (a contact authenticates as this computer). The container
+   * reads what its administrator mounted, which is that consent.
+   */
+  mayContact(unc) {
+    if (this.platform !== 'windows') return true;
+    const host = parseUncPath(unc)?.host?.toLowerCase();
+    if (!host) return false;
+    return this.shareLogins.has(host) || (this.config?.connect_without_login || []).includes(host);
+  }
+
   async #maybeHealthy() {
     if (this.healthyWritten || !this.inside.servers.size) return;
     this.healthyWritten = true;
@@ -615,6 +633,7 @@ export class Gateway {
       this.limiters.inside.connections.prune(); this.limiters.inside.handshakes.prune();
       this.limiters.outside.connections.prune(); this.limiters.outside.handshakes.prune();
       this.doorCtx.perPersonRequests.prune();
+      this.doorCtx.authFailures.prune();
     }
   }
 

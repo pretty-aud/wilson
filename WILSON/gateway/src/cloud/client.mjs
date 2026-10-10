@@ -18,6 +18,7 @@
 // =============================================================================
 
 import { isCredential, signingKeyFromWire, UUID_RE } from '../wire/formats.mjs';
+import { parseUncPath } from '../rules/mountRule.mjs';
 import { parseVersion } from '../update/manifest.mjs';
 
 export const DEFAULT_CLOUD_URL = 'https://rqyriuyldhovirbuievt.supabase.co/functions/v1';
@@ -76,12 +77,24 @@ export function cleanEnrolAnswer(a) {
       gatewayId: a.gateway_id,
       credential: a.credential,
       workspaceId,
-      workspaceName: typeof a.workspace_name === 'string' ? a.workspace_name.slice(0, 200) : null,
+      workspaceName: displayText(a.workspace_name, 200),
       signingKeys: cleanKeys(a.signing_keys, dropped),
       origins: cleanOrigins(a.web_app_origins),
       syncIntervalS: interval,
     },
   };
+}
+
+// Words the cloud hands over for people to read (a gateway's name, a
+// location's, the company's): printed by `doctor` to a terminal and written
+// into the health line, so no control, format or invisible character survives
+// (review round 1, finding 3: an escape sequence in a rename would have
+// rewritten the admin's console).
+const INVISIBLE_G = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]+/gu;
+export function displayText(s, max) {
+  if (typeof s !== 'string') return null;
+  const t = s.replace(INVISIBLE_G, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
+  return t || null;
 }
 
 /** The sync answer, checked; a missing or wrong `remote_viewing` reads as OFF. */
@@ -90,9 +103,13 @@ export function cleanSyncAnswer(a) {
   if (!a || typeof a !== 'object') return { ok: false, reason: 'not an object' };
   const locations = [];
   for (const l of Array.isArray(a.bin_locations) ? a.bin_locations : []) {
-    if (l && typeof l.id === 'string' && UUID_RE.test(l.id) && typeof l.unc_path === 'string' && l.unc_path.length <= 1024) {
-      locations.push({ id: l.id, unc: l.unc_path, name: typeof l.name === 'string' ? l.name.slice(0, 120) : null });
-    } else dropped.push('bin_locations[]');
+    if (!(l && typeof l.id === 'string' && UUID_RE.test(l.id))) { dropped.push('bin_locations[]'); continue; }
+    // The address re-checked here, as a ticket's path is (review round 1,
+    // finding 1): a location whose address is no share's (the device
+    // namespace, WebDAV, a stripped alias, an invisible character) never
+    // reaches the reach check, the doors or the health line; the log names it.
+    if (!parseUncPath(l.unc_path)) { dropped.push(`bin_locations[${l.id}] (not a share address)`); continue; }
+    locations.push({ id: l.id, unc: l.unc_path, name: displayText(l.name, 120) });
   }
   const confirmed = (Array.isArray(a.confirmed) ? a.confirmed : []).filter((c) => typeof c === 'string' && UUID_RE.test(c));
   for (const k of ['minimum_version', 'hard_minimum_version']) if (!okVersion(a[k])) dropped.push(k);
@@ -116,7 +133,7 @@ export function cleanSyncAnswer(a) {
       checkUpdateNow: a.check_update_now === true,
       checkReachNow: a.check_reach_now === true,
       reachNonce: typeof a.reach_nonce === 'string' && a.reach_nonce.length >= 16 && a.reach_nonce.length <= 128 ? a.reach_nonce : null,
-      renamed: typeof a.renamed === 'string' && a.renamed.trim() ? a.renamed.trim().slice(0, 80) : null,
+      renamed: displayText(a.renamed, 80),
       workspaceId: typeof a.workspace_id === 'string' && UUID_RE.test(a.workspace_id) ? a.workspace_id : null,
       reach,
     },

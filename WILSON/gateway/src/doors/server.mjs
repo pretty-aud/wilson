@@ -52,6 +52,10 @@ export function createDoorServer({ door, host, port, tls, limits, gate, handler,
     connectionsCheckingInterval: 1_000,
     maxHeaderSize: 16 * 1024,
   }, handler);
+  // At most this many requests on one connection (review round 1, finding 2):
+  // the last answer says "Connection: close", so a client must connect again,
+  // through the gate's per-peer connection and handshake limits.
+  server.maxRequestsPerSocket = limits.requestsPerConnection;
 
   server.on('connection', (socket) => {
     const verdict = gate(socket);

@@ -75,6 +75,9 @@ jobs:
         shell: bash
         run: |
           node --version
+          # The certificate tests read the constraints back with OpenSSL; in CI
+          # they must run, never skip (review round 1, finding 6).
+          openssl version
           npx vitest run gateway
 
   msi:
@@ -126,7 +129,10 @@ jobs:
           if (-not ($svc -contains 'WilsonGatewayUpdater|LocalSystem|WilsonGatewayUpdater')) { throw 'the updater service is not LocalSystem' }
           $seq = Q 'SELECT `Action`,`Sequence` FROM `InstallExecuteSequence`'
           $at = @{}; foreach ($r in $seq) { $p = $r.Split('|'); $at[$p[0]] = [int]$p[1] }
-          if (-not ($at['InstallServices'] -lt $at['SetStateAcl'] -and $at['SetStateAcl'] -lt $at['WriteEnrolFile'] -and $at['WriteEnrolFile'] -lt $at['StartServices'] -and $at['StartServices'] -lt $at['WriteSummary'])) { throw 'custom actions out of order' }
+          if (-not ($at['InstallServices'] -lt $at['SetStateOwner'] -and $at['SetStateOwner'] -lt $at['SetStateAcl'] -and $at['SetStateAcl'] -lt $at['FreshPipeKey'] -and $at['FreshPipeKey'] -lt $at['WriteEnrolFile'] -and $at['WriteEnrolFile'] -lt $at['StartServices'] -and $at['StartServices'] -lt $at['WriteSummary'])) { throw 'custom actions out of order' }
+          $ca = Q 'SELECT `Action`,`Target` FROM `CustomAction`'
+          if (-not ($ca | Where-Object { $_ -like 'SetSetStateOwner|*/setowner `*S-1-5-32-544 /T /C /Q' })) { throw 'the state folder is not given to Administrators before its ACL is set' }
+          if (-not ($ca | Where-Object { $_ -like 'SetFreshPipeKey|*installer.mjs" fresh-pipe-key *' })) { throw 'the pipe key is not made fresh at install' }
           $hidden = Q 'SELECT `Value` FROM `Property` WHERE `Property` = ''MsiHiddenProperties'''
           if (-not ($hidden -match 'ENROLTOKEN')) { throw 'the token is not hidden from the log' }
           $fw = Q 'SELECT `Name`,`RemoteAddresses`,`Port`,`Protocol` FROM `Wix5FirewallException`'

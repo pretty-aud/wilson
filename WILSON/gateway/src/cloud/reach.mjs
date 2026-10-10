@@ -8,8 +8,12 @@
 //
 //   reachable      the root is a folder
 //   not_mounted    container: /locations/<host>/<share> is not there
-//   not_connected  Windows: the root refused us and no share login is held
-//                  for that server (run share-login)
+//   not_connected  Windows: no share login is held for that server (run
+//                  share-login), so the gateway has not contacted it at all:
+//                  a server is contacted only once an administrator gave its
+//                  login, or listed it in connect_without_login (review round
+//                  1, finding 2: the cloud's list is written by any project
+//                  editor, and a contact authenticates as this computer)
 //   not_reachable  anything else: refused with a login, missing, slow
 // =============================================================================
 
@@ -35,9 +39,10 @@ export function askRootInWorker(root, timeoutMs = 2_000) {
 
 export class ReachChecker {
   /**
-   * @param {{ platform: 'windows'|'container', ask?: (root: string) => Promise<string>, maxAsking?: number, hasShareLogin?: (host: string) => boolean, now?: () => number }} o
+   * @param {{ platform: 'windows'|'container', ask?: (root: string) => Promise<string>, maxAsking?: number, hasShareLogin?: (host: string) => boolean, mayContact?: (unc: string) => boolean, now?: () => number }} o
    */
-  constructor({ platform, ask = askRootInWorker, maxAsking = 16, hasShareLogin = () => false, now = Date.now, rootFor = null }) {
+  constructor({ platform, ask = askRootInWorker, maxAsking = 16, hasShareLogin = () => false, mayContact = () => true, now = Date.now, rootFor = null }) {
+    this.mayContact = mayContact;
     this.rootFor = rootFor || ((unc) => locationRoot(unc, platform));
     this.platform = platform;
     this.ask = ask;
@@ -76,6 +81,7 @@ export class ReachChecker {
       const root = this.rootFor(l.unc);
       let state;
       if (!root) state = this.platform === 'container' ? 'not_mounted' : 'not_reachable';
+      else if (!this.mayContact(l.unc)) state = 'not_connected';
       else state = this.classify(await this.#askOnce(root), l.unc);
       if (state === 'reachable') this.since.delete(l.id);
       else if (!this.since.has(l.id)) this.since.set(l.id, this.now());

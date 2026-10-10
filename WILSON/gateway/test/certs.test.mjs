@@ -17,7 +17,10 @@ import { execFileSync } from 'node:child_process';
 import { makeRoot, makeLeaf, certInfo, fingerprintOf, displayFingerprint, hostNames, permittedFor } from '../src/certs/x509.mjs';
 import { CertStore, loadOwnCertificate } from '../src/certs/store.mjs';
 
-const OPENSSL = (() => { try { execFileSync('openssl', ['version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+// OpenSSL reads the constraints back. Here it may be missing (the tests say
+// so by skipping); in CI it must be there, so a missing one FAILS them
+// instead of skipping them (review round 1, finding 6).
+const OPENSSL = (() => { try { execFileSync('openssl', ['version'], { stdio: 'pipe' }); return true; } catch { return false; } })() || !!process.env.CI;
 const NOW = Date.parse('2026-10-10T00:00:00Z');
 const ADDR = ['192.168.1.10', 'fd00:1:2:3::10'];
 

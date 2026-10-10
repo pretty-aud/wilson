@@ -41,7 +41,10 @@ let share;
 beforeAll(() => { share = makeShare(); });
 afterAll(() => { share.cleanup(); });
 
-async function world({ config = {}, token = true, clock = { offset: 0 }, cloudOpts = {}, beforeStart = null } = {}) {
+// The test share's server is one this gateway may contact (on Windows: as an
+// administrator's share login would make it); gw: other Gateway options.
+const NAS_LOGIN = { has: (h) => h === 'nas', list: () => [], dialects: async () => [] };
+async function world({ config = {}, token = true, clock = { offset: 0 }, cloudOpts = {}, beforeStart = null, gw: gwOpts = {} } = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-state-'));
   fs.writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify({ outside: { port: 0, behind_local_proxy: true }, ...config }));
   const now = () => Date.now() + clock.offset;
@@ -57,8 +60,9 @@ async function world({ config = {}, token = true, clock = { offset: 0 }, cloudOp
   const gw = new Gateway({
     env, stateDir, now, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: plainSecrets,
     netInterfaces: () => LOOPBACK_ONLY, print: (l) => lines.push(l),
-    locationRootFor: () => share.root,
+    locationRootFor: () => share.root, shareLogins: NAS_LOGIN,
     tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
+    ...gwOpts,
   });
   await gw.start();
   const get = (urlPath, { headers = {}, method = 'GET' } = {}) => new Promise((resolve, reject) => {
@@ -330,6 +334,27 @@ describe('tickets at the running gateway', () => {
       expect((await W.get(`/v1/clips/${CLIP}?t=${t}`, { headers: { range: 'bytes=0-0' } })).status).toBe(206);
       expect(W.cloud.state.calls.filter((c) => c.fn === 'gateway-sync').length).toBeGreaterThan(before);
     } finally { await W.close(); }
+  });
+  it('Windows: a share server without an administrator\'s consent is never contacted, its clips 404 (review round 1, finding 2); listed in connect_without_login, it serves', async () => {
+    const noLogin = { has: () => false, list: () => [], dialects: async () => [] };
+    const W = await world({ gw: { platform: 'win32', shareLogins: noLogin } });
+    try {
+      expect(W.gw.platform).toBe('windows');
+      await switchOn(W);
+      await waitFor(() => W.gw.locations.get(LOC) && W.gw.locations.get(LOC).state !== 'unknown');
+      expect(W.gw.locations.get(LOC).state).toBe('not_connected');
+      const r = await W.get(`/v1/clips/${CLIP}?t=${W.cloud.mint({ clip: CLIP, sub: SUB })}`, { headers: { range: 'bytes=0-0' } });
+      expect(r.status).toBe(404);
+      expect(r.body.length).toBe(0);
+      expect(W.lines.some((l) => l.includes('clip_refused') && l.includes('location_not_connected'))).toBe(true);
+      await W.gw.syncNow();
+      expect(W.cloud.lastReport().reach).toEqual({ [LOC]: 'not_connected' });
+    } finally { await W.close(); }
+    const W2 = await world({ gw: { platform: 'win32', shareLogins: noLogin }, config: { connect_without_login: ['NAS'] } });
+    try {
+      await switchOn(W2);
+      expect((await W2.get(`/v1/clips/${CLIP}?t=${W2.cloud.mint({ clip: CLIP, sub: SUB })}`, { headers: { range: 'bytes=0-0' } })).status).toBe(206);
+    } finally { await W2.close(); }
   });
   it('the catalogue check: a clip the cloud does not hold is 404; the confirm rides a sync at once', async () => {
     const W = await world();
