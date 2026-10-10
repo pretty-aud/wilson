@@ -103,7 +103,8 @@ jobs:
       - name: Read the MSI's tables back (nothing installed)
         shell: pwsh
         run: |
-          $msi = Join-Path $env:RUNNER_TEMP 'gateway-msi\WILSON Gateway Setup.msi'
+          # A plain string: COM refuses the wrapped object Join-Path returns (DISP_E_TYPEMISMATCH).
+          $msi = [string](Join-Path $env:RUNNER_TEMP 'gateway-msi\WILSON Gateway Setup.msi')
           $installer = New-Object -ComObject WindowsInstaller.Installer
           $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi, 0))
           function Q($sql) {
