@@ -234,7 +234,7 @@ export class Gateway {
       version: VERSION,
       root_cert_pem: st.rootPem,
       root_fingerprint: st.rootFingerprint,
-      inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.config.inside.port })),
+      inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.inside.servers.get(a.address)?.port || this.config.inside.port })),
       inside_names: hostNames(this.hostname),
     });
     if (!res.ok) return { ok: false, error: res.status === 401 || res.status === 403 || res.status === 404 || res.status === 410 ? ENROL_SENTENCES.refused : res.unreachable ? ENROL_SENTENCES.unreachable(url) : (res.error || ENROL_SENTENCES.refused) };
@@ -449,31 +449,47 @@ export class Gateway {
 
   // ── the cloud ──────────────────────────────────────────────────────────────
   #report() {
+    // The names GW1's gateway-sync reads (its gatewayShapes parseSyncRequest,
+    // origin/po/gw1-gateway-cloud at 376c4b25): the health under `health`,
+    // and the name, so that the answer's `renamed` is set by a rename only.
+    // What GW1 drops today (the platform, the names, the fingerprint, the
+    // refused ranges, the line, the root's PEM when it changes) is GW3's.
     const st = this.certs.state();
+    const line = this.healthLine();
+    const iso = (t) => (t ? new Date(t).toISOString() : null);
+    const dialects = (this.smbDialects || []).map((s) => s.dialect).filter(Boolean).sort();
     const body = {
+      name: this.displayName || this.config?.name || this.hostname,
       version: VERSION,
       platform: this.platform,
       hostname: this.hostname,
-      inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.config.inside.port })),
+      inside_addresses: this.choice.addresses.map((a) => ({ host: a.address, port: this.inside.servers.get(a.address)?.port || this.config.inside.port })),
       inside_names: hostNames(this.hostname),
       root_fingerprint: st.rootFingerprint,
-      certificate: {
-        kind: this.config.inside.certificate ? 'own' : 'gateway',
-        leaf_until: st.leafNotAfter ? new Date(st.leafNotAfter).toISOString() : null,
-        root_until: st.rootNotAfter ? new Date(st.rootNotAfter).toISOString() : null,
-        outside: this.config.outside.certificate ? 'own' : 'gateway',
-      },
       reach: Object.fromEntries([...this.locations.values()].map((l) => [l.id, l.state])),
-      doors: {
-        inside: this.inside.servers.size ? 'open' : `closed_${this.inside.closed || 'unknown'}`,
-        outside: this.outside.state === 'open' ? `open:${this.config.outside.port}` : this.outside.state,
-        inside_refused_public: this.counters.sinceSync.public,
-        relay: this.doorCtx.relay.worst(),
+      health: {
+        doors: {
+          inside: this.inside.servers.size ? 'open' : `closed_${this.inside.closed || 'unknown'}`,
+          outside: this.outside.state === 'open' ? `open:${this.outsidePort ?? this.config.outside.port}` : this.outside.state,
+          refused_public: this.counters.sinceSync.public,
+          inside_bound: [...this.inside.servers.values()].map((s) => `${s.host.includes(':') ? `[${s.host}]` : s.host}:${s.port}`),
+          relay_warning: this.doorCtx.relay.worst(),
+        },
+        update: this.#updateWord(),
+        certificate: {
+          kind: this.config.inside.certificate ? 'own' : 'gateway',
+          leaf_not_after: iso(st.leafNotAfter),
+          root_not_after: iso(st.rootNotAfter),
+          outside: this.config.outside.certificate ? 'own' : 'gateway',
+          expires_warning: line.warnings.find((w) => w.text.includes('certificate'))?.text ?? null,
+        },
+        office_ranges_applied: this.officeRanges.applied,
+        office_ranges_refused: this.officeRanges.refused,
+        cloud: this.client?.base ?? null,
+        smb_dialect: dialects[0] ?? null,
+        minimum_version_ok: this.remote.minimumVersion ? compareVersions(VERSION, this.remote.minimumVersion) >= 0 : null,
+        line: line.text,
       },
-      update: this.#updateWord(),
-      office_ranges_applied: this.officeRanges.applied,
-      office_ranges_refused: this.officeRanges.refused,
-      health_line: this.healthLine().text,
     };
     if (this.rootPemSent !== st.rootFingerprint) body.root_cert_pem = st.rootPem;
     if (st.nextRootPem) body.next_root_cert_pem = st.nextRootPem;
@@ -632,7 +648,7 @@ export class Gateway {
       version: VERSION,
       doors: {
         inside: { state: this.inside.servers.size ? 'open' : `closed_${this.inside.closed}`, addresses: [...this.inside.servers.values()].map((s) => `${s.host.includes(':') ? `[${s.host}]` : s.host}:${s.port}`) },
-        outside: { state: this.outside.state === 'open' ? `open:${this.config.outside.port}` : this.outside.state },
+        outside: { state: this.outside.state === 'open' ? `open:${this.outsidePort ?? this.config.outside.port}` : this.outside.state },
       },
       reach: Object.fromEntries([...this.locations.values()].map((l) => [l.id, l.state])),
       certificate: { fingerprint: st.rootFingerprint, root_until: st.rootNotAfter ? new Date(st.rootNotAfter).toISOString() : null, leaf_until: st.leafNotAfter ? new Date(st.leafNotAfter).toISOString() : null },

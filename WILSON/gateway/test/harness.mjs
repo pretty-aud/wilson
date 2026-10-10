@@ -67,7 +67,7 @@ export function memoryJournal() {
 
 /**
  * One door on loopback.
- * @param o { door, gate?, limits?, share, confirmed?: Set<clip>|'all', cloudReachable?: boolean, clock?: { t } }
+ * @param o { door, gate?, limits?, share, confirmed?: Set<clip>|'all', cloudReachable?: boolean, clock?: { t }, ids?: { gatewayId, workspaceId } }
  */
 export async function makeWorld(o) {
   const door = o.door;
@@ -97,7 +97,7 @@ export async function makeWorld(o) {
   const journal = memoryJournal();
   const { limits } = resolveLimits(o.limits || {});
   const ctx = makeDoorContext({
-    ids: () => ({ gatewayId: GW, workspaceId: WS }),
+    ids: () => (o.ids || { gatewayId: GW, workspaceId: WS }),
     keyFor: (kid) => keys.get(kid) || null,
     syncForUnknownKid: async () => { state.unknownKidSyncs += 1; if (state.onUnknownKid) state.onUnknownKid(keys); },
     location: (id) => state.locations.get(id) || null,

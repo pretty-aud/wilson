@@ -20,7 +20,7 @@ import path from 'node:path';
 import https from 'node:https';
 import net from 'node:net';
 import { Gateway } from '../src/runtime.mjs';
-import { createFakeCloud } from './fakeCloud.mjs';
+import { createFakeCloud, FAKE_BASE } from './fakeCloud.mjs';
 import { makeShare, SUB, SUB2, CLIP, CLIP2, LOC } from './harness.mjs';
 import { VERSION } from '../src/version.mjs';
 
@@ -145,9 +145,11 @@ describe('the sync\'s report and the doors\' states', () => {
     try {
       await waitFor(() => W.cloud.lastReport());
       const r = W.cloud.lastReport();
-      expect(r).toMatchObject({ version: VERSION, platform: process.platform === 'win32' ? 'windows' : 'container', hostname: 'studio-nas', inside_addresses: [], doors: { inside: 'closed_no_address', outside: 'closed_switch_off', inside_refused_public: 0, relay: null }, update: 'disabled' });
+      expect(r).toMatchObject({ name: 'studio-nas', version: VERSION, platform: process.platform === 'win32' ? 'windows' : 'container', hostname: 'studio-nas', inside_addresses: [], health: { doors: { inside: 'closed_no_address', outside: 'closed_switch_off', refused_public: 0, inside_bound: [], relay_warning: null }, update: 'disabled', cloud: FAKE_BASE, smb_dialect: null, minimum_version_ok: null, certificate: { kind: 'gateway', outside: 'gateway', expires_warning: null } } });
+      expect(r.health.certificate.leaf_not_after).toMatch(/^\d{4}-\d\d-\d\dT/);
+      expect(r.health.certificate.root_not_after).toMatch(/^\d{4}-\d\d-\d\dT/);
       expect(r.root_cert_pem).toMatch(/BEGIN CERTIFICATE/);
-      expect(r.health_line).toContain('office door closed (no office network address)');
+      expect(r.health.line).toContain('office door closed (no office network address)');
       await W.gw.syncNow();
       expect(W.cloud.lastReport().root_cert_pem).toBeUndefined();
     } finally { await W.close(); }
@@ -166,7 +168,67 @@ describe('the sync\'s report and the doors\' states', () => {
       W.cloud.state.officeRanges = ['10.8.0.0/24', '0.0.0.0/0'];
       await W.gw.syncNow();
       await W.gw.syncNow();
-      expect(W.cloud.lastReport()).toMatchObject({ office_ranges_applied: ['10.8.0.0/24'], office_ranges_refused: [{ range: '0.0.0.0/0', reason: 'not_private' }] });
+      expect(W.cloud.lastReport().health).toMatchObject({ office_ranges_applied: ['10.8.0.0/24'], office_ranges_refused: [{ range: '0.0.0.0/0', reason: 'not_private' }] });
+    } finally { await W.close(); }
+  });
+  it('the report has the shape GW1\'s gateway-sync reads, field by field (its parseSyncRequest keeps every value)', async () => {
+    // GW1's parser (origin/po/gw1-gateway-cloud 376c4b25, gatewayShapes.ts)
+    // drops a field whose type or size it does not take; these are its rules.
+    const str = (n) => (v) => typeof v === 'string' && v.length <= n;
+    const strOrNull = (n) => (v) => v === null || str(n)(v);
+    const int = (v) => Number.isInteger(v) && v >= 0;
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const keeps = (r) => {
+      const h = r.health;
+      const d = h.doors;
+      const c = h.certificate;
+      return {
+        name: str(80)(r.name),
+        version: typeof r.version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+/.test(r.version),
+        hostname: str(255)(r.hostname),
+        inside_addresses: Array.isArray(r.inside_addresses) && r.inside_addresses.every((a) => typeof a.host === 'string' && Number.isInteger(a.port)),
+        reach: Object.entries(r.reach).every(([k, v]) => UUID.test(k) && ['reachable', 'not_reachable', 'not_mounted', 'not_connected'].includes(v)),
+        'doors.inside': str(64)(d.inside),
+        'doors.outside': str(64)(d.outside),
+        'doors.refused_public': int(d.refused_public),
+        'doors.inside_bound': Array.isArray(d.inside_bound) && d.inside_bound.every(str(60)),
+        'doors.relay_warning': d.relay_warning === null || (str(45)(d.relay_warning.address) && int(d.relay_warning.viewers)),
+        update: str(128)(h.update),
+        'certificate.leaf_not_after': strOrNull(40)(c.leaf_not_after),
+        'certificate.root_not_after': strOrNull(40)(c.root_not_after),
+        'certificate.outside': strOrNull(40)(c.outside),
+        'certificate.expires_warning': strOrNull(120)(c.expires_warning),
+        office_ranges_applied: Array.isArray(h.office_ranges_applied) && h.office_ranges_applied.every(str(49)),
+        cloud: str(255)(h.cloud),
+        smb_dialect: strOrNull(16)(h.smb_dialect),
+        minimum_version_ok: h.minimum_version_ok === null || typeof h.minimum_version_ok === 'boolean',
+      };
+    };
+    const W = await world();
+    try {
+      W.cloud.state.officeRanges = ['10.8.0.0/24'];
+      W.cloud.state.minimumVersion = '0.0.1';
+      W.gw.smbDialects = [{ unc: '\\nas\footage', dialect: '3.1.1' }, { unc: '\\old\share', dialect: '2.1' }];
+      await switchOn(W);
+      await W.gw.syncNow();
+      const r = W.cloud.lastReport();
+      for (const [field, ok] of Object.entries(keeps(r))) expect(ok, `${field}: ${JSON.stringify(field.split('.').reduce((o, k) => o?.[k], { ...r, ...r.health, ...r.health }))}`).toBe(true);
+      expect(r.health.doors.outside).toBe(`open:${W.gw.outsidePort}`);
+      expect(r.health.smb_dialect).toBe('2.1');
+      expect(r.health.minimum_version_ok).toBe(true);
+      expect(r.reach).toEqual({ [LOC]: expect.any(String) });
+    } finally { await W.close(); }
+  });
+  it('a rename in Settings: the gateway takes the name, reports it, and the cloud stops naming it', async () => {
+    const W = await world();
+    try {
+      await W.gw.syncNow();
+      expect(W.cloud.lastReport().name).toBe('studio-nas');
+      W.cloud.state.renamed = 'Studio NAS';
+      await W.gw.syncNow();
+      expect(W.gw.healthState().name).toBe('Studio NAS');
+      await W.gw.syncNow();
+      expect(W.cloud.lastReport().name).toBe('Studio NAS');
     } finally { await W.close(); }
   });
 });

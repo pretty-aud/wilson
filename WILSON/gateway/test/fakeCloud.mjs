@@ -115,7 +115,8 @@ export function createFakeCloud({ now = () => Date.now(), workspaceId = '0a1b2c3
         check_update_now: S.checkUpdateNow,
         check_reach_now: S.checkReachNow,
         reach_nonce: S.reachNonce,
-        renamed: S.renamed,
+        // GW1's rule: the answer names the row's name only when the report's differs.
+        renamed: S.renamed !== null && body?.name !== S.renamed ? S.renamed : null,
         ...(S.sendWorkspaceId ? { workspace_id: S.workspace.id } : {}),
       };
       S.checkUpdateNow = false;
