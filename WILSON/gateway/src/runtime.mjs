@@ -79,6 +79,7 @@ export class Gateway {
     this.rootFor = o.locationRootFor || ((unc) => (this.platform === 'container' ? containerRootFor(unc) : unc));
     this.intervals = { tick: o.tickMs ?? SECOND, addresses: o.addressMs ?? 30 * SECOND, events: o.eventsMs ?? 60 * SECOND, status: o.statusMs ?? 5 * SECOND, enrolPoll: o.enrolPollMs ?? 3 * SECOND };
     this.timers = [];
+    this.enrolOnly = o.enrolOnly === true;
     this.started = false;
     this.revoked = false;
     this.enrolment = null;
@@ -160,6 +161,8 @@ export class Gateway {
 
     this.started = true;
     this.#announce();
+    // `enrolOnly` (the command's one-shot enrolment): no door, no sync, no timer.
+    if (this.enrolOnly) return this;
     if (this.enrolment) await this.#begin();
     this.#every(this.intervals.tick, () => this.#tick());
     this.#every(this.intervals.addresses, () => this.#watchAddresses());
@@ -255,7 +258,7 @@ export class Gateway {
     this.keys = new Map(a.signingKeys.map((k) => [k.kid, k.key]));
     this.origins = a.origins;
     if (!a.workspaceId) this.log('workspace_id_missing', { effect: 'every ticket is refused until the cloud names the workspace' });
-    if (this.started) { this.sync?.stop(); await this.#begin(); }
+    if (this.started && !this.enrolOnly) { this.sync?.stop(); await this.#begin(); }
     return { ok: true, gatewayId: a.gatewayId, workspaceName: a.workspaceName, fingerprint: st.rootFingerprint };
   }
 

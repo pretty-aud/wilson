@@ -106,6 +106,33 @@ describe('enrolment (§2)', () => {
       expect((await W.gw.enrol(W.cloud.newToken(), 'http://insecure.example/functions/v1')).error).toMatch(/https/);
     } finally { await W.close(); }
   });
+  it('the command\'s one-shot enrolment (enrolOnly) makes no bind attempt, no sync and no status; a normal start does try to bind', async () => {
+    // An office address this computer does not have: a bind attempt fails (EADDRNOTAVAIL) and is logged,
+    // so the control below can see an attempt without anything being bound.
+    const notHere = () => ({ Ethernet: [{ address: '192.168.77.5', family: 'IPv4', internal: false, cidr: '192.168.77.5/24' }] });
+    for (const enrolOnly of [true, false]) {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw2-enrolonly-'));
+      const cloud = createFakeCloud();
+      const lines = [];
+      const gw = new Gateway({ env: { WILSON_CLOUD_URL: cloud.base }, stateDir, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: plainSecrets, netInterfaces: notHere, print: (l) => lines.push(l), enrolOnly, tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000 });
+      try {
+        await gw.start();
+        expect((await gw.enrol(cloud.newToken(), cloud.base)).ok).toBe(true);
+        const tried = lines.some((l) => / inside_(open|bind_failed) /.test(l));
+        if (enrolOnly) {
+          expect(tried).toBe(false);
+          expect(gw.insideServers.size).toBe(0);
+          expect(fs.existsSync(path.join(stateDir, 'status.json'))).toBe(false);
+          expect(cloud.state.calls.filter((c) => c.fn === 'gateway-sync')).toHaveLength(0);
+        } else {
+          expect(tried).toBe(true); // the control: a running gateway does open its office door
+        }
+      } finally {
+        await gw.stop();
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    }
+  });
   it('an enrolled gateway refuses a second enrolment', async () => {
     const W = await world();
     try { expect((await W.gw.enrol(W.cloud.newToken(), W.cloud.base)).error).toMatch(/already enrolled/); } finally { await W.close(); }

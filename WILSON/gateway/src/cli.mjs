@@ -174,7 +174,7 @@ async function enrol() {
     fail('The WILSON Gateway service is not running. Start it (Start-Service WilsonGateway), then run this again: the service enrols itself, so its secrets are protected under its own account, not yours.');
   }
   const { Gateway } = await import('./runtime.mjs');
-  const gw = new Gateway({ stateDir, tickMs: 3_600_000 });
+  const gw = new Gateway({ stateDir, enrolOnly: true, print: () => {} }); // opens no door, prints only the result
   await gw.start();
   const r = await gw.enrol(token, cloud);
   await gw.stop();
