@@ -88,12 +88,23 @@ export function permittedFor({ hostname, insideAddresses }) {
   return { dns, nets, netsText: nets.map(formatCidr) };
 }
 
+// An iPAddress subtree is the address then its MASK (RFC 5280 §4.2.1.10): eight
+// zero bytes are 0.0.0.0 with mask 0.0.0.0, a /0, every IPv4 address.
+const EVERY_IPV4 = Buffer.alloc(8);
+const EVERY_IPV6 = Buffer.alloc(32);
+
 function nameConstraintsValue({ dns, nets }) {
-  const subtrees = [];
-  for (const d of dns.length ? dns : ['invalid']) subtrees.push(seq(implicitPrimitive(2, Buffer.from(d, 'ascii'))));
-  if (nets.length) for (const n of nets) subtrees.push(seq(implicitPrimitive(7, Buffer.concat([Buffer.from(n.bytes), maskBytes(n.family, n.prefix)]))));
-  else subtrees.push(seq(implicitPrimitive(7, Buffer.alloc(8)))); // 0.0.0.0/32: nothing usable
-  return seq(implicitConstructed(0, Buffer.concat(subtrees)));
+  const permitted = [];
+  for (const d of dns.length ? dns : ['invalid']) permitted.push(seq(implicitPrimitive(2, Buffer.from(d, 'ascii'))));
+  for (const n of nets) permitted.push(seq(implicitPrimitive(7, Buffer.concat([Buffer.from(n.bytes), maskBytes(n.family, n.prefix)]))));
+  const parts = [implicitConstructed(0, Buffer.concat(permitted))];
+  // No inside address: no IP name may be certified at all. A name type with no
+  // permitted entry is unconstrained, so every IPv4 and every IPv6 address is
+  // EXCLUDED instead, and an excluded subtree wins over everything (review
+  // round 1, finding 1: the permitted "0.0.0.0" with an all-zero mask that
+  // stood here was a /0, which permitted every IPv4 address).
+  if (!nets.length) parts.push(implicitConstructed(1, Buffer.concat([seq(implicitPrimitive(7, EVERY_IPV4)), seq(implicitPrimitive(7, EVERY_IPV6))])));
+  return seq(...parts);
 }
 
 function sign(tbs, privateKey) {
@@ -158,7 +169,11 @@ export function makeLeaf({ rootCertPem, rootKeyPem, hostname, insideAddresses, n
   if (sans.length === 0) throw new Error('certificate: a leaf needs a name or an address');
   const notBefore = now - 60 * 60 * 1000;
   const notAfter = now + days * DAY;
-  const subjectCn = dns[0] || (ips[0] ? formatIp(ips[0]) : 'gateway');
+  // With no DNS name in the SAN, verifiers check a dotted common name as a DNS
+  // name against the root's DNS constraint (OpenSSL's cn2dnsid: "192.168.1.10"
+  // has two labels), and the leaf would fail its own root. A CN with a space
+  // is no DNS name to any of them; the browser matches the SAN's address.
+  const subjectCn = dns[0] || 'WILSON Gateway';
   const tbs = seq(
     explicit(0, int(2)),
     int(serial()),

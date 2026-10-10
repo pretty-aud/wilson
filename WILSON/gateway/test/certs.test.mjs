@@ -75,17 +75,31 @@ describe('the root and the leaf (§3)', () => {
     expect(r.ok).toBe(false);
     expect(`${r.code} ${r.message}`).toMatch(/PERMITTED|permitted subtree/i);
   });
+  // The handshakes below connect to 127.0.0.1 without a server name, so Node
+  // checks the leaf's IP against 127.0.0.1: an IP leaf must name 127.0.0.1, or
+  // it would fail on the name check and prove nothing about the constraint.
+  const ipLeafFor = (r) => makeLeaf({ rootCertPem: r.certPem, rootKeyPem: r.keyPem, hostname: '', insideAddresses: ['127.0.0.1'], now: NOW });
   it('…and so is a leaf for an address outside the /24 (D26), or a sub-name of nothing permitted', async () => {
-    const out = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: '', insideAddresses: ['192.168.2.10'], now: NOW });
-    expect((await handshake({ cert: out.certPem, key: out.keyPem, ca: root.certPem, servername: undefined })).ok).toBe(false);
+    const out = ipLeafFor(root); // 127.0.0.1 is outside 192.168.1.0/24
+    const refused = await handshake({ cert: out.certPem, key: out.keyPem, ca: root.certPem, servername: undefined });
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/permitted subtree violation/);
+    const covering = makeRoot({ hostname: 'studio-nas', insideAddresses: ['127.0.0.1'], now: NOW }); // the control: a /24 that holds it
+    const inside = ipLeafFor(covering);
+    expect(await handshake({ cert: inside.certPem, key: inside.keyPem, ca: covering.certPem, servername: undefined })).toEqual({ ok: true });
     const sub = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: '', insideAddresses: [], extraDnsNames: ['admin.studio-nas'], now: NOW });
     // A name below a permitted one is permitted by RFC 5280's rule (labels added on the left).
     expect((await handshake({ cert: sub.certPem, key: sub.keyPem, ca: root.certPem, servername: 'admin.studio-nas' })).ok).toBe(true);
   });
-  it('a root with no address forbids every IP; one with no valid hostname forbids every name', async () => {
+  it('a root with no address forbids every IP (review round 1, finding 1); one with no valid hostname forbids every name', async () => {
     const noAddr = makeRoot({ hostname: 'studio-nas', insideAddresses: [], now: NOW });
-    const ipLeaf = makeLeaf({ rootCertPem: noAddr.certPem, rootKeyPem: noAddr.keyPem, hostname: '', insideAddresses: ['192.168.1.10'], now: NOW });
-    expect((await handshake({ cert: ipLeaf.certPem, key: ipLeaf.keyPem, ca: noAddr.certPem })).ok).toBe(false);
+    expect(noAddr.permitted.nets).toEqual([]);
+    const ipLeaf = ipLeafFor(noAddr);
+    const refused = await handshake({ cert: ipLeaf.certPem, key: ipLeaf.keyPem, ca: noAddr.certPem, servername: undefined });
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toMatch(/excluded subtree violation/);
+    const byName = makeLeaf({ rootCertPem: noAddr.certPem, rootKeyPem: noAddr.keyPem, hostname: 'studio-nas', insideAddresses: [], now: NOW }); // the control
+    expect(await handshake({ cert: byName.certPem, key: byName.keyPem, ca: noAddr.certPem, servername: 'studio-nas' })).toEqual({ ok: true });
     const noName = makeRoot({ hostname: 'not a dns label!', insideAddresses: ['192.168.1.10'], now: NOW });
     expect(noName.permitted.dns).toEqual([]);
     const nameLeaf = makeLeaf({ rootCertPem: noName.certPem, rootKeyPem: noName.keyPem, hostname: '', insideAddresses: [], extraDnsNames: ['anything.example'], now: NOW });
@@ -105,6 +119,30 @@ describe('the root and the leaf (§3)', () => {
     expect(text).toMatch(/IP:192\.168\.1\.0\/255\.255\.255\.0/);
     expect(text).toMatch(/DNS:studio-nas\.local/);
     expect(text).toMatch(/Signature Algorithm: ecdsa-with-SHA256/);
+  });
+  it.runIf(OPENSSL)('OpenSSL agrees on a root with no address: every IPv4 and IPv6 address excluded, so a leaf for any IP fails, a leaf by name passes', () => {
+    const w = (n, s) => { const p = path.join(tmp, n); fs.writeFileSync(p, s); return p; };
+    const noAddr = makeRoot({ hostname: 'studio-nas', insideAddresses: [], now: Date.now() });
+    const rootFile = w('noaddr-root.pem', noAddr.certPem);
+    const text = execFileSync('openssl', ['x509', '-in', rootFile, '-noout', '-text'], { encoding: 'utf8' });
+    const nc = text.slice(text.indexOf('X509v3 Name Constraints'), text.indexOf('X509v3 Subject Key Identifier'));
+    expect(nc).toMatch(/Permitted:\s+DNS:studio-nas\s+DNS:studio-nas\.local\s+Excluded:/);
+    expect(nc).toMatch(/Excluded:\s+IP:0\.0\.0\.0\/0\.0\.0\.0\s+IP:0:0:0:0:0:0:0:0\/0:0:0:0:0:0:0:0/);
+    expect(nc.slice(0, nc.indexOf('Excluded:'))).not.toMatch(/IP:/);
+    const verify = (name, leafPem) => { try { return execFileSync('openssl', ['verify', '-CAfile', rootFile, w(name, leafPem)], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { return String(e.stdout) + String(e.stderr); } };
+    for (const ip of ['8.8.8.8', '10.20.30.40', '192.168.1.10', '2001:db8::1', 'fd00::5']) {
+      const leaf = makeLeaf({ rootCertPem: noAddr.certPem, rootKeyPem: noAddr.keyPem, hostname: '', insideAddresses: [ip], now: Date.now() });
+      expect(verify(`noaddr-${ip.replace(/[:.]/g, '_')}.pem`, leaf.certPem), ip).toMatch(/excluded subtree violation/);
+    }
+    const byName = makeLeaf({ rootCertPem: noAddr.certPem, rootKeyPem: noAddr.keyPem, hostname: 'studio-nas', insideAddresses: [], now: Date.now() });
+    expect(verify('noaddr-byname.pem', byName.certPem)).toMatch(/: OK/);
+  });
+  it('a host whose name is no DNS label: its own leaf (addresses only) still verifies under its own root', async () => {
+    const r = makeRoot({ hostname: 'SUSAN_PC', insideAddresses: ['127.0.0.1'], now: NOW });
+    expect(r.permitted.dns).toEqual([]);
+    const own = makeLeaf({ rootCertPem: r.certPem, rootKeyPem: r.keyPem, hostname: 'SUSAN_PC', insideAddresses: ['127.0.0.1'], now: NOW });
+    expect(new crypto.X509Certificate(own.certPem).subject).toMatch(/^CN=WILSON Gateway$/m);
+    expect(await handshake({ cert: own.certPem, key: own.keyPem, ca: r.certPem, servername: undefined })).toEqual({ ok: true });
   });
   it('dates past 2049 are GeneralizedTime and still read back', () => {
     const late = makeRoot({ hostname: 'nas', insideAddresses: ['10.0.0.5'], now: Date.parse('2045-01-01T00:00:00Z') });
