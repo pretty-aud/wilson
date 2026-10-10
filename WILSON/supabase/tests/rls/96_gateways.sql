@@ -1219,7 +1219,7 @@ SELECT ok(
   'GW2''s "direct" is stored as no via (a direct viewing), its "local_proxy" as nas_proxy (round 2)');
 
 -- GW1 review round 2, finding 3: a ticket vouches only for viewings inside
--- its stream's life, and for fewer than 250 of them; past either, the row is
+-- its stream's life, and for 250 of them at most; past either, the row is
 -- written flagged.
 INSERT INTO public.gateway_ticket_mints (jti, workspace_id, gateway_id, user_id, bin_file_id, project_id, file_name, minted_at)
 VALUES ('96969696969696969696969696969696'::uuid, '11111111-1111-1111-1111-111111111111', current_setting('wg96.gw')::uuid,

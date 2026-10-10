@@ -1906,8 +1906,8 @@ BEGIN
           -- GW1 review round 2, finding 3: a ticket vouches only for viewings
           -- inside its stream's life — from two minutes before it was minted
           -- (the clocks' skew) to four hours and five minutes after (a stream
-          -- is renewed for four hours at most, §5) — and for fewer than 250
-          -- of them (a new row needs a minute without a request or five
+          -- is renewed for four hours at most, §5) — and for 250 of them at
+          -- most (a new row needs a minute without a request or five
           -- minutes of play, D7, so the longest stream writes fewer). Outside
           -- that the row is written flagged: the gateway's word. Counted
           -- under the ticket's own lock, so two batches cannot both see 249.
