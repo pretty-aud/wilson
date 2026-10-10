@@ -55,15 +55,27 @@ jobs:
         working-directory: WILSON
     steps:
       - uses: actions/checkout@v4
+      # The repository's lockfile is kept with npm 10 (POST_OVERHAUL_PLAN §4.7);
+      # the install runs on Node 22's npm, as rls.yml's unit job does, and the
+      # tests then run on Node 24, the gateway's own runtime.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
           cache-dependency-path: WILSON/package-lock.json
       - name: Install dependencies (vitest)
-        run: npm ci --ignore-scripts
-      - name: The gateway's tests
-        run: npx vitest run gateway
+        shell: bash
+        run: |
+          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm.log"; s=${PIPESTATUS[0]}
+          if [ "$s" -ne 0 ]; then tail -25 "$RUNNER_TEMP/npm.log" | sed 's/^/::error::npm ci: /'; exit "$s"; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The gateway's tests (Node 24)
+        shell: bash
+        run: |
+          node --version
+          npx vitest run gateway
 
   msi:
     name: Windows installer (unsigned)
@@ -79,8 +91,14 @@ jobs:
         shell: pwsh
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gateway-msi'
-          & WILSON/gateway/windows/wix/build.ps1 -Out $out
-          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+          $logFile = Join-Path $env:RUNNER_TEMP 'msi.log'
+          try {
+            & WILSON/gateway/windows/wix/build.ps1 -Out $out *>&1 | Tee-Object -FilePath $logFile
+          } catch {
+            if (Test-Path $logFile) { Get-Content $logFile -Tail 25 | ForEach-Object { "::error::msi: $_" } }
+            "::error::msi: $($_.Exception.Message)"
+            exit 1
+          }
           Get-ChildItem $out -Filter *.msi | Format-Table Name, Length
       - name: Read the MSI's tables back (nothing installed)
         shell: pwsh
@@ -136,6 +154,7 @@ jobs:
       - name: 1. On Docker's default bridge, the office door stays closed and says why
         run: |
           set -euo pipefail
+          trap 'docker logs gw-bridge 2>&1 | tail -30 | sed "s/^/::error::gw-bridge: /" || true' ERR
           mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
           docker run -d --name gw-bridge -v /tmp/data-bridge:/data wilson-gateway:ci
           for i in $(seq 1 30); do docker logs gw-bridge 2>&1 | grep -q 'Certificate fingerprint' && break; sleep 1; done
@@ -147,6 +166,7 @@ jobs:
       - name: 2. On the host's network, a Range read from the runner's LAN address, with that address in the log
         run: |
           set -euo pipefail
+          trap 'docker logs gw-host 2>&1 | tail -40 | sed "s/^/::error::gw-host: /" || true; tail -5 /tmp/fc/out.json 2>/dev/null | sed "s/^/::error::fake-cloud: /" || true' ERR
           LAN=$(hostname -I | awk '{print $1}')
           echo "the runner's LAN address: $LAN"
           mkdir -p /tmp/fc /tmp/data-host /tmp/share
