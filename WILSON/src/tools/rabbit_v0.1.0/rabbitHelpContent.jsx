@@ -13,6 +13,10 @@ import {
 } from './bins/binLocations';
 import { REMOTE_VIEWING_LABEL as REMOTE_VIEWING_WORDS } from './bins/cloudPosters';
 import { LOCATION_QUESTION as LOCATION_QUESTION_WORDS, LEAVE_FOR_NOW as LEAVE_FOR_NOW_WORDS } from '../../cloud/migrate/binsMigration';
+// GW1: the file gateway's certificate paragraph (GATEWAY_DESIGN.md §3,
+// verbatim) and the card's own words, from the pure module the Settings card
+// reads (it imports nothing, so no client is built here).
+import { GATEWAY_CERT_PARAGRAPH, IT_WORKS as IT_WORKS_WORDS } from '../../components/settings/gatewayWords';
 
 // The Bins tab's keyboard, as BinsView's document handler binds it (and the
 // preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
@@ -481,6 +485,38 @@ export function RabbitHelpContent({ helpPage, theme }) {
               share in the desktop&apos;s own file dialog counts too). Until
               then its clips read Not connected on this computer. Connect only
               to a share you recognise.
+            </p>
+          </div>
+          {/* GW1 (2026-10-10): the file gateway, beside the locations it reads. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>File gateway</h4>
+            <p className={T.listItem}>
+              A small WILSON program on a computer in the office (a container
+              on the NAS, or a service on a Windows PC) lets a browser play a
+              clip straight from the company&apos;s share: in the office the
+              clip never leaves the network, and nothing is copied or
+              converted. A workspace admin adds it in App settings, Storage,
+              File gateway: Add a gateway shows a token once, the WILSON
+              cloud&apos;s address, and the two install stories step by step,
+              On a NAS and On a Windows PC, with the mount line for each of
+              the company&apos;s footage locations already written out. The
+              gateway appears on the card within ten seconds of starting; the
+              admin who made the token then types the fingerprint it printed,
+              which unlocks Download certificate.
+            </p>
+            <p className={T.listItem}>
+              {GATEWAY_CERT_PARAGRAPH.map((part, i) => (typeof part === 'string' ? part : <em key={i}>{part.em}</em>))}
+            </p>
+            <p className={T.listItem}>
+              Viewing from outside the office happens only while a workspace
+              admin has turned on {REMOTE_VIEWING_WORDS}, through one port the
+              company forwards itself. Check reach says, in words, whether the
+              gateway answers from the internet; the first time it does, the
+              card says {IT_WORKS_WORDS} Every viewing through that outside door is written
+              down (who, which clip, when, how much), and admins read it under
+              Viewed from outside the office; viewing on the office network or
+              the company&apos;s VPN is not. Forget stops a gateway at once and
+              can be undone for a minute.
             </p>
           </div>
           <div className={T.card}>

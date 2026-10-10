@@ -51,7 +51,7 @@ import {
   GATEWAY_EMPTY, TOKEN_SHOWN_ONCE, CLOUD_URL_HINT, FINGERPRINT_PROMPT, FINGERPRINT_OTHER_ADMIN,
   NEW_GATEWAY_NOTICE, OFFICE_RANGES_HINT, OUTSIDE_ADDRESS_HINT, NAME_REFUSAL, FORGET_CONFIRM,
   FORGOTTEN_LINE, IT_WORKS, CHECKING, CERTIFICATE_DOWNLOADED, VIEWED_EMPTY, VIEWED_DESCRIPTION,
-  AUDIT_EMPTY, MEMBER_LINE, FINGERPRINT_SHAPE, mountPathFor, cloudUrlFor, parseOutsideAddress,
+  AUDIT_EMPTY, FINGERPRINT_SHAPE, mountPathFor, cloudUrlFor, parseOutsideAddress,
   formatAddress, parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases,
   insideForwardSentence, reachSentence, auditPhrase, howMuchWords, whereWords, whoWords,
 } from './gatewayWords'
@@ -109,7 +109,7 @@ function Phrase({ p }) {
 function Story({ story, locations }) {
   return (
     <div className="s-gw-story">
-      <p className="s-row-desc">{story.intro}</p>
+      {story.intro && <p>{story.intro}</p>}
       <ol>
         {story.steps.map((s) => (
           <li key={s.lead}>
@@ -136,7 +136,9 @@ function Story({ story, locations }) {
           </li>
         ))}
       </ol>
-      {['outside', 'share', 'cost', 'firewall'].map((k) => story[k] && <p key={k} className="s-row-desc">{story[k]}</p>)}
+      {(story.after || []).map((a) => (
+        <p key={a.text.slice(0, 24)}>{a.lead && <b>{a.lead}</b>}{a.text}</p>
+      ))}
     </div>
   )
 }
@@ -267,7 +269,7 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
   const askUpdate = () => act('update', () => requestGatewayUpdateCheck(gw.id), () => setNote({ text: 'Asked. The gateway checks for an update at its next check-in, within ten seconds.', tone: 'ok' }))
 
   const said = check?.result ? reachSentence(check.result, gw, { now }) : null
-  const firstSuccess = said && check.result?.outside?.detail === 'reached' && !check.wasOk
+  const firstSuccess = said && check.result?.outside?.detail === 'reached' && !check.wasOk && !said.inside
 
   // §8: the name, the health line, and "under the line: Download
   // certificate, Check reach, Rename, Forget" — so the row is stacked, and
@@ -309,8 +311,8 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
       </div>
       <div className="s-gw-detail">
         {check?.running && <p className="s-feedback" role="status">{CHECKING}</p>}
-        {said && <p className="s-feedback" data-tone={said.tone} role="status">{said.text}</p>}
         {said?.inside && <p className="s-feedback" data-tone="error" role="alert">{said.inside.text}</p>}
+        {said && <p className="s-feedback" data-tone={said.tone} role="status">{said.text}</p>}
         {firstSuccess && <p className="s-feedback s-gw-peak" data-tone="ok">{IT_WORKS}</p>}
         {note && <p className="s-feedback" data-tone={note.tone}>{note.text}</p>}
         {error && <p className="s-feedback" data-tone="error" role="alert">{error}</p>}
@@ -607,6 +609,8 @@ export function GatewaySection() {
   const pending = tokens.filter(t => !t.used_at && Date.parse(t.expires_at) > now && t.id !== panel?.id)
   const live = (gateways || []).filter(g => !g.revoked_at)
   const forgotten = (gateways || []).filter(g => g.revoked_at)
+  // Hick: before the company's first gateway the card is the one button.
+  const hadGateway = live.length > 0 || forgotten.length > 0 || !!panel
 
   if (!ready) return null
 
@@ -623,8 +627,7 @@ export function GatewaySection() {
               <div className="s-row" key={g.id} data-gateway-row={g.id}>
                 <div className="s-row-label">
                   <span className="s-card-title">{g.name}</span>
-                  <p className="s-row-desc">{[g.version, s === null ? 'never seen' : s < 30 ? `seen ${agoWords(s)} ago` : `not seen for ${agoWords(s)}`].filter(Boolean).join(' · ')}</p>
-                  <p className="s-row-desc">{MEMBER_LINE}</p>
+                  <p className="s-row-desc">{[g.version, s === null ? 'never seen' : s < 5 ? 'seen just now' : s < 30 ? `seen ${agoWords(s)} ago` : `not seen for ${agoWords(s)}`].filter(Boolean).join(' · ')}</p>
                 </div>
               </div>
             )
@@ -681,8 +684,10 @@ export function GatewaySection() {
         </Group>
       )}
 
-      <ViewedFromOutside viewings={viewings} error={viewError} page={page} onPage={(p) => setPage(Math.max(0, p))} />
-      <Changes rows={auditRows} error={auditError} nameFor={nameFor} />
+      {(hadGateway || (viewings?.total || 0) > 0 || viewError) && (
+        <ViewedFromOutside viewings={viewings} error={viewError} page={page} onPage={(p) => setPage(Math.max(0, p))} />
+      )}
+      {(hadGateway || auditRows.length > 0 || auditError) && <Changes rows={auditRows} error={auditError} nameFor={nameFor} />}
 
       {forgetting && (
         <Dialog

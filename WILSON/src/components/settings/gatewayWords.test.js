@@ -49,12 +49,14 @@ describe('§3 and §11, verbatim', () => {
   ]) {
     it(`${name}: every sentence the card shows is §11's`, () => {
       const s11 = plain(section(from, to))
-      const pieces = [story.intro]
+      const pieces = story.intro ? [story.intro] : []
       for (const st of story.steps) {
         pieces.push(`${st.lead} ${st.text}`)
         for (const it of st.items || []) pieces.push(`${it.lead} ${it.text}`)
       }
-      for (const k of ['outside', 'share', 'cost', 'firewall']) if (story[k]) pieces.push(story[k])
+      for (const a of story.after) pieces.push(`${a.lead}${a.text}`)
+      // CONTROL: the framing sentence speaks to the design's reader; the card leaves it out.
+      expect(JSON.stringify(story)).not.toContain('Read as the admin reads it')
       for (const p of pieces) expect(s11, p.slice(0, 60)).toContain(p)
       // The numbered steps are §11's, in its order and count.
       const numbered = s11.match(/ \d\. /g) || []
@@ -230,6 +232,9 @@ describe('§8: the health line, phrase by phrase', () => {
     const at = (over) => line({ ...studio, ...over, health: { ...studio.health, ...(over.health || {}), doors: { ...studio.health.doors, ...(over.health?.doors || {}) } } })
     expect(at({ last_seen_at: new Date(now - 4 * 60000).toISOString() })).toContain('not seen for 4 minutes')
     expect(at({ last_seen_at: null })).toContain('never seen')
+    expect(at({ last_seen_at: new Date(now - 2000).toISOString() })).toContain('seen just now')
+    expect(at({ reach_ok: true, reach_checked_at: new Date(now - 3000).toISOString(), health: { doors: { outside: 'open:8444' } } }))
+      .toContain('reachable from the internet (checked just now)')
     expect(at({ health: { doors: { outside: 'closed_no_address' } } })).toContain('outside door closed (no outside address yet)')
     expect(at({ health: { doors: { outside: 'closed_no_cloud:70' } } })).toContain('outside door closed (no cloud for 70 s)')
     expect(at({ reach_ok: true, reach_checked_at: new Date(now - 2 * 3600000).toISOString(), health: { doors: { outside: 'open:8444' } } }))

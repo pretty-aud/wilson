@@ -145,7 +145,8 @@ nine Windows-forbidden characters only. A location written past the app —
 through the REST API with a member's key — can carry a right-to-left
 override or a zero-width space into every Connect question in the company.
 Settle it with `psql`: insert a `bin_locations` row whose `unc_path` holds
-U+202E and watch it land. Fix shape: a migration (0093 or later) adding the
+U+202E and watch it land. Fix shape: a migration (0095 or later: 0093 is the
+file gateway's, GW1, and 0094 is reserved) adding the
 same refusal to the CHECK through a small SQL function (PostgreSQL's regex
 has no Unicode-property classes; the function tests the code points), and
 the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
@@ -173,7 +174,8 @@ the Audio line); 0091's `bin_files` has no such columns and the cloud
 adapter's `BIN_FILE_COLUMNS` drops them, so a clip added from the desktop
 signed in, or migrated, shows no Audio line in the cloud. The migration
 strips them before `toColumns` so the console is not warned once per clip.
-Fix shape: two nullable columns on `bin_files` (0093 or later), the
+Fix shape: two nullable columns on `bin_files` (0095 or later: 0093 is the
+file gateway's, GW1, and 0094 is reserved), the
 allowlist, and `add_bin_files` accepting them.
 
 ### A private project's media body is never purged from the desktop
@@ -1547,6 +1549,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul GW1 (2026-10-10; `po/gw1-gateway-cloud` into `feat/post-overhaul-edit-versioning`) — the file gateway's cloud side: migration 0093 and suite 96 (on wilson-dev), the five gateway functions (on wilson-dev), App settings → Storage → File gateway, the file drawer's *Viewed from outside* and the Bins inspector's admin line; two review rounds | **nothing.** What GW1 leaves undone is the gateway program (GW2) and playing in a browser (GW3), and its known limits are in its hand-off (`docs/sessions/handoffs/po-gw1-2026-10-10.md`), none of them broken | **nothing removed;** two fix shapes re-pointed: BC3's *a location's address admits control characters* and *no sample rate or channel count in the cloud* each said *a migration (0093 or later)*, and 0093 is now the file gateway's, so they say 0095 |
 | Post-overhaul BC4 (2026-10-09; `po/bc4-gateway-design` into `feat/post-overhaul-edit-versioning`) — the file gateway's design, design first, no product code (`docs/design/GATEWAY_DESIGN.md`); two review rounds, both security attacks on the design | **nothing.** No product code and no migration were written; the 47 findings of the two rounds and their corrections live in the design's own review history, and the decisions it made for Audrey are questions in its hand-off | nothing |
 | Post-overhaul BC3 (2026-10-09; `po/bc3-bins-web` into `feat/post-overhaul-edit-versioning`) — the browser's Bins tab (the catalogue, B5) and a desktop project's bins moving to the cloud (B9); two review rounds | **four entries under Broken features:** *the desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks* (INFERRED; pre-existing, found while adding the bins' part, widened to every collection by review round 2, which also made the report name what stays before the archive is offered; scenes and shots are carried since BC3); *a second desktop→cloud migration brings back rows a teammate removed from the cloud* (INFERRED, review round 1; pre-existing for every table, widened by BC3); *the cloud keeps no sample rate or channel count on a clip* (INFERRED, review round 1; 0091); *the cloud's own address CHECK admits control and formatting characters* (INFERRED; BC2 deferred the migration, BC3's guards refuse them by Unicode property since review round 2). | nothing. |
 | Post-overhaul S4d (2026-10-09; `po/s4d-legal-gate-managers` into `feat/post-overhaul-edit-versioning`) — the Legal gate of its own (0092): workspace managers see Legal files without a seat, money unchanged, a deleted file's record follows the file's gate; two review rounds | **one section at the end: S4d-01**, an older gap found while copying 0072's arm into the predicate (the eight money storage policies carry no private-project hop of their own, so a non-creator project manager reaches a private project's invoice OBJECT while its row is hidden; INFERRED from 0042's text). Dated notes on S4b-03 (the Legal audience refreshes too) and S4b-05 (the Legal half is moot). | nothing closed: S4b-10 and S4b-11 stay Audrey's. |

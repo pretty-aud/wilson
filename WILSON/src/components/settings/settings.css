@@ -1039,6 +1039,9 @@
     line-height: 1.5;
     color: var(--color-ink-light);
   }
+  .s-gw-story p {
+    margin-top: 8px;
+  }
   .s-gw-story ol {
     list-style: decimal;
     margin: 8px 0;

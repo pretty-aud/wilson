@@ -216,13 +216,16 @@ describe('Check reach (§4)', () => {
     expect(row().textContent).not.toContain(W.IT_WORKS)
   })
 
-  it('the inside door answering is the one error, said in its own block', async () => {
+  it('the inside door answering is the one error, said in its own block, first, and nothing is celebrated', async () => {
     answer('checkGatewayReach', async () => ok({ outside: { ok: true, detail: 'reached', ms: 90 }, inside_answered: true }))
     await mountWith([withAddress()])
     fireEvent.click(within(row()).getByRole('button', { name: 'Check reach' }))
     const alert = await within(row()).findByRole('alert')
     expect(alert.textContent).toBe('Your inside door (port 8443) answers from the internet. Remove that forward: only port 8444 should be open.')
     expect(alert.getAttribute('data-tone')).toBe('error')
+    // Selective attention: the error leads; Peak-end: no "It works" beside it.
+    expect(alert.nextElementSibling.textContent).toMatch(/^Reachable from the internet/)
+    expect(row().textContent).not.toContain(W.IT_WORKS)
   })
 
   it('without an outside address it says what to do and asks the cloud nothing', async () => {
@@ -254,7 +257,7 @@ describe('the health line (Selective attention)', () => {
 
   it('reads the line §8 writes, with this company\'s location by name', async () => {
     await mountWith([gateway()])
-    expect(screen.getByTestId('gateway-health').textContent).toBe('1.0.0 · seen 3 s ago · office door open (192.168.10.20:8443) · outside door closed (the switch is off) · Footage NAS: reachable · up to date')
+    expect(screen.getByTestId('gateway-health').textContent).toBe('1.0.0 · seen just now · office door open (192.168.10.20:8443) · outside door closed (the switch is off) · Footage NAS: reachable · up to date')
   })
 })
 
@@ -370,9 +373,21 @@ describe('what was viewed from outside, and what changed', () => {
     await waitFor(() => expect(holder.api.listRemoteViewings).toHaveBeenLastCalledWith({ page: 1, pageSize: 25 }))
   })
 
-  it('none in 30 days says so', async () => {
-    render(<GatewaySection />)
+  it('none in 30 days says so, once there is a gateway; before the first one the card is the one button', async () => {
+    await mountWith([gateway()])
     await waitFor(() => expect(section().textContent).toContain(W.VIEWED_EMPTY))
+    expect(section().textContent).toContain(W.AUDIT_EMPTY)
+    cleanup()
+    answer('listGateways', async () => ok([]))
+    render(<GatewaySection />)
+    await screen.findByTestId('gateway-empty')
+    expect(section().textContent).not.toContain(W.VIEWED_EMPTY)
+    expect(section().textContent).not.toContain(W.AUDIT_EMPTY)
+    // CONTROL: a company that forgot its gateways still reads its trail.
+    cleanup()
+    answer('listGatewayAudit', async () => ok([{ id: 1, action: 'gateway.forgotten', actor_label: 'Mara Okonkwo', details: { name: 'Old NAS' }, created_at: '2026-10-01T09:00:00Z' }]))
+    render(<GatewaySection />)
+    expect((await screen.findByTestId('gateway-audit')).textContent).toContain('Mara Okonkwo forgot Old NAS')
   })
 
   it('the last twenty changes, in words', async () => {

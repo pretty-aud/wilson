@@ -34,8 +34,11 @@ export const GATEWAY_CERT_PARAGRAPH = [
 // Each step: { lead, text, items? }. `lead` is the bold opening words; a step
 // item with `mounts: true` is where the card lists the computed mount lines.
 
+// `intro` leaves out §11's framing sentence ("Read as the admin reads it, on
+// the Settings card…"), which speaks to the design's reader, not the admin.
+// `after` is §11's closing paragraphs, each with its bold lead.
 export const NAS_STORY = {
-  intro: 'Read as the admin reads it, on the Settings card after "Add a gateway" with the NAS tab chosen. Synology DSM 7.2 with Container Manager is the worked example; QNAP\'s Container Station and TrueNAS Apps have the same five steps with their own names.',
+  intro: 'Synology DSM 7.2 with Container Manager is the worked example; QNAP\'s Container Station and TrueNAS Apps have the same five steps with their own names.',
   steps: [
     { lead: 'Get the image.', text: 'Container Manager → Registry → search wilson-gateway → download it by the digest this page shows (wilson-gateway@sha256:…), which is the exact image Petal signed; the moving stable tag is for trying it out. (About a minute.)' },
     { lead: 'Make the folders.', text: 'File Station → docker → new folder wilson-gateway. That is where the gateway keeps its settings, its certificates and its journal; nothing of your footage goes there.' },
@@ -51,13 +54,15 @@ export const NAS_STORY = {
     { lead: 'Start it.', text: 'Within ten seconds the gateway appears on this page with its name and seen just now; the token on this page disappears. The container\'s log prints the gateway\'s certificate fingerprint on its first lines: type or paste it into the box beside the new gateway on this page, which proves the gateway you see is the one you started, and unlocks Download certificate. If the gateway does not appear, the log says why in one line (the token was used or expired; /data is not writable; a location is not mounted; the network is a bridge).' },
     { lead: 'Trust it, once per office computer.', text: 'Download certificate here, then on each computer: Windows: open the file → Install Certificate → Local Machine → Place all certificates in the following store → Trusted Root Certification Authorities. macOS: open it in Keychain Access → System → double-click → Trust → Always Trust. A Windows domain does it once with Group Policy (the path in §3). Then open WILSON in that computer\'s browser, allow Chrome\'s local-network question once, and press Space on a clip.' },
   ],
-  outside: 'For viewing from outside the office (only if you want it): turn on Allow files to be viewed from outside the office network on this page and read the sentence under it. Then either forward port 8444 on your router to the NAS and type your public name or address here, or forward port 443 to 8444 and type a name that points at your public address to get a free certificate, or run a tunnel and declare it here. Press Check reach. The line tells you what it found, in words, and the address is given to people\'s browsers only once the check has found your gateway there. Whatever you choose points at port 8444, never 8443: the office door closes anything that looks like a proxy or a tunnel, and this page turns amber if one is aimed at it. Never put the NAS\'s reverse proxy, a tunnel or any other program in front of port 8443.',
-  share: 'The NAS side of the share: the container reads the folder directly, so no share login is needed. Keep SMB at 3 with signing and encryption on for the office computers that read the same share (Control Panel → File Services → SMB → Advanced), and leave SMB 1 off.',
-  cost: 'What it costs the NAS: one small process; no transcoding; the bytes it serves are the bytes it reads, so a NAS that can serve the share can serve the gateway. Measured on a laptop (Appendix A): 337 MB/s over TLS, which is the NAS\'s disk and link, not the gateway.',
+  after: [
+    { lead: 'For viewing from outside the office', text: ' (only if you want it): turn on Allow files to be viewed from outside the office network on this page and read the sentence under it. Then either forward port 8444 on your router to the NAS and type your public name or address here, or forward port 443 to 8444 and type a name that points at your public address to get a free certificate, or run a tunnel and declare it here. Press Check reach. The line tells you what it found, in words, and the address is given to people\'s browsers only once the check has found your gateway there. Whatever you choose points at port 8444, never 8443: the office door closes anything that looks like a proxy or a tunnel, and this page turns amber if one is aimed at it. Never put the NAS\'s reverse proxy, a tunnel or any other program in front of port 8443.' },
+    { lead: 'The NAS side of the share', text: ': the container reads the folder directly, so no share login is needed. Keep SMB at 3 with signing and encryption on for the office computers that read the same share (Control Panel → File Services → SMB → Advanced), and leave SMB 1 off.' },
+    { lead: '', text: 'What it costs the NAS: one small process; no transcoding; the bytes it serves are the bytes it reads, so a NAS that can serve the share can serve the gateway. Measured on a laptop (Appendix A): 337 MB/s over TLS, which is the NAS\'s disk and link, not the gateway.' },
+  ],
 }
 
 export const WINDOWS_STORY = {
-  intro: 'Read as the admin reads it, with the Windows tab chosen.',
+  intro: null,
   steps: [
     { lead: 'Run the installer', text: '(WILSON Gateway Setup.msi, signed by Petal Studios) as an administrator. It installs two services: the gateway, which runs as a Windows-managed service account with no password and no administrator rights (NT SERVICE\\WilsonGateway), and a small updater that swaps in new versions. It asks for the enrolment token on this page, shows which of this PC\'s network addresses the office door will use (its wired or wireless addresses, never a VPN adapter), and prints the gateway\'s certificate fingerprint at the end. (Two minutes.)' },
     { lead: 'Confirm the fingerprint.', text: 'On this page, beside the new gateway, type or paste the fingerprint the installer printed. That proves the gateway you see here is the one you installed, and unlocks Download certificate.' },
@@ -66,8 +71,10 @@ export const WINDOWS_STORY = {
     { lead: 'Trust it, once per office computer,', text: 'exactly as the NAS story\'s step 5.' },
     { lead: 'Keep the PC on and awake', text: '(Power settings: never sleep when plugged in). The gateway updates itself; this page shows its version and up to date; if an update fails it says so and keeps the old version running.' },
   ],
-  outside: 'For viewing from outside the office: as the NAS story, with the forward pointing at this PC\'s address (give it a DHCP reservation on the router first), at port 8444 and never 8443, and no tunnel or proxy ever in front of 8443.',
-  firewall: 'What the installer does not do: it does not open any port in the Windows firewall for the outside door (it opens 8443 for the local network only); the outside door\'s firewall rule is added when you turn the switch on and set an outside address, and removed when you turn it off, and the page says so.',
+  after: [
+    { lead: 'For viewing from outside the office', text: ': as the NAS story, with the forward pointing at this PC\'s address (give it a DHCP reservation on the router first), at port 8444 and never 8443, and no tunnel or proxy ever in front of 8443.' },
+    { lead: 'What the installer does not do', text: ': it does not open any port in the Windows firewall for the outside door (it opens 8443 for the local network only); the outside door\'s firewall rule is added when you turn the switch on and set an outside address, and removed when you turn it off, and the page says so.' },
+  ],
 }
 
 // ── The sentences the card adds around them ──────────────────────────────────
@@ -91,7 +98,6 @@ export const CERTIFICATE_DOWNLOADED = 'Downloaded. Install it on each office com
 export const VIEWED_EMPTY = 'Nothing was viewed from outside the office in the last 30 days.'
 export const VIEWED_DESCRIPTION = 'Every viewing through the outside door in the last 30 days, newest first: who, which clip, when, how much, and from where. Office viewing is not written down. Only workspace admins see this.'
 export const AUDIT_EMPTY = 'No changes yet.'
-export const MEMBER_LINE = 'People in the company play clips through it; only a workspace admin sees its health and changes it.'
 
 // ── Tesler: the container mount path, computed ──────────────────────────────
 
@@ -349,7 +355,8 @@ function outsidePhrase(gw, now) {
     const port = open[1] || gw?.outside_address?.port || 8444
     if (gw?.reach_ok === true) {
       const checked = secondsSince(gw.reach_checked_at, now)
-      return { text: `outside door open on ${port}, reachable from the internet${checked === null ? '' : ` (checked ${agoWords(checked)} ago)`}`, tone: 'plain' }
+      const when = checked === null ? '' : checked < 10 ? ' (checked just now)' : ` (checked ${agoWords(checked)} ago)`
+      return { text: `outside door open on ${port}, reachable from the internet${when}`, tone: 'plain' }
     }
     return { text: `outside door open on ${port}, not reached yet: Check reach`, tone: 'warning' }
   }
@@ -376,6 +383,7 @@ export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
   out.push({ text: gw.version || 'version unknown', tone: 'plain' })
   const seen = secondsSince(gw.last_seen_at, now)
   if (seen === null) out.push({ text: 'never seen', tone: 'warning' })
+  else if (seen < 5) out.push({ text: 'seen just now', tone: 'plain' })
   else if (seen < 30) out.push({ text: `seen ${agoWords(seen)} ago`, tone: 'plain' })
   else out.push({ text: `not seen for ${agoWords(seen)}`, tone: 'warning', ...(seen >= 300 ? { strong: `not seen for ${agoWords(seen)}` } : {}) })
 
