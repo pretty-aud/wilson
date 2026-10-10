@@ -185,10 +185,15 @@ describe('the verbs, with 0093\'s rules', () => {
     // The NEWEST of that clip's viewings, as the cloud orders them.
     const newest = store.gatewayViewings.filter(v => v.file_id === BIN_FILES[0].id).map(v => v.created_at).sort().at(-1)
     expect(res.last.created_at).toBe(newest)
-    expect(await admin.remoteViewsOfClip('no-such-clip')).toEqual({ count: 0, last: null })
+    expect(await admin.remoteViewsOfClip('no-such-clip')).toEqual({ count: 0, unverified: 0, last: null })
+    // R4; round 1, finding 2: the clip whose viewing no ticket matched says so.
+    const flagged = store.gatewayViewings.find(v => v.details.unverified_mint)
+    const f = await admin.remoteViewsOfClip(flagged.file_id)
+    expect(f.unverified).toBeGreaterThan(0)
+    expect(f.last.unverified_mint).toBe(true)
     // CONTROL: anyone but an admin counts none, as file_events_select answers.
     const manager = createRabbitFixturesAdapter(store, { userId: MEMBER_ID.theo, workspaceId: WORKSPACE_ID, appRole: 'manager' })
-    expect(await manager.remoteViewsOfClip(BIN_FILES[0].id)).toEqual({ count: 0, last: null })
+    expect(await manager.remoteViewsOfClip(BIN_FILES[0].id)).toEqual({ count: 0, unverified: 0, last: null })
   })
 })
 

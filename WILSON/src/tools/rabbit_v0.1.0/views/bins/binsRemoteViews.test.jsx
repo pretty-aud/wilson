@@ -42,6 +42,12 @@ describe('the inspector\'s one line (admins: BinsView hands the reader)', () => 
     expect(line.previousElementSibling.textContent).toContain('Sofia Aldana')
   })
 
+  it('a viewing no ticket on record matched is said in the line (R4; round 1, finding 2)', async () => {
+    inspector([clip()], vi.fn(async () => ({ ...PRIYA, unverified: 1, last: { ...PRIYA.last, unverified_mint: true } })))
+    expect((await screen.findByTestId('bin-remote-views')).textContent)
+      .toBe("Viewed from outside 3 times, last by Priya on 9 Oct; 1 of them has no matching ticket on record (the gateway's word)")
+  })
+
   it('not handed the reader (anyone but an admin): no line, nothing asked', async () => {
     inspector([clip()], null)
     await act(async () => {})

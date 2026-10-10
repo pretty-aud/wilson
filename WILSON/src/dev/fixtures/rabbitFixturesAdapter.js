@@ -653,10 +653,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     // The rows are the gateway fixture's (gatewayFixtures.js seeds them into
     // the store), so Settings' table and the inspector's line agree.
     async remoteViewsOfClip(binFileId) {
-      if (appRole !== 'admin') return { count: 0, last: null }
+      if (appRole !== 'admin') return { count: 0, unverified: 0, last: null }
       const rows = (store.gatewayViewings || []).filter(v => v.file_id === binFileId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      return { count: rows.length, last: rows[0] ? { actor_label: rows[0].actor_label, created_at: rows[0].created_at } : null }
+      const unverified = rows.filter(v => v.details?.unverified_mint === true).length
+      const last = rows[0] ? { actor_label: rows[0].actor_label, created_at: rows[0].created_at, unverified_mint: rows[0].details?.unverified_mint === true } : null
+      return { count: rows.length, unverified, last }
     },
     // S4a (E13): the cloud's log_file_downloaded, as an event the activity
     // drawer can show. No bytes exist here, so nothing calls it today (the

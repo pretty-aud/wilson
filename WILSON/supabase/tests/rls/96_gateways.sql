@@ -45,7 +45,7 @@
 
 BEGIN;
 
-SELECT plan(139);
+SELECT plan(142);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1110,7 +1110,7 @@ SELECT set_config('wg96.events', public.gateway_events_apply(current_setting('wg
   -- 6: a pair that WAS minted, but this jti is not in the log: written, flagged
   jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000206', 'clip', '96960000-0000-0000-0000-0000000000f1',
     'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', 'ffffffffffffffffffffffffffffff04',
-    'started_at', now() - interval '3 minutes', 'ended_at', NULL, 'incomplete', true, 'bytes', 5),
+    'started_at', now() - interval '3 minutes', 'ended_at', NULL, 'incomplete', true, 'bytes', 5, 'via', ' Cloudflare '),
   -- 7: before the gateway was enrolled
   jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000207', 'clip', '96960000-0000-0000-0000-0000000000f1',
     'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', '0123456789abcdef0123456789abcdef',
@@ -1149,15 +1149,16 @@ SELECT ok(
   '🚨 the row''s company, project, name, viewer label and gateway are the cloud''s own — the payload''s gateway_id, workspace_id, project_id, file_name and actor_label were ignored (F3)');
 SELECT ok(
   (SELECT (details ->> 'unverified_mint')::boolean = false AND (details ->> 'read_in_full')::boolean
-          AND (details ->> 'fraction')::numeric = 0.95 AND char_length(details ->> 'via') = 64
+          AND (details ->> 'fraction')::numeric = 0.95 AND details ->> 'via' = 'other'
           AND details -> 'source_addresses' = '["198.51.100.9", "203.0.113.50"]'::jsonb
           AND (details ->> 'shared_url')::boolean
      FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000201'),
-  'the viewing''s facts: verified mint, the fraction and read in full, the strings truncated, two real addresses (shared_url), the junk one dropped');
+  'the viewing''s facts: verified mint, the fraction and read in full, an unknown via read as other (round 1, finding 4), two real addresses (shared_url), the junk one dropped');
 SELECT ok(
   (SELECT (details ->> 'unverified_mint')::boolean AND (details ->> 'incomplete')::boolean AND details ->> 'ended_at' IS NULL
+          AND details ->> 'via' = 'cloudflare'
      FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000206'),
-  'a viewing whose own mint is missing is written, flagged unverified_mint (R4), and its unknown end is said');
+  'a viewing whose own mint is missing is written, flagged unverified_mint (R4), and its unknown end is said; a known via is kept in the list''s spelling');
 SELECT is((SELECT count(*)::int FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000201'), 1,
   'the retried viewing is one row, not two');
 
@@ -1264,6 +1265,39 @@ SELECT ok(
   AND EXISTS (SELECT 1 FROM public.workspace_audit WHERE gateway_id = current_setting('wg96.gw')::uuid
                 AND action = 'gateway.reach_checked' AND actor_user_id IS NULL AND (details ->> 'automatic')::boolean),
   'reach_ok is set by the check alone, the nonce cleared, and the automatic check written down');
+
+-- GW1 review round 1, finding 3: a source that changes again within two
+-- minutes of the last check withdraws the address at once, but begins no
+-- probe; two minutes on, the owed check begins.
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT set_config('wg96.sync3', public.gateway_sync_apply(current_setting('wg96.gw')::uuid,
+  '{"version": "1.0.1"}'::jsonb, '198.51.100.77'::inet, '[]'::jsonb)::text, true);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  current_setting('wg96.sync3')::jsonb -> 'background_check' = 'null'::jsonb
+  AND (SELECT reach_ok IS NULL AND reach_detail = 'source_changed' AND reach_check_id IS NULL
+         FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid),
+  '🚨 a second new source within two minutes withdraws the address at once and begins no probe (no probe storm from a flapping source)');
+UPDATE public.gateways SET reach_nonce_at = now() - interval '3 minutes' WHERE id = current_setting('wg96.gw')::uuid;
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT set_config('wg96.sync4', public.gateway_sync_apply(current_setting('wg96.gw')::uuid,
+  '{"version": "1.0.1"}'::jsonb, '198.51.100.77'::inet, '[]'::jsonb)::text, true);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  current_setting('wg96.sync4')::jsonb -> 'background_check' ->> 'nonce' ~ '^[0-9a-f]{32}$',
+  'two minutes on, the check the changed source is owed begins, though the source now holds still');
+SELECT ok(
+  position('pg_advisory_xact_lock' in pg_get_functiondef('public.gateway_make_enrolment_token()'::regprocedure)) > 0
+  AND position('pg_advisory_xact_lock' in pg_get_functiondef('public.gateway_enrol_apply(text, text, jsonb, inet)'::regprocedure)) > 0,
+  'the five-token and ten-gateway caps are counted under a per-company lock (round 1, note 7)');
+-- The row as the probes below expect it: the check over, reached, from the earlier source.
+UPDATE public.gateways SET reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL,
+       reach_ok = true, reach_detail = 'reached', last_sync_source = '198.51.100.8'::inet
+ WHERE id = current_setting('wg96.gw')::uuid;
 
 
 -- ── 135-137: an address changed mid-check is never published by the old check

@@ -145,6 +145,66 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
+/**
+ * The reach check's proof (GW1 review round 1, finding 1). The cloud's probe
+ * carries the check's nonce in `Wilson-Reach-Nonce`, so an ECHO of it proves
+ * nothing: any server that reflects a header would pass. The gateway answers
+ * `nonce_proof` instead:
+ *
+ *   HMAC-SHA256(key = the UTF-8 bytes of the credential's SHA-256 hex — the
+ *               very text `gateway_secrets.credential_hash` holds,
+ *               message = the UTF-8 bytes of the 32-hex nonce)
+ *
+ * as 64 lower-case hex characters. Only the holder of the credential can make
+ * it, and the cloud computes it from the hash it already keeps (never the
+ * credential). The vector is in docs/design/gateway-ticket-vectors.json.
+ */
+export async function reachProof(credentialHash: string, nonce: string): Promise<string> {
+  if (!SHA256_HEX_RE.test(credentialHash)) throw new Error('reachProof: the credential hash is 64 lower-case hex')
+  if (!/^[0-9a-f]{32}$/.test(nonce)) throw new Error('reachProof: the nonce is 32 lower-case hex')
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(credentialHash),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(nonce))
+  return toHex(new Uint8Array(mac))
+}
+
+/**
+ * A request's JSON body, read under a byte limit (review round 1, note 6):
+ * a declared length over the limit is refused before a byte is read, and the
+ * body is read through its stream, stopping one chunk past the limit — never
+ * buffered whole first. `{ value: undefined, length }` when there is nothing
+ * or too much (the caller compares `length`), `null` when it is not JSON.
+ */
+export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
+  const declared = Number(req.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) return { value: undefined, length: declared }
+  if (!req.body) return { value: undefined, length: 0 }
+  const reader = req.body.getReader()
+  const parts: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.length
+    if (total > maxBytes) {
+      try { await reader.cancel() } catch { /* already done */ }
+      return { value: undefined, length: total }
+    }
+    parts.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let off = 0
+  for (const p of parts) { bytes.set(p, off); off += p.length }
+  const text = new TextDecoder().decode(bytes)
+  if (!text) return { value: undefined, length: 0 }
+  try {
+    return { value: JSON.parse(text), length: total }
+  } catch {
+    return null
+  }
+}
+
 /** The bearer value of an Authorization header, or '' (case-insensitive scheme). */
 export function bearerOf(header: string | null | undefined): string {
   const h = header ?? ''

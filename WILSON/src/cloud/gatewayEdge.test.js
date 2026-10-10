@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash, createHmac } from 'node:crypto'
 import {
   isInsideHost, isPrivateLiteral, cleanInsideAddresses, clientAddress, compareVersions,
   parseEnrolRequest, parseSyncRequest, parseTicketRequest, parseEventsRequest, parseReachRequest,
@@ -20,12 +21,12 @@ import {
 } from '../../supabase/functions/_shared/gatewayShapes.ts'
 import {
   classifyIp, isPublicIp, checkOutsideAddress, vetResolved, parseHealthResponse,
-  probeOutside, probeInside, NONCE_HEADER,
+  probeOutside, probeInside, NONCE_HEADER, insidePortToProbe,
 } from '../../supabase/functions/_shared/gatewayReach.ts'
 import {
   sealSigningKey, openSigningKey, GatewayKeyCryptoUnavailable,
 } from '../../supabase/functions/_shared/gatewayKeyCrypto.ts'
-import { makeEnrolmentToken } from '../../supabase/functions/_shared/gatewayWire.ts'
+import { makeEnrolmentToken, reachProof, readJsonLimited } from '../../supabase/functions/_shared/gatewayWire.ts'
 
 const REPO = join(__dirname, '..', '..')
 const read = (...p) => readFileSync(join(REPO, ...p), 'utf8')
@@ -197,10 +198,12 @@ describe('the SSRF guard (§10 row 16)', () => {
     expect(vetResolved([])).toEqual({ ok: false, reason: 'no_address' })
   })
 
-  it('parseHealthResponse: the status, the echo, a redirect, chunked bodies', () => {
-    expect(parseHealthResponse('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{"ok":true,"nonce_echo":"abc"}')).toEqual({ status: 200, nonceEcho: 'abc', redirect: false })
-    expect(parseHealthResponse('HTTP/1.1 302 Found\r\nlocation: http://10.0.0.1/\r\n\r\n')).toEqual({ status: 302, nonceEcho: null, redirect: true })
-    expect(parseHealthResponse('HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n1f\r\n{"ok":true,"nonce_echo":"abc"}\r\n0\r\n\r\n')).toMatchObject({ nonceEcho: 'abc' })
+  it('parseHealthResponse: the status, the proof, a redirect, chunked bodies', () => {
+    expect(parseHealthResponse('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{"ok":true,"nonce_proof":"abc"}')).toEqual({ status: 200, nonceProof: 'abc', redirect: false })
+    expect(parseHealthResponse('HTTP/1.1 302 Found\r\nlocation: http://10.0.0.1/\r\n\r\n')).toEqual({ status: 302, nonceProof: null, redirect: true })
+    expect(parseHealthResponse('HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n20\r\n{"ok":true,"nonce_proof":"abcd"}\r\n0\r\n\r\n')).toMatchObject({ nonceProof: 'abcd' })
+    // The old echo field is not read at all.
+    expect(parseHealthResponse('HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_echo":"abc"}')).toMatchObject({ nonceProof: null })
     expect(parseHealthResponse('SSH-2.0-OpenSSH_9.0')).toBeNull()
   })
 })
@@ -239,15 +242,62 @@ function connAnswering(text) {
   }
 }
 
+// GW1 review round 1, finding 1: the gateway proves itself with an HMAC of
+// the nonce under its credential's hash — a server that reflects the nonce
+// it was sent proves nothing.
+const CREDENTIAL = 'wgc_' + Buffer.alloc(32, 1).toString('base64url')
+const CREDENTIAL_HASH = createHash('sha256').update(CREDENTIAL, 'utf8').digest('hex')
+
+describe('the reach proof (gatewayWire.reachProof)', () => {
+  it('is HMAC-SHA256 keyed by the credential hash\'s hex text over the nonce\'s text, as the vectors file says', async () => {
+    const nonce = '0123456789abcdef0123456789abcdef'
+    const proof = await reachProof(CREDENTIAL_HASH, nonce)
+    expect(proof).toBe(createHmac('sha256', Buffer.from(CREDENTIAL_HASH, 'utf8')).update(nonce, 'utf8').digest('hex'))
+    expect(proof).toMatch(/^[0-9a-f]{64}$/)
+    const vectors = JSON.parse(readFileSync(join(REPO, 'docs/design/gateway-ticket-vectors.json'), 'utf8'))
+    const v = vectors.for_gw2_from_gw1.reach_probe.proof_vector
+    expect(createHash('sha256').update(v.credential, 'utf8').digest('hex')).toBe(v.credential_hash)
+    expect(await reachProof(v.credential_hash, v.nonce)).toBe(v.nonce_proof)
+    // CONTROLS: another credential, another nonce, another proof; bad shapes refused.
+    expect(await reachProof('f'.repeat(64), nonce)).not.toBe(proof)
+    expect(await reachProof(CREDENTIAL_HASH, 'f'.repeat(32))).not.toBe(proof)
+    await expect(reachProof(CREDENTIAL_HASH.toUpperCase(), nonce)).rejects.toThrow()
+    await expect(reachProof(CREDENTIAL_HASH, nonce + '0')).rejects.toThrow()
+  })
+})
+
+describe('readJsonLimited — a body read under its limit (round 1, note 6)', () => {
+  const req = (body, headers = {}) => new Request('https://x.test/f', { method: 'POST', body, headers })
+  it('reads JSON within the limit; an empty body is no value; not JSON is null', async () => {
+    expect(await readJsonLimited(req('{"a":1}'), 64)).toEqual({ value: { a: 1 }, length: 7 })
+    expect(await readJsonLimited(req(''), 64)).toEqual({ value: undefined, length: 0 })
+    expect(await readJsonLimited(req('{nope'), 64)).toBeNull()
+  })
+  it('a declared length over the limit is refused unread; a stream over it stops past the limit', async () => {
+    let pulled = 0
+    const stream = new ReadableStream({
+      pull(c) { pulled += 1; if (pulled > 50) c.close(); else c.enqueue(new Uint8Array(1000)) },
+    })
+    const r = await readJsonLimited(new Request('https://x.test/f', { method: 'POST', body: stream, duplex: 'half' }), 4096)
+    expect(r.value).toBeUndefined()
+    expect(r.length).toBeGreaterThan(4096)
+    expect(pulled).toBeLessThan(10)
+    const declared = await readJsonLimited(req('{"a":1}', { 'content-length': '999999' }), 64)
+    expect(declared).toEqual({ value: undefined, length: 999999 })
+  })
+})
+
 describe('probeOutside — the probe through a fake network', () => {
   const addr = { host: 'gateway.example.com', port: 8444 }
   const nonce = '0123456789abcdef0123456789abcdef'
+  const proof = createHmac('sha256', Buffer.from(CREDENTIAL_HASH, 'utf8')).update(nonce, 'utf8').digest('hex')
+  const on = { switchOn: true, expectedProof: proof }
 
   it('🚨 resolves ONCE, vets, and connects to the validated LITERAL with the name as SNI only; the nonce rides a header', async () => {
     let conn
-    const { deps, calls } = fakeNet({ tls: () => (conn = connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_echo":"${nonce}"}`)) })
-    const r = await probeOutside(addr, nonce, { switchOn: true }, deps)
-    expect(r).toMatchObject({ ok: true, detail: 'reached', is_this_gateway: true, method: 'literal_tls', certificate: 'ok', address: '93.184.215.14' })
+    const { deps, calls } = fakeNet({ tls: () => (conn = connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_proof":"${proof}"}`)) })
+    const r = await probeOutside(addr, nonce, on, deps)
+    expect(r).toMatchObject({ ok: true, detail: 'reached', is_this_gateway: true, method: 'literal_tls', certificate: 'ok', address: '93.184.215.14', proof_checked: true })
     expect(calls.resolve).toEqual(['gateway.example.com'])
     expect(calls.tls).toEqual([{ ip: '93.184.215.14', port: 8444, serverName: 'gateway.example.com' }])
     expect(conn.sent).toMatch(/^GET \/v1\/health HTTP\/1\.1\r\n/)
@@ -277,19 +327,50 @@ describe('probeOutside — the probe through a fake network', () => {
     expect(await probeOutside({ host: 'gw.internal', port: 443 }, nonce, { switchOn: true }, sb.deps)).toMatchObject({ detail: 'local_name' })
   })
 
-  it('an answer without the echo, or with the wrong one, is not this gateway; a redirect is never followed', async () => {
-    const wrong = fakeNet({ tls: () => connAnswering('HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_echo":"nope"}') })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, wrong.deps)).toMatchObject({ ok: false, detail: 'not_this_gateway', is_this_gateway: false })
+  it('🚨 a host that reflects the nonce it was sent is NOT this gateway (round 1, finding 1); only the proof is', async () => {
+    for (const body of [`{"ok":true,"nonce_echo":"${nonce}"}`, `{"ok":true,"nonce_proof":"${nonce}"}`, `{"ok":true,"nonce_proof":"${nonce}${nonce}"}`]) {
+      const reflector = fakeNet({ tls: () => connAnswering(`HTTP/1.1 200 OK\r\n\r\n${body}`) })
+      expect(await probeOutside(addr, nonce, on, reflector.deps), body).toMatchObject({ ok: false, detail: 'not_this_gateway', is_this_gateway: false })
+    }
+    // CONTROL: the proof itself is reached.
+    const gw = fakeNet({ tls: () => connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_proof":"${proof}"}`) })
+    expect(await probeOutside(addr, nonce, on, gw.deps)).toMatchObject({ ok: true, detail: 'reached' })
+    // With no expected proof (the credential's hash could not be read) nothing is reached.
+    expect(await probeOutside(addr, nonce, { switchOn: true }, gw.deps)).toMatchObject({ ok: false, detail: 'not_this_gateway', proof_checked: false })
+  })
+
+  it('an answer without the proof, or with the wrong one, is not this gateway; a redirect is never followed', async () => {
+    const wrong = fakeNet({ tls: () => connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"ok":true,"nonce_proof":"${'0'.repeat(64)}"}`) })
+    expect(await probeOutside(addr, nonce, on, wrong.deps)).toMatchObject({ ok: false, detail: 'not_this_gateway', is_this_gateway: false })
     const redirect = fakeNet({ tls: () => connAnswering('HTTP/1.1 302 Found\r\nLocation: https://10.0.0.1/\r\n\r\n') })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, redirect.deps)).toMatchObject({ detail: 'not_this_gateway' })
+    expect(await probeOutside(addr, nonce, on, redirect.deps)).toMatchObject({ detail: 'not_this_gateway' })
     expect(redirect.calls.tls).toHaveLength(1)
-    const echoNot200 = fakeNet({ tls: () => connAnswering(`HTTP/1.1 404 Not Found\r\n\r\n{"nonce_echo":"${nonce}"}`) })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, echoNot200.deps)).toMatchObject({ detail: 'not_this_gateway' })
+    const proofNot200 = fakeNet({ tls: () => connAnswering(`HTTP/1.1 404 Not Found\r\n\r\n{"nonce_proof":"${proof}"}`) })
+    expect(await probeOutside(addr, nonce, on, proofNot200.deps)).toMatchObject({ detail: 'not_this_gateway' })
+  })
+
+  it('an IPv6 literal is bracketed in the Host header on every port (round 1, note 5)', async () => {
+    let conn
+    const v6 = fakeNet({ tls: () => (conn = connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"nonce_proof":"${proof}"}`)) })
+    await probeOutside({ host: '2606:4700:4700::1111', port: 443 }, nonce, on, v6.deps)
+    expect(conn.sent).toContain('Host: [2606:4700:4700::1111]\r\n')
+    await probeOutside({ host: '2606:4700:4700::1111', port: 8444 }, nonce, on, v6.deps)
+    expect(conn.sent).toContain('Host: [2606:4700:4700::1111]:8444\r\n')
+  })
+
+  it('a TLS failure that is not the certificate\'s is something else answering, never "certificate" (round 1, note 5)', async () => {
+    const plain = fakeNet({ tls: () => { throw new Error('InvalidData: received corrupt message of type InvalidContentType') } })
+    expect(await probeOutside(addr, nonce, on, plain.deps)).toMatchObject({ detail: 'not_this_gateway', certificate: 'unknown' })
+    const handshake = fakeNet({ tls: () => { throw new Error('tls handshake eof') } })
+    expect(await probeOutside(addr, nonce, on, handshake.deps)).toMatchObject({ detail: 'not_this_gateway' })
+    // CONTROL: a certificate's own failure keeps its word.
+    const cert = fakeNet({ tls: () => { throw new Error('invalid peer certificate: UnknownIssuer') } })
+    expect(await probeOutside(addr, nonce, on, cert.deps)).toMatchObject({ detail: 'certificate' })
   })
 
   it('refused, a certificate failure and silence each have their word; with the switch off the first and last are the §4b proof', async () => {
     const refused = fakeNet({ tls: () => { throw Object.assign(new Error('Connection refused (os error 111)'), { name: 'ConnectionRefused' }) } })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, refused.deps)).toMatchObject({ detail: 'refused' })
+    expect(await probeOutside(addr, nonce, on, refused.deps)).toMatchObject({ detail: 'refused' })
     expect(await probeOutside(addr, nonce, { switchOn: false }, refused.deps)).toMatchObject({ detail: 'switch_off', ok: false })
     const cert = fakeNet({ tls: () => { throw new Error('invalid peer certificate: UnknownIssuer') } })
     expect(await probeOutside(addr, nonce, { switchOn: true }, cert.deps)).toMatchObject({ detail: 'certificate', certificate: 'untrusted' })
@@ -299,25 +380,25 @@ describe('probeOutside — the probe through a fake network', () => {
   })
 
   it('reads at most 4 KB of an answer: an echo past the first 4 KB is never seen', async () => {
-    const late = JSON.stringify({ pad: 'x'.repeat(5000), nonce_echo: nonce })
+    const late = JSON.stringify({ pad: 'x'.repeat(5000), nonce_proof: proof })
     const big = fakeNet({ tls: () => connAnswering('HTTP/1.1 200 OK\r\n\r\n' + late) })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, big.deps)).toMatchObject({ detail: 'not_this_gateway', is_this_gateway: false })
-    const early = JSON.stringify({ nonce_echo: nonce, pad: 'x'.repeat(100) })
+    expect(await probeOutside(addr, nonce, on, big.deps)).toMatchObject({ detail: 'not_this_gateway', is_this_gateway: false })
+    const early = JSON.stringify({ nonce_proof: proof, pad: 'x'.repeat(100) })
     const small = fakeNet({ tls: () => connAnswering('HTTP/1.1 200 OK\r\n\r\n' + early) })
-    expect(await probeOutside(addr, nonce, { switchOn: true }, small.deps)).toMatchObject({ detail: 'reached' })
+    expect(await probeOutside(addr, nonce, on, small.deps)).toMatchObject({ detail: 'reached' })
   })
 
   it('a public literal is contacted as itself, with no resolution', async () => {
-    const lit = fakeNet({ tls: () => connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"nonce_echo":"${nonce}"}`) })
-    expect(await probeOutside({ host: '8.8.4.4', port: 443 }, nonce, { switchOn: true }, lit.deps)).toMatchObject({ ok: true, address: '8.8.4.4' })
+    const lit = fakeNet({ tls: () => connAnswering(`HTTP/1.1 200 OK\r\n\r\n{"nonce_proof":"${proof}"}`) })
+    expect(await probeOutside({ host: '8.8.4.4', port: 443 }, nonce, on, lit.deps)).toMatchObject({ ok: true, address: '8.8.4.4' })
     expect(lit.calls.resolve).toEqual([])
   })
 
   it('without raw TLS the probe falls back to a fetch of the vetted name, manual redirects, and says so', async () => {
     const fb = fakeNet({
-      fetchImpl: async () => new Response(JSON.stringify({ ok: true, nonce_echo: nonce }), { status: 200 }),
+      fetchImpl: async () => new Response(JSON.stringify({ ok: true, nonce_proof: proof }), { status: 200 }),
     })
-    const r = await probeOutside(addr, nonce, { switchOn: true }, fb.deps)
+    const r = await probeOutside(addr, nonce, on, fb.deps)
     expect(r).toMatchObject({ ok: true, method: 'pinned_fetch' })
     expect(fb.calls.fetch[0].url).toBe('https://gateway.example.com:8444/v1/health')
     expect(fb.calls.fetch[0].init.redirect).toBe('manual')
@@ -325,6 +406,22 @@ describe('probeOutside — the probe through a fake network', () => {
     const fbPrivate = fakeNet({ resolve: ['192.168.0.9'], fetchImpl: async () => { throw new Error('must not fetch') } })
     expect(await probeOutside(addr, nonce, { switchOn: true }, fbPrivate.deps)).toMatchObject({ detail: 'not_public' })
     expect(fbPrivate.calls.fetch).toEqual([])
+  })
+})
+
+describe('insidePortToProbe — never knock on the outside door by mistake (round 1, finding 3)', () => {
+  it('the inside port, unless it is the outside address\'s own or not a port', () => {
+    expect(insidePortToProbe(8443, 8444)).toBe(8443)
+    expect(insidePortToProbe(443, 443)).toBeNull()
+    expect(insidePortToProbe(8444, 8444)).toBeNull()
+    expect(insidePortToProbe(0, 8444)).toBeNull()
+    expect(insidePortToProbe('x', 8444)).toBeNull()
+  })
+  it('the runner uses it, and reads the credential hash for the proof as the service role', () => {
+    const run = readFileSync(join(REPO, 'supabase/functions/_shared/gatewayReachRun.ts'), 'utf8')
+    expect(run).toContain('insidePortToProbe(begun.inside_port ?? 8443, begun.address?.port)')
+    expect(run).toContain(".from('gateway_secrets').select('credential_hash').eq('gateway_id', gatewayId)")
+    expect(run).toContain('expectedProof = await reachProof(hash, begun.nonce)')
   })
 })
 

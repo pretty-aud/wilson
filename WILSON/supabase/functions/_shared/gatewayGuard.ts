@@ -98,16 +98,8 @@ export async function requireGateway(req: Request): Promise<Guard> {
 }
 
 /** Read a JSON body with a size cap; null when it is not JSON. */
-export async function readJson(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
-  const text = await req.text()
-  if (text.length > maxBytes) return { value: undefined, length: text.length }
-  if (!text) return { value: undefined, length: 0 }
-  try {
-    return { value: JSON.parse(text), length: text.length }
-  } catch {
-    return null
-  }
-}
+// The body, read under its limit (gatewayWire.ts; review round 1, note 6).
+export { readJsonLimited as readJson } from './gatewayWire.ts'
 
 /** The environment's configured version floors (§8), '0.0.0' when unset. */
 export function versionFloors(): { minimum: string; hard: string } {

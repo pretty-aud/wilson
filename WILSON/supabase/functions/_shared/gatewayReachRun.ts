@@ -10,10 +10,16 @@
 // address TLS, the nonce echo, the inside port) and hands the result to
 // gateway_reach_finish, which records it only while the check is still the
 // running one AND the outside address is still the one probed.
+//
+// Review round 1, finding 1: the probe's nonce rides the request, so an echo
+// proves nothing; the host must answer the proof only the credential's
+// holder can make (gatewayWire.reachProof), computed here from the hash the
+// cloud keeps in gateway_secrets — read as the service role, never shown.
 // =============================================================================
 
 import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { denoReachDeps, isPublicIp, probeInside, probeOutside, type OutsideResult } from './gatewayReach.ts'
+import { denoReachDeps, insidePortToProbe, isPublicIp, probeInside, probeOutside, type OutsideResult } from './gatewayReach.ts'
+import { reachProof } from './gatewayWire.ts'
 
 type Client = ReturnType<typeof createClient>
 
@@ -26,7 +32,7 @@ export type BegunCheck = {
 }
 
 export type ReachResult = {
-  outside: Pick<OutsideResult, 'ok' | 'detail' | 'ms' | 'certificate' | 'is_this_gateway' | 'method'>
+  outside: Pick<OutsideResult, 'ok' | 'detail' | 'ms' | 'certificate' | 'is_this_gateway' | 'method' | 'proof_checked'>
   inside_answered: boolean
 }
 
@@ -44,16 +50,25 @@ export async function runReachCheck(
 ): Promise<{ recorded: boolean; result: ReachResult }> {
   if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
   const deps = denoReachDeps()
+  let expectedProof: string | null = null
+  try {
+    const { data: secret } = await admin.from('gateway_secrets').select('credential_hash').eq('gateway_id', gatewayId).maybeSingle()
+    const hash = (secret as { credential_hash?: string } | null)?.credential_hash
+    if (hash) expectedProof = await reachProof(hash, begun.nonce)
+  } catch {
+    expectedProof = null
+  }
   const outside = await probeOutside(begun.address, begun.nonce,
-    { switchOn: !!begun.remote_viewing, supabaseHost: supabaseHost() }, deps)
+    { switchOn: !!begun.remote_viewing, supabaseHost: supabaseHost(), expectedProof }, deps)
   let insideAnswered = false
-  if (outside.address && isPublicIp(outside.address)) {
-    insideAnswered = await probeInside([outside.address], begun.inside_port ?? 8443, deps)
+  const insidePort = insidePortToProbe(begun.inside_port ?? 8443, begun.address?.port)
+  if (outside.address && isPublicIp(outside.address) && insidePort !== null) {
+    insideAnswered = await probeInside([outside.address], insidePort, deps)
   }
   const result: ReachResult = {
     outside: {
       ok: outside.ok, detail: outside.detail, ms: outside.ms, certificate: outside.certificate,
-      is_this_gateway: outside.is_this_gateway, method: outside.method,
+      is_this_gateway: outside.is_this_gateway, method: outside.method, proof_checked: outside.proof_checked,
     },
     inside_answered: insideAnswered,
   }

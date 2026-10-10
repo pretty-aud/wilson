@@ -346,6 +346,18 @@ const LOCATION_WORDS = {
 
 function humanize(s) { return String(s).replace(/[_:]+/g, ' ').trim() }
 
+// GW1 review round 1, finding 4: the health report is the gateway's own
+// account, and a free-text part of it (a reason, a warning) must never read
+// as WILSON's voice among the line's fixed phrases. It is quoted and
+// attributed, cut to a line, its control characters dropped.
+const NOT_TEXT = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069]', 'g')
+function theGatewaySays(s) {
+  const t = String(s ?? '').replace(NOT_TEXT, '').replace(/\s+/g, ' ').trim().slice(0, 120)
+  return t ? `the gateway says “${t}”` : 'the gateway gives no reason'
+}
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]{0,40}$/
+function versionOr(v, fallback) { return VERSION.test(String(v ?? '')) ? String(v) : fallback }
+
 /** The outside door's phrase from §2's vocabulary (read liberally). */
 function outsidePhrase(gw, now) {
   const raw = String(gw?.health?.doors?.outside || '')
@@ -364,8 +376,8 @@ function outsidePhrase(gw, now) {
   if (raw === 'closed_no_address') return { text: 'outside door closed (no outside address yet)', tone: 'plain' }
   const noCloud = /^closed_no_cloud(?::(\d+))?$/.exec(raw)
   if (noCloud) return { text: `outside door closed (no cloud${noCloud[1] ? ` for ${agoWords(Number(noCloud[1]))}` : ''})`, tone: 'warning' }
-  if (raw.startsWith('closed')) return { text: `outside door closed (${humanize(raw.slice(6)) || 'no reason given'})`, tone: 'plain' }
-  return { text: `outside door: ${humanize(raw)}`, tone: 'plain' }
+  if (raw.startsWith('closed')) return { text: `outside door closed (${theGatewaySays(humanize(raw.slice(6)))})`, tone: 'plain' }
+  return { text: `outside door: ${theGatewaySays(humanize(raw))}`, tone: 'plain' }
 }
 
 function insidePhrase(gw) {
@@ -374,7 +386,7 @@ function insidePhrase(gw) {
   const first = Array.isArray(gw.inside_addresses) ? gw.inside_addresses[0] : null
   if (/^open/.test(raw)) return { text: `office door open${first ? ` (${formatAddress(first)})` : ''}`, tone: 'plain' }
   if (/bridge/.test(raw)) return { text: 'office door closed (the container is on a bridge network: run it on the host\'s network)', tone: 'warning', strong: 'office door closed' }
-  return { text: `office door closed${raw.length > 6 ? ` (${humanize(raw.replace(/^closed/, ''))})` : ''}`, tone: 'warning', strong: 'office door closed' }
+  return { text: `office door closed${raw.length > 6 ? ` (${theGatewaySays(humanize(raw.replace(/^closed/, '')))})` : ''}`, tone: 'warning', strong: 'office door closed' }
 }
 
 export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
@@ -407,24 +419,25 @@ export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
       cert.root_not_after ? `root until ${String(cert.root_not_after).slice(0, 10)}` : null].filter(Boolean).join('; ')
     out.push({ text: `certificate: renews itself (${bits})`, tone: 'plain' })
   }
-  if (cert.expires_warning) out.push({ text: String(cert.expires_warning), tone: 'warning' })
+  if (cert.expires_warning) out.push({ text: `certificate: ${theGatewaySays(cert.expires_warning)}`, tone: 'warning' })
 
   const update = String(health.update || '')
   if (update === 'up_to_date') out.push({ text: 'up to date', tone: 'plain' })
   else if (update.startsWith('available:')) {
-    const v = update.slice(10)
+    const v = versionOr(update.slice(10), 'a new version')
     out.push({ text: gw.platform === 'container' ? `${v} is available: pull the image` : `${v} is available`, tone: 'warning' })
   } else if (update.startsWith('failed:')) {
     const [, v, ...why] = update.split(':')
-    out.push({ text: `update to ${v} failed${why.length ? ` (${why.join(':')})` : ''}; running ${gw.version}`, tone: 'warning' })
+    out.push({ text: `update to ${versionOr(v, 'a new version')} failed (${theGatewaySays(why.join(':'))}); running ${gw.version}`, tone: 'warning' })
   }
   if (health.minimum_version_ok === false) {
     out.push({ text: 'below the minimum version: the outside door stays closed until it is updated', tone: 'warning' })
   }
 
   const relay = health.doors?.relay_warning
-  if (relay && Number(relay.viewers) > 1 && relay.address) {
-    out.push({ text: `${relay.viewers} people reached the office door through one address today, ${relay.address}: a relay or proxy may be pointed at it`, tone: 'warning' })
+  const relayAt = relay && (parseIpv4(relay.address) || parseIpv6(relay.address)) ? `, ${relay.address}` : ''
+  if (relay && Number.isInteger(Number(relay.viewers)) && Number(relay.viewers) > 1) {
+    out.push({ text: `${Number(relay.viewers)} people reached the office door through one address today${relayAt}: a relay or proxy may be pointed at it`, tone: 'warning' })
   }
   return out
 }
@@ -555,9 +568,17 @@ export function howMuchWords(details = {}) {
 }
 
 /** "203.0.113.7 via cloudflare", plus the shared-link mark (shared_url). */
+// 0093 keeps `via` to a short list (round 1, finding 4); these are its words.
+const VIA_WORDS = {
+  cloudflare: 'Cloudflare Tunnel',
+  tailscale: 'Tailscale Funnel',
+  ngrok: 'ngrok',
+  nas_proxy: "the NAS's reverse proxy",
+}
+
 export function whereWords(details = {}) {
   const addr = details.source_address || 'an unknown address'
-  const via = details.via ? ` via ${details.via}` : ''
+  const via = details.via ? ` via ${VIA_WORDS[details.via] || 'a tunnel or proxy'}` : ''
   const others = Array.isArray(details.source_addresses) ? details.source_addresses.length : 0
   const shared = details.shared_url ? ` · one link played from ${others > 1 ? `${others} addresses` : 'more than one address'}` : ''
   return `${addr}${via}${shared}`
@@ -569,13 +590,23 @@ export function whoWords(row) {
   return row?.details?.unverified_mint ? `${who} (no matching ticket on record: the gateway's word)` : who
 }
 
-/** "Viewed from outside 3 times, last by Priya on 9 Oct" — the Bins inspector's one line (item 5). */
-export function inspectorRemoteLine({ count, last } = {}, { locale } = {}) {
+/**
+ * "Viewed from outside 3 times, last by Priya on 9 Oct" — the Bins
+ * inspector's one line (item 5). A viewing no ticket on record matches is
+ * the gateway's word, not the cloud's (R4; GW1 review round 1, finding 2),
+ * and the line says how many of them are.
+ */
+export function inspectorRemoteLine({ count, unverified, last } = {}, { locale } = {}) {
   const n = Number(count) || 0
   if (n === 0) return null
   const times = n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`
-  if (!last?.created_at) return `Viewed from outside ${times}`
+  const u = Math.min(n, Number(unverified) || 0)
+  const mark = u === 0 ? ''
+    : n === 1 ? "; no ticket on record matches it (the gateway's word)"
+      : u === n ? "; none of them has a matching ticket on record (the gateway's word)"
+        : `; ${u} of them ${u === 1 ? 'has' : 'have'} no matching ticket on record (the gateway's word)`
+  if (!last?.created_at) return `Viewed from outside ${times}${mark}`
   const who = String(last.actor_label || '').split(/\s+/)[0] || 'someone'
   const when = new Date(last.created_at).toLocaleDateString(locale || 'en-GB', { day: 'numeric', month: 'short' })
-  return `Viewed from outside ${times}, last by ${who} on ${when}`
+  return `Viewed from outside ${times}, last by ${who} on ${when}${mark}`
 }

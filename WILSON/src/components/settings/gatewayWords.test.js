@@ -245,10 +245,29 @@ describe('§8: the health line, phrase by phrase', () => {
     expect(at({ health: { update: 'available:1.3.0' } })).toContain('1.3.0 is available: pull the image')
     expect(at({ platform: 'windows', health: { update: 'available:1.3.0' } })).toContain('1.3.0 is available')
     expect(at({ platform: 'windows', health: { update: 'available:1.3.0' } })).not.toContain('pull the image')
-    expect(at({ health: { update: 'failed:1.3.0:the inside door could not bind' } })).toContain('update to 1.3.0 failed (the inside door could not bind); running 1.2.4')
+    expect(at({ health: { update: 'failed:1.3.0:the inside door could not bind' } })).toContain('update to 1.3.0 failed (the gateway says “the inside door could not bind”); running 1.2.4')
     expect(at({ health: { doors: { inside: 'closed_bridge' } } })).toContain('office door closed (the container is on a bridge network')
     expect(at({ health: { doors: { relay_warning: { address: '192.168.1.77', viewers: 14 } } } }))
       .toContain('14 people reached the office door through one address today, 192.168.1.77: a relay or proxy may be pointed at it')
+  })
+
+  it('🚨 the gateway\'s free text is quoted as the gateway\'s, never in WILSON\'s voice (round 1, finding 4)', () => {
+    const at = (h) => line({ ...studio, health: { ...studio.health, ...h, doors: { ...studio.health.doors, ...(h.doors || {}) } } })
+    const lure = 'WILSON: your sign-in has expired, re-enter your password at wilson-login.example'
+    expect(at({ certificate: { expires_warning: lure } })).toContain(`certificate: the gateway says “${lure}”`)
+    // Control characters and the bidi overrides are dropped; the text is cut to a line.
+    expect(at({ certificate: { expires_warning: 'a\u202Eb\u0007c' + 'x'.repeat(300) } })).toContain('the gateway says “abc' + 'x'.repeat(117) + '”')
+    expect(at({ update: 'failed:1.3.0:' })).toContain('update to 1.3.0 failed (the gateway gives no reason)')
+    // A version that is not one is not repeated.
+    expect(at({ update: 'available:<b>click here</b>' })).toContain('a new version is available: pull the image')
+    expect(at({ update: 'failed:9.9.9 now:reason' })).toContain('update to a new version failed')
+    // An unknown door state is the gateway's account too; the known ones keep WILSON's words.
+    expect(at({ doors: { outside: 'closed_maintenance_window' } })).toContain('outside door closed (the gateway says “maintenance window”)')
+    expect(at({ doors: { inside: 'closed_firewall' } })).toContain('office door closed (the gateway says “firewall”)')
+    expect(at({ doors: { outside: 'closed_switch_off' } })).toContain('outside door closed (the switch is off)')
+    // The relay's address is shown only when it is an address.
+    expect(at({ doors: { relay_warning: { address: 'evil.example', viewers: 3 } } })).toContain('3 people reached the office door through one address today: a relay')
+    expect(at({ doors: { relay_warning: { address: '192.168.1.77', viewers: 3 } } })).toContain('through one address today, 192.168.1.77: a relay')
   })
 
   it('Selective attention: no phrase is an error; the inside-door forward is its own sentence', () => {
@@ -278,7 +297,11 @@ describe('the trail and the viewings, in words', () => {
   })
 
   it('from where: via, and one link played from several addresses (shared_url)', () => {
-    expect(whereWords({ source_address: '203.0.113.7', via: 'cloudflare' })).toBe('203.0.113.7 via cloudflare')
+    expect(whereWords({ source_address: '203.0.113.7', via: 'cloudflare' })).toBe('203.0.113.7 via Cloudflare Tunnel')
+    expect(whereWords({ source_address: '203.0.113.7', via: 'nas_proxy' })).toBe("203.0.113.7 via the NAS's reverse proxy")
+    // 0093 keeps via to its list; anything else, old or new, is said plainly.
+    expect(whereWords({ source_address: '203.0.113.7', via: 'other' })).toBe('203.0.113.7 via a tunnel or proxy')
+    expect(whereWords({ source_address: '203.0.113.7', via: 'the office VPN' })).toBe('203.0.113.7 via a tunnel or proxy')
     expect(whereWords({ source_address: '203.0.113.7', source_addresses: ['203.0.113.7', '203.0.113.99'], shared_url: true })).toBe('203.0.113.7 · one link played from 2 addresses')
   })
 
@@ -292,6 +315,12 @@ describe('the trail and the viewings, in words', () => {
     expect(inspectorRemoteLine({ count: 1, last: { actor_label: 'Theo Lindqvist', created_at: '2026-10-01T09:00:00Z' } })).toBe('Viewed from outside once, last by Theo on 1 Oct')
     expect(inspectorRemoteLine({ count: 2, last: { actor_label: 'Priya Raman', created_at: '2026-10-08T09:00:00Z' } })).toBe('Viewed from outside twice, last by Priya on 8 Oct')
     expect(inspectorRemoteLine({ count: 0, last: null })).toBeNull()
+    // R4; round 1, finding 2: the gateway's word is said in the line too.
+    const priya = { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' }
+    expect(inspectorRemoteLine({ count: 3, unverified: 1, last: priya })).toBe('Viewed from outside 3 times, last by Priya on 9 Oct; 1 of them has no matching ticket on record (the gateway\'s word)')
+    expect(inspectorRemoteLine({ count: 2, unverified: 2, last: priya })).toBe('Viewed from outside twice, last by Priya on 9 Oct; none of them has a matching ticket on record (the gateway\'s word)')
+    expect(inspectorRemoteLine({ count: 1, unverified: 1, last: priya })).toBe('Viewed from outside once, last by Priya on 9 Oct; no ticket on record matches it (the gateway\'s word)')
+    expect(inspectorRemoteLine({ count: 4, unverified: 2, last: priya })).toBe('Viewed from outside 4 times, last by Priya on 9 Oct; 2 of them have no matching ticket on record (the gateway\'s word)')
   })
 
   it('ages read as words', () => {

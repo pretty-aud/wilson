@@ -3053,7 +3053,9 @@ export function supabaseAdapter() {
 
     // ── Viewed from outside (GW1, migration 0093) ─────────────
     // One clip's viewings through the file gateway's OUTSIDE door, for the
-    // Bins inspector's one line: { count, last: { actor_label, created_at } }.
+    // Bins inspector's one line: { count, unverified, last: { actor_label,
+    // created_at, unverified_mint } } — `unverified` counts the rows no ticket
+    // on record matched (R4; GW1 review round 1, finding 2).
     // file_events_select shows viewed_remote rows to LIVE workspace admins
     // only, so anyone else counts none — and BinsView asks only for an admin.
     // A database before 0093 has no `subject` column: none, not an error.
@@ -3061,18 +3063,35 @@ export function supabaseAdapter() {
       const client = await requireClient();
       const { data, error, count } = await client
         .from('file_events')
-        .select('actor_label, created_at', { count: 'exact' })
+        .select('actor_label, created_at, unverified_mint:details->unverified_mint', { count: 'exact' })
         .eq('event', 'viewed_remote')
         .eq('subject', 'bin_file')
         .eq('file_id', binFileId)
         .order('created_at', { ascending: false })
         .limit(1);
       if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || error.code === '22P02') return { count: 0, last: null };
+        if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || error.code === '22P02') return { count: 0, unverified: 0, last: null };
         lastError = error.message;
         throw new Error(`[supabase] remoteViewsOfClip failed: ${error.message}`);
       }
-      return { count: count ?? (data || []).length, last: (data || [])[0] ?? null };
+      const total = count ?? (data || []).length;
+      let unverified = 0;
+      if (total > 0) {
+        const flagged = await client
+          .from('file_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('event', 'viewed_remote')
+          .eq('subject', 'bin_file')
+          .eq('file_id', binFileId)
+          .eq('details->>unverified_mint', 'true');
+        if (flagged.error) {
+          lastError = flagged.error.message;
+          throw new Error(`[supabase] remoteViewsOfClip failed: ${flagged.error.message}`);
+        }
+        unverified = flagged.count ?? 0;
+      }
+      const row = (data || [])[0] ?? null;
+      return { count: total, unverified, last: row ? { actor_label: row.actor_label, created_at: row.created_at, unverified_mint: row.unverified_mint === true } : null };
     },
 
     // ── File lifecycle events (Session 14, migration 0027) ────

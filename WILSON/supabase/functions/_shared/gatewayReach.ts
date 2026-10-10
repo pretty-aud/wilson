@@ -16,8 +16,11 @@
 //      second resolution can swap the target (review round 1, F12)
 //   4. GET /v1/health, the nonce in `Wilson-Reach-Nonce`, 5 s for the whole
 //      exchange, 4 KB read at most, redirects never followed, no body sent
-//   5. reached ONLY when the answer echoes the nonce (`nonce_echo`), which
-//      only the enrolled gateway can (F16)
+//   5. reached ONLY when the answer carries `nonce_proof`, the HMAC of the
+//      nonce under the credential's hash (gatewayWire.reachProof), which only
+//      the enrolled gateway can make (F16). GW1's review round 1, finding 1:
+//      the design's plain echo proved nothing, since the nonce rides the
+//      request and any server reflecting a header would pass
 //   6. the INSIDE port is tried on the same public addresses and should be
 //      refused or time out; a TCP accept there is the red line (§4)
 //
@@ -30,6 +33,7 @@
 // =============================================================================
 
 import { parseIpv4, parseIpv6 } from './gatewayShapes.ts'
+import { timingSafeEqual } from './gatewayWire.ts'
 
 export type IpClass =
   | 'public' | 'loopback' | 'private' | 'link_local' | 'cgnat' | 'multicast'
@@ -121,9 +125,9 @@ export function vetResolved(addresses: string[]): { ok: true; addresses: string[
 
 // ── The HTTP answer ──────────────────────────────────────────────────────────
 
-export type HealthAnswer = { status: number; nonceEcho: string | null; redirect: boolean }
+export type HealthAnswer = { status: number; nonceProof: string | null; redirect: boolean }
 
-/** Parse a raw HTTP/1.x response (headers + at most 4 KB) for the status and the nonce echo. */
+/** Parse a raw HTTP/1.x response (headers + at most 4 KB) for the status and the nonce's proof. */
 export function parseHealthResponse(raw: string): HealthAnswer | null {
   const headEnd = raw.indexOf('\r\n\r\n')
   const head = headEnd >= 0 ? raw.slice(0, headEnd) : raw
@@ -144,14 +148,14 @@ export function parseHealthResponse(raw: string): HealthAnswer | null {
     }
     body = out
   }
-  let nonceEcho: string | null = null
+  let nonceProof: string | null = null
   if (status === 200) {
     try {
       const j = JSON.parse(body)
-      if (j && typeof j === 'object' && typeof j.nonce_echo === 'string') nonceEcho = j.nonce_echo
+      if (j && typeof j === 'object' && typeof j.nonce_proof === 'string') nonceProof = j.nonce_proof
     } catch { /* not JSON: not our gateway */ }
   }
-  return { status, nonceEcho, redirect: status >= 300 && status < 400 }
+  return { status, nonceProof, redirect: status >= 300 && status < 400 }
 }
 
 // ── The probe ────────────────────────────────────────────────────────────────
@@ -183,17 +187,35 @@ export type OutsideResult = {
   is_this_gateway: boolean
   method: 'literal_tls' | 'pinned_fetch' | 'none'
   address: string | null
+  /** An expected proof was there to compare with (the credential's hash was read). */
+  proof_checked: boolean
 }
 
 export const NONCE_HEADER = 'Wilson-Reach-Nonce'
 export const PROBE_TIMEOUT_MS = 5000
 export const PROBE_MAX_BYTES = 4096
 
-function classifyError(e: unknown): 'certificate' | 'refused' | 'timed_out' {
+// Review round 1, note 5: only a certificate's own failure is 'certificate'.
+// Any other TLS failure (a plain-HTTP listener, a broken handshake) means
+// something answered that does not speak the gateway's TLS: 'protocol'.
+function classifyError(e: unknown): 'certificate' | 'refused' | 'timed_out' | 'protocol' {
   const msg = `${(e as Error)?.name ?? ''} ${(e as Error)?.message ?? String(e)}`
-  if (/certificate|UnknownIssuer|NotValidForName|BadCertificate|CertExpired|invalid peer|self.signed|tls/i.test(msg)) return 'certificate'
+  if (/certificate|UnknownIssuer|NotValidForName|BadCertificate|CertExpired|CertNotValid|self.signed/i.test(msg)) return 'certificate'
   if (/refused|ECONNREFUSED|ConnectionRefused|reset|ECONNRESET/i.test(msg)) return 'refused'
+  if (/TimedOut|timed out|timeout/i.test(msg)) return 'timed_out'
+  if (/tls|handshake|InvalidData|corrupt|record|alert|UnexpectedEof|eof/i.test(msg)) return 'protocol'
   return 'timed_out'
+}
+
+/**
+ * The inside port the check knocks on, or null when it must not: the same
+ * port as the outside address's would knock on the outside door itself and
+ * raise the red line falsely (review round 1, finding 3).
+ */
+export function insidePortToProbe(insidePort: unknown, outsidePort: unknown): number | null {
+  const p = Number(insidePort)
+  if (!Number.isInteger(p) || p < 1 || p > 65535) return null
+  return p === Number(outsidePort) ? null : p
 }
 
 async function withDeadline<T>(p: Promise<T>, ms: number, onLate?: (v: T) => void): Promise<T> {
@@ -240,11 +262,17 @@ async function readUpTo(conn: Conn, max: number, deadline: number, now: () => nu
  */
 export async function probeOutside(
   address: unknown, nonce: string,
-  opts: { switchOn: boolean; supabaseHost?: string; timeoutMs?: number },
+  opts: { switchOn: boolean; supabaseHost?: string; timeoutMs?: number; expectedProof?: string | null },
   deps: ReachDeps,
 ): Promise<OutsideResult> {
   const limit = opts.timeoutMs ?? PROBE_TIMEOUT_MS
-  const base = { ms: null, certificate: 'unknown' as const, is_this_gateway: false, method: 'none' as const, address: null }
+  // Review round 1, finding 1: the host is this gateway only when it answers
+  // the proof only the credential's holder can make (gatewayWire.reachProof);
+  // with no expected proof to compare, nothing is ever "reached".
+  const expected = typeof opts.expectedProof === 'string' && /^[0-9a-f]{64}$/.test(opts.expectedProof) ? opts.expectedProof : null
+  const proves = (got: string | null): boolean => expected !== null && typeof got === 'string' && /^[0-9a-f]{64}$/.test(got) && timingSafeEqual(got, expected)
+  const proof_checked = expected !== null
+  const base = { ms: null, certificate: 'unknown' as const, is_this_gateway: false, method: 'none' as const, address: null, proof_checked }
   const chk = checkOutsideAddress(address, opts.supabaseHost)
   if (!chk.ok) return { ok: false, detail: chk.reason, ...base }
   let addresses: string[]
@@ -266,7 +294,9 @@ export async function probeOutside(
   const target = addresses[0]
   const started = deps.now()
   const deadline = started + limit
-  const hostHeader = chk.port === 443 ? chk.host : `${chk.literal && chk.host.includes(':') ? `[${chk.host}]` : chk.host}:${chk.port}`
+  // Review round 1, note 5: an IPv6 literal is bracketed on every port.
+  const hostName = chk.literal && chk.host.includes(':') ? `[${chk.host}]` : chk.host
+  const hostHeader = chk.port === 443 ? hostName : `${hostName}:${chk.port}`
   const request = `GET /v1/health HTTP/1.1\r\nHost: ${hostHeader}\r\nUser-Agent: WILSON-reach-check/1\r\nAccept: application/json\r\n${NONCE_HEADER}: ${nonce}\r\nConnection: close\r\n\r\n`
   const offDetail = (d: 'refused' | 'timed_out'): OutsideResult['detail'] => (opts.switchOn ? d : 'switch_off')
 
@@ -278,9 +308,12 @@ export async function probeOutside(
       const kind = classifyError(e)
       const ms = deps.now() - started
       if (kind === 'certificate') {
-        return { ok: false, detail: 'certificate', ms, certificate: 'untrusted', is_this_gateway: false, method: 'literal_tls', address: target }
+        return { ok: false, detail: 'certificate', ms, certificate: 'untrusted', is_this_gateway: false, method: 'literal_tls', address: target, proof_checked }
       }
-      return { ok: false, detail: offDetail(kind), ms, certificate: 'unknown', is_this_gateway: false, method: 'literal_tls', address: target }
+      if (kind === 'protocol') {
+        return { ok: false, detail: 'not_this_gateway', ms, certificate: 'unknown', is_this_gateway: false, method: 'literal_tls', address: target, proof_checked }
+      }
+      return { ok: false, detail: offDetail(kind), ms, certificate: 'unknown', is_this_gateway: false, method: 'literal_tls', address: target, proof_checked }
     }
     let raw = ''
     try {
@@ -294,10 +327,10 @@ export async function probeOutside(
     const ms = deps.now() - started
     const answer = parseHealthResponse(raw)
     if (!answer) {
-      return { ok: false, detail: 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: false, method: 'literal_tls', address: target }
+      return { ok: false, detail: 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: false, method: 'literal_tls', address: target, proof_checked }
     }
-    const mine = !answer.redirect && answer.status === 200 && answer.nonceEcho === nonce
-    return { ok: mine, detail: mine ? 'reached' : 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: mine, method: 'literal_tls', address: target }
+    const mine = !answer.redirect && answer.status === 200 && proves(answer.nonceProof)
+    return { ok: mine, detail: mine ? 'reached' : 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: mine, method: 'literal_tls', address: target, proof_checked }
   }
 
   if (!deps.fetch) return { ok: false, detail: 'timed_out', ...base }
@@ -332,20 +365,23 @@ export async function probeOutside(
       text = new TextDecoder().decode(all)
     }
     const ms = deps.now() - started
-    let echo: string | null = null
+    let proof: string | null = null
     if (res.status === 200) {
-      try { const j = JSON.parse(text); echo = typeof j?.nonce_echo === 'string' ? j.nonce_echo : null } catch { echo = null }
+      try { const j = JSON.parse(text); proof = typeof j?.nonce_proof === 'string' ? j.nonce_proof : null } catch { proof = null }
     }
     const redirect = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)
-    const mine = !redirect && res.status === 200 && echo === nonce
-    return { ok: mine, detail: mine ? 'reached' : 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: mine, method: 'pinned_fetch', address: target }
+    const mine = !redirect && res.status === 200 && proves(proof)
+    return { ok: mine, detail: mine ? 'reached' : 'not_this_gateway', ms, certificate: 'ok', is_this_gateway: mine, method: 'pinned_fetch', address: target, proof_checked }
   } catch (e) {
     const kind = classifyError(e)
     const ms = deps.now() - started
     if (kind === 'certificate') {
-      return { ok: false, detail: 'certificate', ms, certificate: 'untrusted', is_this_gateway: false, method: 'pinned_fetch', address: target }
+      return { ok: false, detail: 'certificate', ms, certificate: 'untrusted', is_this_gateway: false, method: 'pinned_fetch', address: target, proof_checked }
     }
-    return { ok: false, detail: offDetail(kind), ms, certificate: 'unknown', is_this_gateway: false, method: 'pinned_fetch', address: target }
+    if (kind === 'protocol') {
+      return { ok: false, detail: 'not_this_gateway', ms, certificate: 'unknown', is_this_gateway: false, method: 'pinned_fetch', address: target, proof_checked }
+    }
+    return { ok: false, detail: offDetail(kind), ms, certificate: 'unknown', is_this_gateway: false, method: 'pinned_fetch', address: target, proof_checked }
   }
 }
 
@@ -372,7 +408,8 @@ export async function probeInside(publicAddresses: string[], port: number, deps:
         await deps.fetch(`https://${host}:${port}/`, { redirect: 'manual', signal: AbortSignal.timeout(3000) })
         return true
       } catch (e) {
-        if (classifyError(e) === 'certificate') return true
+        const k = classifyError(e)
+        if (k === 'certificate' || k === 'protocol') return true
       }
     }
   }
@@ -408,15 +445,32 @@ export function denoReachDeps(): ReachDeps {
   if (typeof D?.connect === 'function') {
     deps.connectTcp = async (ip, port) => await D.connect({ hostname: ip, port, transport: 'tcp' })
     if (typeof D?.startTls === 'function') {
-      deps.connectTls = async (ip, port, serverName) => {
-        const tcp = await D.connect({ hostname: ip, port, transport: 'tcp' })
-        try {
-          const tls = await D.startTls(tcp, { hostname: serverName })
+      // Review round 1, note 5: the connect and the handshake share one
+      // deadline, and the TCP socket is closed when it passes — a peer that
+      // never finishes the handshake must not hold a socket per check.
+      deps.connectTls = async (ip, port, serverName, timeoutMs = PROBE_TIMEOUT_MS) => {
+        // deno-lint-ignore no-explicit-any
+        let tcp: any = null
+        let late = false
+        const work = (async () => {
+          const c = await D.connect({ hostname: ip, port, transport: 'tcp' })
+          if (late) { try { c.close() } catch { /* closed */ } throw new Error('timed out') }
+          tcp = c
+          const tls = await D.startTls(c, { hostname: serverName })
           if (typeof tls.handshake === 'function') await tls.handshake()
           return tls as Conn
+        })()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          return await Promise.race([work, new Promise<never>((_, reject) => {
+            timer = setTimeout(() => { late = true; reject(Object.assign(new Error('timed out'), { name: 'TimedOut' })) }, Math.max(1, timeoutMs))
+          })])
         } catch (e) {
-          try { tcp.close() } catch { /* closed */ }
+          if (tcp) { try { tcp.close() } catch { /* closed or handed to TLS */ } }
+          work.then((t) => { try { t.close() } catch { /* closed */ } }, () => {})
           throw e
+        } finally {
+          if (timer) clearTimeout(timer)
         }
       }
     }

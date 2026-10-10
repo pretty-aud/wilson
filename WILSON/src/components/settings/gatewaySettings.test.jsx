@@ -358,7 +358,7 @@ describe('what was viewed from outside, and what changed', () => {
     expect(first.textContent).toContain('A001_C001_0921AB.mov')
     expect(first.textContent).toContain('Salt Hours')
     expect(first.textContent).toContain('920 MB of 1000 MB (92%) · read in full')
-    expect(first.textContent).toContain('203.0.113.7 via cloudflare')
+    expect(first.textContent).toContain('203.0.113.7 via Cloudflare Tunnel')
     expect(first.textContent).toContain('Salt Hours NAS')
     expect(second.textContent).toContain('no matching ticket on record')
     expect(second.textContent).toContain('one link played from 2 addresses')

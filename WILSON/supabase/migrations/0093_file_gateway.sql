@@ -1219,6 +1219,9 @@ DECLARE
   v_label  TEXT;
   i        INT;
 BEGIN
+  -- GW1 review round 1, note 7: the count and the insert under one lock per
+  -- company, so concurrent calls cannot each see four and make a sixth.
+  PERFORM pg_advisory_xact_lock(hashtextextended('gateway_tokens:' || v_ws::text, 0));
   IF (SELECT count(*) FROM public.gateway_enrolment_tokens t
        WHERE t.workspace_id = v_ws AND t.used_at IS NULL AND t.expires_at > now()) >= 5 THEN
     RAISE EXCEPTION 'This company already has five unused gateway tokens. Cancel one before making another.'
@@ -1455,7 +1458,10 @@ BEGIN
   END IF;
   -- Ten live gateways per company at most (D17 allows several). RAISED, not
   -- returned, so the transaction — the spend with it — rolls back and the
-  -- token stays usable once one is forgotten.
+  -- token stays usable once one is forgotten. Counted under one lock per
+  -- company (GW1 review round 1, note 7), so two enrolments racing on two
+  -- tokens cannot both see nine.
+  PERFORM pg_advisory_xact_lock(hashtextextended('gateway_enrol:' || v_tok.workspace_id::text, 0));
   IF (SELECT count(*) FROM public.gateways g WHERE g.workspace_id = v_tok.workspace_id AND g.revoked_at IS NULL) >= 10 THEN
     RAISE EXCEPTION 'This company already has ten gateways. Forget one before enrolling another.'
       USING ERRCODE = '54000';
@@ -1579,7 +1585,15 @@ BEGIN
       RETURNING * INTO g;
     END IF;
   ELSIF g.outside_address IS NOT NULL AND (
-           v_changed
+           -- R6: a changed source withdrew the address above, at once, and is
+           -- owed a check — begun at most every two minutes (GW1 review
+           -- round 1, finding 3), so a source that flaps at every sync (two
+           -- internet lines balanced per connection, or a forged header
+           -- where the platform stamps none) cannot turn the cloud into a
+           -- prober every ten seconds. The mark carries the debt, so the
+           -- check comes two minutes on even if the source then holds still.
+           (g.reach_detail = 'source_changed'
+             AND (g.reach_nonce_at IS NULL OR g.reach_nonce_at < now() - interval '2 minutes'))
         OR (NOT v_throttled AND (
                 g.reach_checked_at IS NULL
              OR g.reach_checked_at < now() - interval '24 hours'
@@ -1818,7 +1832,14 @@ BEGIN
       'source_address', host(v_src),
       'source_addresses', v_srcs,
       'shared_url', COALESCE(v_shared, false) OR jsonb_array_length(v_srcs) > 1,
-      'via', left(r ->> 'via', 64),
+      -- GW1 review round 1, finding 4: `via` is shown to admins beside the
+      -- viewer's address, so a gateway's free text must not speak there in
+      -- WILSON's voice ("via the office VPN"): the vendor's word from a
+      -- short list, anything else 'other', none for a direct viewing.
+      'via', CASE WHEN NULLIF(btrim(COALESCE(r ->> 'via', '')), '') IS NULL THEN NULL
+                  WHEN lower(btrim(r ->> 'via')) IN ('cloudflare', 'tailscale', 'ngrok', 'nas_proxy')
+                       THEN lower(btrim(r ->> 'via'))
+                  ELSE 'other' END,
       'user_agent', left(r ->> 'user_agent', 64),
       'ticket_jti', v_jti_text,
       'unverified_mint', v_unverified,

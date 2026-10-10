@@ -185,8 +185,15 @@
       "request": "GET /v1/health over TLS on the outside door, sent by the cloud to the validated address literal with the outside name as SNI",
       "nonce_header": "Wilson-Reach-Nonce",
       "nonce": "32 lower-case hex characters, handed to the gateway in the sync answer as reach_nonce while check_reach_now is true",
-      "echo": "answer 200 with a JSON body {\"ok\": true, \"nonce_echo\": \"<nonce>\"} only when the header carries the nonce the last sync handed over; otherwise {\"ok\": true}",
-      "limits": "the cloud reads 4 KB at most, 5 s in all, and follows no redirect; it also tries a TCP connect to the inside port on the same public address, which should be refused"
+      "echo": "answer 200 with a JSON body {\"ok\": true, \"nonce_proof\": \"<proof>\"} only when the header carries the nonce the last sync handed over; otherwise {\"ok\": true}. CHANGED 2026-10-10 by GW1's review round 1 (finding 1): a plain echo of the nonce proved nothing, because the nonce rides the request and any server that reflects a header would pass; the proof is HMAC-SHA256 with key = the UTF-8 bytes of the lower-case hex SHA-256 of the gateway's own credential string (exactly what the cloud stores as gateway_secrets.credential_hash) and message = the UTF-8 bytes of the 32-hex nonce, written as 64 lower-case hex characters. The cloud computes the same from the stored hash and compares in constant time; nonce_echo is no longer read.",
+      "limits": "the cloud reads 4 KB at most, 5 s in all, and follows no redirect; it also tries a TCP connect to the inside port on the same public address, which should be refused",
+      "proof_vector": {
+        "note": "a fixture credential, never live: check your HMAC against it",
+        "credential": "wgc_R1cxIGZpeHR1cmUgY3JlZGVudGlhbCwgbm90IGxpdmU",
+        "credential_hash": "066a52188b4744d0ce7aee4f1fc70ddc1f15b01d7dfdb7558b8898e6939680fc",
+        "nonce": "00112233445566778899aabbccddeeff",
+        "nonce_proof": "03b2c095d2ac62e72b70fe5202a0d63acd1030bf3a0886eabf8457730236602c"
+      }
     },
     "enrol_request": "POST <cloud>/gateway-enrol with Authorization: Bearer <the wgt_ token> (body.token also accepted) and body {platform: windows|container, version, hostname, name?, inside_addresses: [{host, port}] (or bare hosts with inside_port), root_cert_pem: the root's PUBLIC certificate, one PEM block}",
     "sync_request": "POST <cloud>/gateway-sync with Authorization: Bearer <the wgc_ credential> and body {name, version, hostname, inside_addresses, reach: {<location_id>: reachable|not_reachable|not_mounted|not_connected}, health: {doors: {inside, outside (open:<port> counts as open), refused_public, inside_bound, relay_warning: {address, viewers}}, update, certificate: {leaf_not_after, root_not_after, outside, expires_warning}, office_ranges_applied, cloud, smb_dialect}, confirm: [{clip, loc, path}] (at most 100)}",

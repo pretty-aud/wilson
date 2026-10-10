@@ -105,7 +105,10 @@ function eventSubject(evt) {
 /** A viewing from outside, in words: through which gateway, from where, how much. */
 function viewingLine(details = {}) {
   const through = details.gateway_name ? `Through ${details.gateway_name}, from ` : 'From '
-  return `${through}${whereWords(details)} · ${howMuchWords(details)}`
+  // R4; GW1 review round 1, finding 2: a viewing no ticket on record matches
+  // is the gateway's word, and says so here as it does in Settings.
+  const word = details.unverified_mint ? " · no matching ticket on record: the gateway's word" : ''
+  return `${through}${whereWords(details)} · ${howMuchWords(details)}${word}`
 }
 
 export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }) {

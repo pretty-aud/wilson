@@ -1939,41 +1939,62 @@ describe('the poster upload asks the switch first (B4)', () => {
 
 // ── GW1 (0093): one clip's viewings from outside, for the Bins inspector ────
 describe('remoteViewsOfClip (GW1): the inspector line\'s read', () => {
-  function recording(result) {
+  // One builder per query, each answering the next queued result.
+  function recording(...results) {
     const calls = []
-    const b = new Proxy({}, {
-      get(_, prop) {
-        if (prop === 'then') return (res, rej) => Promise.resolve(result).then(res, rej)
-        return (...args) => { calls.push([prop, ...args]); return b }
-      },
-    })
+    const queue = [...results]
+    const builder = () => {
+      const result = queue.shift() ?? { data: null, error: null, count: 0 }
+      const b = new Proxy({}, {
+        get(_, prop) {
+          if (prop === 'then') return (res, rej) => Promise.resolve(result).then(res, rej)
+          return (...args) => { calls.push([prop, ...args]); return b }
+        },
+      })
+      return b
+    }
     return {
       calls,
       client: {
         auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
-        from: (t) => { calls.push(['from', t]); return b },
+        from: (t) => { calls.push(['from', t]); return builder() },
       },
     }
   }
 
-  it('asks file_events for the viewed_remote rows of that clip: the newest one, and the count', async () => {
-    const rec = recording({ data: [{ actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' }], error: null, count: 3 })
+  it('asks file_events for the viewed_remote rows of that clip: the newest one, the count, and how many no ticket matched', async () => {
+    const rec = recording(
+      { data: [{ actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z', unverified_mint: true }], error: null, count: 3 },
+      { data: null, error: null, count: 1 },
+    )
     const res = await install(rec).remoteViewsOfClip('bf1')
-    expect(res).toEqual({ count: 3, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' } })
+    expect(res).toEqual({ count: 3, unverified: 1, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z', unverified_mint: true } })
     expect(rec.calls).toEqual([
       ['from', 'file_events'],
-      ['select', 'actor_label, created_at', { count: 'exact' }],
+      ['select', 'actor_label, created_at, unverified_mint:details->unverified_mint', { count: 'exact' }],
       ['eq', 'event', 'viewed_remote'],
       ['eq', 'subject', 'bin_file'],
       ['eq', 'file_id', 'bf1'],
       ['order', 'created_at', { ascending: false }],
       ['limit', 1],
+      ['from', 'file_events'],
+      ['select', 'id', { count: 'exact', head: true }],
+      ['eq', 'event', 'viewed_remote'],
+      ['eq', 'subject', 'bin_file'],
+      ['eq', 'file_id', 'bf1'],
+      ['eq', 'details->>unverified_mint', 'true'],
     ])
+  })
+
+  it('no viewing asks nothing more', async () => {
+    const rec = recording({ data: [], error: null, count: 0 })
+    expect(await install(rec).remoteViewsOfClip('bf1')).toEqual({ count: 0, unverified: 0, last: null })
+    expect(rec.calls.filter(([p]) => p === 'from')).toHaveLength(1)
   })
 
   it('a database before 0093 (no subject column) answers none, quietly; any other failure is loud', async () => {
     expect(await install(recording({ data: null, error: { code: '42703', message: 'column file_events.subject does not exist' } })).remoteViewsOfClip('bf1'))
-      .toEqual({ count: 0, last: null })
+      .toEqual({ count: 0, unverified: 0, last: null })
     await expect(install(recording({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } })).remoteViewsOfClip('bf1'))
       .rejects.toThrow('[supabase] remoteViewsOfClip failed: canceling statement due to statement timeout')
   })
