@@ -100,6 +100,7 @@ describe('Postel: the outside address, as 0093 checks it', () => {
     // RFC 5952: one zero group is not compressed; the FIRST longest run is.
     expect(ok('[2a00:1:0:1:0:0:1:1]').value.host).toBe('2a00:1:0:1::1:1')
     expect(ok('[2a00:0:0:1:0:0:1:1]').value.host).toBe('2a00::1:0:0:1:1')
+    expect(ok('[2a00:1:0:1:1:1:1:1]').value.host).toBe('2a00:1:0:1:1:1:1:1')
     expect(formatAddress({ host: '2a00:1450:4001::200e', port: 443 })).toBe('[2a00:1450:4001::200e]:443')
   })
 
@@ -251,7 +252,8 @@ describe('§8: the health line, phrase by phrase', () => {
   })
 
   it('Selective attention: no phrase is an error; the inside-door forward is its own sentence', () => {
-    const loud = { ...studio, health: { ...studio.health, doors: { ...studio.health.doors, refused_public: 3, inside: 'closed_bridge', outside: 'closed_no_cloud' } }, last_seen_at: null }
+    const loud = { ...studio, health: { ...studio.health, doors: { ...studio.health.doors, refused_public: 3, inside: 'closed_bridge', outside: 'closed_no_cloud', relay_warning: { address: '192.168.1.77', viewers: 14 } } }, last_seen_at: null }
+    expect(healthPhrases(loud, { now, locations }).find(p => p.text.includes('relay or proxy')).tone).toBe('warning')
     expect(healthPhrases(loud, { now, locations }).some(p => p.tone === 'error')).toBe(false)
     expect(insideForwardSentence(loud)).toMatch(/^Your office door is being reached from the internet \(3 refused/)
     // CONTROL: none refused, no sentence.
@@ -288,6 +290,7 @@ describe('the trail and the viewings, in words', () => {
   it('the inspector\'s one line (item 5)', () => {
     expect(inspectorRemoteLine({ count: 3, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' } })).toBe('Viewed from outside 3 times, last by Priya on 9 Oct')
     expect(inspectorRemoteLine({ count: 1, last: { actor_label: 'Theo Lindqvist', created_at: '2026-10-01T09:00:00Z' } })).toBe('Viewed from outside once, last by Theo on 1 Oct')
+    expect(inspectorRemoteLine({ count: 2, last: { actor_label: 'Priya Raman', created_at: '2026-10-08T09:00:00Z' } })).toBe('Viewed from outside twice, last by Priya on 8 Oct')
     expect(inspectorRemoteLine({ count: 0, last: null })).toBeNull()
   })
 

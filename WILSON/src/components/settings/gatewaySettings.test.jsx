@@ -245,7 +245,8 @@ describe('Check reach (§4)', () => {
 
 describe('the health line (Selective attention)', () => {
   it('the error form appears only for the inside-door forward', async () => {
-    await mountWith([gateway({ last_seen_at: ago(10 * 60e3), health: { doors: { inside: 'closed_bridge', outside: 'closed_no_cloud:70', refused_public: 0 }, update: 'failed:1.1.0:no disk' } })])
+    await mountWith([gateway({ last_seen_at: ago(10 * 60e3), health: { doors: { inside: 'closed_bridge', outside: 'closed_no_cloud:70', refused_public: 0, relay_warning: { address: '192.168.10.77', viewers: 9 } }, update: 'failed:1.1.0:no disk' } })])
+    expect(row().textContent).toContain('9 people reached the office door through one address today')
     expect(row().querySelectorAll('[data-tone="error"]')).toHaveLength(0)
     expect(row().querySelectorAll('.s-gw-phrase[data-tone="warning"]').length).toBeGreaterThan(2)
     cleanup()

@@ -116,10 +116,24 @@ describe('the "Bins" help page (BC2)', () => {
 // certificate paragraph verbatim, the install stories named as the card's
 // tabs name them, every control in the card's own words.
 describe('the "Bins" help page: File gateway (GW1)', () => {
+  // The card itself, by its own title: the page's other cards say some of
+  // the same words (the switch's name), so the gateway's are read here.
+  const gatewayCard = () => {
+    const { container } = render(<RabbitHelpContent helpPage="rabbit-bins" theme="dark" />)
+    const h = [...container.querySelectorAll('h4')].find((x) => x.textContent === 'File gateway')
+    expect(h, 'Help → Bins has a card titled File gateway').toBeTruthy()
+    return h.parentElement.textContent.replace(/\s+/g, ' ')
+  }
+  it('sits beside Footage locations, titled File gateway', () => {
+    const { container } = render(<RabbitHelpContent helpPage="rabbit-bins" theme="dark" />)
+    const titles = [...container.querySelectorAll('h4')].map((x) => x.textContent)
+    expect(titles.indexOf('File gateway')).toBe(titles.indexOf('Footage locations') + 1)
+  })
+
   it('quotes §3\'s certificate paragraph word for word', async () => {
     const { GATEWAY_CERT_PARAGRAPH } = await import('../../components/settings/gatewayWords')
     const paragraph = GATEWAY_CERT_PARAGRAPH.map((p) => (typeof p === 'string' ? p : p.em)).join('')
-    expect(page()).toContain(paragraph)
+    expect(gatewayCard()).toContain(paragraph)
     // CONTROL: the design's own text, so neither copy drifts from §3.
     const design = src('docs/design/GATEWAY_DESIGN.md').replace(/\*/g, '')
     expect(design).toContain(paragraph)
@@ -127,10 +141,11 @@ describe('the "Bins" help page: File gateway (GW1)', () => {
 
   it('names the card, its tabs and its controls as GatewaySettings writes them', async () => {
     const { IT_WORKS } = await import('../../components/settings/gatewayWords')
-    const text = page()
+    const text = gatewayCard()
     const card = src('src/components/settings/GatewaySettings.jsx')
     expect(text).toContain('App settings, Storage, File gateway')
-    expect(card).toContain('title="File gateway"')
+    // Both of the card's views (an admin's and everyone else's) carry the title Help names.
+    expect(card.match(/<Section title="File gateway"/g)).toHaveLength(2)
     for (const words of ['On a NAS', 'On a Windows PC']) {
       expect(text).toContain(words)
       expect(card).toContain(`label: '${words}'`)
@@ -144,7 +159,7 @@ describe('the "Bins" help page: File gateway (GW1)', () => {
   })
 
   it('says office and VPN viewing is not written down (review round 2, R9), and the switch decides the rest', () => {
-    const text = page()
+    const text = gatewayCard()
     expect(text).toContain('viewing on the office network or the company\'s VPN is not')
     expect(text).toContain(`only while a workspace admin has turned on ${REMOTE_VIEWING_LABEL}`)
   })
