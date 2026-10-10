@@ -146,23 +146,42 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * The reach key (GW1 review round 2, finding 1): what the reach check's
+ * proof is keyed by. Never the credential's hash: that is the key every
+ * gateway call is looked up by, sent as a request-URL filter, which the
+ * platform's request logs keep — a key in a log must not prove "this is your
+ * gateway".
+ *
+ *   reach key = SHA-256 (lower-case hex) of the UTF-8 bytes of
+ *               'wilson-reach-key:' followed by the credential
+ *
+ * The gateway derives it from its credential; the cloud is handed it once,
+ * at enrolment (gateway_secrets.reach_key), and sends it nowhere.
+ */
+export async function reachKeyOf(credential: string): Promise<string> {
+  if (!CREDENTIAL_RE.test(credential)) throw new Error('reachKeyOf: the credential is wgc_ and 43 base64url characters')
+  return await sha256Hex('wilson-reach-key:' + credential)
+}
+
+/**
  * The reach check's proof (GW1 review round 1, finding 1). The cloud's probe
  * carries the check's nonce in `Wilson-Reach-Nonce`, so an ECHO of it proves
  * nothing: any server that reflects a header would pass. The gateway answers
  * `nonce_proof` instead:
  *
- *   HMAC-SHA256(key = the UTF-8 bytes of the credential's SHA-256 hex — the
- *               very text `gateway_secrets.credential_hash` holds,
+ *   HMAC-SHA256(key = the UTF-8 bytes of the reach key's 64 hex characters
+ *               (reachKeyOf; round 2 — round 1 keyed it by the credential's
+ *               hash),
  *               message = the UTF-8 bytes of the 32-hex nonce)
  *
  * as 64 lower-case hex characters. Only the holder of the credential can make
- * it, and the cloud computes it from the hash it already keeps (never the
+ * it, and the cloud computes it from the reach key it keeps (never the
  * credential). The vector is in docs/design/gateway-ticket-vectors.json.
  */
-export async function reachProof(credentialHash: string, nonce: string): Promise<string> {
-  if (!SHA256_HEX_RE.test(credentialHash)) throw new Error('reachProof: the credential hash is 64 lower-case hex')
+export async function reachProof(reachKey: string, nonce: string): Promise<string> {
+  if (!SHA256_HEX_RE.test(reachKey)) throw new Error('reachProof: the reach key is 64 lower-case hex')
   if (!/^[0-9a-f]{32}$/.test(nonce)) throw new Error('reachProof: the nonce is 32 lower-case hex')
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(credentialHash),
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(reachKey),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(nonce))
   return toHex(new Uint8Array(mac))

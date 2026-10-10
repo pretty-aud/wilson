@@ -45,7 +45,7 @@
 
 BEGIN;
 
-SELECT plan(142);
+SELECT plan(161);
 
 SELECT * FROM tests.rls_setup();
 
@@ -165,7 +165,7 @@ SELECT ok(
   'gateway_clips_for_tickets is SECURITY INVOKER (the S33 rule), the authenticated role''s, not anon''s');
 
 SELECT ok(
-  NOT has_function_privilege('authenticated', 'public.gateway_enrol_apply(text,text,jsonb,inet)', 'EXECUTE')
+  NOT has_function_privilege('authenticated', 'public.gateway_enrol_apply(text,text,jsonb,inet,text)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.gateway_sync_apply(uuid,jsonb,inet,jsonb)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.gateway_events_apply(uuid,jsonb)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.gateway_sweep()', 'EXECUTE')
@@ -314,25 +314,36 @@ SELECT set_config('wg96.body', jsonb_build_object(
                                         jsonb_build_object('host', 'studio-nas.local', 'port', 8443)),
   'root_cert_pem', current_setting('wg96.pem'))::text, true);
 SELECT set_config('wg96.cred', encode(sha256(convert_to('wgc_suite96-credential', 'UTF8')), 'hex'), true);
+-- GW1 review round 2, finding 1: the reach key the gateway derives from its
+-- credential, handed to the cloud at enrolment.
+SELECT set_config('wg96.reach', encode(sha256(convert_to('wilson-reach-key:wgc_suite96-credential', 'UTF8')), 'hex'), true);
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
 
 SELECT set_config('wg96.enrol', public.gateway_enrol_apply(
   encode(sha256(convert_to(current_setting('wg96.token'), 'UTF8')), 'hex'),
-  current_setting('wg96.cred'), current_setting('wg96.body')::jsonb, '198.51.100.7'::inet)::text, true);
+  current_setting('wg96.cred'), current_setting('wg96.body')::jsonb, '198.51.100.7'::inet,
+  current_setting('wg96.reach'))::text, true);
 SELECT set_config('wg96.gw', current_setting('wg96.enrol')::jsonb ->> 'gateway_id', true);
 
 SELECT is((current_setting('wg96.enrol')::jsonb ->> 'ok'), 'true',
   'the service role enrols a gateway with the token');
 SELECT is(
   (public.gateway_enrol_apply(encode(sha256(convert_to(current_setting('wg96.token'), 'UTF8')), 'hex'),
-     encode(sha256(convert_to('wgc_second', 'UTF8')), 'hex'), current_setting('wg96.body')::jsonb, NULL) ->> 'reason'),
+     encode(sha256(convert_to('wgc_second', 'UTF8')), 'hex'), current_setting('wg96.body')::jsonb, NULL,
+     encode(sha256(convert_to('wilson-reach-key:wgc_second', 'UTF8')), 'hex')) ->> 'reason'),
   'token', '🚨 the same token enrols nothing the second time (spent in one UPDATE … RETURNING, F14)');
 SELECT is(
   (public.gateway_enrol_apply(encode(sha256(convert_to('wgt_EXPIREDEXPIREDEXPIREDEXPIRED96', 'UTF8')), 'hex'),
-     encode(sha256(convert_to('wgc_third', 'UTF8')), 'hex'), current_setting('wg96.body')::jsonb, NULL) ->> 'reason'),
+     encode(sha256(convert_to('wgc_third', 'UTF8')), 'hex'), current_setting('wg96.body')::jsonb, NULL,
+     encode(sha256(convert_to('wilson-reach-key:wgc_third', 'UTF8')), 'hex')) ->> 'reason'),
   'token', 'an expired token enrols nothing');
+SELECT throws_ok(
+  format('SELECT public.gateway_enrol_apply(%L, %L, %L::jsonb, NULL, %L)',
+         encode(sha256(convert_to('wgt_EXPIREDEXPIREDEXPIREDEXPIRED96', 'UTF8')), 'hex'),
+         current_setting('wg96.cred'), current_setting('wg96.body'), current_setting('wg96.cred')),
+  '22023', NULL, '🚨 an enrolment whose reach key is the credential''s hash is refused: the key looked up in URLs must never prove a reach check (round 2, finding 1)');
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -348,6 +359,9 @@ SELECT is(
   (SELECT credential_hash FROM public.gateway_secrets WHERE gateway_id = current_setting('wg96.gw')::uuid),
   current_setting('wg96.cred'), 'only the credential''s hash is stored');
 SELECT is(
+  (SELECT reach_key FROM public.gateway_secrets WHERE gateway_id = current_setting('wg96.gw')::uuid),
+  current_setting('wg96.reach'), 'and the reach key the gateway derived, beside it (round 2, finding 1)');
+SELECT is(
   (SELECT gateway_id FROM public.gateway_enrolment_tokens
     WHERE token_hash = encode(sha256(convert_to(current_setting('wg96.token'), 'UTF8')), 'hex') AND used_at IS NOT NULL),
   current_setting('wg96.gw')::uuid, 'the spent token names the gateway it enrolled');
@@ -361,7 +375,7 @@ SELECT set_config('request.jwt.claims', json_build_object(
 )::text, true);
 SET LOCAL ROLE authenticated;
 
-SELECT throws_ok($$SELECT public.gateway_enrol_apply('aa', 'bb', '{}'::jsonb, NULL)$$, '42501', NULL,
+SELECT throws_ok($$SELECT public.gateway_enrol_apply('aa', 'bb', '{}'::jsonb, NULL, 'cc')$$, '42501', NULL,
   'an admin cannot call the enrolment RPC (the service role''s alone)');
 
 -- Ten live gateways per company at most: nine more enrol (ten in all), the
@@ -373,21 +387,39 @@ INSERT INTO public.gateway_enrolment_tokens (workspace_id, token_hash, created_b
 SELECT '11111111-1111-1111-1111-111111111111', encode(sha256(convert_to('wgt_CAP96_' || i, 'UTF8')), 'hex'),
        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   FROM generate_series(1, 10) AS i;
+-- (GW1 review round 2, finding 2: their name carries a right-to-left
+-- override, a zero-width space and a line break, to be stored as words.)
+SELECT set_config('wg96.dirty', jsonb_set(current_setting('wg96.body')::jsonb, '{name}',
+  to_jsonb(E'Cap\u202e NAS\u200b\n  9'::text))::text, true);
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
 SELECT is(
   (SELECT count(*)::int FROM generate_series(1, 9) AS i
     WHERE (public.gateway_enrol_apply(encode(sha256(convert_to('wgt_CAP96_' || i, 'UTF8')), 'hex'),
              encode(sha256(convert_to('wgc_cap96_' || i, 'UTF8')), 'hex'),
-             current_setting('wg96.body')::jsonb, NULL) ->> 'ok')::boolean),
+             current_setting('wg96.dirty')::jsonb, NULL,
+             encode(sha256(convert_to('wilson-reach-key:wgc_cap96_' || i, 'UTF8')), 'hex')) ->> 'ok')::boolean),
   9, 'nine more gateways enrol: ten live in the company');
 SELECT throws_ok(
-  format('SELECT public.gateway_enrol_apply(%L, %L, %L::jsonb, NULL)',
+  format('SELECT public.gateway_enrol_apply(%L, %L, %L::jsonb, NULL, %L)',
          encode(sha256(convert_to('wgt_CAP96_10', 'UTF8')), 'hex'),
-         encode(sha256(convert_to('wgc_cap96_10', 'UTF8')), 'hex'), current_setting('wg96.body')),
+         encode(sha256(convert_to('wgc_cap96_10', 'UTF8')), 'hex'), current_setting('wg96.body'),
+         encode(sha256(convert_to('wilson-reach-key:wgc_cap96_10', 'UTF8')), 'hex')),
   '54000', NULL, 'an eleventh is refused (ten live gateways at most)');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
+SELECT is(
+  (SELECT count(*)::int FROM public.gateways
+    WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND name = 'Cap NAS 9'),
+  9, '🚨 a name a gateway chose is stored as words: no direction override, no invisible character, one line (round 2, finding 2)');
+ALTER TABLE public.gateways DISABLE TRIGGER trg_gateways_client_guard;
+SELECT throws_ok(
+  format($f$UPDATE public.gateways SET name = E'Studio\u202e NAS' WHERE id = %L::uuid$f$, current_setting('wg96.gw')),
+  '23514', NULL, '🚨 and the CHECK holds every name to its cleaned form, whatever writes it (round 2, finding 2)');
+SELECT throws_ok(
+  format($f$UPDATE public.gateways SET version = '1.0.0 call Petal on 0800 000 000' WHERE id = %L::uuid$f$, current_setting('wg96.gw')),
+  '23514', NULL, '🚨 a version is a version: no words after it (round 2, finding 2)');
+ALTER TABLE public.gateways ENABLE TRIGGER trg_gateways_client_guard;
 SELECT ok(
   (SELECT used_at IS NULL AND gateway_id IS NULL FROM public.gateway_enrolment_tokens
     WHERE token_hash = encode(sha256(convert_to('wgt_CAP96_10', 'UTF8')), 'hex')),
@@ -556,8 +588,8 @@ SELECT throws_ok(
 SELECT throws_ok(
   format('UPDATE public.gateways SET reach_ok = true WHERE id = %L::uuid', current_setting('wg96.gw')),
   '42501', NULL, '🚨 an admin cannot mark the reach confirmed by hand (F16: only a check publishes an address)');
-WITH upd AS (UPDATE public.gateways SET name = '  Studio NAS 2  ' WHERE id = current_setting('wg96.gw')::uuid RETURNING name)
-SELECT is((SELECT name FROM upd), 'Studio NAS 2', 'the admin renames it; the name is stored trimmed');
+WITH upd AS (UPDATE public.gateways SET name = E'  Studio\u202e NAS\u0007 2  ' WHERE id = current_setting('wg96.gw')::uuid RETURNING name)
+SELECT is((SELECT name FROM upd), 'Studio NAS 2', 'the admin renames it; the name is stored trimmed, and as words (round 2, finding 2)');
 WITH upd AS (UPDATE public.gateways SET office_ranges = '["10.8.0.0/16"]'::jsonb WHERE id = current_setting('wg96.gw')::uuid RETURNING 1)
 SELECT is((SELECT count(*)::int FROM upd), 1, 'the admin declares a private office range (D21)');
 SELECT throws_ok(
@@ -1076,10 +1108,12 @@ SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role'
 SET LOCAL ROLE service_role;
 
 -- user_d was minted a ticket for the public clip.
-INSERT INTO public.gateway_ticket_mints (jti, workspace_id, gateway_id, user_id, bin_file_id, project_id, file_name)
+-- (Minted five minutes ago: a viewing starts after its ticket, and round 2
+-- holds a ticket to its stream's life.)
+INSERT INTO public.gateway_ticket_mints (jti, workspace_id, gateway_id, user_id, bin_file_id, project_id, file_name, minted_at)
 VALUES ('0123456789abcdef0123456789abcdef'::uuid, '11111111-1111-1111-1111-111111111111', current_setting('wg96.gw')::uuid,
         'dddddddd-dddd-dddd-dddd-dddddddddddd', '96960000-0000-0000-0000-0000000000f1',
-        'aaaa1111-0000-0000-0000-000000000001', 'A001_C001');
+        'aaaa1111-0000-0000-0000-000000000001', 'A001_C001', now() - interval '5 minutes');
 
 SELECT set_config('wg96.events', public.gateway_events_apply(current_setting('wg96.gw')::uuid, jsonb_build_array(
   -- 1: a good viewing, minted; a payload that tries to name its own gateway and company is ignored
@@ -1162,6 +1196,73 @@ SELECT ok(
 SELECT is((SELECT count(*)::int FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000201'), 1,
   'the retried viewing is one row, not two');
 
+-- Round 2: GW2's gateway spells a direct viewing 'direct' and the NAS's
+-- reverse proxy 'local_proxy'; the cloud reads both in the list's terms.
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT set_config('wg96.events2', public.gateway_events_apply(current_setting('wg96.gw')::uuid, jsonb_build_array(
+  jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000211', 'clip', '96960000-0000-0000-0000-0000000000f1',
+    'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', 'ffffffffffffffffffffffffffffff05',
+    'started_at', now() - interval '3 minutes', 'ended_at', now(), 'bytes', 1, 'via', ' Direct '),
+  jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000212', 'clip', '96960000-0000-0000-0000-0000000000f1',
+    'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', 'ffffffffffffffffffffffffffffff06',
+    'started_at', now() - interval '3 minutes', 'ended_at', now(), 'bytes', 1, 'via', 'local_proxy')
+))::text, true);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT is(current_setting('wg96.events2')::jsonb -> 'accepted',
+  '["96960000-0000-0000-0000-000000000211", "96960000-0000-0000-0000-000000000212"]'::jsonb,
+  'two viewings in GW2''s spellings of via are written');
+SELECT ok(
+  (SELECT details -> 'via' = 'null'::jsonb FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000211')
+  AND (SELECT details ->> 'via' = 'nas_proxy' FROM public.file_events WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000212'),
+  'GW2''s "direct" is stored as no via (a direct viewing), its "local_proxy" as nas_proxy (round 2)');
+
+-- GW1 review round 2, finding 3: a ticket vouches only for viewings inside
+-- its stream's life, and for fewer than 250 of them; past either, the row is
+-- written flagged.
+INSERT INTO public.gateway_ticket_mints (jti, workspace_id, gateway_id, user_id, bin_file_id, project_id, file_name, minted_at)
+VALUES ('96969696969696969696969696969696'::uuid, '11111111-1111-1111-1111-111111111111', current_setting('wg96.gw')::uuid,
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '96960000-0000-0000-0000-0000000000f1',
+        'aaaa1111-0000-0000-0000-000000000001', 'A001_C001', now() - interval '5 minutes'),
+       ('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5'::uuid, '11111111-1111-1111-1111-111111111111', current_setting('wg96.gw')::uuid,
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '96960000-0000-0000-0000-0000000000f1',
+        'aaaa1111-0000-0000-0000-000000000001', 'A001_C001', now() - interval '5 hours');
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT set_config('wg96.cap1', public.gateway_events_apply(current_setting('wg96.gw')::uuid,
+  (SELECT jsonb_agg(jsonb_build_object('viewing_id', gen_random_uuid(), 'clip', '96960000-0000-0000-0000-0000000000f1',
+     'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', '96969696969696969696969696969696',
+     'started_at', now() - interval '1 minute', 'ended_at', now(), 'bytes', 1)) FROM generate_series(1, 200)))::text, true);
+SELECT set_config('wg96.cap2', public.gateway_events_apply(current_setting('wg96.gw')::uuid,
+  (SELECT jsonb_agg(jsonb_build_object('viewing_id', gen_random_uuid(), 'clip', '96960000-0000-0000-0000-0000000000f1',
+     'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', '96969696969696969696969696969696',
+     'started_at', now() - interval '1 minute', 'ended_at', now(), 'bytes', 1)) FROM generate_series(1, 50)))::text, true);
+SELECT set_config('wg96.cap3', public.gateway_events_apply(current_setting('wg96.gw')::uuid, jsonb_build_array(
+  jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000221', 'clip', '96960000-0000-0000-0000-0000000000f1',
+    'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', '96969696969696969696969696969696',
+    'started_at', now() - interval '1 minute', 'ended_at', now(), 'bytes', 1),
+  jsonb_build_object('viewing_id', '96960000-0000-0000-0000-000000000222', 'clip', '96960000-0000-0000-0000-0000000000f1',
+    'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'ticket_jti', 'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+    'started_at', now() - interval '1 minute', 'ended_at', now(), 'bytes', 1)
+))::text, true);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT is(
+  jsonb_array_length(current_setting('wg96.cap1')::jsonb -> 'accepted')
+  + jsonb_array_length(current_setting('wg96.cap2')::jsonb -> 'accepted')
+  + jsonb_array_length(current_setting('wg96.cap3')::jsonb -> 'accepted'),
+  252, 'every one of the 252 viewings is written (flagged or not, never dropped: R4)');
+SELECT ok(
+  (SELECT count(*) FROM public.file_events
+    WHERE event = 'viewed_remote' AND details ->> 'ticket_jti' = '96969696969696969696969696969696'
+      AND NOT (details ->> 'unverified_mint')::boolean) = 250
+  AND (SELECT (details ->> 'unverified_mint')::boolean FROM public.file_events
+        WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000221')
+  AND (SELECT (details ->> 'unverified_mint')::boolean FROM public.file_events
+        WHERE external_id LIKE '%:96960000-0000-0000-0000-000000000222'),
+  '🚨 one ticket vouches for 250 viewings in its stream''s life; the 251st, and a viewing four hours past its mint, are flagged: the gateway''s word (round 2, finding 3)');
+
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
   'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
@@ -1224,13 +1325,23 @@ UPDATE public.gateways SET reach_ok = true, reach_checked_at = now(), reach_deta
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
 SELECT set_config('wg96.sync2', public.gateway_sync_apply(current_setting('wg96.gw')::uuid,
-  '{"version": "1.0.1"}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)::text, true);
+  '{"version": "1.0.2 call Petal on 0800 000 000"}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)::text, true);
 
 SELECT ok(
-  current_setting('wg96.sync2')::jsonb -> 'background_check' ->> 'nonce' ~ '^[0-9a-f]{32}$'
+  current_setting('wg96.sync2')::jsonb ->> 'reach_nonce' ~ '^[0-9a-f]{32}$'
   AND (current_setting('wg96.sync2')::jsonb ->> 'check_reach_now')::boolean
-  AND current_setting('wg96.sync2')::jsonb ->> 'reach_nonce' = current_setting('wg96.sync2')::jsonb -> 'background_check' ->> 'nonce',
-  '🚨 a sync from a new public address begins a check at once, its nonce in the same answer (R6)');
+  AND current_setting('wg96.sync2')::jsonb -> 'background_check' = 'null'::jsonb,
+  '🚨 a sync from a new public address begins a check at once, its nonce in the same answer (R6); the knock waits for the next sync (round 2, finding 8)');
+SELECT set_config('wg96.sync2b', public.gateway_sync_apply(current_setting('wg96.gw')::uuid,
+  '{"version": "1.0.1"}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)::text, true);
+SELECT ok(
+  current_setting('wg96.sync2b')::jsonb ->> 'reach_nonce' = current_setting('wg96.sync2')::jsonb ->> 'reach_nonce'
+  AND current_setting('wg96.sync2b')::jsonb -> 'background_check' ->> 'nonce' = current_setting('wg96.sync2')::jsonb ->> 'reach_nonce',
+  '🚨 the next sync carries the nonce again and hands the check to be knocked on: the gateway has had an answer with it (round 2, finding 8)');
+SELECT ok(
+  public.gateway_sync_apply(current_setting('wg96.gw')::uuid, '{"version": "1.0.1"}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)
+    -> 'background_check' = 'null'::jsonb,
+  'and hands it once: a third sync while it runs hands nothing');
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -1238,6 +1349,8 @@ SELECT ok(
   (SELECT reach_ok IS NULL AND reach_detail = 'source_changed' AND last_sync_source = '198.51.100.8'::inet
      FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid),
   'and the address is withdrawn on the spot: reach_ok cleared until the check passes again');
+SELECT is((SELECT version FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid), '1.0.1',
+  '🚨 a reported version with words after it is not taken: the last real one stays (round 2, finding 2)');
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
@@ -1252,7 +1365,7 @@ SELECT ok(
         '{"host": "gateway.example.com", "port": 8444}'::jsonb,
         '{"outside": {"ok": true, "is_this_gateway": true, "detail": "reached"}}'::jsonb, NULL)
   AND public.gateway_reach_finish(current_setting('wg96.gw')::uuid,
-        (current_setting('wg96.sync2')::jsonb -> 'background_check' ->> 'check_id')::uuid,
+        (current_setting('wg96.sync2b')::jsonb -> 'background_check' ->> 'check_id')::uuid,
         '{"host": "gateway.example.com", "port": 8444}'::jsonb,
         '{"outside": {"ok": true, "is_this_gateway": true, "detail": "reached", "ms": 140}, "inside_answered": false}'::jsonb, NULL),
   'a stale check id records nothing; the running check records its result');
@@ -1288,15 +1401,16 @@ SELECT set_config('wg96.sync4', public.gateway_sync_apply(current_setting('wg96.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT ok(
-  current_setting('wg96.sync4')::jsonb -> 'background_check' ->> 'nonce' ~ '^[0-9a-f]{32}$',
+  current_setting('wg96.sync4')::jsonb ->> 'reach_nonce' ~ '^[0-9a-f]{32}$'
+  AND (current_setting('wg96.sync4')::jsonb ->> 'check_reach_now')::boolean,
   'two minutes on, the check the changed source is owed begins, though the source now holds still');
 SELECT ok(
   position('pg_advisory_xact_lock' in pg_get_functiondef('public.gateway_make_enrolment_token()'::regprocedure)) > 0
-  AND position('pg_advisory_xact_lock' in pg_get_functiondef('public.gateway_enrol_apply(text, text, jsonb, inet)'::regprocedure)) > 0,
+  AND position('pg_advisory_xact_lock' in pg_get_functiondef('public.gateway_enrol_apply(text, text, jsonb, inet, text)'::regprocedure)) > 0,
   'the five-token and ten-gateway caps are counted under a per-company lock (round 1, note 7)');
 -- The row as the probes below expect it: the check over, reached, from the earlier source.
 UPDATE public.gateways SET reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL,
-       reach_ok = true, reach_detail = 'reached', last_sync_source = '198.51.100.8'::inet
+       reach_check_auto = false, reach_ok = true, reach_detail = 'reached', last_sync_source = '198.51.100.8'::inet
  WHERE id = current_setting('wg96.gw')::uuid;
 
 
@@ -1352,6 +1466,35 @@ SELECT ok(
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
+-- GW1 review round 2, finding 8: an admin's check rides the next sync but is
+-- knocked on by gateway-reach alone; and a check that could not run (the
+-- gateway never took its nonce) proves nothing either way.
+UPDATE public.gateways SET reach_ok = true, reach_detail = 'reached', reach_checked_at = now() - interval '1 hour'
+ WHERE id = current_setting('wg96.gw')::uuid;
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT set_config('wg96.begin3', public.gateway_reach_begin(current_setting('wg96.gw')::uuid,
+  '11111111-1111-1111-1111-111111111111')::text, true);
+SELECT set_config('wg96.sync5', public.gateway_sync_apply(current_setting('wg96.gw')::uuid,
+  '{"version": "1.0.1"}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)::text, true);
+SELECT ok(
+  current_setting('wg96.sync5')::jsonb ->> 'reach_nonce' = current_setting('wg96.begin3')::jsonb ->> 'nonce'
+  AND current_setting('wg96.sync5')::jsonb -> 'background_check' = 'null'::jsonb,
+  'an admin''s check rides the next sync, and is never handed to the background: gateway-reach knocks (round 2, finding 8)');
+SELECT ok(
+  public.gateway_reach_finish(current_setting('wg96.gw')::uuid,
+    (current_setting('wg96.begin3')::jsonb ->> 'check_id')::uuid, current_setting('wg96.begin3')::jsonb -> 'address',
+    '{"outside": {"ok": false, "is_this_gateway": false, "detail": "gateway_not_syncing"}, "inside_answered": false}'::jsonb,
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  'a check that could not run is recorded');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  (SELECT reach_ok AND reach_detail = 'reached' AND reach_checked_at < now() - interval '59 minutes'
+          AND reach_check_id IS NULL AND reach_result -> 'outside' ->> 'detail' = 'gateway_not_syncing'
+     FROM public.gateways WHERE id = current_setting('wg96.gw')::uuid),
+  '🚨 and it leaves reach_ok, its time and its detail as they were: a lost answer cannot withdraw a good address (round 2, finding 8)');
+
 -- Check now (§8) rides the next sync, once.
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
@@ -1367,6 +1510,47 @@ SELECT ok(
   (public.gateway_sync_apply(current_setting('wg96.gw')::uuid, '{}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb) ->> 'check_update_now')::boolean
   AND NOT (public.gateway_sync_apply(current_setting('wg96.gw')::uuid, '{}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb) ->> 'check_update_now')::boolean,
   'Check now reaches the gateway at its next sync, and only that one');
+
+
+-- ── Rotate the ticket keys (§5, §10 row 21; GW1 review round 2, finding 6) ─
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+UPDATE public.gateway_signing_keys SET retired_at = now() - interval '1 day'
+ WHERE workspace_id IN ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222') AND retired_at IS NULL;
+INSERT INTO public.gateway_signing_keys (workspace_id, kid, public_key, private_key_ciphertext) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'k96a', repeat('A', 43) || '=', repeat('c', 40)),
+  ('22222222-2222-2222-2222-222222222222', 'k96b', repeat('B', 43) || '=', repeat('c', 40));
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT throws_ok('SELECT public.gateway_rotate_signing_key()', '42501', 'Only a workspace admin can manage the file gateway.',
+  'a member cannot rotate the ticket keys');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
+)::text, true);
+SELECT is((public.gateway_rotate_signing_key() ->> 'retired')::int, 1,
+  'the admin rotates the ticket keys: the company''s current key is retired');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  (SELECT retired_at IS NOT NULL FROM public.gateway_signing_keys
+    WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND kid = 'k96a')
+  AND (SELECT retired_at IS NULL FROM public.gateway_signing_keys
+        WHERE workspace_id = '22222222-2222-2222-2222-222222222222' AND kid = 'k96b')
+  AND EXISTS (SELECT 1 FROM public.workspace_audit
+               WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND action = 'gateway.keys_rotated'
+                 AND actor_user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND (details ->> 'retired')::int = 1),
+  '🚨 only this company''s key is retired, and the rotation is written down with the admin (round 2, finding 6)');
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT ok(
+  (public.gateway_sync_apply(current_setting('wg96.gw')::uuid, '{}'::jsonb, '198.51.100.8'::inet, '[]'::jsonb)
+     -> 'signing_keys') @> '[{"kid": "k96a"}]'::jsonb,
+  'the retired key is still handed to the gateway for ten minutes, so a ticket minted a moment ago still plays');
 
 
 -- ── 138-140: Forget, its minute, and the sweep that makes it final ─────────

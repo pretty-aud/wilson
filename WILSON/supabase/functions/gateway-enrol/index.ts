@@ -18,7 +18,10 @@
 //   4. the predicate: gateway_enrol_apply (service role — there is no user
 //      to act as) spends the token in ONE UPDATE … RETURNING (F14), creates
 //      the gateway with the fingerprint the DATABASE computes from the PEM,
-//      and stores only the SHA-256 of the credential made here
+//      and stores only the SHA-256 of the credential made here and the
+//      reach key derived from it (GW1 review round 2, finding 1: the reach
+//      check's proof is keyed by that, never by the hash every gateway
+//      call is looked up by)
 //
 // The credential (`wgc_` + 43 base64url) is answered ONCE and never stored or
 // logged; the token is spent whether or not the gateway keeps the answer, so
@@ -32,7 +35,7 @@
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { answer, preflight, refusal, serviceClient, readJson, SYNC_INTERVAL_S } from '../_shared/gatewayGuard.ts'
 import { clientAddress, parseEnrolRequest, webAppOrigins } from '../_shared/gatewayShapes.ts'
-import { makeCredential, sha256Hex } from '../_shared/gatewayWire.ts'
+import { makeCredential, reachKeyOf, sha256Hex } from '../_shared/gatewayWire.ts'
 import { ensureSigningKey } from '../_shared/gatewaySigning.ts'
 
 Deno.serve(async (req: Request) => {
@@ -64,6 +67,7 @@ Deno.serve(async (req: Request) => {
     p_credential_hash: await sha256Hex(credential),
     p_gateway: parsed.value.gateway,
     p_source: source,
+    p_reach_key: await reachKeyOf(credential),
   })
   if (error) {
     if (error.code === '54000') {

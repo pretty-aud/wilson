@@ -31,6 +31,12 @@ set -euo pipefail
 err() { printf '\e[31mFAIL\e[0m %s\n' "$*" >&2; echo "::error title=gateway-ticket probe::$*"; exit 1; }
 ok()  { printf '\e[32m OK \e[0m %s\n' "$*"; }
 
+# What a failure may print (GW1 review round 2, finding 7): the annotations
+# are public, so never a response body (a ticket is a bearer: two minutes of
+# one clip) and never the claims; only the answer's shape, its error code
+# and how many tickets, missing and refused it held.
+shape() { printf '%s' "$1" | jq -c '{ error: (.error // null), tickets: ((.tickets // {}) | length), missing: ((.missing // []) | length), refused: ((.refused // []) | length) }' 2>/dev/null || printf 'not JSON, %s bytes' "${#1}"; }
+
 : "${SUPABASE_URL:?SUPABASE_URL must be set}"
 : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY must be set}"
 : "${PROBE_USERNAME:?PROBE_USERNAME must be set}"
@@ -82,12 +88,12 @@ if [ "$code" = "404" ]; then
   echo "::warning title=gateway-ticket probe::GW1's probe fixture is not on this database (the probe gateway answered 404); skipped"
   exit 0
 fi
-[ "$code" = "200" ] || err "gateway-ticket returned $code: $json"
+[ "$code" = "200" ] || err "gateway-ticket returned $code: $(shape "$json")"
 ticket=$(printf '%s' "$json" | jq -r --arg c "$CLIP" '.tickets[$c] // empty')
-[ -n "$ticket" ] || err "no ticket for the clip the probe user may read: $json"
-[ "$(printf '%s' "$json" | jq -r '.tickets | length')" = "1" ] || err "more than one ticket: $json"
+[ -n "$ticket" ] || err "no ticket for the clip the probe user may read: $(shape "$json")"
+[ "$(printf '%s' "$json" | jq -r '.tickets | length')" = "1" ] || err "more than one ticket: $(shape "$json")"
 [ "$(printf '%s' "$json" | jq -c '.missing | sort')" = "$(jq -cn --arg b "$OTHER" --arg c "$UNKNOWN" '[$b, $c] | sort')" ] \
-  || err "another company's clip and an unknown id must both be missing: $json"
+  || err "another company's clip and an unknown id must both be missing: $(shape "$json")"
 [ "${#ticket}" -le 4096 ] || err "the ticket is ${#ticket} characters"
 [[ "$ticket" =~ ^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$ ]] || err "the ticket is not v1.<payload>.<sig>"
 payload=$(b64url_json "$(printf '%s' "$ticket" | cut -d. -f2)")
@@ -95,14 +101,14 @@ keys=$(printf '%s' "$payload" | jq -c 'keys_unsorted')
 [ "$keys" = '["v","kid","gw","ws","sub","clip","loc","path","seq","mt","rv","iat","exp","jti"]' ] || err "claims out of order: $keys"
 printf '%s' "$payload" | jq -e --arg g "$GATEWAY" --arg w "$ws" --arg s "$sub" --arg c "$CLIP" \
   '.v == 1 and .gw == $g and .ws == $w and .sub == $s and .clip == $c and (.exp - .iat) == 120 and (.jti | test("^[0-9a-f]{32}$")) and (.rv | type) == "boolean"' >/dev/null \
-  || err "the claims are not the wire's: $payload"
+  || err "the claims are not the wire's (their keys: $keys)"
 ok "one ticket for the readable clip (${#ticket} characters, claims in order); two missing"
 
 # ── 2. A forgotten gateway ───────────────────────────────────────────────────
 resp=$(call "$(jq -cn --arg g "$FORGOTTEN" --arg a "$CLIP" '{ gateway_id: $g, bin_file_ids: [$a] }')" "$token")
 code=$(printf '%s\n' "$resp" | tail -n1); json=$(printf '%s\n' "$resp" | sed '$d')
 [ "$code" = "404" ] && [ "$(printf '%s' "$json" | jq -r '.error')" = "gateway_unavailable" ] \
-  || err "a forgotten gateway must be 404 gateway_unavailable, got $code: $json"
+  || err "a forgotten gateway must be 404 gateway_unavailable, got $code: $(shape "$json")"
 ok "a forgotten gateway mints nothing (404)"
 
 # ── 3. No sign-in ────────────────────────────────────────────────────────────

@@ -246,7 +246,9 @@ describe('FileAuditDrawer — the kit Drawer', () => {
       { id: 'v3', event: 'viewed_remote', actor_label: 'Ada', created_at: '2026-10-07T15:00:00Z', details: { gateway_name: 'y' } },
       // R4; round 1, finding 2: no ticket on record matched this one — said.
       { id: 'v4', event: 'viewed_remote', subject: 'bin_file', actor_label: 'Priya Raman', created_at: '2026-10-06T15:00:00Z',
-        details: { gateway_name: 'Salt Hours NAS', source_address: '198.51.100.9', via: 'other', bytes: MB, clip_bytes: 1000 * MB, fraction: 0.001, unverified_mint: true } },
+        // Round 2, finding 2: the gateway chose its name; a direction
+        // override in it is dropped.
+        details: { gateway_name: `Salt${String.fromCharCode(0x202e)} Hours NAS`, source_address: '198.51.100.9', via: 'other', bytes: MB, clip_bytes: 1000 * MB, fraction: 0.001, unverified_mint: true } },
     ]) })
     const drawer = auditDrawer()
     await within(drawer).findAllByText('Priya Raman')

@@ -59,6 +59,7 @@ const SAID = {
   forget: 'WILSON could not forget that gateway just now. Try again in a moment.',
   unforget: 'WILSON could not bring that gateway back just now. Try again in a moment.',
   update: 'WILSON could not ask the gateway to check for an update just now. Try again in a moment.',
+  rotate: 'WILSON could not rotate the ticket keys just now; the old key is still the one in use. Try again in a moment.',
   reach: 'WILSON could not run the check just now. Try again in a moment.',
   reachShape: 'The check answered in a shape WILSON does not know. Try again in a moment.',
   viewings: 'WILSON could not read the viewings from outside the office just now. Try again in a moment.',
@@ -248,10 +249,24 @@ export async function requestGatewayUpdateCheck(gatewayId) {
 }
 
 /**
+ * Rotate the ticket keys (§5 step 4, §10 row 21; GW1 review round 2, finding
+ * 6): the company's signing key is retired; the next ticket is signed with a
+ * new one, and the retired key is honoured for ten more minutes. A live
+ * admin only (the database's sentence otherwise). { retired, at }.
+ */
+export async function rotateTicketKeys() {
+  const fx = fixtures()
+  if (fx) return fx.rotateTicketKeys()
+  return run(() => supabase.rpc('gateway_rotate_signing_key'), SAID.rotate)
+}
+
+/**
  * Check reach (§4): the cloud hands the gateway a code at its next sync,
  * knocks on the outside address from the internet and tries the inside port.
  * Up to ~25 s: the wait for the sync (≤ 15 s) plus the probes (5 s each).
- * { outside: { ok, detail, ms, certificate, is_this_gateway, method }, inside_answered, checked_at }
+ * { outside: { ok, detail, ms, certificate, is_this_gateway, method, proof_checked }, inside_answered,
+ *   inside_other, checked_at } — inside_answered is the gateway's own inside door reached from the
+ *   internet (the red line); inside_other is something else answering on that port (round 2).
  */
 export async function checkGatewayReach(gatewayId, { timeoutMs = 30000 } = {}) {
   const fx = fixtures()

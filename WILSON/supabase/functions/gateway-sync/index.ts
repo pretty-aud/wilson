@@ -21,9 +21,12 @@
 //      answers the switch, the outside address, the office ranges, the live
 //      signing keys and the locations.
 //
-// A check the database begins here is probed in the background after the
-// answer has gone (EdgeRuntime.waitUntil), three seconds later, so the
-// gateway already holds the nonce it must echo.
+// A check the database begins here rides this answer's nonce and is knocked
+// on at the gateway's NEXT sync (GW1 review round 2, finding 8): the database
+// hands it over then, once, and it is probed in the background after that
+// answer has gone (EdgeRuntime.waitUntil), a second later. By then the
+// gateway has had an answer carrying the nonce, so one answer lost on the way
+// cannot read as "not your gateway".
 // =============================================================================
 
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
@@ -100,7 +103,7 @@ Deno.serve(async (req: Request) => {
 
   const begun = r.background_check as BegunCheck | null
   if (begun && begun.check_id && begun.nonce && begun.address) {
-    const task = runReachCheck(admin, gatewayId, begun, null, 3000).catch((e) =>
+    const task = runReachCheck(admin, gatewayId, begun, null, 1000).catch((e) =>
       console.error(`gateway-sync: background reach check failed: ${(e as Error).message}`))
     // deno-lint-ignore no-explicit-any
     const rt = (globalThis as any).EdgeRuntime

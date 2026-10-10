@@ -171,8 +171,8 @@ export type ReachDeps = {
   resolve(name: string): Promise<string[]>
   /** TCP to the literal, then TLS with serverName for SNI and verification. Absent where the runtime cannot. */
   connectTls?: (ip: string, port: number, serverName: string, timeoutMs: number) => Promise<Conn>
-  /** A bare TCP connect (the inside-port test). */
-  connectTcp?: (ip: string, port: number, timeoutMs: number) => Promise<{ close(): void }>
+  /** A bare TCP connect (the inside-port test); `read` tells a close from a listener. */
+  connectTcp?: (ip: string, port: number, timeoutMs: number) => Promise<{ close(): void; read?(b: Uint8Array): Promise<number | null> }>
   /** The fallback when there is no connectTls: fetch of the (vetted) name. */
   fetch?: (url: string, init: RequestInit) => Promise<Response>
   now(): number
@@ -187,7 +187,7 @@ export type OutsideResult = {
   is_this_gateway: boolean
   method: 'literal_tls' | 'pinned_fetch' | 'none'
   address: string | null
-  /** An expected proof was there to compare with (the credential's hash was read). */
+  /** An expected proof was there to compare with (the gateway's reach key was read). */
   proof_checked: boolean
 }
 
@@ -390,30 +390,68 @@ export async function probeOutside(
  * same public addresses? It should not (§4's red line). Only addresses the
  * outside step already vetted as public are ever tried.
  */
-export async function probeInside(publicAddresses: string[], port: number, deps: ReachDeps): Promise<boolean> {
+/**
+ * The inside port on the same public address (§4), told apart by what
+ * answers (GW1 review round 2, finding 4). The gateway's own inside door
+ * closes a public peer at once, before TLS (GW2's doors): a connection
+ * accepted and then closed within a second, nothing said, is that door
+ * reached from the internet — 'gateway', the page's one red line. A
+ * connection that stays open, or that speaks first, is something else on
+ * that port (a tunnel vendor's edge accepts 8443; so does a load balancer):
+ * 'other', said plainly and never red. Nothing accepted: 'none'.
+ */
+export type InsideAnswer = 'gateway' | 'other' | 'none'
+const INSIDE_CLOSE_WAIT_MS = 1000
+
+async function closedAtOnce(c: { read?(b: Uint8Array): Promise<number | null> }, ms: number): Promise<boolean> {
+  if (typeof c.read !== 'function') return false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      c.read(new Uint8Array(1)).then((n) => n === null, () => true),
+      new Promise<boolean>((r) => { timer = setTimeout(() => r(false), ms) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export async function probeInside(publicAddresses: string[], port: number, deps: ReachDeps): Promise<InsideAnswer> {
+  let other = false
   for (const ip of publicAddresses.slice(0, 2)) {
     if (!isPublicIp(ip)) continue
     if (deps.connectTcp) {
+      let c: { close(): void; read?(b: Uint8Array): Promise<number | null> }
       try {
-        const c = await withDeadline(deps.connectTcp(ip, port, 3000), 3000, (late) => late.close())
-        try { c.close() } catch { /* closed */ }
-        return true
+        c = await withDeadline(deps.connectTcp(ip, port, 3000), 3000, (late) => late.close())
       } catch {
         continue
       }
+      try {
+        if (await closedAtOnce(c, INSIDE_CLOSE_WAIT_MS)) return 'gateway'
+        other = true
+      } finally {
+        try { c.close() } catch { /* closed */ }
+      }
+      continue
     }
     if (deps.fetch) {
       const host = ip.includes(':') ? `[${ip}]` : ip
       try {
         await deps.fetch(`https://${host}:${port}/`, { redirect: 'manual', signal: AbortSignal.timeout(3000) })
-        return true
+        other = true
       } catch (e) {
+        // Without a raw socket: a reset or an end mid-handshake is the
+        // gateway's close; a certificate or a protocol answer is something
+        // that speaks; a refusal or a timeout is nothing.
+        const msg = `${(e as Error)?.name ?? ''} ${(e as Error)?.message ?? String(e)}`
+        if (/reset|ECONNRESET|UnexpectedEof|unexpected eof/i.test(msg)) return 'gateway'
         const k = classifyError(e)
-        if (k === 'certificate' || k === 'protocol') return true
+        if (k === 'certificate' || k === 'protocol') other = true
       }
     }
   }
-  return false
+  return other ? 'other' : 'none'
 }
 
 /** The real network: Deno's raw TCP + startTls where the runtime has them, fetch otherwise. */

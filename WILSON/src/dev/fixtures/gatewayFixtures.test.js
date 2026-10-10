@@ -174,6 +174,18 @@ describe('the verbs, with 0093\'s rules', () => {
     }
     await fx.updateGateway(GATEWAY_ID, { outside_address: { host: 'inside.yourcompany.com', port: 8444 } })
     expect((await fx.checkGatewayReach(GATEWAY_ID)).data.inside_answered).toBe(true)
+    // Round 2, finding 4: a tunnel's edge on the inside port is something
+    // else answering — reached, and never the red line.
+    await fx.updateGateway(GATEWAY_ID, { outside_address: { host: 'tunnel.yourcompany.com', port: 443 } })
+    const t = (await fx.checkGatewayReach(GATEWAY_ID)).data
+    expect(t).toMatchObject({ inside_answered: false, inside_other: true })
+    expect(t.outside.detail).toBe('reached')
+  })
+
+  it('Rotate the ticket keys: an admin\'s, written down (round 2, finding 6)', async () => {
+    const { fx } = make()
+    expect(await fx.rotateTicketKeys()).toMatchObject({ ok: true, data: { retired: 1 } })
+    expect((await fx.listGatewayAudit()).data[0]).toMatchObject({ action: 'gateway.keys_rotated', actor_user_id: PERMISSIONS.userId })
   })
 
   it('the inspector\'s count comes from the same viewings, through the fixtures\' project adapter (admins only)', async () => {
@@ -209,5 +221,6 @@ describe('everyone else', () => {
     expect((await fx.forgetGateway(GATEWAY_ID)).ok).toBe(false)
     expect((await fx.updateGateway(GATEWAY_ID, { name: 'Mine now' })).ok).toBe(false)
     expect((await fx.checkGatewayReach(GATEWAY_ID)).status).toBe(403)
+    expect(await fx.rotateTicketKeys()).toMatchObject({ ok: false, code: '42501' })
   })
 })

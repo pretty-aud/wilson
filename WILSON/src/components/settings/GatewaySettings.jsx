@@ -33,6 +33,9 @@
 //     It works: play a clip from outside.
 //   Postel's law — an address, a range or a fingerprint is read as people
 //     paste it and saved in the database's own spelling (gatewayWords.js).
+//   Cognitive bias — Rotate the ticket keys (review round 2, finding 6) is a
+//     quiet row with a question before it acts, and says what does not
+//     happen (nobody's playback stops) as plainly as what does.
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -44,7 +47,7 @@ import {
   listGateways, listEnrolmentTokens, listGatewayAudit, listRemoteViewings, makeEnrolmentToken,
   cancelEnrolmentToken, confirmGatewayFingerprint, fetchRootCertificate, renameGateway,
   setGatewayOutsideAddress, setGatewayOfficeRanges, forgetGateway, unforgetGateway,
-  requestGatewayUpdateCheck, checkGatewayReach, gatewayCloudBase,
+  requestGatewayUpdateCheck, checkGatewayReach, gatewayCloudBase, rotateTicketKeys,
 } from '../../cloud/gatewayApi'
 import {
   GATEWAY_CERT_PARAGRAPH, NAS_STORY, WINDOWS_STORY, GATEWAY_SECTION_DESCRIPTION, GATEWAY_ADMIN_ONLY,
@@ -54,6 +57,7 @@ import {
   AUDIT_EMPTY, FINGERPRINT_SHAPE, mountPathFor, cloudUrlFor, parseOutsideAddress,
   formatAddress, parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases,
   insideForwardSentence, reachSentence, auditPhrase, howMuchWords, whereWords, whoWords,
+  TICKET_KEYS_DESCRIPTION, ROTATE_CONFIRM, ROTATED_LINE, versionWords, gatewayNameWords,
 } from './gatewayWords'
 
 // The tokens made in this browser since the app started: §2's notice for a
@@ -269,7 +273,7 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
   const askUpdate = () => act('update', () => requestGatewayUpdateCheck(gw.id), () => setNote({ text: 'Asked. The gateway checks for an update at its next check-in, within ten seconds.', tone: 'ok' }))
 
   const said = check?.result ? reachSentence(check.result, gw, { now }) : null
-  const firstSuccess = said && check.result?.outside?.detail === 'reached' && !check.wasOk && !said.inside
+  const firstSuccess = said && check.result?.outside?.detail === 'reached' && !check.wasOk && said.inside?.tone !== 'error'
 
   // §8: the name, the health line, and "under the line: Download
   // certificate, Check reach, Rename, Forget" — so the row is stacked, and
@@ -284,7 +288,7 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
             <Button surface="light" size="sm" variant="primary" onClick={save} disabled={!!busy}>{busy === 'save' ? 'Saving…' : 'Save'}</Button>
             <Button surface="light" size="sm" variant="ghost" onClick={() => { setEditing(null); setError(null) }} disabled={!!busy}>Cancel</Button>
           </div>
-        ) : <span className="s-card-title">{gw.name}</span>}
+        ) : <span className="s-card-title">{gatewayNameWords(gw.name)}</span>}
         <p className="s-row-desc s-gw-line" data-testid="gateway-health">
           {phrases.map((p, i) => (
             <span key={i}>{i > 0 && ' · '}<Phrase p={p} /></span>
@@ -311,14 +315,15 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
       </div>
       <div className="s-gw-detail">
         {check?.running && <p className="s-feedback" role="status">{CHECKING}</p>}
-        {said?.inside && <p className="s-feedback" data-tone="error" role="alert">{said.inside.text}</p>}
+        {said?.inside?.tone === 'error' && <p className="s-feedback" data-tone="error" role="alert">{said.inside.text}</p>}
         {said && <p className="s-feedback" data-tone={said.tone} role="status">{said.text}</p>}
+        {said?.inside && said.inside.tone !== 'error' && <p className="s-feedback">{said.inside.text}</p>}
         {firstSuccess && <p className="s-feedback s-gw-peak" data-tone="ok">{IT_WORKS}</p>}
         {note && <p className="s-feedback" data-tone={note.tone}>{note.text}</p>}
         {error && <p className="s-feedback" data-tone="error" role="alert">{error}</p>}
-        {appeared && <p className="s-feedback" data-tone="ok">{gw.name} appeared just now, and the token is spent.</p>}
+        {appeared && <p className="s-feedback" data-tone="ok">“{gatewayNameWords(gw.name)}” appeared just now, and the token is spent.</p>}
         {!confirmed && !fromThisBrowser && !appeared && (
-          <p className="s-feedback" data-tone="warning">{NEW_GATEWAY_NOTICE(gw.name, sinceWords(gw.created_at, now))}</p>
+          <p className="s-feedback" data-tone="warning">{NEW_GATEWAY_NOTICE(sinceWords(gw.created_at, now))}</p>
         )}
         {!confirmed && (mine ? (
           <div className="s-well">
@@ -405,7 +410,7 @@ function ForgottenRow({ gw, now, onChanged }) {
   return (
     <div className="s-row" data-gateway-row={gw.id} data-forgotten="true">
       <div className="s-row-label">
-        <span className="s-card-title">{gw.name}</span>
+        <span className="s-card-title">{gatewayNameWords(gw.name)}</span>
         <p className="s-row-desc">{FORGOTTEN_LINE}</p>
         {error && <p className="s-feedback" data-tone="error" role="alert">{error}</p>}
       </div>
@@ -451,7 +456,7 @@ function ViewedFromOutside({ viewings, error, page, onPage }) {
                   <td>{whoWords(r)}</td>
                   <td><span className="s-data s-gw-clip">{r.file_name || 'a clip removed since'}</span><br />{r.project_title || 'a project you cannot open'}</td>
                   <td>{howMuchWords(r.details || {})}</td>
-                  <td>{whereWords(r.details || {})}<br />through {r.details?.gateway_name || 'a gateway forgotten since'}</td>
+                  <td>{whereWords(r.details || {})}<br />through {r.details?.gateway_name ? gatewayNameWords(r.details.gateway_name) : 'a gateway forgotten since'}</td>
                 </tr>
               ))}
             </tbody>
@@ -516,6 +521,10 @@ export function GatewaySection() {
   const [forgetBusy, setForgetBusy] = useState(false)
   const [forgetError, setForgetError] = useState(null)
   const [tokenError, setTokenError] = useState(null)
+  const [rotating, setRotating] = useState(false)
+  const [rotateBusy, setRotateBusy] = useState(false)
+  const [rotateError, setRotateError] = useState(null)
+  const [rotated, setRotated] = useState(false)
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
@@ -604,6 +613,15 @@ export function GatewaySection() {
     changed()
   }
 
+  const doRotate = async () => {
+    setRotateBusy(true); setRotateError(null)
+    const res = await rotateTicketKeys()
+    setRotateBusy(false)
+    if (!res.ok) { setRotateError(res.friendly); return }
+    setRotating(false); setRotated(true)
+    refreshAudit()
+  }
+
   const fromThisBrowser = (g) => tokens.some(t => t.gateway_id === g.id && SESSION_TOKENS.has(t.id))
   const nameFor = (row) => (gateways || []).find(g => g.id === row.gateway_id)?.name || row.details?.name || null
   const pending = tokens.filter(t => !t.used_at && Date.parse(t.expires_at) > now && t.id !== panel?.id)
@@ -626,8 +644,8 @@ export function GatewaySection() {
             return (
               <div className="s-row" key={g.id} data-gateway-row={g.id}>
                 <div className="s-row-label">
-                  <span className="s-card-title">{g.name}</span>
-                  <p className="s-row-desc">{[g.version, s === null ? 'never seen' : s < 5 ? 'seen just now' : s < 30 ? `seen ${agoWords(s)} ago` : `not seen for ${agoWords(s)}`].filter(Boolean).join(' · ')}</p>
+                  <span className="s-card-title">{gatewayNameWords(g.name)}</span>
+                  <p className="s-row-desc">{[versionWords(g.version), s === null ? 'never seen' : s < 5 ? 'seen just now' : s < 30 ? `seen ${agoWords(s)} ago` : `not seen for ${agoWords(s)}`].filter(Boolean).join(' · ')}</p>
                 </div>
               </div>
             )
@@ -684,6 +702,17 @@ export function GatewaySection() {
         </Group>
       )}
 
+      {live.length > 0 && (
+        <Group label="Ticket keys">
+          <Row label="Signing key" description={TICKET_KEYS_DESCRIPTION}>
+            <Button surface="light" size="sm" variant="ghost" onClick={() => { setRotateError(null); setRotated(false); setRotating(true) }}>
+              Rotate the ticket keys
+            </Button>
+          </Row>
+          {rotated && <p className="s-feedback" data-tone="ok" role="status">{ROTATED_LINE}</p>}
+        </Group>
+      )}
+
       {(hadGateway || (viewings?.total || 0) > 0 || viewError) && (
         <ViewedFromOutside viewings={viewings} error={viewError} page={page} onPage={(p) => setPage(Math.max(0, p))} />
       )}
@@ -704,6 +733,24 @@ export function GatewaySection() {
           )}
         >
           <p>{FORGET_CONFIRM(forgetting.name)}</p>
+        </Dialog>
+      )}
+
+      {rotating && (
+        <Dialog
+          title="Rotate the ticket keys"
+          width="confirm"
+          busy={rotateBusy}
+          error={rotateError}
+          onClose={() => setRotating(false)}
+          footer={(
+            <>
+              <Button disabled={rotateBusy} onClick={() => setRotating(false)}>Cancel</Button>
+              <Button variant="primary" disabled={rotateBusy} onClick={doRotate}>{rotateBusy ? 'Rotating…' : 'Rotate'}</Button>
+            </>
+          )}
+        >
+          <p>{ROTATE_CONFIRM}</p>
         </Dialog>
       )}
     </Section>

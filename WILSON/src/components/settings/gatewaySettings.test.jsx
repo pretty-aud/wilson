@@ -31,7 +31,8 @@ import { _resetOverlaysForTests } from '../../ui/overlay'
 const holder = vi.hoisted(() => {
   const names = ['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings', 'makeEnrolmentToken',
     'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'renameGateway', 'setGatewayOutsideAddress',
-    'setGatewayOfficeRanges', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'gatewayCloudBase']
+    'setGatewayOfficeRanges', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'gatewayCloudBase',
+    'rotateTicketKeys']
   return { ctx: null, perms: null, api: Object.fromEntries(names.map(n => [n, vi.fn()])) }
 })
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => holder.ctx }))
@@ -127,7 +128,7 @@ describe('Add a gateway: the token, once (§2, §11)', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(3100) })
     await waitFor(() => expect(screen.queryByTestId('gateway-token')).toBeNull())
     expect(document.body.textContent).not.toContain(TOKEN)
-    expect(row('g9').textContent).toContain('salthours-nas appeared just now, and the token is spent.')
+    expect(row('g9').textContent).toContain('“salthours-nas” appeared just now, and the token is spent.')
     // Made in this browser: no "nobody installed it?" notice.
     expect(row('g9').textContent).not.toContain('no admin in this browser made its token')
   })
@@ -228,6 +229,18 @@ describe('Check reach (§4)', () => {
     expect(row().textContent).not.toContain(W.IT_WORKS)
   })
 
+  it('🚨 something else answering on the inside port (a tunnel\'s edge) is a plain line after the result, and the first success is still celebrated (round 2, finding 4)', async () => {
+    answer('checkGatewayReach', async () => ok({ outside: { ok: true, detail: 'reached', ms: 90 }, inside_answered: false, inside_other: true }))
+    await mountWith([withAddress()])
+    fireEvent.click(within(row()).getByRole('button', { name: 'Check reach' }))
+    await waitFor(() => expect(row().textContent).toContain('Reachable from the internet'))
+    expect(within(row()).queryByRole('alert')).toBeNull()
+    const line = [...row().querySelectorAll('.s-feedback')].find(p => p.textContent.startsWith('Something else answers on port 8443'))
+    expect(line.getAttribute('data-tone')).toBeNull()
+    expect(line.previousElementSibling.textContent).toMatch(/^Reachable from the internet/)
+    expect(row().textContent).toContain(W.IT_WORKS)
+  })
+
   it('without an outside address it says what to do and asks the cloud nothing', async () => {
     await mountWith([gateway()])
     fireEvent.click(within(row()).getByRole('button', { name: 'Check reach' }))
@@ -240,6 +253,65 @@ describe('Check reach (§4)', () => {
     await mountWith([withAddress()])
     fireEvent.click(within(row()).getByRole('button', { name: 'Check reach' }))
     expect((await within(row()).findByRole('alert')).textContent).toMatch(/^A check is running/)
+  })
+})
+
+describe('a name and a version the gateway chose (round 2, finding 2)', () => {
+  const RLO = String.fromCharCode(0x202e)
+  const ZWSP = String.fromCharCode(0x200b)
+  it('🚨 the name shows as words; the new-gateway notice does not repeat it; Forget\'s question quotes it', async () => {
+    await mountWith([gateway({ name: `Studio${RLO} NAS${ZWSP} (installed by IT)`, root_confirmed_at: null, created_by: 'someone-else' })])
+    expect(row().querySelector('.s-card-title').textContent).toBe('Studio NAS (installed by IT)')
+    expect(row().textContent).not.toContain(RLO)
+    const notice = [...row().querySelectorAll('.s-feedback')].find(p => p.textContent.includes('no admin in this browser'))
+    expect(notice.textContent).toMatch(/^This gateway enrolled /)
+    expect(notice.textContent).not.toContain('Studio')
+    fireEvent.click(within(row()).getByRole('button', { name: 'Forget' }))
+    expect((await screen.findByRole('dialog')).textContent).toContain('Forget “Studio NAS (installed by IT)”? It stops at once')
+  })
+  it('a member\'s line leaves out a version that is not one', async () => {
+    holder.perms = { ready: true, role: 'user', userId: 'u2', workspaceId: 'w1' }
+    answer('listGateways', async () => ok([{ id: 'g1', name: 'Salt Hours NAS', platform: 'container', version: '1.0.0 call Petal on 0800', last_seen_at: ago(4000) }]))
+    render(<GatewaySection />)
+    await waitFor(() => expect(row()).toBeTruthy())
+    expect(row().textContent).not.toContain('call Petal')
+    expect(row().textContent).toContain('seen just now')
+  })
+})
+
+describe('Rotate the ticket keys (§5, §10 row 21; round 2, finding 6)', () => {
+  it('a quiet row once there is a gateway; a question first; Cancel runs nothing; Rotate rotates, says so, and the trail is read again', async () => {
+    answer('rotateTicketKeys', async () => ok({ retired: 1, at: ago(0) }))
+    await mountWith([gateway()])
+    const button = within(section()).getByRole('button', { name: 'Rotate the ticket keys' })
+    expect(section().textContent).toContain(W.TICKET_KEYS_DESCRIPTION)
+    fireEvent.click(button)
+    let dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain(W.ROTATE_CONFIRM)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(holder.api.rotateTicketKeys).not.toHaveBeenCalled()
+    const reads = holder.api.listGatewayAudit.mock.calls.length
+    fireEvent.click(button)
+    dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rotate' }))
+    await waitFor(() => expect(section().textContent).toContain(W.ROTATED_LINE))
+    expect(holder.api.rotateTicketKeys).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(holder.api.listGatewayAudit.mock.calls.length).toBeGreaterThan(reads)
+  })
+  it('a refusal is its sentence, in the question, and nothing is said rotated', async () => {
+    answer('rotateTicketKeys', async () => ({ ok: false, code: '42501', friendly: 'Only a workspace admin can manage the file gateway.' }))
+    await mountWith([gateway()])
+    fireEvent.click(within(section()).getByRole('button', { name: 'Rotate the ticket keys' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rotate' }))
+    await waitFor(() => expect(dialog.textContent).toContain('Only a workspace admin can manage the file gateway.'))
+    expect(section().textContent).not.toContain(W.ROTATED_LINE)
+  })
+  it('no row before the first gateway, nor for a company whose gateways are all forgotten (CONTROL)', async () => {
+    await mountWith([gateway({ revoked_at: ago(10e3) })])
+    expect(within(section()).queryByRole('button', { name: 'Rotate the ticket keys' })).toBeNull()
   })
 })
 
@@ -388,7 +460,7 @@ describe('what was viewed from outside, and what changed', () => {
     cleanup()
     answer('listGatewayAudit', async () => ok([{ id: 1, action: 'gateway.forgotten', actor_label: 'Mara Okonkwo', details: { name: 'Old NAS' }, created_at: '2026-10-01T09:00:00Z' }]))
     render(<GatewaySection />)
-    expect((await screen.findByTestId('gateway-audit')).textContent).toContain('Mara Okonkwo forgot Old NAS')
+    expect((await screen.findByTestId('gateway-audit')).textContent).toContain('Mara Okonkwo forgot “Old NAS”')
   })
 
   it('the last twenty changes, in words', async () => {
@@ -399,7 +471,7 @@ describe('what was viewed from outside, and what changed', () => {
     await mountWith([gateway()])
     const list = await screen.findByTestId('gateway-audit')
     expect(list.textContent).toContain('Mara Okonkwo turned viewing from outside the office on')
-    expect(list.textContent).toContain('Mara Okonkwo enrolled Salt Hours NAS (a container, 1.0.0)')
+    expect(list.textContent).toContain('Mara Okonkwo enrolled “Salt Hours NAS” (a container, 1.0.0)')
     expect(holder.api.listGatewayAudit).toHaveBeenCalledWith({ limit: 20 })
   })
 })

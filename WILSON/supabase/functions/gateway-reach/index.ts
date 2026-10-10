@@ -18,14 +18,18 @@
 //      outside address; a name resolved and every answer public; the
 //      Supabase hosts refused), TLS to the validated address LITERAL with
 //      the name as SNI only, GET /v1/health with the nonce, 5 s, 4 KB, no
-//      redirects; reached only on the nonce echo; then the INSIDE port on
-//      the same public address, which should refuse
+//      redirects; reached only on the nonce's proof (nonce_proof: an HMAC of
+//      the nonce keyed by the gateway's reach key; GW1 review round 1, the
+//      echo proved nothing, and round 2, never the credential's hash); then
+//      the INSIDE port on the same public address, which should refuse — the
+//      red line only for the inside door's own close-at-once (round 2)
 //   6. the result recorded (gateway_reach_finish: only while this is still
 //      the running check and the address is still the one probed) — reach_ok
 //      gates gateways_visible's outside address — and written to the audit
 //
 // The answer: { outside: { ok, detail, ms, certificate, is_this_gateway,
-// method }, inside_answered, checked_at }. Settings words each detail
+// method, proof_checked }, inside_answered, inside_other, checked_at }.
+// Settings words each detail
 // (§4's seven sentences and the few this file adds).
 // =============================================================================
 
@@ -110,8 +114,9 @@ Deno.serve(async (req: Request) => {
 
   if (!delivered) {
     const result = {
-      outside: { ok: false, detail: 'gateway_not_syncing', ms: null, certificate: 'unknown', is_this_gateway: false, method: 'none' },
+      outside: { ok: false, detail: 'gateway_not_syncing', ms: null, certificate: 'unknown', is_this_gateway: false, method: 'none', proof_checked: false },
       inside_answered: false,
+      inside_other: false,
     }
     await finish(ctx.admin, parsed.gatewayId, check, result as ReachResult, ctx.callerId)
     return answer({ ...result, checked_at: new Date().toISOString() })

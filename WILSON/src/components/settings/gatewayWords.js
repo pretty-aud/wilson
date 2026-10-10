@@ -86,11 +86,15 @@ export const TOKEN_SHOWN_ONCE = 'This token is shown once and works once, for 24
 export const CLOUD_URL_HINT = 'The gateway\'s second setting: the WILSON cloud it talks to (WILSON_CLOUD_URL for the container; the installer\'s second field on Windows).'
 export const FINGERPRINT_PROMPT = 'Type or paste the fingerprint the installer or the container\'s log printed. It proves this gateway is the one you installed, and unlocks Download certificate.'
 export const FINGERPRINT_OTHER_ADMIN = 'Waiting for the admin who made this gateway\'s token to confirm its fingerprint: they are the one who saw it printed. If nobody installed it, choose Forget.'
-export const NEW_GATEWAY_NOTICE = (name, when) => `A new gateway, ${name}, enrolled ${when}, and no admin in this browser made its token today. If nobody in the company installed it, choose Forget: it gets no address and no ticket until its fingerprint is confirmed.`
+// GW1 review round 2, finding 2: the notice sits in the gateway's own row,
+// under its name, and does not repeat the name — a rogue gateway chooses its
+// name ("Studio NAS (installed by IT)"), and this is the sentence meant to
+// catch it.
+export const NEW_GATEWAY_NOTICE = (when) => `This gateway enrolled ${when}, and no admin in this browser made its token today. If nobody in the company installed it, choose Forget: it gets no address and no ticket until its fingerprint is confirmed.`
 export const OFFICE_RANGES_HINT = 'Addresses the gateway treats as the office besides its own network: a VPN pool, an office on unusual addressing. Private ranges only (10.x, 172.16–31.x, 192.168.x, fc00::/7), at most eight, none wider than a /16 (a /48 for IPv6). A viewing from these is not written down, as the office\'s is not.'
 export const OUTSIDE_ADDRESS_HINT = 'The public name or address people outside the office reach the gateway at, and its port (8444 unless you forward 443 for the free certificate). It is given to their browsers only after Check reach finds this gateway there.'
 export const NAME_REFUSAL = 'A gateway\'s name is 1 to 80 characters.'
-export const FORGET_CONFIRM = (name) => `Forget ${name}? It stops at once: no ticket is made for it again, its addresses are taken out of every browser, and its next check-in is refused. You can undo this for one minute; after that, enrol it again with a new token.`
+export const FORGET_CONFIRM = (name) => `Forget “${gatewayNameWords(name)}”? It stops at once: no ticket is made for it again, its addresses are taken out of every browser, and its next check-in is refused. You can undo this for one minute; after that, enrol it again with a new token.`
 export const FORGOTTEN_LINE = 'Forgotten: no ticket is made for it, and its next check-in is refused.'
 export const IT_WORKS = 'It works: play a clip from outside.'
 export const CHECKING = 'Checking… WILSON hands the gateway a code at its next check-in (within ten seconds), then knocks from the internet.'
@@ -98,6 +102,11 @@ export const CERTIFICATE_DOWNLOADED = 'Downloaded. Install it on each office com
 export const VIEWED_EMPTY = 'Nothing was viewed from outside the office in the last 30 days.'
 export const VIEWED_DESCRIPTION = 'Every viewing through the outside door in the last 30 days, newest first: who, which clip, when, how much, and from where. Office viewing is not written down. Only workspace admins see this.'
 export const AUDIT_EMPTY = 'No changes yet.'
+// §5 step 4 and §10 row 21 (GW1 review round 2, finding 6): Rotate the
+// ticket keys.
+export const TICKET_KEYS_DESCRIPTION = 'Every ticket to play a clip from outside the office is signed with this company\'s key, renewed each year. If you think the key has been stolen, rotate it.'
+export const ROTATE_CONFIRM = 'Rotate the ticket keys? New tickets are signed with a new key at once. The old key is honoured for ten more minutes, so nobody\'s playback stops.'
+export const ROTATED_LINE = 'Rotated: new tickets are signed with a new key, and the old one stops working in ten minutes.'
 
 // ── Tesler: the container mount path, computed ──────────────────────────────
 
@@ -350,13 +359,30 @@ function humanize(s) { return String(s).replace(/[_:]+/g, ' ').trim() }
 // account, and a free-text part of it (a reason, a warning) must never read
 // as WILSON's voice among the line's fixed phrases. It is quoted and
 // attributed, cut to a line, its control characters dropped.
-const NOT_TEXT = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069]', 'g')
+const NOT_TEXT = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff]', 'g')
 function theGatewaySays(s) {
   const t = String(s ?? '').replace(NOT_TEXT, '').replace(/\s+/g, ' ').trim().slice(0, 120)
   return t ? `the gateway says “${t}”` : 'the gateway gives no reason'
 }
-const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]{0,40}$/
+// Round 2, finding 2: a version is a version (0093's CHECK, restated).
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]{1,40})?$/
 function versionOr(v, fallback) { return VERSION.test(String(v ?? '')) ? String(v) : fallback }
+
+/** The gateway's version as shown, when it is one; null otherwise (round 2, finding 2). */
+export function versionWords(v) { return versionOr(v, null) }
+
+// Round 2, finding 2: a gateway chooses its own name, and the name is shown
+// in sentences an admin acts on. Wherever it is shown it is words — control
+// characters as spaces, the invisible and direction-changing ones dropped,
+// one line (0093's gateway_clean_name, restated, for a row from before it) —
+// and inside a sentence it is quoted, as the gateway's other words are.
+const NAME_CONTROL = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]', 'g')
+const NAME_INVISIBLE = new RegExp('[\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff]', 'g')
+export function gatewayNameWords(name, fallback = 'a gateway') {
+  const t = String(name ?? '').replace(NAME_CONTROL, ' ').replace(NAME_INVISIBLE, '').replace(/\s+/g, ' ').trim().slice(0, 80).trim()
+  return t || fallback
+}
+const named = (name) => (name ? `“${gatewayNameWords(name)}”` : 'a gateway')
 
 /** The outside door's phrase from §2's vocabulary (read liberally). */
 function outsidePhrase(gw, now) {
@@ -392,7 +418,7 @@ function insidePhrase(gw) {
 export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
   const out = []
   if (!gw) return out
-  out.push({ text: gw.version || 'version unknown', tone: 'plain' })
+  out.push({ text: versionWords(gw.version) || 'version unknown', tone: 'plain' })
   const seen = secondsSince(gw.last_seen_at, now)
   if (seen === null) out.push({ text: 'never seen', tone: 'warning' })
   else if (seen < 5) out.push({ text: 'seen just now', tone: 'plain' })
@@ -428,7 +454,7 @@ export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
     out.push({ text: gw.platform === 'container' ? `${v} is available: pull the image` : `${v} is available`, tone: 'warning' })
   } else if (update.startsWith('failed:')) {
     const [, v, ...why] = update.split(':')
-    out.push({ text: `update to ${versionOr(v, 'a new version')} failed (${theGatewaySays(why.join(':'))}); running ${gw.version}`, tone: 'warning' })
+    out.push({ text: `update to ${versionOr(v, 'a new version')} failed (${theGatewaySays(why.join(':'))}); running ${versionWords(gw.version) || 'an unknown version'}`, tone: 'warning' })
   }
   if (health.minimum_version_ok === false) {
     out.push({ text: 'below the minimum version: the outside door stays closed until it is updated', tone: 'warning' })
@@ -503,9 +529,14 @@ export function reachSentence(result, gw, { now = Date.now() } = {}) {
     default:
       text = 'The check did not finish. Try again in a moment.'
   }
+  // Round 2, finding 4: red only for the inside door's own signature (it
+  // closes a public peer at once); something else answering on that port
+  // (a tunnel's edge accepts 8443) is said plainly, and is not an error.
   const inside = result?.inside_answered
     ? { text: `Your inside door (port ${insidePort}) answers from the internet. Remove that forward: only port ${port} should be open.`, tone: 'error' }
-    : null
+    : result?.inside_other
+      ? { text: `Something else answers on port ${insidePort} at that address, not the gateway's office door (a tunnel's own edge does). Nothing to change unless you forwarded that port yourself.`, tone: 'plain' }
+      : null
   return { text, tone, inside }
 }
 
@@ -516,16 +547,23 @@ const AUDIT_WORDS = {
   'remote_viewing.off': () => 'turned viewing from outside the office off',
   'gateway.token_made': () => 'made a gateway enrolment token',
   'gateway.token_cancelled': () => 'cancelled a gateway enrolment token',
-  'gateway.enrolled': (d, g) => `enrolled ${g || d.name || 'a gateway'}${d.platform ? ` (${d.platform === 'container' ? 'a container' : 'Windows'}${d.version ? `, ${d.version}` : ''})` : ''}`,
-  'gateway.root_confirmed': (d, g) => `confirmed the certificate fingerprint of ${g || 'a gateway'}`,
-  'gateway.renamed': (d) => `renamed ${d.from || 'a gateway'} to ${d.to || 'a new name'}`,
-  'gateway.outside_address_changed': (d, g) => (d.to ? `set ${g || 'a gateway'}'s outside address to ${formatAddress(d.to)}` : `took ${g || 'a gateway'}'s outside address away`),
-  'gateway.office_ranges_changed': (d, g) => `set ${g || 'a gateway'}'s office ranges to ${(Array.isArray(d.to) && d.to.length ? d.to.join(', ') : 'none')}`,
-  'gateway.forgotten': (d, g) => `forgot ${g || d.name || 'a gateway'}`,
-  'gateway.forget_undone': (d, g) => `undid forgetting ${g || 'a gateway'}`,
-  'gateway.revoked': (d, g) => `${g || 'a gateway'}'s credential was deleted: the forget is final`,
-  'gateway.reach_checked': (d, g) => `checked whether ${g || 'a gateway'} is reachable from outside: ${humanize(d?.outside?.detail || 'done')}${d?.inside_answered ? '; the inside door answered' : ''}`,
-  'gateway.update_failed': (d, g) => `${g || 'a gateway'} could not update (${humanize(String(d.update || 'unknown').replace(/^failed:/, ''))})`,
+  'gateway.enrolled': (d, g) => `enrolled ${named(g || d.name)}${d.platform ? ` (${d.platform === 'container' ? 'a container' : 'Windows'}${versionWords(d.version) ? `, ${versionWords(d.version)}` : ''})` : ''}`,
+  'gateway.root_confirmed': (d, g) => `confirmed the certificate fingerprint of ${named(g)}`,
+  'gateway.renamed': (d) => `renamed ${named(d.from)} to ${d.to ? named(d.to) : 'a new name'}`,
+  // (No possessive after a quoted name: "“Salt Hours NAS”'s" reads badly.)
+  'gateway.outside_address_changed': (d, g) => (d.to ? `set the outside address of ${named(g)} to ${formatAddress(d.to)}` : `took away the outside address of ${named(g)}`),
+  'gateway.office_ranges_changed': (d, g) => `set the office ranges of ${named(g)} to ${(Array.isArray(d.to) && d.to.length ? d.to.join(', ') : 'none')}`,
+  'gateway.forgotten': (d, g) => `forgot ${named(g || d.name)}`,
+  'gateway.forget_undone': (d, g) => `undid forgetting ${named(g)}`,
+  'gateway.revoked': (d, g) => `the credential of ${named(g)} was deleted: the forget is final`,
+  'gateway.reach_checked': (d, g) => `checked whether ${named(g)} is reachable from outside: ${humanize(d?.outside?.detail || 'done')}${d?.inside_answered ? '; the inside door answered' : d?.inside_other ? '; something else answered on the inside port' : ''}`,
+  // Round 2, finding 2: the failure's reason is the gateway's word, quoted
+  // as the health line quotes it; a version that is not one is not repeated.
+  'gateway.update_failed': (d, g) => {
+    const [, v, ...why] = String(d.update || 'failed:').split(':')
+    return `${named(g)} could not update to ${versionOr(v, 'a new version')} (${theGatewaySays(why.join(':'))})`
+  },
+  'gateway.keys_rotated': () => 'rotated the ticket keys: new tickets are signed with a new key',
 }
 
 const NO_ACTOR = new Set(['gateway.revoked', 'gateway.update_failed'])

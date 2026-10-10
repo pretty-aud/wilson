@@ -180,6 +180,32 @@ try {
   await must(page.getByTestId('bin-remote-views'), 'the inspector line');
   await page.getByTestId('bin-remote-views').scrollIntoViewIfNeeded();
   await shot('bins-inspector-line');
+
+  // ── B again, after GW1's review round 2: a tunnel's edge on the inside
+  //    port, and Rotate the ticket keys. Last, so the earlier pictures keep
+  //    their numbers. (A fresh page: the switch is off again.)
+  await openSettings();
+  const sw2 = page.getByRole('switch', { name: 'Allow files to be viewed from outside the office network' });
+  await sw2.scrollIntoViewIfNeeded();
+  await click(sw2, 'the switch');
+  await sleep(400);
+  await top(row());
+  await click(button('Set', row()), 'Set the outside address');
+  await row().getByLabel('Outside address').fill('tunnel.lanternash.com:443');
+  await click(button('Save', row()), 'Save the address');
+  await click(button('Check reach', row()), 'Check reach, behind a tunnel');
+  await must(row().getByText(/^Something else answers on port 8443 at that address/), 'the tunnel edge line');
+  await must(row().getByText('It works: play a clip from outside.'), 'It works, beside it');
+  await top(row());
+  await shot('reach-tunnel-edge');
+
+  await click(button('Rotate the ticket keys'), 'Rotate the ticket keys');
+  await must(page.getByRole('dialog', { name: 'Rotate the ticket keys' }), 'the Rotate question');
+  await shot('rotate-question');
+  await click(page.getByRole('dialog').getByRole('button', { name: 'Rotate', exact: true }), 'Rotate, in the dialog');
+  await must(card().getByText(/^Rotated: new tickets are signed with a new key/), 'the rotated line');
+  await top(card().getByText('Ticket keys', { exact: true }));
+  await shot('ticket-keys-rotated');
 } finally {
   await browser.close();
 }

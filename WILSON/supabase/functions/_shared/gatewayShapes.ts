@@ -20,7 +20,23 @@
 import { CREDENTIAL_RE, ENROL_TOKEN_RE, UUID_RE, bearerOf } from './gatewayWire.ts'
 
 export const PLATFORMS = ['windows', 'container'] as const
-export const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+/
+// A version is a version (GW1 review round 2, finding 2): major.minor.patch
+// and at most a pre-release or build tail — never words after it, which the
+// card would set first on the health line, in WILSON's voice. The same
+// shape as 0093's gateways_version_chk.
+export const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]{1,40})?$/
+
+// A gateway's name as people read it (GW1 review round 2, finding 2; 0093's
+// gateway_clean_name, restated): control characters as spaces; the
+// zero-width, bidi and BOM characters dropped; white space collapsed;
+// trimmed; 80 characters at most. The gateway chooses its name, and the
+// name is set in sentences an admin acts on.
+const NAME_CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
+const NAME_INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+export function cleanGatewayName(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  return raw.replace(NAME_CONTROL, ' ').replace(NAME_INVISIBLE, '').replace(/\s+/g, ' ').trim().slice(0, 80).trim()
+}
 export const REACH_STATES = ['reachable', 'not_reachable', 'not_mounted', 'not_connected'] as const
 export const MAX_TICKET_IDS = 50
 export const MAX_CONFIRM = 100
@@ -209,12 +225,11 @@ export function parseEnrolRequest(authorization: string | null, raw: unknown): {
   }
   const version = firstString(body, ['version'])
   if (!version || !VERSION_RE.test(version) || version.length > 64) {
-    return refuse(400, 'bad_version', 'version must start with major.minor.patch, like 1.0.0.')
+    return refuse(400, 'bad_version', 'version must be major.minor.patch, like 1.0.0, with at most a -beta.1 or +build tail.')
   }
   const hostnameRaw = firstString(body, ['hostname', 'host_name'])
   const hostname = hostnameRaw ? hostnameRaw.trim().slice(0, 255) : null
-  const nameRaw = (firstString(body, ['name']) ?? hostname ?? '').trim()
-  const name = (nameRaw || 'Gateway').slice(0, 80)
+  const name = cleanGatewayName(firstString(body, ['name']) ?? hostname ?? '') || 'Gateway'
   const pem = firstString(body, ['root_cert_pem', 'root_certificate', 'root_pem', 'root'])
   if (!isSingleCertificatePem(pem)) {
     return refuse(400, 'bad_certificate', "root_cert_pem must be exactly one PEM certificate (the root's PUBLIC certificate, never its key).")
@@ -296,8 +311,8 @@ export function parseSyncRequest(raw: unknown): { ok: true; report: SyncReport; 
     minimum_version_ok: typeof h.minimum_version_ok === 'boolean' ? h.minimum_version_ok : null,
   }
   const report: SyncReport = {
-    name: shortString(raw.name, 80) ?? null,
-    version: typeof raw.version === 'string' && VERSION_RE.test(raw.version) ? raw.version.slice(0, 64) : null,
+    name: cleanGatewayName(raw.name) || null,
+    version: typeof raw.version === 'string' && raw.version.length <= 64 && VERSION_RE.test(raw.version) ? raw.version : null,
     hostname: shortString(raw.hostname, 255) ?? null,
     reach,
     health,

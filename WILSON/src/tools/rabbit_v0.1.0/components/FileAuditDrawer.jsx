@@ -65,7 +65,7 @@ import { useRabbit } from '../state/RabbitProvider'
 import { formatHistoryTimestamp } from './editHistoryFormat'
 // GW1: a viewing from outside says how much, from where and through which
 // gateway in the Settings table's own words (one module, so they agree).
-import { howMuchWords, whereWords } from '../../../components/settings/gatewayWords'
+import { gatewayNameWords, howMuchWords, whereWords } from '../../../components/settings/gatewayWords'
 
 // `tone` is the badge's place in the colour language, read by the sheet
 // (`data-tone`): create | change | destroy | read.
@@ -104,7 +104,9 @@ function eventSubject(evt) {
 
 /** A viewing from outside, in words: through which gateway, from where, how much. */
 function viewingLine(details = {}) {
-  const through = details.gateway_name ? `Through ${details.gateway_name}, from ` : 'From '
+  // GW1 review round 2, finding 2: the gateway chose its name; it is shown
+  // as words (no control, invisible or direction-changing character).
+  const through = details.gateway_name ? `Through ${gatewayNameWords(details.gateway_name)}, from ` : 'From '
   // R4; GW1 review round 1, finding 2: a viewing no ticket on record matches
   // is the gateway's word, and says so here as it does in Settings.
   const word = details.unverified_mint ? " · no matching ticket on record: the gateway's word" : ''

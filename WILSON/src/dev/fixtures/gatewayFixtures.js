@@ -23,9 +23,14 @@
 //     and the one that appears is a NAS; otherwise it is a Windows PC.
 //   * CHECK REACH. No knock leaves this computer. The answer is §4's, chosen
 //     by the address: a name whose first label is `timeout`, `refused`,
-//     `other`, `selfsigned` or `inside` answers that case; anything else is
-//     reached while the switch is on, and switch-off's refusal while it is
-//     off. A second and a half of "Checking…" first, so the wait is seen.
+//     `other`, `selfsigned`, `inside` or `tunnel` answers that case (`tunnel`:
+//     reached, and something else on the inside port — a tunnel's edge; GW1
+//     review round 2, finding 4); anything else is reached while the switch
+//     is on, and switch-off's refusal while it is off. A second and a half
+//     of "Checking…" first, so the wait is seen.
+//
+// Rotate the ticket keys (review round 2, finding 6) is the database's rule
+// only (a live admin; written down): the fixtures sign no ticket.
 // =============================================================================
 
 import { clone } from './store'
@@ -281,6 +286,13 @@ export function createGatewayFixtures(store, identity, {
       return yes(g.update_check_requested_at)
     },
 
+    async rotateTicketKeys() {
+      if (!isAdmin()) return no('42501', SENT.admin)
+      const at = new Date(clock()).toISOString()
+      audit('gateway.keys_rotated', null, { retired: 1 })
+      return yes({ retired: 1, at })
+    },
+
     async checkGatewayReach(gatewayId) {
       if (!isAdmin()) return no('forbidden', 'Only a workspace admin can check whether the gateway is reachable from outside.', 403)
       const g = liveOne(gatewayId)
@@ -299,7 +311,7 @@ export function createGatewayFixtures(store, identity, {
         || (switchOn()
           ? { ok: true, detail: 'reached', ms: 143, certificate: 'ok', is_this_gateway: true }
           : { ok: false, detail: 'switch_off', ms: 4, certificate: 'unknown', is_this_gateway: false })
-      const result = { outside: { ...outside, method: 'literal_tls' }, inside_answered: first === 'inside' }
+      const result = { outside: { ...outside, method: 'literal_tls' }, inside_answered: first === 'inside', inside_other: first === 'tunnel' }
       const checkedAt = new Date(clock()).toISOString()
       // The answer belongs to the address it probed; a change meanwhile wins.
       if (JSON.stringify(g.outside_address) === JSON.stringify(address) && !g.revoked_at) {

@@ -40,7 +40,8 @@
 --      audit trigger on workspaces.remote_viewing_enabled
 --   5. public.gateways — one row per enrolled gateway; admins read and write
 --      three columns; members read gateways_visible instead
---   6. public.gateway_secrets — the credential's SHA-256, service role only
+--   6. public.gateway_secrets — the credential's SHA-256 and the reach key,
+--      service role only
 --   7. public.gateway_enrolment_tokens — 24 h, single use, admins see and
 --      cancel them; the token itself is never stored
 --   8. public.gateway_signing_keys — the cloud's Ed25519 keys per workspace,
@@ -51,7 +52,8 @@
 --  11. gateway_clips_for_tickets(p_ids) — the read gate, as the caller
 --  12. gateways_visible — the definer view a browser reads
 --  13. the admin's RPCs (make a token, confirm the fingerprint, download the
---      certificate, forget and undo, ask for an update check)
+--      certificate, forget and undo, ask for an update check, rotate the
+--      ticket keys)
 --  14. the service role's RPCs behind the five Edge Functions (enrol, sync,
 --      events, the signing key, the reach check)
 --  15. the sweep, scheduled every five minutes
@@ -84,9 +86,20 @@
 --   * The root certificate is NOT readable by a column grant: an admin
 --     downloads it through gateway_root_certificate(), which refuses until
 --     the fingerprint is confirmed (D25 in the database, not only the UI).
---   * workspace_audit has three actions Appendix B's list lacked:
+--   * workspace_audit has four actions Appendix B's list lacked:
 --     gateway.outside_address_changed (§10 row 23 requires the row),
---     gateway.root_confirmed and gateway.forget_undone.
+--     gateway.root_confirmed, gateway.forget_undone and gateway.keys_rotated.
+--   * GW1's two review rounds changed what the design's text predates (its
+--     review history says each): the reach check is proved, not echoed —
+--     nonce_proof, an HMAC keyed by a reach key of its own
+--     (gateway_secrets.reach_key = SHA-256 of 'wilson-reach-key:' and the
+--     credential, set at enrolment), never by the credential's hash, which
+--     every gateway call looks up in a request URL; a ticket vouches for a
+--     viewing only inside its stream's life and for 250 rows; a check that
+--     could not run leaves reach_ok as it was, and an automatic check knocks
+--     one sync after its nonce went out; a gateway's name is cleaned of
+--     control and direction characters and its version is a version; an
+--     admin rotates the ticket keys (gateway_rotate_signing_key, §5).
 --   * Forget is undoable for one minute: it sets revoked_at at once (every
 --     function refuses the gateway from that instant); the credential's row
 --     is deleted by the sweep once the minute has passed ('gateway.revoked').
@@ -450,6 +463,26 @@ BEGIN
 END;
 $$;
 
+-- 2g. A gateway's name as people read it (GW1 review round 2, finding 2).
+--     The gateway proposes its own name at enrolment and the name is set in
+--     sentences an admin acts on (the new-gateway notice, Forget's question,
+--     the viewings), so it may not reorder or hide what is around it:
+--     control characters become spaces; the invisible and direction-
+--     changing ones (zero-width, the bidi embeddings, overrides and
+--     isolates, the BOM) are dropped; runs of white space become one;
+--     trimmed; 80 characters at most. The gateways CHECK holds every name
+--     to its own cleaned form, and the enrolment and the client guard clean
+--     what they write.
+CREATE OR REPLACE FUNCTION public.gateway_clean_name(p TEXT)
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE SET search_path = public
+AS $$
+  SELECT btrim(left(btrim(regexp_replace(regexp_replace(regexp_replace(COALESCE(p, ''),
+           '[\u0001-\u001f\u007f-\u009f\u2028\u2029]', ' ', 'g'),
+           '[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]', '', 'g'),
+           '[[:space:]]+', ' ', 'g')), 80));
+$$;
+
 REVOKE ALL ON FUNCTION public.gateway_office_ranges_ok(JSONB) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_is_public_ip(INET) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_outside_address_ok(JSONB) FROM PUBLIC, anon;
@@ -457,6 +490,7 @@ REVOKE ALL ON FUNCTION public.gateway_inside_host_ok(TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_inside_addresses_ok(JSONB) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_pem_fingerprint(TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_clean_inside_addresses(JSONB) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.gateway_clean_name(TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.gateway_office_ranges_ok(JSONB) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_is_public_ip(INET) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_outside_address_ok(JSONB) TO authenticated, service_role;
@@ -464,6 +498,7 @@ GRANT EXECUTE ON FUNCTION public.gateway_inside_host_ok(TEXT) TO authenticated, 
 GRANT EXECUTE ON FUNCTION public.gateway_inside_addresses_ok(JSONB) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_pem_fingerprint(TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_clean_inside_addresses(JSONB) TO service_role;
+GRANT EXECUTE ON FUNCTION public.gateway_clean_name(TEXT) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.gateway_office_ranges_ok(JSONB) IS
   '0093 (D21): the office ranges an admin declares — at most eight canonical CIDRs, each private (10/8, 172.16/12, 192.168/16, fc00::/7) and no wider than a /16 (IPv4) or a /48 (IPv6), no duplicates. False, never an error, for anything else. The CHECK on gateways.office_ranges.';
@@ -477,6 +512,8 @@ COMMENT ON FUNCTION public.gateway_inside_addresses_ok(JSONB) IS
   '0093: at most sixteen { host, port } objects, each host passing gateway_inside_host_ok. The CHECK on gateways.inside_addresses.';
 COMMENT ON FUNCTION public.gateway_clean_inside_addresses(JSONB) IS
   '0093: the inside addresses a gateway reported, filtered to what gateway_inside_host_ok admits (names lower-cased, ports 1–65535, no duplicates, sixteen at most) — an odd entry is dropped, never fatal. Used by gateway_enrol_apply and gateway_sync_apply.';
+COMMENT ON FUNCTION public.gateway_clean_name(TEXT) IS
+  '0093 (GW1 review round 2): a gateway''s name as people read it — control characters as spaces, the zero-width, bidi and BOM characters dropped, white space collapsed, trimmed, 80 characters at most. The gateways CHECK holds every name to its cleaned form.';
 COMMENT ON FUNCTION public.gateway_pem_fingerprint(TEXT) IS
   '0093 (D25): SHA-256 of the DER of exactly one PEM certificate block, lower-case hex; NULL for anything else (a private key, two blocks, a body that is not a DER SEQUENCE). The fingerprint an admin confirms is computed from the stored PEM, never taken from the gateway''s word.';
 
@@ -500,18 +537,22 @@ CREATE TABLE IF NOT EXISTS public.workspace_audit (
   details        JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  CONSTRAINT workspace_audit_action_chk CHECK (action IN (
-    'remote_viewing.on', 'remote_viewing.off',
-    'gateway.enrolled', 'gateway.renamed', 'gateway.forgotten', 'gateway.forget_undone',
-    'gateway.revoked', 'gateway.token_made', 'gateway.token_cancelled',
-    'gateway.root_confirmed', 'gateway.reach_checked', 'gateway.outside_address_changed',
-    'gateway.office_ranges_changed', 'gateway.update_failed')),
   CONSTRAINT workspace_audit_details_chk CHECK (
     jsonb_typeof(details) = 'object' AND char_length(details::text) <= 4000),
   CONSTRAINT workspace_audit_actor_label_chk CHECK (actor_label IS NULL OR char_length(actor_label) <= 200)
 );
 
 CREATE INDEX IF NOT EXISTS workspace_audit_workspace_idx ON public.workspace_audit (workspace_id, created_at DESC);
+
+-- The vocabulary, dropped and added (GW1 review round 2 added
+-- gateway.keys_rotated, and wilson-dev holds an earlier list).
+ALTER TABLE public.workspace_audit DROP CONSTRAINT IF EXISTS workspace_audit_action_chk;
+ALTER TABLE public.workspace_audit ADD CONSTRAINT workspace_audit_action_chk CHECK (action IN (
+    'remote_viewing.on', 'remote_viewing.off',
+    'gateway.enrolled', 'gateway.renamed', 'gateway.forgotten', 'gateway.forget_undone',
+    'gateway.revoked', 'gateway.token_made', 'gateway.token_cancelled',
+    'gateway.root_confirmed', 'gateway.reach_checked', 'gateway.outside_address_changed',
+    'gateway.office_ranges_changed', 'gateway.update_failed', 'gateway.keys_rotated'));
 
 COMMENT ON TABLE public.workspace_audit IS
   '0093: the company''s own audit — the remote-viewing switch (remote_viewing.on / .off, with who) and the file gateway''s lifecycle (enrolled, renamed, outside address changed, office ranges changed, root confirmed, forgotten and undone, revoked, tokens made and cancelled, reach checked, update failed). Read by a LIVE workspace admin only (is_live_workspace_admin); written only by triggers, SECURITY DEFINER RPCs and the gateway functions. No FK: rows outlive the workspace.';
@@ -645,6 +686,7 @@ CREATE TABLE IF NOT EXISTS public.gateways (
   reach_nonce                TEXT,
   reach_nonce_at             TIMESTAMPTZ,
   reach_nonce_delivered_at   TIMESTAMPTZ,
+  reach_check_auto           BOOLEAN NOT NULL DEFAULT false,
   last_sync_source           INET,
   update_check_requested_at  TIMESTAMPTZ,
   update_check_delivered_at  TIMESTAMPTZ,
@@ -655,9 +697,7 @@ CREATE TABLE IF NOT EXISTS public.gateways (
   revoked_by                 UUID,
 
   CONSTRAINT gateways_id_workspace_key UNIQUE (id, workspace_id),
-  CONSTRAINT gateways_name_chk CHECK (char_length(btrim(name)) BETWEEN 1 AND 80),
   CONSTRAINT gateways_platform_chk CHECK (platform IN ('windows', 'container')),
-  CONSTRAINT gateways_version_chk CHECK (version ~ '^[0-9]+\.[0-9]+\.[0-9]+' AND char_length(version) <= 64),
   CONSTRAINT gateways_hostname_chk CHECK (hostname IS NULL OR char_length(hostname) <= 255),
   CONSTRAINT gateways_inside_addresses_chk CHECK (public.gateway_inside_addresses_ok(inside_addresses)),
   CONSTRAINT gateways_outside_address_chk CHECK (outside_address IS NULL OR public.gateway_outside_address_ok(outside_address)),
@@ -675,6 +715,19 @@ CREATE TABLE IF NOT EXISTS public.gateways (
 
 CREATE INDEX IF NOT EXISTS gateways_workspace_idx ON public.gateways (workspace_id) WHERE revoked_at IS NULL;
 
+-- GW1 review round 2 changed three things on a table wilson-dev already
+-- holds, so each is made here in a form that runs on a fresh database and
+-- on dev's: the automatic check's mark (finding 8), the name held to its
+-- cleaned form and the version to a version's shape (finding 2: the
+-- gateway chooses both, and both are shown in sentences).
+ALTER TABLE public.gateways ADD COLUMN IF NOT EXISTS reach_check_auto BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.gateways DROP CONSTRAINT IF EXISTS gateways_name_chk;
+ALTER TABLE public.gateways ADD CONSTRAINT gateways_name_chk
+  CHECK (char_length(name) BETWEEN 1 AND 80 AND name = public.gateway_clean_name(name));
+ALTER TABLE public.gateways DROP CONSTRAINT IF EXISTS gateways_version_chk;
+ALTER TABLE public.gateways ADD CONSTRAINT gateways_version_chk
+  CHECK (version ~ '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]{1,40})?$' AND char_length(version) <= 64);
+
 COMMENT ON TABLE public.gateways IS
   '0093: one row per enrolled file gateway (GATEWAY_DESIGN.md §2). Read by a LIVE workspace admin (the column grants leave out the root certificate, which gateway_root_certificate() serves after the fingerprint is confirmed, and the reach nonce, which only the service role reads); an admin changes name, outside_address and office_ranges only; members read gateways_visible instead. Created by gateway-enrol and refreshed by gateway-sync (service role); revoked by gateway_forget.';
 COMMENT ON COLUMN public.gateways.inside_addresses IS
@@ -688,7 +741,9 @@ COMMENT ON COLUMN public.gateways.root_confirmed_at IS
 COMMENT ON COLUMN public.gateways.last_sync_source IS
   'The company''s public address as the cloud saw the last sync. A sync from another address clears reach_ok and queues a reach check (review round 2, R6).';
 COMMENT ON COLUMN public.gateways.reach_nonce IS
-  'The running reach check''s nonce (32 hex), handed to the gateway at its next sync and echoed back on /v1/health only by the enrolled gateway. Service role only; cleared when the check finishes.';
+  'The running reach check''s nonce (32 hex), handed to the gateway at every sync while the check runs; only the enrolled gateway can answer /v1/health with its proof (nonce_proof, an HMAC keyed by gateway_secrets.reach_key; GW1 review round 1). Service role only; cleared when the check finishes.';
+COMMENT ON COLUMN public.gateways.reach_check_auto IS
+  'True while the running check is the cloud''s own (daily, the switch, a changed source): gateway_sync_apply hands it to gateway-sync to probe at the sync AFTER the one whose answer first carried the nonce (GW1 review round 2, finding 8). False for an admin''s check, which gateway-reach probes itself.';
 
 -- 5a. The client guard: a client changes three columns, nothing else; a new
 --     outside address clears the reach state. Not SECURITY DEFINER, so
@@ -706,7 +761,8 @@ BEGIN
         USING ERRCODE = '42501';
     END IF;
   END IF;
-  NEW.name := btrim(NEW.name);
+  -- The name as people read it (GW1 review round 2, finding 2).
+  NEW.name := public.gateway_clean_name(NEW.name);
   IF NEW.outside_address IS DISTINCT FROM OLD.outside_address THEN
     -- reach_checked_at too: the last check was of ANOTHER address, and a
     -- NULL here is what makes the next sync begin a check at once
@@ -719,6 +775,7 @@ BEGIN
     NEW.reach_nonce := NULL;
     NEW.reach_nonce_at := NULL;
     NEW.reach_nonce_delivered_at := NULL;
+    NEW.reach_check_auto := false;
   END IF;
   RETURN NEW;
 END;
@@ -815,7 +872,7 @@ COMMENT ON POLICY gateways_update ON public.gateways IS
 
 
 -- =============================================================================
--- 6. gateway_secrets — the credential's hash, service role only
+-- 6. gateway_secrets — the credential's hash and the reach key, service role only
 -- =============================================================================
 -- The workspace_storage_secrets shape: RLS on, no policy, no client grant.
 -- The credential itself (wgc_ + 43 base64url) is returned once by
@@ -830,7 +887,23 @@ CREATE TABLE IF NOT EXISTS public.gateway_secrets (
 );
 
 COMMENT ON TABLE public.gateway_secrets IS
-  '0093: one row per gateway — SHA-256 (hex) of its credential (wgc_…), the only proof a gateway call carries. Service role only: RLS enabled and forced, no policy, no client grant. Deleted by gateway_sweep a minute after Forget (gateway.revoked).';
+  '0093: one row per gateway — SHA-256 (hex) of its credential (wgc_…), the only proof a gateway call carries, and its reach key. Service role only: RLS enabled and forced, no policy, no client grant. Deleted by gateway_sweep a minute after Forget (gateway.revoked).';
+
+-- The reach key (GW1 review round 2, finding 1): the reach check's proof is
+-- an HMAC keyed by THIS, never by credential_hash. credential_hash is the
+-- lookup key every gateway call sends as a request-URL filter, which the
+-- platform's request logs keep; a key it is looked up by must not also be
+-- a key that proves "this is your gateway". The gateway derives the same
+-- value from its credential (SHA-256 of 'wilson-reach-key:' and the
+-- credential, lower-case hex); the cloud is handed it once, at enrolment,
+-- and never sends it anywhere. A gateway enrolled before this column has
+-- none: its checks read "not your gateway" until it is enrolled again.
+ALTER TABLE public.gateway_secrets ADD COLUMN IF NOT EXISTS reach_key TEXT;
+ALTER TABLE public.gateway_secrets DROP CONSTRAINT IF EXISTS gateway_secrets_reach_key_chk;
+ALTER TABLE public.gateway_secrets ADD CONSTRAINT gateway_secrets_reach_key_chk
+  CHECK (reach_key IS NULL OR reach_key ~ '^[0-9a-f]{64}$');
+COMMENT ON COLUMN public.gateway_secrets.reach_key IS
+  'SHA-256 (lower-case hex) of ''wilson-reach-key:'' and the credential: the key of the reach check''s nonce_proof (GW1 review round 2). Set by gateway_enrol_apply; read by gateway-reach and gateway-sync by gateway_id, never in a URL.';
 
 ALTER TABLE public.gateway_secrets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.gateway_secrets FORCE  ROW LEVEL SECURITY;
@@ -1060,6 +1133,10 @@ ALTER TABLE public.file_events
 
 CREATE UNIQUE INDEX IF NOT EXISTS file_events_external_id_key
   ON public.file_events (external_id) WHERE external_id IS NOT NULL;
+-- The rows one ticket vouches for, counted by gateway_events_apply (GW1
+-- review round 2, finding 3).
+CREATE INDEX IF NOT EXISTS file_events_viewed_remote_jti
+  ON public.file_events ((details ->> 'ticket_jti')) WHERE event = 'viewed_remote';
 CREATE INDEX IF NOT EXISTS file_events_viewed_remote_idx
   ON public.file_events (workspace_id, created_at DESC) WHERE event = 'viewed_remote';
 CREATE INDEX IF NOT EXISTS file_events_viewed_remote_file_idx
@@ -1389,18 +1466,47 @@ BEGIN
 END;
 $$;
 
+-- 13f. Rotate the ticket keys (§5 step 4, §10 row 21; GW1 review round 2,
+--      finding 6): the company's current signing key is retired now; the
+--      next ticket is signed with a new one (gateway-ticket makes it), and
+--      the retired key is still handed to the gateways for ten minutes, so
+--      a ticket minted a moment ago still plays. Under the key's own lock,
+--      so it cannot race a key being made. Written down.
+CREATE OR REPLACE FUNCTION public.gateway_rotate_signing_key()
+RETURNS JSONB
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_ws    UUID := public.fn_gateway_require_admin();
+  v_n     INT;
+  v_label TEXT;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('gateway_signing_keys:' || v_ws::text, 0));
+  UPDATE public.gateway_signing_keys SET retired_at = now()
+   WHERE workspace_id = v_ws AND retired_at IS NULL;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  SELECT COALESCE(wm.display_name, wm.username) INTO v_label
+    FROM public.workspace_members wm WHERE wm.workspace_id = v_ws AND wm.user_id = auth.uid();
+  INSERT INTO public.workspace_audit (workspace_id, action, actor_user_id, actor_label, details)
+  VALUES (v_ws, 'gateway.keys_rotated', auth.uid(), left(v_label, 200), jsonb_build_object('retired', v_n));
+  RETURN jsonb_build_object('retired', v_n, 'at', now());
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.gateway_make_enrolment_token() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_confirm_root(UUID, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_root_certificate(UUID) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_forget(UUID) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_unforget(UUID) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.gateway_request_update_check(UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.gateway_rotate_signing_key() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.gateway_make_enrolment_token() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gateway_confirm_root(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gateway_root_certificate(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gateway_forget(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gateway_unforget(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.gateway_request_update_check(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.gateway_rotate_signing_key() TO authenticated;
 
 COMMENT ON FUNCTION public.gateway_make_enrolment_token() IS
   '0093 (§2 step 1): a LIVE admin makes an enrolment token — wgt_ + 32 base32 characters (160 bits from pgcrypto), answered ONCE with its id and expiry; only its SHA-256 is stored; at most five pending per company; written to workspace_audit (gateway.token_made).';
@@ -1414,6 +1520,8 @@ COMMENT ON FUNCTION public.gateway_unforget(UUID) IS
   '0093: undoes Forget within 60 seconds, while the credential''s row still exists; 55000 after.';
 COMMENT ON FUNCTION public.gateway_request_update_check(UUID) IS
   '0093 (§8): Check now — the gateway is told check_update_now at its next sync.';
+COMMENT ON FUNCTION public.gateway_rotate_signing_key() IS
+  '0093 (§5, §10 row 21; GW1 review round 2): Rotate the ticket keys — a LIVE admin retires the company''s current signing key; the next ticket is signed with a new one, the retired key is handed to gateways for ten more minutes; written to workspace_audit (gateway.keys_rotated). Answers {retired, at}.';
 
 
 -- =============================================================================
@@ -1428,9 +1536,12 @@ COMMENT ON FUNCTION public.gateway_request_update_check(UUID) IS
 -- audit's attributions).
 
 -- 14a. gateway-enrol: spend the token in ONE statement (F14), create the
---      gateway, store the credential's hash, write the audit row.
+--      gateway, store the credential's hash and the reach key, write the
+--      audit row. (GW1 review round 2 added p_reach_key; the earlier
+--      signature is dropped so no caller can enrol without one.)
+DROP FUNCTION IF EXISTS public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET);
 CREATE OR REPLACE FUNCTION public.gateway_enrol_apply(
-  p_token_hash TEXT, p_credential_hash TEXT, p_gateway JSONB, p_source INET)
+  p_token_hash TEXT, p_credential_hash TEXT, p_gateway JSONB, p_source INET, p_reach_key TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
@@ -1443,6 +1554,7 @@ DECLARE
   v_pem     TEXT := p_gateway ->> 'root_cert_pem';
 BEGIN
   IF p_token_hash !~ '^[0-9a-f]{64}$' OR p_credential_hash !~ '^[0-9a-f]{64}$'
+     OR p_reach_key IS NULL OR p_reach_key !~ '^[0-9a-f]{64}$' OR p_reach_key = p_credential_hash
      OR p_gateway IS NULL OR jsonb_typeof(p_gateway) <> 'object' THEN
     RAISE EXCEPTION 'gateway_enrol_apply: malformed arguments' USING ERRCODE = '22023';
   END IF;
@@ -1466,7 +1578,7 @@ BEGIN
     RAISE EXCEPTION 'This company already has ten gateways. Forget one before enrolling another.'
       USING ERRCODE = '54000';
   END IF;
-  v_name := left(btrim(COALESCE(p_gateway ->> 'name', '')), 80);
+  v_name := public.gateway_clean_name(p_gateway ->> 'name');
   IF v_name = '' THEN v_name := 'Gateway'; END IF;
   INSERT INTO public.gateways (workspace_id, name, platform, version, hostname, inside_addresses,
                                root_cert_pem, root_fingerprint, created_by, last_seen_at, last_sync_source)
@@ -1477,7 +1589,7 @@ BEGIN
           v_tok.created_by, now(), p_source)
   RETURNING public.gateways.id INTO v_id;
   UPDATE public.gateway_enrolment_tokens SET gateway_id = v_id WHERE public.gateway_enrolment_tokens.id = v_tok.id;
-  INSERT INTO public.gateway_secrets (gateway_id, credential_hash) VALUES (v_id, p_credential_hash);
+  INSERT INTO public.gateway_secrets (gateway_id, credential_hash, reach_key) VALUES (v_id, p_credential_hash, p_reach_key);
   SELECT COALESCE(wm.display_name, wm.username) INTO v_label
     FROM public.workspace_members wm WHERE wm.workspace_id = v_tok.workspace_id AND wm.user_id = v_tok.created_by;
   INSERT INTO public.workspace_audit (workspace_id, action, actor_user_id, actor_label, gateway_id, details)
@@ -1555,7 +1667,7 @@ BEGIN
 
   UPDATE public.gateways SET
     last_seen_at     = now(),
-    version          = CASE WHEN (p_report ->> 'version') ~ '^[0-9]+\.[0-9]+\.[0-9]+'
+    version          = CASE WHEN (p_report ->> 'version') ~ '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]{1,40})?$'
                                  AND char_length(p_report ->> 'version') <= 64
                             THEN p_report ->> 'version' ELSE public.gateways.version END,
     hostname         = COALESCE(left(p_report ->> 'hostname', 255), public.gateways.hostname),
@@ -1575,14 +1687,24 @@ BEGIN
   END IF;
 
   -- The reach check (§4; R16: one at a time). A waiting nonce is handed over
-  -- now; otherwise a check is begun HERE when one is due, its nonce in this
-  -- very answer, and the function probes once the gateway holds it.
+  -- now (and at every sync while the check runs); otherwise a check is begun
+  -- HERE when one is due, its nonce in this very answer. An automatic check
+  -- is knocked on at the NEXT sync, not this one (GW1 review round 2,
+  -- finding 8): by then the gateway has had this answer, so one answer lost
+  -- on the way cannot read as "not your gateway" and withdraw the address.
   v_running := g.reach_check_id IS NOT NULL AND g.reach_nonce_at > now() - interval '2 minutes';
   v_throttled := g.reach_nonce_at IS NOT NULL AND g.reach_nonce_at > now() - interval '10 minutes';
   IF v_running THEN
     IF g.reach_nonce_delivered_at IS NULL THEN
       UPDATE public.gateways SET reach_nonce_delivered_at = now() WHERE public.gateways.id = g.id
       RETURNING * INTO g;
+      IF g.reach_check_auto THEN
+        SELECT COALESCE(min((e ->> 'port')::int), 8443) INTO v_port
+          FROM jsonb_array_elements(g.inside_addresses) AS e;
+        v_check := jsonb_build_object('check_id', g.reach_check_id, 'nonce', g.reach_nonce,
+                                      'address', g.outside_address, 'remote_viewing', COALESCE(v_switch, false),
+                                      'inside_port', v_port);
+      END IF;
     END IF;
   ELSIF g.outside_address IS NOT NULL AND (
            -- R6: a changed source withdrew the address above, at once, and is
@@ -1602,14 +1724,9 @@ BEGIN
     v_check_id := gen_random_uuid();
     UPDATE public.gateways
        SET reach_check_id = v_check_id, reach_nonce = v_nonce,
-           reach_nonce_at = now(), reach_nonce_delivered_at = now()
+           reach_nonce_at = now(), reach_nonce_delivered_at = NULL, reach_check_auto = true
      WHERE public.gateways.id = g.id
     RETURNING * INTO g;
-    SELECT COALESCE(min((e ->> 'port')::int), 8443) INTO v_port
-      FROM jsonb_array_elements(g.inside_addresses) AS e;
-    v_check := jsonb_build_object('check_id', v_check_id, 'nonce', v_nonce,
-                                  'address', g.outside_address, 'remote_viewing', COALESCE(v_switch, false),
-                                  'inside_port', v_port);
   END IF;
 
   -- D22, the catalogue check: the row exists, is this company's, and sits
@@ -1786,7 +1903,19 @@ BEGIN
         IF v_mint.gateway_id <> g.id OR v_mint.user_id <> v_sub OR v_mint.bin_file_id <> v_clip THEN
           v_reason := 'mint_mismatch';
         ELSE
-          v_unverified := false;
+          -- GW1 review round 2, finding 3: a ticket vouches only for viewings
+          -- inside its stream's life — from two minutes before it was minted
+          -- (the clocks' skew) to four hours and five minutes after (a stream
+          -- is renewed for four hours at most, §5) — and for fewer than 250
+          -- of them (a new row needs a minute without a request or five
+          -- minutes of play, D7, so the longest stream writes fewer). Outside
+          -- that the row is written flagged: the gateway's word. Counted
+          -- under the ticket's own lock, so two batches cannot both see 249.
+          PERFORM pg_advisory_xact_lock(hashtextextended('gateway_jti:' || v_jti_text, 0));
+          v_unverified := v_started < v_mint.minted_at - interval '2 minutes'
+                       OR v_started > v_mint.minted_at + interval '4 hours 5 minutes'
+                       OR (SELECT count(*) FROM public.file_events e
+                            WHERE e.event = 'viewed_remote' AND e.details ->> 'ticket_jti' = v_jti_text) >= 250;
         END IF;
       ELSIF v_started >= now() - interval '30 days'
             AND NOT EXISTS (SELECT 1 FROM public.gateway_ticket_mints m
@@ -1836,9 +1965,13 @@ BEGIN
       -- viewer's address, so a gateway's free text must not speak there in
       -- WILSON's voice ("via the office VPN"): the vendor's word from a
       -- short list, anything else 'other', none for a direct viewing.
-      'via', CASE WHEN NULLIF(btrim(COALESCE(r ->> 'via', '')), '') IS NULL THEN NULL
+      -- Round 2: GW2's gateway (built before round 1's list) says 'direct'
+      -- for a direct viewing and 'local_proxy' for the NAS's reverse proxy;
+      -- both are read in the list's terms.
+      'via', CASE WHEN lower(btrim(COALESCE(r ->> 'via', ''))) IN ('', 'direct') THEN NULL
                   WHEN lower(btrim(r ->> 'via')) IN ('cloudflare', 'tailscale', 'ngrok', 'nas_proxy')
                        THEN lower(btrim(r ->> 'via'))
+                  WHEN lower(btrim(r ->> 'via')) = 'local_proxy' THEN 'nas_proxy'
                   ELSE 'other' END,
       'user_agent', left(r ->> 'user_agent', 64),
       'ticket_jti', v_jti_text,
@@ -1945,7 +2078,8 @@ BEGIN
   v_nonce := encode(extensions.gen_random_bytes(16), 'hex');
   v_id := gen_random_uuid();
   UPDATE public.gateways
-     SET reach_check_id = v_id, reach_nonce = v_nonce, reach_nonce_at = now(), reach_nonce_delivered_at = NULL
+     SET reach_check_id = v_id, reach_nonce = v_nonce, reach_nonce_at = now(), reach_nonce_delivered_at = NULL,
+         reach_check_auto = false
    WHERE public.gateways.id = g.id;
   SELECT w.remote_viewing_enabled INTO v_switch FROM public.workspaces w WHERE w.id = g.workspace_id;
   SELECT COALESCE(min((e ->> 'port')::int), 8443) INTO v_port FROM jsonb_array_elements(g.inside_addresses) AS e;
@@ -1961,22 +2095,31 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE
-  g       public.gateways%ROWTYPE;
-  v_ok    BOOLEAN;
-  v_label TEXT;
-  v_res   JSONB;
+  g        public.gateways%ROWTYPE;
+  v_ok     BOOLEAN;
+  v_label  TEXT;
+  v_res    JSONB;
+  v_no_run BOOLEAN;
 BEGIN
   IF p_result IS NULL OR jsonb_typeof(p_result) <> 'object' OR char_length(p_result::text) > 3000 THEN
     RAISE EXCEPTION 'gateway_reach_finish: the result must be a small object' USING ERRCODE = '22023';
   END IF;
   v_ok := COALESCE((p_result -> 'outside' ->> 'ok')::boolean, false)
       AND COALESCE((p_result -> 'outside' ->> 'is_this_gateway')::boolean, false);
+  -- GW1 review round 2, finding 8: a check that could not run (the gateway
+  -- never took its nonce) proves nothing either way, so it leaves reach_ok,
+  -- its time and its detail as they were — the detail carries R6's debt —
+  -- and is only written down. While the gateway is silent the view masks
+  -- its address anyway (a sync within 60 s).
+  v_no_run := (p_result -> 'outside' ->> 'detail') = 'gateway_not_syncing';
   v_res := p_result || jsonb_build_object('checked_at', now());
   UPDATE public.gateways
-     SET reach_ok = v_ok, reach_checked_at = now(),
-         reach_detail = left(p_result -> 'outside' ->> 'detail', 40),
+     SET reach_ok = CASE WHEN v_no_run THEN public.gateways.reach_ok ELSE v_ok END,
+         reach_checked_at = CASE WHEN v_no_run THEN public.gateways.reach_checked_at ELSE now() END,
+         reach_detail = CASE WHEN v_no_run THEN public.gateways.reach_detail
+                             ELSE left(p_result -> 'outside' ->> 'detail', 40) END,
          reach_result = v_res,
-         reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL
+         reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL, reach_check_auto = false
    WHERE public.gateways.id = p_gateway
      AND public.gateways.reach_check_id = p_check_id
      AND public.gateways.outside_address IS NOT DISTINCT FROM p_address
@@ -1996,7 +2139,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.gateway_sync_apply(UUID, JSONB, INET, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.gateway_events_apply(UUID, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_gateway_try_inet(TEXT) FROM PUBLIC, anon, authenticated;
@@ -2004,7 +2147,7 @@ REVOKE ALL ON FUNCTION public.gateway_signing_key_current(UUID, INTEGER) FROM PU
 REVOKE ALL ON FUNCTION public.gateway_signing_key_put(UUID, TEXT, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.gateway_reach_begin(UUID, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.gateway_reach_finish(UUID, UUID, JSONB, JSONB, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET) TO service_role;
+GRANT EXECUTE ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_sync_apply(UUID, JSONB, INET, JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_events_apply(UUID, JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_gateway_try_inet(TEXT) TO service_role;
@@ -2013,7 +2156,7 @@ GRANT EXECUTE ON FUNCTION public.gateway_signing_key_put(UUID, TEXT, TEXT, TEXT,
 GRANT EXECUTE ON FUNCTION public.gateway_reach_begin(UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.gateway_reach_finish(UUID, UUID, JSONB, JSONB, UUID) TO service_role;
 
-COMMENT ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET) IS
+COMMENT ON FUNCTION public.gateway_enrol_apply(TEXT, TEXT, JSONB, INET, TEXT) IS
   '0093 (§2 step 3; F14): service role only, called by gateway-enrol after it checked the token''s shape. Spends the token in ONE UPDATE … RETURNING (no row, no enrolment: two calls racing on one token enrol one gateway), creates the gateway (its fingerprint computed from the PEM), stores the credential''s SHA-256, writes gateway.enrolled with the admin who made the token. {ok:false, reason:''token''} for a used, expired or unknown token; 54000 (rolled back, the token unspent) past ten live gateways.';
 COMMENT ON FUNCTION public.gateway_sync_apply(UUID, JSONB, INET, JSONB) IS
   '0093 (§2, §4, §5; R6, R16, D22): service role only, called by gateway-sync after the credential check. Applies the sanitised report, clears reach_ok when the sync arrives from another public address, hands a waiting reach nonce over (or begins a due check and returns it as background_check), confirms catalogue clips {clip, loc, path} of this company, and answers the switch, the outside address, the office ranges, the live signing keys (current + ten minutes of the previous), the locations, check_update_now and the reach nonce. {revoked:true} for a revoked or unknown gateway.';
@@ -2026,7 +2169,7 @@ COMMENT ON FUNCTION public.gateway_signing_key_put(UUID, TEXT, TEXT, TEXT, INTEG
 COMMENT ON FUNCTION public.gateway_reach_begin(UUID, UUID) IS
   '0093 (§4, R16): service role only, for gateway-reach after the live-admin check — one check at a time per gateway (busy within two minutes of the last), a fresh nonce handed to the gateway at its next sync.';
 COMMENT ON FUNCTION public.gateway_reach_finish(UUID, UUID, JSONB, JSONB, UUID) IS
-  '0093 (§4): records a check''s result only while it is still the running check AND the outside address is still the one probed; reach_ok = reached AND the nonce echoed; writes gateway.reach_checked (actor NULL for the daily or address-change check).';
+  '0093 (§4): records a check''s result only while it is still the running check AND the outside address is still the one probed; reach_ok = reached AND the gateway proved the nonce (nonce_proof, keyed by its reach key; GW1 review rounds 1 and 2); a check that could not run (gateway_not_syncing) leaves reach_ok, its time and its detail as they were (round 2); writes gateway.reach_checked (actor NULL for the daily or address-change check).';
 
 
 -- =============================================================================
@@ -2062,7 +2205,7 @@ BEGIN
   SELECT gone.workspace_id, 'gateway.revoked', gone.id, jsonb_build_object('credential', 'deleted') FROM gone;
   GET DIAGNOSTICS v_secrets = ROW_COUNT;
   UPDATE public.gateways
-     SET reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL
+     SET reach_check_id = NULL, reach_nonce = NULL, reach_nonce_delivered_at = NULL, reach_check_auto = false
    WHERE reach_nonce IS NOT NULL AND reach_nonce_at < now() - interval '10 minutes';
   GET DIAGNOSTICS v_nonces = ROW_COUNT;
   RETURN jsonb_build_object('mints', v_mints, 'tokens', v_tokens, 'revoked', v_secrets, 'nonces', v_nonces);
@@ -2313,7 +2456,8 @@ BEGIN
   --      service_role alone; no trigger function is executable by a client.
   FOREACH t IN ARRAY ARRAY['public.gateway_make_enrolment_token()', 'public.gateway_confirm_root(uuid,text)',
                            'public.gateway_root_certificate(uuid)', 'public.gateway_forget(uuid)',
-                           'public.gateway_unforget(uuid)', 'public.gateway_request_update_check(uuid)'] LOOP
+                           'public.gateway_unforget(uuid)', 'public.gateway_request_update_check(uuid)',
+                           'public.gateway_rotate_signing_key()'] LOOP
     IF NOT (SELECT prosecdef FROM pg_proc WHERE oid = t::regprocedure)
        OR has_function_privilege('anon', t, 'EXECUTE')
        OR NOT has_function_privilege('authenticated', t, 'EXECUTE')
@@ -2324,7 +2468,7 @@ BEGIN
   IF position('is_live_workspace_admin' IN pg_get_functiondef('public.fn_gateway_require_admin()'::regprocedure)) = 0 THEN
     RAISE EXCEPTION '0093 post-condition failed: fn_gateway_require_admin does not ask the live row';
   END IF;
-  FOREACH t IN ARRAY ARRAY['public.gateway_enrol_apply(text,text,jsonb,inet)', 'public.gateway_sync_apply(uuid,jsonb,inet,jsonb)',
+  FOREACH t IN ARRAY ARRAY['public.gateway_enrol_apply(text,text,jsonb,inet,text)', 'public.gateway_sync_apply(uuid,jsonb,inet,jsonb)',
                            'public.gateway_events_apply(uuid,jsonb)', 'public.gateway_signing_key_current(uuid,integer)',
                            'public.gateway_signing_key_put(uuid,text,text,text,integer)', 'public.gateway_reach_begin(uuid,uuid)',
                            'public.gateway_reach_finish(uuid,uuid,jsonb,jsonb,uuid)', 'public.gateway_sweep()',
@@ -2337,7 +2481,7 @@ BEGIN
       RAISE EXCEPTION '0093 post-condition failed: % is executable by a client role', t;
     END IF;
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['public.gateway_enrol_apply(text,text,jsonb,inet)', 'public.gateway_sync_apply(uuid,jsonb,inet,jsonb)',
+  FOREACH t IN ARRAY ARRAY['public.gateway_enrol_apply(text,text,jsonb,inet,text)', 'public.gateway_sync_apply(uuid,jsonb,inet,jsonb)',
                            'public.gateway_events_apply(uuid,jsonb)', 'public.gateway_signing_key_put(uuid,text,text,text,integer)',
                            'public.gateway_reach_begin(uuid,uuid)', 'public.gateway_reach_finish(uuid,uuid,jsonb,jsonb,uuid)',
                            'public.gateway_sweep()'] LOOP
@@ -2358,7 +2502,7 @@ BEGIN
     RAISE EXCEPTION '0093 post-condition failed: fn_gateways_client_guard no longer pins every column but the three';
   END IF;
   IF position('t.used_at IS NULL AND t.expires_at > now()'
-              IN pg_get_functiondef('public.gateway_enrol_apply(text,text,jsonb,inet)'::regprocedure)) = 0 THEN
+              IN pg_get_functiondef('public.gateway_enrol_apply(text,text,jsonb,inet,text)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION '0093 post-condition failed: gateway_enrol_apply does not spend the token in one UPDATE guarded by used_at and the expiry (F14)';
   END IF;
   IF (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_gateways_client_guard()'::regprocedure) THEN
@@ -2414,9 +2558,29 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workspace_audit_action_chk'
                   AND pg_get_constraintdef(oid) LIKE '%remote_viewing.on%'
-                  AND pg_get_constraintdef(oid) LIKE '%gateway.outside_address_changed%') THEN
+                  AND pg_get_constraintdef(oid) LIKE '%gateway.outside_address_changed%'
+                  AND pg_get_constraintdef(oid) LIKE '%gateway.keys_rotated%') THEN
     RAISE EXCEPTION '0093 post-condition failed: workspace_audit''s action vocabulary is missing';
   END IF;
 
-  RAISE NOTICE '0093 OK: six gateway tables under forced RLS (admins read gateways, tokens and the audit; secrets, keys and mints are the service role''s); the switch''s live-admin and audit triggers; file_events viewed_remote with subject, external_id and file_events_select restated whole with the live-admin conjunct; gateway_clips_for_tickets as the caller; gateways_visible as a masked definer view; the admin and service-role RPCs; the sweep.';
+  -- 16l. GW1 review round 2: the reach key is its own column and no client
+  --      reads it; a name is held to its cleaned form and a version to a
+  --      version's shape; the old enrolment signature is gone.
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'gateway_secrets' AND column_name = 'reach_key')
+     OR has_column_privilege('authenticated', 'public.gateway_secrets', 'reach_key', 'SELECT')
+     OR has_column_privilege('authenticated', 'public.gateways', 'reach_check_auto', 'SELECT')
+     OR to_regprocedure('public.gateway_enrol_apply(text,text,jsonb,inet)') IS NOT NULL THEN
+    RAISE EXCEPTION '0093 post-condition failed: the reach key, the automatic check''s mark or the enrolment''s signature is wrong';
+  END IF;
+  IF public.gateway_clean_name(E'Studio\u202e NAS\u200b \n x') <> 'Studio NAS x'
+     OR public.gateway_clean_name('  Salt   Hours NAS ') <> 'Salt Hours NAS'
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gateways_name_chk'
+                     AND pg_get_constraintdef(oid) LIKE '%gateway_clean_name%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gateways_version_chk'
+                     AND pg_get_constraintdef(oid) LIKE '%{1,40}%') THEN
+    RAISE EXCEPTION '0093 post-condition failed: a gateway''s name or version may carry what reads in WILSON''s voice';
+  END IF;
+
+  RAISE NOTICE '0093 OK: six gateway tables under forced RLS (admins read gateways, tokens and the audit; secrets and the reach key, keys and mints are the service role''s); the switch''s live-admin and audit triggers; file_events viewed_remote with subject, external_id and file_events_select restated whole with the live-admin conjunct; gateway_clips_for_tickets as the caller; gateways_visible as a masked definer view; the admin and service-role RPCs, Rotate the ticket keys among them; the sweep.';
 END $$;

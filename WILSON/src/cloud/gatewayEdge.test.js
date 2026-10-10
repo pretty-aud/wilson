@@ -10,14 +10,14 @@
 // keep the five functions to the house order and to the S33 rule.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash, createHmac } from 'node:crypto'
 import {
   isInsideHost, isPrivateLiteral, cleanInsideAddresses, clientAddress, compareVersions,
   parseEnrolRequest, parseSyncRequest, parseTicketRequest, parseEventsRequest, parseReachRequest,
-  webAppOrigins, isSingleCertificatePem,
+  webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE,
 } from '../../supabase/functions/_shared/gatewayShapes.ts'
 import {
   classifyIp, isPublicIp, checkOutsideAddress, vetResolved, parseHealthResponse,
@@ -26,7 +26,7 @@ import {
 import {
   sealSigningKey, openSigningKey, GatewayKeyCryptoUnavailable,
 } from '../../supabase/functions/_shared/gatewayKeyCrypto.ts'
-import { makeEnrolmentToken, reachProof, readJsonLimited } from '../../supabase/functions/_shared/gatewayWire.ts'
+import { makeEnrolmentToken, reachKeyOf, reachProof, readJsonLimited } from '../../supabase/functions/_shared/gatewayWire.ts'
 
 const REPO = join(__dirname, '..', '..')
 const read = (...p) => readFileSync(join(REPO, ...p), 'utf8')
@@ -90,11 +90,27 @@ describe('parseEnrolRequest — gateway-enrol\'s shape', () => {
   })
   it.each([
     [{ platform: 'linux' }, 'bad_platform'], [{ version: 'one' }, 'bad_version'],
+    // GW1 review round 2, finding 2: a version is a version, nothing after it.
+    [{ version: '1.0.0 call Petal on 0800 000 000' }, 'bad_version'], [{ version: '1.0.0abc' }, 'bad_version'],
     [{ root_cert_pem: undefined }, 'bad_certificate'],
     [{ root_cert_pem: '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----' }, 'bad_certificate'],
     [{ root_cert_pem: PEM + PEM }, 'bad_certificate'],
   ])('refuses %j as %s', (over, code) => {
     expect(parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body(over))).toMatchObject({ ok: false, code })
+  })
+  it('🚨 a name the gateway chose is cleaned: no direction override, no invisible character, one line (round 2, finding 2)', () => {
+    const r = parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body({ name: 'Studio\u202e NAS\u200b\n  (installed by IT)' }))
+    expect(r.value.gateway.name).toBe('Studio NAS (installed by IT)')
+    expect(parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body({ name: '\u202e\u200b\u2066' })).value.gateway.name).toBe('Gateway')
+    expect(cleanGatewayName('  Salt   Hours\u0007NAS  ')).toBe('Salt Hours NAS')
+    expect(cleanGatewayName('x'.repeat(100))).toHaveLength(80)
+    expect(cleanGatewayName(42)).toBe('')
+    // CONTROL: an ordinary name, accents and all, is kept as written.
+    expect(cleanGatewayName('Büro NAS — Studio 2')).toBe('Büro NAS — Studio 2')
+  })
+  it('a version is major.minor.patch with at most a tail (the same shape as 0093\'s CHECK)', () => {
+    for (const v of ['0.1.0', '1.0.0', '10.20.30', '1.2.3-beta.1', '1.2.3+build.5', '1.2.3-rc.1+b7']) expect([v, VERSION_RE.test(v)]).toEqual([v, true])
+    for (const v of ['1.0', '1.0.0 ', '1.0.0 call us', '1.0.0abc', '1.0.0-', 'v1.0.0', '1.0.0-' + 'x'.repeat(41)]) expect([v, VERSION_RE.test(v)]).toEqual([v, false])
   })
   it('a public inside address never reaches the database', () => {
     const r = parseEnrolRequest(`Bearer ${makeEnrolmentToken()}`, body({ inside_addresses: ['8.8.8.8', '192.168.1.10'] }))
@@ -122,6 +138,13 @@ describe('parseSyncRequest — the heartbeat, reduced to what the cloud keeps', 
     expect(r.report.health.update).toHaveLength(128)
     expect(r.report.health.extra).toBeUndefined()
     expect(r.report.evil).toBeUndefined()
+  })
+  it('a reported version with words after it is not taken; a name is cleaned (round 2, finding 2)', () => {
+    const r = parseSyncRequest({ version: '1.2.3 call Petal on 0800', name: 'Studio\u202e NAS' })
+    expect(r.report.version).toBeNull()
+    expect(r.report.name).toBe('Studio NAS')
+    expect(parseSyncRequest({ version: '1.2.3-beta.1' }).report.version).toBe('1.2.3-beta.1')
+    expect(parseSyncRequest({ name: '\u200b' }).report.name).toBeNull()
   })
   it('confirm: at most 100, malformed entries dropped', () => {
     const ok = parseSyncRequest({ confirm: [{ clip: UUID, loc: UUID2, path: 'A/x.mov' }, { clip: 'x', loc: UUID2, path: 'p' }, 'junk'] })
@@ -243,26 +266,36 @@ function connAnswering(text) {
 }
 
 // GW1 review round 1, finding 1: the gateway proves itself with an HMAC of
-// the nonce under its credential's hash — a server that reflects the nonce
-// it was sent proves nothing.
+// the nonce — a server that reflects the nonce it was sent proves nothing.
+// Round 2, finding 1: keyed by a reach key of its own, never by the
+// credential's hash, which every gateway call sends in a request URL.
 const CREDENTIAL = 'wgc_' + Buffer.alloc(32, 1).toString('base64url')
 const CREDENTIAL_HASH = createHash('sha256').update(CREDENTIAL, 'utf8').digest('hex')
+const REACH_KEY = createHash('sha256').update('wilson-reach-key:' + CREDENTIAL, 'utf8').digest('hex')
 
-describe('the reach proof (gatewayWire.reachProof)', () => {
-  it('is HMAC-SHA256 keyed by the credential hash\'s hex text over the nonce\'s text, as the vectors file says', async () => {
+describe('the reach key and the reach proof (gatewayWire.reachKeyOf, reachProof)', () => {
+  it('🚨 the reach key is SHA-256 of "wilson-reach-key:" and the credential — never the credential\'s hash (round 2, finding 1)', async () => {
+    expect(await reachKeyOf(CREDENTIAL)).toBe(REACH_KEY)
+    expect(REACH_KEY).not.toBe(CREDENTIAL_HASH)
+    await expect(reachKeyOf('wgc_short')).rejects.toThrow()
+    await expect(reachKeyOf(CREDENTIAL_HASH)).rejects.toThrow()
+  })
+  it('the proof is HMAC-SHA256 keyed by the reach key\'s hex text over the nonce\'s text, as the vectors file says', async () => {
     const nonce = '0123456789abcdef0123456789abcdef'
-    const proof = await reachProof(CREDENTIAL_HASH, nonce)
-    expect(proof).toBe(createHmac('sha256', Buffer.from(CREDENTIAL_HASH, 'utf8')).update(nonce, 'utf8').digest('hex'))
+    const proof = await reachProof(REACH_KEY, nonce)
+    expect(proof).toBe(createHmac('sha256', Buffer.from(REACH_KEY, 'utf8')).update(nonce, 'utf8').digest('hex'))
     expect(proof).toMatch(/^[0-9a-f]{64}$/)
     const vectors = JSON.parse(readFileSync(join(REPO, 'docs/design/gateway-ticket-vectors.json'), 'utf8'))
     const v = vectors.for_gw2_from_gw1.reach_probe.proof_vector
-    expect(createHash('sha256').update(v.credential, 'utf8').digest('hex')).toBe(v.credential_hash)
-    expect(await reachProof(v.credential_hash, v.nonce)).toBe(v.nonce_proof)
-    // CONTROLS: another credential, another nonce, another proof; bad shapes refused.
-    expect(await reachProof('f'.repeat(64), nonce)).not.toBe(proof)
-    expect(await reachProof(CREDENTIAL_HASH, 'f'.repeat(32))).not.toBe(proof)
-    await expect(reachProof(CREDENTIAL_HASH.toUpperCase(), nonce)).rejects.toThrow()
-    await expect(reachProof(CREDENTIAL_HASH, nonce + '0')).rejects.toThrow()
+    expect(createHash('sha256').update('wilson-reach-key:' + v.credential, 'utf8').digest('hex')).toBe(v.reach_key)
+    expect(await reachKeyOf(v.credential)).toBe(v.reach_key)
+    expect(await reachProof(v.reach_key, v.nonce)).toBe(v.nonce_proof)
+    // CONTROLS: the credential's hash makes another proof, as does another
+    // nonce; bad shapes are refused.
+    expect(await reachProof(CREDENTIAL_HASH, nonce)).not.toBe(proof)
+    expect(await reachProof(REACH_KEY, 'f'.repeat(32))).not.toBe(proof)
+    await expect(reachProof(REACH_KEY.toUpperCase(), nonce)).rejects.toThrow()
+    await expect(reachProof(REACH_KEY, nonce + '0')).rejects.toThrow()
   })
 })
 
@@ -290,7 +323,7 @@ describe('readJsonLimited — a body read under its limit (round 1, note 6)', ()
 describe('probeOutside — the probe through a fake network', () => {
   const addr = { host: 'gateway.example.com', port: 8444 }
   const nonce = '0123456789abcdef0123456789abcdef'
-  const proof = createHmac('sha256', Buffer.from(CREDENTIAL_HASH, 'utf8')).update(nonce, 'utf8').digest('hex')
+  const proof = createHmac('sha256', Buffer.from(REACH_KEY, 'utf8')).update(nonce, 'utf8').digest('hex')
   const on = { switchOn: true, expectedProof: proof }
 
   it('🚨 resolves ONCE, vets, and connects to the validated LITERAL with the name as SNI only; the nonce rides a header', async () => {
@@ -417,23 +450,61 @@ describe('insidePortToProbe — never knock on the outside door by mistake (roun
     expect(insidePortToProbe(0, 8444)).toBeNull()
     expect(insidePortToProbe('x', 8444)).toBeNull()
   })
-  it('the runner uses it, and reads the credential hash for the proof as the service role', () => {
+  it('the runner uses it, and reads the reach key for the proof as the service role, by the gateway\'s id (round 2, finding 1)', () => {
     const run = readFileSync(join(REPO, 'supabase/functions/_shared/gatewayReachRun.ts'), 'utf8')
     expect(run).toContain('insidePortToProbe(begun.inside_port ?? 8443, begun.address?.port)')
-    expect(run).toContain(".from('gateway_secrets').select('credential_hash').eq('gateway_id', gatewayId)")
-    expect(run).toContain('expectedProof = await reachProof(hash, begun.nonce)')
+    expect(run).toContain(".from('gateway_secrets').select('reach_key').eq('gateway_id', gatewayId)")
+    expect(run).toContain('expectedProof = await reachProof(key, begun.nonce)')
+    expect(run).not.toContain("select('credential_hash')")
+    // Round 2, finding 4: the probe's three answers map to the result's two
+    // flags — the red line only for the inside door's own close.
+    expect(run).toContain("inside_answered: inside === 'gateway',")
+    expect(run).toContain("inside_other: inside === 'other',")
   })
 })
 
-describe('probeInside — the inside port must not answer from the internet', () => {
-  it('a TCP accept on a public address is the red line; a refusal is not; a private address is never tried', async () => {
-    const open = fakeNet({ tcp: async () => ({ close() {} }) })
-    expect(await probeInside(['8.8.4.4'], 8443, open.deps)).toBe(true)
+describe('probeInside — the inside door must not answer from the internet, told apart by what answers (round 2, finding 4)', () => {
+  // The gateway's own inside door closes a public peer at once, before TLS.
+  const conn = (read) => { const c = { closed: false, close() { c.closed = true }, read }; return c }
+  const closing = () => conn(async () => null)
+  const resetting = () => conn(async () => { throw new Error('connection reset by peer') })
+  const listening = () => conn(() => new Promise(() => {}))
+  const speaking = () => conn(async (b) => { b[0] = 83; return 1 })
+
+  it('🚨 accepted and closed at once, nothing said, is the gateway\'s inside door: the red line', async () => {
+    expect(await probeInside(['8.8.4.4'], 8443, fakeNet({ tcp: async () => closing() }).deps)).toBe('gateway')
+    expect(await probeInside(['8.8.4.4'], 8443, fakeNet({ tcp: async () => resetting() }).deps)).toBe('gateway')
+  })
+  it('🚨 a listener that stays open, or speaks first, is something else on that port (a tunnel\'s edge accepts 8443): never the red line', async () => {
+    vi.useFakeTimers()
+    try {
+      const open = listening()
+      const pending = probeInside(['8.8.4.4'], 8443, fakeNet({ tcp: async () => open }).deps)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(await pending).toBe('other')
+      expect(open.closed).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(await probeInside(['8.8.4.4'], 8443, fakeNet({ tcp: async () => speaking() }).deps)).toBe('other')
+  })
+  it('a refusal is nothing; a private address is never tried; the connection is closed after the look', async () => {
     const shut = fakeNet({ tcp: async () => { throw new Error('Connection refused') } })
-    expect(await probeInside(['8.8.4.4'], 8443, shut.deps)).toBe(false)
-    const priv = fakeNet({ tcp: async () => ({ close() {} }) })
-    expect(await probeInside(['10.0.0.1'], 8443, priv.deps)).toBe(false)
+    expect(await probeInside(['8.8.4.4'], 8443, shut.deps)).toBe('none')
+    const c = closing()
+    const priv = fakeNet({ tcp: async () => c })
+    expect(await probeInside(['10.0.0.1'], 8443, priv.deps)).toBe('none')
     expect(priv.calls.tcp).toEqual([])
+    const pub = fakeNet({ tcp: async () => c })
+    expect(await probeInside(['8.8.4.4'], 8443, pub.deps)).toBe('gateway')
+    expect(c.closed).toBe(true)
+  })
+  it('without a raw socket: a reset mid-handshake is the gateway\'s close, a TLS answer something else, a refusal nothing', async () => {
+    const by = (impl) => probeInside(['8.8.4.4'], 8443, fakeNet({ fetchImpl: impl }).deps)
+    expect(await by(async () => { throw new Error('connection reset') })).toBe('gateway')
+    expect(await by(async () => { throw new Error('invalid peer certificate: UnknownIssuer') })).toBe('other')
+    expect(await by(async () => new Response('hi'))).toBe('other')
+    expect(await by(async () => { throw new Error('Connection refused (os error 111)') })).toBe('none')
   })
 })
 
@@ -456,6 +527,21 @@ describe('the signing keys, sealed (gatewayKeyCrypto.ts)', () => {
   it('refuses a short master key and names a missing one', async () => {
     await expect(sealSigningKey('x', WS, 'k1', Buffer.alloc(16).toString('base64'))).rejects.toThrow(/exactly 32 bytes/)
     await expect(sealSigningKey('x', WS, 'k1', '')).rejects.toBeInstanceOf(GatewayKeyCryptoUnavailable)
+  })
+})
+
+describe('the CI probe (scripts/probes/gateway-ticket.sh; round 2, finding 7)', () => {
+  it('🚨 a failure prints the answer\'s shape, never its body (a ticket is a bearer), the claims or the sign-in', () => {
+    const sh = read('scripts', 'probes', 'gateway-ticket.sh')
+    expect(sh).toContain("shape() { printf '%s' \"$1\" | jq -c '{ error: (.error // null), tickets: ((.tickets // {}) | length)")
+    const errs = sh.split('\n').filter((l) => l.includes('err "'))
+    expect(errs.length).toBeGreaterThan(9)
+    for (const l of errs) {
+      const said = l.slice(l.indexOf('err "')).split('$(shape "$json")').join('')
+      expect([l, ['$json', '$payload', '$token', '$resp', '$claims'].some((v) => said.includes(v))]).toEqual([l, false])
+    }
+    // CONTROL: the shape is what a failure names.
+    expect(errs.filter((l) => l.includes('$(shape "$json")')).length).toBe(5)
   })
 })
 
@@ -492,6 +578,11 @@ describe('the five functions keep the house order and the S33 rule (text pins)',
     expect(src).toContain("Deno.env.get('SUPABASE_ANON_KEY')")
     expect(src).not.toMatch(/ctx\.admin\.rpc\('gateway_clips_for_tickets'/)
     expect(src).toMatch(/from\('gateway_ticket_mints'\)\.insert\(mints\)[\s\S]*?return answer\(/)
+  })
+  it('enrolment hands the reach key over; the background knock waits for the next sync; a check that could not run says the inside port was not tried (round 2)', () => {
+    expect(fn('gateway-enrol')).toContain('p_reach_key: await reachKeyOf(credential)')
+    expect(fn('gateway-sync')).toContain('runReachCheck(admin, gatewayId, begun, null, 1000)')
+    expect(fn('gateway-reach')).toMatch(/'gateway_not_syncing'[\s\S]*?inside_answered: false,\s*inside_other: false/)
   })
   it('every function is registered with verify_jwt = false', () => {
     const toml = read('supabase', 'config.toml')

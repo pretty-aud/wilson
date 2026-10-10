@@ -164,6 +164,20 @@ describe('what is checked before it is shown', () => {
   })
 })
 
+describe('Rotate the ticket keys (round 2, finding 6)', () => {
+  it('calls gateway_rotate_signing_key as the caller and answers its { retired, at }', async () => {
+    holder.sb = fakeClient([{ data: { retired: 1, at: '2026-10-10T12:00:00Z' }, error: null }])
+    expect(await api.rotateTicketKeys()).toMatchObject({ ok: true, data: { retired: 1 } })
+    expect(holder.sb.log).toEqual([['rpc', 'gateway_rotate_signing_key', undefined]])
+  })
+  it('the database\'s refusal is its sentence; a failure the plain one, and the old key is said to be in use', async () => {
+    holder.sb = fakeClient([{ data: null, error: { code: '42501', message: 'Only a workspace admin can manage the file gateway.' } }])
+    expect(await api.rotateTicketKeys()).toMatchObject({ ok: false, code: '42501', friendly: 'Only a workspace admin can manage the file gateway.' })
+    holder.sb = fakeClient([{ data: null, error: { code: 'XX000', message: 'internal error at line 3' } }])
+    expect((await api.rotateTicketKeys()).friendly).toBe('WILSON could not rotate the ticket keys just now; the old key is still the one in use. Try again in a moment.')
+  })
+})
+
 describe('Check reach (gateway-reach)', () => {
   function response({ ok, status, body, order }) {
     return {
@@ -228,7 +242,7 @@ describe('dev fixtures', () => {
     const answer = (name) => async (...args) => { calls.push(name); return { ok: true, data: name, args } }
     holder.fx = { gateways: Object.fromEntries(['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings',
       'makeEnrolmentToken', 'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'updateGateway', 'forgetGateway',
-      'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach'].map(n => [n, answer(n)])) }
+      'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys'].map(n => [n, answer(n)])) }
     await api.listGateways({ admin: true })
     await api.listEnrolmentTokens()
     await api.listGatewayAudit()
@@ -244,9 +258,10 @@ describe('dev fixtures', () => {
     await api.unforgetGateway('g1')
     await api.requestGatewayUpdateCheck('g1')
     await api.checkGatewayReach('g1')
+    await api.rotateTicketKeys()
     expect(calls).toEqual(['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings',
       'makeEnrolmentToken', 'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'updateGateway', 'updateGateway',
-      'updateGateway', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach'])
+      'updateGateway', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys'])
   })
 
   it('the cloud address is this build\'s', () => {

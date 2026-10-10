@@ -24,6 +24,7 @@ import {
   GATEWAY_CERT_PARAGRAPH, NAS_STORY, WINDOWS_STORY, mountPathFor, cloudUrlFor, parseOutsideAddress, formatAddress,
   parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases, insideForwardSentence,
   reachSentence, auditPhrase, howMuchWords, whereWords, whoWords, inspectorRemoteLine, FINGERPRINT_SHAPE,
+  gatewayNameWords, versionWords, NEW_GATEWAY_NOTICE, FORGET_CONFIRM,
 } from './gatewayWords'
 
 const design = readFileSync(resolve(process.cwd(), 'docs/design/GATEWAY_DESIGN.md'), 'utf8')
@@ -33,6 +34,10 @@ const section = (from, to) => design.slice(design.indexOf(from), design.indexOf(
 const plain = (s) => s.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').replace(/^>\s?/gm, '').replace(/\s+/g, ' ').trim()
 
 const BS = String.fromCharCode(92)
+// GW1 review round 2, finding 2: what a gateway could put in its name.
+const RLO = String.fromCharCode(0x202e)
+const ZWSP = String.fromCharCode(0x200b)
+const BEL = String.fromCharCode(7)
 
 describe('§3 and §11, verbatim', () => {
   it('the certificate paragraph is §3\'s, word for word', () => {
@@ -193,6 +198,14 @@ describe('§4: the reach check in words, as the design\'s table writes them', ()
     expect(say('switch_off').text).toBe(table['switch off'])
     expect(say('reached', { inside: true }).inside.text).toBe(table['inside door answered'])
   })
+  it('🚨 something else on the inside port (a tunnel\'s edge) is said plainly, never red (round 2, finding 4)', () => {
+    const g = { outside_address: { host: 'gw.example.com', port: 443 }, inside_addresses: [{ host: '192.168.1.10', port: 8443 }] }
+    const other = reachSentence({ outside: { detail: 'reached', ms: 90 }, inside_other: true }, g)
+    expect(other.inside).toEqual({ tone: 'plain', text: 'Something else answers on port 8443 at that address, not the gateway\'s office door (a tunnel\'s own edge does). Nothing to change unless you forwarded that port yourself.' })
+    // CONTROL: the gateway's own door is the red line; neither, nothing.
+    expect(reachSentence({ outside: { detail: 'reached', ms: 90 }, inside_answered: true }, g).inside.tone).toBe('error')
+    expect(reachSentence({ outside: { detail: 'reached', ms: 90 } }, g).inside).toBeNull()
+  })
   it('the red form is the inside door\'s alone; reached and switch-off are the good news', () => {
     expect(say('reached', { inside: true }).inside.tone).toBe('error')
     expect(say('reached').tone).toBe('ok')
@@ -280,14 +293,53 @@ describe('§8: the health line, phrase by phrase', () => {
   })
 })
 
+describe('a gateway\'s name and version as shown (round 2, finding 2)', () => {
+  it('🚨 the name is words: no direction override, no invisible character, one line; an ordinary name as written', () => {
+    expect(gatewayNameWords(`  Studio${RLO} NAS${ZWSP}${BEL}2 \n x `)).toBe('Studio NAS 2 x')
+    expect(gatewayNameWords(`${RLO}${ZWSP}`)).toBe('a gateway')
+    expect(gatewayNameWords(null, 'none')).toBe('none')
+    expect(gatewayNameWords('x'.repeat(100))).toHaveLength(80)
+    // CONTROL
+    expect(gatewayNameWords('Büro NAS — Studio 2')).toBe('Büro NAS — Studio 2')
+  })
+  it('a version is shown only when it is one', () => {
+    expect(versionWords('1.0.0')).toBe('1.0.0')
+    expect(versionWords('1.2.3-beta.1+b7')).toBe('1.2.3-beta.1+b7')
+    for (const v of ['1.0.0 call Petal on 0800', '1.0.0abc', '', null, 'v1']) expect([v, versionWords(v)]).toEqual([v, null])
+    expect(healthPhrases({ version: '1.0.0 call Petal on 0800', last_seen_at: null }, { now: Date.now() })[0].text).toBe('version unknown')
+  })
+  it('🚨 the new-gateway notice does not repeat the name the gateway chose; Forget\'s question quotes it, cleaned', () => {
+    expect(NEW_GATEWAY_NOTICE('2 minutes ago')).toBe('This gateway enrolled 2 minutes ago, and no admin in this browser made its token today. If nobody in the company installed it, choose Forget: it gets no address and no ticket until its fingerprint is confirmed.')
+    expect(FORGET_CONFIRM(`Studio${RLO} NAS (fingerprint confirmed)`)).toMatch(/^Forget “Studio NAS \(fingerprint confirmed\)”\? It stops at once:/)
+  })
+})
+
 describe('the trail and the viewings, in words', () => {
   it('audit rows read as sentences, with the actor', () => {
     expect(auditPhrase({ action: 'remote_viewing.on', actor_label: 'Mara Okonkwo' })).toBe('Mara Okonkwo turned viewing from outside the office on')
-    expect(auditPhrase({ action: 'gateway.renamed', actor_label: 'Mara Okonkwo', details: { from: 'nas', to: 'Studio NAS' } })).toBe('Mara Okonkwo renamed nas to Studio NAS')
+    // Round 2, finding 2: a gateway's name is its own word, so it is quoted.
+    expect(auditPhrase({ action: 'gateway.renamed', actor_label: 'Mara Okonkwo', details: { from: 'nas', to: 'Studio NAS' } })).toBe('Mara Okonkwo renamed “nas” to “Studio NAS”')
     expect(auditPhrase({ action: 'gateway.reach_checked', actor_user_id: null, details: { outside: { detail: 'timed_out' } } }, 'Studio NAS'))
-      .toBe('WILSON checked whether Studio NAS is reachable from outside: timed out')
-    expect(auditPhrase({ action: 'gateway.revoked', details: {} }, 'Studio NAS')).toBe('Studio NAS\'s credential was deleted: the forget is final')
-    expect(auditPhrase({ action: 'gateway.outside_address_changed', actor_label: 'Mara', details: { to: null } }, 'Studio NAS')).toBe('Mara took Studio NAS\'s outside address away')
+      .toBe('WILSON checked whether “Studio NAS” is reachable from outside: timed out')
+    expect(auditPhrase({ action: 'gateway.revoked', details: {} }, 'Studio NAS')).toBe('The credential of “Studio NAS” was deleted: the forget is final')
+    expect(auditPhrase({ action: 'gateway.outside_address_changed', actor_label: 'Mara', details: { to: null } }, 'Studio NAS')).toBe('Mara took away the outside address of “Studio NAS”')
+    expect(auditPhrase({ action: 'gateway.office_ranges_changed', actor_label: 'Mara', details: { to: ['10.8.0.0/16'] } }, 'Studio NAS')).toBe('Mara set the office ranges of “Studio NAS” to 10.8.0.0/16')
+  })
+
+  it('🚨 round 2: a name, a version and a failure\'s reason are the gateway\'s words, never WILSON\'s; the rotation and the inside port in words', () => {
+    expect(auditPhrase({ action: 'gateway.enrolled', actor_label: 'Mara', details: { name: `Studio${RLO} NAS (installed by IT)`, platform: 'container', version: '1.0.0 call Petal on 0800' } }))
+      .toBe('Mara enrolled “Studio NAS (installed by IT)” (a container)')
+    expect(auditPhrase({ action: 'gateway.update_failed', details: { update: `failed:1.0.1:disk full${RLO} call us` } }, 'Studio NAS'))
+      .toBe('“Studio NAS” could not update to 1.0.1 (the gateway says “disk full call us”)')
+    expect(auditPhrase({ action: 'gateway.update_failed', details: { update: 'failed:not a version:x' } }, 'Studio NAS'))
+      .toBe('“Studio NAS” could not update to a new version (the gateway says “x”)')
+    expect(auditPhrase({ action: 'gateway.keys_rotated', actor_label: 'Mara Okonkwo', details: { retired: 1 } }))
+      .toBe('Mara Okonkwo rotated the ticket keys: new tickets are signed with a new key')
+    expect(auditPhrase({ action: 'gateway.reach_checked', actor_user_id: null, details: { outside: { detail: 'reached' }, inside_other: true } }, 'Studio NAS'))
+      .toBe('WILSON checked whether “Studio NAS” is reachable from outside: reached; something else answered on the inside port')
+    // CONTROL: the gateway's own inside door is said as before.
+    expect(auditPhrase({ action: 'gateway.reach_checked', actor_user_id: null, details: { outside: { detail: 'reached' }, inside_answered: true } }, 'Studio NAS'))
+      .toMatch(/; the inside door answered$/)
   })
 
   it('how much: the fraction and read in full; a restart said honestly', () => {
