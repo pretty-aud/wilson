@@ -95,15 +95,27 @@ describe('the sync loop (sync.mjs)', () => {
     expect(maxInFlight).toBe(1);
     expect(calls).toBeLessThanOrEqual(2);
   });
-  it('at most 100 confirms a call', async () => {
+  it('at most 100 confirms a call, however many wait while one runs', async () => {
     const sizes = [];
-    const loop = new SyncLoop({ call: async (body) => { sizes.push(body.confirm.length); return answer(true)(body); }, report: () => ({}), onResult: () => {}, intervalMs: () => 3_600_000 });
+    let release;
+    const first = new Promise((r) => { release = r; });
+    let calls = 0;
+    const loop = new SyncLoop({
+      call: async (body) => { calls++; if (calls === 1) await first; sizes.push(body.confirm.length); return answer(true)(body); },
+      report: () => ({}), onResult: () => {}, intervalMs: () => 3_600_000,
+    });
     loop.stopped = false;
     const items = (n, p) => Array.from({ length: n }, (_, i) => ({ clip: `${p}${i}`, loc: 'l', path: 'p' }));
-    const results = await Promise.all([loop.confirm(items(60, 'a')), loop.confirm(items(60, 'b')), loop.confirm(items(30, 'c'))]);
+    const blocker = loop.requestNow(); // holds the first call open…
+    await new Promise((r) => setTimeout(r, 10));
+    const waiting = [loop.confirm(items(60, 'a')), loop.confirm(items(60, 'b')), loop.confirm(items(30, 'c'))]; // …while 150 pile up
+    release();
+    const results = await Promise.all(waiting);
+    await blocker;
     loop.stop();
+    expect(sizes[0]).toBe(0); // the blocked call carried none
     expect(Math.max(...sizes)).toBeLessThanOrEqual(100);
-    expect(sizes.reduce((a, b) => a + b, 0)).toBe(150);
+    expect(sizes.slice(1)).toEqual([60, 90]);
     expect(results.map((r) => r.confirmed.length)).toEqual([60, 60, 30]);
   });
   it('on-demand calls beyond the heartbeat are held to 25 a minute', async () => {
@@ -215,6 +227,17 @@ describe('the update client (platform/updates.mjs)', () => {
       expect(fs.existsSync(path.join(dir, 'updates')) ? fs.readdirSync(path.join(dir, 'updates')) : []).toEqual([]);
     }
   });
+  it('a download that runs on past the manifest\'s size is cut at that size, not read to its end (a hostile mirror\'s endless body)', async () => {
+    const dir = tmp();
+    const { fetchImpl: base } = channel({ size: 4 * 1024 * 1024 });
+    let pulled = 0;
+    const endless = () => new ReadableStream({ pull(c) { pulled += 65536; c.enqueue(new Uint8Array(65536)); } });
+    const fetchImpl = async (url) => (url.endsWith('.tar.gz') ? new Response(endless()) : base(url));
+    const u = new Updates({ platform: 'windows', stateDir: dir, version: '0.1.0', fetchImpl, keys: [release.publicKey], askUpdater: async () => ({ ok: true }) });
+    const s = await u.check('test');
+    expect(s).toMatchObject({ state: 'failed', reason: 'larger than the manifest says' });
+    expect(pulled).toBeLessThan(6 * 1024 * 1024);
+  }, 15_000);
   it('not newer: up to date; a manifest signed by another key: refused and the state kept', async () => {
     const { fetchImpl } = channel({ version: '0.1.0' });
     expect(await new Updates({ platform: 'container', stateDir: tmp(), version: '0.1.0', fetchImpl, keys: [release.publicKey] }).check('t')).toEqual({ state: 'up_to_date' });
