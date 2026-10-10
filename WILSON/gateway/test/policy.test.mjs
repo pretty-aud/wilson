@@ -179,3 +179,13 @@ describe('the container\'s mount rule (R15)', () => {
     expect(parseUncPath('\\\\nas\\footage\\a')).toEqual({ host: 'nas', share: 'footage', rest: ['a'] });
   });
 });
+
+describe('the version', () => {
+  it('VERSION is package.json\'s, so the two cannot drift', async () => {
+    const { VERSION } = await import('../src/version.mjs');
+    const fs = await import('node:fs');
+    const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(VERSION).toBe(pkg.version);
+    expect(pkg.dependencies).toEqual({}); // Node built-ins only (the brief, item 1)
+  });
+});

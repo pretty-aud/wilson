@@ -1,0 +1,186 @@
+# =============================================================================
+# .github/workflows/gateway.yml — the WILSON file gateway (WILSON/gateway/, GW2).
+#
+#   tests      the gateway's own suite (npx vitest run gateway) on Windows and
+#              Ubuntu, Node 24
+#   msi        "WILSON Gateway Setup.msi" built on Windows from source: the
+#              service host by csc.exe, node.exe from the official zip checked
+#              against its pinned SHA-256, WiX 5.0.2 as a dotnet LOCAL tool;
+#              its tables read back (the services' accounts, the custom
+#              actions' order, the office door's firewall rule); kept as an
+#              artifact for seven days. Unsigned until D14 (GW4). Nothing is
+#              installed on the runner.
+#   container  the image built and run on Ubuntu twice, against the fake cloud
+#              (gateway/test/fakeCloud.mjs) on the runner:
+#                1  on Docker's default bridge: the office door stays closed
+#                   and the log says why (D24)
+#                2  on the host's network: enrolled, the switch turned on, a
+#                   Range read through the outside door from the runner's own
+#                   LAN address, served, with that real address in the log;
+#                   the office door closes the same host before TLS; the
+#                   switch turned off closes the outside port
+# =============================================================================
+
+name: Gateway
+
+on:
+  push:
+    branches:
+      - 'po/**'
+      - 'feat/**'
+    paths:
+      - 'WILSON/gateway/**'
+      - 'WILSON/vitest.config.js'
+      - '.github/workflows/gateway.yml'
+  pull_request:
+    paths:
+      - 'WILSON/gateway/**'
+      - '.github/workflows/gateway.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Gateway tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: WILSON/package-lock.json
+      - name: Install dependencies (vitest)
+        run: npm ci --ignore-scripts
+      - name: The gateway's tests
+        run: npx vitest run gateway
+
+  msi:
+    name: Windows installer (unsigned)
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gateway-msi'
+          & WILSON/gateway/windows/wix/build.ps1 -Out $out
+          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+          Get-ChildItem $out -Filter *.msi | Format-Table Name, Length
+      - name: Read the MSI's tables back (nothing installed)
+        shell: pwsh
+        run: |
+          $msi = Join-Path $env:RUNNER_TEMP 'gateway-msi\WILSON Gateway Setup.msi'
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi, 0))
+          function Q($sql) {
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $rows = @()
+            while ($true) {
+              $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+              if ($rec -eq $null) { break }
+              $n = $rec.GetType().InvokeMember('FieldCount', 'GetProperty', $null, $rec, $null)
+              $vals = @(); for ($i = 1; $i -le $n; $i++) { $vals += $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @($i)) }
+              $rows += ($vals -join '|')
+            }
+            return $rows
+          }
+          $svc = Q 'SELECT `Name`,`StartName`,`Arguments` FROM `ServiceInstall`'
+          $svc
+          if (-not ($svc -contains 'WilsonGateway|NT SERVICE\WilsonGateway|WilsonGateway')) { throw 'the gateway service is not the virtual service account' }
+          if (-not ($svc -contains 'WilsonGatewayUpdater|LocalSystem|WilsonGatewayUpdater')) { throw 'the updater service is not LocalSystem' }
+          $seq = Q 'SELECT `Action`,`Sequence` FROM `InstallExecuteSequence`'
+          $at = @{}; foreach ($r in $seq) { $p = $r.Split('|'); $at[$p[0]] = [int]$p[1] }
+          if (-not ($at['InstallServices'] -lt $at['SetStateAcl'] -and $at['SetStateAcl'] -lt $at['WriteEnrolFile'] -and $at['WriteEnrolFile'] -lt $at['StartServices'] -and $at['StartServices'] -lt $at['WriteSummary'])) { throw 'custom actions out of order' }
+          $hidden = Q 'SELECT `Value` FROM `Property` WHERE `Property` = ''MsiHiddenProperties'''
+          if (-not ($hidden -match 'ENROLTOKEN')) { throw 'the token is not hidden from the log' }
+          $fw = Q 'SELECT `Name`,`RemoteAddresses`,`Port`,`Protocol` FROM `Wix5FirewallException`'
+          $fw
+          if (-not ($fw -contains 'WILSON Gateway office door|LocalSubnet|8443|6')) { throw 'the office door rule is not TCP 8443, local subnet' }
+          'MSI tables: as designed'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wilson-gateway-msi-unsigned
+          path: ${{ runner.temp }}/gateway-msi/WILSON Gateway Setup.msi
+          retention-days: 7
+
+  container:
+    name: Container (bridge, then host network)
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build the image
+        run: docker build -f WILSON/gateway/container/Dockerfile -t wilson-gateway:ci WILSON/gateway
+
+      - name: 1. On Docker's default bridge, the office door stays closed and says why
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
+          docker run -d --name gw-bridge -v /tmp/data-bridge:/data wilson-gateway:ci
+          for i in $(seq 1 30); do docker logs gw-bridge 2>&1 | grep -q 'Certificate fingerprint' && break; sleep 1; done
+          docker logs gw-bridge 2>&1 | head -20
+          docker logs gw-bridge 2>&1 | grep -q "is on a bridge network, so it cannot see browsers" || { echo 'no bridge sentence'; exit 1; }
+          docker logs gw-bridge 2>&1 | head -5 | grep -q 'Certificate fingerprint (SHA-256): ' || { echo 'no fingerprint on the first lines'; exit 1; }
+          docker rm -f gw-bridge
+
+      - name: 2. On the host's network, a Range read from the runner's LAN address, with that address in the log
+        run: |
+          set -euo pipefail
+          LAN=$(hostname -I | awk '{print $1}')
+          echo "the runner's LAN address: $LAN"
+          mkdir -p /tmp/fc /tmp/data-host /tmp/share
+          head -c 1048576 /dev/urandom > /tmp/share/clip.mp4
+          node WILSON/gateway/test/fakeCloud.mjs --port 9443 --dir /tmp/fc > /tmp/fc/out.json &
+          for i in $(seq 1 30); do [ -s /tmp/fc/out.json ] && break; sleep 0.5; done
+          cat /tmp/fc/out.json
+          C=https://127.0.0.1:9443/_control
+          post() { curl -sk -X POST "$C/$1" -H 'content-type: application/json' -d "$2"; }
+          LOC=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee; CLIP=99999999-8888-4777-b666-555555555555; SUB=11111111-2222-4333-8444-555555555555
+          post location "{\"id\":\"$LOC\",\"unc_path\":\"\\\\\\\\nas\\\\footage\",\"name\":\"Footage\"}"
+          post clip "{\"id\":\"$CLIP\",\"loc\":\"$LOC\",\"path\":\"clip.mp4\",\"mt\":\"video/mp4\"}"
+          post member "{\"sub\":\"$SUB\"}"
+          post state "{\"switch_on\":true,\"outside_address\":{\"host\":\"$LAN\",\"port\":8444}}"
+          TOKEN=$(post token '{}' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).token))')
+          sudo chown -R 65532:65532 /tmp/data-host
+          docker run -d --name gw-host --network host \
+            -e WILSON_ENROL_TOKEN="$TOKEN" -e WILSON_CLOUD_URL=https://127.0.0.1:9443/functions/v1 \
+            -e NODE_EXTRA_CA_CERTS=/ca/fake-cloud-root.pem \
+            -v /tmp/fc:/ca:ro -v /tmp/data-host:/data -v /tmp/share:/locations/nas/footage:ro \
+            wilson-gateway:ci
+          for i in $(seq 1 60); do docker logs gw-host 2>&1 | grep -q 'outside_open' && break; sleep 1; done
+          docker logs gw-host 2>&1 | head -30
+          docker logs gw-host 2>&1 | grep -q 'outside_open' || { echo 'the outside door did not open'; exit 1; }
+          TICKET=$(post mint "{\"clip\":\"$CLIP\",\"sub\":\"$SUB\"}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).ticket))')
+          CODE=$(curl -sk -o /tmp/got.bin -w '%{http_code}' -H 'Range: bytes=0-1023' "https://$LAN:8444/v1/clips/$CLIP?t=$TICKET")
+          echo "outside door answered $CODE with $(stat -c %s /tmp/got.bin) bytes"
+          [ "$CODE" = 206 ] && [ "$(stat -c %s /tmp/got.bin)" = 1024 ] && cmp -n 1024 /tmp/got.bin /tmp/share/clip.mp4
+          sleep 1
+          docker logs gw-host 2>&1 | grep 'clip_served' | tail -1
+          docker logs gw-host 2>&1 | grep 'clip_served' | grep -q "\"peer\":\"$LAN\"" || { echo 'the real peer address is not in the log'; exit 1; }
+          if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then echo 'the office door served its own host'; exit 1; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
+          post state '{"switch_on":false}'
+          for i in $(seq 1 30); do docker logs gw-host 2>&1 | grep -q 'outside_closed' && break; sleep 1; done
+          docker logs gw-host 2>&1 | grep 'outside_closed' | tail -1
+          if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then echo 'the outside door still answers with the switch off'; exit 1; else echo "switch off: the outside port refuses (curl exit $?)"; fi
+          docker rm -f gw-host
