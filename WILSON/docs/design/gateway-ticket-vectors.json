@@ -1,0 +1,182 @@
+{
+  "_about": [
+    "The file gateway ticket test vectors, written by GW1 (po/gw1-gateway-cloud) on 2026-10-10 with the cloud's own mint (supabase/functions/_shared/gatewayTicket.ts).",
+    "GW2 reads this file before its review round 2 and runs its verifier against it; GW3 reconciles whatever still differs.",
+    "THE KEY PAIR BELOW IS A FIXTURE made for these vectors only. It is public, in a public repository, and must never be used to sign anything else."
+  ],
+  "wire": {
+    "ticket": "v1.<payload>.<sig>",
+    "payload": "base64url without padding of the UTF-8 bytes of JSON.stringify(claims), no whitespace",
+    "sig": "base64url without padding of the Ed25519 signature over the ASCII bytes of the string v1.<payload>",
+    "claim_order": [
+      "v",
+      "kid",
+      "gw",
+      "ws",
+      "sub",
+      "clip",
+      "loc",
+      "path",
+      "seq",
+      "mt",
+      "rv",
+      "iat",
+      "exp",
+      "jti"
+    ],
+    "ttl_seconds": 120,
+    "max_length": 4096,
+    "skew_seconds": 30,
+    "previous_key_grace_seconds": 600
+  },
+  "notes": [
+    "mt is the bin_files row's mime_type; a row that holds none (the column is nullable) carries the EMPTY STRING, so mt is always a string. It is advisory: the gateway decides the type from the resolved file's own extension.",
+    "path is the cloud's relative_path exactly as the row holds it (forward slashes, any Unicode the CHECK admits). valid_rv_true carries a non-ASCII path on purpose: the payload is the UTF-8 bytes of the JSON, and JSON.stringify does not escape non-ASCII characters.",
+    "Each refused ticket fails exactly ONE check, so its verdict does not depend on the order a verifier checks in.",
+    "Evaluate every ticket at verifier.now (Unix seconds) as the gateway verifier.gateway_id of workspace verifier.workspace_id, with signing_keys as the keys the last sync delivered."
+  ],
+  "key": {
+    "kid": "fixture1",
+    "alg": "Ed25519",
+    "public_key": "rALcrVzZONCuTaR+eXFUSL3UWx0G+4Ib+22RwagO37U=",
+    "private_key_pkcs8": "MC4CAQAwBQYDK2VwBCIEIPeSHvEPKBJ5ljQcNtrSB6iPkOE3Aot6Nz510mk1H7An",
+    "private_key_jwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "rALcrVzZONCuTaR-eXFUSL3UWx0G-4Ib-22RwagO37U",
+      "d": "95Ie8Q8oEnmWNBw22tIHqI-Q4TcCi3o3PnXSaTUfsCc"
+    }
+  },
+  "signing_keys": [
+    {
+      "kid": "fixture1",
+      "public_key": "rALcrVzZONCuTaR+eXFUSL3UWx0G+4Ib+22RwagO37U="
+    }
+  ],
+  "verifier": {
+    "gateway_id": "6ff77a0c-8d4f-49f1-bfcd-a1898bf24acd",
+    "workspace_id": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+    "now": 1791633600,
+    "now_iso": "2026-10-10T12:00:00.000Z"
+  },
+  "tickets": [
+    {
+      "name": "valid_rv_false",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJmaXh0dXJlMSIsImd3IjoiNmZmNzdhMGMtOGQ0Zi00OWYxLWJmY2QtYTE4OThiZjI0YWNkIiwid3MiOiI4MzlhZjg4My1lYzc0LTRjYTctYjU5NS1kMTRiZjlkMjBhY2YiLCJzdWIiOiIyZTg0YzBhOS0yYjJlLTRiZTgtODAyZC0xMjRmN2ZmOTRmNTgiLCJjbGlwIjoiYzhkMDc2M2QtMDA4Mi00ZGViLWI4MmMtOTg2YmI2NjQ5YmFmIiwibG9jIjoiNjM4YjFkY2MtN2ExNC00YWU2LTllZjctN2VkN2U3MzlkOTE5IiwicGF0aCI6IkEwMDEvQTAwMV9DMDAyXzA5MjFYWS5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNjMzNTgwLCJleHAiOjE3OTE2MzM3MDAsImp0aSI6IjJhODljYTJkNmMwNzQ4Y2RlYjY0N2JlODljMTk2NDJlIn0.Zkwq1EZAqaW-CfV8L7aZXYRnG5Se38YRH23S6OAuAizYOU966A7sNlJg2V3qQTI9tbTcx6C0N1KPIFhmG1FiCg",
+      "claims": {
+        "v": 1,
+        "kid": "fixture1",
+        "gw": "6ff77a0c-8d4f-49f1-bfcd-a1898bf24acd",
+        "ws": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+        "sub": "2e84c0a9-2b2e-4be8-802d-124f7ff94f58",
+        "clip": "c8d0763d-0082-4deb-b82c-986bb6649baf",
+        "loc": "638b1dcc-7a14-4ae6-9ef7-7ed7e739d919",
+        "path": "A001/A001_C002_0921XY.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791633580,
+        "exp": 1791633700,
+        "jti": "2a89ca2d6c0748cdeb647be89c19642e"
+      },
+      "verdict": "valid",
+      "inside_door": "serve",
+      "outside_door": "refuse (rv is false)"
+    },
+    {
+      "name": "valid_rv_true",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJmaXh0dXJlMSIsImd3IjoiNmZmNzdhMGMtOGQ0Zi00OWYxLWJmY2QtYTE4OThiZjI0YWNkIiwid3MiOiI4MzlhZjg4My1lYzc0LTRjYTctYjU5NS1kMTRiZjlkMjBhY2YiLCJzdWIiOiIyZTg0YzBhOS0yYjJlLTRiZTgtODAyZC0xMjRmN2ZmOTRmNTgiLCJjbGlwIjoiN2QyMjA5YjYtZTNiNy00ZjI5LThhYWItZmJjNGUwMDg2MGRjIiwibG9jIjoiNjM4YjFkY2MtN2ExNC00YWU2LTllZjctN2VkN2U3MzlkOTE5IiwicGF0aCI6IkTDrWEgMDIvRW50cmV2aXN0YSB0b21hIDMubXA0Iiwic2VxIjpmYWxzZSwibXQiOiJ2aWRlby9tcDQiLCJydiI6dHJ1ZSwiaWF0IjoxNzkxNjMzNTgwLCJleHAiOjE3OTE2MzM3MDAsImp0aSI6IjM1NWVlNzNjMzJmNWU1NTE0MDVmODU3MjQ4ZGVmYWJmIn0.e-2qFF95-EVvIprkt3dYWSuDybjc5TulZr4K2XlYyWjaP1NlVKGNEiXTsxeQql6ihmsrihMA3goP-e57QmLdAw",
+      "claims": {
+        "v": 1,
+        "kid": "fixture1",
+        "gw": "6ff77a0c-8d4f-49f1-bfcd-a1898bf24acd",
+        "ws": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+        "sub": "2e84c0a9-2b2e-4be8-802d-124f7ff94f58",
+        "clip": "7d2209b6-e3b7-4f29-8aab-fbc4e00860dc",
+        "loc": "638b1dcc-7a14-4ae6-9ef7-7ed7e739d919",
+        "path": "Día 02/Entrevista toma 3.mp4",
+        "seq": false,
+        "mt": "video/mp4",
+        "rv": true,
+        "iat": 1791633580,
+        "exp": 1791633700,
+        "jti": "355ee73c32f5e551405f857248defabf"
+      },
+      "verdict": "valid",
+      "inside_door": "serve",
+      "outside_door": "serve"
+    },
+    {
+      "name": "expired",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJmaXh0dXJlMSIsImd3IjoiNmZmNzdhMGMtOGQ0Zi00OWYxLWJmY2QtYTE4OThiZjI0YWNkIiwid3MiOiI4MzlhZjg4My1lYzc0LTRjYTctYjU5NS1kMTRiZjlkMjBhY2YiLCJzdWIiOiIyZTg0YzBhOS0yYjJlLTRiZTgtODAyZC0xMjRmN2ZmOTRmNTgiLCJjbGlwIjoiYzhkMDc2M2QtMDA4Mi00ZGViLWI4MmMtOTg2YmI2NjQ5YmFmIiwibG9jIjoiNjM4YjFkY2MtN2ExNC00YWU2LTllZjctN2VkN2U3MzlkOTE5IiwicGF0aCI6IkEwMDEvQTAwMV9DMDAyXzA5MjFYWS5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2IjpmYWxzZSwiaWF0IjoxNzkxNjMzMzAwLCJleHAiOjE3OTE2MzM0MjAsImp0aSI6ImIyM2FmNTE0MjhlNTY0NDQ4NmY2ZTRhOTNjYTQ1YzBhIn0.5IyN_smi-ag-In5xcM2TXpYzNTqhZRCpjUwylDEvA3uC5cWO8qtmSaTCmMUsITdX5LRFxVqwpWTiTSOsc-TNDw",
+      "claims": {
+        "v": 1,
+        "kid": "fixture1",
+        "gw": "6ff77a0c-8d4f-49f1-bfcd-a1898bf24acd",
+        "ws": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+        "sub": "2e84c0a9-2b2e-4be8-802d-124f7ff94f58",
+        "clip": "c8d0763d-0082-4deb-b82c-986bb6649baf",
+        "loc": "638b1dcc-7a14-4ae6-9ef7-7ed7e739d919",
+        "path": "A001/A001_C002_0921XY.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": false,
+        "iat": 1791633300,
+        "exp": 1791633420,
+        "jti": "b23af51428e5644486f6e4a93ca45c0a"
+      },
+      "verdict": "expired",
+      "inside_door": "refuse",
+      "outside_door": "refuse",
+      "why": "exp is 180 s before now, past the 30 s skew"
+    },
+    {
+      "name": "another_gateway",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJmaXh0dXJlMSIsImd3IjoiMjk3ZmRkM2QtZmY5ZC00NTFjLWIyNzUtZWEzYTZjZGY0YTkxIiwid3MiOiI4MzlhZjg4My1lYzc0LTRjYTctYjU5NS1kMTRiZjlkMjBhY2YiLCJzdWIiOiIyZTg0YzBhOS0yYjJlLTRiZTgtODAyZC0xMjRmN2ZmOTRmNTgiLCJjbGlwIjoiYzhkMDc2M2QtMDA4Mi00ZGViLWI4MmMtOTg2YmI2NjQ5YmFmIiwibG9jIjoiNjM4YjFkY2MtN2ExNC00YWU2LTllZjctN2VkN2U3MzlkOTE5IiwicGF0aCI6IkEwMDEvQTAwMV9DMDAyXzA5MjFYWS5tb3YiLCJzZXEiOmZhbHNlLCJtdCI6InZpZGVvL3F1aWNrdGltZSIsInJ2Ijp0cnVlLCJpYXQiOjE3OTE2MzM1ODAsImV4cCI6MTc5MTYzMzcwMCwianRpIjoiMjk0OTIzOWRhOWRjNjE1NGIwYzRkOTNmNTcxZDVjNmIifQ._g-q3-t4hiMwJ4OzUbxN_s_4TgmTb5YUqkJRpTDOWL3kR8nBvxNRXQbIdfRVhXjLY0Is0hgMXMyzFjvX-Zh6AA",
+      "claims": {
+        "v": 1,
+        "kid": "fixture1",
+        "gw": "297fdd3d-ff9d-451c-b275-ea3a6cdf4a91",
+        "ws": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+        "sub": "2e84c0a9-2b2e-4be8-802d-124f7ff94f58",
+        "clip": "c8d0763d-0082-4deb-b82c-986bb6649baf",
+        "loc": "638b1dcc-7a14-4ae6-9ef7-7ed7e739d919",
+        "path": "A001/A001_C002_0921XY.mov",
+        "seq": false,
+        "mt": "video/quicktime",
+        "rv": true,
+        "iat": 1791633580,
+        "exp": 1791633700,
+        "jti": "2949239da9dc6154b0c4d93f571d5c6b"
+      },
+      "verdict": "wrong_gateway",
+      "inside_door": "refuse",
+      "outside_door": "refuse",
+      "why": "gw names a different gateway than verifier.gateway_id"
+    },
+    {
+      "name": "flipped_signature_byte",
+      "ticket": "v1.eyJ2IjoxLCJraWQiOiJmaXh0dXJlMSIsImd3IjoiNmZmNzdhMGMtOGQ0Zi00OWYxLWJmY2QtYTE4OThiZjI0YWNkIiwid3MiOiI4MzlhZjg4My1lYzc0LTRjYTctYjU5NS1kMTRiZjlkMjBhY2YiLCJzdWIiOiIyZTg0YzBhOS0yYjJlLTRiZTgtODAyZC0xMjRmN2ZmOTRmNTgiLCJjbGlwIjoiN2QyMjA5YjYtZTNiNy00ZjI5LThhYWItZmJjNGUwMDg2MGRjIiwibG9jIjoiNjM4YjFkY2MtN2ExNC00YWU2LTllZjctN2VkN2U3MzlkOTE5IiwicGF0aCI6IkTDrWEgMDIvRW50cmV2aXN0YSB0b21hIDMubXA0Iiwic2VxIjpmYWxzZSwibXQiOiJ2aWRlby9tcDQiLCJydiI6dHJ1ZSwiaWF0IjoxNzkxNjMzNTgwLCJleHAiOjE3OTE2MzM3MDAsImp0aSI6IjM1NWVlNzNjMzJmNWU1NTE0MDVmODU3MjQ4ZGVmYWJmIn0.eu2qFF95-EVvIprkt3dYWSuDybjc5TulZr4K2XlYyWjaP1NlVKGNEiXTsxeQql6ihmsrihMA3goP-e57QmLdAw",
+      "claims": {
+        "v": 1,
+        "kid": "fixture1",
+        "gw": "6ff77a0c-8d4f-49f1-bfcd-a1898bf24acd",
+        "ws": "839af883-ec74-4ca7-b595-d14bf9d20acf",
+        "sub": "2e84c0a9-2b2e-4be8-802d-124f7ff94f58",
+        "clip": "7d2209b6-e3b7-4f29-8aab-fbc4e00860dc",
+        "loc": "638b1dcc-7a14-4ae6-9ef7-7ed7e739d919",
+        "path": "Día 02/Entrevista toma 3.mp4",
+        "seq": false,
+        "mt": "video/mp4",
+        "rv": true,
+        "iat": 1791633580,
+        "exp": 1791633700,
+        "jti": "355ee73c32f5e551405f857248defabf"
+      },
+      "verdict": "bad_signature",
+      "inside_door": "refuse",
+      "outside_door": "refuse",
+      "why": "valid_rv_true with the first byte of its decoded signature XORed with 0x01"
+    }
+  ]
+}
