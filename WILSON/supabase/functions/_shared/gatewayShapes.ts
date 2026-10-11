@@ -373,6 +373,28 @@ export function parseReachRequest(raw: unknown): { ok: true; gatewayId: string }
   return { ok: true, gatewayId: raw.gateway_id }
 }
 
+// ── The answers' fields (GW3, 2026-10-11: the two halves reconciled) ─────────
+//
+// Appendix C fixes the answers' shapes; these two lists are the fields the
+// deployed functions send, in their order, so a test can hold each function
+// to its list and the gateway's reader (gateway/src/cloud/client.mjs,
+// cleanEnrolAnswer and cleanSyncAnswer) to the same names. `workspace_id`
+// is in both: a ticket's `ws` is checked against it by the gateway, which
+// refused every ticket while neither answer carried it (GW2's hand-off,
+// "For GW3", item 1; the vectors file's notes say so too).
+
+/** gateway-enrol's answer, once. */
+export const ENROL_ANSWER_FIELDS = [
+  'gateway_id', 'credential', 'workspace_id', 'workspace_name', 'signing_keys', 'web_app_origins', 'sync_interval_s',
+] as const
+
+/** gateway-sync's answer, every ten seconds. */
+export const SYNC_ANSWER_FIELDS = [
+  'workspace_id', 'remote_viewing', 'outside_address', 'office_ranges', 'signing_keys', 'web_app_origins', 'bin_locations',
+  'confirmed', 'minimum_version', 'hard_minimum_version', 'check_update_now', 'check_reach_now', 'reach_nonce', 'renamed',
+  'sync_interval_s',
+] as const
+
 // ── The answers' configuration ───────────────────────────────────────────────
 
 /** The web app's origins for the gateway's CORS: the site URL's origin plus any listed extras. */

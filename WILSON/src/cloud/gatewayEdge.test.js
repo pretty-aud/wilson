@@ -17,7 +17,7 @@ import { createHash, createHmac } from 'node:crypto'
 import {
   isInsideHost, isPrivateLiteral, cleanInsideAddresses, clientAddress, compareVersions,
   parseEnrolRequest, parseSyncRequest, parseTicketRequest, parseEventsRequest, parseReachRequest,
-  webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE,
+  webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE, ENROL_ANSWER_FIELDS, SYNC_ANSWER_FIELDS,
 } from '../../supabase/functions/_shared/gatewayShapes.ts'
 import {
   classifyIp, isPublicIp, checkOutsideAddress, vetResolved, parseHealthResponse,
@@ -583,6 +583,27 @@ describe('the five functions keep the house order and the S33 rule (text pins)',
     expect(fn('gateway-enrol')).toContain('p_reach_key: await reachKeyOf(credential)')
     expect(fn('gateway-sync')).toContain('runReachCheck(admin, gatewayId, begun, null, 1000)')
     expect(fn('gateway-reach')).toMatch(/'gateway_not_syncing'[\s\S]*?inside_answered: false,\s*inside_other: false/)
+  })
+  it('GW3: both of the gateway\'s answers name the workspace, field for field as the lists say, and the gateway reads it from either (GW2\'s hand-off, "For GW3", item 1)', () => {
+    const enrol = fn('gateway-enrol')
+    const sync = fn('gateway-sync')
+    // The field list of an answer({ … }) call: one field per line, in order
+    // (a shorthand property counts).
+    const fieldsOf = (src, open) => {
+      const i = src.indexOf(open)
+      expect(i).toBeGreaterThan(0)
+      const block = src.slice(i, src.indexOf('})', i))
+      return [...block.matchAll(/^ {4}([a-z_]+)(?::|,)/gm)].map((m) => m[1])
+    }
+    expect(fieldsOf(enrol, 'return answer({')).toEqual([...ENROL_ANSWER_FIELDS])
+    expect(fieldsOf(sync, 'const reply = answer({')).toEqual([...SYNC_ANSWER_FIELDS])
+    expect(enrol).toContain('workspace_id: workspaceId,')
+    expect(sync).toContain('workspace_id: workspaceId,')
+    expect(ENROL_ANSWER_FIELDS).toContain('workspace_id')
+    expect(SYNC_ANSWER_FIELDS).toContain('workspace_id')
+    // The gateway's reader takes it from both answers (gateway/src/cloud/client.mjs).
+    const client = read('gateway', 'src', 'cloud', 'client.mjs')
+    expect(client).toMatch(/cleanEnrolAnswer[\s\S]*?a\.workspace_id[\s\S]*?cleanSyncAnswer[\s\S]*?a\.workspace_id/)
   })
   it('every function is registered with verify_jwt = false', () => {
     const toml = read('supabase', 'config.toml')
