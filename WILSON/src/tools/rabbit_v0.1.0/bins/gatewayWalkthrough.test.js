@@ -15,7 +15,7 @@ import path from 'node:path'
 import {
   CATALOGUE_GATEWAY_SENTENCE, GATEWAY_ADMIN_LINE, CHROME_LOCAL_NETWORK_SENTENCE, NEEDS_DESKTOP_FORMAT, GATEWAY_OWN_COMPUTER_LINE,
   PLAYER_LARGE_HINT, POSTER_LARGE_HINT, gatewayUnseenSentence, gatewayUnreachableSentence, gatewayClipSentence, gatewayMissingSentence,
-  FULLSCREEN_KEEPS_MARK,
+  FULLSCREEN_KEEPS_MARK, PLAYER_KEEPS_KEYS,
 } from './binLocations'
 import { GATEWAY_REFRESH_MS } from '../adapters/gatewayBins'
 import { RENEW_AFTER_MS } from './gatewayDoors'
@@ -33,7 +33,7 @@ const has = (sentence) => plain(walk).includes(plain(sentence))
 
 describe('walkthrough 62 quotes the tab\'s own sentences', () => {
   it('the notice with a gateway, the admin\'s line, Chrome\'s prompt, the own-computer line, the format sentence, the two hints', () => {
-    for (const s of [CATALOGUE_GATEWAY_SENTENCE, GATEWAY_ADMIN_LINE, CHROME_LOCAL_NETWORK_SENTENCE, GATEWAY_OWN_COMPUTER_LINE, NEEDS_DESKTOP_FORMAT, PLAYER_LARGE_HINT, POSTER_LARGE_HINT, FULLSCREEN_KEEPS_MARK]) {
+    for (const s of [CATALOGUE_GATEWAY_SENTENCE, GATEWAY_ADMIN_LINE, CHROME_LOCAL_NETWORK_SENTENCE, GATEWAY_OWN_COMPUTER_LINE, NEEDS_DESKTOP_FORMAT, PLAYER_LARGE_HINT, POSTER_LARGE_HINT, FULLSCREEN_KEEPS_MARK, PLAYER_KEEPS_KEYS]) {
       expect(has(s), s).toBe(true)
     }
   })

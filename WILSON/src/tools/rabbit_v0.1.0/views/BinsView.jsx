@@ -94,6 +94,9 @@ const TYPE_STARTER = [
  * gets keys that do nothing, which a test sees, rather than keys that act
  * from every page, which nobody does (S2a-01).
  */
+/** The keys a focused <video> or <audio> answers itself (round 2, finding 4). */
+const PLAYER_KEYS = new Set([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+
 export default function BinsView({ pageActive = false, people = [] } = {}) {
   const ctx = useRabbit()
   // BC2 (B6): bins are gated on `project.bins.write` — the twin of the shot
@@ -701,6 +704,14 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     setMenu({ x: e.clientX, y: e.clientY, items })
   }, [bins, canWrite, canPick, pickFiles, pickFolder, createBin, patchBin, shiftBin, nestBin])
 
+  // The large view closes with focus back on the files pane, where the keys
+  // that opened it work — never <body>, which a screen reader announces as
+  // nothing (GW3 review round 2, note 17).
+  const closePosterLarge = useCallback(() => {
+    setPosterLarge(false)
+    try { paneRef.current?.focus?.({ preventScroll: true }) } catch { /* gone */ }
+  }, [])
+
   // ── Keyboard ──
   const onKeyDown = useCallback((e) => {
     // 🚨 S2a-01 (post-overhaul S4a): every page stays mounted, and this
@@ -713,6 +724,11 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     if (!pageActive) return
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+    // …and the native player's own keys (Jakob; GW3 review round 2, finding
+    // 4): with a <video> or <audio> focused — the viewer clicked the picture —
+    // Space plays and pauses it and the arrows seek, Home and End go to its
+    // ends; the grid keeps Esc, S / R / U / C and the colours.
+    if (t && (t.tagName === 'VIDEO' || t.tagName === 'AUDIO') && PLAYER_KEYS.has(e.key)) return
     // …and while ANY kit dialog or menu is ON SCREEN, not only the ones this
     // view tracks (review round 1): the shell's dialogs join as they move onto
     // the kit. On screen, not merely open (round 2: one left open on a hidden
@@ -760,10 +776,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       // GW3: in a browser Space opens the large view whatever plays — the
       // gateway's player where the clip streams, the picture where it does
       // not — and the inspector's preview leaves Space to it.
-      case ' ': if ((!mode.canStream || catalogue) && currentId && !e.repeat) { e.preventDefault(); setPosterLarge(v => !v) } return
+      case ' ': if ((!mode.canStream || catalogue) && currentId && !e.repeat) { e.preventDefault(); if (posterLarge) closePosterLarge(); else setPosterLarge(true) } return
       // Escape closes the picture first, keeping the selection; then it
       // clears the selection as it always has.
-      case 'Escape': e.preventDefault(); if (posterLarge) return setPosterLarge(false); return clearSelection()
+      case 'Escape': e.preventDefault(); if (posterLarge) return closePosterLarge(); return clearSelection()
       case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } else if (ids.length) { e.preventDefault(); openAssign(ids) } return
       case 's': case 'S': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'select' }) } return
       case 'r': case 'R': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'reject' }) } return
@@ -778,7 +794,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign, mode.canStream, catalogue, posterLarge])
+  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign, mode.canStream, catalogue, posterLarge, closePosterLarge])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
@@ -1255,7 +1271,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
             {/* BC3: the picture large (Space where nothing can play), over the
                 pane like the rename bar — the Bins keys keep working under it. */}
             {posterLarge && currentRow && (!mode.canStream || catalogue) && (
-              <PosterLarge row={currentRow} location={locationOf(currentRow)} catalogue={catalogue} onClose={() => setPosterLarge(false)}
+              <PosterLarge row={currentRow} location={locationOf(currentRow)} catalogue={catalogue} onClose={closePosterLarge}
                 canStream={gatewayCloud && mode.canStream} streamUrl={gatewayCloud && mode.canStream ? streamUrlFor(currentRow.id) : null}
                 streamInfo={streamInfoFor(currentRow.id)} viewer={viewer} gateway={gatewayInfo}
                 onTicketWanted={ensureTicket} onRenew={renewStream} onFreshSrc={freshSrc} onDiagnose={diagnose} />

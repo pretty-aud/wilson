@@ -13,20 +13,29 @@
 //                    jti (§5 step 7): the URL never changes, so the element
 //                    keeps every byte it buffered
 //   the recovery     a 401 is NEVER retried with the same ticket: the failure
-//                    is diagnosed with a HEAD on a fresh ticket (a <video>
-//                    reads no status), and a stale ticket gets a new src at
-//                    the same currentTime, once; a 404 is the clip missing at
-//                    its location (the row flips), a 415 or a decode failure
-//                    is NEEDS_DESKTOP_FORMAT (G7, D8: no transcoding)
+//                    is diagnosed with a HEAD on the element's own ticket (a
+//                    <video> reads no status); a ticket that aged gets a new
+//                    src at the same currentTime, once per clip until a src
+//                    loads; one refused while still young is the door's
+//                    refusal, said, the clip backed off a minute (GW3 review
+//                    round 2, finding 1); a connection that dropped while the
+//                    door still serves is loaded again at the same moment,
+//                    once, then said with Try again (note 11); a 404 is the
+//                    clip missing at its location (the row flips), a 415 or a
+//                    decode failure is NEEDS_DESKTOP_FORMAT (G7, D8)
 //   the mark (D9)    over REMOTE playback only (the door the probe reached was
 //                    the outside one): the viewer's display name, a six-
 //                    character member code they cannot change (the first six
 //                    characters of the user id; a display name is the
 //                    person's own to set), and the clock time, in the kit's
-//                    small label step at 55% white on a soft dark backing, no
-//                    blur (the kit bans it), one of five positions moved every
-//                    30 s so a cropped recording still carries it part of the
-//                    time. Inside the office: no mark (G6, G8). It is a
+//                    small label step at 70% white on a 65% dark backing (at
+//                    least 4:1 over a white frame: round 2, note 7), no blur
+//                    (the kit bans it), one of five positions by the clock —
+//                    each 30 s of it has its own, so a player mounted again
+//                    keeps the rhythm (note 14) — so a cropped recording still
+//                    carries it part of the time; the name and the rest wrap
+//                    apart on a narrow tile, never an ellipsis over the clock
+//                    (note 6). Inside the office: no mark (G6, G8). It is a
 //                    visible deterrent and an attribution a determined viewer
 //                    can remove with the browser's tools; the audit row (§6)
 //                    is the durable record.
@@ -50,10 +59,14 @@ import { Maximize2 } from 'lucide-react'
 import BinPoster from './BinPoster'
 import { C, IconBtn } from './binUi'
 import { RENEW_AFTER_MS } from '../../bins/gatewayDoors'
-import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK } from '../../bins/binLocations'
+import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK, GATEWAY_REFUSED_FRESH_TICKET, CONNECTION_DROPPED } from '../../bins/binLocations'
 
-/** MediaError's code for a decode failure: the format, said without asking the door. */
+/** MediaError's codes: a decode failure is the format, said without asking the door; an aborted or dropped fetch is the connection. */
+const MEDIA_ERR_ABORTED = 1
+const MEDIA_ERR_NETWORK = 2
 const MEDIA_ERR_DECODE = 3
+/** "loading" is said only once a ticket has taken this long: a fast hand-over shows no flicker of it (round 2, note 16). */
+export const LOADING_AFTER_MS = 300
 
 /** The five positions (§7), in the order the mark moves through them. */
 export const MARK_POSITIONS = Object.freeze(['top-left', 'top-right', 'bottom-right', 'bottom-left', 'centre'])
@@ -99,22 +112,43 @@ export const POSITION_CLASS = Object.freeze({
   'top-left': 'bn-mark-tl', 'top-right': 'bn-mark-tr', 'bottom-right': 'bn-mark-br', 'bottom-left': 'bn-mark-bl', centre: 'bn-mark-c',
 })
 
-/** The mark: drawn by the player when the door is `outside`, moved every 30 s, the clock kept to the minute. */
+/** The mark's position at a moment: each 30 s of the clock has its own, so every player shows the same and a remount keeps the rhythm (round 2, note 14). */
+export function markPositionAt(t) {
+  return MARK_POSITIONS[Math.floor(Number(t) / MARK_MOVE_MS) % MARK_POSITIONS.length] || MARK_POSITIONS[0]
+}
+/** The mark: drawn by the player when the door is `outside`, its position by the clock, the clock kept to the minute. */
 export function ViewerMark({ viewer, now = () => Date.now() }) {
-  const [pos, setPos] = useState(0)
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
   useEffect(() => {
-    const move = setInterval(() => setPos(p => (p + 1) % MARK_POSITIONS.length), MARK_MOVE_MS)
-    const clock = setInterval(() => setTick(t => t + 1), 15_000)
-    return () => { clearInterval(move); clearInterval(clock) }
-  }, [])
-  void tick
+    // Woken at every 15 s of the clock: the position turns on its 30 s and
+    // the clock on its minute, both on the beat.
+    let timer = null
+    const wake = () => { setTick(t => t + 1); timer = setTimeout(wake, 15_000 - (now() % 15_000)) }
+    timer = setTimeout(wake, 15_000 - (now() % 15_000))
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   void CONTROLS_CLEARANCE_PX
+  const at = now()
+  const name = String(viewer?.name || '').trim() || 'a viewer'
+  const code = memberCodeOf(viewer?.userId) || '------'
+  // Three parts that wrap apart on a narrow tile (round 2, note 6); the text
+  // is markWords' own.
   return (
-    <span className={`bn-viewer-mark text-label uppercase rounded-control ${POSITION_CLASS[MARK_POSITIONS[pos]]}`} data-testid="viewer-mark" aria-hidden="true">
-      {markWords(viewer, new Date(now()))}
+    <span className={`bn-viewer-mark text-label uppercase rounded-control ${POSITION_CLASS[markPositionAt(at)]}`} data-testid="viewer-mark" aria-hidden="true">
+      <span className="bn-mark-part">{name}</span> <span className="bn-mark-part">· {code}</span> <span className="bn-mark-part">· {clockWords(new Date(at))}</span>
     </span>
   )
+}
+
+/** True once `on` has held for `ms`: a word that would only flicker is not said (round 2, note 16). */
+export function useSlowFlag(on, ms = LOADING_AFTER_MS) {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    if (!on) { setSlow(false); return undefined }
+    const t = setTimeout(() => setSlow(true), ms)
+    return () => clearTimeout(t)
+  }, [on, ms])
+  return on && slow
 }
 
 /**
@@ -158,6 +192,7 @@ export default function GatewayVideo({
   const [override, setOverride] = useState(null) // the fresh src after a stale ticket
   const [guard, setGuard] = useState(false) // the bare element was taken fullscreen or into picture-in-picture
   const containerRef = useRef(null)
+  const frameFullRef = useRef(false) // the frame (the container) is fullscreen
   const ownRef = useRef(null)
   const recoveredRef = useRef(false)
   const resumeAtRef = useRef(null)
@@ -179,16 +214,24 @@ export default function GatewayVideo({
   }
   const effectiveSrc = override || src
 
-  // A new clip or a new src from the parent: the picture back on top, the
-  // recovery allowed again; the same clip resumes where it was.
+  // A new clip or a new src from the parent: the picture back on top; the
+  // same clip resumes where it was. The one fresh src is per clip until a src
+  // loads — a new src from the parent (the fresh one this player asked for
+  // among them) never hands the recovery back, or a door refusing every
+  // ticket would be asked again at network speed (round 2, finding 1).
+  const prevRowRef = useRef(row?.id)
   useEffect(() => {
+    // The parent now hands the very URL this player switched to: the
+    // element already has it (and may have drawn its first frame).
+    if (override && src === override && prevRowRef.current === row?.id) { setOverride(null); return }
+    if (prevRowRef.current !== row?.id) { recoveredRef.current = false; prevRowRef.current = row?.id }
     const last = lastRef.current
     const same = !!row?.id && last.id === row.id && last.t > 0
-    setLoaded(false); setFailed(null); setOverride(null); setGuard(false); recoveredRef.current = false
+    setLoaded(false); setFailed(null); setOverride(null); setGuard(false)
     resumeAtRef.current = same ? last.t : null
     resumePlayRef.current = same && last.playing
     playedSinceRenewRef.current = false
-  }, [row?.id, src])
+  }, [row?.id, src]) // eslint-disable-line react-hooks/exhaustive-deps
   const remember = (m, playing) => {
     if (!m || !row?.id) return
     const isPlaying = playing ?? !m.paused
@@ -232,6 +275,7 @@ export default function GatewayVideo({
 
   const onLoadedData = useCallback(() => {
     setLoaded(true)
+    recoveredRef.current = false // a src that loads: the next stale ticket may be recovered again
     const m = el()
     if (m && resumeAtRef.current != null) {
       try { m.currentTime = resumeAtRef.current } catch { /* not seekable yet */ }
@@ -246,8 +290,9 @@ export default function GatewayVideo({
     const m = el()
     const at = m && Number.isFinite(m.currentTime) ? m.currentTime : 0
     const wasPlaying = lastRef.current.id === row?.id && lastRef.current.playing
+    const code = m && m.error ? m.error.code : null
     // A decode failure is the format, without a request (G7).
-    if (m && m.error && m.error.code === MEDIA_ERR_DECODE) { setFailed('format'); onFailed?.('format'); return }
+    if (code === MEDIA_ERR_DECODE) { setFailed('format'); onFailed?.('format'); return }
     // Anything else a <video> cannot explain: ask the door (the element's own ticket first).
     const r = typeof onDiagnose === 'function' ? await Promise.resolve(onDiagnose(row.id)).catch(() => ({ verdict: 'unreachable' })) : { verdict: 'format' }
     const verdict = r?.verdict || 'unreachable'
@@ -260,12 +305,32 @@ export default function GatewayVideo({
       setFailed('ticket'); onFailed?.('ticket'); return
     }
     if (verdict === 'ok') {
-      // The door serves the bytes and the browser could not decode them: the format (G7).
+      // The door serves the bytes. A fetch that dropped (or was aborted) is
+      // the connection: loaded again at the same moment, once, then said
+      // with Try again (round 2, note 11). Anything else is the browser not
+      // decoding them: the format (G7).
+      if (code === MEDIA_ERR_NETWORK || code === MEDIA_ERR_ABORTED) {
+        if (!recoveredRef.current && m && typeof m.load === 'function') {
+          recoveredRef.current = true
+          resumeAtRef.current = at; resumePlayRef.current = wasPlaying; setLoaded(false)
+          try { m.load() } catch { /* gone */ }
+          return
+        }
+        setFailed('network'); onFailed?.('network'); return
+      }
       setFailed('format'); onFailed?.('format'); return
     }
     if (verdict === 'refused') refusedReasonRef.current = r?.reason || null
     setFailed(verdict); onFailed?.(verdict)
   }, [onDiagnose, onFreshSrc, onFailed, row?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Try again after a dropped connection: the element back, at the moment it stopped, playing. */
+  const retry = useCallback(() => {
+    const last = lastRef.current
+    resumeAtRef.current = last.id === row?.id ? last.t : null
+    resumePlayRef.current = true
+    setLoaded(false); setFailed(null)
+  }, [row?.id])
 
   const fullscreen = useCallback(() => {
     const c = containerRef.current
@@ -289,12 +354,20 @@ export default function GatewayVideo({
       try { mm?.pause?.() } catch { /* gone */ }
       setGuard(true)
     }
+    const exit = () => { try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)?.catch?.(() => {}) } catch { /* not ours */ } }
     const onFullscreen = () => {
       const fe = document.fullscreenElement || document.webkitFullscreenElement || null
       const mm = el()
+      // The frame's own fullscreen: the mark is on it; whatever the guard said is history.
+      if (fe && fe === containerRef.current) { frameFullRef.current = true; setGuard(false); return }
+      if (!fe) { frameFullRef.current = false; return }
       if (!mm || fe !== mm) return
+      // The element's own control used INSIDE the frame's fullscreen (Firefox
+      // and Safari draw it there too): back to the frame, the mark on it — no
+      // pause, nothing said (round 2, note 15).
+      if (frameFullRef.current) { exit(); return }
       stop()
-      try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)?.catch?.(() => {}) } catch { /* not ours */ }
+      exit()
     }
     const onPip = () => {
       stop()
@@ -324,6 +397,8 @@ export default function GatewayVideo({
     ? (stream?.ticketError || (stream?.refused ? refusalSentence(stream.refused) : (stream?.missing ? NO_STREAM_SENTENCE : null)))
     : null
   const sentence = failed === 'format' ? NEEDS_DESKTOP_FORMAT
+    : failed === 'door_refused' ? (stream?.ticketError || GATEWAY_REFUSED_FRESH_TICKET)
+    : failed === 'network' ? CONNECTION_DROPPED
     : failed === 'missing' ? gatewayMissingSentence(locationName)
       : failed === 'ticket' ? (stream?.ticketError || 'The clip\'s ticket could not be renewed; sign in again if this keeps happening.')
         : failed === 'busy' ? 'The gateway is busy; try again in a moment.'
@@ -331,6 +406,7 @@ export default function GatewayVideo({
             : failed === 'refused' ? refusalSentence(refusedReasonRef.current || stream?.refused)
               : failed === 'no_stream' ? NO_STREAM_SENTENCE
                 : refusedTicket || (guard ? FULLSCREEN_KEEPS_MARK : null)
+  const loadingSlow = useSlowFlag(!effectiveSrc && !failed && !refusedTicket)
   const showPoster = !loaded || !!failed || kind !== 'video'
   // The element is transparent until its first frame (bins.css, by the
   // data-loaded state), so the picture under it shows: the hand-over.
@@ -360,8 +436,8 @@ export default function GatewayVideo({
       {effectiveSrc && !failed && kind === 'image' && (
         <img key={effectiveSrc} src={effectiveSrc} alt="" draggable={false} onLoad={onLoadedData} onError={onError} className={mediaClass} onContextMenu={(e) => e.preventDefault()} />
       )}
-      {!effectiveSrc && !failed && !refusedTicket && (
-        <span className="bn-scrim bn-gateway-note absolute bottom-1 left-1 px-1 rounded-control text-caption" data-testid="gateway-loading" style={{ color: C.muted }}>{GATEWAY_LOADING}</span>
+      {loadingSlow && (
+        <span className="bn-scrim bn-gateway-note absolute bottom-1 left-1 px-1 rounded-control text-caption" data-testid="gateway-loading" role="status" style={{ color: C.muted }}>{GATEWAY_LOADING}</span>
       )}
       {remote && effectiveSrc && !failed && <ViewerMark viewer={viewer} />}
       {kind === 'video' && effectiveSrc && !failed && controls && (
@@ -370,7 +446,12 @@ export default function GatewayVideo({
         </span>
       )}
       {sentence && (
-        <span className="bn-scrim bn-gateway-note absolute inset-x-0 bottom-0 px-2 py-1 text-dense" data-testid="gateway-sentence" style={{ color: C.text }}>{sentence}</span>
+        <span className="bn-scrim bn-gateway-note absolute inset-x-0 bottom-0 px-2 py-1 text-dense" data-testid="gateway-sentence" role="status" style={{ color: C.text }}>
+          {sentence}
+          {failed === 'network' && (
+            <>{' '}<button type="button" className="underline" style={{ color: C.accentText }} onClick={retry} data-testid="gateway-retry">Try again</button></>
+          )}
+        </span>
       )}
       {children}
     </div>

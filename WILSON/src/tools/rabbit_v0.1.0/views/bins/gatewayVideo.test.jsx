@@ -23,8 +23,9 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, act, screen } from '@testing-library/react'
-import GatewayVideo, { ViewerMark, memberCodeOf, markWords, clockWords, MARK_POSITIONS, MARK_MOVE_MS, POSITION_CLASS, RENEW_RETRY_MS } from './GatewayVideo'
-import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK } from '../../bins/binLocations'
+import { useState, useCallback } from 'react'
+import GatewayVideo, { ViewerMark, memberCodeOf, markWords, clockWords, MARK_POSITIONS, MARK_MOVE_MS, POSITION_CLASS, RENEW_RETRY_MS, LOADING_AFTER_MS, markPositionAt } from './GatewayVideo'
+import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK, GATEWAY_REFUSED_FRESH_TICKET, CONNECTION_DROPPED } from '../../bins/binLocations'
 import { RENEW_AFTER_MS } from '../../bins/gatewayDoors'
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
@@ -57,7 +58,9 @@ describe('the words of the mark', () => {
 describe('the mark over REMOTE playback only (D9)', () => {
   it('is drawn when the door is outside, in the kit label step, moved every 30 s through the five positions; never inside', () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date(2026, 9, 11, 14, 2))
+    // 14:02:30 starts a turn of the five 30 s slots (the clock decides, round 2 note 14).
+    vi.setSystemTime(new Date(2026, 9, 11, 14, 2, 30))
+    expect(markPositionAt(Date.now())).toBe('top-left')
     render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={outside} viewer={viewer} />)
     const m = mark()
     expect(m.textContent).toBe('Priya Nair · f1c700 · 14:02')
@@ -88,21 +91,23 @@ describe('the mark over REMOTE playback only (D9)', () => {
     // The clock turns within 15 s of the minute, not only when the mark moves (every 30 s).
     act(() => { vi.advanceTimersByTime(15_000) })
     expect(mark().textContent).toContain('14:03')
-    expect(mark().className).toContain(POSITION_CLASS['top-left'])
+    // …and the position is the clock's: 14:03:00 opens the next 30 s slot.
+    expect(mark().className).toContain(POSITION_CLASS[markPositionAt(Date.now())])
+    expect(mark().className).toContain(POSITION_CLASS['top-right'])
   })
   it('no mark without a src (nothing is playing), nor once the player failed', async () => {
     render(<GatewayVideo row={row} src={null} stream={outside} viewer={viewer} />)
     expect(mark()).toBeNull()
-    expect(screen.getByTestId('gateway-loading').textContent).toBe(GATEWAY_LOADING)
+    expect((await screen.findByTestId('gateway-loading')).textContent).toBe(GATEWAY_LOADING)
   })
-  it('no src and the cloud refused a ticket: the refusal\'s sentence, not "loading" for good; while a ticket is on its way, "loading" still', () => {
+  it('no src and the cloud refused a ticket: the refusal\'s sentence, not "loading" for good; while a ticket is on its way, "loading" still', async () => {
     render(<GatewayVideo row={row} src={null} stream={{ ...outside, ticketError: 'Sign in again: WILSON could not confirm who is asking for this.', pending: false }} viewer={viewer} />)
     expect(screen.queryByTestId('gateway-loading')).toBeNull()
     expect(screen.getByTestId('gateway-sentence').textContent).toBe('Sign in again: WILSON could not confirm who is asking for this.')
     expect(mark()).toBeNull()
     cleanup()
     render(<GatewayVideo row={row} src={null} stream={{ ...outside, ticketError: 'Sign in again.', pending: true }} viewer={viewer} />)
-    expect(screen.getByTestId('gateway-loading').textContent).toBe(GATEWAY_LOADING)
+    expect((await screen.findByTestId('gateway-loading')).textContent).toBe(GATEWAY_LOADING)
     expect(screen.queryByTestId('gateway-sentence')).toBeNull()
     cleanup()
     // The cloud answered, naming the clip missing: said plainly, not "loading" for good.
@@ -259,7 +264,7 @@ describe('a new URL for the same clip (a fresh ticket after the margin) goes on 
 
 describe('the recovery: never the same ticket twice', () => {
   const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
-  it('a stale ticket (the HEAD says 401): ONE fresh src at the same currentTime; a second failure is said, not retried', async () => {
+  it('a stale ticket (the HEAD says 401): ONE fresh src at the same currentTime; that src failing before it loads is said, not retried', async () => {
     const onDiagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
     const onFreshSrc = vi.fn(async () => 'https://d:1/v1/clips/c1?t=fresh')
     const onFailed = vi.fn()
@@ -270,11 +275,6 @@ describe('the recovery: never the same ticket twice', () => {
     expect(onDiagnose).toHaveBeenCalledWith('c1')
     expect(onFreshSrc).toHaveBeenCalledWith('c1')
     expect(video().getAttribute('src')).toBe('https://d:1/v1/clips/c1?t=fresh')
-    const v = video()
-    const set = vi.fn()
-    Object.defineProperty(v, 'currentTime', { get: () => 0, set, configurable: true })
-    fireEvent.loadedData(v)
-    expect(set).toHaveBeenCalledWith(12.5)
     expect(onFailed).not.toHaveBeenCalled()
     fireEvent.error(video())
     await flush()
@@ -282,6 +282,23 @@ describe('the recovery: never the same ticket twice', () => {
     expect(onFailed).toHaveBeenCalledWith('ticket')
     expect(video()).toBeNull()
     expect(screen.getByTestId('gateway-sentence').textContent).toMatch(/ticket/)
+  })
+  it('a fresh src that LOADED gives the recovery back: a later stale ticket (an idle player played again) is recovered once more, at the same moment', async () => {
+    let n = 0
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
+    const onFreshSrc = vi.fn(async () => `https://d:1/v1/clips/c1?t=fresh${++n}`)
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=stale" stream={inside} onDiagnose={onDiagnose} onFreshSrc={onFreshSrc} />)
+    fireEvent.error(video())
+    await flush()
+    const v = video()
+    const set = vi.fn()
+    Object.defineProperty(v, 'currentTime', { get: () => 0, set, configurable: true })
+    fireEvent.loadedData(v)
+    expect(set).toHaveBeenCalledWith(0)
+    fireEvent.error(video())
+    await flush()
+    expect(onFreshSrc).toHaveBeenCalledTimes(2)
+    expect(video().getAttribute('src')).toBe('https://d:1/v1/clips/c1?t=fresh2')
   })
   it('a 404 is the clip missing at its location; a door that served bytes the browser could not decode is the format (G7)', async () => {
     const missing = vi.fn(async () => ({ verdict: 'missing', status: 404 }))
@@ -507,5 +524,176 @@ describe('round 1\'s corrections, the player', () => {
     render(<GatewayVideo row={row} src={null} stream={{ ...inside, refused: 'bad_ticket', pending: false }} />)
     expect(screen.getByTestId('gateway-sentence').textContent).toBe(refusalSentence('bad_ticket'))
     expect(screen.queryByTestId('gateway-loading')).toBeNull()
+  })
+})
+
+describe('round 2\'s corrections, the player', () => {
+  const flush = () => act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve() })
+  // A parent that does what the inspector does: the composite's fresh URL
+  // becomes the next `src` it hands the player (finding 1's shape).
+  function Mirror({ onDiagnose, mint }) {
+    const [src, setSrc] = useState('https://d:1/v1/clips/c1?t=t0')
+    const onFreshSrc = useCallback(async (id) => { const url = await mint(id); setSrc(url); return url }, [mint])
+    return <GatewayVideo row={row} src={src} stream={outside} viewer={viewer} onDiagnose={onDiagnose} onFreshSrc={onFreshSrc} />
+  }
+  it('finding 1: the fresh src the player asked for, handed back by the parent as its src, does NOT hand the recovery back — a door that refuses every ticket costs one fresh src, then the sentence', async () => {
+    let n = 0
+    const mint = vi.fn(async () => `https://d:1/v1/clips/c1?t=fresh${++n}`)
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
+    render(<Mirror onDiagnose={onDiagnose} mint={mint} />)
+    for (let i = 0; i < 6; i++) {
+      const v = video()
+      if (!v) break
+      fireEvent.error(v)
+      await flush()
+    }
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(onDiagnose).toHaveBeenCalledTimes(2)
+    expect(video()).toBeNull()
+    expect(screen.getByTestId('gateway-sentence').textContent).toMatch(/ticket/)
+  })
+  it('finding 1, the other order: the parent\'s new src renders BEFORE the player\'s own fresh src lands — still one fresh src, then the sentence', async () => {
+    let n = 0
+    const mint = vi.fn(async () => `https://d:1/v1/clips/c1?t=fresh${++n}`)
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
+    // freshStreamUrl's answer is held at a gate the test opens only after the
+    // parent has rendered the fresh URL as its src (the provider's re-render
+    // reaching the player first).
+    let open = null
+    function ParentFirst() {
+      const [src, setSrc] = useState('https://d:1/v1/clips/c1?t=t0')
+      const onFreshSrc = useCallback(async (id) => { const url = await mint(id); setSrc(url); await new Promise((r) => { open = r }); return url }, [])
+      return <GatewayVideo row={row} src={src} stream={outside} viewer={viewer} onDiagnose={onDiagnose} onFreshSrc={onFreshSrc} />
+    }
+    render(<ParentFirst />)
+    const tickOut = () => act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    let parentFirst = 0
+    for (let i = 0; i < 6; i++) {
+      const v = video()
+      if (!v) break
+      fireEvent.error(v)
+      await tickOut() // the diagnosis, the mint, the parent's new src: rendered as this act ends
+      if (open) {
+        // The parent's fresh src is on the element while the player still waits for its answer.
+        if (video()?.getAttribute('src')?.includes('fresh')) parentFirst++
+        await act(async () => { const o = open; open = null; o(); await new Promise((r) => setTimeout(r, 0)) })
+      }
+    }
+    expect(parentFirst).toBe(1)
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(video()).toBeNull()
+    expect(screen.getByTestId('gateway-sentence').textContent).toMatch(/ticket/)
+  })
+  it('finding 1: the parent handing back the fresh URL after its first frame keeps the picture drawn — the element already has it', async () => {
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
+    const onFreshSrc = vi.fn(async () => 'https://d:1/v1/clips/c1?t=fresh')
+    const { rerender } = render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=stale" stream={inside} onDiagnose={onDiagnose} onFreshSrc={onFreshSrc} />)
+    fireEvent.error(video())
+    await flush()
+    expect(video().getAttribute('src')).toBe('https://d:1/v1/clips/c1?t=fresh')
+    fireEvent.loadedData(video())
+    expect(player().getAttribute('data-loaded')).toBe('true')
+    rerender(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=fresh" stream={inside} onDiagnose={onDiagnose} onFreshSrc={onFreshSrc} />)
+    await flush()
+    expect(player().getAttribute('data-loaded')).toBe('true')
+    expect(video().getAttribute('src')).toBe('https://d:1/v1/clips/c1?t=fresh')
+  })
+  it('finding 1: the composite\'s word for a young ticket refused (door_refused) is said as the door\'s refusal, with no fresh src', async () => {
+    const onFreshSrc = vi.fn(async () => 'https://d:1/v1/clips/c1?t=fresh')
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={outside} viewer={viewer} onDiagnose={async () => ({ verdict: 'door_refused', status: 401 })} onFreshSrc={onFreshSrc} />)
+    fireEvent.error(video())
+    await flush()
+    expect(onFreshSrc).not.toHaveBeenCalled()
+    expect(screen.getByTestId('gateway-sentence').textContent).toBe(GATEWAY_REFUSED_FRESH_TICKET)
+  })
+  it('note 11: a connection that dropped while the door still serves (MEDIA_ERR_NETWORK, a 2xx HEAD) is loaded again at the same moment, once; then said, with Try again — never the format', async () => {
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ok', status: 206 }))
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onDiagnose={onDiagnose} />)
+    const v = video()
+    v.load = vi.fn()
+    Object.defineProperty(v, 'error', { value: { code: 2 }, configurable: true })
+    Object.defineProperty(v, 'currentTime', { value: 31, writable: true, configurable: true })
+    fireEvent.error(v)
+    await flush()
+    expect(v.load).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('gateway-sentence')).toBeNull()
+    fireEvent.error(v)
+    await flush()
+    expect(screen.getByTestId('gateway-sentence').textContent).toContain(CONNECTION_DROPPED)
+    expect(screen.getByTestId('gateway-sentence').textContent).not.toContain(NEEDS_DESKTOP_FORMAT)
+    fireEvent.click(screen.getByTestId('gateway-retry'))
+    await flush()
+    expect(video()).toBeTruthy()
+    expect(screen.queryByTestId('gateway-sentence')).toBeNull()
+    cleanup()
+    // CONTROL: bytes the browser cannot use (MEDIA_ERR_SRC_NOT_SUPPORTED) with a 2xx are the format.
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onDiagnose={onDiagnose} />)
+    const w = video()
+    Object.defineProperty(w, 'error', { value: { code: 4 }, configurable: true })
+    fireEvent.error(w)
+    await flush()
+    expect(screen.getByTestId('gateway-sentence').textContent).toBe(NEEDS_DESKTOP_FORMAT)
+  })
+  it('note 14: the mark\'s position is the clock\'s — a player mounted again mid-turn shows the slot it is in, not the first', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 9, 11, 14, 2, 30))
+    const first = render(<ViewerMark viewer={viewer} />)
+    act(() => { vi.advanceTimersByTime(MARK_MOVE_MS * 2 + 1_000) })
+    expect(mark().className).toContain(POSITION_CLASS['bottom-right'])
+    first.unmount()
+    render(<ViewerMark viewer={viewer} />)
+    expect(mark().className).toContain(POSITION_CLASS['bottom-right'])
+    expect(MARK_POSITIONS.map((p, i) => markPositionAt(new Date(2026, 9, 11, 14, 2, 30).getTime() + i * MARK_MOVE_MS))).toEqual(MARK_POSITIONS)
+  })
+  it('note 15: the element\'s own fullscreen asked INSIDE the frame\'s fullscreen steps back to the frame — no pause, nothing said; the frame\'s fullscreen clears an earlier guard', async () => {
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={outside} viewer={viewer} />)
+    const v = video()
+    v.pause = vi.fn()
+    const exit = vi.fn(() => Promise.resolve())
+    document.exitFullscreen = exit
+    let fe = null
+    Object.defineProperty(document, 'fullscreenElement', { get: () => fe, configurable: true })
+    try {
+      // Outside the frame's fullscreen first: the guard pauses and says it.
+      fe = v
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(v.pause).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('gateway-sentence').textContent).toBe(FULLSCREEN_KEEPS_MARK)
+      fe = null
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      // The frame's own fullscreen: the earlier sentence is history.
+      fe = player()
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(screen.queryByTestId('gateway-sentence')).toBeNull()
+      // The element's control inside it: one level back, no pause, nothing said.
+      fe = v
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(exit).toHaveBeenCalledTimes(2)
+      expect(v.pause).toHaveBeenCalledTimes(1)
+      expect(screen.queryByTestId('gateway-sentence')).toBeNull()
+    } finally {
+      delete document.fullscreenElement
+      delete document.exitFullscreen
+    }
+  })
+  it('note 16: "loading" is said only once a ticket has taken 300 ms — a fast hand-over shows no flicker of it', () => {
+    vi.useFakeTimers()
+    const { rerender } = render(<GatewayVideo row={row} src={null} stream={inside} />)
+    act(() => { vi.advanceTimersByTime(LOADING_AFTER_MS - 10) })
+    expect(screen.queryByTestId('gateway-loading')).toBeNull()
+    rerender(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} />)
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(screen.queryByTestId('gateway-loading')).toBeNull()
+    cleanup()
+    render(<GatewayVideo row={row} src={null} stream={inside} />)
+    act(() => { vi.advanceTimersByTime(LOADING_AFTER_MS + 10) })
+    expect(screen.getByTestId('gateway-loading').textContent).toBe(GATEWAY_LOADING)
+  })
+  it('note 17: the player\'s words are announced (role="status"); the mark is not (aria-hidden)', async () => {
+    render(<GatewayVideo row={row} src={null} stream={{ ...outside, ticketError: 'Sign in again.', pending: false }} viewer={viewer} />)
+    expect(screen.getByTestId('gateway-sentence').getAttribute('role')).toBe('status')
+    cleanup()
+    render(<GatewayVideo row={row} src={null} stream={inside} />)
+    expect((await screen.findByTestId('gateway-loading')).getAttribute('role')).toBe('status')
   })
 })

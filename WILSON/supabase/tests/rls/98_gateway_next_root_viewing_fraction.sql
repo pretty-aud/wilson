@@ -32,7 +32,7 @@
 
 BEGIN;
 
-SELECT plan(48);
+SELECT plan(51);
 
 SELECT * FROM tests.rls_setup();
 
@@ -414,17 +414,80 @@ SELECT ok(
   'the trail says root C arrived and is in use, once; nothing was promoted');
 
 
--- ── 33-34: the CHECK holds the columns together ─────────────────────────────
+-- ── 33-35: a root reported IN USE takes the slot even over a confirmed next
+--    root (GW3 review round 2, finding 2) ────────────────────────────────────
+
+-- The enrolling admin confirms root C, the replacement waiting in the slot.
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT public.gateway_confirm_root(current_setting('wg98.gw')::uuid, current_setting('wg98.fp_c'));
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('wg98.pem_e', '-----BEGIN CERTIFICATE-----' || chr(10)
+  || encode(decode('30' || repeat('5f', 90), 'hex'), 'base64') || chr(10) || '-----END CERTIFICATE-----', true);
+SELECT set_config('wg98.fp_e', encode(sha256(decode('30' || repeat('5f', 90), 'hex')), 'hex'), true);
+-- Before C is in use another inside address leaves the /24s: the gateway
+-- makes root E, signs with it at once, drops C, and reports E in use, twice.
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT public.gateway_sync_apply(current_setting('wg98.gw')::uuid,
+  jsonb_build_object('version', '1.0.0', 'root_cert_pem', current_setting('wg98.pem_e')),
+  '198.51.100.98'::inet, '[]'::jsonb);
+SELECT public.gateway_sync_apply(current_setting('wg98.gw')::uuid,
+  jsonb_build_object('version', '1.0.0', 'root_cert_pem', current_setting('wg98.pem_e')),
+  '198.51.100.98'::inet, '[]'::jsonb);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  (SELECT root_fingerprint = current_setting('wg98.fp_b')
+          AND next_root_cert_pem = current_setting('wg98.pem_e') AND next_root_fingerprint = current_setting('wg98.fp_e')
+          AND next_root_confirmed_at IS NULL AND next_root_confirmed_by IS NULL
+     FROM public.gateways WHERE id = current_setting('wg98.gw')::uuid),
+  '🚨 a root the gateway reports IN USE takes the slot even over a confirmed next root, unconfirmed: the admin confirms what it signs with (GW3 review round 2, finding 2)');
+SELECT ok(
+  (SELECT count(*) FROM public.workspace_audit WHERE gateway_id = current_setting('wg98.gw')::uuid
+     AND action = 'gateway.next_root_received' AND details ->> 'fingerprint' = current_setting('wg98.fp_e')) = 1
+  AND EXISTS (SELECT 1 FROM public.workspace_audit WHERE gateway_id = current_setting('wg98.gw')::uuid
+     AND action = 'gateway.next_root_received' AND details ->> 'fingerprint' = current_setting('wg98.fp_e')
+     AND (details ->> 'in_use')::boolean AND NOT (details ->> 'kept_confirmed')::boolean
+     AND details ->> 'replaced_confirmed' = current_setting('wg98.fp_c')),
+  'the trail says root E arrived in use, once, naming the confirmed root it replaced');
+-- Root D, kept out once as a future root (25-26), is reported later in use.
+SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+SET LOCAL ROLE service_role;
+SELECT public.gateway_sync_apply(current_setting('wg98.gw')::uuid,
+  jsonb_build_object('version', '1.0.0', 'root_cert_pem', current_setting('wg98.pem_d')),
+  '198.51.100.98'::inet, '[]'::jsonb);
+SELECT public.gateway_sync_apply(current_setting('wg98.gw')::uuid,
+  jsonb_build_object('version', '1.0.0', 'root_cert_pem', current_setting('wg98.pem_d')),
+  '198.51.100.98'::inet, '[]'::jsonb);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT ok(
+  (SELECT next_root_fingerprint = current_setting('wg98.fp_d') FROM public.gateways WHERE id = current_setting('wg98.gw')::uuid)
+  AND (SELECT count(*) FROM public.workspace_audit WHERE gateway_id = current_setting('wg98.gw')::uuid
+         AND action = 'gateway.next_root_received' AND details ->> 'fingerprint' = current_setting('wg98.fp_d')
+         AND (details ->> 'kept_confirmed')::boolean) = 1
+  AND (SELECT count(*) FROM public.workspace_audit WHERE gateway_id = current_setting('wg98.gw')::uuid
+         AND action = 'gateway.next_root_received' AND details ->> 'fingerprint' = current_setting('wg98.fp_d')
+         AND NOT (details ->> 'kept_confirmed')::boolean AND (details ->> 'in_use')::boolean) = 1,
+  'a root once kept out, reported later in use, lands and is written again for that outcome, once');
+
+
+-- ── 36-37: the CHECK holds the columns together ─────────────────────────────
 
 SELECT throws_ok(
   format('UPDATE public.gateways SET next_root_fingerprint = %L WHERE id = %L::uuid', repeat('ab', 32), current_setting('wg98.gw')),
   '23514', NULL, 'a next-root fingerprint that is not the PEM''s is refused by the CHECK (never the gateway''s claim)');
 SELECT throws_ok(
-  format('UPDATE public.gateways SET next_root_confirmed_at = now() WHERE id = %L::uuid', current_setting('wg98.gw')),
+  format('UPDATE public.gateways SET next_root_confirmed_at = now(), next_root_confirmed_by = NULL WHERE id = %L::uuid', current_setting('wg98.gw')),
   '23514', NULL, 'a confirmation without who confirmed is refused by the CHECK');
 
 
--- ── 35-46: a viewing''s fraction (0095 B) ────────────────────────────────────
+-- ── 38-49: a viewing''s fraction (0095 B) ────────────────────────────────────
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
@@ -551,7 +614,7 @@ SELECT ok(
   '🚨 on every row read_in_full is exactly "fraction ≥ 0.9", computed by the database');
 
 
--- ── 47-48: the replaced sync function still answers as 96 expects ───────────
+-- ── 50-51: the replaced sync function still answers as 96 expects ───────────
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;

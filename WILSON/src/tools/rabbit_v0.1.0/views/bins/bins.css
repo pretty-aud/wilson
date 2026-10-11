@@ -355,20 +355,25 @@
   .bn-gateway-audio { height: auto; }
   .bn-gateway-note { z-index: 15; }
   .bn-gateway-fullscreen { z-index: 25; }
-  /* The mark (D9): the kit's small label step at 55% of the on-fill ink
-     (white: footage has no theme) on a soft backing of the recessed paper,
-     no blur (the kit bans it); one of five positions, moved every 30 s by
-     the player; the lower two sit above the control strip, so it never
-     covers a control (Selective attention). A visible deterrent, not a
-     forensic mark: §7 says so. */
+  /* The mark (D9): the kit's small label step at 70% of the on-fill ink
+     (white: footage has no theme) on a 65% backing of the recessed paper —
+     at least 4:1 over a white frame, a sky or a white cyc (GW3 review round
+     2, note 7: 55% on 45% measured 1.99:1 there) — no blur (the kit bans
+     it); one of five positions by the clock (the player); the lower two sit
+     above the control strip and the upper right clears the frame's own
+     Fullscreen button (28 px at 4 px: round 2, note 5), so it never covers
+     a control (Selective attention). Its three parts wrap apart on a narrow
+     tile rather than lose the clock to an ellipsis (note 6). A visible
+     deterrent, not a forensic mark: §7 says so. */
   .bn-viewer-mark {
     position: absolute; z-index: 20; pointer-events: none;
-    color: color-mix(in srgb, var(--color-on-fill) 55%, transparent);
-    background-color: color-mix(in srgb, var(--color-paper-recessed) 45%, transparent);
-    padding: 2px 6px; white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--color-on-fill) 70%, transparent);
+    background-color: color-mix(in srgb, var(--color-paper-recessed) 65%, transparent);
+    padding: 2px 6px; max-width: calc(100% - 16px);
   }
+  .bn-mark-part { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   .bn-mark-tl { top: 8px; left: 8px; }
-  .bn-mark-tr { top: 8px; right: 8px; }
+  .bn-mark-tr { top: 8px; right: 40px; max-width: calc(100% - 48px); }
   .bn-mark-bl { bottom: 48px; left: 8px; }
   .bn-mark-br { bottom: 48px; right: 8px; }
   .bn-mark-c { top: 50%; left: 50%; transform: translate(-50%, -50%); }

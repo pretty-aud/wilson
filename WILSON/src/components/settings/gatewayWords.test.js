@@ -361,7 +361,10 @@ describe('the trail and the viewings, in words', () => {
     expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ab', in_use: true } }, 'Studio NAS'))
       .toBe('“Studio NAS” sent a new root certificate, already in use: confirm its fingerprint, then download it')
     expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ef', in_use: false, kept_confirmed: true } }, 'Studio NAS'))
-      .toBe('“Studio NAS” sent another root certificate while the new one you confirmed waits; the one you confirmed is kept')
+      .toBe('“Studio NAS” sent another root certificate for the year ahead while the new one you confirmed waits; the one you confirmed is kept')
+    // Round 2, finding 2: a root in use took the place of a confirmed one.
+    expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ef', in_use: true, kept_confirmed: false, replaced_confirmed: 'ab' } }, 'Studio NAS'))
+      .toBe('“Studio NAS” now signs with another new root certificate, so the new one you had confirmed is no longer used: confirm this one\'s fingerprint, then download it')
     expect(auditPhrase({ action: 'gateway.next_root_confirmed', actor_label: 'Mara Okonkwo', details: { fingerprint: 'ab' } }, 'Studio NAS'))
       .toBe('Mara Okonkwo confirmed the fingerprint of the new root certificate of “Studio NAS”')
     expect(auditPhrase({ action: 'gateway.root_replaced', details: { fingerprint: 'ab', previous: 'cd' } }, 'Studio NAS'))

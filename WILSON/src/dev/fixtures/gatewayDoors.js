@@ -41,7 +41,7 @@ import { BIN_FILES, BIN_LOCATIONS } from './data/scenes'
 import { GATEWAY_ID } from './data/gateways'
 // The real doors module makes every network call itself (nothing under
 // src/dev may); the fixtures only choose when to call it.
-import { probeGateway, clipUrl as realClipUrl, renewStream as realRenew, headClip as realHead, postTicketRequest } from '../../tools/rabbit_v0.1.0/bins/gatewayDoors'
+import { probeGateway, clipUrl as realClipUrl, renewStream as realRenew, headClip as realHead, postTicketRequest, doorBase } from '../../tools/rabbit_v0.1.0/bins/gatewayDoors'
 import noiseClipUrl from './data/clip-noise.mp4'
 import noiseAudioUrl from './data/clip-noise.wav'
 
@@ -125,7 +125,14 @@ export function createGatewayDoorsStub(store, identity, { playback = gatewayPlay
       if (!gateway || gateway.id !== GATEWAY_ID) return null
       if (mode === 'unreachable' || mode === 'none' || mode === 'unseen') return null
       await new Promise((r) => setTimeout(r, 40))
-      return { door, base: STUB_BASE, gatewayId: gateway.id }
+      // The base is the address that answered, one of the view's own, as the
+      // real probe's is: a base the view does not list is dropped at every
+      // 60 s read (GW3 review round 2, finding 3: the rehearsal cut every clip
+      // once a minute). The bytes do not care: clipUrl below ignores it.
+      const inside = (gateway.inside_addresses || []).find((a) => a && a.host)
+      const outsideAt = gateway.outside_address && gateway.outside_address.host ? gateway.outside_address : null
+      const at = door === 'outside' && outsideAt ? outsideAt : (inside || outsideAt)
+      return { door, base: at ? doorBase(at.host, at.port) : STUB_BASE, gatewayId: gateway.id }
     },
     /** The bytes: the bundled noise clip for a video row, the noise for audio, a row's own picture for a still. */
     clipUrl(base, id, ticket) {

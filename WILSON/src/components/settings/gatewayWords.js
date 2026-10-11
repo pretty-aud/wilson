@@ -595,10 +595,13 @@ const AUDIT_WORDS = {
   'gateway.keys_rotated': () => 'rotated the ticket keys: new tickets are signed with a new key',
   // GW3 (0095): a new or next root, in the trail. The gateway's doing has no
   // actor; the confirmation is the admin's.
-  // GW3 review round 1, finding 9: a root reported while a confirmed new one waits is kept out of its place.
+  // GW3 review round 1, finding 9: a FUTURE root reported while a confirmed new one waits is kept out of its place.
+  // Review round 2, finding 2: a root already IN USE takes the place, and the confirmed one it replaced is said.
   'gateway.next_root_received': (d, g) => (d.kept_confirmed
-    ? `${named(g)} sent another root certificate while the new one you confirmed waits; the one you confirmed is kept`
-    : `${named(g)} sent a new root certificate${d.in_use ? ', already in use' : ', for the year ahead'}: confirm its fingerprint, then download it`),
+    ? `${named(g)} sent another root certificate for the year ahead while the new one you confirmed waits; the one you confirmed is kept`
+    : d.replaced_confirmed
+      ? `${named(g)} now signs with another new root certificate, so the new one you had confirmed is no longer used: confirm this one's fingerprint, then download it`
+      : `${named(g)} sent a new root certificate${d.in_use ? ', already in use' : ', for the year ahead'}: confirm its fingerprint, then download it`),
   'gateway.next_root_confirmed': (d, g) => `confirmed the fingerprint of the new root certificate of ${named(g)}`,
   'gateway.root_replaced': (d, g) => `${named(g)} now signs with its new root certificate; the old one is no longer offered`,
 }

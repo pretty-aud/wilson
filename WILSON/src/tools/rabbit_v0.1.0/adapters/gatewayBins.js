@@ -66,7 +66,8 @@
 // before the body (the doors module, gatewayApi.js). `now` and every network
 // hand are injected, so the tests fake them.
 
-import { TICKET_BATCH_MAX, ticketClaims, ticketExpiresAt, doorBase } from '../bins/gatewayDoors'
+import { TICKET_BATCH_MAX, ticketClaims, doorBase } from '../bins/gatewayDoors'
+import { GATEWAY_REFUSED_FRESH_TICKET } from '../bins/binLocations'
 
 // The composite's capability object: the keys every backend answers
 // (binsAdapterParity.test.js). `stream` is answered per page session, once a
@@ -99,6 +100,17 @@ export const TICKET_LIFETIME_MS = 120_000
 const LAPSED_KEEP_MS = 30 * 60_000
 /** The sentence when no ticket came, in WILSON's voice (gatewayApi's own). */
 export const NO_TICKET = 'WILSON could not get a ticket to play this clip just now. Try again in a moment.'
+/**
+ * The door refused a ticket the cloud had JUST minted (review round 2,
+ * finding 1): a fresh one will not fare better (the switch turned off while
+ * someone outside plays, a gateway whose clock or keys are off), so the clip
+ * is backed off a minute and this is said, never another mint at once.
+ */
+export const DOOR_REFUSED_FRESH = GATEWAY_REFUSED_FRESH_TICKET
+/** A refusal that holds for the clip (its format, its path's length); any other reason is "just now" and lapses with its back-off (round 2, note 9). */
+const PERMANENT_REFUSALS = new Set(['not_playable', 'too_long'])
+/** Two players on one stream renew it once: a renewal this recent covers the other's turn (round 2, note 13). */
+const RENEW_SHARED_MS = 30_000
 
 /**
  * The composite. `cloud` is the cloud adapter (supabaseAdapter or the dev
@@ -112,7 +124,7 @@ export const NO_TICKET = 'WILSON could not get a ticket to play this clip just n
  *   userId()                       the signed-in person: a ticket minted for anyone else is never used (review round 1, finding 1)
  */
 export function composeGatewayBins(cloud, {
-  listGateways, fetchTickets, doors, rowOf = () => null, onChange = () => {}, now = Date.now, log = () => {}, userId = () => null,
+  listGateways, fetchTickets, doors, rowOf = () => null, onChange = () => {}, now = Date.now, log = () => {}, userId = null,
 } = {}) {
   if (!cloud) throw new Error('composeGatewayBins needs the cloud adapter')
   if (typeof listGateways !== 'function' || typeof fetchTickets !== 'function' || !doors) throw new Error('composeGatewayBins needs listGateways, fetchTickets and the doors')
@@ -134,6 +146,9 @@ export function composeGatewayBins(cloud, {
     ticketError: null, // the last failed call's sentence (the tab's)
     ticketErrors: new Map(), // clip id → the sentence of its own last failed ticket call or renewal
     marginTimers: new Map(), // clip id → the timer that re-reads the tab when its held ticket reaches the margin
+    renewing: new Map(), // clip id → the renewal in flight (two players on one stream share it)
+    doorRefused: new Map(), // clip id → until when the door's refusal of a fresh ticket stands (no fresh src meanwhile)
+    renewedAt: new Map(), // clip id → when its stream was last renewed
   }
   let caps = GATEWAY_BINS_CAPABILITIES
   // `stream` AND `resolveFiles` turn on together: until a door answered, the
@@ -323,27 +338,56 @@ export function composeGatewayBins(cloud, {
   // margin. Never the cloud's absolute `exp` against this browser's clock:
   // a clock minutes ahead would hold nothing and mint at network speed, one
   // minutes behind would keep a URL the gateway already refuses (round 1,
-  // finding 2). A ticket without `iat` (the tests' fixtures) keeps its `exp`.
-  const anchoredExp = (ticket, fallback) => {
+  // finding 2). A ticket without `iat` is given the design's life from
+  // receipt (D1), never its `exp` against this clock either (round 2, note
+  // 18b); and a ticket whose life is shorter than twice the margin is held
+  // for half its life, not for nothing (note 18a: every ask would mint).
+  const lifeOf = (ticket) => {
     const cl = ticketClaims(ticket)
-    if (cl && Number.isFinite(cl.exp) && Number.isFinite(cl.iat)) {
-      return now() + Math.max(0, Math.min(TICKET_LIFETIME_MS, (cl.exp - cl.iat) * 1000))
-    }
-    return ticketExpiresAt(ticket) || fallback
+    if (cl && Number.isFinite(cl.exp) && Number.isFinite(cl.iat)) return Math.max(0, Math.min(TICKET_LIFETIME_MS, (cl.exp - cl.iat) * 1000))
+    return TICKET_LIFETIME_MS
   }
+  const marginOf = (life) => Math.min(TICKET_REUSE_MARGIN_MS, life / 2)
+  /** A ticket as held: received now, for its life; `born` and `life` stay the URL's ticket's through renewals. */
+  const entryOf = (ticket, gatewayId) => {
+    const life = lifeOf(ticket)
+    const at = now()
+    return { ticket, gatewayId, sub: subOf(ticket), born: at, life, exp: at + life, margin: marginOf(life) }
+  }
+  const marginOfEntry = (t) => (Number.isFinite(t?.margin) ? t.margin : TICKET_REUSE_MARGIN_MS)
+  /** The URL's own ticket is still inside its first hold: a refusal of it is the door's, not its age (round 2, finding 1). */
+  const young = (t) => !!t && Number.isFinite(t.born) && Number.isFinite(t.life) && t.born + t.life - marginOfEntry(t) > now()
   const subOf = (ticket) => {
     const s = ticketClaims(ticket)?.sub
     return typeof s === 'string' ? s : null
   }
-  /** A ticket minted for someone other than the signed-in person is never used (round 1, finding 1). */
+  /**
+   * A ticket minted for someone other than the signed-in person is never used
+   * (round 1, finding 1); nor one that names a person while the signed-in one
+   * is not known yet (round 2, note 18c): it is held, and used once the
+   * person is known and is the one it names. With no `userId` given (the
+   * tests' worlds) there is no person to check against.
+   */
   const mine = (t) => {
     if (!t) return false
+    if (typeof userId !== 'function') return true
+    if (!t.sub) return true
     const me = userId()
-    return !me || !t.sub || t.sub === me
+    return !!me && t.sub === me
+  }
+  /** A refusal still standing: a permanent one, or a "just now" one inside its back-off (round 2, note 9). */
+  const refusedOf = (id) => {
+    const r = S.refused.get(id)
+    if (!r) return null
+    if (PERMANENT_REFUSALS.has(r)) return r
+    const until = S.missing.get(id)
+    if (until && until > now()) return r
+    S.refused.delete(id)
+    return null
   }
   const held = (id) => {
     const t = S.tickets.get(id)
-    return t && mine(t) && t.exp - TICKET_REUSE_MARGIN_MS > now() ? t : null
+    return t && mine(t) && t.exp - marginOfEntry(t) > now() ? t : null
   }
   const wanted = (id) => {
     const row = rowOf(id)
@@ -378,11 +422,11 @@ export function composeGatewayBins(cloud, {
           S.ticketError = null
           for (const id of batch) S.ticketErrors.delete(id)
           const d = res.data || {}
-          const fallbackExp = now() + TICKET_LIFETIME_MS
           const answered = new Set()
           for (const [id, t] of Object.entries(d.tickets || {})) {
             if (!batch.includes(id) || typeof t !== 'string') continue
-            S.tickets.set(id, { ticket: t, exp: anchoredExp(t, fallbackExp), gatewayId, sub: subOf(t) })
+            S.tickets.set(id, entryOf(t, gatewayId))
+            S.doorRefused.delete(id)
             S.missing.delete(id)
             S.refused.delete(id)
             S.renewFailed.delete(id)
@@ -443,8 +487,8 @@ export function composeGatewayBins(cloud, {
       // A stream whose renewal FAILED has no such URL: it ends at the margin.
       lapsedUrl: !isHeld && t && mine(t) && !S.renewFailed.has(id) ? urlOf(id, t) : null,
       renewFailed: S.renewFailed.has(id),
-      refused: S.refused.get(id) || null,
-      missing: !!(until && until > now() && !S.refused.has(id)),
+      refused: refusedOf(id),
+      missing: !!(until && until > now() && !refusedOf(id)),
       pending: S.inflight.has(id),
       // This clip's own last failure (never another clip's: a stale error
       // from a hovered tile must not flash over a clip about to load).
@@ -459,9 +503,9 @@ export function composeGatewayBins(cloud, {
    * player resumes where it was) or the refusal's sentence. Without this a
    * fully buffered clip would play on long after the viewer was removed.
    */
-  const reReadAtMargin = (id, exp) => {
+  const reReadAtMargin = (id, exp, margin = TICKET_REUSE_MARGIN_MS) => {
     if (S.marginTimers.has(id) || !Number.isFinite(exp)) return
-    const wait = Math.max(0, exp - TICKET_REUSE_MARGIN_MS - now()) + 50
+    const wait = Math.max(0, exp - margin - now()) + 50
     S.marginTimers.set(id, setTimeout(() => {
       S.marginTimers.delete(id)
       try { onChange() } catch { /* the caller's */ }
@@ -470,6 +514,10 @@ export function composeGatewayBins(cloud, {
   c.invalidateTicket = (id) => { S.tickets.delete(id) }
   /** A 401 is never retried with the same ticket: a fresh one, then a new src at the same currentTime (§5 step 7). */
   c.freshStreamUrl = async (id) => {
+    // Not while the door turns down fresh tickets for this clip (round 2,
+    // finding 1): its minute stands, whatever else was backed off.
+    const refusedUntil = S.doorRefused.get(id)
+    if (refusedUntil && refusedUntil > now()) return null
     S.tickets.delete(id)
     S.missing.delete(id)
     await c.ensureTickets([id])
@@ -481,7 +529,18 @@ export function composeGatewayBins(cloud, {
    * 15 s at the soonest, not at every 10 s retry: round 1, finding 7) and
    * ends the URL at the margin.
    */
-  c.renewStream = async (id) => {
+  c.renewStream = (id) => {
+    // Two players on one stream (the inspector's, Space's) renew it once: the
+    // one in flight is shared, and one this recent covers the other's turn
+    // (review round 2, note 13).
+    if (S.renewing.has(id)) return S.renewing.get(id)
+    const last = S.renewedAt.get(id)
+    if (last && now() - last < RENEW_SHARED_MS && held(id)) return Promise.resolve({ ok: true, status: 204, shared: true })
+    const p = renewOnce(id).finally(() => { S.renewing.delete(id) })
+    S.renewing.set(id, p)
+    return p
+  }
+  const renewOnce = async (id) => {
     const row = rowOf(id)
     const via = row && row.location_id ? gatewayFor(row.location_id) : null
     const cur = S.tickets.get(id)
@@ -499,22 +558,28 @@ export function composeGatewayBins(cloud, {
       S.ticketErrors.set(id, why)
       S.missing.set(id, now() + FAILED_BACKOFF_MS)
       S.renewFailed.add(id)
-      reReadAtMargin(id, cur.exp)
+      reReadAtMargin(id, cur.exp, marginOfEntry(cur))
       return { ok: false, status: res?.status || 0, reason: 'ticket' }
     }
     const r = await doors.renew(via.base, id, { jti, ticket: fresh })
     if (r && r.ok) {
       // The stream's authority is re-anchored to the fresh ticket's life from
-      // now; the URL keeps the first ticket, which the door reads by its jti.
-      S.tickets.set(id, { ...cur, exp: anchoredExp(fresh, now() + TICKET_LIFETIME_MS), fresh })
+      // now; the URL keeps the first ticket (its `born` and `life` too), which
+      // the door reads by its jti.
+      const life = lifeOf(fresh)
+      S.tickets.set(id, { ...cur, exp: now() + life, margin: marginOf(life), fresh })
       S.ticketErrors.delete(id)
       S.renewFailed.delete(id)
+      S.renewedAt.set(id, now())
       return { ok: true, status: r.status }
     }
     // The door refused the renewal (its stream lapsed, or ended): the URL ends
     // at the margin; the player's next play is answered by a fresh ticket.
+    // Backed off like the cloud's refusal, so the player's 10 s retry asks
+    // nothing (round 2, note 10).
+    S.missing.set(id, now() + FAILED_BACKOFF_MS)
     S.renewFailed.add(id)
-    reReadAtMargin(id, cur.exp)
+    reReadAtMargin(id, cur.exp, marginOfEntry(cur))
     return { ok: false, status: r?.status || 0, reason: 'refused' }
   }
   const verdictOf = (status) => (status === 0 ? 'unreachable'
@@ -539,9 +604,21 @@ export function composeGatewayBins(cloud, {
     const row = rowOf(id)
     const via = row && row.location_id ? gatewayFor(row.location_id) : null
     if (!via) return { verdict: 'no_stream', status: 0 }
-    const settle = (r) => {
+    const settle = (r, t) => {
       const verdict = verdictOf(r.status)
-      if (verdict === 'ticket') S.tickets.delete(id)
+      if (verdict === 'ticket') {
+        S.tickets.delete(id)
+        // A ticket still inside its first hold refused: the door turns down
+        // what the cloud just minted, and a fresh one fares no better. The
+        // clip is backed off a minute and the refusal said: the one fresh src
+        // is for a ticket that aged, never a loop of mints (round 2, finding 1).
+        if (young(t)) {
+          S.missing.set(id, now() + MISSING_BACKOFF_MS)
+          S.doorRefused.set(id, now() + MISSING_BACKOFF_MS)
+          S.ticketErrors.set(id, DOOR_REFUSED_FRESH)
+          return { verdict: 'door_refused', status: r.status, door: r.door || via.door }
+        }
+      }
       if (verdict === 'missing') S.missing.set(id, now() + MISSING_BACKOFF_MS)
       if (verdict === 'unreachable') {
         dropDoor(via.gateway.id)
@@ -553,7 +630,7 @@ export function composeGatewayBins(cloud, {
     }
     const cur = S.tickets.get(id)
     if (cur && mine(cur) && cur.gatewayId === via.gateway.id) {
-      return settle(await doors.head(via.base, id, cur.ticket))
+      return settle(await doors.head(via.base, id, cur.ticket), cur)
     }
     S.tickets.delete(id)
     S.missing.delete(id)
@@ -564,13 +641,13 @@ export function composeGatewayBins(cloud, {
       // format, a path too long, a ticket WILSON could not read), refused the
       // person (removed, signed out, the switch off: the ticket is the
       // failure, said as such, never the clip), or knows no such clip.
-      if (S.refused.has(id)) {
-        const reason = S.refused.get(id)
+      const reason = refusedOf(id)
+      if (reason) {
         return reason === 'not_playable' ? { verdict: 'format', status: 0 } : { verdict: 'refused', status: 0, reason }
       }
       return { verdict: S.ticketErrors.has(id) ? 'ticket' : 'no_stream', status: 0 }
     }
-    return settle(await doors.head(via.base, id, t.ticket))
+    return settle(await doors.head(via.base, id, t.ticket), t)
   }
   /**
    * Everything this composite holds, let go: a sign-out, or another person
@@ -581,6 +658,7 @@ export function composeGatewayBins(cloud, {
     for (const timer of S.marginTimers.values()) clearTimeout(timer)
     S.marginTimers.clear()
     S.tickets.clear(); S.inflight.clear(); S.missing.clear(); S.refused.clear(); S.ticketErrors.clear(); S.renewFailed.clear()
+    S.renewing.clear(); S.renewedAt.clear(); S.doorRefused.clear()
     S.reached.clear()
     S.gateways = []
     caps = GATEWAY_BINS_CAPABILITIES

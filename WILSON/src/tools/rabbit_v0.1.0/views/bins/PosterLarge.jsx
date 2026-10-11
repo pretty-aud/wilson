@@ -30,7 +30,7 @@ import { C, IconBtn, MediaTag, FlagMark } from './binUi'
 import BinPoster from './BinPoster'
 import GatewayVideo, { usePlayerSrc } from './GatewayVideo'
 import { slateLine, techLine } from '../../bins/binMedia'
-import { NOT_ON_THIS_COMPUTER, NEEDS_DESKTOP_FORMAT, browserClipSentence, gatewayClipSentence, gatewayMissingSentence } from '../../bins/binLocations'
+import { NOT_ON_THIS_COMPUTER, NEEDS_DESKTOP_FORMAT, PLAYER_KEEPS_KEYS, browserClipSentence, gatewayClipSentence, gatewayMissingSentence } from '../../bins/binLocations'
 import { playabilityOf, browserCanPlayType } from '../../bins/gatewayMedia'
 import { gatewayStateWord } from './BinInspector'
 
@@ -55,7 +55,8 @@ export default function PosterLarge({
     ? (row.gateway_missing ? gatewayMissingSentence(location?.name) : gateway ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway)) : browserClipSentence(location?.name))
     : gateway && canStream && !plays ? NEEDS_DESKTOP_FORMAT
       : gateway && !canStream ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway))
-        : !gateway && catalogue ? browserClipSentence(location?.name) : ''
+        : !gateway && catalogue ? browserClipSentence(location?.name)
+          : plays ? PLAYER_KEEPS_KEYS : ''
   return (
     <div className="bn-poster-large absolute inset-3 z-30 flex flex-col rounded-float shadow-float overflow-hidden" role="region" aria-label={plays ? 'The clip, large' : 'The picture, large'} data-testid="poster-large" data-plays={plays ? 'true' : undefined}>
       <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0 min-w-0" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -79,7 +80,8 @@ export default function PosterLarge({
       <div className="px-3 py-2 text-caption flex items-center gap-3 flex-shrink-0 min-w-0" style={{ color: C.dim, borderTop: `1px solid ${C.line}` }}>
         <span className="truncate font-mono flex-shrink-0">{techLine(row) || row.original_name}</span>
         {notHere && <span className="inline-flex items-center gap-1 flex-shrink-0" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> {NOT_ON_THIS_COMPUTER}</span>}
-        <span className="truncate">{sentence}</span>
+        {/* The one sentence wraps rather than losing its end (round 2, note 8). */}
+        <span className="min-w-0" data-testid="poster-large-sentence">{sentence}</span>
       </div>
     </div>
   )

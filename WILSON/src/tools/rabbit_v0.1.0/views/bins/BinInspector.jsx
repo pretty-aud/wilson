@@ -33,7 +33,7 @@ import {
   NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayClipSentence, gatewayMissingSentence,
 } from '../../bins/binLocations'
 import { playabilityOf, browserCanPlayType } from '../../bins/gatewayMedia'
-import GatewayVideo, { usePlayerSrc } from './GatewayVideo'
+import GatewayVideo, { usePlayerSrc, useSlowFlag } from './GatewayVideo'
 // GW1: the one admin line about viewings from outside, in the Settings
 // table's own words (a pure module: it imports nothing).
 import { inspectorRemoteLine } from '../../../../components/settings/gatewayWords'
@@ -445,6 +445,9 @@ function Preview({
   useEffect(() => {
     if (wantsTicket) onTicketWanted?.(row.id)
   }, [wantsTicket, row.id, onTicketWanted])
+  // "loading…" only while a ticket is on its way and has taken a moment
+  // (round 2, note 16); never beside the player's refusal sentence.
+  const ticketSlow = useSlowFlag(!playerSrc && !streamInfo?.ticketError && !streamInfo?.refused && !streamInfo?.missing)
   const notice = (text) => (
     <div className="text-dense leading-relaxed px-1" style={{ color: C.dim }}>{text}</div>
   )
@@ -540,7 +543,7 @@ function Preview({
           onRenew={onRenew} onFreshSrc={onFreshSrc} onDiagnose={onDiagnose} locationName={location?.name || null}
           renewAfterMs={gateway?.renewAfterMs || undefined}
           className="w-full rounded-control" style={{ height: previewHeight, border: `1px solid ${C.line}` }} />
-        {notice(!playerSrc ? `${GATEWAY_LOADING}…` : playing ? (spaceTogglesPreview ? 'Playing · Space pauses' : 'Playing') : (spaceTogglesPreview ? 'Space plays · hover a tile in the grid to scrub' : `${PLAYER_LARGE_HINT} Hover a tile in the grid to scrub.`))}
+        {notice(!playerSrc ? (ticketSlow ? `${GATEWAY_LOADING}…` : '\u00a0') : playing ? (spaceTogglesPreview ? 'Playing · Space pauses' : 'Playing') : (spaceTogglesPreview ? 'Space plays · hover a tile in the grid to scrub' : `${PLAYER_LARGE_HINT} Hover a tile in the grid to scrub.`))}
       </div>
     )
   }

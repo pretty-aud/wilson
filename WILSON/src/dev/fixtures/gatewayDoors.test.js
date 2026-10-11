@@ -14,7 +14,8 @@ import { createStore } from './store'
 import { PERMISSIONS, WORKSPACE_ID, MEMBER_ID } from './data/workspace'
 import { BIN_FILES } from './data/scenes'
 import { GATEWAY_ID } from './data/gateways'
-import { ticketClaims, ticketExpiresAt } from '../../tools/rabbit_v0.1.0/bins/gatewayDoors'
+import { ticketClaims, ticketExpiresAt, doorBase } from '../../tools/rabbit_v0.1.0/bins/gatewayDoors'
+import { composeGatewayBins } from '../../tools/rabbit_v0.1.0/adapters/gatewayBins'
 
 const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole: 'admin' }
 // The seeded rows: eleven .mov masters, two .mp4 proxies (GW3), two .bwf
@@ -56,7 +57,7 @@ describe('the doors by mode (§2)', () => {
   const stub = (search, extra = {}) => createGatewayDoorsStub(createStore(), identity, { playback: gatewayPlaybackMode(search), ...extra })
   it('inside (the default): the probe answers the OFFICE door after a beat, only for the seeded gateway', async () => {
     const d = stub('')
-    expect(await d.probe(gatewayRow)).toEqual({ door: 'inside', base: STUB_BASE, gatewayId: GATEWAY_ID })
+    expect(await d.probe(gatewayRow)).toEqual({ door: 'inside', base: 'https://192.168.1.10:8443', gatewayId: GATEWAY_ID })
     expect(await d.probe({ ...gatewayRow, id: 'someone-else' })).toBeNull()
     expect(await d.probe(null)).toBeNull()
   })
@@ -177,5 +178,38 @@ describe('the gateway fixtures read the doors', () => {
     expect((await fx.listRemoteViewingsOfClip(clipId)).data.rows).toHaveLength(mine.total)
     expect(mine.rows.every((v) => v.file_id === clipId && v.project_title)).toBe(true)
     expect((await make('', 'member').fx.listRemoteViewingsOfClip(clipId)).data).toEqual({ rows: [], total: 0 })
+  })
+})
+
+describe('GW3 review round 2, finding 3: the stub\'s door is one of the view\'s own addresses', () => {
+  // The seeded gateway row's shape (data/gateways.js): two inside addresses, no outside one.
+  const seeded = () => ({ id: GATEWAY_ID, name: 'Salt Hours NAS', inside_addresses: [{ host: '192.168.10.20', port: 8443 }, { host: 'salthours-nas.local', port: 8443 }], outside_address: null, reach: { [videoRow.location_id]: 'reachable' }, last_seen_at: new Date().toISOString() })
+  const basesOf = (g) => [...(g.inside_addresses || []).map((a) => doorBase(a.host, a.port)), ...(g.outside_address ? [doorBase(g.outside_address.host, g.outside_address.port)] : [])]
+  it('in both modes the probe answers from an address the row lists', async () => {
+    for (const search of ['', '?gateway=outside']) {
+      const d = createGatewayDoorsStub(createStore(), identity, { playback: gatewayPlaybackMode(search) })
+      const r = await d.probe(seeded())
+      expect(basesOf(seeded())).toContain(r.base)
+    }
+  })
+  it('the real composite over the stub keeps its door and the held ticket across the 60 s re-reads (it used to drop both at every read)', async () => {
+    for (const search of ['', '?gateway=outside']) {
+      const stub = createGatewayDoorsStub(createStore(), identity, { playback: gatewayPlaybackMode(search) })
+      const doors = { ...stub, probe: vi.fn((g) => stub.probe(g)) }
+      const c = composeGatewayBins({ listBins: async () => ({ binFiles: [] }) }, {
+        listGateways: async () => ({ ok: true, data: [seeded()] }),
+        fetchTickets: (gid, ids) => stub.tickets(gid, ids),
+        doors,
+        rowOf: (id) => BIN_FILES.find((f) => f.id === id) || null,
+      })
+      await c.discover()
+      await c.ensureTickets([videoRow.id])
+      const url = c.binFileStreamUrl('p', videoRow.id)
+      expect(url).toBeTruthy()
+      await c.refreshGateways()
+      await c.refreshGateways()
+      expect(doors.probe).toHaveBeenCalledTimes(1)
+      expect(c.binFileStreamUrl('p', videoRow.id)).toBe(url)
+    }
   })
 })

@@ -52,7 +52,7 @@ door)
 |---|----|----------------|
 | 1 | **R.A.B.B.I.T. → Salt Hours → Bins** | The catalogue as before (walkthrough 58), with ONE notice at the top that now reads *This is the catalogue: every bin and clip, with its picture where the company allows one, its logging, its marks and its takes. **Clips play here through the company's file gateway; adding clips still needs the desktop app on a computer that can reach the footage.*** No clip is greyed out. The toolbar's button is still **New bin**. (`po-gw3-01-bins-gateway-notice`) |
 | 2 | Click **A001_C001_0921AB_proxy** (an H.264 MP4) | The inspector's preview is the clip itself, with the browser's controls, within a blink of the click: its picture first, then the clip under it the moment the first frame is decoded (D22: nothing but *loading* while the ticket is fetched). No name on the picture. Below: *Space plays the clip large. Hover a tile in the grid to scrub.* (`po-gw3-02-bins-inspector-player-inside`) |
-| 3 | Press **Space** | The clip, large, playing, over the files pane — the header with its name, its marks and *Space or Esc closes · arrows move · S, R, U mark*, the footer with *00:03 · 1280×720 · 24 fps · H.264*, a fullscreen button at the top right of the picture (fullscreen takes the whole frame, so the overlay in B goes with it). **Esc** closes it. (`po-gw3-03-bins-player-large-space`) |
+| 3 | Press **Space** | The clip, large, playing, over the files pane — the header with its name, its marks and *Space or Esc closes · arrows move · S, R, U mark*, the footer with *00:03 · 1280×720 · 24 fps · H.264* and *Once the clip is clicked, Space and the arrows are the player's own; Esc still closes.*, a fullscreen button at the top right of the picture (fullscreen takes the whole frame, so the overlay in B goes with it). **Esc** closes it, and the files pane has the keys again. (`po-gw3-03-bins-player-large-space`) |
 | 4 | Move the mouse across the proxy's tile | It scrubs, as on the desktop, from the gateway. The first hover asks the cloud for the clip's ticket; moving across other tiles asks for theirs, one call each, never for the whole grid. |
 | 5 | Click **A001_C001_0921AB** (the ProRes master) | The picture, and under it *This clip's format does not play in a browser; the desktop app plays it. (ProRes 422 HQ is not one this browser decodes.)* and *Space shows the picture large*. No ticket is asked for. **Space** shows the picture large with the same sentence. (`po-gw3-04-bins-inspector-needs-desktop-format`, `po-gw3-05-bins-picture-large-prores`) |
 | 6 | Right-click the proxy's player | Nothing (the browser's menu with *Save video as* is suppressed); the controls carry no download and no picture-in-picture. These are courtesy, not security: the URL in the page is a two-minute ticket to one clip for one person (D1), and the design says so. |
@@ -64,8 +64,8 @@ and the switch is on)
 
 | # | Do | You should see |
 |---|----|----------------|
-| 8 | **Bins → A001_C001_0921AB_proxy** | The same player, with **MARA OKONKWO · F1C700 · 15:27** written over the picture's top-left corner, small, half-transparent, no blur: the viewer's display name, the first six characters of their member id, the clock. It cannot be turned off. (`po-gw3-06-bins-inspector-player-outside-mark`) |
-| 9 | Wait thirty seconds | The mark is in another corner (top-left, top-right, bottom-right, bottom-left, the centre, in turn), so a still frame cannot be cropped free of it. |
+| 8 | **Bins → A001_C001_0921AB_proxy** | The same player, with **MARA OKONKWO · F1C700 · 15:27** written over the picture's top-left corner, small, white on a dark backing that keeps it legible on a white frame, no blur: the viewer's display name, the first six characters of their member id, the clock. It cannot be turned off. (`po-gw3-06-bins-inspector-player-outside-mark`) |
+| 9 | Wait thirty seconds | The mark is in another corner (top-left, top-right, bottom-right, bottom-left, the centre, in turn, by the clock: every player shows the same corner at the same moment), so a still frame cannot be cropped free of it. Top right, it sits left of the fullscreen button, never under it. |
 | 10 | Press **Space** | The clip large, the mark over it; the fullscreen button takes the frame WITH the mark. (`po-gw3-07-bins-player-large-outside-mark`) |
 | 11 | Hover the proxy's tile | The scrub picture carries the mark too. |
 
@@ -138,9 +138,11 @@ users' admin when you choose)
   a viewer removed at the cloud lost the stream within two minutes (the
   renewal got no fresh ticket, the page dropped the URL at its ticket's
   margin and said the cloud's refusal, never retrying the same ticket);
-  the gateway revoked at the cloud closed both doors within one sync and
-  the page said it could not reach the gateway. The numbers are in the
-  hand-off's §3.
+  the switch turned off at the cloud before the gateway heard of it: the
+  page asked for one ticket, said *The gateway turned down a ticket WILSON
+  had just been given for this clip…* and waited a minute; the gateway
+  revoked at the cloud closed both doors within one sync and the page said
+  it could not reach the gateway. The numbers are in the hand-off's §3.
 - **The office door was not played from this computer**: it closes its own
   host before TLS, by design (§4), so the browser on the gateway's computer
   never reaches it. "No overlay inside" and the office sentences are
@@ -187,9 +189,9 @@ users' admin when you choose)
 ## 5. Questions, when you test
 
 1. **The mark reads NAME · CODE · CLOCK in capitals at the kit's label
-   size, white at 55% over a dark backing** — legible on a bright frame,
-   quiet on a dark one. Louder, or is this the right weight for something
-   that is on every frame?
+   size, white at 70% over a 65% dark backing** — 4:1 over a white frame
+   (review round 2 measured 2:1 at the first weight, 55% over 45%), 10:1
+   over black. Louder, or quieter, for something that is on every frame?
 2. **The silent and unreachable sentences stay in a strip after the notice
    is dismissed.** Right, or should a dismissed notice take them with it
    for the session?

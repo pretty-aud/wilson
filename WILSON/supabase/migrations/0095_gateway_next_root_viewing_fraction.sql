@@ -156,6 +156,8 @@ DECLARE
   v_cand_fp     TEXT := NULL;
   v_prev_fp     TEXT;
   v_kept        BOOLEAN;
+  v_in_use      BOOLEAN;
+  v_dropped     TEXT;
 BEGIN
   IF p_report IS NULL OR jsonb_typeof(p_report) <> 'object' THEN
     RAISE EXCEPTION 'gateway_sync_apply: the report must be an object' USING ERRCODE = '22023';
@@ -252,14 +254,29 @@ BEGIN
     v_cand_fp := v_next_fp;
   END IF;
   -- GW3 review round 1, finding 9: a CONFIRMED next root is never replaced
-  -- from a sync. A gateway alternating roots (a bug, or a stolen credential)
-  -- would otherwise clear the admin's confirmation at every sync and keep
-  -- the new certificate's download locked for ever; another root while one
-  -- is confirmed is written down and kept out of the slot (`kept_confirmed`).
-  -- And each fingerprint is written down once: alternating two roots cannot
-  -- flood the trail Settings reads newest first.
+  -- from a sync by a FUTURE root (next_root_cert_pem). A gateway alternating
+  -- future roots (a bug, or a stolen credential) would otherwise clear the
+  -- admin's confirmation at every sync and keep the new certificate's
+  -- download locked for ever; another future root while one is confirmed is
+  -- written down and kept out of the slot (`kept_confirmed`).
+  -- Review round 2, finding 2: a root the gateway reports IN USE
+  -- (root_cert_pem: it signs its leaves with it now) takes the slot even over
+  -- a confirmed next root. GW2's gateway makes a new root at once when an
+  -- inside address leaves the root's /24s, and drops the next root it had
+  -- made; kept out, that root would leave Settings offering two certificates
+  -- the gateway no longer signs with, every office browser failing on TLS
+  -- until Forget. The confirmation it replaces is named in the trail
+  -- (`replaced_confirmed`). A credential alternating IN-USE roots is §10
+  -- row 2's (Forget is its answer); the trail stays bounded below.
+  -- Each fingerprint is written down once per outcome (landed in the slot,
+  -- or kept out of it): alternating roots cannot flood the trail Settings
+  -- reads newest first, and a root first kept out that lands later is
+  -- written again, once.
   IF v_cand_fp IS NOT NULL THEN
-    v_kept := g.next_root_confirmed_at IS NOT NULL;
+    -- Never NULL: a report with no root in use (a future root alone) is not in use.
+    v_in_use := v_root_fp IS NOT NULL AND v_cand_fp = v_root_fp;
+    v_kept := g.next_root_confirmed_at IS NOT NULL AND NOT v_in_use;
+    v_dropped := CASE WHEN NOT v_kept AND g.next_root_confirmed_at IS NOT NULL THEN g.next_root_fingerprint END;
     IF NOT v_kept THEN
       UPDATE public.gateways SET
         next_root_cert_pem = v_cand_pem, next_root_fingerprint = v_cand_fp, next_root_seen_at = now(),
@@ -269,10 +286,12 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.workspace_audit a
                     WHERE a.gateway_id = g.id AND a.action = 'gateway.next_root_received'
-                      AND a.details ->> 'fingerprint' = v_cand_fp) THEN
+                      AND a.details ->> 'fingerprint' = v_cand_fp
+                      AND coalesce((a.details ->> 'kept_confirmed')::boolean, false) = v_kept) THEN
       INSERT INTO public.workspace_audit (workspace_id, action, gateway_id, details)
       VALUES (g.workspace_id, 'gateway.next_root_received', g.id,
-              jsonb_build_object('fingerprint', v_cand_fp, 'in_use', v_cand_fp = v_root_fp, 'kept_confirmed', v_kept));
+              jsonb_build_object('fingerprint', v_cand_fp, 'in_use', v_in_use, 'kept_confirmed', v_kept)
+              || CASE WHEN v_dropped IS NOT NULL THEN jsonb_build_object('replaced_confirmed', v_dropped) ELSE '{}'::jsonb END);
     END IF;
   END IF;
 
@@ -738,6 +757,9 @@ BEGIN
      OR pg_get_functiondef('public.gateway_confirm_root(uuid,text)'::regprocedure) NOT LIKE '%gateway.next_root_confirmed%'
      OR pg_get_functiondef('public.gateway_events_apply(uuid,jsonb)'::regprocedure) NOT LIKE '%fraction_from%' THEN
     RAISE EXCEPTION '0095 post-condition failed: a function kept its 0093 body';
+  END IF;
+  IF pg_get_functiondef('public.gateway_sync_apply(uuid,jsonb,inet,jsonb)'::regprocedure) NOT LIKE '%replaced_confirmed%' THEN
+    RAISE EXCEPTION '0095 post-condition failed: gateway_sync_apply keeps a root in use out of a confirmed slot (GW3 review round 2, finding 2)';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workspace_audit_action_chk'
                   AND pg_get_constraintdef(oid) LIKE '%gateway.next_root_received%'

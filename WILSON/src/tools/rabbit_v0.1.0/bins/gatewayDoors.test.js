@@ -18,7 +18,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   doorBase, clipUrl, ticketClaims, ticketExpiresAt, probeGateway, renewStream, headClip, postTicketRequest, realGatewayDoors,
-  PROBE_TIMEOUT_MS, RENEW_AFTER_MS, TICKET_BATCH_MAX,
+  PROBE_TIMEOUT_MS, RENEW_AFTER_MS, TICKET_BATCH_MAX, DOOR_CALL_TIMEOUT_MS,
 } from './gatewayDoors'
 
 const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url')
@@ -135,6 +135,32 @@ describe('the renewal and the HEAD (§5 steps 6 and 7)', () => {
     expect(fetchImpl.mock.calls[0][0]).toBe('https://d:1/v1/clips/c1?t=v1.a.b')
     expect(fetchImpl.mock.calls[0][1].method).toBe('HEAD')
     expect(await headClip('https://d:1', 'c1', 't', { fetchImpl: async () => { throw new TypeError('x') } })).toEqual({ status: 0, door: null })
+  })
+  it('round 2, note 12: a HEAD or a renewal nobody answers is status 0 at five seconds, never awaited for the browser\'s own minutes — even from a fetch that ignores its signal', async () => {
+    vi.useFakeTimers()
+    try {
+      expect(DOOR_CALL_TIMEOUT_MS).toBe(5000)
+      const hang = vi.fn(() => new Promise(() => {}))
+      let head = null
+      let renew = null
+      headClip('https://d:1', 'c1', 't', { fetchImpl: hang }).then((r) => { head = r })
+      renewStream('https://d:1', 'c1', { jti: 'j', ticket: 't' }, { fetchImpl: hang }).then((r) => { renew = r })
+      await vi.advanceTimersByTimeAsync(4_900)
+      expect(head).toBeNull()
+      expect(renew).toBeNull()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(head).toEqual({ status: 0, door: null })
+      expect(renew).toEqual({ ok: false, status: 0 })
+      // The signal is handed to fetch, so a real fetch is aborted, not left open: the HEAD's and the renewal's.
+      expect(hang.mock.calls).toHaveLength(2)
+      expect(hang.mock.calls[0][1].method).toBe('HEAD')
+      expect(hang.mock.calls[0][1].signal.aborted).toBe(true)
+      expect(hang.mock.calls[1][1].method).toBe('POST')
+      expect(hang.mock.calls[1][1].signal.aborted).toBe(true)
+      // CONTROL: an answer before the deadline is the answer.
+      const quick = vi.fn(async () => res(206))
+      expect(await headClip('https://d:1', 'c1', 't', { fetchImpl: quick })).toEqual({ status: 206, door: null })
+    } finally { vi.useRealTimers() }
   })
 })
 

@@ -24,6 +24,13 @@ export const PROBE_TIMEOUT_MS = 1500
 export const RENEW_AFTER_MS = 75_000
 /** gateway-ticket takes at most fifty clip ids in one call. */
 export const TICKET_BATCH_MAX = 50
+/**
+ * A renewal or a diagnosis HEAD nobody answers is said as nothing answering
+ * (status 0) after this, never awaited for the browser's own minutes: a
+ * player with a picture and no words while a door hangs (GW3 review round 2,
+ * note 12).
+ */
+export const DOOR_CALL_TIMEOUT_MS = 5000
 
 /** `https://host:port`, an IPv6 literal bracketed. */
 export function doorBase(host, port) {
@@ -56,6 +63,18 @@ export function ticketClaims(ticket) {
 export function ticketExpiresAt(ticket) {
   const exp = ticketClaims(ticket)?.exp
   return Number.isFinite(exp) ? exp * 1000 : null
+}
+
+/** fetch, abandoned at `timeoutMs`: aborted where the fetch honours a signal, and rejected either way. */
+async function fetchWithin(fetchImpl, url, init, timeoutMs) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
+  let timer = null
+  const late = new Promise((_, reject) => { timer = setTimeout(() => { try { ctrl?.abort() } catch { /* done */ } reject(new Error('timeout')) }, timeoutMs) })
+  try {
+    return await Promise.race([fetchImpl(url, { ...init, ...(ctrl ? { signal: ctrl.signal } : {}) }), late])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function fetchPath(base, { fetchImpl, timeoutMs }) {
@@ -126,14 +145,14 @@ export async function probeGateway(gateway, { fetchImpl = globalThis.fetch, time
  * `jti` and a fresh ticket; 204 extends the stream's life so the <video>'s
  * URL never changes. `{ ok, status }`; status 0 when nothing answered.
  */
-export async function renewStream(base, id, { jti, ticket }, { fetchImpl = globalThis.fetch } = {}) {
+export async function renewStream(base, id, { jti, ticket }, { fetchImpl = globalThis.fetch, timeoutMs = DOOR_CALL_TIMEOUT_MS } = {}) {
   try {
-    const res = await fetchImpl(`${base}/v1/clips/${id}/renew`, {
+    const res = await fetchWithin(fetchImpl, `${base}/v1/clips/${id}/renew`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jti, t: ticket }),
       cache: 'no-store',
-    })
+    }, timeoutMs)
     return { ok: res.status === 204, status: res.status }
   } catch {
     return { ok: false, status: 0 }
@@ -146,9 +165,9 @@ export async function renewStream(base, id, { jti, ticket }, { fetchImpl = globa
  * and the door the response names. `{ status, door }`; status 0 when
  * nothing answered.
  */
-export async function headClip(base, id, ticket, { fetchImpl = globalThis.fetch } = {}) {
+export async function headClip(base, id, ticket, { fetchImpl = globalThis.fetch, timeoutMs = DOOR_CALL_TIMEOUT_MS } = {}) {
   try {
-    const res = await fetchImpl(clipUrl(base, id, ticket), { method: 'HEAD', cache: 'no-store' })
+    const res = await fetchWithin(fetchImpl, clipUrl(base, id, ticket), { method: 'HEAD', cache: 'no-store' }, timeoutMs)
     const door = typeof res.headers?.get === 'function' ? res.headers.get('wilson-gateway-path') : null
     return { status: res.status, door: door || null }
   } catch {

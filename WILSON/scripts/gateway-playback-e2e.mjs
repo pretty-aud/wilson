@@ -32,7 +32,12 @@
  *      ticket's own life less 30 s, ends then too; the renewal at 20 s
  *      cannot get a fresh ticket once the member is gone; the page drops the
  *      URL at the margin and says so, never retrying the same ticket);
- *   6. the gateway revoked at the cloud (`/_control/revoke`): both doors
+ *   6. the switch turned off at the cloud while the outside door is still
+ *      open (the gateway learns it at its next sync): every ticket the cloud
+ *      mints then carries rv false and the outside door refuses it; the page
+ *      asks at most twice, says the door's refusal and backs the clip off a
+ *      minute — never a loop of mints (GW3 review round 2, finding 1);
+ *   7. the gateway revoked at the cloud (`/_control/revoke`): both doors
  *      close within a sync interval and the page says the gateway cannot be
  *      reached (the door dropped after a HEAD nobody answered) or, had its
  *      ticket gone first, the cloud's refusal.
@@ -152,10 +157,16 @@ async function main() {
 
   // ── The page: the fixtures' real mode, the tickets fulfilled from the fake cloud ──
   const ticketCalls = [];
+  // Step 6: the cloud's switch off, minting rv false, before the gateway's
+  // next sync closes its outside door (the sync still answers "on").
+  let mintRvOff = false;
   await context.route('**/__fake-cloud/gateway-ticket', async (route) => {
     const body = route.request().postDataJSON();
     ticketCalls.push({ at: Date.now(), ids: body.bin_file_ids });
     const r = cloud.handle('gateway-ticket', { authorization: `Bearer user:${body.sub}` }, { gateway_id: body.gateway_id, bin_file_ids: body.bin_file_ids });
+    if (mintRvOff && r.status === 200 && r.json && r.json.tickets) {
+      for (const id of Object.keys(r.json.tickets)) r.json.tickets[id] = cloud.mint({ clip: id, sub: body.sub, rv: false });
+    }
     await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.json) });
   });
   const query = (extra = '') => `http://localhost:${PORT}/rabbit?gateway=real&gw=${gatewayId}&host=127.0.0.1&port=${outsidePort}&sub=${data.sub}${extra}`;
@@ -343,7 +354,36 @@ async function main() {
     await page.close();
   }
 
-  // ── 6. The gateway revoked at the cloud: both doors close within a sync; the page says unreachable ──
+  // ── 6. The switch off at the cloud, the outside door still open: the page asks at most twice and says the door's refusal ──
+  {
+    const page = await context.newPage(); current = page;
+    const doorAnswers = [];
+    page.on('response', (r) => { const u = r.url(); if (u.includes(`:${outsidePort}/v1/clips/`)) doorAnswers.push({ at: Date.now(), status: r.status(), method: r.request().method() }); });
+    mintRvOff = true;
+    const before = ticketCalls.length;
+    const rvBefore = lines(/"reason":"rv"/).length;
+    await openBins(page, '&renew_s=20');
+    const t0 = Date.now();
+    await tile(page, data.play.display_name).click();
+    await page.mouse.move(1370, 12);
+    const said = page.locator('[data-testid="gateway-preview"] [data-testid="gateway-sentence"]').first();
+    await said.waitFor({ timeout: 20_000 });
+    const saidMs = Date.now() - t0;
+    const text = (await said.textContent()).replace(/\s+/g, ' ');
+    // The loop round 2 found would mint and be refused dozens of times here.
+    await page.waitForTimeout(15_000);
+    await shot(page, '06-switch-off-refused');
+    const mints = ticketCalls.length - before;
+    const refused = doorAnswers.filter((r) => r.status === 401).length;
+    report.steps.switch_off_refused = { said_within_s: r1(saidMs / 1000), sentence: text.slice(0, 160), mints_in_window: mints, door_401s: refused, gateway_rv_refusals: lines(/"reason":"rv"/).length - rvBefore, video_elements_left: await previewVideo(page).count() };
+    expect(/turned down a ticket/i.test(text), `the page said the door's refusal (${text})`);
+    expect(mints <= 2, `at most two ticket calls while the door refused every ticket (${mints})`);
+    expect(refused <= 4, `at most four refused requests at the door (${refused})`);
+    mintRvOff = false;
+    await page.close();
+  }
+
+  // ── 7. The gateway revoked at the cloud: both doors close within a sync; the page says unreachable ──
   {
     const page = await context.newPage(); current = page;
     await openBins(page, '&renew_s=20');
@@ -370,7 +410,7 @@ async function main() {
     const text = (await sentence.textContent()).replace(/\s+/g, ' ');
     expect(/cannot reach|refused|ticket/i.test(text), `the page said the gateway is gone (${text})`);
     const outsideClosedMs = (() => { const l = log.find((x) => / outside_closed /.test(x)); return l ? Date.now() - tRevoke : null; })();
-    await shot(page, '06-gateway-revoked');
+    await shot(page, '07-gateway-revoked');
     report.steps.gateway_revoked = { revoked_line: !!lines(/ revoked /).length, outside_closed: closed, said_within_s: r1((Date.now() - tRevoke) / 1000), said_by, sentence: text.slice(0, 160), video_elements_left: await page.locator('[data-testid="gateway-preview"] video').count(), outside_port_connect: await new Promise((resolve) => { const s = net.connect(outsidePort, '127.0.0.1'); s.once('error', (e) => resolve(e.code)); s.once('connect', () => { s.destroy(); resolve('connected'); }); }) };
     expect(closed, 'the outside door closed');
     await page.close();

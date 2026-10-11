@@ -227,6 +227,16 @@ export function refusalSentence(reason) {
  * player pauses and says where fullscreen is (review round 1, finding 4).
  */
 export const FULLSCREEN_KEEPS_MARK = 'Use the frame\'s own fullscreen button, top right: it keeps your name on the picture.'
+/**
+ * The door turned down a ticket the cloud had just minted (GW3 review round
+ * 2, finding 1): a fresh one would fare no better, so nothing is asked for a
+ * minute and this is said.
+ */
+export const GATEWAY_REFUSED_FRESH_TICKET = 'The gateway turned down a ticket WILSON had just been given for this clip. WILSON asks again in a minute; if this keeps happening, an admin can check the gateway in Settings, Storage.'
+/** The large player's footer: a clicked player keeps its own keys (Jakob; GW3 review round 2, finding 4). */
+export const PLAYER_KEEPS_KEYS = 'Once the clip is clicked, Space and the arrows are the player\'s own; Esc still closes.'
+/** The bytes stopped mid-clip while the door still serves them (round 2, note 11): the connection, not the format. */
+export const CONNECTION_DROPPED = 'The connection to the gateway dropped while the clip played.'
 
 // ── Consent before contact (BC2 review round 1) ──
 // Any member can name a company location; this computer connects to its
