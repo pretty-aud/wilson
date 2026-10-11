@@ -366,6 +366,11 @@ describe('the trail and the viewings, in words', () => {
       .toBe('“Studio NAS” now signs with its new root certificate; the old one is no longer offered')
   })
 
+  it('GW3 (0095): how much says "covered" when the gateway\'s coverage decided, as before when the bytes did', () => {
+    expect(howMuchWords({ bytes: 500, clip_bytes: 1000, fraction: 0.42, fraction_from: 'coverage', read_in_full: false })).toBe('500 B of 1000 B (42% covered)')
+    expect(howMuchWords({ bytes: 950, clip_bytes: 1000, fraction: 0.95, fraction_from: 'bytes', read_in_full: true })).toBe('950 B of 1000 B (95%) · read in full')
+  })
+
   it('how much: the fraction and read in full; a restart said honestly', () => {
     expect(howMuchWords({ bytes: 920 * 1024 * 1024, clip_bytes: 1000 * 1024 * 1024, fraction: 0.92, read_in_full: true })).toBe('920 MB of 1000 MB (92%) · read in full')
     expect(howMuchWords({ bytes: 120 * 1024 * 1024, clip_bytes: 1800 * 1024 * 1024, fraction: 0.067, read_in_full: false })).toBe('120 MB of 1.8 GB (7%)')

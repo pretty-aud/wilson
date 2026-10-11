@@ -632,7 +632,11 @@ export function howMuchWords(details = {}) {
   const bytes = formatBytesShort(details.bytes)
   if (details.clip_bytes) {
     const pct = details.fraction != null ? Math.round(Number(details.fraction) * 100) : null
-    return `${bytes} of ${formatBytesShort(details.clip_bytes)}${pct != null ? ` (${pct}%)` : ''}${details.read_in_full ? ' · read in full' : ''}`
+    // GW3 (0095): the gateway's coverage (the distinct bytes it served) is
+    // what "read in full" means; a percentage from the bytes alone counts a
+    // scrub over the same minute again, and is said as before.
+    const covered = details.fraction_from === 'coverage' ? ' covered' : ''
+    return `${bytes} of ${formatBytesShort(details.clip_bytes)}${pct != null ? ` (${pct}%${covered})` : ''}${details.read_in_full ? ' · read in full' : ''}`
   }
   return bytes
 }

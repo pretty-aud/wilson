@@ -171,6 +171,10 @@ function viewing(now, n, { clip, who, at, bytes, fraction, via = null, shared = 
       bytes: read,
       clip_bytes: clipBytes,
       fraction: Math.round((read / clipBytes) * 1000) / 1000,
+      // GW3 (0095): the gateway's coverage when it sent one, else the bytes;
+      // read_in_full is the cloud's verdict from the fraction, never the
+      // gateway's word.
+      fraction_from: fraction != null ? 'coverage' : 'bytes',
       read_in_full: read / clipBytes >= 0.9,
       range_count: incomplete ? 3 : 12,
       source_address: addrs[0],
