@@ -140,9 +140,12 @@ describe('the GW2 hand-off (docs/sessions/handoffs/po-gw2-2026-10-10.md), held t
     expect((outstanding.match(/<!--/g) || []).length).toBe(4);
     expect((readme.match(/<!--/g) || []).length).toBe(0);
   });
-  it('OUTSTANDING\'s session log has GW2\'s row at the top', () => {
+  // GW3 loosened this pin (it held GW2's row as the FIRST of the log, which
+  // the file's newest-first order cannot keep once a later session adds its
+  // row on top; GW1's hand-off, §5): GW2's row is in the log.
+  it('OUTSTANDING\'s session log has GW2\'s row', () => {
     const log = outstanding.slice(outstanding.indexOf('## Session log'));
-    const firstRow = log.split('\n').find((l) => l.startsWith('| Post-overhaul') || l.startsWith('| Track') || l.startsWith('| UI'));
-    expect(firstRow).toMatch(/^\| Post-overhaul GW2 \(2026-10-10; `po\/gw2-gateway-service` into `feat\/post-overhaul-edit-versioning`\)/);
+    const rows = log.split('\n').filter((l) => l.startsWith('| Post-overhaul') || l.startsWith('| Track') || l.startsWith('| UI'));
+    expect(rows.some((l) => /^\| Post-overhaul GW2 \(2026-10-10; `po\/gw2-gateway-service` into `feat\/post-overhaul-edit-versioning`\)/.test(l))).toBe(true);
   });
 });
