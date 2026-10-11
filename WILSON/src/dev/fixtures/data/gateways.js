@@ -38,14 +38,29 @@ export const FIXTURE_ROOT_PEM = [
   '',
 ].join('\n')
 
+/** GW3 (0095): what Download the new certificate hands over on fixture data (`?gateways=nextroot`). */
+export const FIXTURE_NEXT_ROOT_PEM = [
+  '-----BEGIN CERTIFICATE-----',
+  // base64 of "WILSON dev fixtures: not a certificate. The NEW root the gateway made a year before the old one's end."
+  'V0lMU09OIGRldiBmaXh0dXJlczogbm90IGEgY2VydGlmaWNhdGUuIFRoZSBORVcgcm9vdCB0aGUgZ2F0ZXdheSBtYWRlIGEgeWVhciBiZWZvcmUgdGhlIG9sZCBvbmUncyBlbmQu',
+  '-----END CERTIFICATE-----',
+  '',
+].join('\n')
+
 const LOCATION_ID = BIN_LOCATIONS[0].id
 const label = (id) => MEMBERS.find(m => m.user_id === id)?.display_name ?? null
 const ago = (now, ms) => new Date(now - ms).toISOString()
 const H = 3600 * 1000
 const D = 24 * H
 
-/** The healthy NAS gateway (the admin's columns). */
-export function seedGateway(now) {
+/**
+ * The healthy NAS gateway (the admin's columns). `nextRoot` (GW3, 0095,
+ * `?gateways=nextroot`): the gateway's root is a year from its end, so it
+ * made the next one and sent it two hours ago; unconfirmed, for Mara to
+ * confirm as at enrolment (its fingerprint is the one the fixture's
+ * enrolment prints, FIXTURE_NEW_ROOT_FINGERPRINT).
+ */
+export function seedGateway(now, { nextRoot = false } = {}) {
   return {
     id: GATEWAY_ID,
     workspace_id: WORKSPACE_ID,
@@ -58,11 +73,15 @@ export function seedGateway(now) {
     outside_open: false,
     root_fingerprint: FIXTURE_ROOT_FINGERPRINT,
     root_confirmed_at: ago(now, 16 * D - 20 * 60 * 1000),
+    next_root_fingerprint: nextRoot ? FIXTURE_NEW_ROOT_FINGERPRINT : null,
+    next_root_seen_at: nextRoot ? ago(now, 2 * H) : null,
+    next_root_confirmed_at: null,
+    next_root_confirmed_by: null,
     reach: { [LOCATION_ID]: 'reachable' },
     health: {
       doors: { inside: 'open', outside: 'closed_switch_off', refused_public: 0, inside_bound: ['192.168.10.20:8443'], relay_warning: null },
       update: 'up_to_date',
-      certificate: { leaf_not_after: '2027-11-08T00:00:00Z', root_not_after: '2036-09-24T00:00:00Z', outside: null, expires_warning: null },
+      certificate: { leaf_not_after: '2027-11-08T00:00:00Z', root_not_after: nextRoot ? '2027-10-02T00:00:00Z' : '2036-09-24T00:00:00Z', outside: null, expires_warning: null },
       office_ranges_applied: [],
       cloud: null,
       smb_dialect: null,
@@ -97,6 +116,10 @@ export function enrolledGateway(now, { id, createdBy, platform }) {
     outside_open: false,
     root_fingerprint: FIXTURE_NEW_ROOT_FINGERPRINT,
     root_confirmed_at: null,
+    next_root_fingerprint: null,
+    next_root_seen_at: null,
+    next_root_confirmed_at: null,
+    next_root_confirmed_by: null,
     reach: { [LOCATION_ID]: windows ? 'not_connected' : 'reachable' },
     health: {
       doors: { inside: 'open', outside: 'closed_switch_off', refused_public: 0, inside_bound: [], relay_warning: null },
@@ -172,8 +195,8 @@ export function seedViewings(now) {
   ]
 }
 
-/** The trail: enrolment, the two weeks with the switch on, and yesterday's step back. */
-export function seedAudit(now) {
+/** The trail: enrolment, the two weeks with the switch on, and yesterday's step back; with `nextRoot`, the new certificate two hours ago. */
+export function seedAudit(now, { nextRoot = false } = {}) {
   const mara = MEMBER_ID.mara
   const row = (n, at, action, details = {}, actor = mara, gateway = GATEWAY_ID) => ({
     id: 960 + n,
@@ -195,5 +218,6 @@ export function seedAudit(now) {
     row(7, 15 * D - 6 * 60 * 1000, 'gateway.reach_checked', { outside: { ok: true, detail: 'reached', ms: 151 }, inside_answered: false, automatic: false }),
     row(8, 1 * D + 2 * H, 'gateway.outside_address_changed', { from: { host: 'footage.lanternash.example', port: 443 }, to: null }),
     row(9, 1 * D + 2 * H - 60 * 1000, 'remote_viewing.off', {}, mara, null),
+    ...(nextRoot ? [row(10, 2 * H, 'gateway.next_root_received', { fingerprint: FIXTURE_NEW_ROOT_FINGERPRINT, in_use: false }, null)] : []),
   ].reverse()
 }

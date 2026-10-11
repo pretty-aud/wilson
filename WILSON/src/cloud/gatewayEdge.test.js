@@ -155,6 +155,23 @@ describe('parseSyncRequest — the heartbeat, reduced to what the cloud keeps', 
   })
 })
 
+describe('GW3 (0095): the roots a sync reports', () => {
+  it('root_cert_pem and next_root_cert_pem pass through when each is exactly one certificate; a key, a fragment or a number is dropped, never fatal', () => {
+    const ok = parseSyncRequest({ root_cert_pem: PEM, next_root_cert_pem: PEM })
+    expect(ok.ok && ok.report.root_cert_pem).toBe(PEM)
+    expect(ok.ok && ok.report.next_root_cert_pem).toBe(PEM)
+    const key = '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n'
+    const dropped = parseSyncRequest({ root_cert_pem: key, next_root_cert_pem: 'not a certificate' })
+    expect(dropped.ok).toBe(true)
+    expect(dropped.ok && 'root_cert_pem' in dropped.report).toBe(false)
+    expect(dropped.ok && 'next_root_cert_pem' in dropped.report).toBe(false)
+    const absent = parseSyncRequest({ version: '1.0.0', next_root_cert_pem: 7 })
+    expect(absent.ok && absent.report.next_root_cert_pem).toBeUndefined()
+    // gateway-sync hands the whole report to gateway_sync_apply, which 0095 taught to read them.
+    expect(read('supabase', 'functions', 'gateway-sync', 'index.ts')).toContain('p_report: parsed.report')
+  })
+})
+
 describe('the other shapes', () => {
   it('parseTicketRequest: a gateway id and 1–50 lower-case clip ids, deduplicated', () => {
     expect(parseTicketRequest({ gateway_id: UUID, bin_file_ids: [UUID2, UUID2] })).toEqual({ ok: true, gatewayId: UUID, ids: [UUID2] })

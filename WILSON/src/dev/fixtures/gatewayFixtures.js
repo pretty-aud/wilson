@@ -31,6 +31,13 @@
 //
 // Rotate the ticket keys (review round 2, finding 6) is the database's rule
 // only (a live admin; written down): the fixtures sign no ticket.
+//
+// GW3 (migration 0095): `?gateways=nextroot` starts with the NAS gateway's
+// root a year from its end and the next root it made sent two hours ago,
+// unconfirmed — the fingerprint asked again (FIXTURE_NEW_ROOT_FINGERPRINT),
+// then Download the new certificate beside the old one. The promotion (the
+// gateway reporting the new root in use) is the cloud's at a later sync and
+// is not acted out here.
 // =============================================================================
 
 import { clone } from './store'
@@ -38,7 +45,7 @@ import { fid } from './ids'
 import { MEMBERS } from './data/workspace'
 import { PROJECT } from './data/project'
 import {
-  seedGateway, enrolledGateway, seedViewings, seedAudit, FIXTURE_ROOT_PEM,
+  seedGateway, enrolledGateway, seedViewings, seedAudit, FIXTURE_ROOT_PEM, FIXTURE_NEXT_ROOT_PEM,
 } from './data/gateways'
 import { parseOutsideAddress, parseOfficeRanges, normalizeFingerprint } from '../../components/settings/gatewayWords'
 
@@ -54,6 +61,8 @@ const SENT = {
   fpShape: 'A certificate fingerprint is 64 letters and digits (0–9 and a–f), with or without colons between the pairs.',
   fpWrong: 'That fingerprint does not match the certificate this gateway sent WILSON. Copy it again from the installer\'s last screen or the container\'s first log lines; if you did not install this gateway, choose Forget.',
   confirmFirst: 'Confirm this gateway\'s fingerprint first: WILSON offers its certificate only after the admin who installed it has confirmed it is theirs.',
+  noNextRoot: 'This gateway has not sent WILSON a new certificate.',
+  confirmNextFirst: 'Confirm the new certificate\'s fingerprint first: WILSON offers it only after the admin who installed this gateway has confirmed it is theirs.',
   tooLate: 'This gateway was forgotten more than a minute ago, so it cannot come back: enrol it again with a new token.',
   tokenGone: 'That token was used or has expired, so there is nothing to cancel.',
   noAddress: 'Give the gateway its outside address first: the public name or address people outside the office will reach it at.',
@@ -65,9 +74,14 @@ const SENT = {
 const no = (code, friendly, status) => ({ ok: false, code, friendly, ...(status ? { status } : {}) })
 const yes = (data, extra = {}) => ({ ok: true, data, ...extra })
 
-/** `?gateways=empty`: the company before its first gateway (walkthrough 60's start). */
+/**
+ * `?gateways=empty`: the company before its first gateway (walkthrough 60's
+ * start); `?gateways=nextroot` (GW3): the NAS gateway with a new root waiting
+ * for its fingerprint.
+ */
 export function gatewayFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
-  return new URLSearchParams(search).get('gateways') === 'empty' ? 'empty' : null
+  const v = new URLSearchParams(search).get('gateways')
+  return v === 'empty' ? 'empty' : v === 'nextroot' ? 'nextroot' : null
 }
 
 export function createGatewayFixtures(store, identity, {
@@ -81,11 +95,12 @@ export function createGatewayFixtures(store, identity, {
   // The viewings live in the store, where the fixtures' project adapter reads
   // them too (the Bins inspector's one line), so the two never disagree.
   if (!store.gatewayViewings) store.gatewayViewings = mode === 'empty' ? [] : seedViewings(t0)
+  const nextRoot = mode === 'nextroot'
   const state = {
-    gateways: mode === 'empty' ? [] : [seedGateway(t0)],
+    gateways: mode === 'empty' ? [] : [seedGateway(t0, { nextRoot })],
     tokens: [],
     viewings: store.gatewayViewings,
-    audit: mode === 'empty' ? [] : seedAudit(t0),
+    audit: mode === 'empty' ? [] : seedAudit(t0, { nextRoot }),
     live: new Set(mode === 'empty' ? [] : [seedGateway(t0).id]),
     timers: new Map(),
     seq: 1,
@@ -211,13 +226,25 @@ export function createGatewayFixtures(store, identity, {
       const g = liveOne(gatewayId)
       if (!g) return no('P0002', SENT.notListed)
       if (g.created_by !== identity.userId) return no('42501', SENT.notEnroller)
-      if (g.root_confirmed_at) return yes(g.root_confirmed_at)
+      // Nothing left to confirm (0095's rule): the root is confirmed and no new root waits.
+      if (g.root_confirmed_at && !g.next_root_fingerprint) return yes(g.root_confirmed_at)
       const fp = normalizeFingerprint(fingerprint)
       if (!fp) return no('22023', SENT.fpShape)
-      if (fp !== g.root_fingerprint) return no('22023', SENT.fpWrong)
-      g.root_confirmed_at = new Date(clock()).toISOString()
-      audit('gateway.root_confirmed', g.id, { fingerprint: g.root_fingerprint })
-      return yes(g.root_confirmed_at)
+      if (fp === g.root_fingerprint) {
+        if (g.root_confirmed_at) return yes(g.root_confirmed_at)
+        g.root_confirmed_at = new Date(clock()).toISOString()
+        audit('gateway.root_confirmed', g.id, { fingerprint: g.root_fingerprint })
+        return yes(g.root_confirmed_at)
+      }
+      // GW3 (0095): the new root, asked for again as at enrolment.
+      if (g.next_root_fingerprint && fp === g.next_root_fingerprint) {
+        if (g.next_root_confirmed_at) return yes(g.next_root_confirmed_at)
+        g.next_root_confirmed_at = new Date(clock()).toISOString()
+        g.next_root_confirmed_by = identity.userId
+        audit('gateway.next_root_confirmed', g.id, { fingerprint: g.next_root_fingerprint })
+        return yes(g.next_root_confirmed_at)
+      }
+      return no('22023', SENT.fpWrong)
     },
 
     async fetchRootCertificate(gatewayId) {
@@ -226,6 +253,16 @@ export function createGatewayFixtures(store, identity, {
       if (!g) return no('P0002', SENT.notListed)
       if (!g.root_confirmed_at) return no('55000', SENT.confirmFirst)
       return yes(FIXTURE_ROOT_PEM)
+    },
+
+    /** GW3 (0095): the new root's certificate, after ITS fingerprint is confirmed. */
+    async fetchNextRootCertificate(gatewayId) {
+      if (!isAdmin()) return no('42501', SENT.admin)
+      const g = liveOne(gatewayId)
+      if (!g) return no('P0002', SENT.notListed)
+      if (!g.next_root_fingerprint) return no('P0002', SENT.noNextRoot)
+      if (!g.next_root_confirmed_at) return no('55000', SENT.confirmNextFirst)
+      return yes(FIXTURE_NEXT_ROOT_PEM)
     },
 
     async updateGateway(gatewayId, patch) {

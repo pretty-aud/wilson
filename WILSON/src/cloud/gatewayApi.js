@@ -36,6 +36,9 @@ const GATEWAY_COLUMNS = [
   'root_fingerprint', 'root_confirmed_at', 'reach', 'health', 'office_ranges', 'reach_ok', 'reach_checked_at',
   'reach_detail', 'reach_result', 'reach_check_id', 'update_check_requested_at', 'created_by', 'created_at',
   'last_seen_at', 'revoked_at',
+  // GW3 (0095): a new or next root the gateway reported at sync — its
+  // fingerprint and times, never its PEM (gateway_next_root_certificate).
+  'next_root_fingerprint', 'next_root_seen_at', 'next_root_confirmed_at',
 ].join(', ')
 
 // A member's columns, from the view every member's browser reads (§2).
@@ -198,6 +201,23 @@ export async function fetchRootCertificate(gatewayId) {
   const fx = fixtures()
   if (fx) return fx.fetchRootCertificate(gatewayId)
   const res = await run(() => supabase.rpc('gateway_root_certificate', { p_gateway: gatewayId }), SAID.certificate)
+  if (!res.ok) return res
+  const pem = typeof res.data === 'string' ? res.data : ''
+  if (!/^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----\s*$/.test(pem)) return { ok: false, code: 'bad_answer', friendly: SAID.certificate }
+  return { ok: true, data: pem }
+}
+
+/**
+ * GW3 (0095): the NEW root's PUBLIC certificate (PEM) — the next one the
+ * gateway made a year before the old one's end, or a replacement it already
+ * signs with — offered only after the admin confirmed its fingerprint again
+ * (D25); the old root stays Download certificate's until the gateway reports
+ * the new one in use and the cloud promotes it.
+ */
+export async function fetchNextRootCertificate(gatewayId) {
+  const fx = fixtures()
+  if (fx) return fx.fetchNextRootCertificate(gatewayId)
+  const res = await run(() => supabase.rpc('gateway_next_root_certificate', { p_gateway: gatewayId }), SAID.certificate)
   if (!res.ok) return res
   const pem = typeof res.data === 'string' ? res.data : ''
   if (!/^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----\s*$/.test(pem)) return { ok: false, code: 'bad_answer', friendly: SAID.certificate }

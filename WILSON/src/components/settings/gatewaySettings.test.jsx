@@ -32,7 +32,7 @@ const holder = vi.hoisted(() => {
   const names = ['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings', 'makeEnrolmentToken',
     'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'renameGateway', 'setGatewayOutsideAddress',
     'setGatewayOfficeRanges', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'gatewayCloudBase',
-    'rotateTicketKeys']
+    'rotateTicketKeys', 'fetchNextRootCertificate']
   return { ctx: null, perms: null, api: Object.fromEntries(names.map(n => [n, vi.fn()])) }
 })
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => holder.ctx }))
@@ -190,6 +190,66 @@ describe('the fingerprint (D25)', () => {
     expect(holder.api.fetchRootCertificate).toHaveBeenCalledWith('g1')
     expect(row().textContent).toContain(W.CERTIFICATE_DOWNLOADED)
     spy.mockRestore()
+  })
+})
+
+describe('a new root certificate (GW3, migration 0095; §3, "the day it expires")', () => {
+  const FP2 = '9e8d7c6b5a49382716f5e4d3c2b1a0998877665544332211ffeeddccbbaa0011'
+  const withNext = (over = {}) => gateway({
+    next_root_fingerprint: FP2, next_root_seen_at: ago(7200e3), next_root_confirmed_at: null,
+    health: { doors: { inside: 'open', outside: 'closed_switch_off', refused_public: 0 }, update: 'up_to_date',
+      certificate: { leaf_not_after: '2027-11-08T00:00:00Z', root_not_after: '2027-10-02T00:00:00Z' } },
+    ...over,
+  })
+
+  it('the enrolling admin gets the new certificate\'s box beside the old download; the line says a new one is ready; Confirm sends the fingerprint and says what to do next', async () => {
+    answer('confirmGatewayFingerprint', async () => ok(ago(0)))
+    await mountWith([withNext()])
+    expect(within(row()).getByRole('button', { name: 'Download certificate' })).toBeTruthy()
+    expect(within(row()).queryByRole('button', { name: 'Download the new certificate' })).toBeNull()
+    expect(within(row()).getByTestId('gateway-health').textContent).toContain('the root certificate expires on 2027-10-02; a new one is ready: confirm its fingerprint, then download it')
+    const well = within(row()).getByTestId('gateway-next-root')
+    expect(well.textContent).toContain(W.NEXT_ROOT_READY)
+    const box = within(well).getByLabelText('New certificate fingerprint')
+    fireEvent.change(box, { target: { value: 'B1:16' } })
+    fireEvent.click(within(well).getByRole('button', { name: 'Confirm' }))
+    expect(row().textContent).toContain(W.FINGERPRINT_SHAPE)
+    expect(holder.api.confirmGatewayFingerprint).not.toHaveBeenCalled()
+    fireEvent.change(box, { target: { value: FP2.toUpperCase().match(/../g).join(':') } })
+    fireEvent.click(within(well).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(holder.api.confirmGatewayFingerprint).toHaveBeenCalledWith('g1', FP2))
+    await waitFor(() => expect(row().textContent).toContain(W.NEXT_ROOT_CONFIRMED))
+  })
+
+  it('another admin reads why they cannot confirm it, and gets no box', async () => {
+    await mountWith([withNext({ created_by: 'someone-else' })])
+    expect(within(row()).queryByLabelText('New certificate fingerprint')).toBeNull()
+    expect(within(row()).getByTestId('gateway-next-root').textContent).toContain(W.NEXT_ROOT_OTHER_ADMIN)
+  })
+
+  it('confirmed: Download the new certificate beside Download certificate, as its own .crt; the line says to download it', async () => {
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----\n'
+    answer('fetchNextRootCertificate', async () => ok(pem))
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:cert'), revokeObjectURL: vi.fn() }))
+    const clicked = []
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () { clicked.push(this.download) })
+    await mountWith([withNext({ next_root_confirmed_at: ago(60e3) })])
+    expect(within(row()).getByTestId('gateway-health').textContent).toContain('a new one is ready, confirmed: download it and install it on each office computer')
+    expect(within(row()).queryByLabelText('New certificate fingerprint')).toBeNull()
+    expect(within(row()).getByRole('button', { name: 'Download certificate' })).toBeTruthy()
+    fireEvent.click(within(row()).getByRole('button', { name: 'Download the new certificate' }))
+    await waitFor(() => expect(clicked).toEqual(['Salt Hours NAS new root certificate.crt']))
+    expect(holder.api.fetchNextRootCertificate).toHaveBeenCalledWith('g1')
+    expect(holder.api.fetchRootCertificate).not.toHaveBeenCalled()
+    expect(row().textContent).toContain(W.NEW_CERTIFICATE_DOWNLOADED)
+    spy.mockRestore()
+  })
+
+  it('CONTROL: a gateway with no new root shows none of it', async () => {
+    await mountWith([gateway()])
+    expect(within(row()).queryByTestId('gateway-next-root')).toBeNull()
+    expect(within(row()).queryByRole('button', { name: 'Download the new certificate' })).toBeNull()
+    expect(within(row()).getByTestId('gateway-health').textContent).not.toContain('a new one is ready')
   })
 })
 

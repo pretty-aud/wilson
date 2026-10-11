@@ -99,6 +99,30 @@ export const FORGOTTEN_LINE = 'Forgotten: no ticket is made for it, and its next
 export const IT_WORKS = 'It works: play a clip from outside.'
 export const CHECKING = 'Checking… WILSON hands the gateway a code at its next check-in (within ten seconds), then knocks from the internet.'
 export const CERTIFICATE_DOWNLOADED = 'Downloaded. Install it on each office computer as a trusted root (the steps are under Add a gateway, step 5).'
+// ── GW3 (migration 0095): a new or next root certificate (§3, "the day it expires") ──
+// A year before its root's end the gateway makes the next one and offers it
+// beside the old; whenever an inside address leaves the root's /24s it makes
+// a new root at once. Either reaches the cloud at the next sync, and D25 asks
+// the enrolling admin for its fingerprint again before it is offered.
+export const NEXT_ROOT_READY = 'A new certificate is ready: confirm its fingerprint, then download it.'
+export const NEXT_ROOT_PROMPT = 'Type or paste the fingerprint of the new root certificate, as the gateway printed it in its log or on its status page. It proves the new certificate is this gateway\'s, and unlocks Download the new certificate.'
+export const NEXT_ROOT_OTHER_ADMIN = 'A new certificate is ready. Waiting for the admin who made this gateway\'s token to confirm its fingerprint: they are the one who can check it against the gateway\'s own screen.'
+export const NEXT_ROOT_CONFIRMED = 'Confirmed: download the new certificate and install it on each office computer as a trusted root, beside the old one, before the old one expires.'
+export const NEW_CERTIFICATE_DOWNLOADED = 'Downloaded the new certificate. Install it on each office computer as a trusted root, beside the old one.'
+/**
+ * The health line's phrase for a root on its way out (§3's twelve-month
+ * sentence), read from the cloud's own columns rather than the gateway's
+ * word: null while no new root has been reported.
+ */
+export function nextRootPhrase(gw) {
+  if (!gw?.next_root_fingerprint) return null
+  const until = String(gw.health?.certificate?.root_not_after || '').slice(0, 10)
+  const head = until ? `the root certificate expires on ${until}; a new one is ready` : 'the gateway made a new root certificate'
+  const tail = gw.next_root_confirmed_at
+    ? ', confirmed: download it and install it on each office computer'
+    : ': confirm its fingerprint, then download it'
+  return { text: `${head}${tail}`, tone: 'warning', strong: 'a new one is ready' }
+}
 export const VIEWED_EMPTY = 'Nothing was viewed from outside the office in the last 30 days.'
 export const VIEWED_DESCRIPTION = 'Every viewing through the outside door in the last 30 days, newest first: who, which clip, when, how much, and from where. Office viewing is not written down. Only workspace admins see this.'
 export const AUDIT_EMPTY = 'No changes yet.'
@@ -446,6 +470,9 @@ export function healthPhrases(gw, { now = Date.now(), locations = [] } = {}) {
     out.push({ text: `certificate: renews itself (${bits})`, tone: 'plain' })
   }
   if (cert.expires_warning) out.push({ text: `certificate: ${theGatewaySays(cert.expires_warning)}`, tone: 'warning' })
+  // GW3 (0095): the cloud's own knowledge of a new root, after the gateway's word.
+  const nextRoot = nextRootPhrase(gw)
+  if (nextRoot) out.push(nextRoot)
 
   const update = String(health.update || '')
   if (update === 'up_to_date') out.push({ text: 'up to date', tone: 'plain' })
@@ -564,9 +591,14 @@ const AUDIT_WORDS = {
     return `${named(g)} could not update to ${versionOr(v, 'a new version')} (${theGatewaySays(why.join(':'))})`
   },
   'gateway.keys_rotated': () => 'rotated the ticket keys: new tickets are signed with a new key',
+  // GW3 (0095): a new or next root, in the trail. The gateway's doing has no
+  // actor; the confirmation is the admin's.
+  'gateway.next_root_received': (d, g) => `${named(g)} sent a new root certificate${d.in_use ? ', already in use' : ', for the year ahead'}: confirm its fingerprint, then download it`,
+  'gateway.next_root_confirmed': (d, g) => `confirmed the fingerprint of the new root certificate of ${named(g)}`,
+  'gateway.root_replaced': (d, g) => `${named(g)} now signs with its new root certificate; the old one is no longer offered`,
 }
 
-const NO_ACTOR = new Set(['gateway.revoked', 'gateway.update_failed'])
+const NO_ACTOR = new Set(['gateway.revoked', 'gateway.update_failed', 'gateway.next_root_received', 'gateway.root_replaced'])
 
 /** One audit row in words: "Mara Okonkwo turned viewing from outside the office on". */
 export function auditPhrase(row, gatewayName) {
