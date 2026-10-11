@@ -59,7 +59,7 @@ import {
   formatAddress, parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases,
   insideForwardSentence, reachSentence, auditPhrase, howMuchWords, whereWords, whoWords,
   TICKET_KEYS_DESCRIPTION, ROTATE_CONFIRM, ROTATED_LINE, versionWords, gatewayNameWords,
-  NEXT_ROOT_READY, NEXT_ROOT_PROMPT, NEXT_ROOT_OTHER_ADMIN, NEXT_ROOT_CONFIRMED, NEW_CERTIFICATE_DOWNLOADED,
+  NEXT_ROOT_READY, NEXT_ROOT_PROMPT, NEXT_ROOT_OTHER_ADMIN, NEXT_ROOT_CONFIRMED, NEXT_ROOT_WRONG_ONE, NEW_CERTIFICATE_DOWNLOADED,
 } from './gatewayWords'
 
 // The tokens made in this browser since the app started: §2's notice for a
@@ -248,7 +248,14 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
     // enrolment, or the new one (0095).
     await act('confirm', () => confirmGatewayFingerprint(gw.id, fp), () => {
       setFingerprint('')
-      setNote({ text: confirmed ? NEXT_ROOT_CONFIRMED : 'Confirmed: this is your gateway. Download certificate is ready.', tone: 'ok' })
+      // Which root the fingerprint named decides the note: the new one's
+      // confirmation, the enrolment's, or the old one typed into the new
+      // one's box (the database answers that with the old confirmation).
+      const nextFp = normalizeFingerprint(gw.next_root_fingerprint || '')
+      const text = nextFp && fp === nextFp ? NEXT_ROOT_CONFIRMED
+        : confirmed && nextFp ? NEXT_ROOT_WRONG_ONE
+          : 'Confirmed: this is your gateway. Download certificate is ready.'
+      setNote({ text, tone: 'ok' })
     })
   }
 

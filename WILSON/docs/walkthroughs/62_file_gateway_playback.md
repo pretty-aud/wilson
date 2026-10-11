@@ -77,7 +77,7 @@ sentences)
 | 12 | `/rabbit?gateway=none` → Bins (as the test data's admin) | The notice is walkthrough 58's (*Adding clips and playing them need the desktop app…*), with one more line for an admin: *A file gateway lets browsers play clips from the company's server: Settings, Storage.* A member sees no second line. A clip's inspector says *No file gateway is enrolled, so the clip cannot be played in a browser; the desktop app on a computer that reaches the share plays it. It can still be logged, flagged and assigned to a shot.* (`po-gw3-08-bins-notice-no-gateway-admin-line`, `-09-bins-inspector-no-gateway`) |
 | 13 | `/rabbit?gateway=unseen` → Bins | *The company's gateway "Salt Hours NAS" has not answered WILSON for 4 minutes, so clips cannot play here. Everything else works; someone on the office network can check it.* Every clip is *not on this computer*. (`po-gw3-10-bins-notice-gateway-unseen`) |
 | 14 | `/rabbit?gateway=unreachable` → Bins | *WILSON can see the gateway "Salt Hours NAS" but this browser cannot reach it at 192.168.10.20:8443. On the office network, the gateway's certificate must be installed on this computer (Settings, Storage). From outside, the switch is off or the outside door is not open.* and, under it, *On the gateway's own computer the office door does not answer its own host: use another computer on the office network, or the outside door while the switch is on.* (`po-gw3-11-bins-notice-gateway-unreachable`) |
-| 15 | Put the notice away with its × | The two lines stay, in their own strip, until the gateway answers: a silent or unreachable gateway is not something a dismissed notice should hide. (`po-gw3-12-bins-strip-after-dismiss`) |
+| 15 | Put the notice away with its × | The two lines stay, in their own strip, until the gateway answers: a silent or unreachable gateway is not something a dismissed notice should hide. The tab asks again every 60 s while it is on screen. (`po-gw3-12-bins-strip-after-dismiss`) |
 | 16 | While the first probe runs (the first second after the tab opens) | *Chrome will ask whether WILSON may reach devices on your network; allow it once.* above the notice. In Chrome on a real office network the prompt appears the first time the web app reaches the gateway's address; allowed once, it is remembered for the site. |
 | 17 | A clip on a location the gateway reports as not mounted (the test data's Archive) | *"Archive" is not mounted on the gateway, so the clip cannot be played here. It can still be logged, flagged and assigned to a shot.* The other words the gateway can report read the same way: *not connected on the gateway yet (run share-login on the gateway)*, *not reachable through the gateway*, and for an address the gateway refuses, *The gateway cannot use the address of "…"*. |
 
@@ -113,7 +113,7 @@ users' admin when you choose)
 ## 2. How to check it
 
 - The tests: `npx vitest run src/tools/rabbit_v0.1.0/adapters/gatewayBins.test.js src/tools/rabbit_v0.1.0/bins src/tools/rabbit_v0.1.0/views/bins src/tools/rabbit_v0.1.0/state/binsProvider.test.jsx src/dev/fixtures src/cloud/gatewayApi.test.js src/components/settings src/tools/rabbit_v0.1.0/rabbitBinsHelp.test.jsx` — among them `gatewayBins.test.js` (the composite: the doors, the four states, tickets on request and in batches of fifty, a ticket within 30 s of its end never reused, the renewal keeping the URL, a 401 never retried, the diagnosis), `gatewayDoors.test.js` (the probe's order, the URLs, the renewal's body, `res.ok` before any body), `gatewayMedia.test.js` (the allow-list word for word, the codec strings), `gatewayVideo.test.jsx` (the hand-over, the mark only through the outside door and its five positions, the renewal at 75 s, one fresh src, the cosmetic measures, fullscreen on the container), `binsViewGateway.test.jsx` (the tab: the sentences per state, the counts, tickets on hover and for a selection, Space as the player, the 60 s re-read, the viewings table for admins), `binsProvider.test.jsx` (the composite through the real provider), `gatewayDoors.test.js` under `src/dev/fixtures` (the acted gateway answers in the real doors' shapes), `rabbitBinsHelp.test.jsx` (Help held to the words). The gateway's side: `npx vitest run gateway` (`doorsOutside.test.mjs` and `runtime.test.mjs` prove the reach PROOF with the design's `proof_vector`, `docs.test.mjs` the hand-off pins).
-- The database: suite 98 (`supabase/tests/rls/98_gateway_next_root_viewing_fraction.sql`, 44 probes) runs on every push in CI's pgTAP job after 0095.
+- The database: suite 98 (`supabase/tests/rls/98_gateway_next_root_viewing_fraction.sql`, 48 probes) runs on every push in CI's pgTAP job after 0095.
 - The development copy: the `gw3-worktree` launch entry, port 5289; `scripts/bins-gateway-shots.mjs 5289 --out <dir>` walks §1 A–F and photographs it.
 - The real gateway on this computer: `node scripts/gateway-playback-e2e.mjs --port 5289 --scratch <empty folder> [--fast]` (§3). It binds this computer's LAN address for its duration; say so before running it.
 
@@ -135,10 +135,11 @@ users' admin when you choose)
   renewal at 75 s (the gateway answered 204) and was served again on the
   same URL at 80 s; a clip in the catalogue with no file on the share was
   answered 404 and the row flipped; the ProRes master asked for no ticket;
-  a viewer removed at the cloud lost the stream at its authority's end
-  (the next request 401, the page's sentence, no retry with the same
-  ticket) within two minutes; the gateway revoked at the cloud closed both
-  doors within one sync and the page said so. The numbers are in the
+  a viewer removed at the cloud lost the stream within two minutes (the
+  renewal got no fresh ticket, the page dropped the URL at its ticket's
+  margin and said the cloud's refusal, never retrying the same ticket);
+  the gateway revoked at the cloud closed both doors within one sync and
+  the page said it could not reach the gateway. The numbers are in the
   hand-off's §3.
 - **The office door was not played from this computer**: it closes its own
   host before TLS, by design (§4), so the browser on the gateway's computer
@@ -162,15 +163,26 @@ users' admin when you choose)
   a determined person can film a screen. The design says so.
 - **The player's download and picture-in-picture measures are cosmetic**
   (the design's own word): the ticket, not the control strip, is the
-  security.
+  security. Firefox and Safari ignore the control list and draw their own
+  fullscreen button: through the outside door, fullscreen or
+  picture-in-picture of the bare clip pauses it, undoes itself and says
+  *Use the frame's own fullscreen button, top right: it keeps your name on
+  the picture.* Measured in Chromium only
+  (`scripts/gateway-fullscreen-guard.mjs`, which takes `--browser firefox`
+  or `webkit` where Playwright has them; GW3's run had Chromium alone);
+  on iOS the native player is undone the same way, unmeasured.
 - **The hover scrub through the outside door starts only once the tile's
   ticket has arrived** (one round trip the first time); a desktop's scrub
   starts at once.
 - **The viewings table's fraction on rows written before 0095** reads
   *bytes / size* as before; rows after it carry the gateway's coverage.
 - **The renewal interval is fixed at 75 s** and the ticket's life at two
-  minutes (D1, D5); a page left in the background keeps renewing while the
-  clip plays and stops when it pauses for good.
+  minutes (D1, D5); a clip is renewed only while it plays. A paused or
+  never-played clip lets its ticket lapse, and pressing play again costs
+  one fresh ticket (the clip goes on from the same moment). A failed
+  renewal is tried again in 10 s; one the cloud refuses (a viewer removed,
+  the switch off) ends the clip at its ticket's margin, with the cloud's
+  sentence.
 
 ## 5. Questions, when you test
 
@@ -184,8 +196,9 @@ users' admin when you choose)
 3. **A ProRes master shows its picture and the one sentence**, with no
    button to the desktop app (there is nothing a browser can launch). Keep
    it that plain?
-4. **A clip the gateway answers 404 for stays flipped until the tab's next
-   60-second read** of the gateway's reach report (or a reload). Should a
+4. **A clip the gateway answers 404 for stays flipped until its rows are
+   read again** (the project opened again, or a reload): the gateway's
+   reach report is per location and cannot vouch for one clip. Should a
    click on the row try again at once?
 5. **The viewings dialog is the Settings table, 960 px wide, 25 a page.**
    Would you rather it opened the Settings card scrolled to the table with

@@ -306,6 +306,9 @@ export function RabbitProvider({ children }) {
   // adapter; its doors are the page's, or the dev fixtures' stub in the page.
   const gatewayCompositeRef = useRef({ cloud: null, composite: null });
   const gatewayChangedRef = useRef(null);
+  // The signed-in person, for the composite: a ticket minted for anyone else
+  // is never used (GW3 review round 1, finding 1). Kept current below.
+  const authUserIdRef = useRef(null);
   // "The backend is the cloud": the provider's own mode, which the dev
   // fixtures share with the cloud adapter (they are the cloud in a dev
   // build), not the adapter object's name.
@@ -342,6 +345,7 @@ export function RabbitProvider({ children }) {
       doors,
       rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
       onChange: () => gatewayChangedRef.current?.(),
+      userId: () => authUserIdRef.current,
     });
     gatewayCompositeRef.current = { cloud: a, composite };
     return composite;
@@ -787,6 +791,24 @@ export function RabbitProvider({ children }) {
   // snapshot rollback, like the other mutators.
   const [projectMembers, setProjectMembers] = useState([]);
   const [authUserId, setAuthUserId] = useState(null);
+  authUserIdRef.current = authUserId;
+  // GW3 (review round 1, finding 1): a ticket is one person's. A sign-out, or
+  // another person signing in without one, drops the browser's gateway
+  // composite with every ticket and door it held; the next load (or the
+  // re-discovery below) builds a new one for whoever is here.
+  const gatewayUserRef = useRef(null);
+  useEffect(() => {
+    const was = gatewayUserRef.current;
+    gatewayUserRef.current = authUserId;
+    if (!was || was === authUserId) return;
+    const memo = gatewayCompositeRef.current;
+    if (memo.composite) { try { memo.composite.dispose?.(); } catch { /* gone */ } }
+    gatewayCompositeRef.current = { cloud: null, composite: null };
+    if (authUserId) {
+      const fresh = binsBackend();
+      if (fresh && typeof fresh.discover === 'function') Promise.resolve(fresh.discover()).catch(() => {});
+    }
+  }, [authUserId, binsBackend]);
 
   // StrictMode-safe mounted flag — same pattern as useWorkspaceMembers:
   // the effect BODY must reset the flag to true, because StrictMode runs

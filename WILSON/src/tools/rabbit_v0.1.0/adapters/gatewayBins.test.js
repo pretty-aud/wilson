@@ -23,11 +23,11 @@
 // =============================================================================
 
 import { describe, it, expect, vi } from 'vitest'
-import { composeGatewayBins, GATEWAY_BINS_CAPABILITIES, UNSEEN_AFTER_MS } from './gatewayBins'
+import { composeGatewayBins, GATEWAY_BINS_CAPABILITIES, UNSEEN_AFTER_MS, NO_TICKET } from './gatewayBins'
 
 const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url')
 let minted = 0
-const ticketFor = (id, { exp, jti } = {}) => `v1.${b64url(JSON.stringify({ v: 1, clip: id, jti: jti || `jti${++minted}`, exp: exp ?? 1791633700 }))}.${b64url('sig')}`
+const ticketFor = (id, { exp, jti, iat, sub } = {}) => `v1.${b64url(JSON.stringify({ v: 1, ...(sub ? { sub } : {}), clip: id, ...(iat != null ? { iat } : {}), jti: jti || `jti${++minted}`, exp: exp ?? 1791633700 }))}.${b64url('sig')}`
 const NOW = 1791633600 * 1000 // the vectors' now; a ticket's exp is 100 s off
 
 const L1 = 'loc-1', L2 = 'loc-2'
@@ -39,7 +39,7 @@ const rows = () => [
 ]
 const gw = (over = {}) => ({ id: 'g1', name: 'Studio NAS', inside_addresses: [{ host: '192.168.1.10', port: 8443 }], outside_address: null, reach: { [L1]: 'reachable', [L2]: 'not_mounted' }, last_seen_at: new Date(NOW - 4000).toISOString(), ...over })
 
-function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows() } = {}) {
+function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { t: NOW }, rowsNow = rows(), userId = () => null } = {}) {
   const calls = { list: 0, tickets: [], renew: [], head: [] }
   const cloud = {
     listBins: vi.fn(async () => ({ bins: [], binFiles: rowsNow, binLocations: [{ id: L1, name: 'Footage' }, { id: L2, name: 'Archive' }] })),
@@ -68,6 +68,7 @@ function world({ gateways = [gw()], probe = null, ticketsImpl = null, clock = { 
     rowOf: (id) => rowsNow.find((r) => r.id === id) || null,
     onChange,
     now: () => clock.t,
+    userId,
   })
   return { c, cloud, doors, calls, onChange, clock }
 }
@@ -284,19 +285,19 @@ describe('the renewal, the fresh URL and the diagnosis (§5 steps 6 and 7)', () 
     expect(w.c.streamInfo('c1').jti).toBe(firstJti)
     expect(await w.c.renewStream('c2')).toMatchObject({ ok: false, reason: 'no_stream' })
   })
-  it('a refused renewal says so; a ticket the cloud will not mint is a ticket failure', async () => {
+  it('a refused renewal says so; a ticket the cloud will not mint is a ticket failure (round 1, note 14: the second half now holds a ticket first)', async () => {
     const w = world()
     await w.c.discover()
     await w.c.ensureTickets(['c1'])
     w.doors.renew.mockImplementationOnce(async () => ({ ok: false, status: 401 }))
     expect(await w.c.renewStream('c1')).toEqual({ ok: false, status: 401, reason: 'refused' })
-    const w2 = world({ ticketsImpl: async (g, ids) => ({ ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, ticketFor(id)])), missing: [], refused: [] } }) })
-    await w2.c.discover()
-    await w2.c.ensureTickets(['c1'])
-    const impl = vi.fn(async () => ({ ok: false, status: 401, friendly: 'Sign in again' }))
-    const w3 = world({ ticketsImpl: impl })
+    let refuse = false
+    const w3 = world({ ticketsImpl: async (g, ids) => (refuse ? { ok: false, status: 401, friendly: 'Sign in again' } : { ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, ticketFor(id, { exp: Math.floor(w3.clock.t / 1000) + 120 })])), missing: [], refused: [] } }) })
     await w3.c.discover()
-    expect(await w3.c.renewStream('c1')).toMatchObject({ ok: false, reason: 'no_stream' })
+    await w3.c.ensureTickets(['c1'])
+    refuse = true
+    expect(await w3.c.renewStream('c1')).toEqual({ ok: false, status: 401, reason: 'ticket' })
+    expect(w3.doors.renew).not.toHaveBeenCalled()
   })
   it('a renewal the cloud refuses (the viewer removed): the clip carries its own error, and the tab is re-read when the held ticket reaches its margin — the URL is gone then, not at some later re-render', async () => {
     vi.useFakeTimers()
@@ -348,7 +349,7 @@ describe('the renewal, the fresh URL and the diagnosis (§5 steps 6 and 7)', () 
       expect(w3.c.streamInfo('c1').ticketError).toBeNull()
     } finally { vi.useRealTimers() }
   })
-  it('a failed renewal then a good one: the clip\'s error is cleared by the good one', async () => {
+  it('a failed renewal backs the clip off: a retry within 15 s asks the cloud nothing; the good one after clears the clip\'s error', async () => {
     let refuse = false
     const w = world({ ticketsImpl: async (g, ids) => (refuse
       ? { ok: false, status: 503, friendly: 'The cloud is busy.' }
@@ -358,9 +359,13 @@ describe('the renewal, the fresh URL and the diagnosis (§5 steps 6 and 7)', () 
     refuse = true
     expect((await w.c.renewStream('c1')).ok).toBe(false)
     expect(w.c.streamInfo('c1').ticketError).toBe('The cloud is busy.')
+    const calls = w.calls.tickets.length
     refuse = false
+    expect(await w.c.renewStream('c1')).toEqual({ ok: false, status: 0, reason: 'backoff' })
+    expect(w.calls.tickets).toHaveLength(calls)
+    w.clock.t += 15_001
     expect((await w.c.renewStream('c1')).ok).toBe(true)
-    expect(w.c.streamInfo('c1').ticketError).toBeNull()
+    expect(w.c.streamInfo('c1')).toMatchObject({ ticketError: null, renewFailed: false })
   })
   it('freshStreamUrl never reuses the ticket: a new ticket, a new URL (a 401 is never retried with the same ticket)', async () => {
     const w = world()
@@ -372,38 +377,183 @@ describe('the renewal, the fresh URL and the diagnosis (§5 steps 6 and 7)', () 
     expect(fresh).toMatch(/clips\/c1\?t=v1\./)
     expect(w.calls.tickets).toHaveLength(2)
   })
-  it('diagnoseClip: a HEAD on a fresh ticket → ok / missing (404) / ticket (401, the ticket dropped) / format (415) / busy (429) / unreachable (0); no door is no_stream', async () => {
+  it('diagnoseClip asks the door with the ELEMENT\'s own ticket first (round 1, finding 6): 2xx is the decode (ok), 404 missing (backed off a minute), 415 the format, 429 busy — no mint for any of them', async () => {
     const w = world()
     await w.c.discover()
-    for (const [status, verdict] of [[206, 'ok'], [404, 'missing'], [415, 'format'], [429, 'busy'], [0, 'unreachable'], [500, 'unreachable']]) {
+    await w.c.ensureTickets(['c1'])
+    const own = w.c.binFileStreamUrl('p', 'c1').split('t=')[1]
+    for (const [status, verdict] of [[206, 'ok'], [415, 'format'], [429, 'busy'], [404, 'missing']]) {
       w.doors.head.mockImplementationOnce(async () => ({ status, door: 'inside' }))
       expect((await w.c.diagnoseClip('c1')).verdict, String(status)).toBe(verdict)
-      expect(w.c.streamInfo('c1').held, String(status)).toBe(true) // the fresh ticket stays held: the door, not the ticket, answered
+      expect(w.doors.head.mock.calls.at(-1)[2], String(status)).toBe(own)
     }
-    // Each diagnosis asked a FRESH ticket (never the one that failed).
-    expect(w.calls.tickets).toHaveLength(6)
-    // A 401 is the ticket's failure: it is dropped, so the next play asks for another.
-    w.doors.head.mockImplementationOnce(async () => ({ status: 401, door: 'inside' }))
-    expect((await w.c.diagnoseClip('c1')).verdict).toBe('ticket')
-    expect(w.c.streamInfo('c1').held).toBe(false)
+    expect(w.calls.tickets).toHaveLength(1) // the first mint only
+    expect(w.c.streamInfo('c1').missing).toBe(true) // the 404's minute
     expect(await w.c.diagnoseClip('c2')).toEqual({ verdict: 'no_stream', status: 0 })
   })
-  it('diagnoseClip with no fresh ticket: the cloud refusing one (the viewer removed, signed out, the switch off) is the TICKET, said as such; a format the cloud refuses is the format', async () => {
+  it('the element\'s own ticket refused (401) is the TICKET: it is dropped, so the player\'s one fresh src follows; a later diagnosis with no ticket of its own mints and HEADs the fresh one', async () => {
+    const w = world()
+    await w.c.discover()
+    await w.c.ensureTickets(['c1'])
+    w.doors.head.mockImplementationOnce(async () => ({ status: 401, door: 'inside' }))
+    expect((await w.c.diagnoseClip('c1')).verdict).toBe('ticket')
+    expect(w.c.streamInfo('c1')).toMatchObject({ held: false, jti: null })
+    expect((await w.c.diagnoseClip('c1')).verdict).toBe('ok')
+    expect(w.calls.tickets).toHaveLength(2)
+    expect(w.doors.head.mock.calls.at(-1)[2]).toBe(w.c.binFileStreamUrl('p', 'c1').split('t=')[1])
+  })
+  it('nothing answering the HEAD (status 0) drops the door, the tab says it, and the gateway is probed again (round 1, finding 8)', async () => {
+    const w = world()
+    await w.c.discover()
+    await w.c.ensureTickets(['c1'])
+    expect(w.doors.probe).toHaveBeenCalledTimes(1)
+    w.doors.head.mockImplementationOnce(async () => ({ status: 0, door: null }))
+    const changes = w.onChange.mock.calls.length
+    expect((await w.c.diagnoseClip('c1')).verdict).toBe('unreachable')
+    expect(w.onChange.mock.calls.length).toBeGreaterThan(changes)
+    await new Promise((r) => setTimeout(r, 0))
+    await w.c.discover()
+    expect(w.doors.probe.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(w.c.summary().state).toBe('reached') // the probe answered again
+    // CONTROL: a door that stays silent leaves the tab unreachable, the catalogue back.
+    const w2 = world()
+    await w2.c.discover()
+    w2.doors.probe.mockImplementation(async () => null)
+    await w2.c.ensureTickets(['c1'])
+    w2.doors.head.mockImplementationOnce(async () => ({ status: 0, door: null }))
+    await w2.c.diagnoseClip('c1')
+    await w2.c.discover()
+    expect(w2.c.summary().state).toBe('unreachable')
+    expect(w2.c.binsCapabilities().stream).toBe(false)
+    expect(w2.c.binFileStreamUrl('p', 'c1')).toBeNull()
+  })
+  it('diagnoseClip with no ticket of its own: the cloud refusing the person is the TICKET; a clip it does not know is nothing to play; its refusals by reason (not_playable the format, too_long said as such)', async () => {
     let answer = null
     const w = world({ ticketsImpl: async (g, ids) => answer ? answer(ids) : { ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, ticketFor(id, { exp: Math.floor(NOW / 1000) + 120 })])), missing: [], refused: [], expires_at: null } } })
     await w.c.discover()
-    await w.c.ensureTickets(['c1'])
     answer = () => ({ ok: false, status: 401, code: 'not_signed_in', friendly: 'Sign in again.' })
     expect(await w.c.diagnoseClip('c1')).toEqual({ verdict: 'ticket', status: 0 })
     expect(w.doors.head).not.toHaveBeenCalled()
     expect(w.c.streamInfo('c1')).toMatchObject({ held: false, ticketError: 'Sign in again.' })
-    // The cloud answering (no refusal) but naming no ticket: nothing plays, said plainly.
     answer = () => ({ ok: true, data: { tickets: {}, missing: ['c1'], refused: [], expires_at: null } })
     expect((await w.c.diagnoseClip('c1')).verdict).toBe('no_stream')
-    // A format the cloud refuses is the format (and stays so: the refusal is remembered).
     answer = (ids) => ({ ok: true, data: { tickets: {}, missing: [], refused: ids.map((id) => ({ id, reason: 'not_playable' })), expires_at: null } })
     w.clock.t += 61_000 // past the missing minute of backoff
     expect((await w.c.diagnoseClip('c1')).verdict).toBe('format')
+    answer = (ids) => ({ ok: true, data: { tickets: {}, missing: [], refused: ids.map((id) => ({ id, reason: 'too_long' })), expires_at: null } })
+    w.clock.t += 61_000
+    expect(await w.c.diagnoseClip('c1')).toEqual({ verdict: 'refused', status: 0, reason: 'too_long' })
     expect(await w.c.diagnoseClip('d1')).toEqual({ verdict: 'no_stream', status: 0 })
   })
 })
+
+describe('round 1\'s corrections (GW3 review round 1)', () => {
+  const realTicket = (id, { iat, life = 120, sub = 'u-a', jti } = {}) => ticketFor(id, { iat, exp: iat + life, sub, jti })
+  it('finding 2: the hold is anchored to the ticket\'s receipt, never the cloud\'s clock — a browser 95 s ahead still holds it; one 95 s behind drops it 90 s after receipt', async () => {
+    const cloudNow = Math.floor(NOW / 1000)
+    const ahead = world({ clock: { t: NOW + 95_000 }, ticketsImpl: async (g, ids) => ({ ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, realTicket(id, { iat: cloudNow })])), missing: [], refused: [] } }) })
+    await ahead.c.discover()
+    await ahead.c.ensureTickets(['c1'])
+    expect(ahead.c.binFileStreamUrl('p', 'c1')).not.toBeNull()
+    expect(ahead.c.streamInfo('c1').expiresAt).toBe(NOW + 95_000 + 120_000)
+    await ahead.c.ensureTickets(['c1'])
+    expect(ahead.calls.tickets).toHaveLength(1) // held: no mint at network speed
+    const behind = world({ clock: { t: NOW - 95_000 }, ticketsImpl: async (g, ids) => ({ ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, realTicket(id, { iat: cloudNow })])), missing: [], refused: [] } }) })
+    await behind.c.discover()
+    await behind.c.ensureTickets(['c1'])
+    behind.clock.t += 89_000
+    expect(behind.c.binFileStreamUrl('p', 'c1')).not.toBeNull()
+    behind.clock.t += 2_000
+    expect(behind.c.binFileStreamUrl('p', 'c1')).toBeNull()
+    // A ticket claiming more than two minutes is held for two at most.
+    const long = world({ ticketsImpl: async (g, ids) => ({ ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, realTicket(id, { iat: cloudNow, life: 3600 })])), missing: [], refused: [] } }) })
+    await long.c.discover()
+    await long.c.ensureTickets(['c1'])
+    expect(long.c.streamInfo('c1').expiresAt).toBe(NOW + 120_000)
+  })
+  it('finding 3: an id the cloud\'s answer names nowhere is backed off with its own sentence — asked again, nothing is sent', async () => {
+    const w = world({ ticketsImpl: async () => ({ ok: true, data: { tickets: {}, missing: [], refused: [] } }) })
+    await w.c.discover()
+    await w.c.ensureTickets(['c1'])
+    await w.c.ensureTickets(['c1'])
+    await w.c.ensureTickets(['c1'])
+    expect(w.calls.tickets).toHaveLength(1)
+    expect(w.c.streamInfo('c1')).toMatchObject({ missing: true, ticketError: NO_TICKET })
+    w.clock.t += 15_001
+    await w.c.ensureTickets(['c1'])
+    expect(w.calls.tickets).toHaveLength(2)
+  })
+  it('finding 5: a row the gateway answered 404 for stays off, whatever the reach says, and no ticket is minted for it', async () => {
+    const w = world({ rowsNow: [{ id: 'c1', location_id: L1, relative_path: 'A001/c1.mp4', extension: '.mp4', gateway_missing: true, online: false }] })
+    await w.c.discover()
+    expect(w.c.markOnline([{ id: 'c1', location_id: L1, gateway_missing: true }])[0].online).toBe(false)
+    expect(w.c.markOnline([{ id: 'c1', location_id: L1 }])[0].online).toBe(true)
+    await w.c.ensureTickets(['c1'])
+    expect(w.calls.tickets).toHaveLength(0)
+  })
+  it('finding 1: a ticket minted for another person is never used — no URL, no jti — and the signed-in person gets their own; dispose lets go of everything', async () => {
+    let me = 'u-a'
+    vi.useFakeTimers()
+    try {
+      const w = world({ userId: () => me, ticketsImpl: async (g, ids) => ({ ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, realTicket(id, { iat: Math.floor(w.clock.t / 1000), sub: me, jti: `j-${me}` })])), missing: [], refused: [] } }) })
+      await w.c.discover()
+      await w.c.ensureTickets(['c1'])
+      expect(w.c.streamInfo('c1').jti).toBe('j-u-a')
+      me = 'u-b'
+      expect(w.c.binFileStreamUrl('p', 'c1')).toBeNull()
+      expect(w.c.streamInfo('c1')).toMatchObject({ jti: null, held: false, lapsedUrl: null })
+      expect(await w.c.renewStream('c1')).toMatchObject({ ok: false, reason: 'no_stream' })
+      await w.c.ensureTickets(['c1'])
+      expect(w.calls.tickets).toHaveLength(2)
+      expect(w.c.streamInfo('c1').jti).toBe('j-u-b')
+      // dispose: the tickets, the doors and the margin timers go.
+      refuseRenewal(w)
+      await w.c.renewStream('c1')
+      w.c.dispose()
+      const changes = w.onChange.mock.calls.length
+      await vi.advanceTimersByTimeAsync(200_000)
+      expect(w.onChange.mock.calls.length).toBe(changes)
+      expect(w.c.binFileStreamUrl('p', 'c1')).toBeNull()
+      expect(w.c.streamInfo('c1')).toMatchObject({ jti: null, door: null })
+      expect(w.c.binsCapabilities().stream).toBe(false)
+    } finally { vi.useRealTimers() }
+  })
+  it('finding 1: after dispose the next person\'s discovery probes every door again — a door the last person reached is not believed', async () => {
+    const w = world()
+    await w.c.discover()
+    expect(w.doors.probe).toHaveBeenCalledTimes(1)
+    expect(w.c.summary().state).toBe('reached')
+    w.c.dispose()
+    expect(w.c.summary().reached).toEqual([])
+    await w.c.discover()
+    expect(w.doors.probe).toHaveBeenCalledTimes(2)
+    // CONTROL: without dispose a discovery keeps the door it reached.
+    await w.c.discover()
+    expect(w.doors.probe).toHaveBeenCalledTimes(2)
+  })
+  it('finding 7: a ticket that lapsed while its player sat idle keeps its URL for that player (lapsedUrl), never for a new use; a stream whose renewal failed loses it at the margin', async () => {
+    const w = world()
+    await w.c.discover()
+    await w.c.ensureTickets(['c1'])
+    const url = w.c.binFileStreamUrl('p', 'c1')
+    w.clock.t += 95_000
+    expect(w.c.binFileStreamUrl('p', 'c1')).toBeNull() // a new use asks for a fresh one
+    expect(w.c.streamInfo('c1').lapsedUrl).toBe(url) // the idle player keeps its own
+    w.doors.renew.mockImplementationOnce(async () => ({ ok: false, status: 401 }))
+    await w.c.renewStream('c1')
+    expect(w.c.streamInfo('c1')).toMatchObject({ lapsedUrl: null, renewFailed: true })
+  })
+  it('finding 8: a reached door whose address left the view is dropped and probed again', async () => {
+    const list = [gw()]
+    const w = world({ gateways: () => list })
+    await w.c.discover()
+    expect(w.c.summary().reached[0].base).toBe('https://192.168.1.10:8443')
+    list[0] = gw({ inside_addresses: [{ host: '192.168.1.44', port: 8443 }] })
+    w.doors.probe.mockImplementationOnce(async (g) => ({ door: 'inside', base: 'https://192.168.1.44:8443', gatewayId: g.id }))
+    await w.c.refreshGateways()
+    expect(w.doors.probe).toHaveBeenCalledTimes(2)
+    expect(w.c.summary().reached[0].base).toBe('https://192.168.1.44:8443')
+  })
+})
+
+function refuseRenewal(w) { w.doors.renew.mockImplementationOnce(async () => ({ ok: false, status: 401 })) }

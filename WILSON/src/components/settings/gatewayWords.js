@@ -107,6 +107,8 @@ export const CERTIFICATE_DOWNLOADED = 'Downloaded. Install it on each office com
 export const NEXT_ROOT_READY = 'A new certificate is ready: confirm its fingerprint, then download it.'
 export const NEXT_ROOT_PROMPT = 'Type or paste the fingerprint of the new root certificate, as the gateway printed it in its log or on its status page. It proves the new certificate is this gateway\'s, and unlocks Download the new certificate.'
 export const NEXT_ROOT_OTHER_ADMIN = 'A new certificate is ready. Waiting for the admin who made this gateway\'s token to confirm its fingerprint: they are the one who can check it against the gateway\'s own screen.'
+/** The old certificate's fingerprint typed into the NEW certificate's box (GW3 review round 1, note 12). */
+export const NEXT_ROOT_WRONG_ONE = 'That is the fingerprint of the certificate already in use. Type the new certificate\'s, as the gateway printed it in its log or on its status page.'
 export const NEXT_ROOT_CONFIRMED = 'Confirmed: download the new certificate and install it on each office computer as a trusted root, beside the old one, before the old one expires.'
 export const NEW_CERTIFICATE_DOWNLOADED = 'Downloaded the new certificate. Install it on each office computer as a trusted root, beside the old one.'
 /**
@@ -593,7 +595,10 @@ const AUDIT_WORDS = {
   'gateway.keys_rotated': () => 'rotated the ticket keys: new tickets are signed with a new key',
   // GW3 (0095): a new or next root, in the trail. The gateway's doing has no
   // actor; the confirmation is the admin's.
-  'gateway.next_root_received': (d, g) => `${named(g)} sent a new root certificate${d.in_use ? ', already in use' : ', for the year ahead'}: confirm its fingerprint, then download it`,
+  // GW3 review round 1, finding 9: a root reported while a confirmed new one waits is kept out of its place.
+  'gateway.next_root_received': (d, g) => (d.kept_confirmed
+    ? `${named(g)} sent another root certificate while the new one you confirmed waits; the one you confirmed is kept`
+    : `${named(g)} sent a new root certificate${d.in_use ? ', already in use' : ', for the year ahead'}: confirm its fingerprint, then download it`),
   'gateway.next_root_confirmed': (d, g) => `confirmed the fingerprint of the new root certificate of ${named(g)}`,
   'gateway.root_replaced': (d, g) => `${named(g)} now signs with its new root certificate; the old one is no longer offered`,
 }

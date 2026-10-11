@@ -181,14 +181,26 @@ export async function fetchGatewayTickets(gatewayId, binFileIds, { timeoutMs = 1
     return { ok: false, status: res.status, code: 'bad_answer', friendly: SAID.ticketsShape }
   }
   const tickets = {}
-  for (const [id, t] of Object.entries(body.tickets)) if (ids.includes(id) && typeof t === 'string' && /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t) && t.length <= 4096) tickets[id] = t
+  // A ticket in a shape this page does not read (another version, over the
+  // gateway's 4096-character cap) is said as REFUSED, never dropped in
+  // silence: an id the answer names nowhere would be asked for again at
+  // every re-render (GW3 review round 1, finding 3).
+  const badTickets = []
+  for (const [id, t] of Object.entries(body.tickets)) {
+    if (!ids.includes(id)) continue
+    if (typeof t === 'string' && /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t) && t.length <= 4096) tickets[id] = t
+    else badTickets.push({ id, reason: 'bad_ticket' })
+  }
   return {
     ok: true,
     status: res.status,
     data: {
       tickets,
       missing: Array.isArray(body.missing) ? body.missing.filter((x) => typeof x === 'string') : [],
-      refused: Array.isArray(body.refused) ? body.refused.filter((x) => x && typeof x.id === 'string').map((x) => ({ id: x.id, reason: String(x.reason || 'refused') })) : [],
+      refused: [
+        ...(Array.isArray(body.refused) ? body.refused.filter((x) => x && typeof x.id === 'string').map((x) => ({ id: x.id, reason: String(x.reason || 'refused') })) : []),
+        ...badTickets,
+      ],
       expires_at: typeof body.expires_at === 'string' ? body.expires_at : null,
     },
   }

@@ -27,13 +27,15 @@
  *   4. a non-playable format (ProRes in a .mov) keeping its picture, with no
  *      ticket asked;
  *   5. a removed member cut within two minutes (clock-faked: the page's
- *      tickets are minted 90 s in the past, so the stream's authority ends
- *      60 s after the first request; the renewal at 20 s cannot get a fresh
- *      ticket once the member is gone; the next request is 401 and the page
- *      says so, never retrying the same ticket);
+ *      tickets are minted 60 s in the past, so the stream's authority ends
+ *      90 s after the mint, and the page's hold, run from receipt for the
+ *      ticket's own life less 30 s, ends then too; the renewal at 20 s
+ *      cannot get a fresh ticket once the member is gone; the page drops the
+ *      URL at the margin and says so, never retrying the same ticket);
  *   6. the gateway revoked at the cloud (`/_control/revoke`): both doors
- *      close within a sync interval and the page says the gateway is
- *      unreachable.
+ *      close within a sync interval and the page says the gateway cannot be
+ *      reached (the door dropped after a HEAD nobody answered) or, had its
+ *      ticket gone first, the cloud's refusal.
  *
  * It BINDS THIS COMPUTER'S LAN ADDRESS (the office door, which the gateway
  * opens once enrolled) for the run's duration only — announce it before
@@ -285,8 +287,12 @@ async function main() {
     const responses = [];
     page.on('response', (r) => { const u = r.url(); if (u.includes(`:${outsidePort}/`)) responses.push({ at: Date.now(), status: r.status(), path: new URL(u).pathname, method: r.request().method() }); });
     // The cloud's clock for the mints: iat = now − 60, exp = now + 60; the
-    // page holds a ticket only while 30 s remain, the gateway allows 30 s of
-    // skew, so the stream's authority ends 90 s from the mint unless renewed.
+    // gateway allows 30 s of skew, so the stream's authority ends 90 s from
+    // the mint unless renewed. The page's hold runs from the ticket's
+    // receipt for its own life (exp − iat, 120 s) less its 30 s margin —
+    // also 90 s (GW3 review round 1, finding 2: never the cloud's clock) —
+    // and the renewal at 20 s gets no fresh ticket once the member is gone,
+    // so the page drops the URL at the margin and says the refusal.
     skewMs = -60_000;
     await openBins(page, '&renew_s=20');
     await tile(page, data.play.display_name).click();
@@ -350,14 +356,22 @@ async function main() {
     cloud.revoke(gatewayId); // what POST /_control/revoke { gateway_id } does
     expect(await waitLog(/ revoked /, 30_000), 'the gateway learned of the revocation at its next sync');
     const closed = await waitLog(/ outside_closed /, 10_000);
-    // The page's next request fails; the element is made to ask again.
+    // The page's next request fails; the element is made to ask again. The
+    // diagnosis asks the door with the element's own ticket first (GW3
+    // review round 1, finding 6): nothing answers, so the door is dropped and
+    // probed again (finding 8) and the tab says the gateway cannot be
+    // reached — the inspector's line in place of the player. A page whose
+    // ticket was already gone asks the cloud and says its refusal in the
+    // player instead. Either is the page saying so; the report names which.
     await previewVideo(page).evaluate((v) => { v.load(); return v.play().catch(() => {}); }).catch(() => {});
-    const sentence = page.locator('[data-testid="gateway-sentence"]').first();
+    const sentence = page.locator('[data-testid="gateway-sentence"], [data-testid="not-here"]').first();
     await sentence.waitFor({ timeout: 60_000 });
+    const said_by = await sentence.getAttribute('data-testid');
     const text = (await sentence.textContent()).replace(/\s+/g, ' ');
+    expect(/cannot reach|refused|ticket/i.test(text), `the page said the gateway is gone (${text})`);
     const outsideClosedMs = (() => { const l = log.find((x) => / outside_closed /.test(x)); return l ? Date.now() - tRevoke : null; })();
     await shot(page, '06-gateway-revoked');
-    report.steps.gateway_revoked = { revoked_line: !!lines(/ revoked /).length, outside_closed: closed, said_within_s: r1((Date.now() - tRevoke) / 1000), sentence: text.slice(0, 160), outside_port_connect: await new Promise((resolve) => { const s = net.connect(outsidePort, '127.0.0.1'); s.once('error', (e) => resolve(e.code)); s.once('connect', () => { s.destroy(); resolve('connected'); }); }) };
+    report.steps.gateway_revoked = { revoked_line: !!lines(/ revoked /).length, outside_closed: closed, said_within_s: r1((Date.now() - tRevoke) / 1000), said_by, sentence: text.slice(0, 160), video_elements_left: await page.locator('[data-testid="gateway-preview"] video').count(), outside_port_connect: await new Promise((resolve) => { const s = net.connect(outsidePort, '127.0.0.1'); s.once('error', (e) => resolve(e.code)); s.once('connect', () => { s.destroy(); resolve('connected'); }); }) };
     expect(closed, 'the outside door closed');
     await page.close();
   }

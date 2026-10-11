@@ -319,12 +319,19 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
     const m = (people || []).find(p => p && (p.user_id === me || p.id === me))
     return { userId: me, name: m?.display_name || m?.name || m?.username || 'You' }
   }, [people, me])
-  const ensureTicket = useCallback((id) => { if (gatewayCloud && id) Promise.resolve(ctx?.ensureBinTickets?.([id])).catch(() => {}) }, [ctx, gatewayCloud])
+  // The four gateway verbs are STABLE, reading the provider through a ref:
+  // the effects that ask for a ticket (the inspector's, the large player's)
+  // re-fire when their callback changes, and a ticket landing is itself a
+  // provider update — keyed on `ctx`, one answer that named no ticket asked
+  // again at every re-render (GW3 review round 1, finding 3).
+  const gatewayCtxRef = useRef(ctx)
+  gatewayCtxRef.current = ctx
+  const ensureTicket = useCallback((id) => { if (gatewayCloud && id) Promise.resolve(gatewayCtxRef.current?.ensureBinTickets?.([id])).catch(() => {}) }, [gatewayCloud])
   const streamInfoFor = useCallback((id) => (gatewayCloud ? (ctx?.gatewayStreamInfo?.(id) || null) : null), [ctx, gatewayCloud])
   const markFor = useCallback((id) => { const s = streamInfoFor(id); return s?.door ? { door: s.door, viewer } : null }, [streamInfoFor, viewer])
-  const renewStream = useCallback((id) => ctx?.renewGatewayStream?.(id), [ctx])
-  const freshSrc = useCallback((id) => ctx?.freshGatewayStreamUrl?.(id), [ctx])
-  const diagnose = useCallback((id) => ctx?.diagnoseGatewayClip?.(id), [ctx])
+  const renewStream = useCallback((id) => gatewayCtxRef.current?.renewGatewayStream?.(id), [])
+  const freshSrc = useCallback((id) => gatewayCtxRef.current?.freshGatewayStreamUrl?.(id), [])
+  const diagnose = useCallback((id) => gatewayCtxRef.current?.diagnoseGatewayClip?.(id), [])
   // §2: the view is read again every 60 s while the Bins tab is open.
   const refreshGateways = ctx?.refreshGateways
   useEffect(() => {
@@ -337,8 +344,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   useEffect(() => {
     if (!gatewayCloud || !mode.canStream || selection.size < 2) return
     const ids = [...selection].filter(id => { const f = files.find(x => x.id === id); return f && f.online !== false && f.location_id && playabilityOf(f, { canPlayType: browserCanPlayType() }).playable }).slice(0, 50)
-    if (ids.length) Promise.resolve(ctx?.ensureBinTickets?.(ids)).catch(() => {})
-  }, [gatewayCloud, mode.canStream, selection, files, ctx])
+    if (ids.length) Promise.resolve(gatewayCtxRef.current?.ensureBinTickets?.(ids)).catch(() => {})
+  }, [gatewayCloud, mode.canStream, selection, files])
   // §2's table: the lines under the catalogue sentence, by the tab's state.
   const isAdmin = gateCtx?.appRole === 'admin'
   const gatewayLines = useMemo(() => {

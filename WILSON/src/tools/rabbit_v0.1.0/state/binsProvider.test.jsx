@@ -455,6 +455,36 @@ describe('GW3 — a browser through the file gateway, through the real provider'
     expect(ctxRef.binFiles.find(f => f.id === 'f5').online).toBe(true)
     expect(ctxRef.binFiles.find(f => f.id === 'f4').online).toBe(false)
   })
+  it('round 1, finding 1: another person signing in never plays the last person\'s ticket — the composite is dropped at the sign-out and a fresh ticket is minted for the one here', async () => {
+    holder.session = { user: { id: 'user-a', app_metadata: {} } }
+    const mintedFor = []
+    holder.tickets = vi.fn(async (gatewayId, ids) => {
+      const sub = holder.session?.user?.id || null
+      mintedFor.push(sub)
+      const iat = Math.floor(Date.now() / 1000)
+      // No `sub` claim here on purpose: the composite's own check on the
+      // ticket's person cannot help, so only the provider's drop protects B.
+      return { ok: true, status: 200, data: { tickets: Object.fromEntries(ids.map(id => [id, `v1.${b64url(JSON.stringify({ v: 1, clip: id, iat, exp: iat + 120, jti: `jti-${sub}-${id}` }))}.${b64url('sig')}`])), missing: [], refused: [], expires_at: null } }
+    })
+    await reached()
+    await act(async () => { await ctxRef.ensureBinTickets(['f1']) })
+    expect(ctxRef.gatewayStreamInfo('f1').jti).toBe('jti-user-a-f1')
+    const urlA = ctxRef.binFileStreamUrl('f1')
+    expect(urlA).not.toBeNull()
+    await act(async () => { for (const cb of holder.authCbs) cb('SIGNED_OUT', null) })
+    holder.session = { user: { id: 'user-b', app_metadata: {} } }
+    await act(async () => { for (const cb of holder.authCbs) cb('SIGNED_IN', holder.session) })
+    await waitFor(() => expect(ctxRef.authUserId).toBe('user-b'))
+    await act(async () => { await ctxRef.setActiveProject('p1', false) })
+    await act(async () => { await ctxRef.refreshBins() })
+    await waitFor(() => expect(ctxRef.binsInfo.capabilities.stream).toBe(true))
+    expect(ctxRef.binFileStreamUrl('f1')).toBeNull()
+    expect(ctxRef.gatewayStreamInfo('f1').jti).toBeNull()
+    await act(async () => { await ctxRef.ensureBinTickets(['f1']) })
+    expect(mintedFor).toEqual(['user-a', 'user-b'])
+    expect(ctxRef.gatewayStreamInfo('f1').jti).toBe('jti-user-b-f1')
+    expect(ctxRef.binFileStreamUrl('f1')).not.toBe(urlA)
+  })
   it('CONTROL: no gateway in the view: the catalogue stays, every row "not on this computer", no door probed, no ticket asked', async () => {
     holder.gateways = []
     await mount()

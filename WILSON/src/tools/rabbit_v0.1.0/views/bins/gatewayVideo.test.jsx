@@ -24,7 +24,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, act, screen } from '@testing-library/react'
 import GatewayVideo, { ViewerMark, memberCodeOf, markWords, clockWords, MARK_POSITIONS, MARK_MOVE_MS, POSITION_CLASS, RENEW_RETRY_MS } from './GatewayVideo'
-import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence } from '../../bins/binLocations'
+import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK } from '../../bins/binLocations'
 import { RENEW_AFTER_MS } from '../../bins/gatewayDoors'
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
@@ -140,10 +140,13 @@ describe('the hand-over (§7; Doherty)', () => {
 
 describe('the renewal (§5 step 7; D5)', () => {
   const tick = (ms) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  // jsdom's media never plays: the element is made to read as playing.
+  const playing = () => { const v = video(); Object.defineProperty(v, 'paused', { value: false, configurable: true }); fireEvent.play(v); return v }
   it('onRenew(row.id) fires at 75 s and again at 150 s while a door plays the stream; the src never changes', async () => {
     vi.useFakeTimers()
     const onRenew = vi.fn(async () => ({ ok: true }))
     render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={onRenew} />)
+    playing()
     await tick(RENEW_AFTER_MS - 1)
     expect(onRenew).not.toHaveBeenCalled()
     await tick(1)
@@ -157,6 +160,7 @@ describe('the renewal (§5 step 7; D5)', () => {
     const calls = []
     const make = (n) => async (id) => { calls.push([n, id]); return { ok: true } }
     const { rerender } = render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={make(0)} />)
+    playing()
     await tick(30_000)
     rerender(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={make(1)} />)
     await tick(30_000)
@@ -173,6 +177,7 @@ describe('the renewal (§5 step 7; D5)', () => {
     const answers = [{ ok: false, status: 0, reason: 'ticket' }, { ok: true }]
     const onRenew = vi.fn(async () => answers.shift() || { ok: true })
     render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={onRenew} />)
+    playing()
     await tick(RENEW_AFTER_MS)
     expect(onRenew).toHaveBeenCalledTimes(1)
     await tick(RENEW_RETRY_MS)
@@ -187,6 +192,7 @@ describe('the renewal (§5 step 7; D5)', () => {
     vi.useFakeTimers()
     const onRenew = vi.fn(() => { throw new Error('boom') })
     render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={onRenew} />)
+    playing()
     await tick(RENEW_AFTER_MS + RENEW_RETRY_MS)
     expect(onRenew).toHaveBeenCalledTimes(2)
   })
@@ -201,6 +207,7 @@ describe('the renewal (§5 step 7; D5)', () => {
     vi.useFakeTimers()
     const onRenew = vi.fn()
     render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={onRenew} renewAfterMs={1000} />)
+    playing()
     await tick(1000)
     expect(onRenew).toHaveBeenCalledTimes(1)
     expect(RENEW_AFTER_MS).toBe(75_000)
@@ -364,5 +371,141 @@ describe('the cosmetic measures, named as such, and fullscreen on the container'
     expect(document.querySelector('img.bn-gateway-media')).toBeTruthy()
     expect(video()).toBeNull()
     expect(mark()).toBeTruthy()
+  })
+})
+
+describe('round 1\'s corrections, the player', () => {
+  const tick = (ms) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+  it('finding 7: an idle player (never played) is not renewed at all — no mint, no POST; once played it is, at the next turn; a still never is', async () => {
+    vi.useFakeTimers()
+    const onRenew = vi.fn(async () => ({ ok: true }))
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={onRenew} />)
+    await tick(RENEW_AFTER_MS * 3)
+    expect(onRenew).not.toHaveBeenCalled()
+    const v = video()
+    Object.defineProperty(v, 'paused', { value: false, configurable: true })
+    fireEvent.play(v)
+    await tick(RENEW_AFTER_MS)
+    expect(onRenew).toHaveBeenCalledTimes(1)
+    // Paused for good: one more renewal covers the time it played since the
+    // last one, then none — the stream lapses.
+    Object.defineProperty(v, 'paused', { value: true, configurable: true })
+    fireEvent.pause(v)
+    await tick(RENEW_AFTER_MS)
+    expect(onRenew).toHaveBeenCalledTimes(2)
+    await tick(RENEW_AFTER_MS * 4)
+    expect(onRenew).toHaveBeenCalledTimes(2)
+    cleanup()
+    const still = vi.fn(async () => ({ ok: true }))
+    render(<GatewayVideo row={{ ...row, extension: '.png', media_type: 'still' }} kind="image" src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={still} />)
+    await tick(RENEW_AFTER_MS * 3)
+    expect(still).not.toHaveBeenCalled()
+    cleanup()
+    // The inspector hands its own media ref; a still shown while that ref
+    // still names a playing element is not renewed either: a still is
+    // fetched once, whatever else plays.
+    const shared = { current: { paused: false, currentTime: 3 } }
+    const still2 = vi.fn(async () => ({ ok: true }))
+    render(<GatewayVideo row={{ ...row, extension: '.png', media_type: 'still' }} kind="image" src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={still2} mediaRef={shared} />)
+    await tick(RENEW_AFTER_MS * 3)
+    expect(still2).not.toHaveBeenCalled()
+    cleanup()
+    // CONTROL: the same ref under a video is renewed.
+    const shared2 = { current: { paused: false, currentTime: 3 } }
+    const clip = vi.fn(async () => ({ ok: true }))
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onRenew={clip} mediaRef={shared2} />)
+    shared2.current = { paused: false, currentTime: 3 }
+    await tick(RENEW_AFTER_MS)
+    expect(clip).toHaveBeenCalledTimes(1)
+  })
+  it('finding 4: through the OUTSIDE door, the bare element taken fullscreen by the browser\'s own control is paused, put back, and told where fullscreen is; the office door is left alone', async () => {
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={outside} viewer={viewer} />)
+    const v = video()
+    v.pause = vi.fn()
+    const exit = vi.fn(() => Promise.resolve())
+    document.exitFullscreen = exit
+    Object.defineProperty(document, 'fullscreenElement', { get: () => v, configurable: true })
+    try {
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(v.pause).toHaveBeenCalledTimes(1)
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('gateway-sentence').textContent).toBe(FULLSCREEN_KEEPS_MARK)
+      // Played again: the sentence goes.
+      fireEvent.play(v)
+      expect(screen.queryByTestId('gateway-sentence')).toBeNull()
+      // The CONTAINER fullscreen (the frame's own button) is not touched.
+      Object.defineProperty(document, 'fullscreenElement', { get: () => document.querySelector('[data-testid="gateway-player"]'), configurable: true })
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(v.pause).toHaveBeenCalledTimes(1)
+      cleanup()
+      // The office door: nothing to guard (no mark to lose).
+      render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} />)
+      const w = video()
+      w.pause = vi.fn()
+      Object.defineProperty(document, 'fullscreenElement', { get: () => w, configurable: true })
+      await act(async () => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(w.pause).not.toHaveBeenCalled()
+    } finally {
+      delete document.fullscreenElement
+      delete document.exitFullscreen
+    }
+  })
+  it('finding 4: picture-in-picture and iOS\'s native player are undone the same way through the outside door', async () => {
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={outside} viewer={viewer} />)
+    const v = video()
+    v.pause = vi.fn()
+    v.webkitExitFullscreen = vi.fn()
+    document.exitPictureInPicture = vi.fn(() => Promise.resolve())
+    try {
+      await act(async () => { v.dispatchEvent(new Event('enterpictureinpicture')) })
+      expect(v.pause).toHaveBeenCalledTimes(1)
+      expect(document.exitPictureInPicture).toHaveBeenCalledTimes(1)
+      await act(async () => { v.dispatchEvent(new Event('webkitbeginfullscreen')) })
+      expect(v.pause).toHaveBeenCalledTimes(2)
+      expect(v.webkitExitFullscreen).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('gateway-sentence').textContent).toBe(FULLSCREEN_KEEPS_MARK)
+    } finally { delete document.exitPictureInPicture }
+  })
+  it('finding 6: a decode failure is the format at once, the door not asked; the recovery resumes PLAYING when it was playing', async () => {
+    const onDiagnose = vi.fn(async () => ({ verdict: 'ok' }))
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onDiagnose={onDiagnose} />)
+    const v = video()
+    Object.defineProperty(v, 'error', { value: { code: 3 }, configurable: true })
+    fireEvent.error(v)
+    await flush()
+    expect(onDiagnose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('gateway-sentence').textContent).toBe(NEEDS_DESKTOP_FORMAT)
+    cleanup()
+    const diagnose = vi.fn(async () => ({ verdict: 'ticket', status: 401 }))
+    const fresh = vi.fn(async () => 'https://d:1/v1/clips/c1?t=fresh')
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onDiagnose={diagnose} onFreshSrc={fresh} />)
+    const a = video()
+    Object.defineProperty(a, 'paused', { value: false, configurable: true })
+    Object.defineProperty(a, 'currentTime', { value: 33, writable: true, configurable: true })
+    fireEvent.play(a)
+    fireEvent.error(a)
+    await flush()
+    const b = video()
+    expect(b.getAttribute('src')).toBe('https://d:1/v1/clips/c1?t=fresh')
+    const set = vi.fn()
+    Object.defineProperty(b, 'currentTime', { get: () => 0, set, configurable: true })
+    b.play = vi.fn(async () => {})
+    fireEvent.loadedData(b)
+    await flush()
+    expect(set).toHaveBeenCalledWith(33)
+    expect(b.play).toHaveBeenCalled()
+  })
+  it('note 13: a refusal is said by its reason — a path too long, a ticket WILSON could not read — never as the format', async () => {
+    const onDiagnose = vi.fn(async () => ({ verdict: 'refused', status: 0, reason: 'too_long' }))
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} onDiagnose={onDiagnose} />)
+    fireEvent.error(video())
+    await flush()
+    expect(screen.getByTestId('gateway-sentence').textContent).toBe(refusalSentence('too_long'))
+    expect(screen.getByTestId('gateway-sentence').textContent).not.toBe(NEEDS_DESKTOP_FORMAT)
+    cleanup()
+    render(<GatewayVideo row={row} src={null} stream={{ ...inside, refused: 'bad_ticket', pending: false }} />)
+    expect(screen.getByTestId('gateway-sentence').textContent).toBe(refusalSentence('bad_ticket'))
+    expect(screen.queryByTestId('gateway-loading')).toBeNull()
   })
 })

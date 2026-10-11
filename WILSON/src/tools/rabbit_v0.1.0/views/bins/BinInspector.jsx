@@ -33,7 +33,7 @@ import {
   NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayClipSentence, gatewayMissingSentence,
 } from '../../bins/binLocations'
 import { playabilityOf, browserCanPlayType } from '../../bins/gatewayMedia'
-import GatewayVideo from './GatewayVideo'
+import GatewayVideo, { usePlayerSrc } from './GatewayVideo'
 // GW1: the one admin line about viewings from outside, in the Settings
 // table's own words (a pure module: it imports nothing).
 import { inspectorRemoteLine } from '../../../../components/settings/gatewayWords'
@@ -435,7 +435,12 @@ function Preview({
   // clip is selected and no ticket is held.
   const viaGateway = !!gateway
   const play = viaGateway ? playabilityOf(row, { canPlayType: browserCanPlayType() }) : null
-  const wantsTicket = viaGateway && canStream && !!play?.playable && !streamUrl && row.online !== false
+  // A ticket that lapsed while THIS player sat idle keeps its URL here: no
+  // new mint until it plays again, when the door's 401 is answered by the
+  // player's one fresh src; a player that was not showing it asks for a
+  // fresh ticket (GW3 review round 1, finding 7; usePlayerSrc).
+  const playerSrc = usePlayerSrc(streamUrl, streamInfo)
+  const wantsTicket = viaGateway && canStream && !!play?.playable && !playerSrc && row.online !== false
     && !streamInfo?.refused && !streamInfo?.missing && !streamInfo?.pending
   useEffect(() => {
     if (wantsTicket) onTicketWanted?.(row.id)
@@ -530,12 +535,12 @@ function Preview({
     const previewHeight = play.kind === 'audio' ? 120 : 200
     return (
       <div className="flex flex-col gap-1.5" data-testid="gateway-preview">
-        <GatewayVideo row={row} src={streamUrl} kind={play.kind} stream={streamInfo} viewer={viewer} poster={thumbUrl} controls mediaRef={mediaRef}
+        <GatewayVideo row={row} src={playerSrc} kind={play.kind} stream={streamInfo} viewer={viewer} poster={thumbUrl} controls mediaRef={mediaRef}
           onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
           onRenew={onRenew} onFreshSrc={onFreshSrc} onDiagnose={onDiagnose} locationName={location?.name || null}
           renewAfterMs={gateway?.renewAfterMs || undefined}
           className="w-full rounded-control" style={{ height: previewHeight, border: `1px solid ${C.line}` }} />
-        {notice(!streamUrl ? `${GATEWAY_LOADING}…` : playing ? (spaceTogglesPreview ? 'Playing · Space pauses' : 'Playing') : (spaceTogglesPreview ? 'Space plays · hover a tile in the grid to scrub' : `${PLAYER_LARGE_HINT} Hover a tile in the grid to scrub.`))}
+        {notice(!playerSrc ? `${GATEWAY_LOADING}…` : playing ? (spaceTogglesPreview ? 'Playing · Space pauses' : 'Playing') : (spaceTogglesPreview ? 'Space plays · hover a tile in the grid to scrub' : `${PLAYER_LARGE_HINT} Hover a tile in the grid to scrub.`))}
       </div>
     )
   }

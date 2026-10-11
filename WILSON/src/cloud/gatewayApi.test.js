@@ -277,7 +277,8 @@ describe('GW3: the browser\'s playback calls', () => {
     vi.stubGlobal('fetch', f)
     const ids = ['c1', 'c2', 'c1', 'c3', 'c4', 'c5', null, ...Array.from({ length: 60 }, (_, i) => `x${i}`)]
     const res = await api.fetchGatewayTickets('g1', ids)
-    expect(res).toEqual({ ok: true, status: 200, data: { tickets: { c1: TICKET }, missing: ['c4'], refused: [{ id: 'c5', reason: 'not_playable' }], expires_at: '2026-10-11T12:02:00Z' } })
+    // A ticket in a shape the page does not read is said as refused (bad_ticket), never dropped in silence; one for an id not asked is ignored.
+    expect(res).toEqual({ ok: true, status: 200, data: { tickets: { c1: TICKET }, missing: ['c4'], refused: [{ id: 'c5', reason: 'not_playable' }, { id: 'c2', reason: 'bad_ticket' }, { id: 'c3', reason: 'bad_ticket' }], expires_at: '2026-10-11T12:02:00Z' } })
     const [url, init] = f.mock.calls[0]
     expect(url).toBe('https://abc.supabase.co/functions/v1/gateway-ticket')
     expect(init.method).toBe('POST')
@@ -289,6 +290,17 @@ describe('GW3: the browser\'s playback calls', () => {
     expect(order).toEqual(['ok', 'json'])
   })
 
+  it('round 1, finding 3: a padded ticket, a v2 ticket, one over 4096 characters are each refused as bad_ticket; one of exactly 4096 is kept', async () => {
+    holder.sb = fakeClient([])
+    const exact = `v1.${'a'.repeat(4096 - 7)}.b${'c'.repeat(2)}`.slice(0, 4096)
+    expect(exact).toHaveLength(4096)
+    const tooLong = `v1.${'a'.repeat(4096)}.bc`
+    const body = { tickets: { p: 'v1.abc.def=', v: 'v2.abc.def', l: tooLong, k: exact }, missing: [], refused: [] }
+    vi.stubGlobal('fetch', vi.fn(async () => response({ ok: true, status: 200, body, order: [] })))
+    const res = await api.fetchGatewayTickets('g1', ['p', 'v', 'l', 'k'])
+    expect(res.data.tickets).toEqual({ k: exact })
+    expect(res.data.refused).toEqual([{ id: 'p', reason: 'bad_ticket' }, { id: 'v', reason: 'bad_ticket' }, { id: 'l', reason: 'bad_ticket' }])
+  })
   it('no session: no request, the sign-in sentence; no ids or no gateway: refused without a request', async () => {
     holder.sb = fakeClient([])
     holder.sb.auth.getSession = vi.fn(async () => ({ data: { session: null } }))

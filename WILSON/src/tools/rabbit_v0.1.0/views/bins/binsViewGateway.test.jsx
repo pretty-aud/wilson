@@ -55,7 +55,7 @@ const rowsFor = () => [
 const reviewer = () => ({ canWrite: false, writeReason: 'x', can: (a) => a === 'project.bins.write', reasonFor: () => null, gateCtx: { appRole: 'user' } })
 const admin = () => ({ ...reviewer(), gateCtx: { appRole: 'admin' } })
 
-const makeCtx = (caps, { gateway = { state: 'reached', name: 'Studio NAS', address: '192.168.1.10:8443', reached: [{ id: 'g1', door: 'inside' }] }, door = 'inside', tickets = {}, over = {} } = {}) => {
+const makeCtx = (caps, { gateway = { state: 'reached', name: 'Studio NAS', address: '192.168.1.10:8443', reached: [{ id: 'g1', door: 'inside' }] }, door = 'inside', tickets = {}, lapsed = {}, over = {} } = {}) => {
   const held = new Map(Object.entries(tickets))
   const ctx = {
     supportsBins: true, activeProjectId: 'p1', project: { fps: 24 }, authUserId: 'f1c70000-0002-4000-8000-000000000003',
@@ -74,7 +74,7 @@ const makeCtx = (caps, { gateway = { state: 'reached', name: 'Studio NAS', addre
     binFileThumbnailUrl: vi.fn(() => null),
     binFileStreamUrl: vi.fn((id) => (caps.stream && held.has(id) ? `https://192.168.1.10:8443/v1/clips/${id}?t=${held.get(id)}` : null)),
     ensureBinTickets: vi.fn(async () => {}),
-    gatewayStreamInfo: vi.fn((id) => ({ door: caps.stream ? door : null, jti: held.has(id) ? 'j' : null, held: held.has(id), refused: null, missing: false, pending: false })),
+    gatewayStreamInfo: vi.fn((id) => ({ door: caps.stream ? door : null, jti: held.has(id) || lapsed[id] ? 'j' : null, held: held.has(id), lapsedUrl: lapsed[id] ? `https://192.168.1.10:8443/v1/clips/${id}?t=${lapsed[id]}` : null, refused: null, missing: false, pending: false })),
     renewGatewayStream: vi.fn(async () => ({ ok: true })), freshGatewayStreamUrl: vi.fn(async () => null), diagnoseGatewayClip: vi.fn(async () => ({ verdict: 'ok' })),
     refreshGateways: vi.fn(async () => null),
     remoteViewsOfClip: vi.fn(async () => ({ count: 2, unverified: 0, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' } })),
@@ -172,6 +172,21 @@ describe('the inspector through the gateway (§5, §7; D22)', () => {
     expect(v.getAttribute('controlslist')).toContain('nodownload')
     expect(state.ctx.ensureBinTickets).not.toHaveBeenCalled()
   })
+  it('round 1, finding 3: the provider updating (new callbacks, a ticket landing elsewhere) never asks again for the selected clip\'s ticket', async () => {
+    state.ctx = makeCtx(REACHED); state.access = reviewer()
+    const { rerender } = render(<BinsView pageActive people={people} />)
+    await act(async () => {})
+    pick('Proxy 0')
+    await waitFor(() => expect(state.ctx.ensureBinTickets).toHaveBeenCalledTimes(1))
+    const ask = state.ctx.ensureBinTickets
+    for (let i = 1; i <= 3; i++) {
+      // A provider update: every verb a new function, the tickets' revision moved.
+      state.ctx = { ...state.ctx, ensureBinTickets: ask, renewGatewayStream: vi.fn(), freshGatewayStreamUrl: vi.fn(), diagnoseGatewayClip: vi.fn(), binsInfo: { ...state.ctx.binsInfo, ticketsRev: i } }
+      rerender(<BinsView pageActive people={people} />)
+      await act(async () => {})
+    }
+    expect(ask).toHaveBeenCalledTimes(1)
+  })
   it('a ProRes .mov keeps its picture with NEEDS_DESKTOP_FORMAT and asks for no ticket (G7, D8)', async () => {
     await mount(REACHED)
     pick('Master 1')
@@ -214,6 +229,53 @@ describe('the inspector through the gateway (§5, §7; D22)', () => {
     await mount(REACHED, reviewer(), { over: { binFiles: rowsFor().map(r => (r.id === 'f0' ? { ...r, online: false, gateway_missing: true } : r)) } })
     pick('Proxy 0')
     expect(document.querySelector('[data-testid="not-here"]').textContent).toContain(W.gatewayMissingSentence('Footage NAS'))
+  })
+})
+
+describe('round 1\'s corrections, the tab', () => {
+  it('finding 7: the player already showing a clip keeps the URL of its ticket that lapsed while it sat idle (no new mint until it plays again)', async () => {
+    state.ctx = makeCtx(REACHED, { tickets: { f0: 'v1.cur.t' } }); state.access = reviewer()
+    const { rerender } = render(<BinsView pageActive people={people} />)
+    await act(async () => {})
+    pick('Proxy 0')
+    await act(async () => {})
+    const url = 'https://192.168.1.10:8443/v1/clips/f0?t=v1.cur.t'
+    expect(document.querySelector('[data-testid="gateway-preview"] video').getAttribute('src')).toBe(url)
+    // The ticket lapses while the player sits idle: no longer held, offered as lapsed.
+    const ask = state.ctx.ensureBinTickets
+    state.ctx = {
+      ...state.ctx,
+      binFileStreamUrl: vi.fn(() => null),
+      gatewayStreamInfo: vi.fn((id) => ({ door: 'inside', jti: 'j', held: false, lapsedUrl: id === 'f0' ? url : null, refused: null, missing: false, pending: false })),
+      binsInfo: { ...state.ctx.binsInfo, ticketsRev: 1 },
+    }
+    rerender(<BinsView pageActive people={people} />)
+    await act(async () => {})
+    expect(document.querySelector('[data-testid="gateway-preview"] video').getAttribute('src')).toBe(url)
+    expect(ask).not.toHaveBeenCalled()
+  })
+  it('finding 7, the other side: a player that was not showing the clip never starts on a lapsed URL (a clip selected minutes after its tile was hovered; Space\'s large player) — it asks for a fresh ticket', async () => {
+    await mount(REACHED, reviewer(), { lapsed: { f0: 'v1.old.t' } })
+    pick('Proxy 0')
+    await waitFor(() => expect(state.ctx.ensureBinTickets).toHaveBeenCalledWith(['f0']))
+    expect(document.querySelector('[data-testid="gateway-preview"] video')).toBeNull()
+    await key({ key: ' ', code: 'Space' })
+    expect(document.querySelector('[data-testid="poster-large"]')).toBeTruthy()
+    expect(document.querySelector('[data-testid="poster-large"] video')).toBeNull()
+    expect(state.ctx.ensureBinTickets.mock.calls.every(([ids]) => ids.length === 1 && ids[0] === 'f0')).toBe(true)
+  })
+  it('note 11: a tile whose scrub element failed scrubs again on the next hover', async () => {
+    await mount(REACHED, reviewer(), { tickets: { f3: 'v1.a.b' } })
+    const t = tiles().find(x => x.textContent.includes('Proxy 3'))
+    fireEvent.mouseEnter(t)
+    await act(async () => {})
+    fireEvent.error(t.querySelector('video'))
+    await act(async () => {})
+    expect(t.querySelector('video')).toBeNull()
+    fireEvent.mouseLeave(t)
+    fireEvent.mouseEnter(t)
+    await act(async () => {})
+    expect(t.querySelector('video')).toBeTruthy()
   })
 })
 

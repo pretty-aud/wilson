@@ -73,6 +73,9 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
   const videoRef = useRef(null)
   const boxRef = useRef(null)
   const scrubbing = hover && !!streamUrl && !failed
+  // One failure is the URL's, not the tile's: a new ticket (a new URL), or the
+  // pointer leaving and coming back, scrubs again (GW3 review round 1, note 11).
+  useEffect(() => { setFailed(false) }, [streamUrl])
 
   useEffect(() => {
     const v = videoRef.current
@@ -90,7 +93,7 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
     <div ref={innerRef} role="gridcell" aria-selected={selected} draggable={canWrite} onDragStart={onDragStart}
       onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
       onMouseEnter={() => { setHover(true); onTicketWanted?.(row.id) }}
-      onMouseLeave={() => { setHover(false); setScrubFrac(null) }}
+      onMouseLeave={() => { setHover(false); setScrubFrac(null); setFailed(false) }}
       onMouseMove={e => {
         if (!scrubbing) return
         const r = boxRef.current?.getBoundingClientRect()

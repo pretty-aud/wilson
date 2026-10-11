@@ -50,7 +50,10 @@ import { Maximize2 } from 'lucide-react'
 import BinPoster from './BinPoster'
 import { C, IconBtn } from './binUi'
 import { RENEW_AFTER_MS } from '../../bins/gatewayDoors'
-import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence } from '../../bins/binLocations'
+import { NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayMissingSentence, refusalSentence, FULLSCREEN_KEEPS_MARK } from '../../bins/binLocations'
+
+/** MediaError's code for a decode failure: the format, said without asking the door. */
+const MEDIA_ERR_DECODE = 3
 
 /** The five positions (§7), in the order the mark moves through them. */
 export const MARK_POSITIONS = Object.freeze(['top-left', 'top-right', 'bottom-right', 'bottom-left', 'centre'])
@@ -124,6 +127,26 @@ export function ViewerMark({ viewer, now = () => Date.now() }) {
  * @param onFreshSrc (id) → url|null   a stale ticket: a new src at the same currentTime
  * @param onDiagnose (id) → { verdict } what a <video> could not say
  */
+/**
+ * The src a gateway player is given: the held ticket's URL; or, for the
+ * player that was ALREADY showing it, the URL of its ticket that lapsed
+ * while it sat idle (round 1, finding 7: no new mint until it plays again,
+ * when the door's 401 earns the one fresh src). A player mounted later — a
+ * clip selected minutes after its tile was hovered, Space's large player —
+ * or moved to another clip never starts on a lapsed URL: it asks for a
+ * fresh ticket, where the lapsed one would cost two refused requests at the
+ * door (the element's, the diagnosis's) before the same fresh ticket.
+ */
+export function usePlayerSrc(streamUrl, streamInfo) {
+  // The URL names the clip and carries the ticket: the same URL is the same
+  // clip's same ticket, shown by this player last.
+  const shownRef = useRef(null)
+  const lapsed = streamInfo?.lapsedUrl || null
+  const src = streamUrl || (lapsed && lapsed === shownRef.current ? lapsed : null)
+  useEffect(() => { if (src) shownRef.current = src }, [src])
+  return src
+}
+
 export default function GatewayVideo({
   row, src, kind = 'video', stream = null, viewer = null, poster = null,
   controls = true, autoPlay = false, muted = false, loop = false, preload = 'metadata', playsInline = true,
@@ -131,13 +154,19 @@ export default function GatewayVideo({
   renewAfterMs = RENEW_AFTER_MS, locationName = null, className = '', style = {}, fit = 'contain', children = null,
 }) {
   const [loaded, setLoaded] = useState(false)
-  const [failed, setFailed] = useState(null) // null | 'format' | 'ticket' | 'missing' | 'unreachable' | 'busy' | 'no_stream'
+  const [failed, setFailed] = useState(null) // null | 'format' | 'ticket' | 'missing' | 'unreachable' | 'busy' | 'no_stream' | 'refused'
   const [override, setOverride] = useState(null) // the fresh src after a stale ticket
+  const [guard, setGuard] = useState(false) // the bare element was taken fullscreen or into picture-in-picture
   const containerRef = useRef(null)
   const ownRef = useRef(null)
   const recoveredRef = useRef(false)
   const resumeAtRef = useRef(null)
   const resumePlayRef = useRef(false)
+  const refusedReasonRef = useRef(null)
+  // Whether the element played since the last renewal: an idle player is not
+  // renewed (round 1, finding 7) — its ticket lapses, and the next play is
+  // answered by the recovery's one fresh src at the same moment.
+  const playedSinceRenewRef = useRef(false)
   // Where this clip was and whether it played, kept across a src change: a
   // fresh ticket for the SAME clip (the held one reached its margin) gives
   // a new URL, and the viewer goes on from the same moment, not from zero.
@@ -155,13 +184,16 @@ export default function GatewayVideo({
   useEffect(() => {
     const last = lastRef.current
     const same = !!row?.id && last.id === row.id && last.t > 0
-    setLoaded(false); setFailed(null); setOverride(null); recoveredRef.current = false
+    setLoaded(false); setFailed(null); setOverride(null); setGuard(false); recoveredRef.current = false
     resumeAtRef.current = same ? last.t : null
     resumePlayRef.current = same && last.playing
+    playedSinceRenewRef.current = false
   }, [row?.id, src])
   const remember = (m, playing) => {
     if (!m || !row?.id) return
-    lastRef.current = { id: row.id, t: Number.isFinite(m.currentTime) ? m.currentTime : 0, playing: playing ?? !m.paused }
+    const isPlaying = playing ?? !m.paused
+    if (isPlaying) playedSinceRenewRef.current = true
+    lastRef.current = { id: row.id, t: Number.isFinite(m.currentTime) ? m.currentTime : 0, playing: isPlaying }
   }
 
   // §5 step 7: the renewal, while a stream plays through a door: every
@@ -174,10 +206,19 @@ export default function GatewayVideo({
   onRenewRef.current = onRenew
   const canRenew = typeof onRenew === 'function'
   useEffect(() => {
-    if (!effectiveSrc || !stream?.door || !canRenew || failed) return undefined
+    // A still is fetched once: nothing streams, nothing to renew.
+    if (!effectiveSrc || !stream?.door || !canRenew || failed || kind === 'image') return undefined
     let live = true
     let timer = null
     const run = () => {
+      const m = el()
+      const playingNow = !!(m && !m.paused)
+      if (!playedSinceRenewRef.current && !playingNow) {
+        // Idle since the last renewal: no mint, no POST; look again later.
+        timer = setTimeout(run, renewAfterMs)
+        return
+      }
+      playedSinceRenewRef.current = playingNow
       let p
       try { p = Promise.resolve(onRenewRef.current?.(row.id)) } catch { p = Promise.resolve({ ok: false }) }
       p.catch(() => ({ ok: false })).then((r) => {
@@ -187,7 +228,7 @@ export default function GatewayVideo({
     }
     timer = setTimeout(run, renewAfterMs)
     return () => { live = false; if (timer) clearTimeout(timer) }
-  }, [effectiveSrc, stream?.door, canRenew, renewAfterMs, row?.id, failed])
+  }, [effectiveSrc, stream?.door, canRenew, renewAfterMs, row?.id, failed, kind]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLoadedData = useCallback(() => {
     setLoaded(true)
@@ -204,20 +245,25 @@ export default function GatewayVideo({
   const onError = useCallback(async () => {
     const m = el()
     const at = m && Number.isFinite(m.currentTime) ? m.currentTime : 0
-    // A <video> says nothing about why: ask the door with a fresh ticket.
+    const wasPlaying = lastRef.current.id === row?.id && lastRef.current.playing
+    // A decode failure is the format, without a request (G7).
+    if (m && m.error && m.error.code === MEDIA_ERR_DECODE) { setFailed('format'); onFailed?.('format'); return }
+    // Anything else a <video> cannot explain: ask the door (the element's own ticket first).
     const r = typeof onDiagnose === 'function' ? await Promise.resolve(onDiagnose(row.id)).catch(() => ({ verdict: 'unreachable' })) : { verdict: 'format' }
     const verdict = r?.verdict || 'unreachable'
     if (verdict === 'ticket' && !recoveredRef.current && typeof onFreshSrc === 'function') {
-      // Never the same ticket again: a fresh one, a new src at the same currentTime, once.
+      // Never the same ticket again: a fresh one, a new src at the same
+      // currentTime, playing if it was, once.
       recoveredRef.current = true
       const fresh = await Promise.resolve(onFreshSrc(row.id)).catch(() => null)
-      if (fresh) { resumeAtRef.current = at; setLoaded(false); setOverride(fresh); return }
+      if (fresh) { resumeAtRef.current = at; resumePlayRef.current = wasPlaying; setLoaded(false); setOverride(fresh); return }
       setFailed('ticket'); onFailed?.('ticket'); return
     }
     if (verdict === 'ok') {
       // The door serves the bytes and the browser could not decode them: the format (G7).
       setFailed('format'); onFailed?.('format'); return
     }
+    if (verdict === 'refused') refusedReasonRef.current = r?.reason || null
     setFailed(verdict); onFailed?.(verdict)
   }, [onDiagnose, onFreshSrc, onFailed, row?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -229,20 +275,62 @@ export default function GatewayVideo({
     c.requestFullscreen?.()
   }, [])
 
+  const remote = stream?.door === 'outside'
+  // The mark leaves with the bare element: Firefox and Safari ignore
+  // `controlsList` and draw their own fullscreen control, which takes the
+  // ELEMENT fullscreen; Safari's picture-in-picture shows it too; iOS opens
+  // its native player. Through the outside door any of those pauses the clip,
+  // undoes itself, and says where fullscreen is (review round 1, finding 4).
+  useEffect(() => {
+    if (!remote || !effectiveSrc || kind === 'image' || typeof document === 'undefined') return undefined
+    const m = el()
+    const stop = () => {
+      const mm = el()
+      try { mm?.pause?.() } catch { /* gone */ }
+      setGuard(true)
+    }
+    const onFullscreen = () => {
+      const fe = document.fullscreenElement || document.webkitFullscreenElement || null
+      const mm = el()
+      if (!mm || fe !== mm) return
+      stop()
+      try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)?.catch?.(() => {}) } catch { /* not ours */ }
+    }
+    const onPip = () => {
+      stop()
+      try { document.exitPictureInPicture?.()?.catch?.(() => {}) } catch { /* not ours */ }
+    }
+    const onNativeBegin = () => {
+      stop()
+      try { m?.webkitExitFullscreen?.() } catch { /* not ours */ }
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
+    document.addEventListener('webkitfullscreenchange', onFullscreen)
+    m?.addEventListener?.('enterpictureinpicture', onPip)
+    m?.addEventListener?.('webkitbeginfullscreen', onNativeBegin)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreen)
+      document.removeEventListener('webkitfullscreenchange', onFullscreen)
+      m?.removeEventListener?.('enterpictureinpicture', onPip)
+      m?.removeEventListener?.('webkitbeginfullscreen', onNativeBegin)
+    }
+  }, [remote, effectiveSrc, kind]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // No src and the cloud refused this clip's ticket (the viewer removed or
-  // signed out, the switch off; the renewal failed the same way) or named
-  // the clip missing: the refusal's own sentence, not "loading" for good.
-  // D22's one word is for a ticket on its way.
+  // signed out, the switch off; the renewal failed the same way), refused the
+  // clip by a reason, or named it missing: the refusal's own sentence, not
+  // "loading" for good. D22's one word is for a ticket on its way.
   const refusedTicket = !effectiveSrc && !failed && !stream?.pending
-    ? (stream?.ticketError || (stream?.missing ? NO_STREAM_SENTENCE : null))
+    ? (stream?.ticketError || (stream?.refused ? refusalSentence(stream.refused) : (stream?.missing ? NO_STREAM_SENTENCE : null)))
     : null
   const sentence = failed === 'format' ? NEEDS_DESKTOP_FORMAT
     : failed === 'missing' ? gatewayMissingSentence(locationName)
       : failed === 'ticket' ? (stream?.ticketError || 'The clip\'s ticket could not be renewed; sign in again if this keeps happening.')
         : failed === 'busy' ? 'The gateway is busy; try again in a moment.'
           : failed === 'unreachable' ? 'This browser cannot reach the gateway just now.'
-            : failed === 'no_stream' ? NO_STREAM_SENTENCE : refusedTicket
-  const remote = stream?.door === 'outside'
+            : failed === 'refused' ? refusalSentence(refusedReasonRef.current || stream?.refused)
+              : failed === 'no_stream' ? NO_STREAM_SENTENCE
+                : refusedTicket || (guard ? FULLSCREEN_KEEPS_MARK : null)
   const showPoster = !loaded || !!failed || kind !== 'video'
   // The element is transparent until its first frame (bins.css, by the
   // data-loaded state), so the picture under it shows: the hand-over.
@@ -260,7 +348,7 @@ export default function GatewayVideo({
       {effectiveSrc && !failed && kind === 'video' && (
         <video ref={setEl} key={effectiveSrc} src={effectiveSrc} controls={controls} autoPlay={autoPlay} muted={muted} loop={loop} preload={preload} playsInline={playsInline}
           onLoadedData={onLoadedData} onError={onError} onTimeUpdate={(e) => remember(e.currentTarget)}
-          onPlay={(e) => { claimPlayback(e.currentTarget); remember(e.currentTarget, true); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
+          onPlay={(e) => { claimPlayback(e.currentTarget); remember(e.currentTarget, true); setGuard(false); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
           className={mediaClass} {...cosmetic} />
       )}
       {effectiveSrc && !failed && kind === 'audio' && (

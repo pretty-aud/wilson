@@ -155,6 +155,7 @@ DECLARE
   v_cand_pem    TEXT := NULL;
   v_cand_fp     TEXT := NULL;
   v_prev_fp     TEXT;
+  v_kept        BOOLEAN;
 BEGIN
   IF p_report IS NULL OR jsonb_typeof(p_report) <> 'object' THEN
     RAISE EXCEPTION 'gateway_sync_apply: the report must be an object' USING ERRCODE = '22023';
@@ -250,15 +251,29 @@ BEGIN
     v_cand_pem := v_next_pem;
     v_cand_fp := v_next_fp;
   END IF;
+  -- GW3 review round 1, finding 9: a CONFIRMED next root is never replaced
+  -- from a sync. A gateway alternating roots (a bug, or a stolen credential)
+  -- would otherwise clear the admin's confirmation at every sync and keep
+  -- the new certificate's download locked for ever; another root while one
+  -- is confirmed is written down and kept out of the slot (`kept_confirmed`).
+  -- And each fingerprint is written down once: alternating two roots cannot
+  -- flood the trail Settings reads newest first.
   IF v_cand_fp IS NOT NULL THEN
-    UPDATE public.gateways SET
-      next_root_cert_pem = v_cand_pem, next_root_fingerprint = v_cand_fp, next_root_seen_at = now(),
-      next_root_confirmed_at = NULL, next_root_confirmed_by = NULL
-    WHERE public.gateways.id = g.id
-    RETURNING * INTO g;
-    INSERT INTO public.workspace_audit (workspace_id, action, gateway_id, details)
-    VALUES (g.workspace_id, 'gateway.next_root_received', g.id,
-            jsonb_build_object('fingerprint', v_cand_fp, 'in_use', v_cand_fp = v_root_fp));
+    v_kept := g.next_root_confirmed_at IS NOT NULL;
+    IF NOT v_kept THEN
+      UPDATE public.gateways SET
+        next_root_cert_pem = v_cand_pem, next_root_fingerprint = v_cand_fp, next_root_seen_at = now(),
+        next_root_confirmed_at = NULL, next_root_confirmed_by = NULL
+      WHERE public.gateways.id = g.id
+      RETURNING * INTO g;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.workspace_audit a
+                    WHERE a.gateway_id = g.id AND a.action = 'gateway.next_root_received'
+                      AND a.details ->> 'fingerprint' = v_cand_fp) THEN
+      INSERT INTO public.workspace_audit (workspace_id, action, gateway_id, details)
+      VALUES (g.workspace_id, 'gateway.next_root_received', g.id,
+              jsonb_build_object('fingerprint', v_cand_fp, 'in_use', v_cand_fp = v_root_fp, 'kept_confirmed', v_kept));
+    END IF;
   END IF;
 
   -- The reach check (§4; R16: one at a time). A waiting nonce is handed over
@@ -530,8 +545,13 @@ BEGIN
         v_shared := (r ->> 'shared_url')::boolean;
         -- 0095 (B): the gateway's own fraction — the distinct bytes it served,
         -- over the clip's size (its coverage) — when it sends one; absent or
-        -- null means none, and one that is no number refuses the row.
-        v_fraction_in := CASE WHEN jsonb_typeof(r -> 'fraction') IN ('number', 'string') THEN (r ->> 'fraction')::numeric END;
+        -- null means none, and one that is no JSON number refuses the row: a
+        -- string such as "NaN" or "Infinity" would have cast to a number
+        -- that clamps to 1 and reads "in full" (GW3 review round 1, note 10).
+        v_fraction_in := CASE WHEN jsonb_typeof(r -> 'fraction') = 'number' THEN (r ->> 'fraction')::numeric END;
+        IF jsonb_typeof(r -> 'fraction') NOT IN ('number', 'null') THEN
+          RAISE EXCEPTION 'gateway_events_apply: fraction is no number' USING ERRCODE = '22023';
+        END IF;
         IF v_started IS NULL
            OR v_started < g.created_at - interval '5 minutes'
            OR v_started > now() + interval '5 minutes'

@@ -20,11 +20,13 @@
 //
 //   discover / refreshGateways   the view read (at a load, then every 60 s
 //                                while the Bins tab is open), each gateway
-//                                probed once per page session (`doors.probe`:
+//                                probed until a door answers (`doors.probe`:
 //                                the inside addresses in parallel, 1.5 s,
 //                                then the outside address); the first answer
 //                                is kept — the browser knows which door it
-//                                reached by which address answered
+//                                reached by which address answered — until a
+//                                HEAD finds nobody there or the address
+//                                leaves the view: then it is probed again
 //   binsCapabilities             `stream: true` once a door answered,
 //                                `resolveFiles: true` (the rows' `online` is
 //                                this composite's word), no picking, no OS
@@ -50,9 +52,13 @@
 //                                stream's jti; the URL never changes
 //   freshStreamUrl               a 401 is never retried with the same ticket:
 //                                a fresh one, a new src at the same currentTime
-//   diagnoseClip                 a HEAD on a fresh ticket says what a <video>
-//                                cannot: 404 (the row flips to "missing at its
-//                                location"), 401, 415, 429
+//   diagnoseClip                 a HEAD says what a <video> cannot, with the
+//                                element's own ticket first (its 401 is the
+//                                ticket: the one fresh src) and a fresh one
+//                                only without: 404 (the row flips to "not at
+//                                its path"), 401, 415, 429, nothing at all
+//                                (the door is dropped and probed again)
+//   dispose                      everything let go (a sign-out, another person)
 //
 // D20: the desktop app signed in never comes here (its own composite reads
 // files directly); D17: with several gateways, a clip plays through one that
@@ -60,7 +66,7 @@
 // before the body (the doors module, gatewayApi.js). `now` and every network
 // hand are injected, so the tests fake them.
 
-import { TICKET_BATCH_MAX, ticketClaims, ticketExpiresAt } from '../bins/gatewayDoors'
+import { TICKET_BATCH_MAX, ticketClaims, ticketExpiresAt, doorBase } from '../bins/gatewayDoors'
 
 // The composite's capability object: the keys every backend answers
 // (binsAdapterParity.test.js). `stream` is answered per page session, once a
@@ -87,6 +93,12 @@ export const TICKET_REUSE_MARGIN_MS = 30_000
 /** A clip the cloud answered `missing` for, or refused, is not asked about again for this long. */
 export const MISSING_BACKOFF_MS = 60_000
 const FAILED_BACKOFF_MS = 15_000
+/** A ticket's life (D1): the hold is anchored to the moment the browser received it, never to the cloud's clock. */
+export const TICKET_LIFETIME_MS = 120_000
+/** Kept this long after its end, a lapsed ticket's URL still serves an idle player's resume (then dropped). */
+const LAPSED_KEEP_MS = 30 * 60_000
+/** The sentence when no ticket came, in WILSON's voice (gatewayApi's own). */
+export const NO_TICKET = 'WILSON could not get a ticket to play this clip just now. Try again in a moment.'
 
 /**
  * The composite. `cloud` is the cloud adapter (supabaseAdapter or the dev
@@ -97,9 +109,10 @@ const FAILED_BACKOFF_MS = 15_000
  *   rowOf(id)                      a clip row from the provider's state
  *   onChange()                     called when the doors, the capabilities or the tickets changed (the provider re-reads)
  *   now()                          the clock
+ *   userId()                       the signed-in person: a ticket minted for anyone else is never used (review round 1, finding 1)
  */
 export function composeGatewayBins(cloud, {
-  listGateways, fetchTickets, doors, rowOf = () => null, onChange = () => {}, now = Date.now, log = () => {},
+  listGateways, fetchTickets, doors, rowOf = () => null, onChange = () => {}, now = Date.now, log = () => {}, userId = () => null,
 } = {}) {
   if (!cloud) throw new Error('composeGatewayBins needs the cloud adapter')
   if (typeof listGateways !== 'function' || typeof fetchTickets !== 'function' || !doors) throw new Error('composeGatewayBins needs listGateways, fetchTickets and the doors')
@@ -108,7 +121,7 @@ export function composeGatewayBins(cloud, {
   const S = {
     gateways: [],
     reached: new Map(), // gateway id → { door, base, gatewayId }
-    failed: new Map(), // gateway id → when the last probe found nothing
+    renewFailed: new Set(), // clip ids whose stream's renewal failed: their URL ends at the margin
     readAt: 0,
     readError: null,
     probing: false,
@@ -165,8 +178,24 @@ export function composeGatewayBins(cloud, {
     S.readError = null
     S.gateways = Array.isArray(res.data) ? res.data.filter((g) => g && g.id) : []
     S.readAt = now()
-    // A gateway gone from the list (forgotten, or its fingerprint no longer confirmed) loses its door.
-    for (const id of [...S.reached.keys()]) if (!S.gateways.some((g) => g.id === id)) S.reached.delete(id)
+    // A gateway gone from the list (forgotten, or its fingerprint no longer
+    // confirmed) loses its door; so does one whose answering address is no
+    // longer among its addresses (a new DHCP lease, the outside address
+    // withdrawn): it is probed again below (review round 1, finding 8).
+    for (const [id, r] of [...S.reached]) {
+      const g = S.gateways.find((x) => x.id === id)
+      if (!g || !basesOf(g).includes(r.base)) dropDoor(id)
+    }
+  }
+  function basesOf(g) {
+    const inside = Array.isArray(g.inside_addresses) ? g.inside_addresses.filter((a) => a && a.host).map((a) => doorBase(a.host, a.port)) : []
+    const out = g.outside_address && g.outside_address.host ? [doorBase(g.outside_address.host, g.outside_address.port)] : []
+    return [...inside, ...out]
+  }
+  /** A door no longer believed: its held tickets go with it (minted for it, useless elsewhere). */
+  function dropDoor(gatewayId) {
+    S.reached.delete(gatewayId)
+    for (const [id, t] of [...S.tickets]) if (t.gatewayId === gatewayId) S.tickets.delete(id)
   }
   async function probeAll() {
     const todo = S.gateways.filter((g) => !S.reached.has(g.id))
@@ -180,7 +209,6 @@ export function composeGatewayBins(cloud, {
         let r = null
         try { r = await doors.probe(g) } catch (e) { log('gateway_probe_failed', { id: g.id, message: String(e?.message || e) }); r = null }
         if (r && r.base) S.reached.set(g.id, { door: r.door === 'outside' ? 'outside' : 'inside', base: r.base, gatewayId: r.gatewayId || g.id })
-        else S.failed.set(g.id, now())
       }))
     } finally {
       S.probing = false
@@ -205,7 +233,10 @@ export function composeGatewayBins(cloud, {
   c.refreshGateways = () => c.discover()
 
   // ── The rows' online, the locations' words, the tab's state ──
-  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id ? { ...r, online: online(r) } : r))
+  // A row the gateway answered 404 for stays "not at its path" until the
+  // rows are read again from the cloud (which drops the flag): the reach
+  // report is per location and cannot vouch for one clip (round 1, finding 5).
+  c.markOnline = (rows) => (rows || []).map((r) => (r && r.location_id ? { ...r, online: r.gateway_missing ? false : online(r) } : r))
   c.resolveBinFiles = async (rows) => {
     const out = new Map()
     for (const r of rows || []) {
@@ -287,18 +318,45 @@ export function composeGatewayBins(cloud, {
   }
 
   // ── Tickets (§5 steps 1–4; R12) ──
+  // A ticket's hold: from the moment the browser received it, for the
+  // ticket's own life (exp − iat, at most two minutes), less the 30 s
+  // margin. Never the cloud's absolute `exp` against this browser's clock:
+  // a clock minutes ahead would hold nothing and mint at network speed, one
+  // minutes behind would keep a URL the gateway already refuses (round 1,
+  // finding 2). A ticket without `iat` (the tests' fixtures) keeps its `exp`.
+  const anchoredExp = (ticket, fallback) => {
+    const cl = ticketClaims(ticket)
+    if (cl && Number.isFinite(cl.exp) && Number.isFinite(cl.iat)) {
+      return now() + Math.max(0, Math.min(TICKET_LIFETIME_MS, (cl.exp - cl.iat) * 1000))
+    }
+    return ticketExpiresAt(ticket) || fallback
+  }
+  const subOf = (ticket) => {
+    const s = ticketClaims(ticket)?.sub
+    return typeof s === 'string' ? s : null
+  }
+  /** A ticket minted for someone other than the signed-in person is never used (round 1, finding 1). */
+  const mine = (t) => {
+    if (!t) return false
+    const me = userId()
+    return !me || !t.sub || t.sub === me
+  }
   const held = (id) => {
     const t = S.tickets.get(id)
-    return t && t.exp - TICKET_REUSE_MARGIN_MS > now() ? t : null
+    return t && mine(t) && t.exp - TICKET_REUSE_MARGIN_MS > now() ? t : null
   }
   const wanted = (id) => {
     const row = rowOf(id)
-    if (!row || !row.location_id || !online(row)) return false
+    if (!row || !row.location_id || row.gateway_missing || !online(row)) return false
     if (held(id) || S.inflight.has(id)) return false
     const until = S.missing.get(id)
     return !(until && until > now())
   }
+  const prune = () => {
+    for (const [id, t] of [...S.tickets]) if (t.exp + LAPSED_KEEP_MS < now() || !mine(t)) S.tickets.delete(id)
+  }
   c.ensureTickets = async (ids) => {
+    prune()
     const want = [...new Set((ids || []).filter(Boolean))].filter(wanted)
     if (!want.length) return
     const groups = new Map()
@@ -313,25 +371,36 @@ export function composeGatewayBins(cloud, {
         const batch = list.slice(i, i + TICKET_BATCH_MAX)
         const p = Promise.resolve().then(() => fetchTickets(gatewayId, batch)).then((res) => {
           if (!res || !res.ok) {
-            S.ticketError = res?.friendly || 'the cloud did not answer'
+            S.ticketError = res?.friendly || NO_TICKET
             for (const id of batch) { S.missing.set(id, now() + FAILED_BACKOFF_MS); S.ticketErrors.set(id, S.ticketError) }
             return
           }
           S.ticketError = null
           for (const id of batch) S.ticketErrors.delete(id)
           const d = res.data || {}
-          const fallbackExp = Date.parse(d.expires_at) || (now() + 120_000)
+          const fallbackExp = now() + TICKET_LIFETIME_MS
+          const answered = new Set()
           for (const [id, t] of Object.entries(d.tickets || {})) {
             if (!batch.includes(id) || typeof t !== 'string') continue
-            S.tickets.set(id, { ticket: t, exp: ticketExpiresAt(t) || fallbackExp, gatewayId })
+            S.tickets.set(id, { ticket: t, exp: anchoredExp(t, fallbackExp), gatewayId, sub: subOf(t) })
             S.missing.delete(id)
             S.refused.delete(id)
+            S.renewFailed.delete(id)
+            answered.add(id)
           }
-          for (const id of d.missing || []) S.missing.set(id, now() + MISSING_BACKOFF_MS)
-          for (const r of d.refused || []) { S.refused.set(r.id, r.reason || 'refused'); S.missing.set(r.id, now() + MISSING_BACKOFF_MS) }
+          for (const id of d.missing || []) { S.missing.set(id, now() + MISSING_BACKOFF_MS); answered.add(id) }
+          for (const r of d.refused || []) { S.refused.set(r.id, r.reason || 'refused'); S.missing.set(r.id, now() + MISSING_BACKOFF_MS); answered.add(r.id) }
+          // An id the answer names nowhere (a ticket the shape check dropped,
+          // a cloud that skipped it) is backed off like a failed call, or the
+          // tab would ask again at every re-render (round 1, finding 3).
+          for (const id of batch) {
+            if (answered.has(id)) continue
+            S.missing.set(id, now() + FAILED_BACKOFF_MS)
+            S.ticketErrors.set(id, NO_TICKET)
+          }
         }).catch((e) => {
-          S.ticketError = String(e?.message || e)
-          for (const id of batch) { S.missing.set(id, now() + FAILED_BACKOFF_MS); S.ticketErrors.set(id, S.ticketError) }
+          S.ticketError = String(e?.message || e) || NO_TICKET
+          for (const id of batch) { S.missing.set(id, now() + FAILED_BACKOFF_MS); S.ticketErrors.set(id, NO_TICKET) }
         }).finally(() => { for (const id of batch) S.inflight.delete(id) })
         for (const id of batch) S.inflight.set(id, p)
         await p
@@ -340,14 +409,18 @@ export function composeGatewayBins(cloud, {
     try { onChange() } catch { /* the caller's */ }
   }
 
-  c.binFileStreamUrl = (_projectId, id) => {
+  /** The URL of a ticket for this clip through the door that serves its location, or null. */
+  const urlOf = (id, t) => {
     const row = rowOf(id)
     if (!row || !row.location_id || row.online === false) return null
     const via = gatewayFor(row.location_id)
-    if (!via) return null
-    const t = held(id)
-    if (!t || t.gatewayId !== via.gateway.id) return null
+    if (!via || !t || t.gatewayId !== via.gateway.id) return null
     return doors.clipUrl(via.base, id, t.ticket)
+  }
+  /** A held ticket's URL (a new use asks for a fresh ticket at the margin); never one whose renewal failed past it. */
+  c.binFileStreamUrl = (_projectId, id) => {
+    const t = held(id)
+    return t ? urlOf(id, t) : null
   }
   /** What the player needs beside the URL: the door (the overlay's cue), the stream's jti, the ticket's end, a refusal. */
   c.streamInfo = (id) => {
@@ -355,14 +428,21 @@ export function composeGatewayBins(cloud, {
     const via = row && row.location_id ? gatewayFor(row.location_id) : null
     const t = S.tickets.get(id) || null
     const until = S.missing.get(id)
+    const isHeld = !!held(id)
     return {
       door: via ? via.door : null,
       base: via ? via.base : null,
       gatewayId: via ? via.gateway.id : null,
       gatewayName: via ? via.gateway.name : null,
-      jti: t ? (ticketClaims(t.ticket)?.jti ?? null) : null,
+      jti: t && mine(t) ? (ticketClaims(t.ticket)?.jti ?? null) : null,
       expiresAt: t ? t.exp : null,
-      held: !!held(id),
+      held: isHeld,
+      // A player already showing this clip keeps the URL of a ticket that
+      // lapsed while it sat idle (no renewal: it was not playing); played
+      // again, the door's 401 is answered by one fresh src at the same moment.
+      // A stream whose renewal FAILED has no such URL: it ends at the margin.
+      lapsedUrl: !isHeld && t && mine(t) && !S.renewFailed.has(id) ? urlOf(id, t) : null,
+      renewFailed: S.renewFailed.has(id),
       refused: S.refused.get(id) || null,
       missing: !!(until && until > now() && !S.refused.has(id)),
       pending: S.inflight.has(id),
@@ -395,67 +475,115 @@ export function composeGatewayBins(cloud, {
     await c.ensureTickets([id])
     return c.binFileStreamUrl(null, id)
   }
-  /** §5 step 7: the fresh ticket posted with the stream's first jti; the URL stays. */
+  /**
+   * §5 step 7: the fresh ticket posted with the stream's first jti; the URL
+   * stays. A failure backs the clip off (a refused cloud is asked again in
+   * 15 s at the soonest, not at every 10 s retry: round 1, finding 7) and
+   * ends the URL at the margin.
+   */
   c.renewStream = async (id) => {
     const row = rowOf(id)
     const via = row && row.location_id ? gatewayFor(row.location_id) : null
     const cur = S.tickets.get(id)
-    if (!via || !cur) return { ok: false, status: 0, reason: 'no_stream' }
+    if (!via || !cur || !mine(cur)) return { ok: false, status: 0, reason: 'no_stream' }
     const jti = ticketClaims(cur.ticket)?.jti
     if (!jti) return { ok: false, status: 0, reason: 'no_jti' }
+    const until = S.missing.get(id)
+    if (until && until > now()) return { ok: false, status: 0, reason: 'backoff' }
     let res
     try { res = await fetchTickets(via.gateway.id, [id]) } catch { res = null }
     const fresh = res && res.ok ? res.data?.tickets?.[id] : null
     if (!fresh) {
-      const why = res?.friendly || 'the cloud did not answer'
+      const why = res?.friendly || NO_TICKET
       S.ticketError = why
       S.ticketErrors.set(id, why)
+      S.missing.set(id, now() + FAILED_BACKOFF_MS)
+      S.renewFailed.add(id)
       reReadAtMargin(id, cur.exp)
       return { ok: false, status: res?.status || 0, reason: 'ticket' }
     }
     const r = await doors.renew(via.base, id, { jti, ticket: fresh })
     if (r && r.ok) {
-      // The stream's authority is re-anchored to the fresh ticket's end; the
-      // URL keeps the first ticket, which the door reads by its jti now.
-      S.tickets.set(id, { ...cur, exp: ticketExpiresAt(fresh) || (now() + 120_000), fresh })
+      // The stream's authority is re-anchored to the fresh ticket's life from
+      // now; the URL keeps the first ticket, which the door reads by its jti.
+      S.tickets.set(id, { ...cur, exp: anchoredExp(fresh, now() + TICKET_LIFETIME_MS), fresh })
       S.ticketErrors.delete(id)
+      S.renewFailed.delete(id)
       return { ok: true, status: r.status }
     }
+    // The door refused the renewal (its stream lapsed, or ended): the URL ends
+    // at the margin; the player's next play is answered by a fresh ticket.
+    S.renewFailed.add(id)
     reReadAtMargin(id, cur.exp)
     return { ok: false, status: r?.status || 0, reason: 'refused' }
   }
+  const verdictOf = (status) => (status === 0 ? 'unreachable'
+    : status === 404 ? 'missing'
+      : status === 401 ? 'ticket'
+        : status === 415 ? 'format'
+          : status === 429 ? 'busy'
+            : status >= 200 && status < 300 ? 'ok' : 'unreachable')
   /**
-   * What a <video> could not say: a HEAD on a fresh ticket. 'ok' | 'missing'
-   * (404: the clip is not at its path, or the catalogue does not confirm it) |
-   * 'ticket' (401) | 'format' (415) | 'busy' (429) | 'unreachable' (nothing
-   * answered) | 'no_stream' (no door, no ticket).
+   * What a <video> could not say. First a HEAD with the ELEMENT's own ticket
+   * (one request, a diagnosis, never a playback retry): its 401 is the ticket
+   * — the player's one fresh src at the same moment follows — and its 2xx
+   * means the door serves those bytes and the browser could not decode them
+   * (round 1, finding 6). With no ticket of its own, a fresh one is asked
+   * for and HEADed. 'ok' | 'missing' (404: not at its path, or the catalogue
+   * does not confirm it) | 'ticket' (401) | 'format' (415) | 'busy' (429) |
+   * 'unreachable' (nothing answered: the door is dropped and probed again,
+   * round 1, finding 8) | 'refused' (the cloud refuses this clip a ticket:
+   * `reason`) | 'no_stream' (no door, no ticket).
    */
   c.diagnoseClip = async (id) => {
     const row = rowOf(id)
     const via = row && row.location_id ? gatewayFor(row.location_id) : null
     if (!via) return { verdict: 'no_stream', status: 0 }
+    const settle = (r) => {
+      const verdict = verdictOf(r.status)
+      if (verdict === 'ticket') S.tickets.delete(id)
+      if (verdict === 'missing') S.missing.set(id, now() + MISSING_BACKOFF_MS)
+      if (verdict === 'unreachable') {
+        dropDoor(via.gateway.id)
+        refreshCaps()
+        try { onChange() } catch { /* the caller's */ }
+        Promise.resolve().then(() => c.discover()).catch(() => {})
+      }
+      return { verdict, status: r.status, door: r.door || via.door }
+    }
+    const cur = S.tickets.get(id)
+    if (cur && mine(cur) && cur.gatewayId === via.gateway.id) {
+      return settle(await doors.head(via.base, id, cur.ticket))
+    }
     S.tickets.delete(id)
     S.missing.delete(id)
     await c.ensureTickets([id])
     const t = S.tickets.get(id)
     if (!t) {
-      // No fresh ticket. The cloud refused one (the viewer removed or signed
-      // out, the switch off: the renewal had already failed the same way) or
-      // did not answer: the TICKET is the failure, said as such, never the
-      // clip; a format the cloud refuses is the format; a clip the cloud
-      // does not know plays through nothing.
-      if (S.refused.has(id)) return { verdict: 'format', status: 0 }
+      // No ticket. The cloud refused this clip one (by its reason: the
+      // format, a path too long, a ticket WILSON could not read), refused the
+      // person (removed, signed out, the switch off: the ticket is the
+      // failure, said as such, never the clip), or knows no such clip.
+      if (S.refused.has(id)) {
+        const reason = S.refused.get(id)
+        return reason === 'not_playable' ? { verdict: 'format', status: 0 } : { verdict: 'refused', status: 0, reason }
+      }
       return { verdict: S.ticketErrors.has(id) ? 'ticket' : 'no_stream', status: 0 }
     }
-    const r = await doors.head(via.base, id, t.ticket)
-    const verdict = r.status === 0 ? 'unreachable'
-      : r.status === 404 ? 'missing'
-        : r.status === 401 ? 'ticket'
-          : r.status === 415 ? 'format'
-            : r.status === 429 ? 'busy'
-              : r.status >= 200 && r.status < 300 ? 'ok' : 'unreachable'
-    if (verdict === 'ticket') S.tickets.delete(id)
-    return { verdict, status: r.status, door: r.door || via.door }
+    return settle(await doors.head(via.base, id, t.ticket))
+  }
+  /**
+   * Everything this composite holds, let go: a sign-out, or another person
+   * signing in, drops the composite (round 1, findings 1 and 15). Nothing it
+   * held is used again; a promise still in flight writes into maps nobody reads.
+   */
+  c.dispose = () => {
+    for (const timer of S.marginTimers.values()) clearTimeout(timer)
+    S.marginTimers.clear()
+    S.tickets.clear(); S.inflight.clear(); S.missing.clear(); S.refused.clear(); S.ticketErrors.clear(); S.renewFailed.clear()
+    S.reached.clear()
+    S.gateways = []
+    caps = GATEWAY_BINS_CAPABILITIES
   }
 
   // Nothing here reads a file: the cloud's refusals stand for picking, probing, the OS and relinking.

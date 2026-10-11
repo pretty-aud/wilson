@@ -207,6 +207,26 @@ export function gatewayClipSentence(locationName, state) {
 export function gatewayMissingSentence(locationName) {
   return `The clip is not at its path on ${locationName ? `"${locationName}"` : 'its footage location'}: the gateway looked and found nothing there. It can still be logged, flagged and assigned to a shot.`
 }
+/**
+ * The cloud refused this clip a ticket, by its reason (gateway-ticket's
+ * `refused[].reason`; GW3 review round 1, note 13): the format, a path too
+ * long to fit a ticket, a ticket this page could not read; anything else
+ * said plainly.
+ */
+export function refusalSentence(reason) {
+  switch (reason) {
+    case 'not_playable': return NEEDS_DESKTOP_FORMAT
+    case 'too_long': return 'This clip\'s path is too long to fit in a ticket, so it cannot be played in a browser; the desktop app plays it.'
+    case 'bad_ticket': return 'The cloud answered with a ticket WILSON could not read, so the clip cannot be played here just now.'
+    default: return 'This clip cannot be played here right now.'
+  }
+}
+/**
+ * The bare element taken fullscreen or into picture-in-picture by the
+ * browser's own control (Firefox and Safari ignore `controlsList`): the
+ * player pauses and says where fullscreen is (review round 1, finding 4).
+ */
+export const FULLSCREEN_KEEPS_MARK = 'Use the frame\'s own fullscreen button, top right: it keeps your name on the picture.'
 
 // ── Consent before contact (BC2 review round 1) ──
 // Any member can name a company location; this computer connects to its

@@ -221,6 +221,17 @@ describe('a new root certificate (GW3, migration 0095; §3, "the day it expires"
     await waitFor(() => expect(row().textContent).toContain(W.NEXT_ROOT_CONFIRMED))
   })
 
+  it('round 1, note 12: the OLD certificate\'s fingerprint typed into the new one\'s box is said as such, never "Confirmed: download the new certificate"', async () => {
+    answer('confirmGatewayFingerprint', async () => ok(ago(86400e3)))
+    await mountWith([withNext()])
+    const well = within(row()).getByTestId('gateway-next-root')
+    fireEvent.change(within(well).getByLabelText('New certificate fingerprint'), { target: { value: FP } })
+    fireEvent.click(within(well).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(holder.api.confirmGatewayFingerprint).toHaveBeenCalledWith('g1', FP))
+    await waitFor(() => expect(row().textContent).toContain(W.NEXT_ROOT_WRONG_ONE))
+    expect(row().textContent).not.toContain(W.NEXT_ROOT_CONFIRMED)
+  })
+
   it('another admin reads why they cannot confirm it, and gets no box', async () => {
     await mountWith([withNext({ created_by: 'someone-else' })])
     expect(within(row()).queryByLabelText('New certificate fingerprint')).toBeNull()

@@ -28,7 +28,7 @@ import { useEffect } from 'react'
 import { X, Unplug } from 'lucide-react'
 import { C, IconBtn, MediaTag, FlagMark } from './binUi'
 import BinPoster from './BinPoster'
-import GatewayVideo from './GatewayVideo'
+import GatewayVideo, { usePlayerSrc } from './GatewayVideo'
 import { slateLine, techLine } from '../../bins/binMedia'
 import { NOT_ON_THIS_COMPUTER, NEEDS_DESKTOP_FORMAT, browserClipSentence, gatewayClipSentence, gatewayMissingSentence } from '../../bins/binLocations'
 import { playabilityOf, browserCanPlayType } from '../../bins/gatewayMedia'
@@ -44,7 +44,11 @@ export default function PosterLarge({
   const play = row && gateway ? playabilityOf(row, { canPlayType: browserCanPlayType() }) : null
   const plays = !!row && canStream && !notHere && !!play?.playable && streamInfo?.refused !== 'not_playable'
   // D22: the ticket is asked for when the player opens, not before.
-  const wantsTicket = plays && !streamUrl && !streamInfo?.missing && !streamInfo?.pending
+  // As the inspector's: a lapsed ticket's URL serves only the player that
+  // was showing it (round 1, finding 7; usePlayerSrc). This overlay opens
+  // on Space, so it starts on a held ticket or asks for one.
+  const playerSrc = usePlayerSrc(streamUrl, streamInfo)
+  const wantsTicket = plays && !playerSrc && !streamInfo?.missing && !streamInfo?.pending
   useEffect(() => { if (wantsTicket) onTicketWanted?.(row.id) }, [wantsTicket, row?.id, onTicketWanted])
   if (!row) return null
   const sentence = notHere
@@ -64,7 +68,7 @@ export default function PosterLarge({
       </div>
       <div className="bn-poster-large-frame flex-1 min-h-0 flex items-center justify-center p-3">
         {plays ? (
-          <GatewayVideo row={row} src={streamUrl} kind={play.kind} stream={streamInfo} viewer={viewer} poster={null} controls autoPlay
+          <GatewayVideo row={row} src={playerSrc} kind={play.kind} stream={streamInfo} viewer={viewer} poster={null} controls autoPlay
             onRenew={onRenew} onFreshSrc={onFreshSrc} onDiagnose={onDiagnose} locationName={location?.name || null}
             renewAfterMs={gateway?.renewAfterMs || undefined}
             className="w-full h-full" style={{ backgroundColor: 'transparent' }} />
