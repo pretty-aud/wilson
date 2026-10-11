@@ -39,7 +39,7 @@ import { CloudClient, DEFAULT_CLOUD_URL, normalizeCloudUrl, cleanEnrolAnswer, cl
 import { SyncLoop } from './cloud/sync.mjs';
 import { Catalogue } from './cloud/catalogue.mjs';
 import { ReachChecker } from './cloud/reach.mjs';
-import { isEnrolToken } from './wire/formats.mjs';
+import { isEnrolToken, reachKeyOf } from './wire/formats.mjs';
 import { compareVersions } from './update/manifest.mjs';
 import { containerRootFor, locationRoot, parseUncPath } from './rules/mountRule.mjs';
 
@@ -86,6 +86,7 @@ export class Gateway {
     this.revoked = false;
     this.enrolment = null;
     this.credential = null;
+    this.reachKey = null; // derived from the credential, kept beside it (GW3)
     this.keys = new Map();
     this.origins = [];
     this.locations = new Map();
@@ -148,7 +149,12 @@ export class Gateway {
       try {
         const blob = await fs.promises.readFile(this.#file('credential'));
         this.credential = (await this.secrets.unprotect(blob)).toString('utf8');
+        // The reach key lives beside the credential it is derived from (GW3):
+        // a blob that is no credential is unreadable, and nothing is proved.
+        this.reachKey = reachKeyOf(this.credential);
       } catch (e) {
+        this.credential = null;
+        this.reachKey = null;
         this.log('credential_unreadable', { reason: String(e.message).slice(0, 120) });
         this.enrolment = null;
       }
@@ -257,6 +263,10 @@ export class Gateway {
     }
     this.enrolment = { gateway_id: a.gatewayId, workspace_id: a.workspaceId, workspace_name: a.workspaceName, cloud_url: url, sync_interval_s: a.syncIntervalS };
     this.credential = a.credential;
+    // The reach key, derived from the credential the enrol answer gave, kept
+    // with it (GW3): the cloud derived the same at enrolment and compares the
+    // outside door's nonce_proof against it (design §4, Appendix C).
+    this.reachKey = reachKeyOf(a.credential);
     this.cloudUrl = url;
     this.keys = new Map(a.signingKeys.map((k) => [k.kid, k.key]));
     this.origins = a.origins;
@@ -346,6 +356,7 @@ export class Gateway {
       healthLine: () => this.healthLine(),
       fingerprint: () => this.certs.state().rootFingerprint,
       reachNonce: () => this.remote.reachNonce,
+      reachKey: () => this.reachKey ?? null,
       version: VERSION,
       declaredProxy: () => declaredProxyOf(this.config),
       locationSlow: (id) => { const l = this.locations.get(id); if (l) { l.state = 'not_reachable'; l.since = l.since || this.now(); } },

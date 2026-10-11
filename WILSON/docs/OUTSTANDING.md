@@ -78,25 +78,6 @@ after her report.
 
 ## Broken features
 
-### The cloud's reach check and GW2's gateway disagree: every *Check reach* will read *not your gateway*
-**MEASURED (GW1 review round 2, 2026-10-10), by the two halves' own tests in one run:** GW2's `gateway/test/doorsOutside.test.mjs` holds its outside door to answering `{ ok: true, nonce_echo }`, and GW1's `src/cloud/gatewayEdge.test.js` holds such an answer to reading as *not this gateway*. GW1's cloud
-(`supabase/functions/_shared/gatewayReach.ts`, since GW1's review round 1)
-counts a host as the company's gateway only when its `GET /v1/health`
-answers `nonce_proof`: an HMAC of the check's nonce keyed by the gateway's
-reach key, the SHA-256 of `wilson-reach-key:` followed by its credential
-(`docs/design/gateway-ticket-vectors.json`, `for_gw2_from_gw1.reach_probe`,
-with a worked `proof_vector`). GW2's gateway, as merged into
-`feat/post-overhaul-edit-versioning` at `f340e41a`
-(`gateway/src/doors/handler.mjs`), answers `nonce_echo`, the echo round 1 found proved nothing (any host that
-reflects a header passes). Once both are deployed, every check reads
-*Something answered at …, but it is not your gateway*, and no outside
-address is ever given to a browser: playing from outside the office stays
-off, which is the safe direction. Fix shape: the gateway answers `nonce_proof` =
-HMAC-SHA256(key = the UTF-8 bytes of the reach key's 64 hex characters,
-message = the UTF-8 bytes of the nonce), the reach key derived once from its
-credential, and GW2's test changed with it; GW3 (GW2 is merged). The cloud must not accept the
-echo again: that reopens round 1's finding.
-
 ### The signed-out desktop's bins freeze the window on a share whose server does not answer
 **MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
 (`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,

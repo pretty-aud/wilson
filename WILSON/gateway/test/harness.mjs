@@ -24,6 +24,7 @@ import { Catalogue } from '../src/cloud/catalogue.mjs';
 import { resolveLimits } from '../src/rules/limits.mjs';
 import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
 import { composeHealthLine } from '../src/rules/health.mjs';
+import { makeCredential, reachKeyOf } from '../src/wire/formats.mjs';
 import { claimsOf, mintTicket, makeSigningKey } from './mint.mjs';
 
 export const GW = '6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f601';
@@ -80,7 +81,10 @@ export async function makeWorld(o) {
     cloudReachable: o.cloudReachable ?? true,
     confirmCalls: [],
     unknownKidSyncs: 0,
-    reachNonce: 'nonce-' + crypto.randomBytes(8).toString('hex'),
+    reachNonce: crypto.randomBytes(16).toString('hex'),
+    // GW3: the reach key the runtime derives from its credential; the outside
+    // door's nonce_proof is keyed by it (a throwaway credential here).
+    reachKey: reachKeyOf(makeCredential()),
     locations: new Map([[LOC, { root: o.share.root, state: 'reachable' }]]),
     origins: ['https://wilson.petalstudios.com'],
     log: [],
@@ -112,6 +116,7 @@ export async function makeWorld(o) {
     healthLine: () => composeHealthLine({ now: clock.t, name: 'Studio NAS', version: '0.1.0', lastSyncAt: clock.t, inside: { state: 'open', addresses: [{ address: '192.168.1.10', port: 8443 }] }, outside: { state: 'closed_switch_off' }, locations: [], certificate: null, update: null }),
     fingerprint: () => certs.root.fingerprint,
     reachNonce: () => state.reachNonce,
+    reachKey: () => state.reachKey,
     version: '0.1.0',
     declaredProxy: () => o.declaredProxy || null,
     locationSlow: (id) => state.log.push({ event: 'slow', id }),

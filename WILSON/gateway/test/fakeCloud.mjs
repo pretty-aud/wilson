@@ -81,7 +81,10 @@ export function createFakeCloud({ now = () => Date.now(), workspaceId = '0a1b2c3
       if (!body || typeof body.root_cert_pem !== 'string' || typeof body.version !== 'string') return answer(400, { error: 'The enrolment is missing its certificate or version.', code: 'bad_body' });
       const id = crypto.randomUUID();
       const credential = makeCredential();
-      S.gateways.set(id, { credHash: sha256Hex(credential), revokedAt: null, lastReport: null, lastSeenAt: null, enrolBody: body });
+      // The reach key, derived at enrolment and kept as the cloud keeps it
+      // (gateway_secrets.reach_key; GW1 review round 2): what the probe's
+      // nonce_proof is checked against. Never the credential's hash.
+      S.gateways.set(id, { credHash: sha256Hex(credential), reachKey: sha256Hex('wilson-reach-key:' + credential), revokedAt: null, lastReport: null, lastSeenAt: null, enrolBody: body });
       return answer(200, {
         gateway_id: id,
         credential,
@@ -163,7 +166,7 @@ export function createFakeCloud({ now = () => Date.now(), workspaceId = '0a1b2c3
     },
     'gateway-reach': () => {
       // The fake writes a fresh nonce (delivered at the next sync); the probe itself is the test's (reachProbe below).
-      S.reachNonce = crypto.randomBytes(24).toString('hex');
+      S.reachNonce = crypto.randomBytes(16).toString('hex');
       return answer(200, { started: true });
     },
   };
@@ -220,13 +223,22 @@ export function createFakeCloud({ now = () => Date.now(), workspaceId = '0a1b2c3
       S.keys.unshift({ kid, privateKey, wire: { kid, public_key: publicKeyToWire(publicKey) } });
     },
     lastReport(id = api.onlyGateway()) { return S.gateways.get(id)?.lastReport; },
-    /** The reach probe's last step: GET /v1/health on the outside door with the nonce; reached only on the echo. */
-    async reachProbe({ host, port, ca, servername }) {
+    /**
+     * The reach probe's last step: GET /v1/health on the outside door with the
+     * nonce; reached ONLY on the proof (nonce_proof = HMAC-SHA256 of the nonce
+     * keyed by the gateway's reach key, computed here from the key kept at
+     * enrolment, as the cloud's gatewayReach.ts computes it). An echo of the
+     * nonce is not this gateway (GW1 review round 1: any host reflecting the
+     * header would pass); so is a proof for another nonce or another key.
+     */
+    async reachProbe({ host, port, ca, servername, gateway_id = api.onlyGateway() }) {
+      const g = S.gateways.get(gateway_id);
+      const expected = g && S.reachNonce ? crypto.createHmac('sha256', Buffer.from(g.reachKey, 'utf8')).update(Buffer.from(S.reachNonce, 'utf8')).digest('hex') : null;
       return new Promise((resolve) => {
         const req = https.request({ host, port, path: '/v1/health', method: 'GET', ca, servername, headers: { 'wilson-reach-nonce': S.reachNonce || '' }, timeout: 5_000 }, (res) => {
           let t = '';
           res.on('data', (c) => { t += c; if (t.length > 4096) req.destroy(); });
-          res.on('end', () => { let j = null; try { j = JSON.parse(t); } catch { j = null; } resolve({ status: res.statusCode, isThisGateway: !!S.reachNonce && j?.nonce_echo === S.reachNonce, body: j }); });
+          res.on('end', () => { let j = null; try { j = JSON.parse(t); } catch { j = null; } resolve({ status: res.statusCode, isThisGateway: !!expected && typeof j?.nonce_proof === 'string' && j.nonce_proof.length === expected.length && crypto.timingSafeEqual(Buffer.from(j.nonce_proof, 'utf8'), Buffer.from(expected, 'utf8')), proof_checked: !!expected, body: j }); });
         });
         req.on('error', (e) => resolve({ status: 0, error: e.code, isThisGateway: false }));
         req.on('timeout', () => req.destroy());
@@ -263,7 +275,7 @@ export async function serveFakeCloud(cloud, { dir, port = 0 } = {}) {
       if (action === 'member') { cloud.addMember(body.sub); return send(200, { ok: true }); }
       if (action === 'mint') return send(200, { ticket: cloud.mint({ clip: body.clip, sub: body.sub, rv: body.rv }) });
       if (action === 'revoke') { cloud.revoke(body?.gateway_id); return send(200, { ok: true }); }
-      if (action === 'reach') { S.reachNonce = crypto.randomBytes(24).toString('hex'); return send(200, { nonce_set: true }); }
+      if (action === 'reach') { S.reachNonce = crypto.randomBytes(16).toString('hex'); return send(200, { nonce_set: true }); }
       if (action === 'probe') return send(200, await cloud.reachProbe(body));
       if (action === 'calls') return send(200, { calls: S.calls.map((c) => ({ fn: c.fn, at: c.at })), events: S.events, gateways: [...S.gateways.keys()] });
       return send(404, { error: 'no such control' });

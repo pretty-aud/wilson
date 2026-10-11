@@ -11,7 +11,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { makeShare, makeWorld, CLIP, CLIP2, SUB2, LOC } from './harness.mjs';
+import { reachKeyOf, reachProof } from '../src/wire/formats.mjs';
 import { outsidePeerKey } from '../src/rules/ip.mjs';
 import { resolveLimits, peerLimiters, Pools, FixedWindow } from '../src/rules/limits.mjs';
 import { makeOutsideGate, makeCounters } from '../src/doors/gates.mjs';
@@ -281,11 +283,27 @@ describe('the outside door says nothing about itself (F5, R17)', () => {
     expect(r.status).toBe(200);
     expect(JSON.parse(r.body)).toEqual({ ok: true });
   });
-  it('the cloud\'s current nonce is echoed; any other is not', async () => {
-    expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': W.state.reachNonce } })).body)).toEqual({ ok: true, nonce_echo: W.state.reachNonce });
-    expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': W.state.reachNonce + 'x' } })).body)).toEqual({ ok: true });
+  it('GW3: the cloud\'s current nonce is answered with the PROOF keyed by the reach key, never echoed — the worked proof_vector, on this half (GW1 review rounds 1 and 2)', async () => {
+    const V = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'design', 'gateway-ticket-vectors.json'), 'utf8')).for_gw2_from_gw1.reach_probe.proof_vector;
+    // The derivation itself, against the cloud's worked example.
+    expect(reachKeyOf(V.credential)).toBe(V.reach_key);
+    expect(reachProof(V.reach_key, V.nonce)).toBe(V.nonce_proof);
+    // The door, holding the vector's credential and handed the vector's nonce.
+    W.state.reachKey = reachKeyOf(V.credential);
+    W.state.reachNonce = V.nonce;
+    const body = JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': V.nonce } })).body);
+    expect(body).toEqual({ ok: true, nonce_proof: V.nonce_proof });
+    expect(body.nonce_echo).toBeUndefined();
+    // Any other nonce: { ok: true } alone, and nothing about the real one.
+    expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': V.nonce.slice(0, 31) + '0' } })).body)).toEqual({ ok: true });
+    // No reach key (not enrolled, the credential unreadable): nothing is proved.
+    W.state.reachKey = null;
+    expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': V.nonce } })).body)).toEqual({ ok: true });
+    W.state.reachKey = reachKeyOf(V.credential);
+    // No nonce in flight: nothing to prove.
     W.state.reachNonce = null;
     expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': '' } })).body)).toEqual({ ok: true });
+    expect(JSON.parse((await W.request('/v1/health', { headers: { 'wilson-reach-nonce': V.nonce } })).body)).toEqual({ ok: true });
   });
   it('the preflight never says private network outside; another origin is refused', async () => {
     const ok = await W.request('/v1/clips/x', { method: 'OPTIONS', headers: { origin: 'https://wilson.petalstudios.com', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type', 'access-control-request-private-network': 'true' } });
