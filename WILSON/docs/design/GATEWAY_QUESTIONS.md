@@ -79,3 +79,9 @@ decided-without-asking all good
 - **The code-signing certificate (D14):** "Decide later" — the installer session asks again.
 - **The viewer's name over remote playback (D9):** "Name + member code + clock, moving (Recommended)".
 - **D1–D8, D10–D13, D15–D27:** the design's picks stand (she stopped the questions after the first four; any of them can be reopened by number).
+
+## Her answers of 2026-10-11 (asked in chat as multiple choice after GW3 merged; recorded verbatim)
+
+- **The release host:** "GitHub Releases (Recommended)" — the public `pretty-aud/wilson` repository's Releases hold the installer, the container image's digest and the signed version list; no new domain, no DNS change. The design's placeholder `releases.petalstudios.com` is retired (her domain is `petalstudios.co` in any case).
+- **D14, code signing:** "Ship unsigned for now (Recommended)" — GW4 builds the pipeline with the signing step in place but empty; the install story says SmartScreen will warn and how to pass it; a certificate can be added later without rebuilding the pipeline.
+- **The second beta merge:** "Wait for GW4 and GW5" — one merge after the attack session closes.
