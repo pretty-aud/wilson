@@ -25,11 +25,28 @@ import { mixedValue } from '../../bins/binSelectors'
 import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 import { navigateTo } from '../../state/rabbitNavigate'
 // BC2: a company's clip (a footage location + a path inside it). BC3: the
-// browser's sentence under it, and what Space does there.
-import { NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence, browserClipSentence, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT } from '../../bins/binLocations'
+// browser's sentence under it, and what Space does there. GW3: the gateway
+// plays it in a browser — the sentence per location when it cannot, the
+// format that needs the desktop app, the player with the viewer's mark.
+import {
+  NOT_ON_THIS_COMPUTER, notHereSentence, notConnectedClipSentence, browserClipSentence, POSTER_LARGE_HINT, PLAYER_LARGE_HINT,
+  NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING, gatewayClipSentence, gatewayMissingSentence,
+} from '../../bins/binLocations'
+import { playabilityOf, browserCanPlayType } from '../../bins/gatewayMedia'
+import GatewayVideo from './GatewayVideo'
 // GW1: the one admin line about viewings from outside, in the Settings
 // table's own words (a pure module: it imports nothing).
 import { inspectorRemoteLine } from '../../../../components/settings/gatewayWords'
+
+/** GW3: the sentence's state for a clip the gateway cannot serve, from the location's word or the tab's state. */
+export function gatewayStateWord(location, gateway) {
+  if (location && typeof location.gateway === 'string' && location.gateway !== 'reachable') return location.gateway
+  const s = gateway?.state
+  if (s === 'none') return 'no_gateway'
+  if (s === 'unseen') return 'unseen'
+  if (s === 'reached') return 'not_reachable'
+  return 'gateway_unreachable'
+}
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -85,6 +102,16 @@ export default function BinInspector({
   // GW1: (clipId) → Promise<{ count, last }> — given by BinsView for a
   // workspace admin only; null for everyone else, who is never asked.
   remoteViewsFor = null,
+  // GW3 (item 5): the line opens the viewings table filtered to the clip,
+  // for the same admin; null for everyone else (the line stays a line).
+  onOpenRemoteViews = null,
+  // GW3: the gateway in a browser. `gateway` is the tab's state ({ state,
+  // name, … }) — null on every other backend; `streamInfoFor(id)` the door
+  // and the ticket's state; the four verbs the player needs; `viewer` for
+  // the mark over remote playback; `spaceTogglesPreview` false where Space
+  // belongs to the large player instead (a browser).
+  gateway = null, streamInfoFor = null, onTicketWanted = null, onRenew = null, onFreshSrc = null, onDiagnose = null,
+  viewer = null, spaceTogglesPreview = true,
   // BC3: what this backend can do with a FILE (the capability object, read
   // by BinsView's binsModeOf). A control is offered only where its verb is
   // answered — never disabled with no reason beside it: no Open or Reveal
@@ -178,7 +205,9 @@ export default function BinInspector({
         {single && (
           <Section title="Preview" open={previewOpen} onToggle={() => setPreviewOpen(o => !o)}>
             <Preview row={single} thumbUrl={thumbUrlFor?.(single.id)} streamUrl={canStream ? streamUrlFor?.(single.id) : null} ffmpeg={ffmpeg} onOpen={onOpen} pageActive={pageActive}
-              location={locationOf?.(single) || null} canStream={canStream} canOpen={canOpen} catalogue={catalogue} />
+              location={locationOf?.(single) || null} canStream={canStream} canOpen={canOpen} catalogue={catalogue}
+              gateway={gateway} streamInfo={streamInfoFor?.(single.id) || null} onTicketWanted={onTicketWanted} onRenew={onRenew} onFreshSrc={onFreshSrc} onDiagnose={onDiagnose}
+              viewer={viewer} spaceTogglesPreview={spaceTogglesPreview} />
           </Section>
         )}
 
@@ -297,7 +326,8 @@ export default function BinInspector({
           <Section title="File" open={techOpen} onToggle={() => setTechOpen(o => !o)}
             right={single.online !== false && canWrite && canProbe ? <IconBtn Icon={RefreshCw} title="Read the technical columns again" size={3} onClick={e => { e.stopPropagation(); onProbe?.(single.id) }} /> : null}>
             <TechRows row={single} fps={fps} binPath={binPathFor?.(single.bin_id)} ffmpeg={ffmpeg}
-              location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} remoteLine={remoteLine} />
+              location={locationOf?.(single) || null} addedBy={addedByOf?.(single) || null} remoteLine={remoteLine}
+              onOpenRemoteViews={onOpenRemoteViews} />
             {canOpen && (
               <div className="flex items-center gap-1.5 flex-wrap pt-1">
                 <Btn small onClick={() => onOpen?.(single.id, false)} disabled={single.online === false} title="Open with the default app"><ExternalLink className="w-3 h-3" /> Open</Btn>
@@ -340,7 +370,7 @@ function useRemoteViewsLine(row, remoteViewsFor) {
   return line
 }
 
-function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, remoteLine = null }) {
+function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, remoteLine = null, onOpenRemoteViews = null }) {
   const cloudRow = !!row.location_id
   const R = ({ k, v, title }) => v == null || v === '' ? null : (
     <div className="flex items-baseline gap-2 text-dense min-w-0">
@@ -362,7 +392,10 @@ function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, 
           <R k="Location" v={location ? location.name : 'a location no longer in the list'} title={location?.unc_path || undefined} />
           <R k="Path" v={row.relative_path} />
           <R k="Added by" v={addedBy} />
-          {remoteLine && <div className="text-dense" data-testid="bin-remote-views" style={{ color: C.text }}>{remoteLine}</div>}
+          {/* GW3 (item 5): for the admin the line opens the viewings table filtered to this clip. */}
+          {remoteLine && (onOpenRemoteViews
+            ? <button type="button" className="text-dense text-left hover:underline" data-testid="bin-remote-views" style={{ color: C.text }} title="Every viewing of this clip from outside the office, in the last 30 days" onClick={() => onOpenRemoteViews(row.id)}>{remoteLine}</button>
+            : <div className="text-dense" data-testid="bin-remote-views" style={{ color: C.text }}>{remoteLine}</div>)}
         </>
       ) : <R k="Path" v={row.source_path} />}
       {row.online === false && (cloudRow
@@ -382,14 +415,34 @@ function TechRows({ row, fps, binPath, ffmpeg, location = null, addedBy = null, 
   )
 }
 
-function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false, location = null, canStream = true, canOpen = true, catalogue = false }) {
+function Preview({
+  row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false, location = null, canStream = true, canOpen = true, catalogue = false,
+  gateway = null, streamInfo = null, onTicketWanted = null, onRenew = null, onFreshSrc = null, onDiagnose = null, viewer = null, spaceTogglesPreview = true,
+}) {
   const kind = previewKindFor(row)
   const [failed, setFailed] = useState(null)
   const [playing, setPlaying] = useState(false)
   const mediaRef = useRef(null)
   const pageActiveRef = useRef(pageActive)
   pageActiveRef.current = pageActive
+  const spaceRef = useRef(spaceTogglesPreview)
+  spaceRef.current = spaceTogglesPreview
   useEffect(() => { setFailed(null); setPlaying(false) }, [row.id, streamUrl])
+  // GW3: through the gateway. What plays (§7): the extension on the list,
+  // canPlayType not empty for the type (with the probe's codec), the first
+  // bytes decoding. D22: the first play costs one round trip; the picture
+  // and "loading" meanwhile — the ticket is asked for here, when a playable
+  // clip is selected and no ticket is held.
+  const viaGateway = !!gateway
+  const play = viaGateway ? playabilityOf(row, { canPlayType: browserCanPlayType() }) : null
+  const wantsTicket = viaGateway && canStream && !!play?.playable && !streamUrl && row.online !== false
+    && !streamInfo?.refused && !streamInfo?.missing && !streamInfo?.pending
+  useEffect(() => {
+    if (wantsTicket) onTicketWanted?.(row.id)
+  }, [wantsTicket, row.id, onTicketWanted])
+  const notice = (text) => (
+    <div className="text-dense leading-relaxed px-1" style={{ color: C.dim }}>{text}</div>
+  )
 
   // Space toggles play/pause when the preview is a video or audio — and only
   // then: never while a modal or menu is up, never when Space is a control's
@@ -408,6 +461,9 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
       if (t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
       if (visibleOverlayOpen()) return
       if (drawerOnScreen() || (t && typeof t.closest === 'function' && t.closest(OVER_THE_VIEW))) return
+      // GW3: in a browser Space belongs to the large player (BinsView's
+      // handler), never to this preview as well (two players on one key).
+      if (!spaceRef.current) return
       const m = mediaRef.current
       if (!m) return
       e.preventDefault()
@@ -423,21 +479,26 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
   // is the browser's (no share is read here; the desktop app plays it), and
   // Space shows the picture large.
   if (row.online === false && row.location_id) {
+    // GW3: the gateway's word per location (§2's fourth row), or a 404's
+    // "missing at its location"; BC3's browser sentence where no gateway
+    // backend answers; the desktop's two otherwise.
+    const sentence = row.gateway_missing ? gatewayMissingSentence(location?.name)
+      : viaGateway ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway))
+        : catalogue ? browserClipSentence(location?.name)
+          : location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)
     return (
       <div className="flex flex-col gap-1.5" data-testid="not-here">
         <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
           <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
         </div>
         <div className="flex items-center gap-1.5 text-dense" style={{ color: C.amber }}><Unplug className="w-3 h-3" /> Not on this computer</div>
-        <div className="text-dense px-1" style={{ color: C.dim }}>
-          {catalogue ? browserClipSentence(location?.name) : location?.connected === false ? notConnectedClipSentence(location?.name) : notHereSentence(location?.name)}
-        </div>
-        {!canStream && <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>}
+        <div className="text-dense px-1" style={{ color: C.dim }}>{sentence}</div>
+        {catalogue && <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>}
       </div>
     )
   }
-  // BC3: a backend that streams no bytes (a browser whose rows the backend
-  // answers for, as the dev fixtures do): the picture, the sentence that
+  // BC3: a backend that streams no bytes (a browser with no gateway reached,
+  // or the dev fixtures' plain catalogue): the picture, the sentence that
   // says why nothing plays, and no Open button where the OS is not here.
   if (!canStream) {
     return (
@@ -445,8 +506,36 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
         <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
           <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
         </div>
-        <div className="text-dense px-1" style={{ color: C.dim }}>{PLAY_NEEDS_DESKTOP}</div>
+        <div className="text-dense px-1" style={{ color: C.dim }}>{viaGateway ? gatewayClipSentence(location?.name, gatewayStateWord(location, gateway)) : browserClipSentence(location?.name)}</div>
         <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>
+      </div>
+    )
+  }
+  // GW3: the gateway reached. A format the browser does not play shows the
+  // picture and says so (G7, D8); everything else is the player, with the
+  // picture until the first frame and "loading" until the ticket.
+  if (viaGateway) {
+    const refused = streamInfo?.refused === 'not_playable' || !play?.playable
+    if (refused) {
+      return (
+        <div className="flex flex-col gap-1.5" data-testid="needs-desktop-format">
+          <div className="rounded-control flex items-center justify-center overflow-hidden" style={{ backgroundColor: C.deep, border: `1px solid ${C.line}`, minHeight: 120 }}>
+            <BinPoster row={row} src={thumbUrl} width="100%" height={180} radius={0} style={{ border: 'none' }} iconSize={40} />
+          </div>
+          <div className="text-dense px-1" style={{ color: C.dim }}>{NEEDS_DESKTOP_FORMAT}{play?.reason === 'codec' && row.codec ? ` (${String(row.codec)} is not one this browser decodes.)` : ''}</div>
+          <div className="text-caption px-1" style={{ color: C.dimmer }}>{POSTER_LARGE_HINT}</div>
+        </div>
+      )
+    }
+    const previewHeight = play.kind === 'audio' ? 120 : 200
+    return (
+      <div className="flex flex-col gap-1.5" data-testid="gateway-preview">
+        <GatewayVideo row={row} src={streamUrl} kind={play.kind} stream={streamInfo} viewer={viewer} poster={thumbUrl} controls mediaRef={mediaRef}
+          onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+          onRenew={onRenew} onFreshSrc={onFreshSrc} onDiagnose={onDiagnose} locationName={location?.name || null}
+          renewAfterMs={gateway?.renewAfterMs || undefined}
+          className="w-full rounded-control" style={{ height: previewHeight, border: `1px solid ${C.line}` }} />
+        {notice(!streamUrl ? `${GATEWAY_LOADING}…` : playing ? (spaceTogglesPreview ? 'Playing · Space pauses' : 'Playing') : (spaceTogglesPreview ? 'Space plays · hover a tile in the grid to scrub' : `${PLAYER_LARGE_HINT} Hover a tile in the grid to scrub.`))}
       </div>
     )
   }
@@ -459,9 +548,6 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen, pageActive = false,
       </div>
     )
   }
-  const notice = (text) => (
-    <div className="text-dense leading-relaxed px-1" style={{ color: C.dim }}>{text}</div>
-  )
   if (kind === 'video' && streamUrl && !failed) {
     return (
       <div className="flex flex-col gap-1.5">

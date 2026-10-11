@@ -1098,6 +1098,26 @@
     line-height: 1.4;
     overflow-wrap: break-word;
   }
+  /* GW3 (item 5): the same table on a DARK island (the Bins inspector's
+     "Viewed from outside" dialog, RemoteViewingsDialog.jsx: the table is
+     stamped data-surface="dark" through RemoteViewingsTable's `surface`). The table's inks above are the light page's
+     (`--color-ink-light` on `--color-well-light`): on the dark ground they
+     measured 1.1:1 — the clip and the time (`.s-data`, which already turns)
+     readable, the viewer and the amounts invisible. The dark ground's own
+     ink, rule and well. */
+  [data-surface='dark'] .s-table,
+  .s-table[data-surface='dark'],
+  [data-surface='dark'] .s-table th,
+  .s-table[data-surface='dark'] th,
+  [data-surface='dark'] .s-table td,
+  .s-table[data-surface='dark'] td {
+    color: var(--color-ink);
+    border-color: var(--color-rule);
+  }
+  [data-surface='dark'] .s-table th,
+  .s-table[data-surface='dark'] th {
+    background-color: var(--color-paper-recessed);
+  }
   .s-gw-audit {
     margin: 0;
     padding: 0;

@@ -44,7 +44,7 @@ vi.mock('../../state/useProjectAccess', () => ({ useProjectAccess: () => state.a
 const { default: BinsView } = await import('../BinsView')
 const { default: ShotTakesPanel } = await import('./ShotTakesPanel')
 const { binsModeOf } = await import('../../bins/browserCatalogue')
-const { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CATALOGUE_SENTENCE, CATALOGUE_EMPTY_BINS_SENTENCE, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT, browserClipSentence } = await import('../../bins/binLocations')
+const { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CATALOGUE_SENTENCE, CATALOGUE_EMPTY_BINS_SENTENCE, POSTER_LARGE_HINT, browserClipSentence } = await import('../../bins/binLocations')
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
@@ -258,7 +258,8 @@ describe('the inspector in a browser', () => {
     await mount(FIXTURES)
     pick('Clip 1')
     const panel = document.querySelector('[data-testid="no-stream"]')
-    expect(panel.textContent).toContain(PLAY_NEEDS_DESKTOP)
+    // GW3 retired PLAY_NEEDS_DESKTOP: with no gateway backend the sentence is the browser's, naming the location.
+    expect(panel.textContent).toContain(browserClipSentence('Footage NAS'))
     expect(panel.textContent).toContain(POSTER_LARGE_HINT)
     expect(screen.queryByRole('button', { name: /Open in default app/ })).toBeNull()
     expect(document.querySelector('video')).toBeNull()

@@ -28,9 +28,17 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { needsCloudPoster } from '../bins/cloudPosters'
-import { addedByName, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CONNECT_TITLE, CATALOGUE_SENTENCE, CATALOGUE_EMPTY_BINS_SENTENCE } from '../bins/binLocations'
+import {
+  addedByName, ADD_NEEDS_DESKTOP, notConnectedSentence, CONNECT_LABEL, CONNECT_TITLE, CATALOGUE_SENTENCE, CATALOGUE_EMPTY_BINS_SENTENCE,
+  CATALOGUE_GATEWAY_SENTENCE, GATEWAY_ADMIN_LINE, CHROME_LOCAL_NETWORK_SENTENCE, GATEWAY_OWN_COMPUTER_LINE, gatewayUnseenSentence, gatewayUnreachableSentence,
+} from '../bins/binLocations'
 // BC3: what this backend can do with a FILE, read from the capability object.
 import { binsModeOf } from '../bins/browserCatalogue'
+// GW3: the gateway in a browser — what plays (D8), the 60 s re-read (§2),
+// the per-clip viewings table (item 5).
+import { playabilityOf, browserCanPlayType } from '../bins/gatewayMedia'
+import { GATEWAY_REFRESH_MS } from '../adapters/gatewayBins'
+import RemoteViewingsDialog from './bins/RemoteViewingsDialog'
 import PosterLarge from './bins/PosterLarge'
 import { useProjectAccess } from '../state/useProjectAccess'
 // GW1: the workspace matrix (pure), for the one admin-only line below.
@@ -108,6 +116,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const catalogue = mode.catalogue
   // The desktop app signed in: this computer's own answers about the files.
   const desktopCloud = caps?.backend === 'desktop_cloud'
+  // GW3: a browser through the company's file gateway (adapters/gatewayBins):
+  // the tab's state for §2's sentences, and the player's verbs.
+  const gatewayCloud = caps?.backend === 'gateway_cloud'
+  const gatewayInfo = gatewayCloud ? (ctx?.binsInfo?.gateway || null) : null
   const projectId = ctx?.activeProjectId
   const bins = ctx?.bins || []
   const files = ctx?.binFiles || []
@@ -297,6 +309,48 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const auditor = gateCtx?.appRole === 'admin' && canInWorkspace(gateCtx.appRole, 'workspace.audit.read')
   const remoteViewsOfClip = ctx?.remoteViewsOfClip
   const remoteViewsFor = useMemo(() => (auditor && typeof remoteViewsOfClip === 'function' ? remoteViewsOfClip : null), [auditor, remoteViewsOfClip])
+  // GW3 (item 5): the line opens the viewings table filtered to the clip, for the same admin.
+  const [viewingsFor, setViewingsFor] = useState(null)
+  const openRemoteViews = useMemo(() => (auditor && typeof ctx?.listRemoteViewingsOfClip === 'function' ? (id) => setViewingsFor(id) : null), [auditor, ctx?.listRemoteViewingsOfClip])
+  // GW3: who is watching, for the mark over REMOTE playback (D9): the display
+  // name from the roster and a member code from the user id, never the email.
+  const me = ctx?.authUserId || null
+  const viewer = useMemo(() => {
+    const m = (people || []).find(p => p && (p.user_id === me || p.id === me))
+    return { userId: me, name: m?.display_name || m?.name || m?.username || 'You' }
+  }, [people, me])
+  const ensureTicket = useCallback((id) => { if (gatewayCloud && id) Promise.resolve(ctx?.ensureBinTickets?.([id])).catch(() => {}) }, [ctx, gatewayCloud])
+  const streamInfoFor = useCallback((id) => (gatewayCloud ? (ctx?.gatewayStreamInfo?.(id) || null) : null), [ctx, gatewayCloud])
+  const markFor = useCallback((id) => { const s = streamInfoFor(id); return s?.door ? { door: s.door, viewer } : null }, [streamInfoFor, viewer])
+  const renewStream = useCallback((id) => ctx?.renewGatewayStream?.(id), [ctx])
+  const freshSrc = useCallback((id) => ctx?.freshGatewayStreamUrl?.(id), [ctx])
+  const diagnose = useCallback((id) => ctx?.diagnoseGatewayClip?.(id), [ctx])
+  // §2: the view is read again every 60 s while the Bins tab is open.
+  const refreshGateways = ctx?.refreshGateways
+  useEffect(() => {
+    if (!pageActive || !gatewayCloud || typeof refreshGateways !== 'function') return undefined
+    const t = setInterval(() => { Promise.resolve(refreshGateways()).catch(() => {}) }, GATEWAY_REFRESH_MS)
+    return () => clearInterval(t)
+  }, [pageActive, gatewayCloud, refreshGateways])
+  // R12: the batch (≤ 50) for a played selection — several clips selected
+  // play in turn as the arrows move — never the whole grid on mount.
+  useEffect(() => {
+    if (!gatewayCloud || !mode.canStream || selection.size < 2) return
+    const ids = [...selection].filter(id => { const f = files.find(x => x.id === id); return f && f.online !== false && f.location_id && playabilityOf(f, { canPlayType: browserCanPlayType() }).playable }).slice(0, 50)
+    if (ids.length) Promise.resolve(ctx?.ensureBinTickets?.(ids)).catch(() => {})
+  }, [gatewayCloud, mode.canStream, selection, files, ctx])
+  // §2's table: the lines under the catalogue sentence, by the tab's state.
+  const isAdmin = gateCtx?.appRole === 'admin'
+  const gatewayLines = useMemo(() => {
+    if (!gatewayCloud || !gatewayInfo) return []
+    switch (gatewayInfo.state) {
+      case 'none': return isAdmin ? [GATEWAY_ADMIN_LINE] : []
+      case 'probing': return [CHROME_LOCAL_NETWORK_SENTENCE]
+      case 'unseen': return [gatewayUnseenSentence(gatewayInfo.name, gatewayInfo.unseenSeconds ?? 0)]
+      case 'unreachable': return [gatewayUnreachableSentence(gatewayInfo.name, gatewayInfo.address), GATEWAY_OWN_COMPUTER_LINE]
+      default: return []
+    }
+  }, [gatewayCloud, gatewayInfo, isAdmin])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
   // BC2: a company's clip names its footage location and who added it (B11).
   const locationById = useMemo(() => new Map((ctx?.binLocations || []).map(l => [l.id, l])), [ctx?.binLocations])
@@ -307,6 +361,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const locationOf = useCallback((row) => {
     const loc = row?.location_id ? locationById.get(row.location_id) || null : null
     const st = loc ? statusByLocation.get(loc.id) : null
+    // GW3: through the gateway the location carries the gateway's word for
+    // it (the sentence per location, §2's fourth row) and the door it is
+    // served through.
+    if (loc && st?.status === 'gateway') return { ...loc, gateway: st.gateway, gateway_name: st.gateway_name ?? null, door: st.door ?? null }
     return loc && st?.connected === false ? { ...loc, connected: false } : loc
   }, [locationById, statusByLocation])
   const addedByOf = useCallback((row) => (row?.location_id ? addedByName(row.added_by, people) : null), [people])
@@ -692,7 +750,10 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       // clip's picture large, and again puts it away; where a preview plays,
       // Space is the inspector's (BinInspector's own handler) and this does
       // nothing. A held key does not flicker it.
-      case ' ': if (!mode.canStream && currentId && !e.repeat) { e.preventDefault(); setPosterLarge(v => !v) } return
+      // GW3: in a browser Space opens the large view whatever plays — the
+      // gateway's player where the clip streams, the picture where it does
+      // not — and the inspector's preview leaves Space to it.
+      case ' ': if ((!mode.canStream || catalogue) && currentId && !e.repeat) { e.preventDefault(); setPosterLarge(v => !v) } return
       // Escape closes the picture first, keeping the selection; then it
       // clears the selection as it always has.
       case 'Escape': e.preventDefault(); if (posterLarge) return setPosterLarge(false); return clearSelection()
@@ -710,7 +771,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign, mode.canStream, posterLarge])
+  }, [pageActive, ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, removeAsk, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign, mode.canStream, catalogue, posterLarge])
   // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
   // HIGH): a React onKeyDown on the pane only fired while focus sat inside
   // it, and focus falls to <body> whenever the control just clicked unmounts
@@ -932,7 +993,16 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
       {catalogue && !noticeDismissed && (
         <Banner className="flex-shrink-0" tone="info" Icon={Monitor} data-testid="catalogue-notice"
           action={<IconBtn Icon={X} title="Got it" onClick={() => setNoticeDismissed(true)} />}>
-          <span className="block">{CATALOGUE_SENTENCE}</span>
+          {/* GW3: keyed on picking alone; the second sentence says where
+              playing stands (§2's table: no gateway, not seen, unreachable,
+              Chrome's prompt above the first probe). */}
+          <span className="block">{mode.canStream ? CATALOGUE_GATEWAY_SENTENCE : CATALOGUE_SENTENCE}</span>
+          {gatewayLines.map((line, i) => <span key={i} className="block" data-testid="gateway-line">{line}</span>)}
+        </Banner>
+      )}
+      {catalogue && noticeDismissed && gatewayLines.length > 0 && (gatewayInfo?.state === 'unseen' || gatewayInfo?.state === 'unreachable') && (
+        <Banner className="flex-shrink-0" tone="warning" Icon={Unplug} data-testid="gateway-notice">
+          {gatewayLines.map((line, i) => <span key={i} className="block" data-testid="gateway-line">{line}</span>)}
         </Banner>
       )}
 
@@ -1015,7 +1085,16 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                   {/* BC3: no count where every row is "not on this computer" (a
                       browser): the notice says it once, and the relink is the
                       desktop's. */}
-                  {stats.offline > 0 && !mode.nothingReachable && (
+                  {/* GW3: through the gateway the count is a count (no relink
+                      in a browser): the gateway's word per location is on
+                      each clip. */}
+                  {stats.offline > 0 && !mode.nothingReachable && gatewayCloud && (
+                    <span className="inline-flex items-center gap-1" style={{ color: C.amber }} data-testid="gateway-offline-count"
+                      title={`${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''} the gateway cannot reach`}>
+                      · <Unplug className="w-3 h-3" /> {stats.offline} {offlineWord}
+                    </span>
+                  )}
+                  {stats.offline > 0 && !mode.nothingReachable && !gatewayCloud && (
                     <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }}
                       title={caps?.locations
                         ? `Find the footage locations of the clips not on this computer (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`
@@ -1158,7 +1237,8 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
                 onRowDoubleClick={id => canWrite && setRenamingFileId(id)} onContextMenu={fileMenu}
                 thumbUrlFor={thumbUrlFor} streamUrlFor={mode.canStream ? streamUrlFor : null} tileWidth={tileWidth} canWrite={canWrite}
                 dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} usageCount={usageCount}
-                markOffline={!mode.nothingReachable} />
+                markOffline={!mode.nothingReachable}
+                onTicketWanted={gatewayCloud && mode.canStream ? ensureTicket : null} markFor={gatewayCloud ? markFor : null} />
             )}
             {renamingFileId && view === 'grid' && (
               // Keyed by the file: F2 on another tile gets a fresh draft, not the
@@ -1167,8 +1247,11 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
             )}
             {/* BC3: the picture large (Space where nothing can play), over the
                 pane like the rename bar — the Bins keys keep working under it. */}
-            {posterLarge && currentRow && !mode.canStream && (
-              <PosterLarge row={currentRow} location={locationOf(currentRow)} catalogue={catalogue} onClose={() => setPosterLarge(false)} />
+            {posterLarge && currentRow && (!mode.canStream || catalogue) && (
+              <PosterLarge row={currentRow} location={locationOf(currentRow)} catalogue={catalogue} onClose={() => setPosterLarge(false)}
+                canStream={gatewayCloud && mode.canStream} streamUrl={gatewayCloud && mode.canStream ? streamUrlFor(currentRow.id) : null}
+                streamInfo={streamInfoFor(currentRow.id)} viewer={viewer} gateway={gatewayInfo}
+                onTicketWanted={ensureTicket} onRenew={renewStream} onFreshSrc={freshSrc} onDiagnose={diagnose} />
             )}
 
             {/* ── Selection bar ── */}
@@ -1198,9 +1281,16 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
           usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} pageActive={pageActive}
-          locationOf={locationOf} addedByOf={addedByOf} remoteViewsFor={remoteViewsFor}
-          canStream={mode.canStream} canOpen={mode.canOpen} canProbe={mode.canProbe} catalogue={catalogue} />
+          locationOf={locationOf} addedByOf={addedByOf} remoteViewsFor={remoteViewsFor} onOpenRemoteViews={openRemoteViews}
+          canStream={mode.canStream} canOpen={mode.canOpen} canProbe={mode.canProbe} catalogue={catalogue}
+          gateway={gatewayInfo} streamInfoFor={streamInfoFor} onTicketWanted={ensureTicket} onRenew={renewStream} onFreshSrc={freshSrc} onDiagnose={diagnose}
+          viewer={viewer} spaceTogglesPreview={!catalogue} />
       </div>
+
+      {/* GW3 (item 5): the viewings table filtered to one clip, for an admin. */}
+      {viewingsFor && (
+        <RemoteViewingsDialog row={files.find(f => f.id === viewingsFor) || null} list={ctx?.listRemoteViewingsOfClip} onClose={() => setViewingsFor(null)} />
+      )}
 
       {/* No footer bar (UI overhaul Q10, "no shortcut bar anywhere"). Its keys
           are in Help → Shortcuts & Tips (rabbitHelpContent's BINS_SHORTCUTS)

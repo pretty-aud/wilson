@@ -12,6 +12,12 @@
 // it too. A null object (before the first list) reads as the signed-out
 // desktop, as BinsView always has (B12).
 //
+// GW3 (2026-10-11): the gateway exists, and a browser that reached one
+// answers `stream: true` while still picking nothing and opening nothing in
+// an OS. So `catalogue` is keyed on the two verbs no browser has (picking
+// and the OS), never on streaming: the notice and New bin stay where a
+// gateway plays, and `canStream` alone decides the player (§7).
+//
 // Pure, so binsViewBrowser.test.jsx can pin every answer.
 
 import { NOT_ON_THIS_COMPUTER } from './binLocations'
@@ -38,7 +44,7 @@ export function binsModeOf(caps) {
   const c = caps && typeof caps === 'object' ? caps : null
   const yes = (k) => (c ? c[k] !== false : true)
   return Object.freeze({
-    catalogue: !!c && c.pickFiles === false && c.stream === false,
+    catalogue: !!c && c.pickFiles === false && c.openInOs === false,
     canPick: yes('pickFiles'),
     canStream: yes('stream'),
     canProbe: yes('probe'),

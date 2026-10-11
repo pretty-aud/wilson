@@ -43,6 +43,7 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Dialog, Input, Tabs } from '../../ui'
+import RemoteViewingsTable, { whenWords } from './RemoteViewingsTable'
 import {
   listGateways, listEnrolmentTokens, listGatewayAudit, listRemoteViewings, makeEnrolmentToken,
   cancelEnrolmentToken, confirmGatewayFingerprint, fetchRootCertificate, renameGateway,
@@ -67,12 +68,6 @@ const SESSION_TOKENS = new Set()
 
 const PAGE_SIZE = 25
 const STORY_PANEL_ID = 's-gw-story-panel'
-
-function whenWords(iso) {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
 
 function sinceWords(iso, now) {
   const t = Date.parse(iso)
@@ -475,29 +470,8 @@ function ViewedFromOutside({ viewings, error, page, onPage }) {
       {!error && viewings && rows.length === 0 && <Row label="None" description={VIEWED_EMPTY} />}
       {rows.length > 0 && (
         <div className="s-gw-table-wrap">
-          <table className="s-table s-gw-table" data-testid="gateway-viewings">
-            <colgroup>
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '17%' }} />
-              <col style={{ width: '27%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '23%' }} />
-            </colgroup>
-            <thead>
-              <tr><th>When</th><th>Who</th><th>Clip and project</th><th>How much</th><th>From where, through</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="s-data">{whenWords(r.created_at)}</td>
-                  <td>{whoWords(r)}</td>
-                  <td><span className="s-data s-gw-clip">{r.file_name || 'a clip removed since'}</span><br />{r.project_title || 'a project you cannot open'}</td>
-                  <td>{howMuchWords(r.details || {})}</td>
-                  <td>{whereWords(r.details || {})}<br />through {r.details?.gateway_name ? gatewayNameWords(r.details.gateway_name) : 'a gateway forgotten since'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* GW3: the one table, shared with the Bins inspector's per-clip view (RemoteViewingsTable.jsx). */}
+          <RemoteViewingsTable rows={rows} />
         </div>
       )}
       {total > PAGE_SIZE && (

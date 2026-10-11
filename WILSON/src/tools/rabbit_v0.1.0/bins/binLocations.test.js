@@ -15,7 +15,12 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { isUncPath, normalizeUncInput, suggestLocationName, addedByName, locationReachWords, notHereSentence, NOT_ON_THIS_COMPUTER } from './binLocations'
+import {
+  isUncPath, normalizeUncInput, suggestLocationName, addedByName, locationReachWords, notHereSentence, NOT_ON_THIS_COMPUTER,
+  CATALOGUE_SENTENCE, CATALOGUE_GATEWAY_SENTENCE, GATEWAY_ADMIN_LINE, CHROME_LOCAL_NETWORK_SENTENCE, NEEDS_DESKTOP_FORMAT, GATEWAY_LOADING,
+  GATEWAY_OWN_COMPUTER_LINE, PLAYER_LARGE_HINT, POSTER_LARGE_HINT, gatewayUnseenSentence, gatewayUnreachableSentence, GATEWAY_REACH_WORDS,
+  gatewayReachWord, gatewayClipSentence, gatewayMissingSentence, browserClipSentence,
+} from './binLocations'
 
 describe('normalizeUncInput: what a person pastes, in the stored shape', () => {
   const cases = [
@@ -83,5 +88,64 @@ describe('in words', () => {
     expect(locationReachWords({ reachable: false })).toBe('Not reachable from this computer')
     expect(locationReachWords({ reachable: true, local_path: 'Z:\\' })).toBe('On this computer at Z:\\')
     expect(locationReachWords({ reachable: false, local_path: 'Z:\\' })).toBe('Not reachable from this computer (looked in Z:\\)')
+  })
+})
+
+// ── GW3: the file gateway, in the Bins tab's words (GATEWAY_DESIGN.md §2, §5, §7) ──
+describe('GW3: the gateway\'s words', () => {
+  it('the catalogue sentence with a gateway says clips play here and adding still needs the desktop; the admin\'s line names Settings, Storage', () => {
+    expect(CATALOGUE_GATEWAY_SENTENCE).toContain('Clips play here through the company\'s file gateway')
+    expect(CATALOGUE_GATEWAY_SENTENCE).toContain('adding clips still needs the desktop app')
+    expect(CATALOGUE_GATEWAY_SENTENCE.split('. ')[0]).toBe(CATALOGUE_SENTENCE.split('. ')[0])
+    expect(GATEWAY_ADMIN_LINE).toBe('A file gateway lets browsers play clips from the company\'s server: Settings, Storage.')
+    expect(CHROME_LOCAL_NETWORK_SENTENCE).toBe('Chrome will ask whether WILSON may reach devices on your network; allow it once.')
+    expect(PLAYER_LARGE_HINT).toBe('Space plays the clip large.')
+    expect(POSTER_LARGE_HINT).toBe('Space shows the picture large.')
+    expect(GATEWAY_LOADING).toBe('loading') // D22: nothing more while the first play's round trip runs
+    expect(NEEDS_DESKTOP_FORMAT).toBe('This clip\'s format does not play in a browser; the desktop app plays it.')
+    expect(GATEWAY_OWN_COMPUTER_LINE).toContain('does not answer its own host')
+  })
+
+  it('§2\'s second and third rows: the gateway named, the silence in minutes, the certificate named', () => {
+    expect(gatewayUnseenSentence('Studio NAS', 240)).toBe('The company\'s gateway "Studio NAS" has not answered WILSON for 4 minutes, so clips cannot play here. Everything else works; someone on the office network can check it.')
+    expect(gatewayUnseenSentence('Studio NAS', 45)).toContain('for 45 seconds')
+    expect(gatewayUnseenSentence('Studio NAS', 60)).toContain('for 60 seconds') // under 90 s the count is in seconds
+    expect(gatewayUnseenSentence('Studio NAS', 100)).toContain('for 2 minutes')
+    expect(gatewayUnseenSentence('Studio NAS', 3 * 3600)).toContain('for 3 hours')
+    expect(gatewayUnseenSentence(null, 120)).toBe('The company\'s gateway has not answered WILSON for 2 minutes, so clips cannot play here. Everything else works; someone on the office network can check it.')
+    expect(gatewayUnreachableSentence('Studio NAS', '192.168.1.10:8443')).toBe('WILSON can see the gateway "Studio NAS" but this browser cannot reach it at 192.168.1.10:8443. On the office network, the gateway\'s certificate must be installed on this computer (Settings, Storage). From outside, the switch is off or the outside door is not open.')
+    expect(gatewayUnreachableSentence(null, null)).toBe('WILSON can see the gateway but this browser cannot reach it. On the office network, the gateway\'s certificate must be installed on this computer (Settings, Storage). From outside, the switch is off or the outside door is not open.')
+  })
+
+  it('§2\'s fourth row: the four reach words are the gateway\'s own, in the design\'s shape', () => {
+    expect(GATEWAY_REACH_WORDS).toEqual({
+      not_reachable: 'not reachable through the gateway',
+      not_mounted: 'not mounted on the gateway',
+      not_connected: 'not connected on the gateway: run share-login on the gateway',
+      unknown_address: 'this gateway cannot use this address',
+    })
+    expect(Object.isFrozen(GATEWAY_REACH_WORDS)).toBe(true)
+    expect(gatewayReachWord('not_reachable', 'Archive')).toBe('not reachable through the gateway (Archive)')
+    expect(gatewayReachWord('unknown_address', null)).toBe('this gateway cannot use this address')
+    expect(gatewayReachWord('nonsense', 'A')).toBe('not reachable through the gateway (A)')
+  })
+
+  it('the sentence under a clip: one per state, each naming the location where there is one and keeping the logging tail', () => {
+    const tail = 'It can still be logged, flagged and assigned to a shot.'
+    const states = ['no_gateway', 'gateway_unreachable', 'unseen', 'not_mounted', 'not_connected', 'unknown_address', 'not_reachable']
+    const sentences = states.map((s) => gatewayClipSentence('Footage NAS', s))
+    expect(new Set(sentences).size).toBe(states.length)
+    for (const s of sentences) expect(s.endsWith(tail)).toBe(true)
+    expect(gatewayClipSentence('Footage NAS', 'not_mounted')).toBe(`"Footage NAS" is not mounted on the gateway, so the clip cannot be played here. ${tail}`)
+    expect(gatewayClipSentence('Footage NAS', 'not_connected')).toContain('run share-login on the gateway')
+    expect(gatewayClipSentence('Footage NAS', 'unknown_address')).toBe(`The gateway cannot use the address of "Footage NAS", so the clip cannot be played here. ${tail}`)
+    expect(gatewayClipSentence('Footage NAS', 'no_gateway')).toContain('No file gateway is enrolled')
+    expect(gatewayClipSentence('Footage NAS', 'gateway_unreachable')).toContain('This browser cannot reach the company\'s file gateway')
+    expect(gatewayClipSentence('Footage NAS', 'unseen')).toContain('has not answered WILSON')
+    expect(gatewayClipSentence(null, 'not_reachable')).toBe(`Its footage location is not reachable through the gateway, so the clip cannot be played here. ${tail}`)
+    expect(gatewayMissingSentence('Footage NAS')).toBe(`The clip is not at its path on "Footage NAS": the gateway looked and found nothing there. ${tail}`)
+    expect(gatewayMissingSentence(null)).toContain('on its footage location:')
+    // The plain browser sentence (no gateway enrolled, the fixtures' catalogue) is unchanged.
+    expect(browserClipSentence('Footage NAS')).toContain('A browser cannot read "Footage NAS"')
   })
 })

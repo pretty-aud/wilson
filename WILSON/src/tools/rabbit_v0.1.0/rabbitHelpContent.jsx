@@ -7,9 +7,13 @@ import { Kbd } from '../../ui';
 // BC2: the Bins page quotes the controls' own words. BC3: the browser's and
 // the migration's, from the pure modules that hold them (never from a panel
 // whose imports build the Supabase client: CI has no address).
+// GW3: the gateway plays in a browser — the catalogue sentence with a
+// gateway, the format that needs the desktop app, and the gateway's four
+// words per location, from the same pure module.
 import {
-  ADD_NEEDS_DESKTOP as ADD_NEEDS_DESKTOP_WORDS, CATALOGUE_SENTENCE as CATALOGUE_WORDS, PLAY_NEEDS_DESKTOP as PLAY_NEEDS_DESKTOP_WORDS,
-  POSTER_LARGE_HINT as POSTER_LARGE_WORDS, NOT_ON_THIS_COMPUTER as NOT_HERE_WORDS,
+  ADD_NEEDS_DESKTOP as ADD_NEEDS_DESKTOP_WORDS, CATALOGUE_SENTENCE as CATALOGUE_WORDS, CATALOGUE_GATEWAY_SENTENCE as CATALOGUE_GATEWAY_WORDS,
+  POSTER_LARGE_HINT as POSTER_LARGE_WORDS, PLAYER_LARGE_HINT as PLAYER_LARGE_WORDS, NOT_ON_THIS_COMPUTER as NOT_HERE_WORDS,
+  NEEDS_DESKTOP_FORMAT as NEEDS_DESKTOP_FORMAT_WORDS, GATEWAY_REACH_WORDS, CHROME_LOCAL_NETWORK_SENTENCE as CHROME_LOCAL_NETWORK_WORDS,
 } from './bins/binLocations';
 import { REMOTE_VIEWING_LABEL as REMOTE_VIEWING_WORDS } from './bins/cloudPosters';
 import { LOCATION_QUESTION as LOCATION_QUESTION_WORDS, LEAVE_FOR_NOW as LEAVE_FOR_NOW_WORDS } from '../../cloud/migrate/binsMigration';
@@ -35,7 +39,7 @@ export const BINS_SHORTCUTS = [
   { keys: [['C']], does: 'Circle, or uncircle' },
   { keys: [['1'], ['8']], range: true, does: 'Colour; 0 clears it' },
   { keys: [['A']], does: 'Assign to shot' },
-  { keys: [['Space']], does: 'Play or pause the preview; in a browser, show the picture large' },
+  { keys: [['Space']], does: 'Play or pause the preview; in a browser, play the clip large through the gateway, or show its picture where it cannot play' },
   { keys: [['F2'], ['Enter']], does: 'Rename' },
   { keys: [['Del'], ['Backspace']], does: 'Remove from the bin (undo in the toast)' },
   { keys: [['Ctrl', 'Z']], does: 'Undo' },
@@ -518,6 +522,19 @@ export function RabbitHelpContent({ helpPage, theme }) {
               the company&apos;s VPN is not. Forget stops a gateway at once and
               can be undone for a minute.
             </p>
+            {/* GW3: the two reach words GW2's gateway added (its hand-off, "For GW3"). */}
+            <p className={T.listItem}>
+              The card&apos;s health line names each footage location as the
+              gateway reports it: reachable, not reachable, not mounted (with
+              the container&apos;s mount line), or not connected — a Windows
+              gateway contacts a share&apos;s server only after an administrator
+              of that computer has run share-login for it, so for such a
+              location the card says {GATEWAY_REACH_WORDS.not_connected}. A
+              location whose address is no share address at all (a device
+              path, a WebDAV address, an administrative or a pipe share) is
+              left out of the gateway&apos;s report, and the card says
+              {' '}{GATEWAY_REACH_WORDS.unknown_address}.
+            </p>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Adding clips</h4>
@@ -546,7 +563,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
               On a computer that reaches the share, the preview plays the clip
               where it is and moving across a tile scrubs it; Open in default
               app hands it to the computer&apos;s own player. Nothing is copied
-              to this computer. In a browser nothing plays yet: {PLAY_NEEDS_DESKTOP_WORDS}
+              to this computer. In a browser a clip plays through the
+              company&apos;s file gateway where one is enrolled and this
+              browser reaches it (the card below); without one, nothing plays
+              in a browser and the desktop app does.
             </p>
           </div>
           <div className={T.card}>
@@ -562,6 +582,25 @@ export function RabbitHelpContent({ helpPage, theme }) {
               Remove with Undo in the toast; a change made here shows up for
               everyone, and the keyboard review keys work with no preview:
               {' '}{POSTER_LARGE_WORDS}
+            </p>
+            {/* GW3: the gateway plays in a browser. */}
+            <p className={T.listItem}>
+              With a file gateway (App settings, Storage, File gateway) that
+              this browser reaches, the notice reads instead: {CATALOGUE_GATEWAY_WORDS}
+              {' '}Then a clip&apos;s preview plays it where it is, moving
+              across a tile scrubs it, and {PLAYER_LARGE_WORDS} The first play
+              of a clip shows its picture and loading for a moment. A clip the
+              gateway cannot serve keeps its picture, marked {NOT_HERE_WORDS},
+              and says why under it, naming the location: {GATEWAY_REACH_WORDS.not_reachable},
+              {' '}{GATEWAY_REACH_WORDS.not_mounted}, {GATEWAY_REACH_WORDS.not_connected},
+              or {GATEWAY_REACH_WORDS.unknown_address}. A format a browser does
+              not decode keeps its picture too: {NEEDS_DESKTOP_FORMAT_WORDS}
+              {' '}On the office network a clip plays through the office door
+              and nothing is written down; from outside, through the outside
+              door only while the company&apos;s switch is on, every viewing is
+              written down, and your display name, a six-character member code
+              and the time sit over the picture, moved every half minute. The
+              first time: {CHROME_LOCAL_NETWORK_WORDS}
             </p>
           </div>
           <div className={T.card}>

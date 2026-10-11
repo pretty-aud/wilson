@@ -108,18 +108,104 @@ export const NOT_ON_THIS_COMPUTER = 'not on this computer'
 // and says plainly that adding files and playing them needs the desktop
 // app." One notice at the top of the tab says it, once; no control is
 // disabled without this reason beside it.
-export const PLAY_NEEDS_DESKTOP = 'Playing a clip needs the desktop app on a computer that can reach the footage.'
+// GW3 (2026-10-11): the gateway exists. The notice is keyed on picking alone
+// (adding still needs the desktop); playing is the gateway's where one is
+// reached, and the sentences below say what stands between a clip and the
+// player when it is not (GATEWAY_DESIGN.md §2's table, §5, §7).
 export const CATALOGUE_SENTENCE = 'This is the catalogue: every bin and clip, with its picture where the company allows one, its logging, its marks and its takes. Adding clips and playing them need the desktop app on a computer that can reach the footage.'
+export const CATALOGUE_GATEWAY_SENTENCE = 'This is the catalogue: every bin and clip, with its picture where the company allows one, its logging, its marks and its takes. Clips play here through the company\'s file gateway; adding clips still needs the desktop app on a computer that can reach the footage.'
 export const CATALOGUE_EMPTY_BINS_SENTENCE = 'A bin lists clips where they sit on the company\'s footage locations. Clips are added from the desktop app on a computer that reaches the footage.'
 /** What Space does where nothing can play: the picture, large. */
 export const POSTER_LARGE_HINT = 'Space shows the picture large.'
+/** What Space does where the gateway plays (GW3): the clip, large. */
+export const PLAYER_LARGE_HINT = 'Space plays the clip large.'
 /**
- * The sentence under a company's clip in a browser (B3, in BC3's words): a
- * browser reads no share, so "not reachable from this computer" would
- * counsel a folder question that no browser can answer. It names what to do.
+ * The sentence under a company's clip in a browser with no gateway reached
+ * (B3, in BC3's words): a browser reads no share, so "not reachable from this
+ * computer" would counsel a folder question that no browser can answer. It
+ * names what to do. Kept for the dev fixtures' plain catalogue; with a
+ * gateway enrolled the sentence is gatewayClipSentence's.
  */
 export function browserClipSentence(locationName) {
   return `A browser cannot read ${locationName ? `"${locationName}"` : 'its footage location'}, so the clip cannot be played here; open the project in the desktop app on a computer that reaches the share to play it. It can still be logged, flagged and assigned to a shot.`
+}
+
+// ── GW3: the file gateway, in the Bins tab's words (GATEWAY_DESIGN.md §2, §5, §7) ──
+/** §2's first row, the admin's extra line under the catalogue sentence. */
+export const GATEWAY_ADMIN_LINE = 'A file gateway lets browsers play clips from the company\'s server: Settings, Storage.'
+/** §2: Chrome's Local Network Access prompt, said above the first probe. */
+export const CHROME_LOCAL_NETWORK_SENTENCE = 'Chrome will ask whether WILSON may reach devices on your network; allow it once.'
+/** §7, G7/D8: a format the browser does not play; no transcoding anywhere. */
+export const NEEDS_DESKTOP_FORMAT = 'This clip\'s format does not play in a browser; the desktop app plays it.'
+/** D22: the first play of a clip costs one round trip to the cloud; the UI says nothing but this. */
+export const GATEWAY_LOADING = 'loading'
+/** The office door closes its own host before TLS (§4): a browser on the gateway's own computer cannot use it. */
+export const GATEWAY_OWN_COMPUTER_LINE = 'On the gateway\'s own computer the office door does not answer its own host: use another computer on the office network, or the outside door while the switch is on.'
+
+function minutesWords(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0))
+  if (s < 90) return `${s} seconds`
+  const m = Math.round(s / 60)
+  if (m < 90) return `${m} minute${m === 1 ? '' : 's'}`
+  const h = Math.round(m / 60)
+  return `${h} hour${h === 1 ? '' : 's'}`
+}
+
+/** §2's second row: enrolled, not seen for over 30 s. */
+export function gatewayUnseenSentence(name, seconds) {
+  return `The company's gateway ${name ? `"${name}"` : ''} has not answered WILSON for ${minutesWords(seconds)}, so clips cannot play here. Everything else works; someone on the office network can check it.`.replace('gateway  has', 'gateway has')
+}
+/** §2's third row: seen, but this browser's probes fail (naming the certificate). */
+export function gatewayUnreachableSentence(name, address) {
+  return `WILSON can see the gateway ${name ? `"${name}"` : ''} but this browser cannot reach it${address ? ` at ${address}` : ''}. On the office network, the gateway's certificate must be installed on this computer (Settings, Storage). From outside, the switch is off or the outside door is not open.`.replace('gateway  but', 'gateway but')
+}
+
+/**
+ * §2's fourth row, per location, as the gateway reports it (the four words
+ * of its reach report) or as its absence from the report says ("this
+ * gateway cannot use this address", GW2's hand-off): the word the tab shows
+ * beside a location's name.
+ */
+export const GATEWAY_REACH_WORDS = Object.freeze({
+  not_reachable: 'not reachable through the gateway',
+  not_mounted: 'not mounted on the gateway',
+  not_connected: 'not connected on the gateway: run share-login on the gateway',
+  unknown_address: 'this gateway cannot use this address',
+})
+/** "not reachable through the gateway (Archive)" — the design's exact shape. */
+export function gatewayReachWord(state, locationName) {
+  const word = GATEWAY_REACH_WORDS[state] || GATEWAY_REACH_WORDS.not_reachable
+  return `${word}${locationName ? ` (${locationName})` : ''}`
+}
+/**
+ * The sentence under a company's clip the gateway cannot serve (the
+ * desktop's notHereSentence shape). `state`: one of the reach words above,
+ * or 'no_gateway' (none enrolled), 'gateway_unreachable' (none answered this
+ * browser), 'unseen' (none has answered the cloud for over 30 s).
+ */
+export function gatewayClipSentence(locationName, state) {
+  const loc = locationName ? `"${locationName}"` : 'Its footage location'
+  const tail = 'It can still be logged, flagged and assigned to a shot.'
+  switch (state) {
+    case 'no_gateway':
+      return `No file gateway is enrolled, so the clip cannot be played in a browser; the desktop app on a computer that reaches the share plays it. ${tail}`
+    case 'gateway_unreachable':
+      return `This browser cannot reach the company's file gateway, so the clip cannot be played here. ${tail}`
+    case 'unseen':
+      return `The company's file gateway has not answered WILSON, so the clip cannot be played here. ${tail}`
+    case 'not_mounted':
+      return `${loc} is not mounted on the gateway, so the clip cannot be played here. ${tail}`
+    case 'not_connected':
+      return `${loc} is not connected on the gateway yet (run share-login on the gateway), so the clip cannot be played here. ${tail}`
+    case 'unknown_address':
+      return `The gateway cannot use the address of ${loc}, so the clip cannot be played here. ${tail}`
+    default:
+      return `${loc} is not reachable through the gateway, so the clip cannot be played here. ${tail}`
+  }
+}
+/** A 404 from the gateway: the clip is not at its path (the desktop's "missing at its location" shape). */
+export function gatewayMissingSentence(locationName) {
+  return `The clip is not at its path on ${locationName ? `"${locationName}"` : 'its footage location'}: the gateway looked and found nothing there. It can still be logged, flagged and assigned to a shot.`
 }
 
 // ── Consent before contact (BC2 review round 1) ──
