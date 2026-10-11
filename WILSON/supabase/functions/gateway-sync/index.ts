@@ -27,6 +27,12 @@
 // answer has gone (EdgeRuntime.waitUntil), a second later. By then the
 // gateway has had an answer carrying the nonce, so one answer lost on the way
 // cannot read as "not your gateway".
+//
+// GW3 (2026-10-11, the two halves reconciled): the answer names the
+// workspace (`workspace_id`, the credential's row's), as the enrol answer
+// does: the gateway takes it from either answer at any time, and checks every
+// ticket's `ws` against it (GW2's hand-off, "For GW3", item 1). The field
+// list is SYNC_ANSWER_FIELDS in _shared/gatewayShapes.ts.
 // =============================================================================
 
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
@@ -85,6 +91,7 @@ Deno.serve(async (req: Request) => {
   const floors = versionFloors()
   const name = r.name as string
   const reply = answer({
+    workspace_id: workspaceId,
     remote_viewing: r.remote_viewing === true,
     outside_address: r.outside_address ?? null,
     office_ranges: r.office_ranges ?? [],

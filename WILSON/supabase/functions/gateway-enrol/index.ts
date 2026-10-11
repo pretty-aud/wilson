@@ -29,6 +29,13 @@
 // key is made here if it has none, so `signing_keys` is never empty for a
 // gateway that enrolled after the secret was set.
 //
+// GW3 (2026-10-11, the two halves reconciled): the answer names the
+// workspace (`workspace_id`, the token row's). A ticket carries `ws`, and
+// the gateway checks it against the workspace the cloud named; with neither
+// answer naming one, GW2's gateway refused every ticket (`wrong_workspace`;
+// its hand-off, "For GW3", item 1). The field list is ENROL_ANSWER_FIELDS in
+// _shared/gatewayShapes.ts, pinned by src/cloud/gatewayEdge.test.js.
+//
 // verify_jwt = false (config.toml): the caller has no sign-in token at all.
 // =============================================================================
 
@@ -97,6 +104,7 @@ Deno.serve(async (req: Request) => {
   return answer({
     gateway_id: result.gateway_id,
     credential,
+    workspace_id: workspaceId,
     workspace_name: result.workspace_name,
     signing_keys: signingKeys,
     web_app_origins: webAppOrigins(Deno.env.get('WILSON_SITE_URL'), Deno.env.get('WILSON_GATEWAY_WEB_ORIGINS')),

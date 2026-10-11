@@ -14,6 +14,8 @@ import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
+// GW3: the gateway's doors in the page (the probe, the tickets, the bytes).
+import { createGatewayDoorsStub } from './gatewayDoors'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
 import { BUILTIN } from '../../lib/aiModels'
@@ -36,6 +38,7 @@ export function buildDevFixtures({ variant = null, bins = null } = {}) {
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
   const binsOptions = { browser: bins === 'browser' }
   let rabbitAdapter = null
+  const gatewayDoors = createGatewayDoorsStub(store, identity)
 
   return {
     label: PROJECT.title,
@@ -71,7 +74,16 @@ export function buildDevFixtures({ variant = null, bins = null } = {}) {
      * File gateway and the Bins inspector's one line, without a database.
      * `?gateways=empty` starts before the company's first gateway.
      */
-    gateways: createGatewayFixtures(store, identity, { mode: gatewayFixtureMode() }),
+    gateways: createGatewayFixtures(store, identity, { mode: gatewayFixtureMode(), doors: gatewayDoors }),
+
+    /**
+     * GW3: what the Bins tab's gateway adapter talks to instead of a gateway
+     * on the network — the probe, the tickets, the bytes (a bundled clip of
+     * random frames), the renewal — so port 5289 plays a clip "through the
+     * gateway" with no listener. `?gateway=outside` puts the viewer's mark
+     * over every player; `?gateway=none|unseen|unreachable` are §2's cases.
+     */
+    gatewayDoors,
 
     /** What useWorkspaceMembers / ProfileSection read and write. */
     workspace: {

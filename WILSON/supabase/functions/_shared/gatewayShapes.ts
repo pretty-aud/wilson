@@ -254,6 +254,13 @@ export type SyncReport = {
   inside_addresses?: Array<{ host: string; port: number }>
   reach: Record<string, string>
   health: Record<string, unknown>
+  // GW3 (migration 0095): a root the gateway reports at sync — the one it
+  // signs its leaves with now (after a start or a new root), and the next
+  // one it made a year before the old one's end. Each exactly one PEM
+  // certificate, never a key; gateway_sync_apply stores one the admin has
+  // not confirmed in the next-root slot (GW2's hand-off, "For GW3", item 4).
+  root_cert_pem?: string
+  next_root_cert_pem?: string
 }
 export type ConfirmItem = { clip: string; loc: string; path: string }
 
@@ -320,6 +327,10 @@ export function parseSyncRequest(raw: unknown): { ok: true; report: SyncReport; 
   if (raw.inside_addresses !== undefined || raw.addresses !== undefined) {
     report.inside_addresses = cleanInsideAddresses(raw.inside_addresses ?? raw.addresses, raw.inside_port)
   }
+  // GW3 (0095): the roots, one PEM certificate each (≤ 16 KB); anything else
+  // is dropped, not fatal — the heartbeat must land whatever rides with it.
+  if (isSingleCertificatePem(raw.root_cert_pem)) report.root_cert_pem = raw.root_cert_pem
+  if (isSingleCertificatePem(raw.next_root_cert_pem)) report.next_root_cert_pem = raw.next_root_cert_pem
   const confirmIn = Array.isArray(raw.confirm) ? raw.confirm : []
   if (confirmIn.length > MAX_CONFIRM) {
     return refuse(400, 'too_many_confirm', 'At most 100 clips can be confirmed in one sync.')
@@ -372,6 +383,28 @@ export function parseReachRequest(raw: unknown): { ok: true; gatewayId: string }
   }
   return { ok: true, gatewayId: raw.gateway_id }
 }
+
+// ── The answers' fields (GW3, 2026-10-11: the two halves reconciled) ─────────
+//
+// Appendix C fixes the answers' shapes; these two lists are the fields the
+// deployed functions send, in their order, so a test can hold each function
+// to its list and the gateway's reader (gateway/src/cloud/client.mjs,
+// cleanEnrolAnswer and cleanSyncAnswer) to the same names. `workspace_id`
+// is in both: a ticket's `ws` is checked against it by the gateway, which
+// refused every ticket while neither answer carried it (GW2's hand-off,
+// "For GW3", item 1; the vectors file's notes say so too).
+
+/** gateway-enrol's answer, once. */
+export const ENROL_ANSWER_FIELDS = [
+  'gateway_id', 'credential', 'workspace_id', 'workspace_name', 'signing_keys', 'web_app_origins', 'sync_interval_s',
+] as const
+
+/** gateway-sync's answer, every ten seconds. */
+export const SYNC_ANSWER_FIELDS = [
+  'workspace_id', 'remote_viewing', 'outside_address', 'office_ranges', 'signing_keys', 'web_app_origins', 'bin_locations',
+  'confirmed', 'minimum_version', 'hard_minimum_version', 'check_update_now', 'check_reach_now', 'reach_nonce', 'renamed',
+  'sync_interval_s',
+] as const
 
 // ── The answers' configuration ───────────────────────────────────────────────
 

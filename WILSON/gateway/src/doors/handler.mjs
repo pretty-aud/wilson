@@ -3,10 +3,13 @@
 //
 //   GET /v1/health   inside: { name, version, doors, reach, certificate }, the
 //                    health line's data; outside: { ok: true } only, plus
-//                    `nonce_echo` when the request carries the cloud's CURRENT
+//                    `nonce_proof` when the request carries the cloud's CURRENT
 //                    reach nonce (header Wilson-Reach-Nonce; compared in
-//                    constant time). Nothing else leaves the outside door
-//                    (F5, R17).
+//                    constant time): HMAC-SHA256 of the nonce keyed by this
+//                    gateway's reach key (wire/formats.mjs reachProof; GW3,
+//                    reconciled with GW1's review rounds 1 and 2, which found
+//                    that an echo of the nonce proved nothing). Nothing else
+//                    leaves the outside door (F5, R17).
 //   GET /v1/path     inside: { gateway_id, path: 'inside', version };
 //                    outside: 404 (R17)
 //   GET|HEAD /v1/clips/{id}?t=…      both (clips.mjs)
@@ -25,7 +28,7 @@
 import { serveClip, renewClip } from './clips.mjs';
 import { respond, corsHeaders, preflight, escapeHtml } from './http.mjs';
 import { hasProxyHeader } from '../rules/peers.mjs';
-import { constantTimeEqual } from '../wire/formats.mjs';
+import { constantTimeEqual, reachProof } from '../wire/formats.mjs';
 import { displayFingerprint } from '../certs/x509.mjs';
 import { normalizeIp } from '../rules/ip.mjs';
 
@@ -107,8 +110,12 @@ export function makeHandler(ctx, door) {
         if (door === 'outside') {
           const asked = req.headers['wilson-reach-nonce'];
           const current = ctx.reachNonce();
+          const key = typeof ctx.reachKey === 'function' ? ctx.reachKey() : null;
           const body = { ok: true };
-          if (typeof asked === 'string' && current && constantTimeEqual(asked, current)) body.nonce_echo = current;
+          // The proof, never an echo: without the reach key (not enrolled, or
+          // the credential unreadable) nothing is proved and the answer is
+          // { ok: true } alone, which the cloud reads as "not this gateway".
+          if (typeof asked === 'string' && current && key && constantTimeEqual(asked, current)) body.nonce_proof = reachProof(key, current);
           respond(req, res, 200, { headers: cors, body: JSON.stringify(body), type: 'application/json' });
           return;
         }

@@ -19,7 +19,9 @@ import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import { Gateway } from '../src/runtime.mjs';
+import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
 import { createFakeCloud, FAKE_BASE } from './fakeCloud.mjs';
 import { makeShare, SUB, SUB2, CLIP, CLIP2, LOC } from './harness.mjs';
 import { VERSION } from '../src/version.mjs';
@@ -422,5 +424,108 @@ describe('what is written down reaches the cloud (§6)', () => {
       expect(e.external_id).toBe(`${W.cloud.onlyGateway()}:${e.viewing_id}`);
       await waitFor(() => fs.readFileSync(path.join(W.stateDir, 'journal'), 'utf8') === '');
     } finally { await W.close(); }
+  });
+});
+
+// GW3 (2026-10-11): the two halves reconciled on the reach answer. The REAL
+// runtime, enrolled against the fake cloud, is probed by the fake cloud's own
+// probe (the function behind its /_control/probe), which reads the answer as
+// GW1's gatewayReach.ts does: reached only on nonce_proof, the HMAC of the
+// nonce keyed by the reach key the cloud kept at enrolment.
+describe('GW3: the reach proof, the real runtime against the fake cloud\'s probe', () => {
+  it('the outside door proves the nonce its last sync handed over; no nonce, a nonce it has not seen, or a stale one is not this gateway', async () => {
+    const W = await world();
+    try {
+      await switchOn(W);
+      const rootPem = fs.readFileSync(path.join(W.stateDir, 'certs', 'root.pem'), 'utf8');
+      const probe = () => W.cloud.reachProbe({ host: '127.0.0.1', port: W.gw.outsidePort, ca: rootPem, servername: 'studio-nas' });
+      // No check running: nothing to prove, and the probe knows it checked nothing.
+      W.cloud.state.reachNonce = null;
+      expect(await probe()).toMatchObject({ status: 200, isThisGateway: false, proof_checked: false, body: { ok: true } });
+      // The cloud begins a check: its nonce rides the next sync, and the door proves it.
+      W.cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
+      W.cloud.state.checkReachNow = true;
+      await W.gw.syncNow();
+      const r = await probe();
+      expect(r).toMatchObject({ status: 200, isThisGateway: true, proof_checked: true });
+      expect(r.body).toEqual({ ok: true, nonce_proof: expect.stringMatching(/^[0-9a-f]{64}$/) });
+      expect(r.body.nonce_echo).toBeUndefined();
+      // A fresh nonce the gateway has not synced yet: the door still holds the old one, and proves nothing for the new.
+      W.cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
+      expect(await probe()).toMatchObject({ isThisGateway: false, proof_checked: true, body: { ok: true } });
+      await W.gw.syncNow();
+      expect(await probe()).toMatchObject({ isThisGateway: true });
+      // The credential the proof is keyed by is the one the cloud kept: another gateway's key proves nothing here.
+      const stranger = crypto.randomUUID();
+      W.cloud.state.gateways.set(stranger, { credHash: 'x', reachKey: crypto.randomBytes(32).toString('hex'), revokedAt: null });
+      expect(await W.cloud.reachProbe({ host: '127.0.0.1', port: W.gw.outsidePort, ca: rootPem, servername: 'studio-nas', gateway_id: stranger })).toMatchObject({ isThisGateway: false });
+    } finally { await W.close(); }
+  });
+  it('started again from its saved credential (no token), the gateway still proves the nonce, and a year before its root\'s end it makes the NEXT root and reports it at sync (0095 lands it as next)', async () => {
+    const clock = { offset: 0 };
+    const W = await world({ clock });
+    const again = () => new Gateway({
+      env: { WILSON_CLOUD_URL: W.cloud.base }, stateDir: W.stateDir, now: () => Date.now() + clock.offset, hostname: 'studio-nas',
+      fetchImpl: W.cloud.fetch, secrets: plainSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {},
+      locationRootFor: () => share.root, shareLogins: NAS_LOGIN,
+      tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
+    });
+    let gw2 = null;
+    try {
+      await waitFor(() => W.cloud.lastReport());
+      expect(W.cloud.lastReport().next_root_cert_pem).toBeUndefined();
+      const rootPem = fs.readFileSync(path.join(W.stateDir, 'certs', 'root.pem'), 'utf8');
+      const rootEnd = Date.parse(new crypto.X509Certificate(rootPem).validTo);
+      await W.gw.stop();
+      // 1. Started again, no token: the reach key came back with the credential, and the door proves the nonce.
+      gw2 = again();
+      await gw2.start();
+      W.cloud.state.switchOn = true;
+      W.cloud.state.outsideAddress = { host: '127.0.0.1', port: 8444 };
+      W.cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
+      W.cloud.state.checkReachNow = true;
+      await gw2.syncNow();
+      await waitFor(() => gw2.outsideState === 'open');
+      expect(await W.cloud.reachProbe({ host: '127.0.0.1', port: gw2.outsidePort, ca: rootPem, servername: 'studio-nas' }))
+        .toMatchObject({ status: 200, isThisGateway: true, proof_checked: true });
+      expect(W.cloud.lastReport().next_root_cert_pem).toBeUndefined();
+      await gw2.stop();
+      // 2. Started again 200 days before the root's end (inside the year the next root is made in, outside the
+      //    month it takes over in): the next root rides the sync, beside the current one, and is not it.
+      clock.offset = rootEnd - 200 * 86_400_000 - Date.now();
+      gw2 = again();
+      await gw2.start();
+      await gw2.syncNow();
+      const report = W.cloud.lastReport();
+      expect(report.next_root_cert_pem).toMatch(/BEGIN CERTIFICATE/);
+      expect(report.next_root_cert_pem).not.toBe(report.root_cert_pem ?? rootPem);
+      expect(Date.parse(new crypto.X509Certificate(report.next_root_cert_pem).validTo)).toBeGreaterThan(rootEnd);
+    } finally {
+      if (gw2) await gw2.stop();
+      fs.rmSync(W.stateDir, { recursive: true, force: true });
+    }
+  });
+  it('🚨 the probe never accepts an echo of the nonce, nor a proof that is not the HMAC (GW1 review round 1, finding 1)', async () => {
+    const cloud = createFakeCloud();
+    cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
+    const id = crypto.randomUUID();
+    cloud.state.gateways.set(id, { credHash: 'x', reachKey: crypto.randomBytes(32).toString('hex'), revokedAt: null });
+    // A host that reflects the header, as round 1's echo let through: a throwaway certificate of its own.
+    const root = makeRoot({ hostname: 'localhost', insideAddresses: ['127.0.0.1'], now: Date.now() });
+    const leaf = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'localhost', insideAddresses: ['127.0.0.1'], now: Date.now() });
+    const answers = [];
+    const echo = https.createServer({ cert: leaf.certPem, key: leaf.keyPem }, (req, res) => {
+      const n = req.headers['wilson-reach-nonce'];
+      answers.push(n);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: true, nonce_echo: n, nonce_proof: n }));
+    });
+    await new Promise((r) => echo.listen(0, '127.0.0.1', r));
+    try {
+      const r = await cloud.reachProbe({ host: '127.0.0.1', port: echo.address().port, ca: root.certPem, servername: 'localhost', gateway_id: id });
+      expect(answers).toEqual([cloud.state.reachNonce]);
+      expect(r).toMatchObject({ status: 200, isThisGateway: false, proof_checked: true });
+      expect(r.body.nonce_echo).toBe(cloud.state.reachNonce);
+    } finally { await new Promise((r) => { echo.closeAllConnections?.(); echo.close(() => r()); }); }
   });
 });

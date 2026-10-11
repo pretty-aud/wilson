@@ -198,7 +198,8 @@ describe('scenes, shots, bins and takes', () => {
       if (b.color !== null) expect(COLORS).toContain(b.color)
       expect(b.workspace_id).toBe(WORKSPACE.id)
     }
-    expect(BIN_FILES.length).toBe(16)
+    // GW3 added two H.264 proxies (rows 17 and 18) the gateway's door stub plays.
+    expect(BIN_FILES.length).toBe(18)
     // The CLOUD shape: a location plus a relative path (forward slashes, no
     // leading slash, no traversal, no drive letter), the picture's key under
     // the row's own project, and NEVER an absolute source_path of one machine.

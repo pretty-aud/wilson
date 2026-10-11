@@ -11,7 +11,7 @@
 // never viewed from outside, and nothing when the read fails.
 // =============================================================================
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, act, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, act, waitFor, fireEvent } from '@testing-library/react'
 import BinInspector from './BinInspector'
 
 afterEach(() => { cleanup() })
@@ -22,11 +22,11 @@ const clip = (over = {}) => ({
 })
 const PRIYA = { count: 3, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z' } }
 
-function inspector(rows, remoteViewsFor) {
+function inspector(rows, remoteViewsFor, extra = {}) {
   return render(
     <BinInspector rows={rows} scenes={[]} shots={[]} fps={24} canWrite ffmpeg={false} thumbUrlFor={() => null} streamUrlFor={() => null}
       onPatch={() => {}} locationOf={() => ({ name: 'Footage NAS', unc_path: '\\\\nas\\footage' })} addedByOf={() => 'Sofia Aldana'}
-      remoteViewsFor={remoteViewsFor} canStream={false} catalogue />,
+      remoteViewsFor={remoteViewsFor} canStream={false} catalogue {...extra} />,
   )
 }
 
@@ -90,5 +90,28 @@ describe('the inspector\'s one line (admins: BinsView hands the reader)', () => 
     expect(screen.queryByTestId('bin-remote-views')).toBeNull()
     await act(async () => finish({ count: 1, last: { actor_label: 'Theo Lindqvist', created_at: '2026-10-01T09:00:00Z' } }))
     expect((await screen.findByTestId('bin-remote-views')).textContent).toBe('Viewed from outside once, last by Theo on 1 Oct')
+  })
+})
+
+// ── GW3, item 5: the line opens the table filtered to the clip ──
+describe('GW3 (item 5): the line is a button when BinsView hands the opener', () => {
+  it('handed onOpenRemoteViews, the line is a button in the same words that opens the clip\'s viewings; without it, plain text', async () => {
+    const open = vi.fn()
+    inspector([clip()], vi.fn(async () => PRIYA), { onOpenRemoteViews: open })
+    const line = await screen.findByTestId('bin-remote-views')
+    expect(line.tagName).toBe('BUTTON')
+    expect(line.textContent).toBe('Viewed from outside 3 times, last by Priya on 9 Oct')
+    expect(line.getAttribute('title')).toContain('in the last 30 days')
+    fireEvent.click(line)
+    expect(open).toHaveBeenCalledWith('c1')
+    cleanup()
+    inspector([clip()], vi.fn(async () => PRIYA))
+    expect((await screen.findByTestId('bin-remote-views')).tagName).toBe('DIV')
+  })
+
+  it('CONTROL: the opener alone (no reader) shows nothing — the gate is the reader', async () => {
+    inspector([clip()], null, { onOpenRemoteViews: vi.fn() })
+    await act(async () => {})
+    expect(screen.queryByTestId('bin-remote-views')).toBeNull()
   })
 })

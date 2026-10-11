@@ -75,6 +75,35 @@ export function publicKeyToWire(keyObject) {
   return Buffer.from(der.subarray(der.length - 32)).toString('base64');
 }
 
+/**
+ * The reach key (GW3, 2026-10-11, reconciled with GW1's review round 2): what
+ * the reach check's proof is keyed by. Never the credential's own hash (the
+ * key every cloud call is looked up by, which the platform's request logs
+ * keep): the lower-case hex SHA-256 of the UTF-8 bytes of 'wilson-reach-key:'
+ * followed by the credential. The gateway derives it from its credential; the
+ * cloud derives the same at enrolment (gateway_secrets.reach_key) and sends it
+ * nowhere. The vectors file's `for_gw2_from_gw1.reach_probe.proof_vector` is
+ * the worked example (credential → reach_key → nonce_proof).
+ */
+export function reachKeyOf(credential) {
+  if (!isCredential(credential)) throw new Error('reachKeyOf: the credential is wgc_ and 43 base64url characters');
+  return sha256Hex('wilson-reach-key:' + credential);
+}
+
+/**
+ * The reach check's proof (GW1 review round 1, finding 1: an echo of the nonce
+ * proves nothing, since the nonce rides the probe's request and any server
+ * that reflects a header would pass). HMAC-SHA256 with key = the UTF-8 bytes
+ * of the reach key's 64 hex characters and message = the UTF-8 bytes of the
+ * nonce, as 64 lower-case hex characters. Only the credential's holder can
+ * make it; the cloud computes the same from the reach key it keeps.
+ */
+export function reachProof(reachKey, nonce) {
+  if (typeof reachKey !== 'string' || !/^[0-9a-f]{64}$/.test(reachKey)) throw new Error('reachProof: the reach key is 64 lower-case hex');
+  if (typeof nonce !== 'string' || !nonce) throw new Error('reachProof: the nonce is a string');
+  return crypto.createHmac('sha256', Buffer.from(reachKey, 'utf8')).update(Buffer.from(nonce, 'utf8')).digest('hex');
+}
+
 /** Equal-length, constant-time comparison of two secrets given as strings; false on any length difference. */
 export function constantTimeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;

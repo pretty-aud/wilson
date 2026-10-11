@@ -185,7 +185,9 @@ describe('BC2 — the predicate: the desktop\'s file process is reachable', () =
     await mount()
     await act(async () => { await ctxRef.refreshBins() })
     expect(holder.files.cloudBinsPing).not.toHaveBeenCalled()
-    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    // GW3: a browser is the GATEWAY composite over the cloud — before any door
+    // answers it answers exactly the cloud's catalogue, under its own name.
+    expect(ctxRef.binsInfo.capabilities).toEqual({ ...CLOUD_CAPS, backend: 'gateway_cloud' })
   })
 
   it('B12: the signed-out desktop (local_server) is never pinged and never composed', async () => {
@@ -523,5 +525,14 @@ describe('markLoadedBinFiles (pure)', () => {
   it('the signed-out desktop and the fixtures: untouched (B12)', () => {
     const out = markLoadedBinFiles(rows, [{ id: 'a', online: true }], { backend: 'local_server', resolveFiles: true })
     expect(out).toBe(rows)
+  })
+  it('GW3, a browser through the gateway: the composite marks every row at once (its word, from the reach a reached gateway reports); without it, the desktop rule', () => {
+    const caps = { backend: 'gateway_cloud', resolveFiles: true }
+    const markOnline = (list) => list.map(r => ({ ...r, online: r.id === 'b' }))
+    expect(markLoadedBinFiles(rows, [{ id: 'a', online: true }], caps, { markOnline }).map(r => r.online)).toEqual([false, true])
+    // No composite at hand: a known row keeps its mark, a new one is "not on this computer".
+    expect(markLoadedBinFiles(rows, [{ id: 'a', online: true }], caps).map(r => r.online)).toEqual([true, false])
+    // Before a door answered (resolveFiles false), every row "not on this computer", whatever the composite.
+    expect(markLoadedBinFiles(rows, null, { backend: 'gateway_cloud', resolveFiles: false }, { markOnline: () => { throw new Error('not asked') } }).map(r => r.online)).toEqual([false, false])
   })
 })

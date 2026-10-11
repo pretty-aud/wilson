@@ -12,7 +12,11 @@ import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { RabbitHelpContent, RABBIT_HELP_SIDEBAR_ITEMS, BINS_SHORTCUTS } from './rabbitHelpContent'
-import { ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CONNECT_LABEL, NOT_CONNECTED_HERE, CATALOGUE_SENTENCE, PLAY_NEEDS_DESKTOP, POSTER_LARGE_HINT } from './bins/binLocations'
+import {
+  ADD_NEEDS_DESKTOP, NOT_ON_THIS_COMPUTER, CONNECT_LABEL, NOT_CONNECTED_HERE, CATALOGUE_SENTENCE, POSTER_LARGE_HINT,
+  // GW3: the gateway plays in a browser.
+  CATALOGUE_GATEWAY_SENTENCE, PLAYER_LARGE_HINT, NEEDS_DESKTOP_FORMAT, GATEWAY_REACH_WORDS, CHROME_LOCAL_NETWORK_SENTENCE,
+} from './bins/binLocations'
 import { REMOTE_VIEWING_LABEL } from './bins/cloudPosters'
 import { LOCATION_QUESTION, LEAVE_FOR_NOW } from '../../cloud/migrate/binsMigration'
 
@@ -77,14 +81,24 @@ describe('the "Bins" help page (BC2)', () => {
   it('says what a browser shows and what needs the desktop app, word for word (B5), and what Space does there', () => {
     const text = page()
     expect(text).toContain(CATALOGUE_SENTENCE)
-    expect(text).toContain(PLAY_NEEDS_DESKTOP)
     expect(text).toContain(POSTER_LARGE_HINT)
     expect(text).toContain(`marked ${NOT_ON_THIS_COMPUTER}`)
     expect(text).toContain('New bin')
     expect(text).toContain('Remove with Undo in the toast')
-    // The Space row of the keyboard list says both.
+    // GW3: the gateway plays in a browser — the notice with a gateway, Space
+    // as the large player, the format that stays a picture, the four reach
+    // words per location, the mark over remote playback, Chrome's prompt.
+    expect(text).toContain(CATALOGUE_GATEWAY_SENTENCE)
+    expect(text).toContain(PLAYER_LARGE_HINT)
+    expect(text).toContain(NEEDS_DESKTOP_FORMAT)
+    for (const word of Object.values(GATEWAY_REACH_WORDS)) expect(text).toContain(word)
+    expect(text).toContain('a six-character member code')
+    expect(text).toContain('moved every half minute')
+    expect(text).toContain(CHROME_LOCAL_NETWORK_SENTENCE)
+    expect(text).not.toContain('nothing plays yet')
+    // The Space row of the keyboard list says all three.
     const space = BINS_SHORTCUTS.find(s => s.keys.flat().includes('Space'))
-    expect(space.does).toBe('Play or pause the preview; in a browser, show the picture large')
+    expect(space.does).toBe('Play or pause the preview; in a browser, play the clip large through the gateway, or show its picture where it cannot play')
     // …and the view has the words it quotes (a renamed control reaches Help
     // or fails here): the toolbar's button, as written.
     expect(src('src/tools/rabbit_v0.1.0/views/BinsView.jsx')).toContain('CATALOGUE_SENTENCE')
@@ -156,6 +170,13 @@ describe('the "Bins" help page: File gateway (GW1)', () => {
     }
     expect(text).toContain(IT_WORKS)
     expect(text).toContain('Viewed from outside the office')
+  })
+
+  it('GW3: names the gateway\'s two added reach words beside the four (GW2\'s hand-off, "For GW3"): run share-login, and an address the gateway cannot use', () => {
+    const text = gatewayCard()
+    expect(text).toContain(GATEWAY_REACH_WORDS.not_connected)
+    expect(text).toContain(GATEWAY_REACH_WORDS.unknown_address)
+    expect(text).toContain('share-login')
   })
 
   it('says office and VPN viewing is not written down (review round 2, R9), and the switch decides the rest', () => {

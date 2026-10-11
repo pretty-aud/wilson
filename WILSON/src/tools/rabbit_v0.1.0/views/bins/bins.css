@@ -341,6 +341,42 @@
     border: 1px solid var(--color-rule);
   }
   .bn-poster-large-frame { background-color: var(--color-paper-recessed); }
+  /* GW3: the large view as the gateway's player fills its frame. */
+  .bn-poster-large[data-plays="true"] .bn-poster-large-frame { padding: 0; }
+
+  /* ── GW3: the gateway's player, and the viewer's mark over remote playback ── */
+  /* The player's ground is the recessed paper the posters sit on; the
+     element is TRANSPARENT until its first frame (the loaded state), so the
+     cloud picture under it shows and the hand-over draws no blank frame
+     (GATEWAY_DESIGN.md §7; Doherty). */
+  .bn-gateway-player { background-color: var(--color-paper-recessed); }
+  .bn-gateway-media { opacity: 0; z-index: 10; }
+  .bn-gateway-player[data-loaded="true"] .bn-gateway-media { opacity: 1; }
+  .bn-gateway-audio { height: auto; }
+  .bn-gateway-note { z-index: 15; }
+  .bn-gateway-fullscreen { z-index: 25; }
+  /* The mark (D9): the kit's small label step at 70% of the on-fill ink
+     (white: footage has no theme) on a 65% backing of the recessed paper —
+     at least 4:1 over a white frame, a sky or a white cyc (GW3 review round
+     2, note 7: 55% on 45% measured 1.99:1 there) — no blur (the kit bans
+     it); one of five positions by the clock (the player); the lower two sit
+     above the control strip and the upper right clears the frame's own
+     Fullscreen button (28 px at 4 px: round 2, note 5), so it never covers
+     a control (Selective attention). Its three parts wrap apart on a narrow
+     tile rather than lose the clock to an ellipsis (note 6). A visible
+     deterrent, not a forensic mark: §7 says so. */
+  .bn-viewer-mark {
+    position: absolute; z-index: 20; pointer-events: none;
+    color: color-mix(in srgb, var(--color-on-fill) 70%, transparent);
+    background-color: color-mix(in srgb, var(--color-paper-recessed) 65%, transparent);
+    padding: 2px 6px; max-width: calc(100% - 16px);
+  }
+  .bn-mark-part { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  .bn-mark-tl { top: 8px; left: 8px; }
+  .bn-mark-tr { top: 8px; right: 40px; max-width: calc(100% - 48px); }
+  .bn-mark-bl { bottom: 48px; left: 8px; }
+  .bn-mark-br { bottom: 48px; right: 8px; }
+  .bn-mark-c { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
   /* ── Pick lists: assign to shot, the take picker ────────────────────── */
   .bn-pick-row {

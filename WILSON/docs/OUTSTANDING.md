@@ -78,25 +78,6 @@ after her report.
 
 ## Broken features
 
-### The cloud's reach check and GW2's gateway disagree: every *Check reach* will read *not your gateway*
-**MEASURED (GW1 review round 2, 2026-10-10), by the two halves' own tests in one run:** GW2's `gateway/test/doorsOutside.test.mjs` holds its outside door to answering `{ ok: true, nonce_echo }`, and GW1's `src/cloud/gatewayEdge.test.js` holds such an answer to reading as *not this gateway*. GW1's cloud
-(`supabase/functions/_shared/gatewayReach.ts`, since GW1's review round 1)
-counts a host as the company's gateway only when its `GET /v1/health`
-answers `nonce_proof`: an HMAC of the check's nonce keyed by the gateway's
-reach key, the SHA-256 of `wilson-reach-key:` followed by its credential
-(`docs/design/gateway-ticket-vectors.json`, `for_gw2_from_gw1.reach_probe`,
-with a worked `proof_vector`). GW2's gateway, as merged into
-`feat/post-overhaul-edit-versioning` at `f340e41a`
-(`gateway/src/doors/handler.mjs`), answers `nonce_echo`, the echo round 1 found proved nothing (any host that
-reflects a header passes). Once both are deployed, every check reads
-*Something answered at …, but it is not your gateway*, and no outside
-address is ever given to a browser: playing from outside the office stays
-off, which is the safe direction. Fix shape: the gateway answers `nonce_proof` =
-HMAC-SHA256(key = the UTF-8 bytes of the reach key's 64 hex characters,
-message = the UTF-8 bytes of the nonce), the reach key derived once from its
-credential, and GW2's test changed with it; GW3 (GW2 is merged). The cloud must not accept the
-echo again: that reopens round 1's finding.
-
 ### The signed-out desktop's bins freeze the window on a share whose server does not answer
 **MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
 (`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,
@@ -1568,6 +1549,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul GW3 (2026-10-11; `po/gw3-gateway-web` into `feat/post-overhaul-edit-versioning`) — the file gateway in the web app: the two halves reconciled first (the workspace id in both answers, the reach PROOF on both halves proven by the design's `proof_vector`, a new or next root landing at sync, a viewing's fraction as the gateway's coverage; migration 0095 and suite 98 on wilson-dev), then the Bins tab in a browser playing through a gateway (the adapter, `canStream`, the hand-over, the overlay through the outside door, one clip's viewings, the words and Help, walkthrough 62), measured against GW2's real executable with the fake cloud on loopback; two review rounds | **nothing.** Every finding of the two rounds (sixteen in round 1, eighteen in round 2, two Medium each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-gw3-2026-10-11.md`). The office door is not played from the gateway's own computer (by design), the install stories are GW4's, the attack on the player GW5's | **one entry removed from Broken features:** *the cloud's reach check and GW2's gateway disagree* — closed by item 0.2: the gateway's outside `/v1/health` answers `nonce_proof` (never `nonce_echo`), the cloud reads only the proof, and both halves prove the same `proof_vector` in one `npx vitest run`. GW2's pin on this log is loosened to "GW2's row is in the log" so this row sits on top. Comment markers: 4 → 4. |
 | Post-overhaul GW2 (2026-10-10; `po/gw2-gateway-service` into `feat/post-overhaul-edit-versioning`) — the file gateway program (`WILSON/gateway/`: the two doors, the tickets, the share rules, the cloud client against a fake cloud, the Windows service and its MSI, the container, CI); two review rounds, both security attacks on the program | **nothing.** Every finding of the two rounds was fixed in the session or is a named limit in the hand-off's "Known limits". Where GW1's functions and the gateway differ (first: neither of GW1's answers carries the workspace id, so the gateway would refuse every ticket) is GW3's planned work, listed in the hand-off's "For GW3": neither half is merged with the other, and nothing a person uses calls either yet | nothing. Comment markers: 4 → 4. |
 | Post-overhaul GW1 (2026-10-10; `po/gw1-gateway-cloud` into `feat/post-overhaul-edit-versioning`) — the file gateway's cloud side: migration 0093 and suite 96 (on wilson-dev), the five gateway functions (on wilson-dev), App settings → Storage → File gateway, the file drawer's *Viewed from outside* and the Bins inspector's admin line; two review rounds | **one entry under Broken features:** *the cloud's reach check and GW2's gateway disagree* (MEASURED by both halves' tests, review round 2: GW2's gateway answers `nonce_echo`, the cloud reads only `nonce_proof`; fails safe, nothing published). What GW1 leaves undone otherwise is the gateway program (GW2) and playing in a browser (GW3), and its known limits are in its hand-off (`docs/sessions/handoffs/po-gw1-2026-10-10.md`), none of them broken | **nothing removed;** two fix shapes re-pointed: BC3's *a location's address admits control characters* and *no sample rate or channel count in the cloud* each said *a migration (0093 or later)*, and 0093 is now the file gateway's, so they say 0095 |
 | Post-overhaul BC4 (2026-10-09; `po/bc4-gateway-design` into `feat/post-overhaul-edit-versioning`) — the file gateway's design, design first, no product code (`docs/design/GATEWAY_DESIGN.md`); two review rounds, both security attacks on the design | **nothing.** No product code and no migration were written; the 47 findings of the two rounds and their corrections live in the design's own review history, and the decisions it made for Audrey are questions in its hand-off | nothing |

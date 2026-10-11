@@ -17,7 +17,7 @@ import { createHash, createHmac } from 'node:crypto'
 import {
   isInsideHost, isPrivateLiteral, cleanInsideAddresses, clientAddress, compareVersions,
   parseEnrolRequest, parseSyncRequest, parseTicketRequest, parseEventsRequest, parseReachRequest,
-  webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE,
+  webAppOrigins, isSingleCertificatePem, cleanGatewayName, VERSION_RE, ENROL_ANSWER_FIELDS, SYNC_ANSWER_FIELDS,
 } from '../../supabase/functions/_shared/gatewayShapes.ts'
 import {
   classifyIp, isPublicIp, checkOutsideAddress, vetResolved, parseHealthResponse,
@@ -152,6 +152,23 @@ describe('parseSyncRequest — the heartbeat, reduced to what the cloud keeps', 
     expect(parseSyncRequest({ confirm: Array(101).fill({ clip: UUID, loc: UUID2, path: 'p' }) })).toMatchObject({ ok: false, code: 'too_many_confirm' })
     expect(parseSyncRequest(null).ok).toBe(true)
     expect(parseSyncRequest([1]).ok).toBe(false)
+  })
+})
+
+describe('GW3 (0095): the roots a sync reports', () => {
+  it('root_cert_pem and next_root_cert_pem pass through when each is exactly one certificate; a key, a fragment or a number is dropped, never fatal', () => {
+    const ok = parseSyncRequest({ root_cert_pem: PEM, next_root_cert_pem: PEM })
+    expect(ok.ok && ok.report.root_cert_pem).toBe(PEM)
+    expect(ok.ok && ok.report.next_root_cert_pem).toBe(PEM)
+    const key = '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n'
+    const dropped = parseSyncRequest({ root_cert_pem: key, next_root_cert_pem: 'not a certificate' })
+    expect(dropped.ok).toBe(true)
+    expect(dropped.ok && 'root_cert_pem' in dropped.report).toBe(false)
+    expect(dropped.ok && 'next_root_cert_pem' in dropped.report).toBe(false)
+    const absent = parseSyncRequest({ version: '1.0.0', next_root_cert_pem: 7 })
+    expect(absent.ok && absent.report.next_root_cert_pem).toBeUndefined()
+    // gateway-sync hands the whole report to gateway_sync_apply, which 0095 taught to read them.
+    expect(read('supabase', 'functions', 'gateway-sync', 'index.ts')).toContain('p_report: parsed.report')
   })
 })
 
@@ -583,6 +600,27 @@ describe('the five functions keep the house order and the S33 rule (text pins)',
     expect(fn('gateway-enrol')).toContain('p_reach_key: await reachKeyOf(credential)')
     expect(fn('gateway-sync')).toContain('runReachCheck(admin, gatewayId, begun, null, 1000)')
     expect(fn('gateway-reach')).toMatch(/'gateway_not_syncing'[\s\S]*?inside_answered: false,\s*inside_other: false/)
+  })
+  it('GW3: both of the gateway\'s answers name the workspace, field for field as the lists say, and the gateway reads it from either (GW2\'s hand-off, "For GW3", item 1)', () => {
+    const enrol = fn('gateway-enrol')
+    const sync = fn('gateway-sync')
+    // The field list of an answer({ … }) call: one field per line, in order
+    // (a shorthand property counts).
+    const fieldsOf = (src, open) => {
+      const i = src.indexOf(open)
+      expect(i).toBeGreaterThan(0)
+      const block = src.slice(i, src.indexOf('})', i))
+      return [...block.matchAll(/^ {4}([a-z_]+)(?::|,)/gm)].map((m) => m[1])
+    }
+    expect(fieldsOf(enrol, 'return answer({')).toEqual([...ENROL_ANSWER_FIELDS])
+    expect(fieldsOf(sync, 'const reply = answer({')).toEqual([...SYNC_ANSWER_FIELDS])
+    expect(enrol).toContain('workspace_id: workspaceId,')
+    expect(sync).toContain('workspace_id: workspaceId,')
+    expect(ENROL_ANSWER_FIELDS).toContain('workspace_id')
+    expect(SYNC_ANSWER_FIELDS).toContain('workspace_id')
+    // The gateway's reader takes it from both answers (gateway/src/cloud/client.mjs).
+    const client = read('gateway', 'src', 'cloud', 'client.mjs')
+    expect(client).toMatch(/cleanEnrolAnswer[\s\S]*?a\.workspace_id[\s\S]*?cleanSyncAnswer[\s\S]*?a\.workspace_id/)
   })
   it('every function is registered with verify_jwt = false', () => {
     const toml = read('supabase', 'config.toml')

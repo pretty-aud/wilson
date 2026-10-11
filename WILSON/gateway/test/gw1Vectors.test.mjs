@@ -34,6 +34,12 @@ describe.skipIf(!present)("GW1's ticket vectors, through the verifier", () => {
   const keyFor = (kid) => keys.get(kid) || null;
   const scope = present ? { nowS: V.verifier.now, gatewayId: V.verifier.gateway_id, workspaceId: V.verifier.workspace_id } : {};
 
+  it('GW3: the copy is the design file, byte for byte, so the two halves read one set of vectors', () => {
+    const design = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'design', 'gateway-ticket-vectors.json');
+    const lf = (s) => s.replace(/\r\n/g, '\n');
+    expect(lf(fs.readFileSync(FILE, 'utf8'))).toBe(lf(fs.readFileSync(design, 'utf8')));
+    expect(V.for_gw2_from_gw1.reach_probe.proof_vector.nonce_proof).toMatch(/^[0-9a-f]{64}$/);
+  });
   it('the wire GW1 states is the wire this verifier enforces', () => {
     expect(V.wire.ticket).toBe('v1.<payload>.<sig>');
     expect(V.wire.claim_order).toEqual([...CLAIM_ORDER]);

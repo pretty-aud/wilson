@@ -43,11 +43,12 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions'
 import { Section, Group, Row } from './SettingsChrome'
 import { Button, Dialog, Input, Tabs } from '../../ui'
+import RemoteViewingsTable, { whenWords } from './RemoteViewingsTable'
 import {
   listGateways, listEnrolmentTokens, listGatewayAudit, listRemoteViewings, makeEnrolmentToken,
   cancelEnrolmentToken, confirmGatewayFingerprint, fetchRootCertificate, renameGateway,
   setGatewayOutsideAddress, setGatewayOfficeRanges, forgetGateway, unforgetGateway,
-  requestGatewayUpdateCheck, checkGatewayReach, gatewayCloudBase, rotateTicketKeys,
+  requestGatewayUpdateCheck, checkGatewayReach, gatewayCloudBase, rotateTicketKeys, fetchNextRootCertificate,
 } from '../../cloud/gatewayApi'
 import {
   GATEWAY_CERT_PARAGRAPH, NAS_STORY, WINDOWS_STORY, GATEWAY_SECTION_DESCRIPTION, GATEWAY_ADMIN_ONLY,
@@ -58,6 +59,7 @@ import {
   formatAddress, parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases,
   insideForwardSentence, reachSentence, auditPhrase, howMuchWords, whereWords, whoWords,
   TICKET_KEYS_DESCRIPTION, ROTATE_CONFIRM, ROTATED_LINE, versionWords, gatewayNameWords,
+  NEXT_ROOT_READY, NEXT_ROOT_PROMPT, NEXT_ROOT_OTHER_ADMIN, NEXT_ROOT_CONFIRMED, NEXT_ROOT_WRONG_ONE, NEW_CERTIFICATE_DOWNLOADED,
 } from './gatewayWords'
 
 // The tokens made in this browser since the app started: §2's notice for a
@@ -66,12 +68,6 @@ const SESSION_TOKENS = new Set()
 
 const PAGE_SIZE = 25
 const STORY_PANEL_ID = 's-gw-story-panel'
-
-function whenWords(iso) {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
 
 function sinceWords(iso, now) {
   const t = Date.parse(iso)
@@ -201,6 +197,10 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
   const [fingerprint, setFingerprint] = useState('')
   const [check, setCheck] = useState(null) // { running } | { result, wasOk }
   const confirmed = !!gw.root_confirmed_at
+  // GW3 (0095): a new or next root the gateway reported, confirmed again as
+  // at enrolment (D25) and offered beside the old one until it is in use.
+  const nextRoot = !!gw.next_root_fingerprint
+  const nextConfirmed = nextRoot && !!gw.next_root_confirmed_at
   const mine = gw.created_by && gw.created_by === me
   const insideForward = insideForwardSentence(gw)
   const phrases = healthPhrases(gw, { now, locations })
@@ -244,15 +244,28 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
   const confirmFp = async () => {
     const fp = normalizeFingerprint(fingerprint)
     if (!fp) { setError(FINGERPRINT_SHAPE); return }
+    // The database decides which root the fingerprint names: the one from
+    // enrolment, or the new one (0095).
     await act('confirm', () => confirmGatewayFingerprint(gw.id, fp), () => {
       setFingerprint('')
-      setNote({ text: 'Confirmed: this is your gateway. Download certificate is ready.', tone: 'ok' })
+      // Which root the fingerprint named decides the note: the new one's
+      // confirmation, the enrolment's, or the old one typed into the new
+      // one's box (the database answers that with the old confirmation).
+      const nextFp = normalizeFingerprint(gw.next_root_fingerprint || '')
+      const text = nextFp && fp === nextFp ? NEXT_ROOT_CONFIRMED
+        : confirmed && nextFp ? NEXT_ROOT_WRONG_ONE
+          : 'Confirmed: this is your gateway. Download certificate is ready.'
+      setNote({ text, tone: 'ok' })
     })
   }
 
   const download = () => act('certificate', () => fetchRootCertificate(gw.id), (res) => {
     downloadPem(gw.name, res.data)
     setNote({ text: CERTIFICATE_DOWNLOADED, tone: 'ok' })
+  })
+  const downloadNext = () => act('certificate-next', () => fetchNextRootCertificate(gw.id), (res) => {
+    downloadPem(`${gw.name} new`, res.data)
+    setNote({ text: NEW_CERTIFICATE_DOWNLOADED, tone: 'ok' })
   })
 
   const runCheck = async () => {
@@ -303,6 +316,12 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
             {busy === 'certificate' ? 'Fetching…' : 'Download certificate'}
           </Button>
         )}
+        {confirmed && nextConfirmed && (
+          <Button surface="light" size="sm" onClick={downloadNext} disabled={!!busy}
+            title="The gateway's NEW root certificate, confirmed: install it on each office computer as a trusted root, beside the old one, before the old one expires.">
+            {busy === 'certificate-next' ? 'Fetching…' : 'Download the new certificate'}
+          </Button>
+        )}
         <Button surface="light" size="sm" onClick={runCheck} disabled={!!busy || !!check?.running}
           title="WILSON knocks on the outside address from the internet and says, in words, what answered.">
           {check?.running ? 'Checking…' : 'Check reach'}
@@ -340,6 +359,26 @@ function GatewayRow({ gw, now, locations, me, fromThisBrowser, appeared, onChang
             </div>
           </div>
         ) : <p className="s-row-desc">{FINGERPRINT_OTHER_ADMIN}</p>)}
+
+        {/* GW3 (0095): the new root, beside the old one — the fingerprint
+            asked again as at enrolment (D25), from the same admin; once
+            confirmed, Download the new certificate above. */}
+        {confirmed && nextRoot && !nextConfirmed && (mine ? (
+          <div className="s-well" data-testid="gateway-next-root">
+            <label className="s-label" htmlFor={`s-gw-nfp-${gw.id}`}>New certificate fingerprint</label>
+            <p className="s-row-desc">{NEXT_ROOT_READY} {NEXT_ROOT_PROMPT}</p>
+            <div className="flex gap-2 flex-wrap items-center">
+              <Input surface="light" size="sm" id={`s-gw-nfp-${gw.id}`} value={fingerprint} onChange={setFingerprint}
+                onBlur={() => { const fp = normalizeFingerprint(fingerprint); if (fp) setFingerprint(formatFingerprint(fp)) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmFp() }}
+                placeholder="5A:C1:F4:…" className="flex-1 min-w-[260px] s-data" />
+              <Button surface="light" size="sm" variant="primary" onClick={confirmFp} disabled={!!busy || !fingerprint.trim()}>
+                {busy === 'confirm' ? 'Confirming…' : 'Confirm'}
+              </Button>
+            </div>
+          </div>
+        ) : <p className="s-row-desc" data-testid="gateway-next-root">{NEXT_ROOT_OTHER_ADMIN}</p>)}
+        {confirmed && nextConfirmed && <p className="s-row-desc" data-testid="gateway-next-root">{NEXT_ROOT_CONFIRMED}</p>}
 
         <dl className="s-gw-props">
           <dt className="s-label">Outside address</dt>
@@ -438,29 +477,8 @@ function ViewedFromOutside({ viewings, error, page, onPage }) {
       {!error && viewings && rows.length === 0 && <Row label="None" description={VIEWED_EMPTY} />}
       {rows.length > 0 && (
         <div className="s-gw-table-wrap">
-          <table className="s-table s-gw-table" data-testid="gateway-viewings">
-            <colgroup>
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '17%' }} />
-              <col style={{ width: '27%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '23%' }} />
-            </colgroup>
-            <thead>
-              <tr><th>When</th><th>Who</th><th>Clip and project</th><th>How much</th><th>From where, through</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="s-data">{whenWords(r.created_at)}</td>
-                  <td>{whoWords(r)}</td>
-                  <td><span className="s-data s-gw-clip">{r.file_name || 'a clip removed since'}</span><br />{r.project_title || 'a project you cannot open'}</td>
-                  <td>{howMuchWords(r.details || {})}</td>
-                  <td>{whereWords(r.details || {})}<br />through {r.details?.gateway_name ? gatewayNameWords(r.details.gateway_name) : 'a gateway forgotten since'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* GW3: the one table, shared with the Bins inspector's per-clip view (RemoteViewingsTable.jsx). */}
+          <RemoteViewingsTable rows={rows} />
         </div>
       )}
       {total > PAGE_SIZE && (

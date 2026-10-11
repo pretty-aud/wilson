@@ -117,6 +117,35 @@ describe('the verbs, with 0093\'s rules', () => {
     expect((await fx.fetchRootCertificate(g.id)).data).toMatch(/^-----BEGIN CERTIFICATE-----/)
   })
 
+  it('GW3 (0095): ?gateways=nextroot — a new root waits for its fingerprint; the new certificate only after; the old one stays; another admin is refused', async () => {
+    expect(gatewayFixtureMode('?gateways=nextroot')).toBe('nextroot')
+    expect(gatewayFixtureMode('?gateways=empty')).toBe('empty')
+    expect(gatewayFixtureMode('')).toBeNull()
+    const { fx, identity } = make({ mode: 'nextroot' })
+    const [g] = (await fx.listGateways({ admin: true })).data
+    expect(g).toMatchObject({ id: GATEWAY_ID, root_fingerprint: FIXTURE_ROOT_FINGERPRINT, next_root_fingerprint: FIXTURE_NEW_ROOT_FINGERPRINT, next_root_confirmed_at: null })
+    expect(g.next_root_seen_at).toBeTruthy()
+    expect((await fx.listGatewayAudit()).data[0]).toMatchObject({ action: 'gateway.next_root_received', actor_user_id: null, details: { fingerprint: FIXTURE_NEW_ROOT_FINGERPRINT, in_use: false } })
+    expect(await fx.fetchNextRootCertificate(g.id)).toMatchObject({ ok: false, code: '55000' })
+    expect(await fx.confirmGatewayFingerprint(g.id, 'B1:16')).toMatchObject({ ok: false, code: '22023' })
+    expect(await fx.confirmGatewayFingerprint(g.id, 'ab'.repeat(32))).toMatchObject({ ok: false, code: '22023' })
+    identity.userId = MEMBER_ID.theo
+    expect(await fx.confirmGatewayFingerprint(g.id, FIXTURE_NEW_ROOT_FINGERPRINT)).toMatchObject({ ok: false, code: '42501' })
+    identity.userId = PERMISSIONS.userId
+    const pairs = FIXTURE_NEW_ROOT_FINGERPRINT.toUpperCase().match(/../g).join(':')
+    expect((await fx.confirmGatewayFingerprint(g.id, pairs)).ok).toBe(true)
+    expect((await fx.listGatewayAudit()).data[0]).toMatchObject({ action: 'gateway.next_root_confirmed', actor_user_id: PERMISSIONS.userId })
+    const after = (await fx.listGateways({ admin: true })).data[0]
+    expect(after.next_root_confirmed_at).toBeTruthy()
+    expect(after.root_confirmed_at).toBe(g.root_confirmed_at)
+    expect((await fx.fetchNextRootCertificate(g.id)).data).toMatch(/^-----BEGIN CERTIFICATE-----/)
+    expect((await fx.fetchRootCertificate(g.id)).data).not.toBe((await fx.fetchNextRootCertificate(g.id)).data)
+    // CONTROL: the plain seed has no new root, and asking for its certificate says so.
+    const plain = make()
+    expect((await plain.fx.listGateways({ admin: true })).data[0].next_root_fingerprint).toBeNull()
+    expect(await plain.fx.fetchNextRootCertificate(GATEWAY_ID)).toMatchObject({ ok: false, code: 'P0002' })
+  })
+
   it('another admin cannot confirm a gateway they did not enrol', async () => {
     const { fx, identity, advance } = make({ mode: 'empty' })
     await fx.makeEnrolmentToken()

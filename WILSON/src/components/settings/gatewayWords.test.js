@@ -24,7 +24,7 @@ import {
   GATEWAY_CERT_PARAGRAPH, NAS_STORY, WINDOWS_STORY, mountPathFor, cloudUrlFor, parseOutsideAddress, formatAddress,
   parseOfficeRanges, normalizeFingerprint, formatFingerprint, agoWords, healthPhrases, insideForwardSentence,
   reachSentence, auditPhrase, howMuchWords, whereWords, whoWords, inspectorRemoteLine, FINGERPRINT_SHAPE,
-  gatewayNameWords, versionWords, NEW_GATEWAY_NOTICE, FORGET_CONFIRM,
+  gatewayNameWords, versionWords, NEW_GATEWAY_NOTICE, FORGET_CONFIRM, nextRootPhrase,
 } from './gatewayWords'
 
 const design = readFileSync(resolve(process.cwd(), 'docs/design/GATEWAY_DESIGN.md'), 'utf8')
@@ -283,6 +283,19 @@ describe('§8: the health line, phrase by phrase', () => {
     expect(at({ doors: { relay_warning: { address: '192.168.1.77', viewers: 3 } } })).toContain('through one address today, 192.168.1.77: a relay')
   })
 
+  it('GW3 (0095): §3\'s twelve-month sentence reads from the cloud\'s next-root columns — the state after the gateway\'s own words, and nothing without a new root', () => {
+    expect(nextRootPhrase(studio)).toBeNull()
+    expect(line(studio)).not.toContain('a new one is ready')
+    const waiting = { ...studio, next_root_fingerprint: 'ab'.repeat(32), next_root_seen_at: '2026-10-10T10:00:00Z', next_root_confirmed_at: null,
+      health: { ...studio.health, certificate: { ...studio.health.certificate, root_not_after: '2027-10-02T00:00:00Z' } } }
+    expect(nextRootPhrase(waiting)).toEqual({ text: 'the root certificate expires on 2027-10-02; a new one is ready: confirm its fingerprint, then download it', tone: 'warning', strong: 'a new one is ready' })
+    expect(line(waiting)).toContain('certificate: renews itself (leaf until 2027-11-01; root until 2027-10-02) · the root certificate expires on 2027-10-02; a new one is ready: confirm its fingerprint, then download it · up to date')
+    expect(nextRootPhrase({ ...waiting, next_root_confirmed_at: '2026-10-10T11:00:00Z' }).text)
+      .toBe('the root certificate expires on 2027-10-02; a new one is ready, confirmed: download it and install it on each office computer')
+    // A replacement root (an address left the /24s) with no expiry date to name.
+    expect(nextRootPhrase({ next_root_fingerprint: 'ab'.repeat(32), health: { certificate: {} } }).text).toBe('the gateway made a new root certificate: confirm its fingerprint, then download it')
+  })
+
   it('Selective attention: no phrase is an error; the inside-door forward is its own sentence', () => {
     const loud = { ...studio, health: { ...studio.health, doors: { ...studio.health.doors, refused_public: 3, inside: 'closed_bridge', outside: 'closed_no_cloud', relay_warning: { address: '192.168.1.77', viewers: 14 } } }, last_seen_at: null }
     expect(healthPhrases(loud, { now, locations }).find(p => p.text.includes('relay or proxy')).tone).toBe('warning')
@@ -340,6 +353,27 @@ describe('the trail and the viewings, in words', () => {
     // CONTROL: the gateway's own inside door is said as before.
     expect(auditPhrase({ action: 'gateway.reach_checked', actor_user_id: null, details: { outside: { detail: 'reached' }, inside_answered: true } }, 'Studio NAS'))
       .toMatch(/; the inside door answered$/)
+  })
+
+  it('GW3 (0095): the new root in the trail — the gateway\'s doing with no actor, the confirmation with its admin', () => {
+    expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ab', in_use: false } }, 'Studio NAS'))
+      .toBe('“Studio NAS” sent a new root certificate, for the year ahead: confirm its fingerprint, then download it')
+    expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ab', in_use: true } }, 'Studio NAS'))
+      .toBe('“Studio NAS” sent a new root certificate, already in use: confirm its fingerprint, then download it')
+    expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ef', in_use: false, kept_confirmed: true } }, 'Studio NAS'))
+      .toBe('“Studio NAS” sent another root certificate for the year ahead while the new one you confirmed waits; the one you confirmed is kept')
+    // Round 2, finding 2: a root in use took the place of a confirmed one.
+    expect(auditPhrase({ action: 'gateway.next_root_received', details: { fingerprint: 'ef', in_use: true, kept_confirmed: false, replaced_confirmed: 'ab' } }, 'Studio NAS'))
+      .toBe('“Studio NAS” now signs with another new root certificate, so the new one you had confirmed is no longer used: confirm this one\'s fingerprint, then download it')
+    expect(auditPhrase({ action: 'gateway.next_root_confirmed', actor_label: 'Mara Okonkwo', details: { fingerprint: 'ab' } }, 'Studio NAS'))
+      .toBe('Mara Okonkwo confirmed the fingerprint of the new root certificate of “Studio NAS”')
+    expect(auditPhrase({ action: 'gateway.root_replaced', details: { fingerprint: 'ab', previous: 'cd' } }, 'Studio NAS'))
+      .toBe('“Studio NAS” now signs with its new root certificate; the old one is no longer offered')
+  })
+
+  it('GW3 (0095): how much says "covered" when the gateway\'s coverage decided, as before when the bytes did', () => {
+    expect(howMuchWords({ bytes: 500, clip_bytes: 1000, fraction: 0.42, fraction_from: 'coverage', read_in_full: false })).toBe('500 B of 1000 B (42% covered)')
+    expect(howMuchWords({ bytes: 950, clip_bytes: 1000, fraction: 0.95, fraction_from: 'bytes', read_in_full: true })).toBe('950 B of 1000 B (95%) · read in full')
   })
 
   it('how much: the fraction and read in full; a restart said honestly', () => {
