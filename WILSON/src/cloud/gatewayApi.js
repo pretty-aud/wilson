@@ -43,6 +43,10 @@ const GATEWAY_COLUMNS = [
 
 // A member's columns, from the view every member's browser reads (§2).
 const VISIBLE_COLUMNS = 'id, name, platform, version, last_seen_at'
+// GW3: what the Bins tab's gateway adapter reads to find a door and mark
+// each clip's location (§2 "How the web app learns the address"): the
+// view's whole shape, the outside address NULL while the switch is off.
+const PLAYBACK_COLUMNS = 'id, workspace_id, name, platform, version, inside_addresses, reach, last_seen_at, root_fingerprint, outside_address'
 
 const SAID = {
   signIn: 'Sign in again: WILSON could not confirm who is asking for this.',
@@ -67,6 +71,8 @@ const SAID = {
   reachShape: 'The check answered in a shape WILSON does not know. Try again in a moment.',
   viewings: 'WILSON could not read the viewings from outside the office just now. Try again in a moment.',
   audit: 'WILSON could not read the list of changes just now. Try again in a moment.',
+  tickets: 'WILSON could not get a ticket to play this clip just now. Try again in a moment.',
+  ticketsShape: 'The cloud answered the ticket request in a shape WILSON does not know. Try again in a moment.',
 }
 
 // The 0093 RPCs' own refusals: one sentence each, shown as written.
@@ -114,6 +120,108 @@ export async function listGateways({ admin, now = Date.now() } = {}) {
   return run(() => supabase.from('gateways').select(GATEWAY_COLUMNS)
     .or(`revoked_at.is.null,revoked_at.gt.${recently}`)
     .order('created_at', { ascending: true }), SAID.read)
+}
+
+/**
+ * GW3: the gateways a browser may probe, with their addresses and reach —
+ * the view's whole shape (live, fingerprint-confirmed gateways of the
+ * caller's company; `outside_address` NULL unless the switch is on and the
+ * last reach check found the gateway there). Read when a project's bins
+ * load and every 60 s while the Bins tab is open (§2).
+ */
+export async function listGatewaysForPlayback() {
+  const fx = fixtures()
+  if (fx) return fx.listGatewaysForPlayback()
+  return run(() => supabase.from('gateways_visible').select(PLAYBACK_COLUMNS).order('name'), SAID.read)
+}
+
+/**
+ * GW3 (§5 steps 1 to 4): tickets for up to fifty clips through one gateway,
+ * with the caller's own sign-in token. `{ tickets: { id: ticket }, missing,
+ * refused: [{ id, reason }], expires_at }`; a refusal is the function's own
+ * sentence. `res.ok` is read BEFORE any body (the brief's rule: fetch
+ * resolves for every status). The sign-in token never reaches the gateway:
+ * only the ticket does, in the URL (G4, D1).
+ */
+export async function fetchGatewayTickets(gatewayId, binFileIds, { timeoutMs = 15000 } = {}) {
+  const ids = [...new Set((binFileIds || []).filter(Boolean))].slice(0, 50)
+  const fx = fixtures()
+  if (fx) return fx.fetchGatewayTickets(gatewayId, ids)
+  if (!gatewayId || !ids.length) return { ok: false, status: 400, code: 'bad_ids', friendly: SAID.tickets }
+  let token = null
+  try {
+    const { data } = await supabase.auth.getSession()
+    token = data?.session?.access_token ?? null
+  } catch { /* fall through */ }
+  if (!token) return { ok: false, status: 401, code: 'unauthorized', friendly: SAID.signIn }
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
+  let res
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/gateway-ticket`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON, authorization: `Bearer ${token}` },
+      body: JSON.stringify({ gateway_id: gatewayId, bin_file_ids: ids }),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+    })
+  } catch {
+    if (timer) clearTimeout(timer)
+    return { ok: false, status: 0, code: 'network', friendly: SAID.network }
+  }
+  if (timer) clearTimeout(timer)
+  if (!res.ok) {
+    let body = null
+    try { body = await res.json() } catch { body = null }
+    const detail = typeof body?.detail === 'string' && body.detail ? body.detail : SAID.tickets
+    return { ok: false, status: res.status, code: typeof body?.error === 'string' ? body.error : `http_${res.status}`, friendly: detail }
+  }
+  let body = null
+  try { body = await res.json() } catch { body = null }
+  if (!body || typeof body !== 'object' || !body.tickets || typeof body.tickets !== 'object') {
+    return { ok: false, status: res.status, code: 'bad_answer', friendly: SAID.ticketsShape }
+  }
+  const tickets = {}
+  for (const [id, t] of Object.entries(body.tickets)) if (ids.includes(id) && typeof t === 'string' && /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t) && t.length <= 4096) tickets[id] = t
+  return {
+    ok: true,
+    status: res.status,
+    data: {
+      tickets,
+      missing: Array.isArray(body.missing) ? body.missing.filter((x) => typeof x === 'string') : [],
+      refused: Array.isArray(body.refused) ? body.refused.filter((x) => x && typeof x.id === 'string').map((x) => ({ id: x.id, reason: String(x.reason || 'refused') })) : [],
+      expires_at: typeof body.expires_at === 'string' ? body.expires_at : null,
+    },
+  }
+}
+
+/**
+ * GW3 (item 5): one clip's viewings through the outside door in the last 30
+ * days, newest first, a page at a time — the Settings table's rows, filtered
+ * to a clip. The policy answers a live admin and nobody else.
+ */
+export async function listRemoteViewingsOfClip(binFileId, { page = 0, pageSize = 25, now = Date.now() } = {}) {
+  const fx = fixtures()
+  if (fx) return fx.listRemoteViewingsOfClip(binFileId, { page, pageSize, now })
+  if (!binFileId) return { ok: false, code: 'bad_request', friendly: SAID.viewings }
+  const since = new Date(now - 30 * 86400 * 1000).toISOString()
+  const from = Math.max(0, page) * pageSize
+  const res = await run(() => supabase.from('file_events')
+    .select('id, project_id, file_id, file_name, size_bytes, actor_user_id, actor_label, details, created_at', { count: 'exact' })
+    .eq('event', 'viewed_remote')
+    .eq('file_id', binFileId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, from + pageSize - 1), SAID.viewings)
+  if (!res.ok) return res
+  const rows = res.data || []
+  const ids = [...new Set(rows.map(r => r.project_id).filter(Boolean))]
+  let titles = new Map()
+  if (ids.length) {
+    const p = await run(() => supabase.from('projects').select('id, title').in('id', ids), SAID.viewings)
+    if (p.ok) titles = new Map((p.data || []).map(x => [x.id, x.title]))
+  }
+  return { ok: true, data: { rows: rows.map(r => ({ ...r, project_title: titles.get(r.project_id) ?? null })), total: res.count ?? rows.length } }
 }
 
 /** The company's enrolment tokens made in the last 24 hours: the pending ones, and the used ones with the gateway each enrolled. */

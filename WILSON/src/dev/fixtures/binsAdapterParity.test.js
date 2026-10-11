@@ -25,6 +25,11 @@ const { buildDevFixtures } = await import('./install')
 // BC2: the desktop signed in is a FOURTH answer to the same contract — the
 // cloud's data and this computer's files, composed (adapters/desktopCloudBins).
 const { composeDesktopCloudBins, DESKTOP_CLOUD_BINS_CAPABILITIES } = await import('../../tools/rabbit_v0.1.0/adapters/desktopCloudBins')
+// GW3: a browser through the company's file gateway is a FIFTH answer to the
+// same contract — the cloud's data and a gateway's bytes, composed
+// (adapters/gatewayBins); its doors and its two cloud calls are injected.
+const { composeGatewayBins, GATEWAY_BINS_CAPABILITIES } = await import('../../tools/rabbit_v0.1.0/adapters/gatewayBins')
+const gatewayDeps = () => ({ listGateways: async () => ({ ok: true, data: [] }), fetchTickets: async () => ({ ok: true, data: { tickets: {} } }), doors: { probe: async () => null, clipUrl: () => null, renew: async () => ({ ok: false, status: 0 }), head: async () => ({ status: 0 }) } })
 
 // The Local Server adapter's bins surface (its own comment block names these),
 // which the cloud and the fixtures must answer to by name.
@@ -145,8 +150,9 @@ describe('the three bins backends answer to the same names', () => {
   const local = localServerAdapter()
   const fixtures = buildDevFixtures().rabbitAdapter()
   const desktopCloud = composeDesktopCloudBins(supabaseAdapter(), localServerAdapter())
+  const gatewayCloud = composeGatewayBins(supabaseAdapter(), gatewayDeps())
 
-  for (const [name, a] of [['supabase', cloud], ['local_server', local], ['fixtures', fixtures], ['desktop_cloud', desktopCloud]]) {
+  for (const [name, a] of [['supabase', cloud], ['local_server', local], ['fixtures', fixtures], ['desktop_cloud', desktopCloud], ['gateway_cloud', gatewayCloud]]) {
     it(`${name} has every bins method, by name`, () => {
       const missing = BINS_METHODS.filter((m) => typeof a[m] !== 'function')
       expect(missing).toEqual([])
@@ -165,6 +171,7 @@ describe('one capability object, the same keys on every backend', () => {
     local_server: LOCAL_SERVER_BINS_CAPABILITIES,
     fixtures: FIXTURES_BINS_CAPABILITIES,
     desktop_cloud: DESKTOP_CLOUD_BINS_CAPABILITIES,
+    gateway_cloud: GATEWAY_BINS_CAPABILITIES,
   }
 
   it('each backend\'s binsCapabilities() is its exported object, frozen', () => {
@@ -172,7 +179,27 @@ describe('one capability object, the same keys on every backend', () => {
     expect(localServerAdapter().binsCapabilities()).toBe(LOCAL_SERVER_BINS_CAPABILITIES)
     expect(buildDevFixtures().rabbitAdapter().binsCapabilities()).toBe(FIXTURES_BINS_CAPABILITIES)
     expect(composeDesktopCloudBins(supabaseAdapter(), localServerAdapter()).binsCapabilities()).toBe(DESKTOP_CLOUD_BINS_CAPABILITIES)
+    // GW3: the gateway composite is the catalogue until a door answers; then
+    // `stream` and `resolveFiles` turn on together, the keys unchanged.
+    expect(composeGatewayBins(supabaseAdapter(), gatewayDeps()).binsCapabilities()).toBe(GATEWAY_BINS_CAPABILITIES)
     for (const o of Object.values(objects)) expect(Object.isFrozen(o)).toBe(true)
+  })
+
+  it('GW3: a browser through the gateway picks nothing and opens nothing in an OS; once a door answers it streams and says what it reaches', async () => {
+    expect(GATEWAY_BINS_CAPABILITIES).toMatchObject({
+      pickFiles: false, probe: false, stream: false, resolveFiles: false, relink: false, openInOs: false,
+      posters: 'cloud', locations: true, remoteViewingSwitch: true,
+    })
+    const g = composeGatewayBins(supabaseAdapter(), {
+      ...gatewayDeps(),
+      listGateways: async () => ({ ok: true, data: [{ id: 'g1', name: 'NAS', inside_addresses: [{ host: '192.168.1.10', port: 8443 }], reach: {}, last_seen_at: new Date().toISOString() }] }),
+      doors: { ...gatewayDeps().doors, probe: async () => ({ door: 'inside', base: 'https://192.168.1.10:8443' }) },
+    })
+    await g.discover()
+    const caps = g.binsCapabilities()
+    expect(caps).toMatchObject({ backend: 'gateway_cloud', stream: true, resolveFiles: true, pickFiles: false, openInOs: false })
+    expect(Object.keys(caps).sort()).toEqual([...CAPABILITY_KEYS].sort())
+    expect(Object.isFrozen(caps)).toBe(true)
   })
 
   for (const [name, o] of Object.entries(objects)) {

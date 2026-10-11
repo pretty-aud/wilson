@@ -43,6 +43,12 @@ import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
 // computer's files — the composite and the client of the desktop's routes.
 import { localServerAdapter } from '../adapters/localServerAdapter';
 import { composeDesktopCloudBins } from '../adapters/desktopCloudBins';
+// GW3: a browser signed in to a company plays through the company's file
+// gateway — the composite over the cloud adapter, its doors, and the
+// cloud's three calls it needs (the view, the tickets, one clip's viewings).
+import { composeGatewayBins } from '../adapters/gatewayBins';
+import { realGatewayDoors } from '../bins/gatewayDoors';
+import { listGatewaysForPlayback, fetchGatewayTickets, listRemoteViewingsOfClip as listRemoteViewingsOfClipApi } from '../../../cloud/gatewayApi';
 import { needsCloudPoster, BIN_POSTERS_OFF_SENTENCE } from '../bins/cloudPosters';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
@@ -242,7 +248,10 @@ function binsCapabilitiesOf(a) {
 export function markLoadedBinFiles(nextFiles, prevFiles, caps) {
   if (!Array.isArray(nextFiles) || !caps) return nextFiles;
   if (caps.resolveFiles === false) return nextFiles.map(f => ({ ...f, online: false }));
-  if (caps.backend !== 'desktop_cloud') return nextFiles;
+  // GW3: a browser through the gateway keeps what the last discovery marked
+  // for a known row, and reads a new one "not on this computer" until the
+  // composite marks it (the same rule as the desktop signed in).
+  if (caps.backend !== 'desktop_cloud' && caps.backend !== 'gateway_cloud') return nextFiles;
   const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
   return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
 }
@@ -290,6 +299,10 @@ export function RabbitProvider({ children }) {
   const [desktopBinFiles, setDesktopBinFiles] = useState(null);
   const desktopBinFilesRef = useRef(null);
   const desktopCompositeRef = useRef({ cloud: null, files: null, composite: null });
+  // GW3: the gateway composite (a browser on the cloud), one per cloud
+  // adapter; its doors are the page's, or the dev fixtures' stub in the page.
+  const gatewayCompositeRef = useRef({ cloud: null, composite: null });
+  const gatewayChangedRef = useRef(null);
   // "The backend is the cloud": the provider's own mode, which the dev
   // fixtures share with the cloud adapter (they are the cloud in a dev
   // build), not the adapter object's name.
@@ -298,15 +311,36 @@ export function RabbitProvider({ children }) {
   const binsBackend = useCallback(() => {
     const a = adapterRef.current;
     const d = desktopBinFilesRef.current;
-    if (!a || !d || adapterModeRef.current !== 'supabase') return a;
-    const memo = desktopCompositeRef.current;
-    if (memo.cloud === a && memo.files === d && memo.composite) return memo.composite;
-    const composite = composeDesktopCloudBins(a, d.files, {
+    if (!a || adapterModeRef.current !== 'supabase') return a;
+    if (d) {
+      const memo = desktopCompositeRef.current;
+      if (memo.cloud === a && memo.files === d && memo.composite) return memo.composite;
+      const composite = composeDesktopCloudBins(a, d.files, {
+        rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
+        projectFps: () => Number(bundleRef.current.project?.fps) || 24,
+        ping: d.ping,
+      });
+      desktopCompositeRef.current = { cloud: a, files: d, composite };
+      return composite;
+    }
+    // GW3: a BROWSER signed in to a company (D20: the desktop app never comes
+    // here — signed in, its own composite above reads files directly; before
+    // its ping answers, the cloud's own answers stand). The gateway composite
+    // over the cloud adapter, or over the dev fixtures in its slot, whose
+    // doors then answer in the page (the fixtures' stub) instead of over the
+    // network.
+    if (globalThis.window?.electronAPI?.rabbit) return a;
+    const memo = gatewayCompositeRef.current;
+    if (memo.cloud === a && memo.composite) return memo.composite;
+    const doors = (import.meta.env.DEV && devFixtures()) ? (devFixtures().gatewayDoors || realGatewayDoors) : realGatewayDoors;
+    const composite = composeGatewayBins(a, {
+      listGateways: listGatewaysForPlayback,
+      fetchTickets: fetchGatewayTickets,
+      doors,
       rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
-      projectFps: () => Number(bundleRef.current.project?.fps) || 24,
-      ping: d.ping,
+      onChange: () => gatewayChangedRef.current?.(),
     });
-    desktopCompositeRef.current = { cloud: a, files: d, composite };
+    gatewayCompositeRef.current = { cloud: a, composite };
     return composite;
   }, []);
   // Asks the desktop again what this computer can reach (debounced; the
@@ -1008,6 +1042,12 @@ export function RabbitProvider({ children }) {
       const was = (bundleRef.current.binFiles || []).find(f => f.id === evt.record.id);
       evt = { ...evt, record: { ...evt.record, online: typeof was?.online === 'boolean' ? was.online : false } };
       scheduleBinResolveRef.current?.([evt.record.id]);
+    }
+    // GW3, a browser through the gateway: the composite marks the row from
+    // the reach a reached gateway reports for its location, at once.
+    else if (evt?.table === 'bin_files' && evt.record?.id && binsCapsRef.current?.backend === 'gateway_cloud' && typeof evt.record.online !== 'boolean') {
+      const comp = gatewayCompositeRef.current.composite;
+      evt = { ...evt, record: comp ? comp.markOnline([evt.record])[0] : { ...evt.record, online: false } };
     }
     setBundle(prev => {
       const { bundle: next, effects } = applyRealtimeEvent(prev, evt, {
@@ -5526,6 +5566,70 @@ export function RabbitProvider({ children }) {
     const a = binsBackend();
     return (a && typeof a.binFileStreamUrl === 'function' && activeProjectId) ? a.binFileStreamUrl(activeProjectId, id, opts) : null;
   }, [activeProjectId, binsBackend]);
+
+  // ── GW3: the gateway in a browser (GATEWAY_DESIGN.md §2, §5, §7) ──
+  // The composite's doors, tickets and summary reach the tab through here.
+  // `ticketsRev` and `gateway` on binsInfo change whenever the composite
+  // learned something (a door answered, a ticket landed), so streamUrlFor is
+  // read again by every tile and player that asked.
+  const gatewayComposite = useCallback(() => {
+    const a = binsBackend();
+    return a && typeof a.ensureTickets === 'function' && typeof a.summary === 'function' ? a : null;
+  }, [binsBackend]);
+  gatewayChangedRef.current = () => {
+    const comp = gatewayCompositeRef.current.composite;
+    if (!comp) return;
+    const caps = comp.binsCapabilities();
+    if (binsCapsRef.current && binsCapsRef.current.backend === 'gateway_cloud') binsCapsRef.current = caps;
+    setBundle(prev => ({ ...prev, binFiles: comp.markOnline(prev.binFiles || []) }));
+    setBinsInfo(i => ({
+      ...i,
+      capabilities: i.capabilities && i.capabilities.backend === 'gateway_cloud' ? caps : i.capabilities,
+      ticketsRev: (i.ticketsRev || 0) + 1,
+      gateway: comp.summary(),
+      locations: comp.locationStatus(bundleRef.current.binLocations || []),
+    }));
+  };
+  /** The ticket batch (≤ 50): on hover for a tile, for a shot's takes, for a played selection (R12). */
+  const ensureBinTickets = useCallback(async (ids) => {
+    const comp = gatewayComposite();
+    if (!comp || !ids?.length) return;
+    await comp.ensureTickets(ids);
+  }, [gatewayComposite]);
+  /** The door the clip plays through (the overlay's cue), its jti, a refusal. */
+  const gatewayStreamInfo = useCallback((id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.streamInfo(id) : null;
+  }, [gatewayComposite]);
+  /** §5 step 7: the stream renewed at 75 s; the URL never changes. */
+  const renewGatewayStream = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.renewStream(id) : { ok: false, status: 0, reason: 'no_stream' };
+  }, [gatewayComposite]);
+  /** A 401 is never retried with the same ticket: a fresh URL, or null. */
+  const freshGatewayStreamUrl = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.freshStreamUrl(id) : null;
+  }, [gatewayComposite]);
+  /** What a <video> could not say; a 404 flips the row to "missing at its location" (§5's last paragraph). */
+  const diagnoseGatewayClip = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    if (!comp) return { verdict: 'no_stream', status: 0 };
+    const r = await comp.diagnoseClip(id);
+    if (r.verdict === 'missing') {
+      setBundle(prev => ({ ...prev, binFiles: (prev.binFiles || []).map(f => (f.id === id ? { ...f, online: false, gateway_missing: true } : f)) }));
+    }
+    return r;
+  }, [gatewayComposite]);
+  /** §2: the view read again, the unreached gateways probed again (the tab's 60 s timer). */
+  const refreshGateways = useCallback(async () => {
+    const comp = gatewayComposite();
+    if (!comp) return null;
+    await comp.refreshGateways();
+    return comp.summary();
+  }, [gatewayComposite]);
+  /** Item 5: one clip's viewings from outside, the Settings table's rows (admins; the policy answers nobody else). */
+  const listRemoteViewingsOfClip = useCallback((id, opts) => listRemoteViewingsOfClipApi(id, opts), []);
   // GW1 (0093): one clip's viewings from outside the office — the cloud's
   // audit, so the project adapter answers it (on the desktop signed in as in
   // a browser); null where no adapter keeps one (the Local Server). BinsView
@@ -7566,6 +7670,11 @@ export function RabbitProvider({ children }) {
     binRelinkScan, binRelinkApply, removeBinRoot,
     // GW1: one clip's viewings from outside (the inspector's line, admins).
     remoteViewsOfClip,
+    // GW3: the gateway in a browser — the tickets, the door, the renewal, the
+    // diagnosis of a failed play, the 60 s refresh, one clip's viewings table;
+    // and who is signed in, for the viewer's name over remote playback (D9).
+    ensureBinTickets, gatewayStreamInfo, renewGatewayStream, freshGatewayStreamUrl, diagnoseGatewayClip, refreshGateways, listRemoteViewingsOfClip,
+    authUserId,
     // Footage locations and the company's switch (BC1).
     refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
     // BC2: the switch read without a project; where a location is on THIS computer;

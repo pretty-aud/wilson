@@ -248,6 +248,88 @@ describe('Check reach (gateway-reach)', () => {
   })
 })
 
+describe('GW3: the browser\'s playback calls', () => {
+  function response({ ok, status, body, order }) {
+    return {
+      get ok() { order.push('ok'); return ok },
+      status,
+      async json() { order.push('json'); if (body instanceof Error) throw body; return body },
+    }
+  }
+  const TICKET = 'v1.eyJ2IjoxfQ.c2ln'
+
+  it('listGatewaysForPlayback reads gateways_visible\'s whole shape (addresses, reach, the outside door), by name', async () => {
+    holder.sb = fakeClient([{ data: [{ id: 'g1', inside_addresses: [], reach: {}, outside_address: null }], error: null }])
+    const res = await api.listGatewaysForPlayback()
+    expect(res.ok).toBe(true)
+    expect(holder.sb.log).toContainEqual(['from', 'gateways_visible'])
+    const select = holder.sb.log.find(l => l[0] === 'select')[1]
+    for (const col of ['id', 'workspace_id', 'name', 'inside_addresses', 'reach', 'last_seen_at', 'root_fingerprint', 'outside_address']) expect(select).toContain(col)
+    expect(select).not.toMatch(/root_cert_pem|reach_nonce|revoked_at/)
+    expect(holder.sb.log).toContainEqual(['order', 'name'])
+  })
+
+  it('fetchGatewayTickets posts the gateway and up to fifty distinct ids with the caller\'s token; reads ok BEFORE the body; checks each ticket\'s shape', async () => {
+    holder.sb = fakeClient([])
+    const order = []
+    const body = { tickets: { c1: TICKET, c2: 'not a ticket', c9: TICKET, c3: 42 }, missing: ['c4', 7], refused: [{ id: 'c5', reason: 'not_playable' }, { nope: true }], expires_at: '2026-10-11T12:02:00Z' }
+    const f = vi.fn(async () => response({ ok: true, status: 200, body, order }))
+    vi.stubGlobal('fetch', f)
+    const ids = ['c1', 'c2', 'c1', 'c3', 'c4', 'c5', null, ...Array.from({ length: 60 }, (_, i) => `x${i}`)]
+    const res = await api.fetchGatewayTickets('g1', ids)
+    expect(res).toEqual({ ok: true, status: 200, data: { tickets: { c1: TICKET }, missing: ['c4'], refused: [{ id: 'c5', reason: 'not_playable' }], expires_at: '2026-10-11T12:02:00Z' } })
+    const [url, init] = f.mock.calls[0]
+    expect(url).toBe('https://abc.supabase.co/functions/v1/gateway-ticket')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer user-jwt')
+    const sent = JSON.parse(init.body)
+    expect(sent.gateway_id).toBe('g1')
+    expect(sent.bin_file_ids).toHaveLength(50)
+    expect(sent.bin_file_ids.slice(0, 5)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5'])
+    expect(order).toEqual(['ok', 'json'])
+  })
+
+  it('no session: no request, the sign-in sentence; no ids or no gateway: refused without a request', async () => {
+    holder.sb = fakeClient([])
+    holder.sb.auth.getSession = vi.fn(async () => ({ data: { session: null } }))
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    expect((await api.fetchGatewayTickets('g1', ['c1'])).code).toBe('unauthorized')
+    expect((await api.fetchGatewayTickets(null, ['c1'])).code).toBe('bad_ids')
+    expect((await api.fetchGatewayTickets('g1', [])).code).toBe('bad_ids')
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('a refusal is the function\'s own sentence and code; a 200 in another shape is refused; the network failing is a sentence', async () => {
+    holder.sb = fakeClient([])
+    const order = []
+    vi.stubGlobal('fetch', vi.fn(async () => response({ ok: false, status: 403, body: { error: 'switch_off', detail: 'Viewing from outside the office is off for this company.' }, order })))
+    expect(await api.fetchGatewayTickets('g1', ['c1'])).toEqual({ ok: false, status: 403, code: 'switch_off', friendly: 'Viewing from outside the office is off for this company.' })
+    expect(order[0]).toBe('ok')
+    vi.stubGlobal('fetch', vi.fn(async () => response({ ok: true, status: 200, body: { ok: true }, order: [] })))
+    expect((await api.fetchGatewayTickets('g1', ['c1'])).code).toBe('bad_answer')
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    expect((await api.fetchGatewayTickets('g1', ['c1'])).code).toBe('network')
+  })
+
+  it('listRemoteViewingsOfClip: the Settings table\'s query filtered to one clip, paged, with the project titles', async () => {
+    holder.sb = fakeClient([
+      { data: [{ id: 9, project_id: 'p1', file_id: 'c1', details: {} }], error: null, count: 3 },
+      { data: [{ id: 'p1', title: 'Salt Hours' }], error: null },
+    ])
+    const now = Date.parse('2026-10-11T12:00:00Z')
+    const res = await api.listRemoteViewingsOfClip('c1', { page: 1, pageSize: 25, now })
+    expect(res).toEqual({ ok: true, data: { rows: [{ id: 9, project_id: 'p1', file_id: 'c1', details: {}, project_title: 'Salt Hours' }], total: 3 } })
+    const log = holder.sb.log
+    expect(log).toContainEqual(['from', 'file_events'])
+    expect(log).toContainEqual(['eq', 'event', 'viewed_remote'])
+    expect(log).toContainEqual(['eq', 'file_id', 'c1'])
+    expect(log).toContainEqual(['gte', 'created_at', '2026-09-11T12:00:00.000Z'])
+    expect(log).toContainEqual(['range', 25, 49])
+    expect((await api.listRemoteViewingsOfClip(null)).code).toBe('bad_request')
+  })
+})
+
 describe('dev fixtures', () => {
   it('answer every call when on, and the client is never touched', async () => {
     holder.sb = { from: () => { throw new Error('the client was used') }, rpc: () => { throw new Error('the client was used') } }
@@ -255,7 +337,8 @@ describe('dev fixtures', () => {
     const answer = (name) => async (...args) => { calls.push(name); return { ok: true, data: name, args } }
     holder.fx = { gateways: Object.fromEntries(['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings',
       'makeEnrolmentToken', 'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'fetchNextRootCertificate', 'updateGateway', 'forgetGateway',
-      'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys'].map(n => [n, answer(n)])) }
+      'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys',
+      'listGatewaysForPlayback', 'fetchGatewayTickets', 'listRemoteViewingsOfClip'].map(n => [n, answer(n)])) }
     await api.listGateways({ admin: true })
     await api.listEnrolmentTokens()
     await api.listGatewayAudit()
@@ -273,9 +356,13 @@ describe('dev fixtures', () => {
     await api.requestGatewayUpdateCheck('g1')
     await api.checkGatewayReach('g1')
     await api.rotateTicketKeys()
+    await api.listGatewaysForPlayback()
+    await api.fetchGatewayTickets('g1', ['c1'])
+    await api.listRemoteViewingsOfClip('c1')
     expect(calls).toEqual(['listGateways', 'listEnrolmentTokens', 'listGatewayAudit', 'listRemoteViewings',
       'makeEnrolmentToken', 'cancelEnrolmentToken', 'confirmGatewayFingerprint', 'fetchRootCertificate', 'fetchNextRootCertificate', 'updateGateway', 'updateGateway',
-      'updateGateway', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys'])
+      'updateGateway', 'forgetGateway', 'unforgetGateway', 'requestGatewayUpdateCheck', 'checkGatewayReach', 'rotateTicketKeys',
+      'listGatewaysForPlayback', 'fetchGatewayTickets', 'listRemoteViewingsOfClip'])
   })
 
   it('the cloud address is this build\'s', () => {

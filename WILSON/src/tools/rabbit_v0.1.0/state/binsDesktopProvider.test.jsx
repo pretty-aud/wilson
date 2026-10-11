@@ -185,7 +185,9 @@ describe('BC2 — the predicate: the desktop\'s file process is reachable', () =
     await mount()
     await act(async () => { await ctxRef.refreshBins() })
     expect(holder.files.cloudBinsPing).not.toHaveBeenCalled()
-    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    // GW3: a browser is the GATEWAY composite over the cloud — before any door
+    // answers it answers exactly the cloud's catalogue, under its own name.
+    expect(ctxRef.binsInfo.capabilities).toEqual({ ...CLOUD_CAPS, backend: 'gateway_cloud' })
   })
 
   it('B12: the signed-out desktop (local_server) is never pinged and never composed', async () => {

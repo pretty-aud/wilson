@@ -29,7 +29,11 @@ import { render, cleanup, act, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-const holder = vi.hoisted(() => ({ adapter: null, mode: 'supabase', session: null, writable: true, authCbs: [], fixtures: null }))
+const holder = vi.hoisted(() => ({
+  adapter: null, mode: 'supabase', session: null, writable: true, authCbs: [], fixtures: null,
+  // GW3: the gateway view the cloud answers, the doors in the page, the ticket call.
+  gateways: [], doors: null, tickets: null, viewingsCalls: [],
+}))
 
 vi.mock('../adapters', () => ({
   selectAdapter: () => holder.adapter,
@@ -52,6 +56,26 @@ vi.mock('../../../lib/localData', () => ({
 }))
 vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => holder.fixtures }))
 vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
+// GW3: the cloud's gateway view and ticket call, and the doors in the page,
+// answered by the test; everything else in those modules stays real.
+vi.mock('../../../cloud/gatewayApi', async (importOriginal) => ({
+  ...(await importOriginal()),
+  listGatewaysForPlayback: async () => ({ ok: true, data: holder.gateways }),
+  fetchGatewayTickets: async (gatewayId, ids) => holder.tickets(gatewayId, ids),
+  listRemoteViewingsOfClip: async (id, opts) => { holder.viewingsCalls.push([id, opts]); return { ok: true, data: { rows: [], total: 0 } } },
+}))
+vi.mock('../bins/gatewayDoors', async (importOriginal) => {
+  const real = await importOriginal()
+  return {
+    ...real,
+    realGatewayDoors: Object.freeze({
+      probe: (g) => holder.doors.probe(g),
+      clipUrl: real.clipUrl,
+      renew: (...a) => holder.doors.renew(...a),
+      head: (...a) => holder.doors.head(...a),
+    }),
+  }
+})
 
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
 
@@ -182,6 +206,10 @@ beforeEach(() => {
   holder.writable = true
   holder.authCbs = []
   holder.fixtures = null
+  holder.gateways = []
+  holder.doors = { probe: vi.fn(async () => null), renew: vi.fn(async () => ({ ok: false, status: 0 })), head: vi.fn(async () => ({ status: 0, door: null })) }
+  holder.tickets = vi.fn(async () => ({ ok: false, status: 0, code: 'network', friendly: 'no cloud in this test' }))
+  holder.viewingsCalls = []
   ctxRef = null
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -215,7 +243,9 @@ describe('BC1 — bins on the cloud through the real provider', () => {
   it('supportsBins is true in supabase mode; binsInfo carries the capability object and the switch', async () => {
     await mount()
     expect(ctxRef.supportsBins).toBe(true)
-    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    // GW3: in a browser the capability object is the gateway composite's,
+    // the cloud's catalogue under its own name until a door answers.
+    expect(ctxRef.binsInfo.capabilities).toEqual({ ...CLOUD_CAPS, backend: 'gateway_cloud' })
     expect(ctxRef.binsInfo.remoteViewing).toBe(false)
     expect(ctxRef.binLocations.map(l => l.id)).toEqual(['L1'])
   })
@@ -333,5 +363,91 @@ describe('B10, pinned on the source: the bins block deletes rows, never files', 
     for (const verb of ['deleteFile(', 'deleteManagedFile(', 'unlink', 'rmSync', 'storage.remove', '.remove([']) {
       expect(block.includes(verb), verb).toBe(false)
     }
+  })
+})
+
+// ── GW3 (2026-10-11): a browser through the file gateway, wired through the
+// provider (GATEWAY_DESIGN.md §2, §5; the brief's items 1 and 2). The
+// composite over the cloud adapter: a door answering turns `stream` and
+// `resolveFiles` on and marks the rows by the gateway's reach; tickets are
+// asked for only when the tab asks; the URL carries the ticket and never
+// changes on renewal; a 404 flips the row; no gateway keeps the catalogue.
+describe('GW3 — a browser through the file gateway, through the real provider', () => {
+  const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url')
+  const ticketFor = (id) => `v1.${b64url(JSON.stringify({ v: 1, clip: id, jti: `jti-${id}`, exp: Math.floor(Date.now() / 1000) + 120 }))}.${b64url('sig')}`
+  const gatewayRow = () => ({
+    id: 'g1', workspace_id: 'w1', name: 'Studio NAS', platform: 'windows', version: '0.1.0',
+    inside_addresses: [{ host: '192.168.1.10', port: 8443 }], outside_address: null, reach: { L1: 'reachable' },
+    last_seen_at: new Date().toISOString(), root_fingerprint: 'fp',
+  })
+  const reached = async () => {
+    await mount()
+    await waitFor(() => expect(ctxRef.binsInfo.capabilities.stream).toBe(true))
+  }
+  beforeEach(() => {
+    holder.gateways = [gatewayRow()]
+    holder.doors = {
+      probe: vi.fn(async (g) => ({ door: 'inside', base: 'https://192.168.1.10:8443', gatewayId: g.id })),
+      renew: vi.fn(async () => ({ ok: true, status: 204 })),
+      head: vi.fn(async () => ({ status: 206, door: 'inside' })),
+    }
+    holder.tickets = vi.fn(async (gatewayId, ids) => ({ ok: true, status: 200, data: { tickets: Object.fromEntries(ids.map(id => [id, ticketFor(id)])), missing: [], refused: [], expires_at: null } }))
+  })
+
+  it('a door answering turns stream and resolveFiles on together, marks the rows by the gateway\'s reach, and says the gateway and its locations on binsInfo', async () => {
+    await reached()
+    expect(ctxRef.binsInfo.capabilities).toEqual({ ...CLOUD_CAPS, backend: 'gateway_cloud', stream: true, resolveFiles: true })
+    expect(ctxRef.binsInfo.gateway).toMatchObject({ state: 'reached', name: 'Studio NAS' })
+    expect(ctxRef.binsInfo.locations).toHaveLength(1)
+    expect(ctxRef.binsInfo.locations[0]).toMatchObject({ id: 'L1', status: 'gateway', reachable: true, gateway: 'reachable', gateway_name: 'Studio NAS', door: 'inside' })
+    await waitFor(() => expect(ctxRef.binFiles.every(f => f.online === true)).toBe(true))
+    expect(holder.doors.probe).toHaveBeenCalledTimes(1)
+    expect(holder.tickets).not.toHaveBeenCalled()
+  })
+
+  it('no URL before a ticket is asked for; ensureBinTickets asks the cloud once for the batch; the URL carries the ticket; the stream info names the door and the jti; a renewal keeps the URL', async () => {
+    await reached()
+    expect(ctxRef.binFileStreamUrl('f1')).toBeNull()
+    const rev = ctxRef.binsInfo.ticketsRev || 0
+    await act(async () => { await ctxRef.ensureBinTickets(['f1', 'f2']) })
+    expect(holder.tickets).toHaveBeenCalledTimes(1)
+    expect(holder.tickets.mock.calls[0].slice(0, 2)).toEqual(['g1', ['f1', 'f2']])
+    const url = ctxRef.binFileStreamUrl('f1')
+    expect(url).toMatch(/^https:\/\/192\.168\.1\.10:8443\/v1\/clips\/f1\?t=v1\./)
+    expect(ctxRef.gatewayStreamInfo('f1')).toMatchObject({ door: 'inside', held: true, jti: 'jti-f1', base: 'https://192.168.1.10:8443' })
+    await waitFor(() => expect(ctxRef.binsInfo.ticketsRev).toBeGreaterThan(rev))
+    let r
+    await act(async () => { r = await ctxRef.renewGatewayStream('f1') })
+    expect(r).toMatchObject({ ok: true })
+    expect(holder.doors.renew).toHaveBeenCalledWith('https://192.168.1.10:8443', 'f1', expect.objectContaining({ jti: 'jti-f1' }))
+    expect(ctxRef.binFileStreamUrl('f1')).toBe(url)
+  })
+
+  it('a 404 from the door flips the row to missing at its location, the rest untouched; refreshGateways answers the summary; a clip\'s viewings are the cloud\'s call', async () => {
+    await reached()
+    holder.doors.head.mockImplementationOnce(async () => ({ status: 404, door: 'inside' }))
+    let r
+    await act(async () => { r = await ctxRef.diagnoseGatewayClip('f1') })
+    expect(r).toMatchObject({ verdict: 'missing', status: 404 })
+    await waitFor(() => expect(ctxRef.binFiles.find(f => f.id === 'f1')).toMatchObject({ online: false, gateway_missing: true }))
+    expect(ctxRef.binFiles.find(f => f.id === 'f2').online).toBe(true)
+    let s
+    await act(async () => { s = await ctxRef.refreshGateways() })
+    expect(s).toMatchObject({ state: 'reached', name: 'Studio NAS' })
+    await ctxRef.listRemoteViewingsOfClip('f1', { page: 0, pageSize: 25 })
+    expect(holder.viewingsCalls).toEqual([['f1', { page: 0, pageSize: 25 }]])
+  })
+
+  it('CONTROL: no gateway in the view: the catalogue stays, every row "not on this computer", no door probed, no ticket asked', async () => {
+    holder.gateways = []
+    await mount()
+    await act(async () => { await ctxRef.refreshGateways() })
+    expect(ctxRef.binsInfo.capabilities).toEqual({ ...CLOUD_CAPS, backend: 'gateway_cloud' })
+    expect(ctxRef.binsInfo.gateway).toMatchObject({ state: 'none' })
+    expect(holder.doors.probe).not.toHaveBeenCalled()
+    expect(ctxRef.binFiles.every(f => f.online === false)).toBe(true)
+    await act(async () => { await ctxRef.ensureBinTickets(['f1']) })
+    expect(holder.tickets).not.toHaveBeenCalled()
+    expect(ctxRef.binFileStreamUrl('f1')).toBeNull()
   })
 })

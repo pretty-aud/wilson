@@ -90,6 +90,9 @@ export function createGatewayFixtures(store, identity, {
   schedule = (fn, ms) => setTimeout(fn, ms),
   cancel = (t) => clearTimeout(t),
   wait = (ms) => new Promise(r => setTimeout(r, ms)),
+  // GW3: the doors in the page (gatewayDoors.js): the playback mode, the
+  // tickets, and in the Playwright run the real gateway's row.
+  doors = null,
 } = {}) {
   const t0 = clock()
   // The viewings live in the store, where the fixtures' project adapter reads
@@ -165,6 +168,47 @@ export function createGatewayFixtures(store, identity, {
       return yes(state.gateways
         .filter(g => !g.revoked_at || Date.parse(g.revoked_at) > now - 60000)
         .map(g => asRead(g, now)))
+    },
+
+    /**
+     * GW3: the view a browser probes (gateways_visible's whole shape) — the
+     * live, confirmed gateways, shaped by the playback mode on the URL
+     * (gatewayDoors.js): none, a gateway unseen for four minutes, one with
+     * its outside door published, or the real gateway of a Playwright run.
+     */
+    async listGatewaysForPlayback() {
+      if (doors?.real) return yes(typeof doors.gatewayRows === 'function' ? doors.gatewayRows() : [])
+      const pm = doors?.mode || 'inside'
+      if (pm === 'none' || mode === 'empty') return yes([])
+      const now = clock()
+      return yes(state.gateways
+        .filter(g => !g.revoked_at && g.root_confirmed_at)
+        .map(g => {
+          const r = asRead(g, now)
+          return {
+            id: r.id, workspace_id: r.workspace_id, name: r.name, platform: r.platform, version: r.version,
+            inside_addresses: clone(r.inside_addresses || []), reach: clone(r.reach || {}),
+            last_seen_at: pm === 'unseen' ? new Date(now - 4 * 60 * 1000).toISOString() : r.last_seen_at,
+            root_fingerprint: r.root_fingerprint,
+            outside_address: pm === 'outside' ? { host: 'footage.lanternash.example', port: 443 } : null,
+          }
+        }))
+    },
+
+    /** GW3: gateway-ticket, answered by the doors in the page. */
+    async fetchGatewayTickets(gatewayId, ids) {
+      if (!doors || typeof doors.tickets !== 'function') return no('no_doors', 'This build has no gateway doors to ask for a ticket.', 503)
+      return doors.tickets(gatewayId, ids)
+    },
+
+    /** GW3 (item 5): one clip's viewings, the Settings table's rows filtered; admins only, as the policy answers. */
+    async listRemoteViewingsOfClip(binFileId, { page = 0, pageSize = 25, now = clock() } = {}) {
+      if (!isAdmin()) return yes({ rows: [], total: 0 })
+      const rows = state.viewings
+        .filter(v => v.file_id === binFileId && Date.parse(v.created_at) >= now - 30 * 86400 * 1000)
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)
+      const from = Math.max(0, page) * pageSize
+      return yes({ rows: clone(rows.slice(from, from + pageSize)).map(r => ({ ...r, project_title: PROJECT.title })), total: rows.length })
     },
 
     async listEnrolmentTokens({ now = clock() } = {}) {

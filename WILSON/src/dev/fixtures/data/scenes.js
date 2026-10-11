@@ -147,6 +147,12 @@ const BIN_FILE_ROWS = [
   [14, 6, 'A003_C002_0927AB', '.mov', 'video', 4, 12, '4C', 2, 'A', 'A003', 21.4, 3840, 2160, 24, 'ProRes 422 HQ', 'unflagged', null,     false, 'slate'],
   [15, 7, 'storm_plate_v01',  '.exr', 'sequence', 4, 10, null, null, null, null, 10.0, 4096, 2160, 24, 'EXR',       'unflagged', null,     false, 'ember'],
   [16, 5, 'cafe_window_dressed', '.png', 'still', 3, null, null, null, null, null, null, 4000, 2667, null, 'PNG',   'unflagged', null,     false, 'sand'],
+  // GW3 (the file gateway in a browser): two H.264 proxies beside the
+  // ProRes originals — what a browser plays through the gateway (D8: the
+  // allow-list, the browser's own decoders); the fixtures' door stub serves
+  // them from a bundled clip of random frames (data/clip-noise.mp4).
+  [17, 2, 'A001_C001_0921AB_proxy', '.mp4', 'video', 1, 1, '1A', 1, 'A', 'A001', 3.0, 1280, 720, 24, 'H.264', 'unflagged', null, false, 'sea'],
+  [18, 3, 'A002_C007_0925AB_proxy', '.mp4', 'video', 4, 11, '4B', 1, 'A', 'A002', 3.0, 1280, 720, 24, 'H.264', 'select', null, false, 'slate'],
 ]
 
 const posterKey = (n, name) => `projects/${PROJECT_ID}/bin_files/${fid('binFile', n)}/${1757548800000 + n}-${name}.jpg`
