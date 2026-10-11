@@ -245,12 +245,15 @@ function binsCapabilitiesOf(a) {
  *   - the signed-out desktop and the fixtures: untouched (B12).
  * Pure; `prevFiles` is the state the load replaces.
  */
-export function markLoadedBinFiles(nextFiles, prevFiles, caps) {
+export function markLoadedBinFiles(nextFiles, prevFiles, caps, { markOnline = null } = {}) {
   if (!Array.isArray(nextFiles) || !caps) return nextFiles;
   if (caps.resolveFiles === false) return nextFiles.map(f => ({ ...f, online: false }));
-  // GW3: a browser through the gateway keeps what the last discovery marked
-  // for a known row, and reads a new one "not on this computer" until the
-  // composite marks it (the same rule as the desktop signed in).
+  // GW3: a browser through the gateway knows each row at once — the reach a
+  // reached gateway reports for its location — so a load asks the composite
+  // (never "not on this computer" for every row until the next re-read).
+  if (caps.backend === 'gateway_cloud' && typeof markOnline === 'function') return markOnline(nextFiles);
+  // Without the composite's word, a known row keeps what was last marked and
+  // a new one reads "not on this computer" (the desktop signed in's rule).
   if (caps.backend !== 'desktop_cloud' && caps.backend !== 'gateway_cloud') return nextFiles;
   const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
   return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
@@ -761,8 +764,9 @@ export function RabbitProvider({ children }) {
         // BC3: the capability object is known the moment the project is
         // (review round 1: the Bins tab read a null object as the signed-out
         // desktop until the first list, and for good when that list failed).
-        const caps = binsCapabilitiesOf(binsBackend());
-        const binFiles = markLoadedBinFiles(next?.binFiles, null, caps);
+        const backend = binsBackend();
+        const caps = binsCapabilitiesOf(backend);
+        const binFiles = markLoadedBinFiles(next?.binFiles, null, caps, { markOnline: backend?.markOnline });
         setBundle({ ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) });
         binsCapsRef.current = caps;
         setBinsInfo(i => (i.capabilities === caps ? i : { ...i, capabilities: caps }));
@@ -997,9 +1001,10 @@ export function RabbitProvider({ children }) {
       const listsStale = listWriteSeq !== shotListWriteSeqRef.current;
       // BC2: a refetch's clip rows keep what this computer resolved for them
       // (a teammate's edit must not make every clip read "here" or "not here").
-      const binCaps = binsCapabilitiesOf(binsBackend());
+      const binBackend = binsBackend();
+      const binCaps = binsCapabilitiesOf(binBackend);
       setBundle(prev => {
-        const binFiles = markLoadedBinFiles(next?.binFiles, prev.binFiles, binCaps);
+        const binFiles = markLoadedBinFiles(next?.binFiles, prev.binFiles, binCaps, { markOnline: binBackend?.markOnline });
         const merged = { ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) };
         return listsStale
           ? { ...merged, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }

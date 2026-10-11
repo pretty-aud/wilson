@@ -32,7 +32,7 @@
 
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(46);
 
 SELECT * FROM tests.rls_setup();
 
@@ -391,7 +391,7 @@ SELECT throws_ok(
   '23514', NULL, 'a confirmation without who confirmed is refused by the CHECK');
 
 
--- ── 33-42: a viewing''s fraction (0095 B) ────────────────────────────────────
+-- ── 33-44: a viewing''s fraction (0095 B) ────────────────────────────────────
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;
@@ -441,15 +441,24 @@ SELECT set_config('wg98.events', public.gateway_events_apply(current_setting('wg
   jsonb_build_object('viewing_id', '98980000-0000-0000-0000-000000000208', 'clip', '98980000-0000-0000-0000-0000000000f1',
     'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ticket_jti', '98989898989898989898989898989898',
     'started_at', now() - interval '3 minutes', 'ended_at', now() - interval '1 minute',
-    'bytes', 400, 'clip_bytes', 1000, 'fraction', NULL)
+    'bytes', 400, 'clip_bytes', 1000, 'fraction', NULL),
+  -- 9 and 10: the line itself — more than half is not "in full"; exactly 0.9 is
+  jsonb_build_object('viewing_id', '98980000-0000-0000-0000-000000000209', 'clip', '98980000-0000-0000-0000-0000000000f1',
+    'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ticket_jti', '98989898989898989898989898989898',
+    'started_at', now() - interval '3 minutes', 'ended_at', now() - interval '1 minute',
+    'bytes', 600, 'clip_bytes', 1000, 'fraction', 0.6, 'read_in_full', true),
+  jsonb_build_object('viewing_id', '98980000-0000-0000-0000-000000000210', 'clip', '98980000-0000-0000-0000-0000000000f1',
+    'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'ticket_jti', '98989898989898989898989898989898',
+    'started_at', now() - interval '3 minutes', 'ended_at', now() - interval '1 minute',
+    'bytes', 900, 'clip_bytes', 1000, 'fraction', 0.9, 'read_in_full', false)
 ))::text, true);
 
 SELECT is(
   current_setting('wg98.events')::jsonb -> 'accepted',
   '["98980000-0000-0000-0000-000000000201", "98980000-0000-0000-0000-000000000202", "98980000-0000-0000-0000-000000000203",
     "98980000-0000-0000-0000-000000000204", "98980000-0000-0000-0000-000000000205", "98980000-0000-0000-0000-000000000206",
-    "98980000-0000-0000-0000-000000000208"]'::jsonb,
-  'seven viewings accepted, with and without a fraction');
+    "98980000-0000-0000-0000-000000000208", "98980000-0000-0000-0000-000000000209", "98980000-0000-0000-0000-000000000210"]'::jsonb,
+  'nine viewings accepted, with and without a fraction');
 SELECT is(
   current_setting('wg98.events')::jsonb -> 'rejected',
   '[{"viewing_id": "98980000-0000-0000-0000-000000000207", "reason": "malformed"}]'::jsonb,
@@ -485,13 +494,19 @@ SELECT is((SELECT f FROM wg98_frac WHERE vid = '98980000-0000-0000-0000-00000000
 SELECT is((SELECT f FROM wg98_frac WHERE vid = '98980000-0000-0000-0000-000000000208'),
   '{"fraction": 0.4, "read_in_full": false, "from": "bytes"}'::jsonb,
   'a JSON null fraction is no fraction: the bytes decide');
+SELECT is((SELECT f FROM wg98_frac WHERE vid = '98980000-0000-0000-0000-000000000209'),
+  '{"fraction": 0.6, "read_in_full": false, "from": "coverage"}'::jsonb,
+  'more than half of the clip is not "read in full" (the line is 0.9, whatever the payload claimed)');
+SELECT is((SELECT f FROM wg98_frac WHERE vid = '98980000-0000-0000-0000-000000000210'),
+  '{"fraction": 0.9, "read_in_full": true, "from": "coverage"}'::jsonb,
+  'exactly 0.9 is read in full (the line is inclusive)');
 SELECT ok(
   (SELECT bool_and((f ->> 'read_in_full')::boolean = CASE WHEN jsonb_typeof(f -> 'fraction') = 'number' THEN (f ->> 'fraction')::numeric >= 0.9 ELSE false END)
      FROM wg98_frac),
   '🚨 on every row read_in_full is exactly "fraction ≥ 0.9", computed by the database');
 
 
--- ── 43-44: the replaced sync function still answers as 96 expects ───────────
+-- ── 45-46: the replaced sync function still answers as 96 expects ───────────
 
 SELECT set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
 SET LOCAL ROLE service_role;

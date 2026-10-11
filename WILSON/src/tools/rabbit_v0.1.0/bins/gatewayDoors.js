@@ -96,9 +96,13 @@ export async function probeGateway(gateway, { fetchImpl = globalThis.fetch, time
         const base = doorBase(a.host, a.port)
         fetchPath(base, { fetchImpl, timeoutMs }).then((r) => {
           if (done) return
-          if (r && r.status === 200 && r.body && r.body.path === 'inside') {
+          // The inside door names itself AND this gateway: an address that
+          // now answers as another of the company's gateways (a DHCP move,
+          // two gateways, D17) is not this one's door, and its tickets would
+          // only be refused there (another `gw`).
+          if (r && r.status === 200 && r.body && r.body.path === 'inside' && r.body.gateway_id === gateway.id) {
             done = true
-            resolve({ door: 'inside', base, gatewayId: typeof r.body.gateway_id === 'string' ? r.body.gateway_id : gateway.id })
+            resolve({ door: 'inside', base, gatewayId: gateway.id })
           } else if (--left === 0) resolve(null)
         })
       }

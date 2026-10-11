@@ -59,6 +59,18 @@ export const MARK_MOVE_MS = 30_000
 export const RENEW_RETRY_MS = 10_000
 /** No ticket, and the cloud said why not (a clip it does not know, or it refused). */
 const NO_STREAM_SENTENCE = 'This clip cannot be played here right now.'
+
+// One gateway player sounds at a time: the inspector's preview and the large
+// player (Space) can both hold the same clip, and starting one pauses the
+// other (two soundtracks of one clip, or two clips, is never what was meant).
+let playingMedia = null
+function claimPlayback(m) {
+  if (playingMedia && playingMedia !== m && !playingMedia.paused) {
+    try { playingMedia.pause() } catch { /* gone */ }
+  }
+  playingMedia = m
+}
+function releasePlayback(m) { if (playingMedia === m) playingMedia = null }
 /** The control strip's height the lower positions stay clear of (Selective attention). */
 const CONTROLS_CLEARANCE_PX = 48
 
@@ -131,7 +143,11 @@ export default function GatewayVideo({
   // a new URL, and the viewer goes on from the same moment, not from zero.
   const lastRef = useRef({ id: null, t: 0, playing: false })
   const el = () => (mediaRef && 'current' in mediaRef ? mediaRef.current : ownRef.current)
-  const setEl = (node) => { ownRef.current = node; if (mediaRef && 'current' in mediaRef) mediaRef.current = node }
+  const setEl = (node) => {
+    if (!node && ownRef.current) releasePlayback(ownRef.current)
+    ownRef.current = node
+    if (mediaRef && 'current' in mediaRef) mediaRef.current = node
+  }
   const effectiveSrc = override || src
 
   // A new clip or a new src from the parent: the picture back on top, the
@@ -244,13 +260,13 @@ export default function GatewayVideo({
       {effectiveSrc && !failed && kind === 'video' && (
         <video ref={setEl} key={effectiveSrc} src={effectiveSrc} controls={controls} autoPlay={autoPlay} muted={muted} loop={loop} preload={preload} playsInline={playsInline}
           onLoadedData={onLoadedData} onError={onError} onTimeUpdate={(e) => remember(e.currentTarget)}
-          onPlay={(e) => { remember(e.currentTarget, true); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
+          onPlay={(e) => { claimPlayback(e.currentTarget); remember(e.currentTarget, true); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
           className={mediaClass} {...cosmetic} />
       )}
       {effectiveSrc && !failed && kind === 'audio' && (
         <audio ref={setEl} key={effectiveSrc} src={effectiveSrc} controls={controls} autoPlay={autoPlay} muted={muted} loop={loop} preload={preload}
           onLoadedData={onLoadedData} onError={onError} onTimeUpdate={(e) => remember(e.currentTarget)}
-          onPlay={(e) => { remember(e.currentTarget, true); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
+          onPlay={(e) => { claimPlayback(e.currentTarget); remember(e.currentTarget, true); onPlay?.(e) }} onPause={(e) => { remember(e.currentTarget, false); onPause?.(e) }}
           className="bn-gateway-media bn-gateway-audio w-full absolute left-0 right-0 bottom-0" {...cosmetic} />
       )}
       {effectiveSrc && !failed && kind === 'image' && (

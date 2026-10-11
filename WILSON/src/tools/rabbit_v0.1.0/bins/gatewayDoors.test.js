@@ -83,6 +83,18 @@ describe('the probe (§2): the inside addresses in parallel, then the outside ad
     })
     expect(await probeGateway(gateway(), { fetchImpl, timeoutMs: 100 })).toEqual({ door: 'outside', base: 'https://gateway.example.com:8444', gatewayId: 'g1' })
   })
+  it('an inside address answering as ANOTHER gateway (its id in the body) is not this gateway\'s door; the next address that names this one is', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.startsWith('https://192.168.1.10:8443/')) return res(200, { gateway_id: 'g2', path: 'inside', version: '0.1.0' })
+      if (url.startsWith('https://studio-nas.local:8443/')) return res(200, { gateway_id: 'g1', path: 'inside', version: '0.1.0' })
+      return res(404)
+    })
+    expect(await probeGateway(gateway(), { fetchImpl, timeoutMs: 100 })).toEqual({ door: 'inside', base: 'https://studio-nas.local:8443', gatewayId: 'g1' })
+    const onlyOther = vi.fn(async (url) => (url.startsWith('https://192.168.1.10') ? res(200, { gateway_id: 'g2', path: 'inside' }) : Promise.reject(new TypeError('x'))))
+    expect(await probeGateway(gateway({ inside_addresses: [{ host: '192.168.1.10', port: 8443 }], outside_address: null }), { fetchImpl: onlyOther, timeoutMs: 100 })).toBeNull()
+    const noId = vi.fn(async () => res(200, { path: 'inside' }))
+    expect(await probeGateway(gateway({ outside_address: null }), { fetchImpl: noId, timeoutMs: 100 })).toBeNull()
+  })
   it('an inside address answering 200 with no path, or another body, is not the inside door', async () => {
     const fetchImpl = vi.fn(async (url) => (url.startsWith('https://192.168.1.10') ? res(200, { ok: true }) : res(404)))
     expect(await probeGateway(gateway({ outside_address: null }), { fetchImpl, timeoutMs: 100 })).toBeNull()

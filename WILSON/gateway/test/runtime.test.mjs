@@ -461,6 +461,50 @@ describe('GW3: the reach proof, the real runtime against the fake cloud\'s probe
       expect(await W.cloud.reachProbe({ host: '127.0.0.1', port: W.gw.outsidePort, ca: rootPem, servername: 'studio-nas', gateway_id: stranger })).toMatchObject({ isThisGateway: false });
     } finally { await W.close(); }
   });
+  it('started again from its saved credential (no token), the gateway still proves the nonce, and a year before its root\'s end it makes the NEXT root and reports it at sync (0095 lands it as next)', async () => {
+    const clock = { offset: 0 };
+    const W = await world({ clock });
+    const again = () => new Gateway({
+      env: { WILSON_CLOUD_URL: W.cloud.base }, stateDir: W.stateDir, now: () => Date.now() + clock.offset, hostname: 'studio-nas',
+      fetchImpl: W.cloud.fetch, secrets: plainSecrets, netInterfaces: () => LOOPBACK_ONLY, print: () => {},
+      locationRootFor: () => share.root, shareLogins: NAS_LOGIN,
+      tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
+    });
+    let gw2 = null;
+    try {
+      await waitFor(() => W.cloud.lastReport());
+      expect(W.cloud.lastReport().next_root_cert_pem).toBeUndefined();
+      const rootPem = fs.readFileSync(path.join(W.stateDir, 'certs', 'root.pem'), 'utf8');
+      const rootEnd = Date.parse(new crypto.X509Certificate(rootPem).validTo);
+      await W.gw.stop();
+      // 1. Started again, no token: the reach key came back with the credential, and the door proves the nonce.
+      gw2 = again();
+      await gw2.start();
+      W.cloud.state.switchOn = true;
+      W.cloud.state.outsideAddress = { host: '127.0.0.1', port: 8444 };
+      W.cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');
+      W.cloud.state.checkReachNow = true;
+      await gw2.syncNow();
+      await waitFor(() => gw2.outsideState === 'open');
+      expect(await W.cloud.reachProbe({ host: '127.0.0.1', port: gw2.outsidePort, ca: rootPem, servername: 'studio-nas' }))
+        .toMatchObject({ status: 200, isThisGateway: true, proof_checked: true });
+      expect(W.cloud.lastReport().next_root_cert_pem).toBeUndefined();
+      await gw2.stop();
+      // 2. Started again 200 days before the root's end (inside the year the next root is made in, outside the
+      //    month it takes over in): the next root rides the sync, beside the current one, and is not it.
+      clock.offset = rootEnd - 200 * 86_400_000 - Date.now();
+      gw2 = again();
+      await gw2.start();
+      await gw2.syncNow();
+      const report = W.cloud.lastReport();
+      expect(report.next_root_cert_pem).toMatch(/BEGIN CERTIFICATE/);
+      expect(report.next_root_cert_pem).not.toBe(report.root_cert_pem ?? rootPem);
+      expect(Date.parse(new crypto.X509Certificate(report.next_root_cert_pem).validTo)).toBeGreaterThan(rootEnd);
+    } finally {
+      if (gw2) await gw2.stop();
+      fs.rmSync(W.stateDir, { recursive: true, force: true });
+    }
+  });
   it('🚨 the probe never accepts an echo of the nonce, nor a proof that is not the HMAC (GW1 review round 1, finding 1)', async () => {
     const cloud = createFakeCloud();
     cloud.state.reachNonce = crypto.randomBytes(16).toString('hex');

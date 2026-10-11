@@ -438,6 +438,23 @@ describe('GW3 — a browser through the file gateway, through the real provider'
     expect(holder.viewingsCalls).toEqual([['f1', { page: 0, pageSize: 25 }]])
   })
 
+  it('a project reload with the gateway reached marks a teammate\'s NEW clips at once by the gateway\'s reach, never "not on this computer" for all until the next re-read', async () => {
+    holder.adapter.db.locations.push({ id: 'L2', workspace_id: 'w1', name: 'Archive', unc_path: '\\\\nas\\archive' })
+    holder.gateways = [{ ...gatewayRow(), reach: { L1: 'reachable', L2: 'not_mounted' } }]
+    await reached()
+    const base = { project_id: 'p1', workspace_id: 'w1', bin_id: 'b2', sort_order: 9, review_flag: 'unflagged' }
+    holder.adapter.db.files.push({ ...base, id: 'f3', location_id: 'L1', relative_path: 'A001/T3.mov', display_name: 'T3', original_name: 'T3.mov' })
+    holder.adapter.db.files.push({ ...base, id: 'f4', location_id: 'L2', relative_path: 'ARCH/T4.mov', display_name: 'T4', original_name: 'T4.mov' })
+    await act(async () => { await ctxRef.reloadActiveProject() })
+    const online = Object.fromEntries(ctxRef.binFiles.map(f => [f.id, f.online]))
+    expect(online).toEqual({ f1: true, f2: true, f3: true, f4: false })
+    // The same through the project's load (selected again): the composite's word at once.
+    holder.adapter.db.files.push({ ...base, id: 'f5', location_id: 'L1', relative_path: 'A001/T5.mov', display_name: 'T5', original_name: 'T5.mov' })
+    await act(async () => { await ctxRef.setActiveProject('p1', false) })
+    await waitFor(() => expect(ctxRef.binFiles.some(f => f.id === 'f5')).toBe(true))
+    expect(ctxRef.binFiles.find(f => f.id === 'f5').online).toBe(true)
+    expect(ctxRef.binFiles.find(f => f.id === 'f4').online).toBe(false)
+  })
   it('CONTROL: no gateway in the view: the catalogue stays, every row "not on this computer", no door probed, no ticket asked', async () => {
     holder.gateways = []
     await mount()

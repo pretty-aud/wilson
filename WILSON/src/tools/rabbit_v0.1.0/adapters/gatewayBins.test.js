@@ -103,6 +103,19 @@ describe('discovery (§2)', () => {
     expect(w.doors.probe).toHaveBeenCalledTimes(1)
     expect(w.c.summary()).toMatchObject({ state: 'reached', reached: [{ id: 'g1', door: 'inside', base: 'https://192.168.1.10:8443' }] })
   })
+  it('the OUTSIDE door, when that is what answered: the summary, the location and the stream say outside (the mark\'s cue), and the URL is the outside address\'s; any other word is the inside door', async () => {
+    const w = world({ gateways: [gw({ inside_addresses: [], outside_address: { host: 'gateway.example.com', port: 8444 } })], probe: async (g) => ({ door: 'outside', base: 'https://gateway.example.com:8444', gatewayId: g.id }) })
+    await w.c.discover()
+    expect(w.c.summary().reached).toEqual([{ id: 'g1', name: 'Studio NAS', door: 'outside', base: 'https://gateway.example.com:8444' }])
+    expect(w.c.locationStatus([{ id: L1 }])[0]).toMatchObject({ reachable: true, door: 'outside' })
+    await w.c.ensureTickets(['c1'])
+    expect(w.c.streamInfo('c1')).toMatchObject({ door: 'outside', base: 'https://gateway.example.com:8444' })
+    expect(w.c.binFileStreamUrl('p', 'c1')).toMatch(/^https:\/\/gateway\.example\.com:8444\/v1\/clips\/c1\?t=/)
+    // A probe answer naming no known door is the inside one (never the outside by default: no mark where none is due).
+    const odd = world({ probe: async (g) => ({ door: 'sideways', base: 'https://192.168.1.10:8443', gatewayId: g.id }) })
+    await odd.c.discover()
+    expect(odd.c.summary().reached[0].door).toBe('inside')
+  })
   it('a gateway that did not answer is probed again on the next read; a gateway gone from the view loses its door', async () => {
     let answers = false
     const list = [gw()]
@@ -334,6 +347,20 @@ describe('the renewal, the fresh URL and the diagnosis (§5 steps 6 and 7)', () 
       expect(w3.onChange.mock.calls.length).toBe(before3)
       expect(w3.c.streamInfo('c1').ticketError).toBeNull()
     } finally { vi.useRealTimers() }
+  })
+  it('a failed renewal then a good one: the clip\'s error is cleared by the good one', async () => {
+    let refuse = false
+    const w = world({ ticketsImpl: async (g, ids) => (refuse
+      ? { ok: false, status: 503, friendly: 'The cloud is busy.' }
+      : { ok: true, data: { tickets: Object.fromEntries(ids.map((id) => [id, ticketFor(id, { exp: Math.floor(w.clock.t / 1000) + 120 })])), missing: [], refused: [], expires_at: null } }) })
+    await w.c.discover()
+    await w.c.ensureTickets(['c1'])
+    refuse = true
+    expect((await w.c.renewStream('c1')).ok).toBe(false)
+    expect(w.c.streamInfo('c1').ticketError).toBe('The cloud is busy.')
+    refuse = false
+    expect((await w.c.renewStream('c1')).ok).toBe(true)
+    expect(w.c.streamInfo('c1').ticketError).toBeNull()
   })
   it('freshStreamUrl never reuses the ticket: a new ticket, a new URL (a 401 is never retried with the same ticket)', async () => {
     const w = world()

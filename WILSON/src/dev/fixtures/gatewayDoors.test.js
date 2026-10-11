@@ -172,6 +172,9 @@ describe('the gateway fixtures read the doors', () => {
     const mine = (await fx.listRemoteViewingsOfClip(clipId, { page: 0, pageSize: 25 })).data
     expect(mine.total).toBe(all.filter((v) => v.file_id === clipId).length)
     expect(mine.rows).toHaveLength(mine.total) // a page of 25 holds them all
+    expect(mine.total).toBeGreaterThan(1)
+    // Asked with no page: the first page of 25, as the dialog asks.
+    expect((await fx.listRemoteViewingsOfClip(clipId)).data.rows).toHaveLength(mine.total)
     expect(mine.rows.every((v) => v.file_id === clipId && v.project_title)).toBe(true)
     expect((await make('', 'member').fx.listRemoteViewingsOfClip(clipId)).data).toEqual({ rows: [], total: 0 })
   })

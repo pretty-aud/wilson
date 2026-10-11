@@ -85,8 +85,10 @@ describe('the mark over REMOTE playback only (D9)', () => {
     vi.setSystemTime(new Date(2026, 9, 11, 14, 2, 50))
     render(<ViewerMark viewer={viewer} />)
     expect(mark().textContent).toContain('14:02')
-    act(() => { vi.advanceTimersByTime(30_000) })
+    // The clock turns within 15 s of the minute, not only when the mark moves (every 30 s).
+    act(() => { vi.advanceTimersByTime(15_000) })
     expect(mark().textContent).toContain('14:03')
+    expect(mark().className).toContain(POSITION_CLASS['top-left'])
   })
   it('no mark without a src (nothing is playing), nor once the player failed', async () => {
     render(<GatewayVideo row={row} src={null} stream={outside} viewer={viewer} />)
@@ -292,6 +294,41 @@ describe('the recovery: never the same ticket twice', () => {
     fireEvent.error(video())
     await flush()
     expect(screen.getByTestId('gateway-sentence').textContent).toBe(NEEDS_DESKTOP_FORMAT)
+  })
+})
+
+describe('one gateway player sounds at a time', () => {
+  it('the large player starting pauses the inspector\'s, and back; a paused one is left alone; an unmounted one is forgotten', () => {
+    render(
+      <>
+        <GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} />
+        <GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} autoPlay />
+      </>,
+    )
+    const [a, b] = [...document.querySelectorAll('video')]
+    a.pause = vi.fn()
+    b.pause = vi.fn()
+    Object.defineProperty(a, 'paused', { value: false, configurable: true })
+    fireEvent.play(a)
+    fireEvent.play(b)
+    expect(a.pause).toHaveBeenCalledTimes(1)
+    expect(b.pause).not.toHaveBeenCalled()
+    Object.defineProperty(b, 'paused', { value: false, configurable: true })
+    fireEvent.play(a)
+    expect(b.pause).toHaveBeenCalledTimes(1)
+    // A player already paused is not paused again.
+    Object.defineProperty(a, 'paused', { value: true, configurable: true })
+    fireEvent.play(b)
+    expect(a.pause).toHaveBeenCalledTimes(1)
+  })
+  it('CONTROL: a player alone is never paused by itself', () => {
+    render(<GatewayVideo row={row} src="https://d:1/v1/clips/c1?t=x" stream={inside} />)
+    const v = video()
+    v.pause = vi.fn()
+    Object.defineProperty(v, 'paused', { value: false, configurable: true })
+    fireEvent.play(v)
+    fireEvent.play(v)
+    expect(v.pause).not.toHaveBeenCalled()
   })
 })
 
