@@ -90,7 +90,7 @@
       "port": 5245
     },
     {
-      "_comment": "BC1 (Bins on the cloud, schema + plumbing): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the fixtures' bins — the one visible change of BC1.",
+      "_comment": "BC1 (Bins on the cloud, schema + plumbing): this worktree's dev server on the bundle's port, signed in as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). The Bins tab shows the fixtures' bins \u2014 the one visible change of BC1.",
       "name": "bc1-worktree",
       "runtimeExecutable": "npx",
       "runtimeArgs": [
@@ -163,6 +163,19 @@
         "--strictPort"
       ],
       "port": 5288
+    },
+    {
+      "_comment": "GW3 (the file gateway in the web app, migration 0095): this worktree's dev server on the bundle's port, as the dev fixtures' tester (VITE_DEV_AUTOLOGIN=tester, VITE_DEV_FIXTURES=1 in its .env.local). R.A.B.B.I.T., Salt Hours, Bins plays the proxies through the fixtures' gateway stub in the page: /rabbit is the office door (no overlay); ?gateway=outside the outside door (the viewer's name, member code and the clock over the player); ?gateway=none no gateway enrolled; ?gateway=unseen a silent gateway; ?gateway=unreachable one this browser cannot reach; &missing=<clip id> a clip the gateway answers 404 for; ?gateways=nextroot the Settings card's new-certificate lines. ?gateway=real&gw=&host=&port=&renew_s=&sub= is the Playwright run against GW2's executable (scripts/gateway-playback-e2e.mjs).",
+      "name": "gw3-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/dazzling-jepsen-4c3d14/WILSON",
+        "--port",
+        "5289",
+        "--strictPort"
+      ],
+      "port": 5289
     }
   ]
 }
