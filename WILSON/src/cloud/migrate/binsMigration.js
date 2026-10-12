@@ -407,6 +407,9 @@ export const NOT_CARRIED = Object.freeze([
   ['shotLists', 'shot lists'], ['shotListItems', 'shot list items'], ['edits', 'edits'], ['folders', 'folders'],
   // Not a collection: a scene's or shot's picture is a file on this computer (cloudRowOf sends no path to it).
   ['thumbnails', 'scene and shot pictures'],
+  // FX2 (0096): the runner carries a task's asset, scene and shot items; its
+  // level and experience items stay with the levels and experiences.
+  ['taskLevelItems', 'levels and experiences named on tasks', 'level or experience named on a task'],
 ].map(Object.freeze))
 
 /** The report's word for `count` of `key`: the plural, or the one given for a single (the plural less its s, else). */
@@ -423,7 +426,9 @@ export function notCarriedOf(bundle) {
   for (const [key] of NOT_CARRIED) {
     const n = key === 'thumbnails'
       ? [...(bundle?.scenes ?? []), ...(bundle?.shots ?? [])].filter(r => r?.thumbnail_image).length
-      : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
+      : key === 'taskLevelItems'
+        ? (bundle?.taskItems ?? []).filter(i => i?.entity_type === 'level' || i?.entity_type === 'experience').length
+        : Array.isArray(bundle?.[key]) ? bundle[key].length : 0
     if (n) out.push({ key, label: notCarriedLabel(key, n), count: n })
   }
   return out
