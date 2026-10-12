@@ -45,20 +45,21 @@ by `scripts/fx4-shots.mjs`.
 | 4 | On that saved edit, open *The door*'s ⋯ and click **Move down** | No question. Before, this asked *Make a new version of this edit?* every time (before-03). Now the cut changes at once, **● Unsaved** appears with **Save edit** pulsing, then **Save as…** and **Discard changes**. The selector reads *Shot list 1 · v1 (unsaved changes)*. (after-03) |
 | 5 | Drag another shot by its grip | It lands at once, as part of the same unsaved changes. Nothing asks until you save or discard. |
 | 6 | Hover **Save edit** | *Saves these changes into "Shot list 1 · v1", replacing its cut as it was saved. Save as… keeps that one and saves these as a new version.* (after-04) |
-| 7 | Click **Save edit** | Saved into *Shot list 1 · v1*: the same name, no new version in the selector, *Saved* with today's date, and the pulse gone. (after-05; before-05 was the window that made v2) |
+| 7 | Click **Save edit** | Saved into *Shot list 1 · v1*: the same name, no new version in the selector, *Saved* with today's date, and the pulse gone. The keyboard's place moves to **Save as…**, and a screen reader hears *"Shot list 1 · v1" saved*. (after-05; before-05 was the window that made v2) |
+| 7a | Make a change, click **Save edit**, and while it is still saving make another change | The save writes what was there when you pressed it. The change made while it saved stays on screen as **● Unsaved**, now changes to the version just saved: nothing is lost, and the next Save edit writes it. |
 | 8 | *Up the stair*'s ⋯ → **Duplicate in edit**, then **Save as…** | *Save as a new version*: *A new version, from "Shot list 1 · v1": this cut, 17 shots in this order. "Shot list 1 · v1" stays as it was saved.* **Title** fixed while **Same title, next version** is on, *Will be "Shot list 1 · v2"*, and a **Summary**. (after-06) |
 | 9 | Type a summary, click **Save new version** | *Shot list 1 · v2* is on screen and saved; *Shot list 1 · v1* is still in the selector, as it was saved. (after-07) |
-| 10 | Make a change, then click **Timeline** in the tab strip | *Save the edit before leaving?*: *"Shot list 1 · v2", an edit of "Shot list 1 · v1", has changes that are not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.* **Keep editing** is focused (Escape too). Its **Save edit** saves into the edit, as the bar's does. (after-08) |
-| 11 | Make a change, click **Discard changes** | *The changes to "Shot list 1 · v2" are not saved: they go, and it comes back as it was saved.* **Discard changes** brings the saved cut back. |
+| 10 | Make a change, then click **Timeline** in the tab strip | *Save the edit before leaving?*: *"Shot list 1 · v2", an edit of "Shot list 1 · v1", has changes that are not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.* **Keep editing** is focused (Escape too). Its **Save edit** saves into the edit, as the bar's does. Leave while a **Save edit** is still saving and the save finishes first: nothing asks for what it saved. (after-08) |
+| 11 | Make a change, click **Discard changes** | *The changes to "Shot list 1 · v2" are not saved: they go, and it comes back as it was saved.* **Discard changes** brings the saved cut back, and the keyboard's place moves to **Save as…**. |
 | 12 | With a saved edit on screen and nothing changed, click **Save as…** | The same window: a copy of the edit as the next version. |
-| 13 | Press **Ctrl+Z** after a change (before saving) | It undoes that change; **Ctrl+Y** redoes it. **Unsaved** stays until you save or discard. On the Local Server, Ctrl+Z after **Save edit** takes the save back (the edit's cut as it was saved before). |
+| 13 | Press **Ctrl+Z** after a change (before saving) | It undoes that change; **Ctrl+Y** redoes it. **Unsaved** stays until you save or discard. After **Save edit**, Ctrl+Z takes the save back (the edit's cut as it was saved before), on the cloud as on the Local Server. |
 | 14 | Help (?) → **Scenes & shot lists** | The shot list bar's card names **Save as…**. The edits cards say a change to an edit asks nothing, **Save edit** saves into it, and **Save as…** is the only way to a new version. |
 
 ### When two people change one edit
 
 | # | Do | You should see |
 |---|----|----------------|
-| 15 | You and someone else both change the same saved edit. They press **Save edit** first, then you do | Your Save edit saves nothing, and the bar says: *Someone saved "…" since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.* Your changes stay on screen. (Checked by tests: edits are not sent live to other screens, so this is found when you save.) |
+| 15 | You and someone else both change the same saved edit. They press **Save edit** first, then you do | Your Save edit saves nothing, and the bar says: *Someone saved "…" since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.* Your changes stay on screen. This holds even when the two saves land in the same moment: the cloud, the Local Server and the test data each write an edit only while it still carries the save your changes began from. (Checked by tests: edits are not sent live to other screens, so this is found when you save.) Once Save as… has kept your changes, the message goes. |
 | 16 | A manager archives the edit while you have changes to it | **Save edit** says the edit was archived since and names **Save as…**; your changes stay. |
 
 ### As a reviewer (the cloud)
@@ -111,16 +112,12 @@ edit to change after it. It was checked by an automated test.
 
 ## 4. Still not right, and not this session's to change
 
-- **A Save that lands in the same moment as yours is still overwritten.**
-  Save edit reads the edit again and refuses when someone saved it since you
-  began. The check and the write are two requests, so a save landing between
-  them is not caught. Closing that needs a conditional write in each backend
-  (the same limit S3a recorded for undoing a Save). `docs/OUTSTANDING.md`,
-  FX4-01.
-- **On the cloud, Ctrl+Z on the Scenes tab works only while an edit is
-  unsaved** (S3c-09, your question 12 in walkthrough 53). So on the cloud a
-  Save edit cannot be taken back with Ctrl+Z. Save as… is the way to keep
-  the old cut.
+- **The cloud's half of "two saves in the same moment" was checked against
+  a stand-in for the database, not the database.** The cloud writes an edit
+  only where its stored save is still the one your changes began from (a
+  filtered update); tests prove what the app asks the cloud for, and the
+  Local Server and the test data were run for real. Nothing in the database
+  changed for it, so there is nothing to apply.
 - **A scene's thumbnail draws a broken-image icon on the test data**
   (P1-28), in every picture.
 
@@ -136,7 +133,9 @@ edit to change after it. It was checked by an automated test.
    version of the edit, and each says which under its title. Is that what
    you meant?
 2. **Save edit replaces the edit's cut without asking**, as Save does in
-   any app. Save as… is the way to keep the old one. Keep, or ask before
+   any app. Save as… is the way to keep the old one, and Ctrl+Z straight
+   after takes the save back (on the cloud too: the Scenes tab has had
+   Ctrl+Z there since bins came to the cloud). Keep, or ask before
    replacing?
 3. **The very first change in List order still asks** *Make a new edit from
    this list?* There is no edit yet, so the question says what it makes.

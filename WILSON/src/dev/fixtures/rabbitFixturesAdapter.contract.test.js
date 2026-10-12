@@ -786,6 +786,14 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect((await fx.upsertEdit({ ...restored, summary: 'Back' })).summary).toBe('Back')
     await expect(fx.archiveEdit(PROJECT_ID, fid('edit', 99))).rejects.toMatchObject(no(404, 'not_found', 'edit not found'))
 
+    // Post-overhaul FX4 review round 1 (R1-03): the conditional write — an
+    // existing edit only while its stored Save is the one named (null: none).
+    const savedOnce = await fx.upsertEdit({ ...restored, snapshot: { kind: 'edit', saved_at: '2026-10-12T09:00:00.000Z' } })
+    await expect(fx.upsertEdit({ ...savedOnce, items: [] }, { expectSavedAt: '2026-10-12T08:00:00.000Z' })).rejects.toMatchObject(
+      no(409, 'edit_saved_since', 'this edit has been saved by someone else since — nothing was written'))
+    await expect(fx.upsertEdit({ ...savedOnce, items: [] }, { expectSavedAt: null })).rejects.toMatchObject({ code: 'edit_saved_since' })
+    expect((await fx.upsertEdit({ ...savedOnce, summary: 'Into it' }, { expectSavedAt: '2026-10-12T09:00:00.000Z' })).summary).toBe('Into it')
+
     const edits = await fx.listEdits(PROJECT_ID)
     expect(edits.map((e) => e.id).sort()).toEqual([first.id, second.id, onTwo.id].sort())
     expect(inCreatedOrder(edits)).toBe(true)

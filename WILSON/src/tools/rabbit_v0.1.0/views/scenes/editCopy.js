@@ -56,13 +56,12 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
     // Only a kept copy makes a saved edit's change ask; without one (it went
     // while this was being put up) the question says the change, no more.
     if (!replaces) return { title: 'Change this edit?', lines: [made], confirmLabel: 'Make the change', variant: 'primary' }
-    const n = (replaces.items || []).length
     return {
       title: 'Replace the unsaved edit kept from before?',
       lines: [
-        `Changing ${fromLabel} replaces ${q(formatShotListLabel(replaces))}, the unsaved edit of this list kept from before (${n} shot${n === 1 ? '' : 's'}), which is then gone.`,
+        `Changing ${fromLabel} replaces ${keptWords(replaces)}, which ${replaces.editId ? 'are' : 'is'} then gone.`,
         made,
-        'To keep the one from before instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.',
+        `To keep ${replaces.editId ? 'those' : 'the one from before'} instead, choose Cancel, then Recover unsaved edit… in the bar's More menu.`,
       ],
       confirmLabel: 'Replace kept edit',
       variant: 'danger',
@@ -83,8 +82,20 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
 
 /** The put-off copy a new edit of its list replaces, and the way back to it first. */
 export function replacesWords(copy) {
+  return `It replaces ${keptWords(copy)}, which ${copy?.editId ? 'are' : 'is'} then gone. To keep ${copy?.editId ? 'those' : 'that one'} instead, choose Cancel, then Recover unsaved edit… in the bar's More menu.`
+}
+
+/**
+ * The kept copy, named (FX4 review round 1, R1-12): changes to a saved edit
+ * are its CHANGES — "Changing X replaces X" said nothing — and a new edit is
+ * the edit.
+ */
+function keptWords(copy) {
   const n = (copy?.items || []).length
-  return `It replaces ${q(formatShotListLabel(copy))}, the unsaved edit of this list kept from before (${n} shot${n === 1 ? '' : 's'}), which is then gone. To keep that one instead, choose Cancel, then Recover unsaved edit… in the bar's More menu.`
+  const size = `${n} shot${n === 1 ? '' : 's'}`
+  return copy?.editId
+    ? `the unsaved changes to ${q(formatShotListLabel(copy))} kept from before (${size})`
+    : `${q(formatShotListLabel(copy))}, the unsaved edit of this list kept from before (${size})`
 }
 
 /**

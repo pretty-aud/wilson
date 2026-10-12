@@ -59,6 +59,7 @@ import { THUMBNAIL_BUCKET } from '../storage/thumbnails';
 import { hasLocalServer } from '../../../lib/localData';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 import { splitSetAside, isSetAside } from '../state/setAside';
+import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../state/shotListModel';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
 // Session 37: the workspace's CONFIGURED provider decides where a new body
 // goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
@@ -4339,10 +4340,39 @@ export function supabaseAdapter() {
       const client = await requireClient();
       return listEditsWith(client, projectId);
     },
-    async upsertEdit(edit) {
+    async upsertEdit(edit, opts) {
       requireProjectIdOn(edit, 'an edit');
       const client = await requireClient();
       requireShotLists();
+      // Post-overhaul FX4 review round 1 (R1-03): Save edit writes INTO an
+      // edit, and two people may change one. With `{ expectSavedAt }` (the
+      // Save the changes began from: a saved_at string, or null for none) the
+      // write is an UPDATE filtered on the stored snapshot's saved_at, so the
+      // database applies it only where that Save is still the edit's — no
+      // request can land between a check and the write. Zero rows back is
+      // told apart by one read: another Save (refused with code
+      // EDIT_SAVED_SINCE), or a row this person cannot change or see (RLS
+      // filters an UPDATE silently).
+      if (edit.id && opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')) {
+        const { id, ...set } = toColumns('edits', blankDatesToNull(sanitize(edit, SHOT_LIST_SERVER_OWNED)));
+        const want = opts.expectSavedAt ?? null;
+        let q = client.from('edits').update(set).eq('id', id);
+        q = want === null ? q.is('snapshot->>saved_at', null) : q.eq('snapshot->>saved_at', want);
+        const res = await q.select();
+        if (res.error) return unwrapShotList(res, missing0084Table);
+        if (Array.isArray(res.data) && res.data.length) return res.data[0];
+        const now = await client.from('edits').select('id, snapshot').eq('id', id).maybeSingle();
+        const have = now?.data?.snapshot && typeof now.data.snapshot.saved_at === 'string' ? now.data.snapshot.saved_at : null;
+        if (now?.data && have !== want) {
+          const err = new Error(`[supabase] ${EDIT_SAVED_SINCE_MESSAGE}`);
+          err.code = EDIT_SAVED_SINCE;
+          err.status = 409;
+          throw err;
+        }
+        const err = new Error('[supabase] the edit was not written: it is no longer one you can change here');
+        err.code = '42501';
+        throw err;
+      }
       // `items` is one jsonb array (0084 §5); toColumns does not reach inside
       // it. The six server-owned columns are stripped first, for
       // upsertShotList's reasons (addendum F). The same-list parent, the one

@@ -780,6 +780,33 @@ describe('rule 3 — upsertEdit', () => {
     })
   }
 
+  // Post-overhaul FX4 review round 1 (R1-03): since FX4 Save edit writes INTO
+  // an edit; a write naming the Save it began from is refused when the
+  // stored edit carries another — checked and written in one handler.
+  it('FX4: expect_saved_at — written only while the stored Save is the one named; refused 409 edit_saved_since otherwise; never stored', async () => {
+    seed({
+      shotLists: [list('L1')],
+      edits: [edit('e1', 'L1', { snapshot: { kind: 'edit', saved_at: '2026-10-12T09:00:00.000Z' } })],
+    })
+    const refused = await POST('/edits', { id: 'e1', items: [], expect_saved_at: '2026-10-12T08:00:00.000Z' })
+    expect(refused.status).toBe(409)
+    expect(refused.body).toEqual({ error: 'this edit has been saved by someone else since — nothing was written', code: 'edit_saved_since' })
+    const none = await POST('/edits', { id: 'e1', items: [], expect_saved_at: null })
+    expect(none.status).toBe(409)
+    expect(disk().edits.find(e => e.id === 'e1').items).not.toEqual([{ id: 'n' }])
+    const ok = await POST('/edits', { id: 'e1', items: [{ id: 'n', shot_id: 'sh-1' }], snapshot: { kind: 'edit', saved_at: '2026-10-12T10:00:00.000Z' }, expect_saved_at: '2026-10-12T09:00:00.000Z' })
+    expect(ok.status).toBe(200)
+    expect(ok.body.items).toEqual([{ id: 'n', shot_id: 'sh-1' }])
+    expect(Object.keys(ok.body)).not.toContain('expect_saved_at')
+    expect(Object.keys(disk().edits.find(e => e.id === 'e1'))).not.toContain('expect_saved_at')
+    // No snapshot stored: null is the Save named.
+    seed({ shotLists: [list('L1')], edits: [edit('e1', 'L1')] })
+    expect((await POST('/edits', { id: 'e1', items: [], expect_saved_at: null })).status).toBe(200)
+    // CONTROL: without the key, an update is not examined (S3a's rule 3 as it was).
+    seed({ shotLists: [list('L1')], edits: [edit('e1', 'L1', { snapshot: { kind: 'edit', saved_at: 'X' } })] })
+    expect((await POST('/edits', { id: 'e1', items: [] })).status).toBe(200)
+  })
+
   it('creates a row of exactly the contract shape: items [] and snapshot null by default', async () => {
     seedEdits()
     const r = await POST('/edits', { shot_list_id: 'L3', title: 'Assembly', project_id: 'elsewhere', bogus: true })

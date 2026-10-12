@@ -347,6 +347,20 @@ describe('localServerAdapter — shot lists, items and edits (S3a)', () => {
     expect(calls).toEqual([{ method: 'POST', url: '/api/rabbit/projects/p1/edits', body: edit }])
   })
 
+  // Post-overhaul FX4 review round 1 (R1-03): the conditional write rides in the body.
+  it('upsertEdit(edit, { expectSavedAt }) sends expect_saved_at (null for none); without it, nothing extra', async () => {
+    const edit = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [] }
+    let calls = spyFetch({ id: 'e1' })
+    await localServerAdapter().upsertEdit(edit, { expectSavedAt: '2026-10-12T09:00:00.000Z' })
+    expect(calls[0].body).toEqual({ ...edit, expect_saved_at: '2026-10-12T09:00:00.000Z' })
+    calls = spyFetch({ id: 'e1' })
+    await localServerAdapter().upsertEdit(edit, { expectSavedAt: null })
+    expect(calls[0].body).toEqual({ ...edit, expect_saved_at: null })
+    calls = spyFetch({ id: 'e1' })
+    await localServerAdapter().upsertEdit(edit, {})
+    expect(calls[0].body).toEqual(edit)
+  })
+
   it('upsertShotList and upsertEdit refuse a row with no project_id, without a request', async () => {
     const calls = spyFetch()
     await expect(localServerAdapter().upsertShotList({ title: 'x' })).rejects.toThrow(/project_id/)

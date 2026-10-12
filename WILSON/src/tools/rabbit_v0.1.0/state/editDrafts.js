@@ -153,6 +153,27 @@ export function savedAtOf(snapshot) {
 }
 
 /**
+ * FX4 review round 1 (R1-01): changes made WHILE a Save edit was in flight
+ * are not that save's. Once it is written they stay unsaved — the same items
+ * — as changes to the edit it saved (`saved`): its id, name and Save are the
+ * draft's now, and its cut is where they start from. Their undo starts
+ * afresh: what came before is the save.
+ */
+export function rebaseDraft(draft, saved) {
+  return {
+    ...draft,
+    editId: saved.id,
+    basedOnEditId: saved.id,
+    title: saved.title,
+    version: saved.version,
+    baseSavedAt: savedAtOf(saved.snapshot),
+    base: copyItems(saved.items),
+    past: [],
+    future: [],
+  }
+}
+
+/**
  * A draft again from its stored copy ("Recover unsaved edit?" → Recover).
  * Its undo starts empty: the recovered items are where the person picks up.
  */

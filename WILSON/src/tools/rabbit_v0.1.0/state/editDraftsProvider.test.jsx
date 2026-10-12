@@ -74,6 +74,7 @@ function makeAdapter() {
     calls,
     db,
     failSave: false,
+    editOpts: [],
     status: async () => ({ online: true, lastSyncAt: null }),
     listProjects: async () => [clone(db.project)],
     loadProject: async () => clone({
@@ -115,9 +116,17 @@ function makeAdapter() {
     failListId: null,
     // Review round 2 (R2-03): a write held open, for an event to land in the middle of it.
     gate: null,
-    upsertEdit: async (row) => {
+    // FX4 review round 1 (R1-03): the contract's conditional write — an
+    // existing edit is written only while its stored Save is the one named.
+    upsertEdit: async (row, opts) => {
+      a.editOpts.push(opts)
       if (a.gate) await a.gate
       const stored = db.edits.find(e => e.id === row.id)
+      if (stored && opts && 'expectSavedAt' in opts && (stored.snapshot?.saved_at ?? null) !== (opts.expectSavedAt ?? null)) {
+        const e = httpError(409, 'this edit has been saved by someone else since — nothing was written')
+        e.code = 'edit_saved_since'
+        throw e
+      }
       if (!stored && a.failListId && row.shot_list_id === a.failListId) throw httpError(500, 'disk full')
       if (stored && row.snapshot !== undefined && a.failSave) { a.failSave = false; throw httpError(500, 'disk full') }
       if (!stored && db.edits.some(e => e.shot_list_id === row.shot_list_id && e.title === row.title && e.version === row.version)) {
@@ -1023,5 +1032,215 @@ describe('FX4 — Save edit writes into the edit on screen; Save as… makes the
     await changing(v1, BOATS_ONLY(v1))
     await act(async () => { await ctxRef.saveEditDraft('L1') })
     expect(ctxRef.canUndo).toBe(true)
+  })
+})
+
+// ── FX4 review round 1: what a save in flight, a Save landing between the
+//    check and the write, a missing name, a gone edit and a late change do ──
+describe('FX4 review round 1 — Save edit in flight, conditional writes, frozen names', () => {
+  const SAVED_V1 = (extra = {}) => ({ id: 'e1', project_id: 'p1', shot_list_id: 'L1', title: 'Shoot', version: 1, summary: null, parent_edit_id: null, items: MOVED, snapshot: { kind: 'edit', saved_at: '2026-10-01T09:00:00.000Z', shots: {}, scenes: {} }, archived_at: null, archived_by: null, created_at: '2026-10-01T09:00:00Z', ...extra })
+  const changingV1 = async (items, v1 = SAVED_V1()) => {
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L1', basedOnEditId: v1.id, editId: v1.id, title: v1.title, version: v1.version, baseSavedAt: v1.snapshot?.saved_at ?? null, base: v1.items, items }) })
+  }
+  const BOATS = () => [item('a', 'sh1', 'sc1', 'Boats')]
+  const upserts = () => holder.adapter.calls.filter(c => c[0] === 'upsertEdit')
+  const hold = () => { let release; holder.adapter.gate = new Promise((r) => { release = r }); return () => { holder.adapter.gate = null; release() } }
+  afterEach(() => _resetLeaveGuardsForTests())
+
+  it('R1-01: a change made WHILE Save edit writes is not lost — the save writes what it began with, and the change stays unsaved, on the version just saved', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await changingV1(BOATS())
+    const release = hold()
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1') })
+    await act(async () => { await new Promise(r => setTimeout(r, 5)) })
+    // Duplicate while it writes.
+    await act(async () => { ctxRef.changeEditDraft('L1', (its) => [...its, item('a2', 'sh1', 'sc1', 'Boats')]) })
+    await act(async () => { release(); await saving })
+    const stored = holder.adapter.db.edits[0]
+    expect(stored.items.map(i => i.id)).toEqual(['a'])
+    const d = ctxRef.editDraftOf('L1')
+    expect(d).not.toBeNull()
+    expect(d.items.map(i => i.id)).toEqual(['a', 'a2'])
+    expect(d).toMatchObject({ editId: 'e1', baseSavedAt: stored.snapshot.saved_at })
+    expect(ctxRef.hasUnsavedEdit).toBe(true)
+    // …and saving it again writes it, into the same edit, refused by nothing.
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a', 'a2'])
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+  })
+
+  it('R1-01: the same for a NEW edit from List order — the change made meanwhile stays, as changes to the edit just made (never a second new edit)', async () => {
+    await mount()
+    await startDraft()
+    const release = hold()
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1') })
+    await act(async () => { await new Promise(r => setTimeout(r, 5)) })
+    await act(async () => { ctxRef.changeEditDraft('L1', (its) => its.slice(0, 1)) })
+    await act(async () => { release(); await saving })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    const made = holder.adapter.db.edits[0]
+    expect(made.items.map(i => i.id)).toEqual(['b', 'a'])
+    const d = ctxRef.editDraftOf('L1')
+    expect(d).toMatchObject({ editId: made.id, title: 'Shoot', version: 1, baseSavedAt: made.snapshot.saved_at })
+    expect(d.items.map(i => i.id)).toEqual(['b'])
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['b'])
+  })
+
+  it('R1-01: a second Save edit while the first writes (the leave or close question\'s) waits for it, and writes nothing more', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await changingV1(BOATS())
+    holder.adapter.calls.length = 0
+    const release = hold()
+    let one
+    let two
+    act(() => { one = ctxRef.saveEditDraft('L1'); two = ctxRef.saveOpenDrafts() })
+    await act(async () => { release(); await one; await two })
+    expect(upserts()).toEqual([['upsertEdit', 'e1', 'update']])
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+  })
+
+  it('R1-01: an exit pressed while Save edit writes waits for it — no question for what it saved; a change made meanwhile is asked about after', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    render(<RabbitProvider><Probe /><LeaveEditDialog /></RabbitProvider>)
+    await waitFor(() => expect(ctxRef?.shotLists?.length).toBe(2))
+    await changingV1(BOATS())
+    let release = hold()
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1') })
+    const out = { went: undefined }
+    act(() => { confirmLeave('tab').then((g) => { out.went = g }) })
+    await act(async () => { await new Promise(r => setTimeout(r, 5)) })
+    expect(screen.queryByRole('dialog', { name: 'Save the edit before leaving?' })).toBeNull()
+    await act(async () => { release(); await saving })
+    await waitFor(() => expect(out.went).toBe(true))
+    expect(screen.queryByRole('dialog', { name: 'Save the edit before leaving?' })).toBeNull()
+    // CONTROL: a change made while it wrote is still unsaved, and asked about.
+    await changingV1(BOATS(), { ...SAVED_V1(), snapshot: holder.adapter.db.edits[0].snapshot })
+    await act(async () => { ctxRef.changeEditDraft('L1', [item('x', 'sh2', 'sc2', 'The door')]) })
+    release = hold()
+    act(() => { saving = ctxRef.saveEditDraft('L1') })
+    await act(async () => { await new Promise(r => setTimeout(r, 5)) })
+    await act(async () => { ctxRef.changeEditDraft('L1', (its) => [...its, item('y', 'sh1', 'sc1', 'Boats')]) })
+    const again = { went: undefined }
+    act(() => { confirmLeave('tab').then((g) => { again.went = g }) })
+    await act(async () => { release(); await saving })
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Save the edit before leaving?' })).toBeTruthy())
+    expect(again.went).toBeUndefined()
+  })
+
+  it('R1-01: Discard from the window\'s close question during a save lets that save finish, then drops only what is still unsaved', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await changingV1(BOATS())
+    const release = hold()
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1') })
+    await act(async () => { await new Promise(r => setTimeout(r, 5)) })
+    await act(async () => { ctxRef.changeEditDraft('L1', (its) => [...its, item('z', 'sh2', 'sc2', 'The door')]) })
+    let discarding
+    let discarded = false
+    act(() => { discarding = Promise.resolve(unsavedForClose()[0].discard()).then(() => { discarded = true }) })
+    // App closes the window once discard() resolves: not before the save has written.
+    await act(async () => { await new Promise(r => setTimeout(r, 10)) })
+    expect(discarded).toBe(false)
+    await act(async () => { release(); await saving; await discarding })
+    expect(discarded).toBe(true)
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a'])
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+  })
+
+  it('R1-03: a Save landing between the re-read and the write is refused by the backend itself — the same words, the changes kept, ctx.error the words', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await changingV1(BOATS())
+    const read = holder.adapter.listEdits
+    holder.adapter.listEdits = async (pid) => {
+      const rows = await read(pid)
+      // Someone saves right after this client has read.
+      holder.adapter.db.edits = holder.adapter.db.edits.map(e => ({ ...e, items: [], snapshot: { ...e.snapshot, saved_at: '2099-01-01T00:00:00.000Z' } }))
+      return rows
+    }
+    const words = 'Someone saved “Shoot · v1” since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.'
+    let err
+    await act(async () => { try { await ctxRef.saveEditDraft('L1') } catch (e) { err = e } })
+    expect(err.message).toBe(words)
+    expect(holder.adapter.editOpts.at(-1)).toEqual({ expectSavedAt: '2026-10-01T09:00:00.000Z' })
+    expect(holder.adapter.db.edits[0].snapshot.saved_at).toBe('2099-01-01T00:00:00.000Z')
+    expect(holder.adapter.db.edits[0].items).toEqual([])
+    expect(ctxRef.editDraftOf('L1')).toMatchObject({ editId: 'e1' })
+    expect(ctxRef.error).toBe(words)
+  })
+
+  it('R1-03: the undo and redo of a Save edit are conditional on the Save they expect too', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await changingV1(BOATS())
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    const after = holder.adapter.db.edits[0].snapshot.saved_at
+    await act(async () => { await ctxRef.undo() })
+    expect(holder.adapter.editOpts.at(-1)).toEqual({ expectSavedAt: after })
+    await act(async () => { await ctxRef.redo() })
+    expect(holder.adapter.editOpts.at(-1)).toEqual({ expectSavedAt: '2026-10-01T09:00:00.000Z' })
+  })
+
+  it('R1-02: a Save edit keeps the names its edit froze for a scene and a shot the project no longer has; so does Save as…', async () => {
+    const v1 = SAVED_V1({
+      items: [item('a', 'sh1', 'sc1', 'Boats'), item('g', 'gone-shot', 'gone-scene', 'Salt pan')],
+      snapshot: { kind: 'edit', saved_at: '2026-10-01T09:00:00.000Z', shots: { 'gone-shot': { name: 'Salt pan', shot_number: 10, scene_id: 'gone-scene' } }, scenes: { 'gone-scene': { name: 'Salt hours', scene_number: 6 } } },
+    })
+    holder.adapter.db.edits = [v1]
+    await mount()
+    await changingV1([v1.items[1], v1.items[0]], v1)
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    const snap = holder.adapter.db.edits[0].snapshot
+    expect(snap.scenes['gone-scene']).toEqual({ name: 'Salt hours', scene_number: 6 })
+    expect(snap.shots['gone-shot']).toMatchObject({ name: 'Salt pan' })
+    expect(snap.shots.sh1.name).toBe('Boats')
+    let v2
+    await act(async () => { v2 = await ctxRef.saveEditAs('L1', { title: 'Shoot', version: 2, fromEditId: 'e1' }) })
+    expect(holder.adapter.db.edits.find(e => e.id === v2.id).snapshot.scenes['gone-scene'].name).toBe('Salt hours')
+  })
+
+  it('R1-08: a stored copy of changes to an edit the list no longer holds recovers as a NEW edit, at the next free version — Save edit makes it', async () => {
+    holder.adapter.db.edits = []
+    localStorage.setItem(EDIT_DRAFTS_KEY, JSON.stringify({
+      [storedDraftKey('local', 'p1', 'L1')]: { personKey: 'local', projectId: 'p1', listId: 'L1', basedOnEditId: 'gone', editId: 'gone', baseSavedAt: '2026-10-01T09:00:00.000Z', title: 'Shoot', version: 3, base: [], items: BASE, changedAt: 't' },
+    }))
+    await mount()
+    await act(async () => { ctxRef.recoverEditDraft('L1') })
+    expect(ctxRef.editDraftOf('L1')).toMatchObject({ editId: null, basedOnEditId: null, baseSavedAt: null, title: 'Shoot', version: 1 })
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits.map(e => [e.title, e.version])).toEqual([['Shoot', 1]])
+  })
+
+  it('R1-08: changes to an edit the list no longer holds (gone under them) are saved as a NEW edit, never refused as "no longer in this list"', async () => {
+    holder.adapter.db.edits = []
+    await mount()
+    await act(async () => { ctxRef.startEditDraft({ listId: 'L1', basedOnEditId: 'gone', editId: 'gone', title: 'Shoot', version: 4, baseSavedAt: 'T', base: [], items: BASE }) })
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits.map(e => [e.title, e.version, e.items.length])).toEqual([['Shoot', 1, 2]])
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+  })
+
+  it('R1-09: a late change lands only on the SAME edit\'s changes — never another edit\'s, never a new edit\'s', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await startDraft()
+    expect(() => ctxRef.startEditDraft({ listId: 'L1', editId: 'e1', title: 'Shoot', version: 1, base: [], items: [], orApply: (its) => [...its, item('q', 'sh1', 'sc1')] }))
+      .toThrow('another edit of this list has unsaved changes now, so this change was not made')
+    expect(() => ctxRef.changeEditDraft('L1', [item('q', 'sh1', 'sc1')], { editId: 'e1' }))
+      .toThrow('another edit of this list has unsaved changes now, so this change was not made')
+    expect(ctxRef.editDraftOf('L1').items.map(i => i.id)).toEqual(['b', 'a'])
+    // CONTROL: the same edit's (here a new edit's: editId null) takes it, as a function of the items NOW.
+    let d
+    await act(async () => { d = ctxRef.changeEditDraft('L1', (its) => its.slice(1), { editId: null }) })
+    expect(d.items.map(i => i.id)).toEqual(['a'])
   })
 })

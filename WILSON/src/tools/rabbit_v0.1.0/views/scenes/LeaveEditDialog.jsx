@@ -50,7 +50,7 @@ export default function LeaveEditDialog() {
       stayLabel="Keep editing"
       onStay={() => ctx.answerLeave(false)}
       answers={[
-        { label: 'Discard changes', variant: 'danger', onClick: async () => { ctx.discardOpenDrafts(); ctx.answerLeave(true) } },
+        { label: 'Discard changes', variant: 'danger', onClick: async () => { await ctx.discardOpenDrafts(); ctx.answerLeave(true) } },
         { label: 'Save edit', variant: 'primary', onClick: async () => { await ctx.saveOpenDrafts(); ctx.answerLeave(true) } },
       ]}
     >

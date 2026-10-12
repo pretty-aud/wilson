@@ -2622,7 +2622,10 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   or saveEdit where the API calls for it").
 - **S3c-05 · Save edit from the leave or close question saves without a
   summary.** Under the name the first-change question gave it, at that
-  title's next version. Owner: Audrey.
+  title's next version. Owner: Audrey. *(FX4, 2026-10-12: a saved edit's
+  changes are now saved INTO it, its summary kept; only a new edit from
+  List order is saved this way, as the bar's Save edit saves it too —
+  walkthrough 67.)*
 - ~~**S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
   tab was reloaded too.**~~ Closed in S3c's review round 2 (R2-03): it says
   the edit "was left unsaved", true of a closed window, a reloaded tab and
@@ -2637,9 +2640,13 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   (leaveGuardWiring.test.js, each pin with a CONTROL) and were exercised
   for real in Chromium and once in the desktop app. Owner: a session that
   mounts the shell.
-- **S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
+- ~~**S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
   unsaved edit on screen** (then the draft's own undo, on every backend);
-  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).
+  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).~~ No longer true
+  (FX4's review round 1, 2026-10-12): since BC1 (`0b38077c`, 2026-10-07)
+  `supportsBins` is true on the cloud, so the Scenes tab binds Ctrl+Z there
+  as on the Local Server; after FX4's Save edit, Ctrl+Z takes the save back
+  on both. Help's Undo card says so.
 - **S3c-10 · P1-32b is still open** (the Timeline's weekends-off
   conversions): S5's, as the brief said.
 - **S3c-11 · One exit can ask two questions in a row.** A Scenes popup

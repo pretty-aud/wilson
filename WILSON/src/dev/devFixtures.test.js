@@ -170,7 +170,11 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       // probe, the clip URL, the renewal, the HEAD over an injected fetch),
       // so the fixtures' Playwright mode drives the real doors against a
       // real gateway on loopback.
-      'tools/rabbit_v0.1.0/bins/gatewayDoors']
+      'tools/rabbit_v0.1.0/bins/gatewayDoors',
+      // FX4 review round 1 (R1-03): shotListModel.js (pure, no imports) for
+      // the one code and sentence a conditional edit write is refused with,
+      // so the fake cloud answers exactly as the real backends do.
+      'tools/rabbit_v0.1.0/state/shotListModel']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))

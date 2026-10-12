@@ -401,14 +401,14 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Undo</h4>
             <p className={T.listItem}>
-              On the Local Server, <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Z</Kbd> undoes
+              On the Local Server and the cloud, <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Z</Kbd> undoes
               and <Kbd surface={surface}>Ctrl</Kbd> <Kbd surface={surface}>Y</Kbd> redoes
               on the Scenes tab, in its scene and shot windows and in the
               windows they open, but not while you type in a field, while a
               menu, a question, the settings drawer or a shot-list window is
               open, or while a delete of several rows is still going. While
               an edit is unsaved they undo and redo its own changes instead,
-              on every backend.
+              on every backend. Once it is saved, Ctrl Z takes the save back.
             </p>
           </div>
         </div>
@@ -445,7 +445,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Saving an edit</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Unsaved</span> — An unsaved edit is saved nowhere yet: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
+              <li>• <span className={T.listBold}>Unsaved</span> — Changes not saved yet are kept only on this computer, not in the edit: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
               <li>• <span className={T.listBold}>Save edit</span> — Saves the changes into the edit on screen: its title and version stay, and its cut is replaced by this one. Nothing asks. A new edit made from the list is saved under the name its question gave it. If someone else saved the edit since you began, Save edit says so and saves nothing: Save as… keeps your changes.</li>
               <li>• <span className={T.listBold}>Save as…</span> — The only way to a new version: asks its title (by default the same title, next version, which "Same title, next version" turns off for a title of your own) and a summary of what changed. The edit you started from stays as it was saved.</li>
               <li>• <span className={T.listBold}>Discard changes</span> — Drops what is not saved; the edit as it was saved, or the list's own order, comes back.</li>

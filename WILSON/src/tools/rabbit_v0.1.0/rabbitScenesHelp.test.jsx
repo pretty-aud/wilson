@@ -170,6 +170,13 @@ describe('the help page\'s edits (S3c)', () => {
     expect(text).toContain('The only way to a new version: asks its title')
     expect(text).toContain('The edit you started from stays as it was saved.')
     expect(text).not.toMatch(/Make a new version of this edit|Start new version|Save edit as…/)
+    // Review round 1 (R1-11, R1-04): unsaved changes are kept on this
+    // computer, not "saved nowhere"; and the cloud's Scenes tab undoes too
+    // (since BC1), a Save edit included.
+    expect(text).toContain('Changes not saved yet are kept only on this computer, not in the edit')
+    expect(text).not.toContain('An unsaved edit is saved nowhere yet')
+    expect(text).toContain('On the Local Server and the cloud, Ctrl Z undoes')
+    expect(text).toContain('Once it is saved, Ctrl Z takes the save back.')
     // …and the tab no longer draws that question either.
     expect(read('./views/scenes/editCopy.js')).not.toMatch(/'Make a new version of this edit\?'|'Start new version'/)
   })

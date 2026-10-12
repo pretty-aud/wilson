@@ -119,6 +119,22 @@ describe('"Discard changes?" says what goes and what comes back', () => {
   })
 })
 
+// FX4 review round 1 (R1-12): a kept copy of a saved edit's CHANGES is named
+// as changes — "Changing X replaces X" said nothing.
+describe('FX4 review round 1: a kept copy of changes is named as changes', () => {
+  const changes = { title: "Director's cut", version: 3, editId: 'e3', items: [{}, {}] }
+  it('on a saved edit: "replaces the unsaved changes to X kept from before", "are then gone", "To keep those"', () => {
+    const qn = firstChangeQuestion({ list, from: v3, tip: v3, name: v3, what: 'Move “Boats” up', replaces: changes })
+    expect(qn.lines[0]).toBe('Changing “Director\'s cut · v3” replaces the unsaved changes to “Director\'s cut · v3” kept from before (2 shots), which are then gone.')
+    expect(qn.lines[2]).toBe('To keep those instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.')
+  })
+  it('in List order too (replacesWords)', () => {
+    expect(replacesWords(changes)).toBe('It replaces the unsaved changes to “Director\'s cut · v3” kept from before (2 shots), which are then gone. To keep those instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.')
+    // CONTROL: a new edit's copy is the edit, as before.
+    expect(replacesWords({ title: 'Shoot', version: 2, items: [{}] })).toBe('It replaces “Shoot · v2”, the unsaved edit of this list kept from before (1 shot), which is then gone. To keep that one instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.')
+  })
+})
+
 describe('FX4: the bar\'s two saves say what they do on hover', () => {
   it('Save edit: into the edit (replacing its cut) — or a new edit under its name; nothing on a saved edit', () => {
     expect(saveEditHint({ draft: { title: "Director's cut", version: 3, editId: 'e3' }, list }))

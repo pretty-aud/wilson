@@ -52,17 +52,17 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
   const request = useCallback(async ({ what = null, apply = null, prepare = null, writes = null, made = null } = {}) => {
     if (!canEdit || !list || readOnly) return false
     if (mode === 'draft') {
+      const onScreen = session?.draft || ctx?.editDraftOf?.(list.id) || null
+      let prepared = null
       try {
-        const prepared = prepare ? await prepare() : null
-        // The draft as it is NOW: a prepare may have taken a round trip.
-        const draft = ctx?.editDraftOf?.(list.id)
-        if (!draft) return false
-        const next = apply ? apply(draft.items, prepared) : null
-        if (!next) return false
-        ctx.changeEditDraft(list.id, next, { made: made ? made(prepared) : [] })
-        return true
+        prepared = prepare ? await prepare() : null
+        if (!apply || !onScreen) return false
+        // The draft as it is NOW in the provider (a prepare may have taken a
+        // round trip), and only the same edit's (FX4 review round 1).
+        return !!ctx.changeEditDraft(list.id, (items) => apply(items, prepared), { made: made ? made(prepared) : [], editId: onScreen.editId || null })
       } catch (err) {
-        onError?.(err)
+        const wrote = prepared?.name ? ` The new shot “${prepared.name}” was added to the list and stays there.` : ''
+        onError?.(wrote ? new Error(`${err?.message || err}.${wrote}`) : err)
         return false
       }
     }
@@ -76,8 +76,9 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
     const kept = from ? (ctx?.recoverableEditDrafts || []).find(c => c.listId === list.id) || null : null
     const ofEdit = from ? { title: from.title, version: from.version } : null
     if (from && !kept) {
+      let prepared = null
       try {
-        const prepared = prepare ? await prepare() : null
+        prepared = prepare ? await prepare() : null
         const next = apply ? apply(base, prepared) : null
         if (!next) return false
         ctx.startEditDraft({
@@ -85,13 +86,16 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
           base,
           items: next,
           made: made ? made(prepared) : [],
-          // A draft begun meanwhile (another change, while this one's New
-          // shot was written): this change goes onto it instead.
+          // Changes to this same edit begun meanwhile (another change, while
+          // this one's New shot was written): this change goes onto them —
+          // never onto another edit's (review round 1, R1-09).
           orApply: apply ? (items) => apply(items, prepared) : null,
         })
         return true
       } catch (err) {
-        onError?.(err)
+        // The shot New shot wrote stays in the list whatever became of the change: say so.
+        const wrote = prepared?.name ? ` The new shot “${prepared.name}” was added to the list and stays there.` : ''
+        onError?.(wrote ? new Error(`${err?.message || err}.${wrote}`) : err)
         return false
       }
     }

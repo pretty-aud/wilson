@@ -317,7 +317,20 @@ function DraftHarness({ edits: given, extra, pageActive }) {
       editDraftOf: (listId) => drafts[listId] || null,
       startEditDraft: (opts) => { log.start.push(opts); setDrafts(d => ({ ...d, [opts.listId]: startDraft({ projectId: 'p1', ...opts, now: 't' }) })) },
       // As the provider's: opts.made, the shots a change wrote (R1-04; review round 2 tests it).
-      changeEditDraft: (listId, next, opts = {}) => { log.change.push(next); log.changeOpts.push(opts); setDrafts(d => ({ ...d, [listId]: changeDraft(d[listId], next, 't', opts.made || []) })) },
+      // As the provider's (FX4 review round 1): `next` may be a function of
+      // the draft's items NOW, and `opts.editId` must be the draft's own.
+      changeEditDraft: (listId, next, opts = {}) => {
+        const cur = draftsRef.current[listId]
+        if (!cur) throw new Error('there is no unsaved edit of this shot list')
+        if ('editId' in opts && (cur.editId || null) !== (opts.editId || null)) throw new Error('another edit of this list has unsaved changes now, so this change was not made')
+        const items = typeof next === 'function' ? next(cur.items) : next
+        if (!items) return null
+        log.change.push(items); log.changeOpts.push(opts)
+        const changed = changeDraft(cur, items, 't', opts.made || [])
+        draftsRef.current = { ...draftsRef.current, [listId]: changed }
+        setDrafts(d => ({ ...d, [listId]: changed }))
+        return changed
+      },
       undoEditDraft: (listId) => { log.undo += 1; setDrafts(d => { const n = undoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       redoEditDraft: (listId) => { log.redo += 1; setDrafts(d => { const n = redoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       discardEditDraft: (listId) => { log.discard += 1; setDrafts(d => { const n = { ...d }; delete n[listId]; return n }) },
@@ -1502,5 +1515,115 @@ describe('FX1: the cut\'s frame count is the number field', () => {
     expect(screen.queryByRole('button', { name: 'Increase Frames for The climb (cut 1)' })).toBeNull()
     fireEvent.change(el, { target: { value: '12' } })
     expect(ctx.updateShot).not.toHaveBeenCalled()
+  })
+})
+
+// ── FX4 review round 1: the bar after a save or a discard, a recovered or
+//    archived edit, frozen names on the changes ───────────────────────────────
+describe('FX4 review round 1 — the bar, the selector and the words', () => {
+  const bar = () => document.querySelector('.rb-scene-lists')
+  const changeClimb = async () => {
+    pickEdit('edit-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit actions for The climb (cut 1)' }))
+    fireEvent.click(menuItem('Remove from edit'))
+    await act(async () => {})
+  }
+
+  it('R1-05: a refusal Save as… then answered is cleared from the Banner; so is one Discard changes answered', async () => {
+    const refusal = 'Someone saved “Director\'s cut · v1” since these changes began, and Save edit would write over that.'
+    draftPage({ saveEditDraft: async () => { throw new Error(refusal) } })
+    await changeClimb()
+    await act(async () => { fireEvent.click(within(bar()).getByRole('button', { name: 'Save edit' })) })
+    expect(screen.getByRole('alert').textContent).toBe(refusal)
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as…' }))
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Save as a new version' })).getByRole('button', { name: 'Save new version' })) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    cleanup()
+    draftPage({ saveEditDraft: async () => { throw new Error(refusal) } })
+    await changeClimb()
+    await act(async () => { fireEvent.click(within(bar()).getByRole('button', { name: 'Save edit' })) })
+    expect(screen.getByRole('alert')).toBeTruthy()
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Discard changes' }))
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard changes?' })).getByRole('button', { name: 'Discard changes' })) })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('R1-06: after Save edit focus goes to Save as… (nothing else had it), and a polite line says what was saved', async () => {
+    draftPage()
+    await changeClimb()
+    const status = () => bar().querySelector('.sr-only[role="status"]')
+    expect(status().getAttribute('aria-live')).toBe('polite')
+    expect(status().textContent).toBe('')
+    // As a keyboard user presses it: focus on it, then the press.
+    const save = within(bar()).getByRole('button', { name: 'Save edit' })
+    save.focus()
+    await act(async () => { fireEvent.click(save) })
+    expect(document.activeElement.textContent).toBe('Save as…')
+    expect(status().textContent).toBe('“Director\'s cut · v1” saved')
+  })
+
+  it('R1-06: after Discard changes focus goes to Save as… too, and the line says the changes were discarded', async () => {
+    draftPage()
+    await changeClimb()
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Discard changes' }))
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Discard changes?' })).getByRole('button', { name: 'Discard changes' })) })
+    expect(document.activeElement.textContent).toBe('Save as…')
+    expect(bar().querySelector('.sr-only[role="status"]').textContent).toBe('Changes discarded')
+  })
+
+  it('R1-06 CONTROL: focus a control still holds is left where it is', async () => {
+    draftPage()
+    await changeClimb()
+    const search = screen.getByRole('textbox', { name: 'Search' })
+    search.focus()
+    await act(async () => { fireEvent.click(within(bar()).getByRole('button', { name: 'Save edit' })) })
+    expect(document.activeElement).toBe(search)
+  })
+
+  it('R1-07: "Recover unsaved edit?" for a saved edit\'s changes offers Discard changes, never "Discard edit"', () => {
+    const copy = { personKey: 'local', projectId: 'p1', listId: 'list-1', basedOnEditId: 'edit-1', editId: 'edit-1', title: "Director's cut", version: 1, base: [], items: [editItem('a', 'sc1', 'sh1')], changedAt: '2026-10-12T09:00:00Z' }
+    draftPage({ recoverableEditDrafts: [copy], recoverEditDraft: vi.fn(), dismissStoredEditDraft: vi.fn() })
+    const d = screen.getByRole('dialog', { name: 'Recover unsaved edit?' })
+    expect(d.textContent).toContain('Changes to “Director\'s cut · v1”, an edit of “Shoot · v2”, were left unsaved.')
+    expect(within(d).getByRole('button', { name: 'Discard changes' })).toBeTruthy()
+    expect(within(d).queryByRole('button', { name: 'Discard edit' })).toBeNull()
+  })
+
+  it('R1-08: changes to an edit archived since say so in the selector, its badge shows, and Save edit stands aside for Save as… with the reason', () => {
+    const base = EDIT_1.items
+    const initialDrafts = { 'list-1': startDraft({ projectId: 'p1', listId: 'list-1', basedOnEditId: 'edit-1', editId: 'edit-1', title: "Director's cut", version: 1, base, items: base.slice(1), now: 't' }) }
+    draftPage({ initialDrafts, edits: [{ ...EDIT_1, archived_at: '2026-10-12T09:00:00Z' }] })
+    expect(editSelect().value).toBe('edit-1')
+    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v1 (unsaved changes, archived)")
+    expect(within(bar()).getByText('Archived')).toBeTruthy()
+    const save = within(bar()).getByRole('button', { name: 'Save edit' })
+    expect(save.closest('[aria-disabled="true"]').getAttribute('title')).toBe('“Director\'s cut · v1” has been archived since these changes began, so they cannot be saved into it. Save as… keeps them as a new version.')
+    expect(within(bar()).getByRole('button', { name: 'Save as…' }).closest('[aria-disabled="true"]')).toBeNull()
+  })
+
+  it('R1-08: changes to an edit the list no longer holds read as a new edit — its own entry, and the words of a new edit', () => {
+    const initialDrafts = { 'list-1': startDraft({ projectId: 'p1', listId: 'list-1', basedOnEditId: 'gone', editId: 'gone', title: 'Lost cut', version: 2, base: [], items: EDIT_1.items.slice(0, 2), now: 't' }) }
+    draftPage({ initialDrafts })
+    expect(editSelect().value).toBe('draft')
+    expect(editSelect().selectedOptions[0].textContent).toBe('Lost cut · v2 (not saved)')
+    expect(within(bar()).getByRole('button', { name: 'Save edit' }).getAttribute('title')).toBe('Saves “Lost cut · v2” as a new edit of “Shoot · v2”.')
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as…' }))
+    expect(screen.getByRole('dialog', { name: 'Save as a new edit' })).toBeTruthy()
+  })
+
+  it('R1-02: a saved edit\'s changes show the names it froze — "Missing scene: Salt hours" stays on the changes', async () => {
+    const withGone = {
+      ...EDIT_1,
+      items: [...EDIT_1.items, editItem('i6', 'gone-scene', 'gone-shot', 'Salt pan')],
+      snapshot: { kind: 'edit', saved_at: '2026-10-01T09:00:00.000Z', shots: { 'gone-shot': { name: 'Salt pan' } }, scenes: { 'gone-scene': { name: 'Salt hours' } } },
+    }
+    draftPage({ edits: [withGone] })
+    pickEdit('edit-1')
+    expect(bandLabels(document)).toContain('Missing scene: Salt hours')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit actions for The climb (cut 1)' }))
+    fireEvent.click(menuItem('Remove from edit'))
+    await act(async () => {})
+    changingEdit1()
+    expect(bandLabels(document)).toContain('Missing scene: Salt hours')
   })
 })

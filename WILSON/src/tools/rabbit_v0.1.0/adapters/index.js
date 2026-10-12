@@ -223,7 +223,7 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(projectId: string, listId: string, items: Array<{id: string, position: number}>) => Promise<object[]>} repositionShotListItems
  * @property {(projectId: string, listId: string, itemIds: string[]) => Promise<{deleted: string[]}>} deleteShotListItems
  * @property {(projectId: string) => Promise<object[]>}             listEdits
- * @property {(edit: object) => Promise<object>}                    upsertEdit
+ * @property {(edit: object, opts?: {expectSavedAt: string|null}) => Promise<object>} upsertEdit
  * @property {(projectId: string, listId: string|null) => Promise<string|null>} setActiveShotList
  * @property {(projectId: string, listId: string, archived?: boolean) => Promise<object>} archiveShotList
  * @property {(projectId: string, editId: string, archived?: boolean) => Promise<object>} archiveEdit
@@ -239,6 +239,12 @@ import { devFixtures } from '../../../dev/devFixtures';
  *     every list; only item rows and their positions are per list. Scene
  *     items order a list's scenes; shot items order shots within their
  *     scene (restarting at 0 per scene and for the unlinked bucket).
+ *   - upsertEdit(edit, { expectSavedAt }) (post-overhaul FX4 review round 1,
+ *     R1-03) writes an EXISTING edit only while its stored snapshot's
+ *     saved_at is the one named (null: none); another is refused with code
+ *     `edit_saved_since` (shotListModel's EDIT_SAVED_SINCE), status 409.
+ *     The cloud filters its UPDATE on it; the Local Server and the fixtures
+ *     check and write in one step.
  *   - upsertShotList / upsertEdit need `project_id` on the row and return
  *     the stored row (the cloud sends neither the audit columns nor
  *     archived_at / archived_by — the database stamps the first four and

@@ -1475,6 +1475,91 @@ describe('the six unique violations speak the contract\'s sentences (R2-3)', () 
   })
 })
 
+// ── Post-overhaul FX4 review round 1 (R1-03): the conditional edit write ────
+// Since FX4 Save edit writes INTO an edit, and two people may change one.
+// With { expectSavedAt } the adapter UPDATEs filtered on the stored
+// snapshot's saved_at: the database applies it only where that Save is still
+// the edit's. Zero rows back is told apart by one read.
+describe('upsertEdit(edit, { expectSavedAt }) — the conditional write (FX4 R1-03)', () => {
+  /** A fake client: records the update, its filters and the select, and answers as `answer(filters)` says. */
+  function conditionalClient({ updated, stored }) {
+    const log = { updates: [], reads: [] }
+    const client = {
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+      from: (table) => {
+        const q = { table, op: null, set: null, filters: [], select: null }
+        const b = {
+          update: (set) => { q.op = 'update'; q.set = set; return b },
+          select: (cols) => { q.select = cols ?? '*'; return b },
+          eq: (col, v) => { q.filters.push(['eq', col, v]); return b },
+          is: (col, v) => { q.filters.push(['is', col, v]); return b },
+          maybeSingle: () => { q.single = true; return b },
+          single: () => { q.single = true; return b },
+          order: () => b, in: () => b, range: () => b,
+          then: (resolve, reject) => {
+            let res
+            if (q.op === 'update') { log.updates.push(q); res = { data: updated, error: null } }
+            else if (table === 'edits') { log.reads.push(q); res = { data: stored, error: null } }
+            else res = { data: table === 'projects' ? { id: 'p1' } : [], error: null }
+            return Promise.resolve(res).then(resolve, reject)
+          },
+        }
+        return b
+      },
+      rpc: async () => ({ data: null, error: null }),
+    }
+    return { client, log }
+  }
+  const EDIT = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [{ id: 'x', shot_id: 'sh1', label: 'Wide', notes: '' }], snapshot: { kind: 'edit', saved_at: 'T2' }, created_by: 'u9', updated_at: 'Z' }
+
+  it('a named Save: UPDATE … WHERE id AND snapshot->>saved_at = it, returning the row; nothing is upserted', async () => {
+    const { client, log } = conditionalClient({ updated: [{ ...EDIT, snapshot: { kind: 'edit', saved_at: 'T2' } }], stored: null })
+    const adapter = install({ client })
+    const row = await adapter.upsertEdit(EDIT, { expectSavedAt: 'T1' })
+    expect(row.id).toBe('e1')
+    expect(log.updates).toHaveLength(1)
+    expect(log.updates[0].filters).toEqual([['eq', 'id', 'e1'], ['eq', 'snapshot->>saved_at', 'T1']])
+    expect(log.updates[0].set.id).toBeUndefined()
+    expect(log.updates[0].set.items).toEqual(EDIT.items)
+    // The server-owned columns are stripped, as the upsert strips them.
+    expect(log.updates[0].set.created_by).toBeUndefined()
+    expect(log.updates[0].set.updated_at).toBeUndefined()
+    expect(log.reads).toEqual([])
+  })
+
+  it('no Save named (null): the filter is IS NULL', async () => {
+    const { client, log } = conditionalClient({ updated: [EDIT], stored: null })
+    await install({ client }).upsertEdit(EDIT, { expectSavedAt: null })
+    expect(log.updates[0].filters).toEqual([['eq', 'id', 'e1'], ['is', 'snapshot->>saved_at', null]])
+  })
+
+  it('zero rows, and the stored edit carries another Save: refused with code edit_saved_since, status 409', async () => {
+    const { client } = conditionalClient({ updated: [], stored: { id: 'e1', snapshot: { saved_at: 'T9' } } })
+    const err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('edit_saved_since')
+    expect(err.status).toBe(409)
+    expect(err.message).toBe('[supabase] this edit has been saved by someone else since — nothing was written')
+  })
+
+  it('zero rows, and the stored edit carries the SAME Save (or none is visible): not "someone saved" — the row is not this person\'s to change', async () => {
+    let { client } = conditionalClient({ updated: [], stored: { id: 'e1', snapshot: { saved_at: 'T1' } } })
+    let err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe('[supabase] the edit was not written: it is no longer one you can change here')
+    ;({ client } = conditionalClient({ updated: [], stored: null }))
+    err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+  })
+
+  it('CONTROL: without expectSavedAt (or for a new row with no id) the write is the upsert it was', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    await adapter.upsertEdit(EDIT)
+    await adapter.upsertEdit({ ...EDIT, id: undefined }, { expectSavedAt: 'T1' })
+    expect(rec.writes.map(w => w.op)).toEqual(['upsert', 'upsert'])
+  })
+})
+
 describe('upsertShotList / upsertEdit send no audit or archive column (R1 addendum F)', () => {
   const SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by', 'archived_at', 'archived_by']
   const rest = (row) => Object.fromEntries(Object.entries(row).filter(([k]) => !SERVER_OWNED.includes(k)))
