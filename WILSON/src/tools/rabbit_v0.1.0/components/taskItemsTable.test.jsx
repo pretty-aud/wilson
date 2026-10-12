@@ -187,6 +187,43 @@ describe('the verbs', () => {
   })
 })
 
+// Review round 1, R1-3: on the cloud a task's main asset decides whether the
+// task can be seen, and the database refuses to make a trashed asset main (a
+// raw 42501 before). An item the project no longer shows never becomes the
+// main one from this table: the verbs that would make it main are greyed with
+// the reason, and the one that removes it first stays open.
+describe('an item no longer in the project never becomes the main one (R1-3)', () => {
+  const NEXT = "The next asset is no longer in the project: remove it first, so it does not become this task's main asset."
+  const SELF = "This asset is no longer in the project, so it cannot become this task's main asset."
+  it('with a gone asset second: the main one cannot be removed or moved down, the gone one cannot move up; it can go', () => {
+    const ctx = ctxOf({ taskItems: [item('i1', 'asset', 'a1', 0), item('i9', 'asset', 'trashed', 1)] })
+    open(ctx)
+    const [main, gone] = [...table().querySelectorAll('.rb-rel-item')]
+    const gate = (row, name) => within(row).getByRole('button', { name }).closest('[aria-disabled="true"]')
+    expect(gate(main, 'Remove Sea Spray Comp').getAttribute('title')).toBe(NEXT)
+    expect(gate(main, 'Move Sea Spray Comp down').getAttribute('title')).toBe(NEXT)
+    expect(gate(gone, 'Move No longer in the project up').getAttribute('title')).toBe(SELF)
+    fireEvent.click(within(main).getByRole('button', { name: 'Remove Sea Spray Comp' }))
+    fireEvent.click(within(main).getByRole('button', { name: 'Move Sea Spray Comp down' }))
+    fireEvent.click(within(gone).getByRole('button', { name: 'Move No longer in the project up' }))
+    expect(ctx.removeTaskItem).not.toHaveBeenCalled()
+    expect(ctx.reorderTaskItems).not.toHaveBeenCalled()
+    fireEvent.click(within(gone).getByRole('button', { name: 'Remove No longer in the project' }))
+    expect(ctx.removeTaskItem).toHaveBeenCalledWith('i9')
+  })
+
+  it('with a gone asset FIRST (a scene or a shot can be): it can be moved down or removed, and the next becomes main', () => {
+    const ctx = ctxOf({ taskItems: [item('i9', 'asset', 'trashed', 0), item('i1', 'asset', 'a1', 1)] })
+    open(ctx)
+    const [gone] = [...table().querySelectorAll('.rb-rel-item')]
+    expect(within(gone).getByRole('button', { name: 'Move No longer in the project down' }).closest('[aria-disabled="true"]')).toBeNull()
+    fireEvent.click(within(gone).getByRole('button', { name: 'Move No longer in the project down' }))
+    expect(ctx.reorderTaskItems).toHaveBeenCalledWith('t1', 'asset', ['i1', 'i9'])
+    fireEvent.click(within(gone).getByRole('button', { name: 'Remove No longer in the project' }))
+    expect(ctx.removeTaskItem).toHaveBeenCalledWith('i9')
+  })
+})
+
 describe('a seat that may not write', () => {
   it('a reviewer sees the add and every remove greyed, and nothing is written', () => {
     holder.role = 'user'

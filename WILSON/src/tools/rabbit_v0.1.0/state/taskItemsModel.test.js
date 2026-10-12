@@ -196,6 +196,18 @@ describe('the patch helpers and the shape check', () => {
     expect(itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'a', position: -1 })).toMatch(/whole number/)
     expect(itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'a', position: 1.5 })).toMatch(/whole number/)
     expect(itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'a' })).toBeNull()
+    // Review round 1, R1-4: ids are text, a position fits the cloud's
+    // INTEGER, and created_at (when sent) is a date.
+    const ok = { task_id: T, entity_type: 'asset', entity_id: 'a' }
+    expect(itemShapeProblem({ ...ok, entity_id: ['a'] })).toMatch(/as text/)
+    expect(itemShapeProblem({ ...ok, task_id: 7 })).toMatch(/as text/)
+    expect(itemShapeProblem({ ...ok, id: {} })).toMatch(/own id is text/)
+    expect(itemShapeProblem({ ...ok, position: 1e300 })).toMatch(/whole number/)
+    expect(itemShapeProblem({ ...ok, position: 2147483648 })).toMatch(/whole number/)
+    expect(itemShapeProblem({ ...ok, position: 2147483647 })).toBeNull()
+    expect(itemShapeProblem({ ...ok, created_at: {} })).toMatch(/is a date/)
+    expect(itemShapeProblem({ ...ok, created_at: 'not a date' })).toMatch(/is a date/)
+    expect(itemShapeProblem({ ...ok, id: 'i1', created_at: '2026-10-11T00:00:00Z' })).toBeNull()
   })
   it('the next position is after the last of the kind', () => {
     expect(nextPosition([it_('a', 'asset', 'A', 0), it_('b', 'asset', 'B', 4)], T, 'asset')).toBe(5)

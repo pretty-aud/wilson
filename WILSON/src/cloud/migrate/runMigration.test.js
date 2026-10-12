@@ -455,6 +455,51 @@ describe("a task's items move with the project (FX2)", () => {
     expect(report.errors.map(e => [e.scope, e.id])).toEqual([['task_item', 'i3']])
   })
 
+  // Review round 1, R1-2: the tasks land before the scenes and shots (BC3),
+  // tasks_scene_fk / tasks_shot_fk are not deferrable, and the cloud has no
+  // level or experience column; FX2's desktop writes all five keys on a task
+  // whose main item changed. The fake refuses exactly what the cloud does.
+  it('R1-2: a task goes up without its scene, shot, level and experience links; its scene and shot land as items after the shots', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.scenes = [{ id: 's1', project_id: 'p1', name: 'S1' }]
+        b.shots = [{ id: 'h1', project_id: 'p1', scene_id: 's1', name: 'H1' }]
+        b.tasks[0] = { ...b.tasks[0], scene_id: 's1', shot_id: 'h1', level_id: null, experience_id: null }
+        // A scene on the row and in no item (a bundle no Local Server reconciled).
+        b.tasks[1] = { ...b.tasks[1], scene_id: 's1' }
+        b.taskItems = [
+          { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'scene', entity_id: 's1', position: 0 },
+          { id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'shot', entity_id: 'h1', position: 0 },
+        ]
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    fake.state.failWith = (table, row) => {
+      if (table !== 'tasks') return null
+      if ('level_id' in row || 'experience_id' in row) return { code: 'PGRST204', message: "Could not find the 'level_id' column of 'tasks' in the schema cache" }
+      const landed = (t, id) => (fake.state.inserts[t] || []).some(r => r.id === id)
+      if (row.scene_id && !landed('scenes', row.scene_id)) return { code: '23503', message: 'insert or update on table "tasks" violates foreign key constraint "tasks_scene_fk"' }
+      if (row.shot_id && !landed('shots', row.shot_id)) return { code: '23503', message: 'insert or update on table "tasks" violates foreign key constraint "tasks_shot_fk"' }
+      return null
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    // (This fake cannot answer the paged read of what the cloud holds, which
+    // the scenes and shots say as their own errors; the tasks and items none.)
+    expect(report.errors.filter(e => e.scope === 'task' || e.scope === 'task_item')).toEqual([])
+    expect(fake.state.inserts.tasks).toHaveLength(3)
+    for (const t of fake.state.inserts.tasks) {
+      for (const f of ['scene_id', 'shot_id', 'level_id', 'experience_id']) expect(t, `${t.id}.${f}`).not.toHaveProperty(f)
+    }
+    expect(fake.state.inserts.task_items.map(i => `${i.task_id}:${i.entity_type}:${i.entity_id}`))
+      .toEqual(['t1:scene:s1', 't1:shot:h1', 't2:scene:s1'])
+    expect(report.taskItems).toMatchObject({ total: 3, inserted: 3, failed: 0 })
+    const log = fake.state.log
+    expect(log.indexOf('task_items')).toBeGreaterThan(log.lastIndexOf('shots'))
+  })
+
   it('the dry run counts the items and the ones that stay', async () => {
     globalThis.fetch = vi.fn(async (url) => {
       if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }

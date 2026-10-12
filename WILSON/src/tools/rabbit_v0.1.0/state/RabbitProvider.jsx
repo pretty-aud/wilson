@@ -281,7 +281,30 @@ export function RabbitProvider({ children }) {
   // ── data ─────────────────────────────────────────────────
   const [projectsIndex, setProjectsIndex] = useState({});
   const [activeProjectId, setActiveProjectIdState] = useState(null);
-  const [bundle, setBundle] = useState(EMPTY_BUNDLE);
+  const [bundle, setBundleState] = useState(EMPTY_BUNDLE);
+  // FX2 review round 1 (R1-1): where the backend keeps a task's items, every
+  // task row's five single links ARE its main items, in the bundle itself and
+  // not only in ctx.tasks. The item verbs change `taskItems` alone; before
+  // this, the rows kept the links they loaded with, and every reader of the
+  // raw rows saw them: the desktop's whole-row task write re-sent them (the
+  // Local Server then ran 0096 §7b's rule on them, putting back a removed
+  // item or undoing a reorder), and deleteAsset took the tasks whose LOADED
+  // asset it was. One place, every write: a write that changes the tasks or
+  // the items re-reads each task's links from its items (withItemLinks
+  // answers the same array when nothing differs). The adapter's own flag,
+  // read at the write: a load of a project whose backend has no items (a
+  // cloud before 0096, Drive) is never re-read against an empty list.
+  const setBundle = useCallback((update) => {
+    setBundleState(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      if (!next || !Array.isArray(next.tasks)) return next;
+      if (next.tasks === prev?.tasks && next.taskItems === prev?.taskItems) return next;
+      const adapter = adapterRef.current;
+      if (typeof adapter?.taskItemsAvailable !== 'function' || adapter.taskItemsAvailable() !== true) return next;
+      const tasks = withItemLinks(next.tasks, next.taskItems || [], true);
+      return tasks === next.tasks ? next : { ...next, tasks };
+    });
+  }, []);
   const [loadingProject, setLoadingProject] = useState(false);
   const [error, setError] = useState(null);
 
@@ -4170,9 +4193,17 @@ export function RabbitProvider({ children }) {
     try {
       result = await optimistic(
         prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
-        () => typeof adapterRef.current.patchTask === 'function'
-          ? adapterRef.current.patchTask(id, patch)
-          : adapterRef.current.upsertTask({ ...bundleRef.current.tasks.find(t => t.id === id), ...patch, id }),
+        () => {
+          if (typeof adapterRef.current.patchTask === 'function') return adapterRef.current.patchTask(id, patch);
+          // A backend that takes the whole row (the Local Server) merges it
+          // into the stored one. FX2 review round 1 (R1-1): with items on, the
+          // row goes without its single links, so the backend's own (kept by
+          // its item writes) stand; a link changes only by an item write
+          // (updateTask), never by an edit of another field.
+          const stored = bundleRef.current.tasks.find(t => t.id === id);
+          const base = taskItemsOnRef.current && stored ? withoutLinkFields(stored) : stored;
+          return adapterRef.current.upsertTask({ ...base, ...patch, id });
+        },
       );
     } finally {
       clearPendingFields('tasks', id, fields);

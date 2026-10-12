@@ -1231,15 +1231,28 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
   // Every verb reports its own failure (the provider's banner); the window
   // does not throw on top of it.
   const quiet = (p) => { if (p && typeof p.catch === 'function') p.catch(() => {}) }
+  // Review round 1, R1-3: an item whose row the project no longer shows (on
+  // the cloud, in the trash) never becomes the task's main one from here. The
+  // cloud refuses it (a task's main asset decides whether the task can be
+  // seen), and a main scene or shot that is gone would leave the Timeline and
+  // the Budget on a row nobody sees. The verbs that would make it main (the
+  // main's remove and move down, its own move up) are greyed with the reason;
+  // removing it first stays open.
+  const goneAt = (kindItems, i) => !!kindItems[i] && !rows[kindItems[i].entity_type]?.get(kindItems[i].entity_id)
+  const nextGoneWords = (kind) => `The next ${KIND_LABEL[kind].toLowerCase()} is no longer in the project: remove it first, so it does not become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
+  const selfGoneWords = (kind) => `This ${KIND_LABEL[kind].toLowerCase()} is no longer in the project, so it cannot become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
   function remove(item) {
     if (!canWrite) return
     if (items.length === 1) { setLastOne(item); return }
+    const kindItems = items.filter(i => i.entity_type === item.entity_type)
+    if (kindItems[0]?.id === item.id && goneAt(kindItems, 1)) return
     quiet(ctx?.removeTaskItem?.(item.id))
   }
   function move(kind, kindItems, index, delta) {
     if (!canWrite) return
     const j = index + delta
     if (j < 0 || j >= kindItems.length) return
+    if (Math.min(index, j) === 0 && goneAt(kindItems, Math.max(index, j))) return
     const order = kindItems.map(i => i.id)
     ;[order[index], order[j]] = [order[j], order[index]]
     quiet(ctx?.reorderTaskItems?.(task.id, kind, order))
@@ -1275,6 +1288,9 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
                 const name = itemName(g.kind, row, rows)
                 const words = name || GONE_WORDS
                 const main = index === 0 && g.items.length > 1
+                // R1-3: what would make a gone row main, and why it is greyed.
+                const nextGone = index === 0 && goneAt(g.items, 1)
+                const selfGone = index === 1 && !row
                 return (
                   <div key={item.id} className="rb-rel-row ui-hover-host rb-rel-item"
                     data-gone={row ? undefined : 'true'}>
@@ -1296,17 +1312,17 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
                     <HoverActions className="rb-rel-item-acts">
                       {g.items.length > 1 && (
                         <>
-                          <GatedAction allowed={canWrite} reason={writeReason}>
+                          <GatedAction allowed={canWrite && !selfGone} reason={canWrite ? selfGoneWords(g.kind) : writeReason}>
                             <IconButton size="sm" Icon={ArrowUp} title={`Move ${words} up`}
                               disabled={index === 0} onClick={() => move(g.kind, g.items, index, -1)} />
                           </GatedAction>
-                          <GatedAction allowed={canWrite} reason={writeReason}>
+                          <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
                             <IconButton size="sm" Icon={ArrowDown} title={`Move ${words} down`}
                               disabled={index === g.items.length - 1} onClick={() => move(g.kind, g.items, index, 1)} />
                           </GatedAction>
                         </>
                       )}
-                      <GatedAction allowed={canWrite} reason={writeReason}>
+                      <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
                         <IconButton size="sm" Icon={X} danger title={`Remove ${words}`} onClick={() => remove(item)} />
                       </GatedAction>
                     </HoverActions>

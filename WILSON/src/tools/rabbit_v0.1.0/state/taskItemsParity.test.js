@@ -76,6 +76,11 @@ describe('the CommonJS copy says what the model says', () => {
       null, {}, { task_id: T }, { task_id: T, entity_type: 'phase', entity_id: 'x' },
       { task_id: T, entity_type: 'asset' }, { task_id: T, entity_type: 'asset', entity_id: 'x', position: -1 },
       { task_id: T, entity_type: 'asset', entity_id: 'x', position: 2.5 }, { task_id: T, entity_type: 'shot', entity_id: 'x', position: 3 },
+      // Review round 1, R1-4.
+      { task_id: T, entity_type: 'asset', entity_id: ['x'] }, { task_id: 7, entity_type: 'asset', entity_id: 'x' },
+      { id: {}, task_id: T, entity_type: 'asset', entity_id: 'x' }, { task_id: T, entity_type: 'asset', entity_id: 'x', position: 1e300 },
+      { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: {} }, { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: 'soon' },
+      { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: '2026-10-11T00:00:00Z', position: 2147483647 },
     ]
     for (const s of shapes) expect(cjs.itemShapeProblem(s), JSON.stringify(s)).toEqual(esm.itemShapeProblem(s))
   })

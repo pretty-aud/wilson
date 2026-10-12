@@ -132,13 +132,23 @@ function planSingleFieldWrite(items, taskId, kind, value, previous, make) {
   return { remove, insert: inserted, order: [inserted.id].concat(rest.map(i => i.id)) };
 }
 
+// FX2 review round 1 (R1-4): ids are strings, a position fits the cloud's
+// INTEGER, created_at (when sent) is a date — taskItemsModel.js's rule.
+const MAX_ITEM_POSITION = 2147483647;
+const isIdString = (v) => typeof v === 'string' && v.trim() !== '';
 function itemShapeProblem(row) {
   if (!row || typeof row !== 'object') return 'an item needs a task, a kind and an entity';
   if (row.task_id == null || row.task_id === '') return 'an item needs its task';
+  if (!isIdString(row.task_id)) return 'an item\'s task is named by its id, as text';
   if (!isItemKind(row.entity_type)) return `${row.entity_type} is not a kind of item (asset, scene, shot, level, experience)`;
   if (row.entity_id == null || row.entity_id === '') return 'an item needs the asset, scene, shot, level or experience it names';
+  if (!isIdString(row.entity_id)) return 'an item names its asset, scene, shot, level or experience by its id, as text';
+  if (row.id != null && !isIdString(row.id)) return 'an item\'s own id is text';
   const p = row.position == null ? 0 : Number(row.position);
-  if (!Number.isInteger(p) || p < 0) return 'an item\'s position is a whole number, 0 or more';
+  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number, 0 or more';
+  if (row.created_at != null && (typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at)))) {
+    return 'an item\'s created_at is a date';
+  }
   return null;
 }
 
@@ -393,9 +403,9 @@ function mountRabbitTaskItems(expressApp, deps) {
       task_id: task.id,
       project_id: req.params.projectId,
       entity_type: body.entity_type,
-      entity_id: body.entity_id,
+      entity_id: String(body.entity_id),
       position: body.position == null ? 0 : Number(body.position),
-      created_at: body.created_at || now,
+      created_at: typeof body.created_at === 'string' && body.created_at ? body.created_at : now,
       created_by: null,
       updated_at: now,
     };

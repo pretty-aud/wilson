@@ -187,6 +187,21 @@ describe('the four routes', () => {
     expect(writes).toHaveLength(0)
   })
 
+  // Review round 1, R1-4: an array id, a position past the cloud's INTEGER
+  // and an object for created_at passed and were stored as sent (the task's
+  // asset_id then read ["A2"]).
+  it('POST refuses an id that is not text, a position the cloud cannot hold and a created_at that is not a date', () => {
+    const b = seeded()
+    const { routes, writes } = mounted(b)
+    const base = { task_id: 'T1', entity_type: 'asset', entity_id: 'A2' }
+    for (const bad of [{ ...base, entity_id: ['A2'] }, { ...base, position: 1e300 }, { ...base, created_at: { at: 'now' } }, { ...base, id: { x: 1 } }]) {
+      expect(call(routes, 'POST', P, {}, bad), JSON.stringify(bad)).toMatchObject({ code: 400, body: { code: 'task_item_invalid' } })
+    }
+    expect(writes).toHaveLength(0)
+    expect(b.taskItems.map(i => i.entity_id)).toEqual(['A1'])
+    expect(fields(b, 'T1')).toBe('A1 - - - -')
+  })
+
   it('reorder puts the named ids first and the rest after, dense, and the first becomes the main', () => {
     const b = seeded()
     const { routes } = mounted(b)

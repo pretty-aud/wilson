@@ -47,7 +47,7 @@
 
 BEGIN;
 
-SELECT plan(97);
+SELECT plan(98);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1014,6 +1014,11 @@ SELECT is(
             AND NOT EXISTS (SELECT 1 FROM public.task_items i WHERE i.task_id = t.id AND i.entity_type = 'shot' AND i.entity_id = t.shot_id)))),
   0,
   'and every fixture task''s single link has its item (T6''s pre-0096 cross-project asset excepted)');
+
+-- 98 (review round 1, R1-5)
+SELECT ok(
+  position('FOR NO KEY UPDATE' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_task_items_sync_task()'::regprocedure)) > 0,
+  'fn_task_items_sync_task locks the task row before it reads the main item (two concurrent writers of one task''s items)');
 
 SELECT * FROM finish();
 ROLLBACK;

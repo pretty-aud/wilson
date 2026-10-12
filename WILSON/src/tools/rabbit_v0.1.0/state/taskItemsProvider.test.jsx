@@ -179,6 +179,74 @@ describe('a single link written through updateTask (the Tasks cell, the Timeline
   })
 })
 
+// Review round 1, R1-1: the desktop's adapter has no patchTask, so a task
+// edit re-sends the whole row. Before the fix it carried the row's single
+// links as they were when the bundle loaded, and the Local Server ran 0096
+// §7b's rule on them: an edit after an item change put back a removed item,
+// undid a reorder, or removed an item the task had gained. The fixtures run
+// the same rule, so the fixtures adapter without patchTask stands in for it.
+describe('R1-1: a backend that takes the whole task row (the desktop: no patchTask)', () => {
+  const wholeRow = () => {
+    const a = fx.rabbitAdapter()
+    delete a.patchTask
+    expect(a.patchTask).toBeUndefined()
+    return a
+  }
+
+  it('removing the main asset, then a title edit: the item stays removed, on the screen and in the store', async () => {
+    await mount(wholeRow())
+    const main = itemsOfTask(ctx.taskItems, T18, 'asset')[0]
+    await run(() => ctx.removeTaskItem(main.id))
+    await run(() => ctx.updateTask(T18, { title: 'Renamed' }))
+    expect(storeKinds(T18, 'asset')).toEqual([A(12)])
+    expect(kinds(T18, 'asset')).toEqual([A(12)])
+    expect(fx.store.tasks.find(t => t.id === T18)).toMatchObject({ title: 'Renamed', asset_id: A(12) })
+  })
+
+  it('reordering, then a status edit: the new order holds', async () => {
+    await mount(wholeRow())
+    const ids = itemsOfTask(ctx.taskItems, T18, 'asset').map(i => i.id)
+    await run(() => ctx.reorderTaskItems(T18, 'asset', [ids[1], ids[0]]))
+    await run(() => ctx.updateTask(T18, { status: 'in_progress' }))
+    expect(storeKinds(T18, 'asset')).toEqual([A(12), A(7)])
+    expect(fx.store.tasks.find(t => t.id === T18).asset_id).toBe(A(12))
+  })
+
+  it('a task made without an asset keeps the one added after it, through a date edit', async () => {
+    await mount(wholeRow())
+    await run(() => ctx.addTask({ id: 'fx2-bare', title: 'Bare' }))
+    await run(() => ctx.addTaskItem({ task_id: 'fx2-bare', entity_type: 'asset', entity_id: A(3) }))
+    await run(() => ctx.updateTask('fx2-bare', { start_date: '2026-10-20' }))
+    expect(storeKinds('fx2-bare', 'asset')).toEqual([A(3)])
+    expect(task('fx2-bare').asset_id).toBe(A(3))
+  })
+
+  it('the whole row it receives carries no single link while items are on', async () => {
+    const a = wholeRow()
+    await mount(a)
+    const spy = vi.spyOn(a, 'upsertTask')
+    await run(() => ctx.updateTask(T18, { title: 'x' }))
+    expect(spy).toHaveBeenCalled()
+    for (const [row] of spy.mock.calls) {
+      for (const f of ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']) expect(row, f).not.toHaveProperty(f)
+    }
+  })
+})
+
+// R1-1, the second half: the rows behind ctx.tasks keep their single links
+// equal to the items, so a reader of the raw rows (deleteAsset's capture of
+// the tasks it takes with an asset) sees the task's main asset.
+describe('R1-1: the rows behind ctx.tasks keep their links in step with the items', () => {
+  it('after a reorder makes the second asset main, deleting the first asset leaves the task on the screen', async () => {
+    await mount(fx.rabbitAdapter())
+    const ids = itemsOfTask(ctx.taskItems, T18, 'asset').map(i => i.id)
+    await run(() => ctx.reorderTaskItems(T18, 'asset', [ids[1], ids[0]]))
+    await run(() => ctx.deleteAsset(A(7)))
+    expect(task(T18)).toBeTruthy()
+    expect(task(T18).asset_id).toBe(A(12))
+  })
+})
+
 describe('addTask: a new task\'s links become its first items', () => {
   it('an asset and a scene become items (one undo step for all of it)', async () => {
     await mount(fx.rabbitAdapter())

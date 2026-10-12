@@ -46,7 +46,7 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 }))
 
 const mod = await import('./supabaseAdapter')
-const { supabaseAdapter, resetSupabaseAdapter, resetTaskItemsSchemaState, COLUMN_ALLOWLIST } = mod
+const { supabaseAdapter, resetSupabaseAdapter, resetTaskItemsSchemaState, COLUMN_ALLOWLIST, TASK_ITEMS_REFUSALS } = mod
 
 const STORED = { id: 'i1', task_id: 't1', project_id: 'p1', workspace_id: 'w1', entity_type: 'asset', entity_id: 'a1', position: 0, created_at: '2026-10-11T00:00:00Z' }
 
@@ -128,12 +128,27 @@ describe('the writes', () => {
   })
 
   it('a refusal keeps its SQLSTATE; a missing table becomes task_items_unavailable and is remembered', async () => {
-    globalThis.__testSupabase = makeClient({ task_items: { upsert: { data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "task_items"' } } } })
-    await expect(supabaseAdapter().addTaskItem(STORED)).rejects.toMatchObject({ code: '42501', message: expect.stringMatching(/^\[supabase\] new row violates/) })
+    globalThis.__testSupabase = makeClient({ task_items: { upsert: { data: null, error: { code: '23514', message: 'new row for relation "task_items" violates check constraint "task_items_position_check"' } } } })
+    await expect(supabaseAdapter().addTaskItem(STORED)).rejects.toMatchObject({ code: '23514', message: expect.stringMatching(/^\[supabase\] new row for relation/) })
     globalThis.__testSupabase = makeClient({ task_items: { upsert: { data: null, error: { code: 'PGRST205', message: 'no table' } } } })
     resetSupabaseAdapter()
     await expect(supabaseAdapter().addTaskItem(STORED)).rejects.toMatchObject({ code: 'task_items_unavailable' })
     expect(supabaseAdapter().taskItemsAvailable()).toBe(false)
+  })
+
+  // Review round 1, R1-3: the two refusals an items write meets, in words
+  // (the SQLSTATE kept): the item gate, and the task's main item becoming a
+  // row the task cannot be seen under (a trashed asset), raised by 0096's
+  // trigger as the tasks UPDATE it makes.
+  it('the item gate and a main item the task cannot stand on read as sentences, the SQLSTATE kept', async () => {
+    globalThis.__testSupabase = makeClient({ task_items: { upsert: { data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "task_items"' } } } })
+    await expect(supabaseAdapter().addTaskItem(STORED)).rejects.toMatchObject({ code: '42501', message: TASK_ITEMS_REFUSALS.gate })
+    globalThis.__testSupabase = makeClient({ task_items: { delete: { data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "tasks"' } } } })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().deleteTaskItem('i1')).rejects.toMatchObject({ code: '42501', message: TASK_ITEMS_REFUSALS.mainHidden })
+    globalThis.__testSupabase = makeClient({}, () => ({ data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "tasks"' } }))
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().reorderTaskItems('p1', 't1', 'asset', ['i2', 'i1'])).rejects.toMatchObject({ code: '42501', message: TASK_ITEMS_REFUSALS.mainHidden })
   })
 
   it('deleteTaskItem deletes by id', async () => {

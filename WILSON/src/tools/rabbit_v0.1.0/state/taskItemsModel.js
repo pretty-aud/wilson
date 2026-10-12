@@ -308,12 +308,24 @@ export function withoutLinkFields(patch) {
 }
 
 /** A refusal's words when an item cannot be what it says. Null when it can. */
+// FX2 review round 1 (R1-4): ids are strings (an array or an object passed
+// the old `!= null` test and was stored as sent, then compared through
+// String()); a position fits the cloud's INTEGER; created_at, when sent, is
+// a date. The Local Server's route reads the same rule (rabbitTaskItems.cjs).
+export const MAX_ITEM_POSITION = 2147483647
+const isIdString = (v) => typeof v === 'string' && v.trim() !== ''
 export function itemShapeProblem(row) {
   if (!row || typeof row !== 'object') return 'an item needs a task, a kind and an entity'
   if (row.task_id == null || row.task_id === '') return 'an item needs its task'
+  if (!isIdString(row.task_id)) return 'an item\'s task is named by its id, as text'
   if (!isItemKind(row.entity_type)) return `${row.entity_type} is not a kind of item (asset, scene, shot, level, experience)`
   if (row.entity_id == null || row.entity_id === '') return 'an item needs the asset, scene, shot, level or experience it names'
+  if (!isIdString(row.entity_id)) return 'an item names its asset, scene, shot, level or experience by its id, as text'
+  if (row.id != null && !isIdString(row.id)) return 'an item\'s own id is text'
   const p = row.position == null ? 0 : Number(row.position)
-  if (!Number.isInteger(p) || p < 0) return 'an item\'s position is a whole number, 0 or more'
+  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number, 0 or more'
+  if (row.created_at != null && (typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at)))) {
+    return 'an item\'s created_at is a date'
+  }
   return null
 }

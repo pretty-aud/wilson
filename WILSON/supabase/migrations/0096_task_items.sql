@@ -63,7 +63,14 @@
 -- pgTAP: supabase/tests/rls/99_task_items.sql.
 -- Idempotent: CREATE … IF NOT EXISTS, guarded constraints, DROP-then-CREATE
 --   for policies and triggers, CREATE OR REPLACE for functions, the backfill
---   ON CONFLICT DO NOTHING. Safe to re-run.
+--   ON CONFLICT DO NOTHING. Safe to re-run — but never AFTER a later migration
+--   (§0 refuses: a re-run would take back that migration's change to the
+--   broadcast or to task_items' policies).
+-- Review round 1 (2026-10-12): §7a locks the task row before it reads the
+--   main item, so two concurrent writers of one task's items can no longer
+--   leave the column naming an item the task has lost (R1-5); §0 refuses a
+--   broadcast body that is neither 0091's nor this file's, and a re-run after
+--   a later migration (R1-6); §10 pins both.
 -- =============================================================================
 
 
@@ -94,6 +101,35 @@ BEGIN
   END IF;
   IF to_regclass('public.task_links') IS NULL THEN
     RAISE EXCEPTION '0096 pre-flight failed: public.task_links (0000, the URL links) is missing — this file names it in the realtime body and must not be the first to';
+  END IF;
+END $$;
+
+
+-- Review round 1 (R1-6): a re-run must not take back a later migration's
+-- change. §9 restates fn_realtime_broadcast whole and §4 drops then creates
+-- task_items' policies, so the body §9 replaces must be 0091's (the first
+-- run) or this file's own (a re-run) — compared by an md5 of the body with
+-- carriage returns taken out (a file applied from a Windows copy keeps them),
+-- §10g holding this file's constant to §9's body — and a re-run (the table
+-- already there) must not follow a later migration in the history.
+DO $$
+DECLARE
+  v_body  TEXT;
+  v_later BOOLEAN := false;
+BEGIN
+  SELECT md5(replace(p.prosrc, chr(13), '')) INTO v_body
+    FROM pg_proc p WHERE p.oid = 'public.fn_realtime_broadcast()'::regprocedure;
+  IF v_body IS DISTINCT FROM '87af1ac50c6f007bf7b45566ba3cbe16'        -- 0091's body
+     AND v_body IS DISTINCT FROM '2e8cc917144b17b674af3ca03fa76055' THEN -- this file's (§9)
+    RAISE EXCEPTION '0096 pre-flight failed: fn_realtime_broadcast is neither 0091''s body nor this file''s (md5 %) — a later migration restated it, and restating it here would take that change back', v_body;
+  END IF;
+  IF to_regclass('public.task_items') IS NOT NULL
+     AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version > $1)'
+      INTO v_later USING '0096';
+    IF v_later THEN
+      RAISE EXCEPTION '0096 pre-flight failed: a migration after 0096 is recorded — re-running 0096 would take back its changes to task_items'' policies or to the broadcast';
+    END IF;
   END IF;
 END $$;
 
@@ -410,6 +446,16 @@ BEGIN
           OR (s.kind = 'scene' AND NOT EXISTS (SELECT 1 FROM public.scenes x WHERE x.id = s.eid))
           OR (s.kind = 'shot'  AND NOT EXISTS (SELECT 1 FROM public.shots  x WHERE x.id = s.eid))))
   LOOP
+    -- Review round 1 (R1-5): the task row first. Two writers of one task's
+    -- items each read the main item from their own snapshot, and the later
+    -- commit wrote its own: the column could name an item the task no longer
+    -- had (two first assets added at once; two items removed at once). FOR NO
+    -- KEY UPDATE makes the second wait for the first to commit, and READ
+    -- COMMITTED gives the SELECT below a fresh snapshot, so it reads what the
+    -- first committed. NO KEY: the items' foreign key takes KEY SHARE on the
+    -- task, which this does not block. (A row the caller cannot update is not
+    -- locked, and its UPDATE below changes nothing — as before.)
+    PERFORM 1 FROM public.tasks WHERE id = v_task FOR NO KEY UPDATE;
     SELECT ti.entity_id INTO v_main
       FROM public.task_items ti
      WHERE ti.task_id = v_task AND ti.entity_type = v_kind
@@ -889,6 +935,9 @@ BEGIN
       RAISE EXCEPTION '0096 post-condition failed: % is executable by a client role', t;
     END IF;
   END LOOP;
+  IF position('FOR NO KEY UPDATE' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_task_items_sync_task()'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION '0096 post-condition failed: fn_task_items_sync_task no longer locks the task row before it reads the main item (R1-5)';
+  END IF;
 
   -- 10g. the realtime body: every one of the sixteen names exactly once
   --      (comments stripped first — 0077 §3c), every trigger attached, and
@@ -917,6 +966,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                   WHERE n.nspname = 'public' AND p.proname = 'fn_realtime_broadcast' AND p.prosecdef) THEN
     RAISE EXCEPTION '0096 post-condition failed: fn_realtime_broadcast is no longer SECURITY DEFINER';
+  END IF;
+  -- §0's re-run guard names §9's body by its md5: an edit of §9 must carry
+  -- the new md5 to §0, or a re-run of this very file would refuse.
+  IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc
+       WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure) IS DISTINCT FROM '2e8cc917144b17b674af3ca03fa76055' THEN
+    RAISE EXCEPTION '0096 post-condition failed: §9''s body is not the one §0 names (update §0''s md5)';
   END IF;
 
   -- 10h. the data: every same-project single column has its item, and every

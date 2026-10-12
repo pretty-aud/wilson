@@ -1980,12 +1980,25 @@ function missing0096(error) {
 // words, the SQLSTATE kept on `err.code`; a missing table or function
 // becomes task_items_unavailable AND records it, so the next write refuses
 // before any request.
+// FX2 review round 1 (R1-3): the two refusals an items write meets, in words.
+// `mainHidden`: 0096's trigger moved the task's main item onto a row the task
+// cannot stand on (a trashed asset hides its task, so the tasks UPDATE it
+// makes is refused). Matched on the table Postgres names; anything else keeps
+// Postgres' own words. err.code keeps the SQLSTATE either way.
+export const TASK_ITEMS_REFUSALS = Object.freeze({
+  gate: 'You cannot change this task\'s items.',
+  mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
+});
 function taskItemsWriteError(error) {
   if (missing0096(error)) {
     taskItemsAbsent = true;
     return taskItemsUnavailable();
   }
-  const err = new Error(`[supabase] ${error?.message || String(error)}`);
+  const text = String(error?.message || '');
+  const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
+    : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+    : null;
+  const err = new Error(words || `[supabase] ${text || String(error)}`);
   if (error?.code) err.code = error.code;
   return err;
 }
