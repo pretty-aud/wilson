@@ -255,22 +255,55 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
   // MEASURED in Chromium on the fixtures (S5d, before and after): this row
   // has 18px left at 1280 with six tabs and the label, 116 grouped by phase
   // with four, 158 at 1440 with six — and the smallest version control that
-  // says "● Unsaved" and saves is about 290px. So it is the toolbar's SECOND
-  // row (DetailZoomToolbar's `versionBar`), and this row keeps every control
-  // S3c measured — re-measured after, each the same width to the pixel. The
-  // 1100px above is unchanged; this holds that it stays true.
-  it('S5d: the bid version bar is the toolbar\'s second row, never in the row the label\'s cap measures', () => {
+  // says "● Unsaved" and saves is about 290px. So it was the toolbar's SECOND
+  // row. FX3 (Audrey, 2026-10-11: "move that to right under the project title
+  // ... first you see the project you are in then below is what version you
+  // are working off of") made it the Timeline's FIRST row, under the project
+  // title bar every tab shares; it is still a row of its own, so this row
+  // keeps every control S3c measured and the 1100px above stays true.
+  it('FX3: the bid version bar is the Timeline\'s first row (under the project title), a row of its own, never in the row the label\'s cap measures', () => {
     rabbit.current = ctxFor({ project: { id: 'p1', scenes_enabled: true, levels_enabled: true, experiences_enabled: true, budget_active: false }, budgetVersions: [] })
-    render(<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive canSeeMoney />)
+    const { unmount } = render(<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive canSeeMoney />)
     fireEvent.click(screen.getByRole('tab', { name: 'Group by scene' }))
     const toolbar = document.querySelector('.ui-toolbar')
     const bar = document.querySelector('.rb-tl-ver-bar')
     expect(bar).not.toBeNull()
+    // The first thing the Timeline draws: before the summary, the minimap,
+    // the legend and the zoom toolbar.
+    expect(bar.parentElement.firstElementChild).toBe(bar)
+    expect(!!(bar.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    // The toolbar closes up: nothing of the bar in it or under it.
     expect(toolbar.contains(bar)).toBe(false)
-    expect(toolbar.nextElementSibling).toBe(bar)
+    expect(toolbar.nextElementSibling?.classList.contains('rb-tl-ver-bar')).not.toBe(true)
     expect(toolbar.querySelector('select, .rb-tl-shotlist + *:not(.rb-tl-tb-sep)')).toBeNull()
-    // The source says it: the bar renders after the Toolbar closes.
-    expect(read('./TimelineView.jsx')).toMatch(/<\/Toolbar>\n\s*\{versionBar\}/)
+    unmount()
+    // Below the money gate (F10): no bar anywhere, and still nothing under the toolbar.
+    render(<TimelineView settings={loadRabbitSettings()} patchSettings={() => {}} holidays={new Map()} pageActive canSeeMoney={false} />)
+    expect(document.querySelector('.rb-tl-ver-bar')).toBeNull()
+    // The source says it: the bar is drawn first in the Timeline's column, and
+    // the zoom toolbar has no slot for it any more.
+    const src = read('./TimelineView.jsx')
+    expect(src.indexOf('<TimelineVersionBar')).toBeGreaterThan(-1)
+    expect(src.indexOf('<TimelineVersionBar')).toBeLessThan(src.indexOf('<SummaryBand'))
+    expect(src.indexOf('<TimelineVersionBar')).toBeLessThan(src.indexOf('Read-only notice (Session 29)'))
+    expect(src.match(/<TimelineVersionBar\b/g)).toHaveLength(1)
+    expect(src).not.toMatch(/\bversionBar\b/)
+  })
+  it('FX3: the bar\'s label sits in the project title bar\'s label column — the gutter, that bar\'s icon and the kit Toolbar\'s gap', () => {
+    const tl = read('./rabbitTimeline.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    const bar = (tl.match(/\.rb-tl-ver-bar \{([^}]*)\}/) || [])[1] || ''
+    expect(bar).toMatch(/padding: 4px var\(--spacing-gutter\) 4px calc\(var\(--spacing-gutter\) \+ var\(--icon-sm\) \+ 8px\);/)
+    // …which holds only while the title bar is the kit Toolbar (the gutter,
+    // an 8px gap) led by an icon at --icon-sm: pinned here so a change there
+    // is seen here.
+    const shell = read('../rabbitShell.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(shell).toMatch(/\.rb-ctx-icon \{ width: var\(--icon-sm\); height: var\(--icon-sm\);/)
+    const kit = read('../../../index.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    const toolbarRule = (kit.match(/\.ui-toolbar \{([^}]*)\}/) || [])[1] || ''
+    expect(toolbarRule).toMatch(/gap: 8px;/)
+    expect(toolbarRule).toMatch(/padding: 0 var\(--spacing-gutter\);/)
+    const ctxBar = read('../components/ProjectContextBar.jsx')
+    expect(ctxBar).toMatch(/<Toolbar className="rb-ctx"[^>]*>\s*<Folder className="rb-ctx-icon"/)
   })
   it('CONTROL: round 1\'s flat 180px cap fails the six-tab room (and five), and a cap that ignores the tabs fails six', () => {
     const flat = capRule().replace(/max-width: max\([^;]*\);/, 'max-width: max(180px, calc(100vw - 1100px - (var(--rb-tl-group-tabs, 4) - 4) * 0px));')

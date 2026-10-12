@@ -734,14 +734,22 @@
      (28px) with 4px either side, a hairline under it like the toolbar's, the
      gantt's ground; while a version is VIEWED it takes the kit Banner's info
      tint (the expression `.ui-banner[data-tone="info"]` paints) and its words
-     say so — the mode is never told by colour alone. Tokens only. */
+     say so — the mode is never told by colour alone. Tokens only.
+     FX3 (Audrey, 2026-10-11: "move that to right under the project title ...
+     first you see the project you are in then below is what version you are
+     working off of"): the Timeline's FIRST row, directly under R.A.B.B.I.T.'s
+     project title bar (ProjectContextBar, the chrome every tab shares), and
+     the toolbar closes up where it was. Its label starts in the title bar's
+     label column — under "PROJECT", past that bar's folder icon and the kit
+     Toolbar's 8px gap — so the two read as one header: the project, then the
+     version you work off. The rest of the row is S5d's, unchanged. */
   .rb-tl-ver-bar {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
     min-width: 0;
-    padding: 4px var(--spacing-gutter);
+    padding: 4px var(--spacing-gutter) 4px calc(var(--spacing-gutter) + var(--icon-sm) + 8px);
     border-bottom: 1px solid var(--color-rule);
   }
   .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }

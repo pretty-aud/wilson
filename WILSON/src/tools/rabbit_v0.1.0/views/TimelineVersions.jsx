@@ -18,10 +18,11 @@
 // "Shot list:" label (S3c's 1100px of other controls), 116px with four tabs
 // grouped by phase; the smallest control that says a version is unsaved and
 // saves it is about 290px (a 140px dropdown, the 62px "● Unsaved", Save, their
-// gaps) before a word of state. So the bar is the toolbar's second row — rendered
-// by DetailZoomToolbar under its first, which keeps every control S3c
-// measured — rather than four of the first row's labelled buttons turned
-// into icons. Design (laws-of-ux and design-direction, loaded for S5d; the
+// gaps) before a word of state. So the bar is a row of its own rather than four
+// of the toolbar's labelled buttons turned into icons: S5d drew it as the
+// toolbar's second row; FX3 (Audrey, 2026-10-11: "move that to right under the
+// project title") made it the Timeline's FIRST row, directly under the project
+// title bar every tab shares. Design (laws-of-ux and design-direction, loaded for S5d; the
 // hand-off records each decision for Audrey):
 //   · Jakob / Mental model — the Summary's save row again: what you are
 //     looking at, its state, then the save verbs at the right; one region on

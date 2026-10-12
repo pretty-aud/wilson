@@ -75,7 +75,9 @@ describe('the "Timeline" help page: the bid version bar (S5d, step 9)', () => {
   it('names the bar, its dropdown\'s entries and its verbs as the bar draws them', () => {
     const text = page('rabbit-timeline')
     const bar = read('./views/TimelineVersions.jsx')
-    expect(text).toContain('For project managers and workspace admins, a Bid version bar sits under the zoom toolbar.')
+    // FX3: where the bar is now (the Timeline's first row, under the project title).
+    expect(text).toContain('For project managers and workspace admins, a Bid version bar sits right under the project title, the first row of the Timeline: first the project you are in, then the version you are working off.')
+    expect(text).not.toContain('under the zoom toolbar')
     expect(bar).toContain('<span className="ui-field-label">Bid version</span>')
     for (const word of ['Current', 'Manage versions…', 'Edit this version']) {
       expect(text, word).toContain(word)

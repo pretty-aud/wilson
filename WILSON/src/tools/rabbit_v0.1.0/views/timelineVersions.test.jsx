@@ -179,6 +179,38 @@ describe('F10: the bar exists only past the money gate', () => {
   })
 })
 
+/* FX3 (Audrey, 2026-10-11: "move that to right under the project title ...
+   first you see the project you are in then below is what version you are
+   working off of"). The project title is Rabbit.jsx's ProjectContextBar, the
+   chrome every tab shares, so the bar is the Timeline's FIRST row, directly
+   under it; every other test in this file finds the bar by its class, so each
+   S5d control and state below is exercised in the new place. */
+describe('FX3: the bar is the Timeline\'s first row, every S5d control and state in it', () => {
+  it('first in the Timeline\'s column, above the summary and the zoom toolbar, in each mode: locked, bidding, viewing — with the rates read', async () => {
+    await mount()
+    const first = () => {
+      const b = bar()
+      const toolbar = [...document.querySelectorAll('.ui-toolbar')].find(t => t.querySelector('[aria-label="Detail zoom"]'))
+      return [b.parentElement.firstElementChild === b, !!(b.compareDocumentPosition(document.querySelector('.rb-tl-band')) & Node.DOCUMENT_POSITION_FOLLOWING), !!(b.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING), toolbar.nextElementSibling === b]
+    }
+    // Locked (F9): the label, the greyed dropdown, the sentence, Save as new version….
+    expect([bar().dataset.mode, ...first()]).toEqual(['locked', true, true, true, false])
+    expect(bar().querySelector('.ui-field-label').textContent).toBe('Bid version')
+    expect([combo().disabled, words(), verbs()]).toEqual([true, LOCKED_WHY, ['Save as new version…']])
+    // Bidding: the dropdown live on Current.
+    await reset()
+    expect([bar().dataset.mode, ...first(), combo().disabled]).toEqual(['current', true, true, true, false, false])
+    // Viewing (F2): the looking state's words and its two verbs.
+    await choose(BV1)
+    expect([bar().dataset.mode, ...first()]).toEqual(['viewing', true, true, true, false])
+    expect(words()).toMatch(/^Viewing bid version: /)
+    expect(verbs()).toEqual(['Edit this version', 'Current'])
+    // The rates the bar's words and saves use are read past the money gate (F10).
+    expect(holder.cardCalls).toBeGreaterThan(0)
+    expect(holder.overrideCalls).toBeGreaterThan(0)
+  })
+})
+
 describe('the dropdown (F13): what the gantt shows', () => {
   it('Current first; the versions newest first in F13\'s words, the open one marked Open; then Manage versions…; never money', async () => {
     await mount()

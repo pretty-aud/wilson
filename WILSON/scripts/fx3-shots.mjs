@@ -201,12 +201,17 @@ try {
         const m = await page.evaluate(() => {
           const r = (e) => e ? e.getBoundingClientRect() : null;
           const bar = document.querySelector('.rb-tl-ver-bar');
-          const title = document.querySelector('.rb-ctx-bar, [data-project-context], .rb-project-context') || [...document.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent.trim() === 'Salt Hours' && e.getBoundingClientRect().top < 260)?.parentElement;
+          // The project title bar (ProjectContextBar, the chrome every tab shares).
+          const title = document.querySelector('.ui-toolbar.rb-ctx');
+          const eyebrow = document.querySelector('.rb-ctx-eyebrow');
+          const label = bar?.querySelector('.ui-field-label');
           const tb = [...document.querySelectorAll('.ui-toolbar')].find((t) => t.querySelector('[aria-label="Detail zoom"]'));
           const verbs = bar?.querySelector('.rb-tl-ver-verbs');
           const w = (sel) => { const e = bar?.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().width) : null; };
           return {
             titleBottom: title ? Math.round(r(title).bottom) : null,
+            projectLabelX: eyebrow ? Math.round(r(eyebrow).left) : null, barLabelX: label ? Math.round(r(label).left) : null,
+            barRightOfTitleBar: bar && title ? Math.round(r(title).right - r(bar).right) : null,
             barTop: bar ? Math.round(r(bar).top) : null, barH: bar ? Math.round(r(bar).height) : null, barW: bar ? Math.round(r(bar).width) : null,
             toolbarTop: tb ? Math.round(r(tb).top) : null, toolbarH: tb ? Math.round(r(tb).height) : null,
             barAboveToolbar: bar && tb ? r(bar).bottom <= r(tb).top + 1 : null,
