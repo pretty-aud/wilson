@@ -17,7 +17,10 @@
 //
 // It is still the <input type="number"> it was — its typing, its arrow keys,
 // its wheel, its validation and every caller's onChange are the browser's
-// and the callers' own; this is display only. The browser's spinner is put
+// and the callers' own; this is display only. (The arrow keys reach it since
+// FX3 kept Home's document keys on Home, 35265888; until then Home cancelled
+// them on every page — OUTSTANDING P1-03, measured by FX1's review round 1.
+// Measured after FX1's merge: ArrowUp twice, 2000 → 2002.) The browser's spinner is put
 // away and the field draws its own chevrons in the room rabbitScenes.css
 // keeps at its right edge, a clear gap from the figure. Past five digits,
 // while the field is not focused, the figure shows its first five and an

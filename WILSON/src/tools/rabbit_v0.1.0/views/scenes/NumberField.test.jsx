@@ -165,7 +165,7 @@ describe('FX1: the field\'s own chevrons', () => {
     expect(shown(el)).toBe('123456')
   })
 
-  it('the chevrons are not tab stops', () => {
+  it('the chevrons are not tab stops (a focused field steps with the arrow keys: the browser\'s own, measured in the app once Home kept its keys on Home)', () => {
     render(<Frames start={240} log={[]} />)
     expect([up(), down()].map((b) => [b.getAttribute('type'), b.getAttribute('tabindex')])).toEqual([['button', '-1'], ['button', '-1']])
   })

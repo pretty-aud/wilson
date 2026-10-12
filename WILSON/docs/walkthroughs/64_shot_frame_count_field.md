@@ -37,12 +37,15 @@ A number of seven digits or more scrolls inside the field, like any long
 text, and the tooltip still has the whole number. A shot that long would
 run for more than eleven hours at 24 frames a second.
 
-**The keyboard's up and down arrow keys do not change the number.** They
-never did, before this fix either: a keyboard shortcut meant for the Home
-page catches them on every page. Worse, pressing **Enter** after one of them
-opens a Home page item (Settings, or D.O.G.). That is a known problem,
-listed in `docs/OUTSTANDING.md` (P1-03), and it is not part of this fix. To
-change a number, type it or use the field's own arrows.
+**The keyboard's up and down arrow keys** add or take away one while you
+are in the field. The mouse wheel does too, while you point at a field you
+are in, as it always has on number fields.
+
+Until now the arrow keys did nothing here: a keyboard shortcut meant for the
+Home page caught them on every page, and pressing **Enter** after one of
+them opened a Home page item. Another fix that landed just before this one
+(FX3, walkthrough 66) keeps the Home page's keys on the Home page, so the
+arrow keys work here now and Enter stays put.
 
 The same field is now in five other places:
 
@@ -102,14 +105,16 @@ The whole page at 1440x900, a 14-inch laptop:
 ![after, 1440x900](../sessions/handoffs/img/po-fx1-after-02-nest-five-six-digits-1440x900.png)
 
 1280x700, a smaller laptop window. At this size a scene's shots run past the
-window's right edge, as they did before (they are laid out to fit 1440), so
-these two were taken with the shots scrolled sideways to the Frames column:
+window's right edge, as they did before (they are laid out to fit 1440).
+These two were taken scrolled sideways a little, enough to bring the Frames
+figures into view; the right edge of each field is still past the window:
 
 ![before, 1280x700](../sessions/handoffs/img/po-fx1-before-02-nest-five-six-digits-1280x700.png)
 ![after, 1280x700](../sessions/handoffs/img/po-fx1-after-02-nest-five-six-digits-1280x700.png)
 
 The Shots view, the shot's details, the scene's details and an edit's cut,
-after, at 1440x900:
+after, at 1440x900. The coloured status line under the shot's title is
+another fix's (FX3, walkthrough 66), not this one's:
 
 ![after, Shots view](../sessions/handoffs/img/po-fx1-after-04-shot-table-zoom-1440x900.png)
 ![after, shot's details](../sessions/handoffs/img/po-fx1-after-05-shot-popup-1440x900.png)
