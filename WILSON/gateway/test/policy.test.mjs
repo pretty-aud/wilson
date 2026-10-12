@@ -15,7 +15,7 @@ describe('limits (D12)', () => {
     expect(DEFAULT_LIMITS).toMatchObject({
       perPersonStreams: 8, perPersonRequestsPerMinute: 600, outsideBytesPerHourPerPerson: 30e9,
       outside: { newConnectionsPerMinutePerPeer: 60, handshakesPerSecondPerPeer: 20, connectionsPerPeer: 100 },
-      inside: { newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 100 },
+      inside: { newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 32 },
       connections: 400, streams: 200, insideReserve: 0.25,
       headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 60_000, bodyBytes: 8192, streamMaxMs: 14_400_000,
     });
@@ -74,14 +74,26 @@ describe('limits (D12)', () => {
     for (let i = 0; i < 39; i++) l.inside.handshakes.hit('192.168.1.5');
     expect(l.inside.handshakes.hit('192.168.1.5').ok).toBe(true);
   });
-  it('resolveLimits: connectionsPerPeer defaults, lowers to its floor, and never exceeds the pool', () => {
+  it('resolveLimits: connectionsPerPeer defaults, subdivides the door, floors, and clamps to the pool', () => {
+    // Defaults subdivide each door: 100 of the outside hard max (300), 32 under
+    // a third of the inside reserve (connections × insideReserve = 100), so one
+    // inside host cannot eat the whole reserve (review round 1, finding A).
     expect(resolveLimits({}).limits.outside.connectionsPerPeer).toBe(100);
+    expect(resolveLimits({}).limits.inside.connectionsPerPeer).toBe(32);
     const low = resolveLimits({ inside: { connectionsPerPeer: 2 } }, { floors: true });
-    expect(low.limits.inside.connectionsPerPeer).toBe(100); // below the floor of 8: ignored
+    expect(low.limits.inside.connectionsPerPeer).toBe(32); // below the floor of 8: ignored
     expect(low.ignored).toContain('inside.connectionsPerPeer (at least 8)');
     expect(resolveLimits({ outside: { connectionsPerPeer: 16 } }).limits.outside.connectionsPerPeer).toBe(16);
+    // Finding D: a config value above the door's hard pool share is clamped and
+    // reported, so it can never silently disable the cap. Outside's hard max is
+    // connections × (1 − insideReserve); inside may burst to the whole pool.
+    const huge = resolveLimits({ connections: 400, outside: { connectionsPerPeer: 100000 }, inside: { connectionsPerPeer: 100000 } });
+    expect(huge.limits.outside.connectionsPerPeer).toBe(300);
+    expect(huge.limits.inside.connectionsPerPeer).toBe(400);
+    expect(huge.ignored).toContain('outside.connectionsPerPeer (clamped to 300)');
+    expect(huge.ignored).toContain('inside.connectionsPerPeer (clamped to 400)');
     // A limits object hand-built without the key still caps the peer, never leaves it open.
-    expect(peerLimiters({ inside: { newConnectionsPerMinutePerPeer: 2, handshakesPerSecondPerPeer: 40 }, outside: { newConnectionsPerMinutePerPeer: 4, handshakesPerSecondPerPeer: 2 } }).inside.concurrency.limit).toBe(100);
+    expect(peerLimiters({ inside: { newConnectionsPerMinutePerPeer: 2, handshakesPerSecondPerPeer: 40 }, outside: { newConnectionsPerMinutePerPeer: 4, handshakesPerSecondPerPeer: 2 } }).inside.concurrency.limit).toBe(32);
   });
 
   // GW5, finding 1: the rate caps bound how fast a peer opens connections, not
@@ -113,18 +125,26 @@ describe('limits (D12)', () => {
       one[0].release();
       expect(gate({ remoteAddress: '203.0.113.9' }).admit).toBe(true);
     });
-    it('the inside door: one LAN host cannot starve the office', () => {
-      const { limits } = resolveLimits({ connections: 40, inside: { newConnectionsPerMinutePerPeer: 1e6, handshakesPerSecondPerPeer: 1e6, connectionsPerPeer: 10 } });
+    it('the inside door: one LAN host cannot eat the reserve even when the outside door is full (finding A)', () => {
+      // The defaults, with the rates raised out of the way. Fill the outside
+      // door to its hard max (300) first — the case round 1 found the original
+      // test missed — then one inside host, then the rest of the office.
+      const { limits } = resolveLimits({ outside: { newConnectionsPerMinutePerPeer: 1e6, handshakesPerSecondPerPeer: 1e6 }, inside: { newConnectionsPerMinutePerPeer: 1e6, handshakesPerSecondPerPeer: 1e6 } });
+      expect(limits.inside.connectionsPerPeer).toBe(32);
       const pools = new Pools(limits);
       const limiters = peerLimiters(limits, () => 0);
-      const counters = makeCounters();
-      const gate = makeInsideGate({ peers: () => ({ ownAddresses: [], coLocatedNets: [], officeRanges: [] }), limiters: limiters.inside, pools, counters });
-      expect(openAll(gate, '192.168.1.50', 500).length).toBe(10); // not the whole 40-connection pool
-      expect(counters.rate).toBeGreaterThan(0); // the over-cap connections were refused
-      // 30 of the 40-connection pool remain for the rest of the office.
-      const office = [];
-      for (let n = 51; n <= 90; n++) if (gate({ remoteAddress: `192.168.1.${n}` }).admit) office.push(n);
-      expect(office.length).toBe(30);
+      const og = makeOutsideGate({ limiters: limiters.outside, pools, counters: makeCounters() });
+      const ig = makeInsideGate({ peers: () => ({ ownAddresses: [], coLocatedNets: [], officeRanges: [] }), limiters: limiters.inside, pools, counters: makeCounters() });
+      // Outside full (300) across several /64 keys.
+      for (const p of ['2001:db8:1::1', '2001:db8:2::1', '2001:db8:3::1', '2001:db8:4::1']) openAll(og, p, 500);
+      expect(pools.snapshot().connections.outside).toBe(300);
+      // One inside host holds at most its cap (32), NOT the whole 100-slot reserve.
+      expect(openAll(ig, '192.168.1.50', 500).length).toBe(32);
+      // The reserve keeps 68 slots for the rest of the office (100 − 32).
+      let office = 0;
+      for (let n = 51; n <= 150; n++) if (ig({ remoteAddress: `192.168.1.${n}` }).admit) office++;
+      expect(office).toBe(68);
+      expect(pools.snapshot().connections).toEqual({ inside: 100, outside: 300 });
     });
   });
 });

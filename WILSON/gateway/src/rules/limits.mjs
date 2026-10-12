@@ -34,14 +34,18 @@ export const DEFAULT_LIMITS = Object.freeze({
   // whole outside pool and one LAN host the whole global pool — starving every
   // other viewer and the office, which §10 row 10 and F11 say cannot happen.
   // The reserve below protects the inside door from the outside door; it does
-  // nothing for one inside host against other inside hosts. This cap does: one
-  // peer holds at most this many of its door's pool (100 of 300 outside, 100 of
-  // 400 inside), so it takes several distinct addresses to exhaust a door — the
-  // distributed case the design already concedes to the company's router (§10
-  // row 10's residual). A NAT'd remote office is one outside key (R2-5's
-  // tension), so the cap is generous: 100 concurrent is ~16 viewers at once.
+  // nothing for one inside host against other inside hosts. This cap does. It
+  // must SUBDIVIDE a door's share, never equal it (GW5 review round 1, finding
+  // A): the outside door's hard max is connections × (1 − insideReserve) = 300,
+  // so 100 is a third of it; the inside door's GUARANTEED share is the reserve,
+  // connections × insideReserve = 100, so the cap is 32, under a third of it —
+  // one inside host cannot eat the whole reserve while the outside door is full
+  // (round 1 found 100 == the reserve, so one host still starved the office).
+  // resolveLimits clamps the cap to the door's hard max so a config value can
+  // never silently disable it (finding D). A NAT'd remote office is one outside
+  // key (R2-5's tension), so the outside cap is generous: 100 is ~16 viewers.
   outside: Object.freeze({ newConnectionsPerMinutePerPeer: 60, handshakesPerSecondPerPeer: 20, connectionsPerPeer: 100 }),
-  inside: Object.freeze({ newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 100 }),
+  inside: Object.freeze({ newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 32 }),
   connections: 400,
   streams: 200,
   insideReserve: 0.25,
@@ -90,18 +94,27 @@ export function resolveLimits(overrides = {}, { floors = false } = {}) {
     if (floors && v < FLOOR[k]) { ignored.push(`${k} (at least ${FLOOR[k]})`); continue; }
     out[k] = k in CEILING ? Math.min(v, CEILING[k]) : v;
   }
+  // insideReserve is resolved before the door loop so a door's hard pool share
+  // (which clamps connectionsPerPeer below) is computed from the final value.
+  if (o.insideReserve !== undefined) {
+    if (typeof o.insideReserve === 'number' && o.insideReserve >= 0.1 && o.insideReserve <= 0.9) out.insideReserve = o.insideReserve;
+    else ignored.push('insideReserve');
+  }
+  // The most connections one peer could ever hold on a door, whatever the
+  // config: the whole pool inside (it may burst past its reserve when the
+  // outside door is idle), the outside door's hard max outside. A
+  // connectionsPerPeer above it is meaningless and would read as "no cap", so
+  // it is clamped down and reported (GW5 review round 1, finding D).
+  const doorHardMax = { inside: out.connections, outside: Math.floor(out.connections * (1 - out.insideReserve)) };
   for (const door of ['inside', 'outside']) {
     for (const k of ['newConnectionsPerMinutePerPeer', 'handshakesPerSecondPerPeer', 'connectionsPerPeer']) {
       const v = o?.[door]?.[k];
       if (v === undefined) continue;
       if (!Number.isSafeInteger(v) || v <= 0) { ignored.push(`${door}.${k}`); continue; }
       if (floors && v < DOOR_FLOOR[k]) { ignored.push(`${door}.${k} (at least ${DOOR_FLOOR[k]})`); continue; }
+      if (k === 'connectionsPerPeer' && v > doorHardMax[door]) { out[door][k] = doorHardMax[door]; ignored.push(`${door}.connectionsPerPeer (clamped to ${doorHardMax[door]})`); continue; }
       out[door][k] = v;
     }
-  }
-  if (o.insideReserve !== undefined) {
-    if (typeof o.insideReserve === 'number' && o.insideReserve >= 0.1 && o.insideReserve <= 0.9) out.insideReserve = o.insideReserve;
-    else ignored.push('insideReserve');
   }
   return { limits: out, ignored };
 }
