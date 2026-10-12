@@ -2999,9 +2999,10 @@ export default function App() {
             }}>
               {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
                   this one question (D12) — what it is, of which list; of
-                  several, "them" (review round 1, R1-12). */}
+                  several, "them" (review round 1, R1-12). FX4: what is
+                  discarded is what is not saved, never a saved edit. */}
               {closeUnsaved.length
-                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard them.' : 'Save it before closing, or discard it.'}`
+                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard what is not saved.' : 'Save it before closing, or discard what is not saved.'}`
                 : 'Make sure you have exported your work before closing.'}
             </p>
             {closeError && (

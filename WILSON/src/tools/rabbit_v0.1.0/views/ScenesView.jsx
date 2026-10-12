@@ -751,8 +751,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   // ── The cut's own verbs (post-overhaul S3c, step 4; D13, D16) ──
   // A row's or a scene block's edit actions, while an edit or a draft is on
   // screen. Each goes through useEditChanges: on a draft it changes the draft
-  // at once; otherwise the first-change question opens, and nothing changes
-  // until Yes. Only the ORDER is the edit's: Move, Duplicate, Remove and Add
+  // at once; on a saved edit too (FX4: the edit's own unsaved changes, asked
+  // nothing). Only the ORDER is the edit's: Move, Duplicate, Remove and Add
   // change the draft; New shot also makes a real shot ON THE LIST (D6:
   // "entirely new shots" are real shot rows), so it needs the seat that
   // writes scenes and shots, and a scene that exists. Reviewers write edits
@@ -863,8 +863,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   }, [addShotsAt, shotById, requestCut])
 
   // ── Drag-and-drop (post-overhaul S3c, step 6; D16) ──
-  // On an edit or a draft a drop changes the cut — asking first on a saved
-  // edit (D13). On the LIST, in its own order, a drop is Audrey's way to an
+  // On an edit or a draft a drop changes the cut at once (FX4: a saved edit
+  // is changed in place, unsaved, asking nothing). On the LIST, in its own order, a drop is Audrey's way to an
   // edit ("before applying the changes please ask the user to confirm if they
   // would like to make a new edit"): it asks D13's question, and Yes puts the
   // draft on screen; the list itself never moves by a drag (its Move up /
@@ -1843,7 +1843,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           <ListConfirm
             title={qn.title}
             confirmLabel={qn.confirmLabel}
-            variant="primary"
+            variant={qn.variant || 'primary'}
             onConfirm={editChanges.answer}
             onCancel={editChanges.cancel}
           >
@@ -1855,9 +1855,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* …and "Add shot…" from a row's or a scene's edit actions. */}
       {addShotsAt && editSession.list && canEditCut && (
         <AddShotsDialog
-          intoWords={editSession.mode === 'draft'
-            ? `“${listLabel({ title: editSession.draft.title, version: editSession.draft.version })}”`
-            : `a new version of “${listLabel(editSession.row)}”`}
+          intoWords={`“${listLabel(editSession.mode === 'draft' ? { title: editSession.draft.title, version: editSession.draft.version } : editSession.row)}”`}
           whereWords={addShotsAt.where}
           scenes={scenes}
           shots={shots}

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   EDIT_DRAFTS_KEY, DRAFT_HISTORY_CAP, draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
-  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
+  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft, savedAtOf,
 } from './editDrafts'
 
 const item = (id, shot, scene = 'sc1') => ({ id, scene_id: scene, shot_id: shot, label: shot, notes: '' })
@@ -75,11 +75,32 @@ describe('the stored copy ("Recover unsaved edit?")', () => {
   it('holds what the draft needs — not its undo stacks — and comes back as a dirty draft with an empty undo', () => {
     const d = changeDraft(start(), C, 't2')
     const copy = storedCopy(d, 'u1')
-    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2', made: [] })
+    expect(copy).toEqual({ personKey: 'u1', projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: null, baseSavedAt: null, draftId: d.draftId, title: 'Cut', version: 3, base: d.base, items: d.items, changedAt: 't2', made: [] })
     expect(copy.past).toBeUndefined()
     const back = draftFromCopy(JSON.parse(JSON.stringify(copy)))
-    expect(back).toMatchObject({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', title: 'Cut', version: 3, dirty: true, past: [], future: [], made: [] })
+    expect(back).toMatchObject({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: null, baseSavedAt: null, title: 'Cut', version: 3, dirty: true, past: [], future: [], made: [] })
     expect(back.items.map(i => i.id)).toEqual(['b'])
+  })
+
+  // FX4: a saved edit's unsaved changes name the edit they are OF and the
+  // Save they began from — through changes, undo, the stored copy and back.
+  it('FX4: a saved edit\'s changes keep editId and baseSavedAt everywhere; a copy from before FX4 has neither and stays a new edit', () => {
+    const first = startDraft({ projectId: 'p1', listId: 'L1', basedOnEditId: 'e1', editId: 'e1', baseSavedAt: '2026-10-12T08:00:00.000Z', title: 'Cut', version: 1, base: A, items: B, now: 't0' })
+    expect(first).toMatchObject({ editId: 'e1', baseSavedAt: '2026-10-12T08:00:00.000Z' })
+    const second = changeDraft(first, C, 't1')
+    expect(undoDraft(second, 't2')).toMatchObject({ editId: 'e1', baseSavedAt: '2026-10-12T08:00:00.000Z' })
+    expect(redoDraft(undoDraft(second, 't2'), 't3')).toMatchObject({ editId: 'e1' })
+    const copy = storedCopy(second, 'u1')
+    expect(copy).toMatchObject({ editId: 'e1', baseSavedAt: '2026-10-12T08:00:00.000Z' })
+    expect(draftFromCopy(JSON.parse(JSON.stringify(copy)))).toMatchObject({ editId: 'e1', baseSavedAt: '2026-10-12T08:00:00.000Z' })
+    const { editId: _e, baseSavedAt: _b, ...older } = copy
+    expect(draftFromCopy(older)).toMatchObject({ editId: null, baseSavedAt: null })
+    // Garbage in a stored copy reads as none.
+    expect(draftFromCopy({ ...copy, editId: 7, baseSavedAt: {} })).toMatchObject({ editId: null, baseSavedAt: null })
+  })
+  it('FX4: savedAtOf reads a snapshot\'s Save, and none from anything else', () => {
+    expect(savedAtOf({ saved_at: '2026-10-12T08:00:00.000Z', shots: {} })).toBe('2026-10-12T08:00:00.000Z')
+    for (const s of [null, undefined, {}, { saved_at: 3 }, 'x', []]) expect(savedAtOf(s)).toBeNull()
   })
 
   // Review round 1 (R1-04): the shots New shot wrote to the list for a draft

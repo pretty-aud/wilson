@@ -24,7 +24,12 @@ export function useEditSession({ ctx, viewed }) {
   const list = viewed?.list || null
   const mode = edit.mode || 'none'
   const items = mode === 'draft' ? (edit.draft?.items || []) : mode === 'edit' ? (edit.row?.items || []) : null
-  const snapshot = mode === 'edit' ? (edit.row?.snapshot || null) : null
+  // FX4 review round 1 (R1-02): changes to a saved edit read its frozen
+  // names too ("Missing scene: Salt hours"), as the edit itself does.
+  const basedOn = mode === 'draft' && edit.draft?.basedOnEditId
+    ? (ctx?.edits || []).find(e => e.id === edit.draft.basedOnEditId) || null
+    : null
+  const snapshot = mode === 'edit' ? (edit.row?.snapshot || null) : (basedOn?.snapshot || null)
   const shotById = ctx?.shotById
   const sceneById = ctx?.sceneById
   const rows = useMemo(

@@ -33,7 +33,9 @@ describe('the "Scenes & shot lists" help page (S3b)', () => {
   const CONTROLS = [
     ['New shot list', './views/scenes/ShotListBar.jsx', /New shot list\n?\s*</],
     ['Shot lists…', './views/scenes/ShotListBar.jsx', /Shot lists…/],
-    ['Save edit as…', './views/scenes/ShotListBar.jsx', /Save edit as…/],
+    // FX4 (Audrey: "lets make the button 'save edit' and 'save as'"): the
+    // list's own Save as…, back from FX3's "Save edit as…".
+    ['Save as…', './views/scenes/ShotListBar.jsx', /onClick=\{on\.saveAs\}>Save as…</],
     ['Set active', './views/scenes/ShotListBar.jsx', /Set active/],
     // The menu's LIVE items (each verb also has a greyed twin with the same
     // words, which alone would not prove the live one kept them).
@@ -114,9 +116,7 @@ describe('the help page\'s edits (S3c)', () => {
     ['Edit runtime', './views/ScenesView.jsx', /<BigTile label="Edit runtime"/],
     ['Missing shot', './views/scenes/editModel.js', /export const MISSING_SHOT = 'Missing shot'/],
     ['Make a new edit from this list?', './views/scenes/editCopy.js', /title: 'Make a new edit from this list\?'/],
-    ['Make a new version of this edit?', './views/scenes/editCopy.js', /title: 'Make a new version of this edit\?'/],
     ['Start new edit', './views/scenes/editCopy.js', /confirmLabel: 'Start new edit'/],
-    ['Start new version', './views/scenes/editCopy.js', /confirmLabel: 'Start new version'/],
     ['New edit from this list', './views/scenes/ShotLists.jsx', /label: 'New edit from this list', Icon: Scissors, onClick/],
     ['Move up', './views/ScenesView.jsx', /\{ label: 'Move up', Icon: ArrowUp, disabled: cutSearching/],
     ['Duplicate in edit', './views/ScenesView.jsx', /label: 'Duplicate in edit'/],
@@ -127,6 +127,8 @@ describe('the help page\'s edits (S3c)', () => {
     ['Duplicate scene in edit', './views/ScenesView.jsx', /label: 'Duplicate scene in edit'/],
     ['Remove scene from edit', './views/ScenesView.jsx', /label: 'Remove scene from edit'/],
     ['Save edit', './views/scenes/ShotLists.jsx', />\s*Save edit\s*</],
+    // FX4: the edit's own Save as… (its dialog asks for the new version).
+    ['Save as…', './views/scenes/ShotLists.jsx', /onClick=\{\(\) => setDialog\(\{ kind: 'saveEditAs'[^}]*\}\)\}\s*>\s*Save as…\s*</],
     ['Same title, next version', './views/scenes/SaveEditDialog.jsx', /label="Same title, next version"/],
     ['Discard changes', './views/scenes/ShotLists.jsx', />Discard changes</],
     ['Unsaved', '../../ui/Button.jsx', /: 'Unsaved'/],
@@ -153,10 +155,30 @@ describe('the help page\'s edits (S3c)', () => {
   // S3c review round 1: what the round changed, said where a person looks.
   it('says what review round 1 changed: Recover from the More menu, the update restart and Escape, an edit kept with its archived list', () => {
     const text = page()
-    expect(text).toContain('Not now keeps it: the bar\'s More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.')
+    expect(text).toContain('Not now keeps it: the bar\'s More menu then has Recover unsaved edit…, and a change that would replace it asks first.')
     expect(read('./views/scenes/ShotLists.jsx')).toMatch(/label: 'Recover unsaved edit…',/)
     expect(text).toContain('closing WILSON, and restarting it for an update each ask first: Save edit, Discard changes or Keep editing (Escape keeps editing).')
     expect(text).toContain('An edit whose list is archived or withdrawn is kept too, out of sight, until the list is restored.')
+  })
+  // FX4 (Audrey, 2026-10-12): an edit changes in place; only Save as… makes
+  // a new version. The page says so, and never the question that is gone.
+  it('FX4: a change to an edit asks nothing; Save edit saves into it, Save as… alone makes a new version', () => {
+    const text = page()
+    expect(text).toContain('On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.')
+    expect(text).toContain('Saves the changes into the edit on screen: its title and version stay, and its cut is replaced by this one. Nothing asks.')
+    expect(text).toContain('If someone else saved the edit since you began, Save edit says so and saves nothing: Save as… keeps your changes.')
+    expect(text).toContain('The only way to a new version: asks its title')
+    expect(text).toContain('The edit you started from stays as it was saved.')
+    expect(text).not.toMatch(/Make a new version of this edit|Start new version|Save edit as…/)
+    // Review round 1 (R1-11, R1-04): unsaved changes are kept on this
+    // computer, not "saved nowhere"; and the cloud's Scenes tab undoes too
+    // (since BC1), a Save edit included.
+    expect(text).toContain('Changes not saved yet are kept only on this computer, not in the edit')
+    expect(text).not.toContain('An unsaved edit is saved nowhere yet')
+    expect(text).toContain('On the Local Server and the cloud, Ctrl Z undoes')
+    expect(text).toContain('Once it is saved, Ctrl Z takes the save back.')
+    // …and the tab no longer draws that question either.
+    expect(read('./views/scenes/editCopy.js')).not.toMatch(/'Make a new version of this edit\?'|'Start new version'/)
   })
   it('CONTROL: a label renamed on the tab fails its pin', () => {
     const [, file, drawn] = EDIT_CONTROLS.find(([n]) => n === 'Duplicate in edit')

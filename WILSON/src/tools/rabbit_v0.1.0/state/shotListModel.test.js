@@ -316,6 +316,33 @@ describe('snapshots and edits', () => {
     expect(snap.scenes['sc-a'].name).toBe('First')
     expect(snap.item_count).toBe(4)
   })
+
+  // Post-overhaul FX4 review round 1 (R1-02): a Save writes INTO an edit since
+  // FX4, so its snapshot is the only record of a name the project no longer
+  // has. Carried from the previous snapshot for what cannot be found now.
+  it('FX4: a name the project no longer has stays frozen from the previous snapshot; one it has is read afresh', () => {
+    const previous = {
+      kind: 'edit', saved_at: 'T0',
+      shots: { 'gone-shot': { name: 'Salt pan', shot_number: 10, scene_id: 'gone-scene' }, 'sh-a1': { name: 'Old name', shot_number: 1, scene_id: 'sc-a' } },
+      scenes: { 'gone-scene': { name: 'Salt hours', scene_number: 6 }, 'gone-2': { name: 'Unused', scene_number: 7 } },
+    }
+    const items = [
+      { id: 'i1', scene_id: 'sc-a', shot_id: 'sh-a1', label: 'A one', notes: '' },
+      { id: 'i2', scene_id: null, shot_id: 'gone-shot', label: 'Salt pan', notes: '' },
+    ]
+    const snap = buildEditSnapshot({ items, shots: SHOTS, scenes: SCENES, savedAt: 'T1', previous })
+    expect(snap.shots['sh-a1'].name).toBe('A one')
+    expect(snap.shots['gone-shot']).toEqual({ name: 'Salt pan', shot_number: 10, scene_id: 'gone-scene' })
+    // Its scene, by the frozen shot's own scene id, frozen too.
+    expect(snap.scenes['gone-scene']).toEqual({ name: 'Salt hours', scene_number: 6 })
+    // Nothing the cut does not reference is carried.
+    expect(snap.scenes['gone-2']).toBeUndefined()
+    expect(snap.saved_at).toBe('T1')
+    // CONTROL: with no previous snapshot, a missing name is simply absent (as before).
+    const bare = buildEditSnapshot({ items, shots: SHOTS, scenes: SCENES, savedAt: 'T1' })
+    expect(bare.shots['gone-shot']).toBeUndefined()
+    expect(bare.scenes['gone-scene']).toBeUndefined()
+  })
 })
 
 describe('withdraw (0086): the maker takes back an untouched new list or edit', () => {

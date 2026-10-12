@@ -645,21 +645,40 @@ export function editItemsFromList({ scenes, shots, items, listId, newId }) {
 }
 
 /**
+ * FX4 review round 1 (R1-03): the code every backend's edit write answers
+ * with when it named the Save it expected (`expectSavedAt`) and the stored
+ * edit carries another — someone saved it since. The Local Server's route
+ * (electron/rabbitShotLists.cjs, CommonJS) spells the same string.
+ */
+export const EDIT_SAVED_SINCE = 'edit_saved_since'
+export const EDIT_SAVED_SINCE_MESSAGE = 'this edit has been saved by someone else since — nothing was written'
+
+/**
  * The snapshot "Save" writes to edits.snapshot: the name and number of every
  * shot and scene the items reference, AS THEY WERE — so a later-deleted shot
  * can still be shown as "Missing shot: <old name>" (D17).
+ *
+ * `previous` (FX4 review round 1, R1-02): the snapshot this Save replaces, or
+ * the one of the edit the cut began from. Since FX4 a Save writes INTO an
+ * edit, so its snapshot is the only record of a name the project no longer
+ * has: a referenced shot or scene that cannot be found now keeps the name
+ * the previous snapshot froze ("Missing scene: Salt hours"), never loses it.
  */
-export function buildEditSnapshot({ items, shots, scenes, savedAt, savedBy = null }) {
+export function buildEditSnapshot({ items, shots, scenes, savedAt, savedBy = null, previous = null }) {
   const shotById = new Map((shots || []).map(s => [s.id, s]))
   const sceneById = new Map((scenes || []).map(s => [s.id, s]))
+  const prevShots = previous && typeof previous.shots === 'object' && previous.shots ? previous.shots : {}
+  const prevScenes = previous && typeof previous.scenes === 'object' && previous.scenes ? previous.scenes : {}
   const shotRefs = {}
   const sceneRefs = {}
   for (const it of items || []) {
     const sh = it.shot_id ? shotById.get(it.shot_id) : null
     if (sh) shotRefs[sh.id] = { name: sh.name ?? null, shot_number: sh.shot_number ?? null, scene_id: sh.scene_id ?? null }
-    const scId = it.scene_id || sh?.scene_id
+    else if (it.shot_id && prevShots[it.shot_id]) shotRefs[it.shot_id] = { ...prevShots[it.shot_id] }
+    const scId = it.scene_id || sh?.scene_id || (it.shot_id ? prevShots[it.shot_id]?.scene_id : null)
     const sc = scId ? sceneById.get(scId) : null
     if (sc) sceneRefs[sc.id] = { name: sc.name ?? null, scene_number: sc.scene_number ?? null }
+    else if (scId && prevScenes[scId]) sceneRefs[scId] = { ...prevScenes[scId] }
   }
   return { kind: 'edit', saved_at: savedAt, saved_by: savedBy, item_count: (items || []).length, shots: shotRefs, scenes: sceneRefs }
 }

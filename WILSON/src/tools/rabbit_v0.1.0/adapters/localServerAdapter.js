@@ -741,12 +741,18 @@ export function localServerAdapter() {
       }),
     listEdits: async (projectId) =>
       sortByCreatedThenId((await jfetch(`${BASE}/projects/${projectId}`)).edits),
-    upsertEdit: async (edit) => {
+    // FX4 review round 1 (R1-03): `{ expectSavedAt }` (a string, or null for
+    // none) makes the write conditional on the stored edit's Save; the route
+    // refuses another with 409 and code `edit_saved_since` (on the error).
+    upsertEdit: async (edit, opts) => {
       if (!edit?.project_id) throw new Error('[localServer] upsertEdit needs edit.project_id')
+      const body = opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')
+        ? { ...edit, expect_saved_at: opts.expectSavedAt ?? null }
+        : edit
       return jfetch(`${BASE}/projects/${edit.project_id}/edits`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(edit),
+        body:    JSON.stringify(body),
       })
     },
     // null clears the active list. `listId ?? null`, never a bare listId:

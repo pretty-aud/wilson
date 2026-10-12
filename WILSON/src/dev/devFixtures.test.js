@@ -171,6 +171,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       // so the fixtures' Playwright mode drives the real doors against a
       // real gateway on loopback.
       'tools/rabbit_v0.1.0/bins/gatewayDoors',
+      // FX4 review round 1 (R1-03): shotListModel.js (pure, no imports) for
+      // the one code and sentence a conditional edit write is refused with,
+      // so the fake cloud answers exactly as the real backends do.
+      'tools/rabbit_v0.1.0/state/shotListModel',
       // FX2 (0096): a task's items' rules (taskItemsModel.js, pure), so the
       // fake cloud keeps a task's columns and items as 0096's triggers do.
       'tools/rabbit_v0.1.0/state/taskItemsModel']

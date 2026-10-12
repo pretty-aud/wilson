@@ -45,6 +45,7 @@ import {
   planReorder, applyPositions, planSingleFieldWrite, seedItemsFor,
 } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
+import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
 
 const PRIMARY = 'primary'
 
@@ -1246,12 +1247,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       return clone(store.edits.filter(e => e.project_id === projectId).sort(byCreated))
     },
 
-    async upsertEdit(edit) {
+    // FX4 review round 1 (R1-03): `{ expectSavedAt }` (a string, or null for
+    // none) is refused with 409 / code `edit_saved_since` when the stored
+    // edit carries another Save — as the Local Server's route and the cloud's
+    // conditional update do.
+    async upsertEdit(edit, opts) {
       const body = clone(withoutUndefined(edit))
       if (!body.project_id) throw invalid('An edit needs a project.')
       const project = liveProject(body.project_id)
       if (!project) throw notFound(body.project_id)
       const stored = body.id ? findById(store.edits, body.id) : null
+      if (stored && opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')) {
+        const have = stored.snapshot && typeof stored.snapshot.saved_at === 'string' ? stored.snapshot.saved_at : null
+        if (have !== (opts.expectSavedAt ?? null)) throw refusal(409, EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE)
+      }
       if (stored) {
         if (stored.project_id !== body.project_id) throw forbidden('a edits row cannot move to another project')
         if ('shot_list_id' in body && body.shot_list_id !== stored.shot_list_id) {
