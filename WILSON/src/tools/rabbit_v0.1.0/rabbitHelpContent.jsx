@@ -693,10 +693,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Bid versions</h4>
             <p className={T.listItem}>
-              For project managers and workspace admins, a{' '}
-              <span className={T.listBold}>Bid version</span> bar sits right under
-              the project title, the first row of the Timeline: first the project
-              you are in, then the version you are working off. Its dropdown shows{' '}
+              For project managers and workspace admins, the bid version bar,
+              labelled <span className={T.listBold}>Bid ver.</span>, sits right
+              under the project title, the first row of the Timeline: first the
+              project you are in, then the version you are working off. Its dropdown shows{' '}
               <span className={T.listBold}>Current</span> (the live schedule:
               the open version's, when one is open), every saved version newest
               first, then <span className={T.listBold}>Manage versions…</span>.

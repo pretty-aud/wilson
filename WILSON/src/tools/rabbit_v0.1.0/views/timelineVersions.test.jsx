@@ -195,7 +195,9 @@ describe('FX3: the bar is the Timeline\'s first row, every S5d control and state
     }
     // Locked (F9): the label, the greyed dropdown, the sentence, Save as new version….
     expect([bar().dataset.mode, ...first()]).toEqual(['locked', true, true, true, false])
-    expect(bar().querySelector('.ui-field-label').textContent).toBe('Bid version')
+    // "Bid ver." on screen (her word); the hover and the dropdown's name say it whole.
+    const label = bar().querySelector('.ui-field-label')
+    expect([label.textContent, label.title, combo().getAttribute('aria-label')]).toEqual(['Bid ver.', 'Bid version', 'Bid version'])
     expect([combo().disabled, words(), verbs()]).toEqual([true, LOCKED_WHY, ['Save as new version…']])
     // Bidding: the dropdown live on Current.
     await reset()

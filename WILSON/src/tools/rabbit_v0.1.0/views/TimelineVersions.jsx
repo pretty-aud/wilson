@@ -212,7 +212,9 @@ export function TimelineVersionBar({ ctx, roleRates, ratesPending = null, viewed
   return (
     <>
       <div className="rb-tl-ver-bar" data-mode={mode} aria-label="Bid versions" role="group">
-        <span className="ui-field-label">Bid version</span>
+        {/* "Bid ver." (Audrey, 2026-10-11: 'make it say "bid ver." instead of
+            "bid version"'); the hover and the dropdown's own name say it whole. */}
+        <span className="ui-field-label" title="Bid version">Bid ver.</span>
         <KitSelect
           className="rb-tl-ver-select"
           size="sm"

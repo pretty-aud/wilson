@@ -289,21 +289,24 @@ describe('the Timeline view: the shot-list label, and the undo keys\' page gate 
     expect(src.match(/<TimelineVersionBar\b/g)).toHaveLength(1)
     expect(src).not.toMatch(/\bversionBar\b/)
   })
-  it('FX3: the bar\'s label sits in the project title bar\'s label column — the gutter, that bar\'s icon and the kit Toolbar\'s gap', () => {
+  // Audrey's second word on it, the same day: "move the bid version more to
+  // the left. make it say 'bid ver.' instead of 'bid version'". The first cut
+  // indented the label under "PROJECT"; it starts on the page gutter now.
+  it('FX3: the bar\'s label starts on the page gutter — the project title bar\'s own left edge — and reads "Bid ver."', () => {
     const tl = read('./rabbitTimeline.css').replace(/\/\*[\s\S]*?\*\//g, '')
     const bar = (tl.match(/\.rb-tl-ver-bar \{([^}]*)\}/) || [])[1] || ''
-    expect(bar).toMatch(/padding: 4px var\(--spacing-gutter\) 4px calc\(var\(--spacing-gutter\) \+ var\(--icon-sm\) \+ 8px\);/)
-    // …which holds only while the title bar is the kit Toolbar (the gutter,
-    // an 8px gap) led by an icon at --icon-sm: pinned here so a change there
-    // is seen here.
-    const shell = read('../rabbitShell.css').replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(shell).toMatch(/\.rb-ctx-icon \{ width: var\(--icon-sm\); height: var\(--icon-sm\);/)
+    expect(bar).toMatch(/padding: 4px var\(--spacing-gutter\);/)
+    expect(bar).not.toMatch(/calc\(/)
+    // …the same edge as the title bar, the kit Toolbar on the gutter: pinned
+    // here so a change there is seen here.
     const kit = read('../../../index.css').replace(/\/\*[\s\S]*?\*\//g, '')
     const toolbarRule = (kit.match(/\.ui-toolbar \{([^}]*)\}/) || [])[1] || ''
-    expect(toolbarRule).toMatch(/gap: 8px;/)
     expect(toolbarRule).toMatch(/padding: 0 var\(--spacing-gutter\);/)
-    const ctxBar = read('../components/ProjectContextBar.jsx')
-    expect(ctxBar).toMatch(/<Toolbar className="rb-ctx"[^>]*>\s*<Folder className="rb-ctx-icon"/)
+    expect(read('../components/ProjectContextBar.jsx')).toMatch(/<Toolbar className="rb-ctx"/)
+    // The words: "Bid ver." on screen, the whole name on the hover and on the dropdown.
+    const src = read('./TimelineVersions.jsx')
+    expect(src).toContain('<span className="ui-field-label" title="Bid version">Bid ver.</span>')
+    expect(src).toMatch(/aria-label="Bid version"\n/)
   })
   it('CONTROL: round 1\'s flat 180px cap fails the six-tab room (and five), and a cap that ignores the tabs fails six', () => {
     const flat = capRule().replace(/max-width: max\([^;]*\);/, 'max-width: max(180px, calc(100vw - 1100px - (var(--rb-tl-group-tabs, 4) - 4) * 0px));')

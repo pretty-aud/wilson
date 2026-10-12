@@ -739,17 +739,17 @@
      first you see the project you are in then below is what version you are
      working off of"): the Timeline's FIRST row, directly under R.A.B.B.I.T.'s
      project title bar (ProjectContextBar, the chrome every tab shares), and
-     the toolbar closes up where it was. Its label starts in the title bar's
-     label column — under "PROJECT", past that bar's folder icon and the kit
-     Toolbar's 8px gap — so the two read as one header: the project, then the
-     version you work off. The rest of the row is S5d's, unchanged. */
+     the toolbar closes up where it was. Its label starts on the page gutter,
+     the title bar's own left edge (her second word, the same day: "move the
+     bid version more to the left. make it say 'bid ver.'"; the first cut
+     indented it under "PROJECT"). The rest of the row is S5d's, unchanged. */
   .rb-tl-ver-bar {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
     min-width: 0;
-    padding: 4px var(--spacing-gutter) 4px calc(var(--spacing-gutter) + var(--icon-sm) + 8px);
+    padding: 4px var(--spacing-gutter);
     border-bottom: 1px solid var(--color-rule);
   }
   .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }
