@@ -63,10 +63,10 @@ try {
       // A key date can share a task's title ("Final mix"): the task's row is
       // the one with the details button.
       const row = page.locator('tr', { hasText: title })
-        .filter({ has: page.getByRole('button', { name: 'View task details' }) }).first();
+        .filter({ has: page.getByRole('button', { name: /^Open / }) }).first();
       await must(row, `the row of ${title}`);
       await row.hover();
-      await click(row.getByRole('button', { name: 'View task details' }), `View task details on ${title}`);
+      await click(row.getByRole('button', { name: /^Open / }), `Open on ${title}`);
       const win = page.getByRole('dialog', { name: title, exact: true });
       await must(win, `the window of ${title}`);
       return win;

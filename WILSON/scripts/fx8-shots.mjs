@@ -221,14 +221,17 @@ try {
     await shot('hover');
 
     // The keyboard on the row's first button: focus the control before it
-    // in the row's Tab order, then Tab.
+    // in the PAGE's Tab order (in a cut row the buttons are the row's first
+    // stops, so the control before them is the last of the row above), then
+    // Tab.
     await park();
     const focusInfo = await page.evaluate(({ rows }) => {
       const tr = document.querySelector(rows);
-      const all = [...tr.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+      const tabbable = (root) => [...root.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
         .filter((e) => !e.disabled && e.getAttribute('tabindex') !== '-1' && e.getClientRects().length > 0);
-      const acts = all.filter((b) => b.closest('.ui-hover-actions, .rb-scene-cut-acts'));
+      const acts = tabbable(tr).filter((b) => b.closest('.ui-hover-actions, .rb-scene-cut-acts'));
       if (!acts.length) return { error: 'no action button in the first row' };
+      const all = tabbable(document);
       const i = all.indexOf(acts[0]);
       if (i > 0) all[i - 1].focus(); else document.body.focus();
       return { before: i > 0 ? (all[i - 1].getAttribute('aria-label') || all[i - 1].textContent.trim().slice(0, 30)) : '(body)', target: acts[0].getAttribute('aria-label') };

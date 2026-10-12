@@ -44,7 +44,7 @@ import {
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
+  Card, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -855,11 +855,13 @@ function AssetTable({ assets, groups, groupBy, phases, taskCountByAsset, ctx, ca
     { key: 'status',      label: 'Status',      width: 'var(--rb-asset-status)' },
     { key: 'start_date',  label: 'Start',       width: 'var(--rb-asset-date)' },
     { key: 'due_date',    label: 'Due',         width: 'var(--rb-asset-date)' },
-    { key: 'description', label: 'Description', width: 'var(--rb-asset-desc)' },
+    // FX8: Description takes what the name leaves past its maximum (the
+    // sheet's `--rb-asset-col-desc`); a row's buttons sit in the name cell,
+    // right after its words, so there is no actions column.
+    { key: 'description', label: 'Description', width: 'var(--rb-asset-col-desc)' },
     { key: 'tasks',       label: 'Tasks',       width: 'var(--rb-asset-tasks)', numeric: true },
-    { key: '_actions',    label: 'Actions',     width: 'var(--rb-asset-acts)', unseen: true },
   ]
-  // What a group row spans: the checkbox and thumbnail columns and the nine.
+  // What a group row spans: the checkbox and thumbnail columns and the eight.
   const span = columns.length + 2
 
   if (assets.length === 0 && (!groups || groups.length === 0)) {
@@ -1083,14 +1085,23 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
   function renderCell(col) {
     switch (col.key) {
       case 'name':
+        // FX8: the row's buttons right after its words, in the one order —
+        // Open (the page icon), its edit history, Delete last — shown on the
+        // row's hover and on focus (the kit's RowTitle).
         return (
           <Td key={col.key} className="rb-asset-ctl-cell">
-            <span className="rb-asset-name">
+            <RowTitle className="rb-asset-name" actions={<>
+              <IconButton size="sm" Icon={FileText} title={`Open ${name}`} onClick={onDetailClick} />
+              {onHistoryClick && (
+                <IconButton size="sm" Icon={History} title={`View edit history for ${name}`} onClick={onHistoryClick} />
+              )}
+              {onDelete && (
+                // Soft delete — no confirm; the shell-level undo toast covers it.
+                <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onDelete} />
+              )}
+            </>}>
               <CellInlineText value={asset.name || ''} placeholder="Untitled" onCommit={v => onUpdate({ name: v })} readOnly={readOnly} />
-              <HoverActions>
-                <IconButton size="sm" Icon={FileText} title="View asset details" onClick={onDetailClick} />
-              </HoverActions>
-            </span>
+            </RowTitle>
           </Td>
         )
       case 'type':
@@ -1160,20 +1171,6 @@ function AssetRow({ asset, columns, phaseOptions, taskCount, warning, thumbRevis
       case 'tasks':
         // A count: right-aligned, tabular, in the mono (R4-17).
         return <Td key={col.key} numeric className="rb-asset-tasks">{taskCount}</Td>
-      case '_actions':
-        return (
-          <Td key={col.key} align="right" className="rb-asset-acts-cell">
-            <HoverActions className="rb-asset-acts">
-              {onHistoryClick && (
-                <IconButton size="sm" Icon={History} title={`View edit history for ${name}`} onClick={onHistoryClick} />
-              )}
-              {onDelete && (
-                // Soft delete — no confirm; the shell-level undo toast covers it.
-                <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onDelete} />
-              )}
-            </HoverActions>
-          </Td>
-        )
       default:
         return <Td key={col.key} className="rb-asset-desc">{asset[col.key] ?? '—'}</Td>
     }
@@ -1328,7 +1325,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           <>
             <IconButton size="sm" Icon={FileText}
               className="rb-asset-card-tool rb-asset-card-detail"
-              title="View asset details"
+              title={`Open ${name}`}
               onClick={onDetailClick} />
             <IconButton size="sm" Icon={ImagePlus}
               className="rb-asset-card-tool rb-asset-card-thumb"

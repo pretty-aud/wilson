@@ -11,6 +11,8 @@
 // EmptyState, Loading, Spinner, Kbd. Foundation 2 adds the shell and data
 // primitives (PageHeader, SectionTitle, Card, Table, Toolbar, Tabs, Panel,
 // Drawer, Stat, HoverActions). There is no ShortcutBar (Q10, ruled).
+// Post-overhaul FX8 adds RowTitle (FX8-KR-1): a row's words and its
+// HoverActions right after them.
 // =============================================================================
 
 export * from './tokens'
@@ -26,6 +28,7 @@ export { Panel } from './Panel'
 export { Drawer } from './Drawer'
 export { Stat } from './Stat'
 export { HoverActions } from './HoverActions'
+export { RowTitle } from './RowTitle'
 export { Button, BUTTON_VARIANTS, BUTTON_SIZES } from './Button'
 export { IconButton } from './IconButton'
 export { Switch } from './Switch'

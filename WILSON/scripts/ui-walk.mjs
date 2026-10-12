@@ -174,7 +174,7 @@ const REGISTRY = [
   P('rabbit-help', '/rabbit', { steps: ['Help & documentation'], expect: { text: 'Key features' } }),
   P('rabbit-control-panel', '/rabbit', { steps: ['@proj', 'Summary', 'Control panel'], expect: { text: 'Budget variables' } }),
   P('rabbit-task-new', '/rabbit', { steps: ['@proj', 'Tasks', 'New task'], expect: { dialog: true } }),
-  P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'View task details'], expect: { dialog: 'Lock the shooting script' } }),
+  P('rabbit-task-detail', '/rabbit', { steps: ['@proj', 'Tasks', 'Open Lock the shooting script'], expect: { dialog: 'Lock the shooting script' } }),
   P('rabbit-task-history', '/rabbit', { steps: ['@proj', 'Tasks', 'View edit history'], expect: { text: 'Edit history' } }),
   // V2 (2026-09-27): the Timeline's task editor, which V1 named as not walked.
   // Its + Task opens it and creates nothing until its own Save. The V2 probe
@@ -210,7 +210,7 @@ const REGISTRY = [
   P('rabbit-budget-crew-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Crew/team', '·'], expect: { text: 'Invoice #' } }),
   P('rabbit-budget-talent-actual', '/rabbit', { steps: ['@proj', 'Budget', 'Talent', '·'], expect: { text: 'Invoice #' } }),
   P('rabbit-asset-new', '/rabbit', { steps: ['@proj', 'Assets', 'New asset'], expect: { dialog: true } }),
-  P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details'], expect: { dialog: true } }),
+  P('rabbit-asset-detail', '/rabbit', { steps: ['@proj', 'Assets', 'Open Shooting Script v4'], expect: { dialog: true } }),
   // B4 (2026-09-25): the rest of the files and assets surface, each proven
   // open by something only it renders. `@in:<text>::<label>` clicks the
   // <label> control NEAREST <text> — the Storyboards row's own details
@@ -229,9 +229,9 @@ const REGISTRY = [
   // the restyle — the grid is rabbitFiles.css' now — and could match nothing.)
   P('rabbit-assets-gallery', '/rabbit', { steps: ['@proj', 'Assets', 'Gallery'], expect: { text: ' task' } }),
   P('rabbit-asset-warning', '/rabbit', { steps: ['@proj', 'Assets', 'Tasks not yet done'], expect: { text: 'still in flight' } }),
-  P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'View asset details', 'Link scene'], expect: { text: ' linked)' } }),
-  P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"]' } }),
-  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::View asset details', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
+  P('rabbit-asset-link', '/rabbit', { steps: ['@proj', 'Assets', 'Open Shooting Script v4', 'Link scene'], expect: { text: ' linked)' } }),
+  P('rabbit-asset-files-gallery', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::Open Storyboards', '@in:Add files::Gallery'], expect: { selector: '[data-file-view="gallery"]' } }),
+  P('rabbit-asset-video', '/rabbit', { steps: ['@proj', 'Assets', '@in:Storyboards::Open Storyboards', 'Play Animatic_v2.mp4'], expect: { text: 'Playback isn\'t available yet' } }),
   // B4c surface 7: the drawer is the kit Drawer, `role="complementary"` and
   // not a dialog, so `dialog: true` no longer proves it. Its own <aside>,
   // named "File activity", exists only while it is open: the Control Panel
@@ -255,15 +255,15 @@ const REGISTRY = [
     return [
       P(`rabbit-${k}`, '/rabbit', { ...G, steps: ['@proj', tab], expect: { active: tab } }),
       P(`rabbit-${k}-gallery`, '/rabbit', { ...G, steps: ['@proj', tab, 'Gallery'], expect: { selector: '[data-entity-view="gallery"]' } }),
-      P(`rabbit-${k.slice(0, -1)}-detail`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details'], expect: { dialog: first } }),
-      P(`rabbit-${k.slice(0, -1)}-assets`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add asset relation'], expect: { selector: 'input[placeholder="Search assets…"]' } }),
-      P(`rabbit-${k.slice(0, -1)}-task`, '/rabbit', { ...G, steps: ['@proj', tab, 'View details', 'Add new task'], expect: { selector: 'input[placeholder="Task title…"]' } }),
+      P(`rabbit-${k.slice(0, -1)}-detail`, '/rabbit', { ...G, steps: ['@proj', tab, `Open ${first}`], expect: { dialog: first } }),
+      P(`rabbit-${k.slice(0, -1)}-assets`, '/rabbit', { ...G, steps: ['@proj', tab, `Open ${first}`, 'Add asset relation'], expect: { selector: 'input[placeholder="Search assets…"]' } }),
+      P(`rabbit-${k.slice(0, -1)}-task`, '/rabbit', { ...G, steps: ['@proj', tab, `Open ${first}`, 'Add new task'], expect: { selector: 'input[placeholder="Task title…"]' } }),
     ];
   }),
   // "Lighthouse, dawn" is on the Scenes table before the dialog opens. Since
   // B5b surface 6c both popups are the kit Dialog, proven by its role (and
   // its words), no longer by the fixed-backdrop fallback.
-  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'View details'], expect: { dialog: 'Lighthouse, dawn' } }),
+  P('rabbit-scene-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'Open Lighthouse, dawn'], expect: { dialog: 'Lighthouse, dawn' } }),
   // B5: the rest of Scenes. A gallery is proven by its card-size buttons,
   // which the toolbar draws only in gallery mode. The shot popup is opened
   // from its own row ("The door" is the first shot) — the first "View
@@ -271,7 +271,7 @@ const REGISTRY = [
   P('rabbit-scenes-gallery', '/rabbit', { steps: ['@proj', 'Scenes', 'Gallery'], expect: { selector: '[title="md cards"]' } }),
   P('rabbit-shots', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots'], expect: { styled: 'Shots' } }),
   P('rabbit-shots-gallery', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', 'Gallery'], expect: { selector: '[title="md cards"]' } }),
-  P('rabbit-shot-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', '@in:The door::View details'], expect: { dialog: 'The door' } }),
+  P('rabbit-shot-detail', '/rabbit', { steps: ['@proj', 'Scenes', 'Shots', '@in:The door::Open The door'], expect: { dialog: 'The door' } }),
 
   // Settings' seven tabs (General is the page itself) and its one dialog.
   // V2: "Agent skills" in sentence case (Q2). The proof is the EXACT label,

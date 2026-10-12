@@ -167,14 +167,47 @@
   .rb-task-menu-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-2); }
 
   /* ── The table: the kit's Table, dense ─────────────────────────────────── */
-  .rb-task-table-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  /* The columns (FX8). The title takes the width the others leave, between
+     its minimum and its maximum; past the maximum Asset, Phase and Assignee
+     share what is left, a third each, so the title never runs on across the
+     window ("the cell/section for the title is sooo wide") and its buttons,
+     right after its words, never sit far from them. `100cqw` is the
+     scroller's content box, the table's own 100%. */
+  .rb-task-table-wrap {
+    --rb-task-col-check: 36px;
+    --rb-task-col-status: 148px;
+    --rb-task-col-priority: 88px;
+    --rb-task-col-date: 124px;
+    --rb-task-col-bid: 64px;
+    --rb-task-asset-min: 150px;
+    --rb-task-phase-min: 124px;
+    --rb-task-assignee-min: 124px;
+    /* A title's words and its three 28px buttons (open, history, delete):
+       never less than the 200px the title had plus the 72px actions column
+       the buttons left, never more than 360px. */
+    --rb-task-title-min: 272px;
+    --rb-task-title-max: 360px;
+    --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
+      + var(--rb-task-asset-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
+      + var(--rb-task-col-date) * 2 + var(--rb-task-col-bid));
+    --rb-task-spare: max(0px, (100cqw - var(--rb-task-fixed) - var(--rb-task-title-max)) / 3);
+    --rb-task-col-asset: calc(var(--rb-task-asset-min) + var(--rb-task-spare));
+    --rb-task-col-phase: calc(var(--rb-task-phase-min) + var(--rb-task-spare));
+    --rb-task-col-assignee: calc(var(--rb-task-assignee-min) + var(--rb-task-spare));
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
   /* The scroller insets the table so the checkbox sits on the gutter line
-     the toolbar's first button starts on. */
-  .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; }
-  /* 1054px of fixed columns + a 200px title: below this the table scrolls
+     the toolbar's first button starts on; it is the query container the
+     columns measure (`100cqw`). */
+  .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
+  /* 982px of fixed columns + a 272px title: below this the table scrolls
      sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
      window (1256px of scroller); only Electron's 1024px floor scrolls. */
-  .rb-task-table { min-width: 1254px; }
+  .rb-task-table { min-width: calc(var(--rb-task-fixed) + var(--rb-task-title-min)); }
 
   /* The bulk bar overlays the head, right of the checkbox column. */
   .rb-task-bulk {
@@ -212,11 +245,12 @@
   /* Bid: Chromium reserves its number spinner's 15px inside the input even
      while the spinner is hidden, so the figures end 15px short of the cell's
      content edge. The header moves with them rather than the spinner going
-     (it is a control; C1). Keyed by position — Bid is second from last,
-     before the actions column — because the kit's `numeric` prop sets the
-     attribute out of the scanner's sight. */
-  .rb-task-table-wrap .ui-table.rb-task-table .ui-th:nth-last-child(2),
-  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms > .ui-td:nth-last-child(2) { padding-right: 27px; }
+     (it is a control; C1). Keyed by position — Bid is the last column (FX8:
+     the actions column it stood before is gone, its buttons in the title
+     cell) — because the kit's `numeric` prop sets the attribute out of the
+     scanner's sight. */
+  .rb-task-table-wrap .ui-table.rb-task-table .ui-th:last-child,
+  .rb-task-table-wrap .ui-table.rb-task-table .rb-task-ms > .ui-td:last-child { padding-right: 27px; }
 
   /* Hover. (0,3,0): the kit's selected row is (0,4,0) and wins. */
   .rb-task-row:hover > .ui-td,
@@ -361,7 +395,6 @@
   .rb-task-cell-text[data-empty="true"] { color: var(--color-ink-3); }
   .rb-task-cell-text[data-static="true"] { cursor: default; }
   .ui-input.rb-task-cell-input[data-size="sm"] { padding: 0 6px; }
-  .rb-task-title-cell { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .rb-task-none { color: var(--color-ink-3); }
   .rb-task-cell > .rb-task-none { padding: 0 6px; }
 

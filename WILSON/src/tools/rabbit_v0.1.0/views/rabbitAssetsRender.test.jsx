@@ -117,7 +117,7 @@ describe('ProjectAssetsView — the page on the kit', () => {
     expect(table).not.toBeNull()
     const heads = [...table.querySelectorAll('thead th')]
     expect(heads.map((th) => th.textContent)).toEqual(
-      ['', 'Thumbnail', 'Name', 'Type', 'Phase', 'Status', 'Start', 'Due', 'Description', 'Tasks', 'Actions'])
+      ['', 'Thumbnail', 'Name', 'Type', 'Phase', 'Status', 'Start', 'Due', 'Description', 'Tasks'])
     expect(table.querySelectorAll('tbody tr')).toHaveLength(3)
     // R4-17: the count right-aligned and tabular, under a numeric header.
     expect(heads.find((th) => th.textContent === 'Tasks').getAttribute('data-numeric')).toBe('true')
@@ -143,8 +143,14 @@ describe('ProjectAssetsView — the page on the kit', () => {
     expect(screen.getByRole('button', { name: 'Delete Festival DCP' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Set thumbnail for Mara' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'View edit history for Cliff Path' })).toBeTruthy()
-    // The two names the walk steps on stay exactly as they were.
-    expect(screen.getAllByRole('button', { name: 'View asset details' })).toHaveLength(3)
+    // FX8: a row's Open is the page icon named for its asset, right after
+    // its name in the one order — Open, its edit history, Delete — and there
+    // is no actions column (the header above).
+    for (const n of ['Cliff Path', 'Mara', 'Festival DCP']) expect(screen.getByRole('button', { name: `Open ${n}` }).querySelector('svg').classList.contains('lucide-file-text')).toBe(true)
+    const cliff = screen.getByRole('button', { name: 'Open Cliff Path' }).closest('.ui-row-title')
+    expect([...cliff.querySelectorAll('.ui-row-title-acts button')].map((b) => b.title))
+      .toEqual(['Open Cliff Path', 'View edit history for Cliff Path', 'Delete Cliff Path'])
+    expect(screen.queryByRole('button', { name: 'View asset details' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Tasks not yet done — click for details' })).toBeTruthy()
     for (const b of screen.getAllByRole('button')) {
       expect(b.getAttribute('aria-label') || b.title || b.textContent.trim(), b.outerHTML.slice(0, 80)).toBeTruthy()
@@ -319,7 +325,7 @@ describe('ProjectAssetsView — the popups on the kit', () => {
   const escape = () => fireEvent.keyDown(document.activeElement || document.body, { key: 'Escape' })
   const openDetail = (name) => {
     const i = ASSETS().findIndex((a) => a.name === name)
-    fireEvent.click(screen.getAllByRole('button', { name: 'View asset details' })[i])
+    fireEvent.click(screen.getByRole('button', { name: `Open ${ASSETS()[i].name}` }))
     return screen.getByRole('dialog', { name })
   }
 
@@ -449,7 +455,7 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(within(dialog).getByRole('textbox', { name: 'Name *' }).value).toBe('Harbour')
   })
 
-  it('View asset details opens the kit Dialog in <body>, 1152px wide and named by the asset; Done is the kit primary; Escape closes it', () => {
+  it('a row\'s Open opens the kit Dialog in <body>, 1152px wide and named by the asset; Done is the kit primary; Escape closes it', () => {
     page()
     const dialog = openDetail('Mara')
     expect(dialog.className).toContain('ui-dialog')

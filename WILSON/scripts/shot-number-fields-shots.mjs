@@ -284,7 +284,7 @@ try {
   // ── The shot popup: Shot number and Frame count ──
   const compass = page.locator('tr.rb-scene-row', { has: field('Frames for The compass') }).first();
   await compass.hover();
-  await click(compass.getByRole('button', { name: 'View details', exact: true }), 'View details of The compass');
+  await click(compass.getByRole('button', { name: 'Open The compass', exact: true }), 'Open The compass');
   const shotPop = page.getByRole('dialog').filter({ has: field('Frame count') }).first();
   await must(shotPop, 'the shot popup');
   await park();
@@ -302,7 +302,7 @@ try {
   await click(content('Scenes'), 'Scenes, in the content tabs');
   const lighthouse = sceneRow('Lighthouse, dawn');
   await lighthouse.hover();
-  await click(lighthouse.getByRole('button', { name: 'View details', exact: true }), 'View details of Lighthouse, dawn');
+  await click(lighthouse.getByRole('button', { name: 'Open Lighthouse, dawn', exact: true }), 'Open Lighthouse, dawn');
   const scenePop = page.getByRole('dialog').filter({ has: field('Scene number') }).first();
   await must(scenePop, 'the scene popup');
   await park();

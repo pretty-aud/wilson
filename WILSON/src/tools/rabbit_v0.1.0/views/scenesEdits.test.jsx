@@ -674,7 +674,7 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     // A shot's popup open beneath: the tab's own surface keeps the keys, so
     // only the question's own count can stand them down (the form width is
     // not the confirm width questionOnScreen otherwise reads).
-    fireEvent.click(screen.getAllByRole('button', { name: 'View details of The door' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open The door' })[0])
     expect(screen.getByRole('dialog', { name: 'The door' })).toBeTruthy()
     fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
     expect(log.undo).toBe(0)
@@ -695,7 +695,7 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     try {
       fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
       expect(log.undo).toBe(0)
-      fireEvent.click(screen.getAllByRole('button', { name: 'View details of The door' })[0])
+      fireEvent.click(screen.getAllByRole('button', { name: 'Open The door' })[0])
       fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
       expect(log.undo).toBe(0)
       q.removeAttribute('data-app-question')
