@@ -218,6 +218,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/nifty-allen-85e05d/WILSON --port 5293 --strictPort"
       ],
       "port": 5293
+    },
+    {
+      "_comment": "FX8 (the tables' row buttons: one page icon to open an item, every button right after the title, a narrower title column; no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours: Tasks, Assets, Scenes (scenes, nested shots, the Shots table); ?fixtures=game turns Levels and Experiences on (walkthrough 70; scripts/fx8-shots.mjs photographs them).",
+      "name": "fx8-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/adoring-bell-e4dfc4/WILSON --port 5296 --strictPort"
+      ],
+      "port": 5296
     }
   ]
 }
