@@ -31,6 +31,7 @@ import { Fragment, useMemo } from 'react'
 import { Film, Eye, Clapperboard, GripVertical } from 'lucide-react'
 import { Table, Th, Td, Row, IconButton, CellSelect, StatusDot, EmptyState } from '../../../../ui'
 import MenuButton from './MenuButton'
+import NumberField from './NumberField'
 import { framesToTimecode } from './timecode'
 import { blockLine } from './useCutDrag'
 import '../rabbitScenes.css'
@@ -196,8 +197,7 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                     </Td>
                     <Td numeric className="rb-scene-frames-cell">
                       {shot ? (
-                        <input
-                          type="number"
+                        <NumberField
                           min={0}
                           value={shot.frame_count ?? ''}
                           onChange={e => {
@@ -207,8 +207,7 @@ export default function EditTable({ rows, bands, fps, ctx, canWrite = false, sta
                           }}
                           disabled={!canWrite}
                           aria-label={`Frames for ${r.name} (cut ${r.index + 1})`}
-                          className="ui-input rb-scene-frames"
-                          data-size="sm"
+                          className="rb-scene-frames"
                           placeholder="0"
                         />
                       ) : <span className="rb-scene-cut-none">—</span>}

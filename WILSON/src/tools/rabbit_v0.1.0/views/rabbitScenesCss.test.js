@@ -114,6 +114,14 @@ const FILES = {
     min: 3000,
     staged: [],
   },
+  // Post-overhaul FX1: the number field of the rows and popups (frames,
+  // scene and shot numbers) — its chevrons, its cap.
+  number: {
+    file: './scenes/NumberField.jsx',
+    prefix: 'rb-scene-',
+    min: 3000,
+    staged: [],
+  },
 }
 /** S3b's shot-list files that write NO lane class (each draws only kit
     components): the class checks above have nothing to read in them, so
@@ -516,6 +524,10 @@ const NEAR_MISSES = {
   cut: [],
   addShots: [],
   saveEdit: ['onConfirm={'],
+  // FX1: a chevron sets the field's VALUE through the element's own setter
+  // (the browser spinner's way, so the caller's onChange runs) — a write
+  // from script, but not a style one: the scanner must pass it.
+  number: ["Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(next))"],
 }
 
 describe('R1-09 / R2-02: nothing writes a style from script and nothing reaches confirm, in the spellings scriptedLeaks names', () => {
@@ -852,5 +864,92 @@ describe('S3c step 6: the drop line and the grip cell are on the sheet', () => {
   it('CONTROL: each taken out, it no longer reads', () => {
     for (const sel of Object.keys(LINE)) expect(declaredValue(withDeclaration(sheet, sel, 'box-shadow', null), sel, 'box-shadow'), sel).toBe(null)
     for (const sel of ROOM) expect(declaredValue(withDeclaration(sheet, sel, 'padding-left', null), sel, 'padding-left'), sel).toBe(null)
+  })
+})
+
+/* ── 10. Post-overhaul FX1: the number fields ──────────────────────────────
+   Audrey, 2026-10-11: "the chevrons are covering up the numbers … spacing
+   between each. after 5 digits, add ellipsis." NumberField's rules, read
+   off the sheet (jsdom lays nothing out; scripts/shot-number-fields-shots.mjs
+   measured them in Chromium): the browser's spinner put away, the field's
+   own chevrons in room its padding keeps and out of sight until the field
+   is pointed at or focused, the cap over the field's own text in the same
+   box, and the tables' field sized to "12345…" and its chevrons inside the
+   88px column it had. Each reading has its CONTROL. */
+describe('FX1: the number fields on the sheet', () => {
+  const ROOT = '.rb-scene-number'
+  const FIELD = '.rb-scene-number > .ui-input.rb-scene-number-input'
+  const FRAMES = '.rb-scene-number.rb-scene-frames'
+  const CELL = '.rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell'
+  /** A rule's own custom properties, by its exact selector. */
+  const own = (sel) => Object.fromEntries([...(rulesOf(sheet).find(({ sel: s }) => s === sel)?.body || '').matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
+  const kitToken = (p) => (cssCode(indexCss).match(new RegExp(`(?:^|[\\s;{])${p}\\s*:\\s*([^;]+);`)) || [])[1]
+  /** A length in px on a field: the root's custom properties, a variant's
+      over them, then the kit's tokens; its calc() worked out. */
+  const px = (expr, variant = null) => {
+    const vars = { ...own(ROOT), ...(variant ? own(variant) : {}) }
+    let e = expr
+    for (let i = 0; i < 20 && /var\(/.test(e); i++) e = e.replace(/var\((--[\w-]+)\)/g, (_, p) => `(${vars[p] ?? kitToken(p)})`)
+    expect(e, expr).not.toMatch(/var\(|undefined/)
+    return Function(`return ${e.replace(/calc\(/g, '(').replace(/(\d+(?:\.\d+)?)px/g, '$1')}`)()
+  }
+  /** Measured in Chromium by the script (13px Geist, tabular): five figures,
+      the cap "12345…" and a six-digit figure focused. */
+  const MEASURED = { five: 39.0, capped: 46.4, six: 46.8 }
+  const roomOf = (width) => width - 2 - px('var(--rb-scene-number-pad)', FRAMES) - px('var(--rb-scene-number-room)', FRAMES)
+
+  it('the browser\'s spinner is put away, in each engine\'s spelling', () => {
+    expect(declaredValue(sheet, FIELD, 'appearance')).toBe('textfield')
+    for (const part of ['inner', 'outer']) {
+      const sel = `${FIELD}::-webkit-${part}-spin-button`
+      expect([declaredValue(sheet, sel, '-webkit-appearance'), declaredValue(sheet, sel, 'margin')], sel).toEqual(['none', '0'])
+    }
+  })
+  it('the field keeps the chevrons\' room at its right edge — 6px clear of the figure, the 14px chevrons, 2px in — whether or not they show', () => {
+    expect(declaredValue(sheet, FIELD, 'padding-right')).toBe('var(--rb-scene-number-room)')
+    expect([px('var(--rb-scene-number-gap)'), px('var(--icon-sm)'), px('var(--rb-scene-number-inset)'), px('var(--rb-scene-number-room)')]).toEqual([6, 14, 2, 22])
+    expect([declaredValue(sheet, ROOT, 'position'), declaredValue(sheet, '.rb-scene-number-step', 'position')]).toEqual(['relative', 'absolute'])
+    expect(declaredValue(sheet, '.rb-scene-number-step', 'width')).toBe('var(--icon-sm)')
+    // The chevrons stand in the room: from the hairline, their inset and width, then the gap — the room exactly.
+    expect(px(declaredValue(sheet, '.rb-scene-number-step', 'right')) + px('var(--icon-sm)') + px('var(--rb-scene-number-gap)')).toBe(1 + px('var(--rb-scene-number-room)'))
+  })
+  it('the chevrons are out of sight at rest and drawn while the field is pointed at or focused, the browser\'s moments', () => {
+    expect(declaredValue(sheet, '.rb-scene-number-step', 'visibility')).toBe('hidden')
+    for (const sel of ['.rb-scene-number:hover > .rb-scene-number-step', '.rb-scene-number:focus-within > .rb-scene-number-step']) {
+      expect(declaredValue(sheet, sel, 'visibility'), sel).toBe('visible')
+    }
+  })
+  it('capped, the field\'s own text is not drawn and the cap stands in its box: its padding\'s edges, the kit field\'s face and ink, the kit\'s disabled ink on a disabled field', () => {
+    expect(declaredValue(sheet, '.rb-scene-number[data-capped="true"] > .ui-input.rb-scene-number-input', '-webkit-text-fill-color')).toBe('transparent')
+    const CAP = '.rb-scene-number-cap'
+    expect(declaredValue(sheet, FIELD, 'padding-left')).toBe('var(--rb-scene-number-pad)')
+    expect([declaredValue(sheet, CAP, 'left'), declaredValue(sheet, CAP, 'right')]).toEqual(['calc(1px + var(--rb-scene-number-pad))', 'calc(1px + var(--rb-scene-number-room))'])
+    expect([declaredValue(sheet, CAP, 'position'), declaredValue(sheet, CAP, 'pointer-events')]).toEqual(['absolute', 'none'])
+    for (const prop of ['font-family', 'font-size', 'color']) expect(declaredValue(sheet, CAP, prop), prop).toBe(declaredValue(indexCss, '.ui-input', prop))
+    expect(declaredValue(sheet, CAP, 'font-variant-numeric')).toBe(declaredValue(sheet, FIELD, 'font-variant-numeric'))
+    expect(declaredValue(sheet, '.rb-scene-number-input:disabled + .rb-scene-number-cap', 'color')).toBe(declaredValue(indexCss, '.ui-input:disabled', 'color'))
+  })
+  it('in the tables the field holds "12345…" and its chevrons inside the 88px column it had: 76px, its cell 6px a side, the figure right-aligned', () => {
+    expect(rulesOf(sheet).find(({ sel }) => sel === '.rb-scene-table-wrap').body).toMatch(/--rb-scene-col-frames:\s*88px;/)
+    expect(declaredValue(sheet, FRAMES, 'width')).toBe('76px')
+    expect([declaredValue(sheet, CELL, 'padding-left'), declaredValue(sheet, CELL, 'padding-right')]).toEqual(['6px', '6px'])
+    expect(76 + 6 + 6).toBe(px('88px'))
+    // The figure's room: the field less its two hairlines, its 4px pad and the chevrons' room.
+    expect(px('var(--rb-scene-number-pad)', FRAMES)).toBe(4)
+    expect(roomOf(76)).toBe(48)
+    for (const [what, w] of Object.entries(MEASURED)) expect(w, what).toBeLessThanOrEqual(roomOf(76))
+    expect(declaredValue(sheet, `${FRAMES} > .ui-input.rb-scene-number-input`, 'text-align')).toBe('right')
+    expect(declaredValue(sheet, `${FRAMES} > .rb-scene-number-cap`, 'justify-content')).toBe('flex-end')
+  })
+  it('CONTROL: each reading fails on the sheet without its declaration, and the room fails at the 64px the field was', () => {
+    const OUT = [
+      [FIELD, 'appearance'], [`${FIELD}::-webkit-inner-spin-button`, '-webkit-appearance'], [FIELD, 'padding-right'], [FIELD, 'padding-left'],
+      ['.rb-scene-number-step', 'visibility'], ['.rb-scene-number:hover > .rb-scene-number-step', 'visibility'],
+      ['.rb-scene-number:focus-within > .rb-scene-number-step', 'visibility'],
+      ['.rb-scene-number[data-capped="true"] > .ui-input.rb-scene-number-input', '-webkit-text-fill-color'],
+      ['.rb-scene-number-cap', 'left'], ['.rb-scene-number-cap', 'right'], [FRAMES, 'width'], [CELL, 'padding-left'], [CELL, 'padding-right'],
+    ]
+    for (const [sel, prop] of OUT) expect(declaredValue(withDeclaration(sheet, sel, prop, null), sel, prop), `${sel} { ${prop} }`).toBe(null)
+    expect(roomOf(64)).toBeLessThan(MEASURED.six)
   })
 })

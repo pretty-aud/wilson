@@ -324,7 +324,7 @@
        move     "CRANE DOWN" (80) with its caret                     -> 128
        runtime  "00:00:30:000" in the 13px mono (94: three frame
                 digits at 100fps and up)                             -> 120
-       frames   the 64px field                                       ->  88
+       frames   the 76px number field (FX1), its cell 6px a side     ->  88
        date     the date field and its picker glyph (120)            -> 144
        acts     three 28px IconButtons 2px apart — View details, the
                 row's shot-list menu (post-overhaul S3b) and Delete — one
@@ -674,15 +674,100 @@
   .rb-scene-framing-select > select { -webkit-text-fill-color: transparent; }
   .rb-scene-framing-select option { -webkit-text-fill-color: currentColor; }
 
-  /* Frames: the kit's small field at rest, on hover and in focus (R3-26: it
-     was borderless until the pointer found it), sized to a frame count, the
-     figure right-aligned under its header. */
-  .ui-input.rb-scene-frames {
-    width: 64px;
-    margin-left: auto;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
+  /* ═══ The number fields (post-overhaul FX1, 2026-10-11) ═══════════════════
+     Audrey: "the chevrons are covering up the numbers … spacing between
+     each. after 5 digits, add ellipsis." NumberField: a shot's frame count
+     (the nested shots, the shot table, an edit's cut, the shot popup) and
+     the scene's and shot's number (the popups) — the kit's small field at
+     rest, on hover and in focus (R3-26), still an <input type="number">.
+     Measured before by scripts/shot-number-fields-shots.mjs: the tables'
+     field was 64px and the browser's spinner took 15px of it, leaving 31px
+     for the figure, while 13px Geist's tabular figures are 7.8px — "2000"
+     ran into the chevrons and "12345" and "123456" both read "1234". The
+     browser's spinner is put away; the field's own chevrons (14px) sit 2px
+     in from its edge, 6px clear of the figure, in room its padding keeps
+     whether or not they show (they show, as the browser's did, while the
+     field is pointed at or focused; a disabled field has none). Past five
+     digits an unfocused field draws its first five and an ellipsis (the
+     cap) over its own text, which stays the whole number and is drawn
+     again on focus. Measured: five figures 39.0px, "12345…" 46.4px,
+     "123456" 46.8px. */
+  .rb-scene-number {
+    --rb-scene-number-pad: 8px;
+    --rb-scene-number-gap: 6px;
+    --rb-scene-number-inset: 2px;
+    --rb-scene-number-room: calc(var(--rb-scene-number-gap) + var(--icon-sm) + var(--rb-scene-number-inset));
+    position: relative;
+    display: block;
+    min-width: 0;
   }
+  .rb-scene-number > .ui-input.rb-scene-number-input {
+    padding-left: var(--rb-scene-number-pad);
+    padding-right: var(--rb-scene-number-room);
+    font-variant-numeric: tabular-nums;
+    appearance: textfield;
+  }
+  .rb-scene-number > .ui-input.rb-scene-number-input::-webkit-inner-spin-button,
+  .rb-scene-number > .ui-input.rb-scene-number-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  /* The cap: the field's text kept and not drawn, five figures and the
+     ellipsis over it in the same box, font and ink — the kit's disabled ink
+     on a disabled field. */
+  .rb-scene-number[data-capped="true"] > .ui-input.rb-scene-number-input { -webkit-text-fill-color: transparent; }
+  .rb-scene-number-cap {
+    position: absolute;
+    top: 0;
+    right: calc(1px + var(--rb-scene-number-room));
+    bottom: 0;
+    left: calc(1px + var(--rb-scene-number-pad));
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    pointer-events: none;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .rb-scene-number-input:disabled + .rb-scene-number-cap { color: var(--color-ink-3); }
+  /* The chevrons: one step each, the second ink, the ink and the hover fill
+     under the pointer. */
+  .rb-scene-number-step {
+    position: absolute;
+    top: 2px;
+    right: calc(1px + var(--rb-scene-number-inset));
+    bottom: 2px;
+    display: flex;
+    flex-direction: column;
+    width: var(--icon-sm);
+    visibility: hidden;
+  }
+  .rb-scene-number:hover > .rb-scene-number-step,
+  .rb-scene-number:focus-within > .rb-scene-number-step { visibility: visible; }
+  .rb-scene-number-btn {
+    display: flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    cursor: default;
+  }
+  .rb-scene-number-btn:hover { color: var(--color-ink); background-color: var(--color-hover); }
+  .rb-scene-number-btn > svg { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); }
+  /* Frames, in the three tables: sized to "12345…" and the chevrons' room
+     (4 + 48 + 22 inside the two hairlines: 76px), the figure right-aligned
+     under its header, its cell 6px a side (the thumbnail's) so the column
+     keeps its 88 — the scene table's 1280 and the nest's 1440 (S3b, R1-03)
+     hold as they were. */
+  .rb-scene-number.rb-scene-frames { --rb-scene-number-pad: 4px; width: 76px; margin-left: auto; }
+  .rb-scene-number.rb-scene-frames > .ui-input.rb-scene-number-input { text-align: right; }
+  .rb-scene-number.rb-scene-frames > .rb-scene-number-cap { justify-content: flex-end; }
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell { padding-right: 6px; padding-left: 6px; }
   /* The two dates: the kit's small field, its picker dark (it was an inline
      colorScheme), an empty one's pattern in the third ink — while it can be
      changed: a disabled one (S3b step 7, a reviewer's) is the kit's, whose
@@ -1288,9 +1373,9 @@
   /* An editable field is the kit's small well (legible as editable at rest,
      as the tables' fields are since R3-26), its rest, hover and focus the
      kit's. An empty choice's dash in the third ink (it was #57534e). A
-     number's figures tabular. */
+     number is the number field (FX1, with the tables' frames, above): its
+     figures tabular, its own chevrons, five figures and an ellipsis. */
   .ui-input.rb-scene-prop-select[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
-  .ui-input.rb-scene-prop-number { font-variant-numeric: tabular-nums; }
   /* Status: the kit's dot inside the well, the kit's words in the select
      (the text and every option wore the status colour, R3-11). (0,3,0) over
      the kit's small select's padding. */
