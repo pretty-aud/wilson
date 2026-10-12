@@ -1412,7 +1412,7 @@ function TaskItemPickerOverlay({ ctx, items, rows, onPick, onClose }) {
               </span>
               {g.offers.map(({ row, name }) => (
                 <button key={row.id} type="button" className="rb-rel-pick-row"
-                  title={`Add ${name}`} onClick={() => onPick(g.kind, row.id)}>
+                  title={`Add ${name}`} aria-label={`Add ${name}`} onClick={() => onPick(g.kind, row.id)}>
                   <Glyph aria-hidden="true" className="rb-rel-glyph" />
                   <StatusDot status={row.status || 'not_started'} />
                   <span className="rb-rel-name">{name}</span>

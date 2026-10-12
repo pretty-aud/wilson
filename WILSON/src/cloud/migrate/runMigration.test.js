@@ -418,3 +418,58 @@ describe('set-aside desktop rows arrive live on the cloud', () => {
     expect(ins.phases).toHaveLength(2)
   })
 })
+
+// FX2 (0096): a task's items move with the project — after the rows they name,
+// keeping their ids and positions. A task's FIRST asset is already in the
+// cloud (0096 seeds it from the task's column), so its desktop copy answers
+// 23505 and reads as skipped; a level's item stays (levels are not carried).
+describe("a task's items move with the project (FX2)", () => {
+  it('lands asset items after the tasks and assets, skips a seeded one, fails a refused one, leaves level items behind', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.assets = [{ id: 'a1', project_id: 'p1', name: 'A1' }, { id: 'a2', project_id: 'p1', name: 'A2' }]
+        b.taskItems = [
+          { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0, created_at: '2026-10-11T00:00:00Z' },
+          { id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a2', position: 1, created_at: '2026-10-11T00:00:00Z' },
+          { id: 'i3', task_id: 't2', project_id: 'p1', entity_type: 'asset', entity_id: 'a9', position: 0 },
+          { id: 'i4', task_id: 't1', project_id: 'p1', entity_type: 'level', entity_id: 'l1', position: 0 },
+        ]
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    fake.state.failWith = (table, row) => {
+      if (table === 'task_items' && row.id === 'i1') return { code: '23505', message: 'duplicate key value violates unique constraint "task_items_task_entity_key"' }
+      if (table === 'task_items' && row.id === 'i3') return { code: '23503', message: 'violates foreign key constraint "task_items_asset_fk"' }
+      return null
+    }
+    const report = await runMigration({ workspaceId: 'ws1' })
+    expect(report.taskItems).toEqual({ total: 4, inserted: 1, skipped: 1, failed: 1, leftBehind: 1 })
+    const landed = fake.state.inserts.task_items
+    expect(landed).toEqual([{ id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a2', position: 1, created_at: '2026-10-11T00:00:00Z' }])
+    const log = fake.state.log
+    expect(log.indexOf('task_items')).toBeGreaterThan(log.lastIndexOf('tasks'))
+    expect(log.indexOf('task_items')).toBeGreaterThan(log.lastIndexOf('assets'))
+    expect(report.errors.map(e => [e.scope, e.id])).toEqual([['task_item', 'i3']])
+  })
+
+  it('the dry run counts the items and the ones that stay', async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/rabbit/projects')    return { ok: true, json: async () => [{ id: 'p1', title: 'Fixture' }] }
+      if (url === '/api/rabbit/projects/p1') {
+        const b = bundle()
+        b.taskItems = [
+          { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 },
+          { id: 'i2', task_id: 't1', project_id: 'p1', entity_type: 'experience', entity_id: 'x1', position: 0 },
+        ]
+        return { ok: true, json: async () => b }
+      }
+      return { ok: false, status: 404 }
+    })
+    const report = await runMigration({ workspaceId: 'ws1', dryRun: true })
+    expect(report.taskItems).toMatchObject({ total: 2, leftBehind: 1 })
+    expect(fake.state.inserts.task_items).toBeUndefined()
+  })
+})
