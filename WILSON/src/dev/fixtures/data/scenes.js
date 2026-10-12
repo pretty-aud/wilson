@@ -419,9 +419,11 @@ export const GAME_LINKS = [
 ]
 
 // ── A task's items (FX2, migration 0096) ────────────────────────────────────
-// Every task's asset is its first item (the backfill's rule: position 0), and
-// four tasks are about several things, so the task window's Items table and
-// every reader that lists "the tasks about this" have something to show:
+// Every task's asset, scene and shot is its first item of that kind (the
+// backfill's rule: position 0; project.js puts the four tasks' main scene and
+// shot on their rows), and four tasks are about several things, so the task
+// window's Items table and every reader that lists "the tasks about this"
+// have something to show:
 //   18 Glass and rain rig test  — Lighthouse Interior, then Sea Spray Comp;
 //                                 sc 04; sh 010
 //   21 Weather cover plan       — Cliff Path; sc 02, then sc 06
@@ -430,11 +432,11 @@ export const GAME_LINKS = [
 // The store sets each task's asset_id / scene_id / shot_id to its first item
 // of each kind, as 0096's triggers keep the cloud's columns.
 const EXTRA_ITEM_ROWS = [
-  // [task n, kind, entity n, position]
-  [18, 'asset', 12, 1], [18, 'scene', 4, 0], [18, 'shot', 10, 0],
-  [21, 'scene', 2, 0], [21, 'scene', 6, 1],
-  [29, 'scene', 4, 0], [29, 'shot', 10, 0], [29, 'shot', 11, 1], [29, 'shot', 12, 2],
-  [31, 'scene', 5, 0], [31, 'shot', 13, 0], [31, 'shot', 14, 1],
+  // [task n, kind, entity n, position]: the items after each kind's first
+  [18, 'asset', 12, 1],
+  [21, 'scene', 6, 1],
+  [29, 'shot', 11, 1], [29, 'shot', 12, 2],
+  [31, 'shot', 14, 1],
 ]
 
 const ITEM_FID_KIND = { asset: 'asset', scene: 'scene', shot: 'shot', level: 'level', experience: 'experience' }
@@ -455,8 +457,12 @@ function itemRow(n, taskId, kind, entityId, position, createdAt) {
   }
 }
 
+const FIRST_ITEMS = TASKS.flatMap(t => [
+  ['asset', t.asset_id], ['scene', t.scene_id], ['shot', t.shot_id],
+].filter(([, id]) => id).map(([kind, id]) => [t, kind, id]))
+
 export const TASK_ITEMS = [
-  ...TASKS.filter(t => t.asset_id).map((t, i) => itemRow(i + 1, t.id, 'asset', t.asset_id, 0, t.created_at)),
+  ...FIRST_ITEMS.map(([t, kind, id], i) => itemRow(i + 1, t.id, kind, id, 0, t.created_at)),
   ...EXTRA_ITEM_ROWS.map(([task, kind, entity, position], i) =>
     itemRow(100 + i, fid('task', task), kind, fid(ITEM_FID_KIND[kind], entity), position, stamp(40, 9, i))),
 ]

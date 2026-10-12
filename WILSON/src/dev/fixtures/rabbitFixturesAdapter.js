@@ -350,6 +350,26 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     return seeded.length ? { insert: seeded[0], order: [seeded[0].id, ...store.taskItems
       .filter(i => i.task_id === task.id && i.entity_type === kind).sort((a, b) => a.position - b.position).map(i => i.id)] } : {}
   }
+  // The database's invariant (0096 post-condition 10h): every same-project
+  // single column has its item, and each column is its kind's main item. A
+  // test or a variant that writes a task's columns straight into the store
+  // gets, at the next read, the items the database would hold: seeded as the
+  // main item, as the backfill and §7b do (nothing is removed).
+  function reconcileTaskItems(projectId) {
+    const ids = []
+    for (const t of store.tasks) {
+      if (t.project_id !== projectId) continue
+      ids.push(t.id)
+      for (const kind of COLUMN_KINDS) {
+        const v = t[KIND_FIELD[kind]]
+        if (v == null || v === '' || !entityIn(kind, v, t.project_id)) continue
+        const main = mainItemOf(store.taskItems, t.id, kind)
+        if (main && main.entity_id === v) continue
+        applyItemPlan(planSingleFieldWrite(store.taskItems, t.id, kind, v, null, makeItem(t)))
+      }
+    }
+    syncTaskItemColumns(store, ids)
+  }
   // A hard delete's CASCADE: the row's items leave every task, and each task
   // that had one takes its next item as main (0096 §7a, §7b).
   function sweepTaskItemsOf(kind, id) {
@@ -536,6 +556,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async loadProject(projectId) {
       const project = projectOf(projectId)
       if (!project || project.deleted_at) throw notFound(projectId)
+      reconcileTaskItems(projectId)
       const inProject = (list) => list.filter(r => r.project_id === projectId)
       const assetIds = new Set(inProject(store.assets).map(a => a.id))
       const taskIds = new Set(inProject(store.tasks).map(t => t.id))
