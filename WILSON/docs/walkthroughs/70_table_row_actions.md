@@ -126,8 +126,19 @@ comes off the title column (Tasks at 1440: 350px).
   inside the title column, the buttons after it, in all seven tables you
   can rename in, with the app's scrollbar showing.
 - **Tests:** 357 test files / 8,593 tests (2 skipped) at the start, all
-  passing. *(The counts after the change and the two review rounds are
-  added at the end of the session.)*
+  passing; 359 / 8,611 after the change; 359 / 8,616 after the first review
+  round; **359 / 8,649 (6 skipped) on the tree with the second round's
+  corrections and FX5, FX6 and FX7 merged in**, all passing (the four new
+  skips came with them).
+- **Two review rounds** (one reviewer each, the second attacking the first's
+  corrections), both driving the app in Chromium with real keys, real
+  scrollbars and, in the second, a touch screen emulated. The first found
+  thirteen things (one serious: a long asset name ran under its buttons);
+  the second, eleven, in the first's corrections and beside them (three of
+  middling weight, all about touch screens and open menus). All are fixed,
+  or named in §4 and `docs/OUTSTANDING.md`. Every fix was proved by
+  breaking it on purpose and watching its test fail: 26 deliberately
+  broken versions, all 26 caught.
 
 ---
 
