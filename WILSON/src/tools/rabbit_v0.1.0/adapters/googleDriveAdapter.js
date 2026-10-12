@@ -236,6 +236,11 @@ export function googleDriveAdapter() {
         shotLists:     bundle.shotLists || [],
         shotListItems: bundle.shotListItems || [],
         edits:         bundle.edits || [],
+        // FX2 (0096): a task's items, as the bundle was exported. Drive has
+        // no taskItemsAvailable(): it is read-only, so the provider reads each
+        // task's stored single fields (the desktop keeps them in step with
+        // its items) and the task window keeps its read-only fields.
+        taskItems:     bundle.taskItems || [],
       });
     },
 

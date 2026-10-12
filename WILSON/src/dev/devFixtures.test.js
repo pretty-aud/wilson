@@ -170,7 +170,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       // probe, the clip URL, the renewal, the HEAD over an injected fetch),
       // so the fixtures' Playwright mode drives the real doors against a
       // real gateway on loopback.
-      'tools/rabbit_v0.1.0/bins/gatewayDoors']
+      'tools/rabbit_v0.1.0/bins/gatewayDoors',
+      // FX2 (0096): a task's items' rules (taskItemsModel.js, pure), so the
+      // fake cloud keeps a task's columns and items as 0096's triggers do.
+      'tools/rabbit_v0.1.0/state/taskItemsModel']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -192,6 +195,8 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The GW3 loosening, proven the same way: gatewayDoors imports nothing.
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/bins/gatewayDoors.js')))).toBe(false)
+    // The FX2 loosening, proven the same way: taskItemsModel imports nothing.
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/state/taskItemsModel.js')))).toBe(false)
     // The S5 loosening, proven the same way: budgetMath imports nothing, and
     // budgetVersionModel imports dates.js and only dates.js, which imports
     // nothing — so neither can carry the fixtures anywhere either.

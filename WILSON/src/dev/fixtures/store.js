@@ -19,8 +19,12 @@ import {
 import {
   SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES,
   GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
+  TASK_ITEMS, GAME_TASK_ITEMS,
 } from './data/scenes'
 import { fid } from './ids'
+// FX2 (0096): the one statement of a task's items' rules (pure, imports
+// nothing), so the fake cloud keeps a task's columns as the database does.
+import { COLUMN_KINDS, KIND_FIELD, mainItemOf } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS, GAME_FOLDERS, GAME_FILES } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
@@ -62,6 +66,8 @@ export function applyGameVariant(store) {
   project.experiences_enabled = true
   store.levels = clone(GAME_LEVELS)
   store.experiences = clone(GAME_EXPERIENCES)
+  // FX2 (0096): two tasks are also about the variant's levels and experiences.
+  store.taskItems.push(...clone(GAME_TASK_ITEMS))
   for (const [n, levels, experiences] of GAME_LINKS) {
     const asset = store.assets.find(a => a.id === fid('asset', n))
     if (!asset) throw new Error(`[fixtures] game variant: no asset ${n}`)
@@ -124,7 +130,7 @@ export function binsFixtureMode(search = typeof location === 'undefined' ? '' : 
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)
-  return {
+  const store = {
     workspace: clone(WORKSPACE),
     members: clone(MEMBERS),
 
@@ -135,6 +141,8 @@ export function createStore() {
     tasks: clone(TASKS),
     dependencies: clone(DEPENDENCIES),
     taskLinks: clone(TASK_LINKS),
+    // FX2 (0096): a task's items (not the URL links above).
+    taskItems: clone(TASK_ITEMS),
     comments: clone(COMMENTS),
     assetVersions: clone(ASSET_VERSIONS),
     editHistory: clone(EDIT_HISTORY),
@@ -186,6 +194,23 @@ export function createStore() {
     progress,
     quizAttempts: clone(QUIZ_ATTEMPTS),
   }
+  // FX2 (0096): each task's asset_id / scene_id / shot_id is its first item
+  // of that kind, as the database's triggers keep the cloud's three columns.
+  syncTaskItemColumns(store)
+  return store
+}
+
+/** Every task's three cloud columns set to its main items (0096 §7a's rule). */
+export function syncTaskItemColumns(store, taskIds = null) {
+  const only = taskIds ? new Set(taskIds) : null
+  for (const t of store.tasks) {
+    if (only && !only.has(t.id)) continue
+    for (const kind of COLUMN_KINDS) {
+      const main = mainItemOf(store.taskItems, t.id, kind)
+      t[KIND_FIELD[kind]] = main ? main.entity_id : null
+    }
+  }
+  return store
 }
 
 // ── Row helpers ──────────────────────────────────────────────────────────────

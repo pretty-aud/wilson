@@ -37,7 +37,13 @@ import { pendingShotRefiling, shotsCategoryRow, shotsCategoryEmpty } from '../..
 import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags, legalRefusalSentence } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
+  syncTaskItemColumns,
 } from './store'
+// FX2 (0096): a task's items — the one statement of their rules (pure).
+import {
+  COLUMN_KINDS, KIND_FIELD, isItemKind, itemShapeProblem, mainItemOf,
+  planReorder, applyPositions, planSingleFieldWrite, seedItemsFor,
+} from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
 
 const PRIMARY = 'primary'
@@ -286,6 +292,73 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     return row
   }
 
+  // ── A task's items (FX2, migration 0096): the fake cloud runs the
+  // database's rules. An item names a row of its task's own project (the
+  // composite keys: 23503), a task names an item once (the unique key: the
+  // stored row is answered, as ON CONFLICT DO NOTHING then a read), a
+  // trashed task's items are hidden and refused (the task hop: 42501), and
+  // each task's asset_id / scene_id / shot_id is its main item of that kind
+  // (§7) — levels and experiences have no column on the cloud.
+  const ITEM_ROWS = { asset: 'assets', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
+  const itemError = (code, message) => { const err = new Error(`[supabase] ${message}`); err.code = code; return err }
+  const liveTaskOf = (id) => { const t = findById(store.tasks, id); return t && !t.deleted_at ? t : null }
+  const entityIn = (kind, id, projectId) => !!(store[ITEM_ROWS[kind]] || [])
+    .find(r => r.id === id && r.project_id === projectId)
+  const makeItem = (task) => (base) => ({
+    id: newId(), project_id: task.project_id, workspace_id: workspaceId,
+    created_at: now(), created_by: by, updated_at: now(), updated_by: by, ...base,
+  })
+  function applyItemPlan(plan) {
+    if (plan.remove.length) {
+      const gone = new Set(plan.remove.map(i => i.id))
+      store.taskItems = store.taskItems.filter(i => !gone.has(i.id))
+    }
+    if (plan.insert) store.taskItems.push(plan.insert)
+    if (plan.order) {
+      const first = store.taskItems.find(i => i.id === plan.order[0])
+      if (first) store.taskItems = applyPositions(store.taskItems, planReorder(store.taskItems, first.task_id, first.entity_type, plan.order))
+    }
+  }
+  // §7b / §7c for a task row just written: each of the three columns the
+  // write changed moves, replaces or removes the main item; a new task's set
+  // columns become its first items. Another project's row is refused before
+  // anything changes (the composite key).
+  function itemsAfterTaskWrite(before, after) {
+    const task = findById(store.tasks, after.id)
+    if (!task) return
+    for (const kind of COLUMN_KINDS) {
+      const f = KIND_FIELD[kind]
+      const was = before ? (before[f] ?? null) : null
+      const is = task[f] == null || task[f] === '' ? null : task[f]
+      if (before && String(was) === String(is)) continue
+      if (!before && is == null) continue
+      if (is != null && !entityIn(kind, is, task.project_id)) {
+        // The statement is refused whole, as the database rolls it back.
+        if (before) { for (const k of Object.keys(task)) delete task[k]; Object.assign(task, before) }
+        else store.tasks = store.tasks.filter(t => t.id !== task.id)
+        throw itemError('23503', `insert or update on table "task_items" violates foreign key constraint "task_items_${kind}_fk"`)
+      }
+      const main = mainItemOf(store.taskItems, task.id, kind)
+      applyItemPlan(before
+        ? planSingleFieldWrite(store.taskItems, task.id, kind, is, main ? main.entity_id : was, makeItem(task))
+        : { remove: [], insert: null, order: null, ...seedPlan(task, kind) })
+    }
+    syncTaskItemColumns(store, [task.id])
+  }
+  function seedPlan(task, kind) {
+    const seeded = seedItemsFor(task, store.taskItems, makeItem(task), [KIND_FIELD[kind]])
+    return seeded.length ? { insert: seeded[0], order: [seeded[0].id, ...store.taskItems
+      .filter(i => i.task_id === task.id && i.entity_type === kind).sort((a, b) => a.position - b.position).map(i => i.id)] } : {}
+  }
+  // A hard delete's CASCADE: the row's items leave every task, and each task
+  // that had one takes its next item as main (0096 §7a, §7b).
+  function sweepTaskItemsOf(kind, id) {
+    const touched = store.taskItems.filter(i => i.entity_type === kind && i.entity_id === id).map(i => i.task_id)
+    if (!touched.length) return
+    store.taskItems = store.taskItems.filter(i => !(i.entity_type === kind && i.entity_id === id))
+    syncTaskItemColumns(store, touched)
+  }
+
   // ── Folders (shared by the folder methods and entity creation) ─────────────
   function folderByPath(projectId, path) {
     return store.folders.find(f => f.project_id === projectId && f.path === path) || null
@@ -507,6 +580,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         shotLists: inProject(store.shotLists).sort(byCreated),
         shotListItems: inProject(store.shotListItems).sort(byPosition),
         edits: inProject(store.edits).sort(byCreated),
+        // FX2 (0096): a task's items, a trashed task's hidden (the task hop).
+        taskItems: inProject(store.taskItems).filter(i => liveTaskOf(i.task_id)),
       }))
     },
     async createProject(payload) {
@@ -574,8 +649,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async restoreAsset(id) { return restore(store.assets, id) },
 
     async listTasks(projectId) { return clone(live(store.tasks.filter(t => t.project_id === projectId))) },
-    async upsertTask(task) { return clone(upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...unstamped(task) }))) },
-    async patchTask(id, fields) { return clone(patch(store.tasks, id, stampBy(unstamped(fields)))) },
+    async upsertTask(task) {
+      const prior = task?.id ? findById(store.tasks, task.id) : null
+      const before = prior ? { ...prior } : null
+      const row = upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...unstamped(task) }))
+      itemsAfterTaskWrite(before, row)
+      return clone(findById(store.tasks, row.id))
+    },
+    async patchTask(id, fields) {
+      const prior = findById(store.tasks, id)
+      const before = prior ? { ...prior } : null
+      const row = patch(store.tasks, id, stampBy(unstamped(fields)))
+      if (row) itemsAfterTaskWrite(before, row)
+      return clone(row ? findById(store.tasks, id) : row)
+    },
     async deleteTask(id) { trash(store.tasks, id) },
     async restoreTask(id) { return restore(store.tasks, id) },
 
@@ -587,6 +674,52 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async deleteDependency(id) { remove(store.dependencies, id) },
     async upsertTaskLink(link) { return clone(upsert(store.taskLinks, link)) },
     async deleteTaskLink(id) { remove(store.taskLinks, id) },
+
+    // ── A task's items (FX2, migration 0096) ─────────────────────────────────
+    taskItemsAvailable() { return true },
+    async listTaskItems(projectId) {
+      return clone(store.taskItems.filter(i => i.project_id === projectId && liveTaskOf(i.task_id)))
+    },
+    async addTaskItem(item) {
+      const problem = itemShapeProblem(item)
+      if (problem) throw itemError('23514', problem)
+      const task = liveTaskOf(item.task_id)
+      if (!task || task.project_id !== item.project_id) {
+        throw itemError('42501', 'new row violates row-level security policy for table "task_items"')
+      }
+      if (!entityIn(item.entity_type, item.entity_id, task.project_id)) {
+        throw itemError('23503', `insert or update on table "task_items" violates foreign key constraint "task_items_${item.entity_type}_fk"`)
+      }
+      const stored = store.taskItems.find(i => i.task_id === task.id && i.entity_type === item.entity_type && i.entity_id === item.entity_id)
+      if (stored) return clone(stored)
+      const row = makeItem(task)({
+        ...(item.id ? { id: item.id } : {}),
+        task_id: task.id, entity_type: item.entity_type, entity_id: item.entity_id,
+        position: item.position ?? 0,
+        ...(item.created_at ? { created_at: item.created_at } : {}),
+      })
+      store.taskItems.push(row)
+      syncTaskItemColumns(store, [task.id])
+      return clone(row)
+    },
+    async deleteTaskItem(id) {
+      const row = findById(store.taskItems, id)
+      if (!row || !liveTaskOf(row.task_id)) return
+      store.taskItems = store.taskItems.filter(i => i.id !== id)
+      syncTaskItemColumns(store, [row.task_id])
+    },
+    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
+      if (!isItemKind(kind)) throw itemError('22023', `reorder_task_items: ${kind} is not a kind of item (asset, scene, shot, level, experience)`)
+      const ids = Array.isArray(orderedIds) ? orderedIds : []
+      if (new Set(ids).size !== ids.length) throw itemError('22023', 'reorder_task_items: an item is named twice')
+      const task = liveTaskOf(taskId)
+      if (!task || task.project_id !== projectId) return []
+      const changes = planReorder(store.taskItems, taskId, kind, ids)
+      store.taskItems = applyPositions(store.taskItems, changes)
+      syncTaskItemColumns(store, [taskId])
+      const moved = new Set(changes.map(c => c.id))
+      return clone(store.taskItems.filter(i => moved.has(i.id)))
+    },
 
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
@@ -895,22 +1028,24 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       const shotIds = store.shots.filter(s => s.scene_id === id).map(s => s.id)
       remove(store.scenes, id)
       sweepShotListLinks('scene_id', id)
+      sweepTaskItemsOf('scene', id)
       for (const shotId of shotIds) {
         remove(store.shots, shotId)
         sweepShotListLinks('shot_id', shotId)
+        sweepTaskItemsOf('shot', shotId)
       }
     },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
     // BC2: a shot's takes go with it, as 0091's shot_takes_shot_fk CASCADE
     // takes them on the cloud (the provider's undo puts them back).
-    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
+    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
-    async deleteLevel(id) { remove(store.levels, id) },
+    async deleteLevel(id) { remove(store.levels, id); sweepTaskItemsOf('level', id) },
     async listExperiences(projectId) { return clone(store.experiences.filter(s => s.project_id === projectId)) },
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
-    async deleteExperience(id) { remove(store.experiences, id) },
+    async deleteExperience(id) { remove(store.experiences, id); sweepTaskItemsOf('experience', id) },
 
     // ── Shot lists, items, edits (0084; the S3a contract's nine methods plus
     //    round 1's two membership deltas and round 2's reorder) ──────────────
