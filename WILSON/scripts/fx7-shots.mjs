@@ -109,7 +109,8 @@ try {
         version: bar ? { label: label(vLabel), value: value(vValue), gap: vLabel && vValue ? px(r(vValue).left - r(vLabel).right) : null,
           mode: bar.dataset.mode, rowH: px(r(bar).height), overflow: bar.scrollWidth - bar.clientWidth,
           words: state ? { w: px(r(state).width), natural: state.scrollWidth, clipped: state.scrollWidth > state.clientWidth + 0.5, text: state.textContent } : null,
-          nameWeight: vName ? getComputedStyle(vName).fontWeight : null,
+          name: vName ? type(vName) : null,
+          leadInk: bar?.querySelector('.rb-tl-ver-lead') ? getComputedStyle(bar.querySelector('.rb-tl-ver-lead')).color : null,
           select: w('.rb-tl-ver-select'), verbs: verbs ? px(r(verbs).width) : null, verbsRight: verbs ? px(r(verbs).right) : null, barRight: px(r(bar).right),
           buttons: verbs ? [...verbs.querySelectorAll('button')].map((b) => `${b.textContent.trim()} ${px(r(b).width)}`) : [] } : null,
         valuesAligned: pValue && vValue ? px(r(vValue).left - r(pValue).left) : null,
@@ -120,24 +121,38 @@ try {
     });
     console.log(`  measured (${state}): ${JSON.stringify(m)}`);
     if (CHECK) {
+      // Absolute values (review round 2, R2-01: comparing the two labels with
+      // each other let a rule recolour or resize both names unseen). The
+      // kit's: the Label step 11px at 600, 0.66px tracking, uppercase, the
+      // second ink; the Title step 14px at 600 in the ink; the Dense step 13px
+      // at 400. A missing element is a failure, not a crash (R2-05).
+      const INK = 'rgb(245, 240, 236)';
+      const INK2 = 'rgb(184, 180, 176)';
       const fail = (what) => failures.push(`${state} at ${W}x${H}: ${what}`);
+      const is = (what, got, want) => { if (got !== want) fail(`${what} is ${got}, not ${want}`); };
       const p = m.project;
       const v = m.version;
+      if (!p.label) fail('no PROJECT label');
+      if (!p.value) fail('no project name');
       if (p.before.length) fail(`something before PROJECT: ${p.before.join(', ')}`);
-      if (p.label?.cls !== 'ui-field-label') fail(`PROJECT wears "${p.label?.cls}"`);
-      if (p.label?.x !== 24) fail(`PROJECT starts at x ${p.label?.x}, not the 24px gutter`);
+      is("PROJECT's class", p.label?.cls, 'ui-field-label');
+      is("PROJECT's x", p.label?.x, 24);
+      for (const [k, want] of [['size', '11px'], ['weight', '600'], ['tracking', '0.66px'], ['case', 'uppercase'], ['ink', INK2]]) is(`PROJECT's ${k}`, p.label?.[k], want);
+      for (const [k, want] of [['size', '14px'], ['weight', '600'], ['ink', INK]]) is(`the project's name's ${k}`, p.value?.[k], want);
       if (p.overflow) fail(`the title bar overflows by ${p.overflow}px`);
-      if (p.value?.weight !== '600') fail(`the project's name is at ${p.value?.weight}`);
       if (v) {
-        if (v.label?.cls !== 'ui-field-label') fail(`BID VER. wears "${v.label?.cls}"`);
-        for (const k of ['size', 'lineHeight', 'weight', 'tracking', 'case', 'ink']) {
-          if (p.label[k] !== v.label[k]) fail(`the labels' ${k} differs: ${p.label[k]} / ${v.label[k]}`);
-        }
-        if (m.labelsAligned !== 0) fail(`the labels start ${m.labelsAligned}px apart`);
-        if (Math.abs(m.valuesAligned) >= 0.5) fail(`the values start ${m.valuesAligned}px apart`);
+        if (!v.label) fail('no BID VER. label');
+        if (!v.value) fail('no dropdown');
+        is("BID VER.'s class", v.label?.cls, 'ui-field-label');
+        for (const k of ['size', 'lineHeight', 'weight', 'tracking', 'case', 'ink']) is(`BID VER.'s ${k} (PROJECT's)`, v.label?.[k], p.label?.[k]);
+        is("the labels' offset", m.labelsAligned, 0);
+        if (!(Math.abs(m.valuesAligned) < 0.5)) fail(`the values start ${m.valuesAligned}px apart`);
         if (v.overflow) fail(`the version bar overflows by ${v.overflow}px`);
-        if (v.value?.weight !== '400') fail(`the dropdown's value is at ${v.value?.weight}`);
-        if (v.nameWeight && v.nameWeight !== '400') fail(`the version's name in the words is at ${v.nameWeight}`);
+        for (const [k, want] of [['size', '13px'], ['weight', '400']]) is(`the dropdown's ${k}`, v.value?.[k], want);
+        if (v.name) {
+          for (const [k, want] of [['size', '13px'], ['weight', '400'], ['ink', INK]]) is(`the version's name's ${k}`, v.name[k], want);
+          if (v.name.ink === v.leadInk) fail(`the version's name has the lead's ink, ${v.leadInk}`);
+        }
       }
     }
     return m;
@@ -238,6 +253,19 @@ try {
   await must(page.locator('.ui-toolbar.rb-ctx'), 'the project title bar on Tasks');
   await sleep(400);
   await shot('tasks-tab');
+  if (CHECK) {
+    // A member (below the money gate): the Timeline draws no version bar;
+    // the title bar's PROJECT is the same label (R2-05).
+    await page.goto(`http://localhost:${PORT}/rabbit?fixtures=member`, { waitUntil: 'networkidle' });
+    await page.addStyleTag({ content: quietCss });
+    await click(page.locator('.rb-summary-card, button', { hasText: 'Salt Hours' }).first(), 'Salt Hours (a member)');
+    await sleep(600);
+    await click(tab('Timeline'), 'the Timeline tab (a member)');
+    await must(page.locator('.rb-tl-gantt'), "the member's gantt");
+    await sleep(400);
+    const mm = await measure('member-timeline');
+    if (mm.version) failures.push(`member-timeline at ${W}x${H}: a member sees the version bar`);
+  }
 } finally {
   await browser.close();
 }

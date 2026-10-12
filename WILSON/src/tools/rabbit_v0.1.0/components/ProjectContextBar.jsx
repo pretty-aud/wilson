@@ -45,9 +45,10 @@
 // before the word project". PROJECT is the kit's label (`ui-field-label`: the
 // Label step at 600, uppercase, the second ink), the class the Timeline's
 // "Bid ver." under it wears, with nothing before it on the gutter; both
-// labels sit in one 56px column (rabbitShell.css, rabbitTimeline.css), so the
-// project's name and the bid version's dropdown start at the same x. The name
-// stays the Title step at 600, a step above the dropdown's 400.
+// labels sit in one column, 5.1em of the label (rabbitShell.css,
+// rabbitTimeline.css), so the project's name and the bid version's dropdown
+// start at the same x. The name stays the Title step at 600, a step above
+// the dropdown's 400 and the version's name beside it, at 400 too.
 
 import { useState, useRef, useEffect } from 'react'
 import { ChevronDown, Check } from 'lucide-react'

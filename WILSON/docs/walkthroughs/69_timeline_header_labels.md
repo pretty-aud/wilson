@@ -95,12 +95,20 @@ in every state of steps 1 to 6:
   5.6px sooner: the dropdown starts that much further right.
 - **Tests:** 357 test files / 8,593 tests (2 skipped) at the start (the
   last merge's count); 357 / 8,604 (2 skipped) after the change, 357 /
-  8,606 (2 skipped) after the first review's corrections, all passing. The
-  new tests pin both labels' one style, the missing icon, the
-  one column, every style rule that reaches the two rows, and the project's
-  name a step above the version's. `scripts/fx7-shots.mjs --check` checks
-  the result in the browser: it fails unless every state holds. Each test
-  was proved by breaking the code on purpose and watching it fail.
+  8,606 after the first review's corrections, 357 / 8,607 after the
+  second's, all passing. The new tests pin both labels' one style, the
+  missing icon, the one column, every style rule that can reach the two
+  rows, and the project's name a step above the version's.
+  `scripts/fx7-shots.mjs --check` checks the result in the browser: it
+  fails unless every state holds.
+- **Two reviews** (one reviewer each: the whole change, then the first
+  round's corrections). The first found the tests pinned the label rules
+  rather than the result, the version's name still bold, and a column that
+  would slip if the label grew; the second found ways a style rule could
+  still recolour or resize either name unseen. All are fixed. Every fix was
+  proved by breaking the code on purpose: 16 broken versions before the
+  reviews, 16 after the first, 17 after the second, every one caught; and
+  one more, a larger label with the new column, was checked to hold.
 
 ---
 
@@ -120,21 +128,32 @@ in every state of steps 1 to 6:
 1. **The bid version's name is now in regular weight beside the dropdown**
    (*Open: Bid v1 (fund application)*, *Viewing bid version: Bid v1…*), so
    the project's name is the only bold name in the two rows. It was bold,
-   and still is on the Budget tab's save row. Keep it regular, or bold
-   again?
+   and still is on the Budget tab's save row. Compare the two rows before
+   and after with Bid v1 open:
+   `po-fx7-before-04-open-bid-v1-rows-1440x900.png` (bold) and
+   `po-fx7-after-04-open-bid-v1-rows-1440x900.png` (regular). With a change
+   unsaved, the name and *Unsaved changes* are now the same white regular
+   text, a grey dot between them. Keep it regular, or bold again (a
+   one-line change)?
+
+   ![Before: the version's name in bold](../sessions/handoffs/img/po-fx7-before-04-open-bid-v1-rows-1440x900.png)
+   ![After: the version's name in regular weight](../sessions/handoffs/img/po-fx7-after-04-open-bid-v1-rows-1440x900.png)
 
 ---
 
 ## What was checked, and what was not
 
 Checked in the development copy with its test data at 1440x900, 1280x700
-and 1024x700, in Chromium: the six states in the pictures, measured by
-`scripts/fx7-shots.mjs` (which took the pictures and prints every
-measurement above; `--check` fails on any difference between the two
-labels or the two values), and a member's Timeline (no version bar) at
-1280. The first review measured narrower windows, browser zoom, the
-typeface not loaded, a very long project title, no project open, and every
-tab.
+and 1024x700, in Chromium: the six states in the pictures and a member's
+Timeline (no version bar), measured by `scripts/fx7-shots.mjs` (which took
+the pictures and prints every measurement above). Its `--check` fails
+unless, in every one of them, the two labels are the kit's label in its
+exact size, weight, spacing and grey, the two values start at one place,
+the project's name is 14px bold white, the dropdown and the version's name
+13px regular, and nothing overflows. Two reviews measured more: narrower
+windows, browser zoom, screen scaling from 0.67 to 2, label sizes from 10
+to 16px, the typeface not loaded, a very long project title, no project
+open, and every tab.
 
 **Not checked:** the desktop app (it draws with the same browser engine and
 the same bundled typeface, so the widths should hold), a real cloud

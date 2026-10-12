@@ -230,7 +230,7 @@ describe('FX7: PROJECT and "Bid ver." are one label in one column, the project\'
     const left = title.querySelector(':scope > .ui-toolbar-slot:first-child')
     return { title, left, project: left.firstElementChild, version: bar().firstElementChild }
   }
-  const labelsIn = (mode) => {
+  const labelsIn = (mode, named = false) => {
     const { title, left, project, version } = rows()
     // The title bar comes first, the bar right under it.
     expect(!!(title.compareDocumentPosition(bar()) & Node.DOCUMENT_POSITION_FOLLOWING), mode).toBe(true)
@@ -243,9 +243,18 @@ describe('FX7: PROJECT and "Bid ver." are one label in one column, the project\'
     expect(project.nextElementSibling.getAttribute('class'), mode).toBe('rb-ctx-title text-h3')
     expect(project.nextElementSibling.textContent, mode).toBe('Salt Hours')
     expect(version.nextElementSibling, mode).toBe(combo())
-    expect([...combo().classList], mode).toEqual(expect.arrayContaining(['ui-input', 'rb-tl-ver-select']))
+    // The dropdown wears the kit input and its own class, nothing more
+    // (review round 2, R2-01: a utility there moved it off the column).
+    expect(combo().getAttribute('class'), mode).toBe('ui-input rb-tl-ver-select')
     // No inline style on either label or either value (review round 1, R1-01).
     expect([project, version, project.nextElementSibling, combo()].map(n => n.getAttribute('style')), mode).toEqual([null, null, null, null])
+    // The version's name and the lead in the words wear their own class
+    // alone and no style (R2-01: `font-semibold` there made the name bold
+    // again past every CSS pin); the name is in the words exactly when a
+    // version is open or viewed.
+    const pieces = [...bar().querySelectorAll('.rb-tl-ver-name, .rb-tl-ver-lead')]
+    expect(pieces.map(n => [n.getAttribute('class'), n.getAttribute('style')]), mode)
+      .toEqual(named ? [['rb-tl-ver-lead', null], ['rb-tl-ver-name', null]] : [])
   }
   it('in every mode of the bar — locked, bidding, viewing, a version open and changed — with every verb S5d gave each', async () => {
     await mount({ withTitle: true })
@@ -255,18 +264,18 @@ describe('FX7: PROJECT and "Bid ver." are one label in one column, the project\'
     labelsIn('bidding')
     expect([bar().dataset.mode, combo().disabled, words(), verbs()]).toEqual(['current', false, 'No version is open.', ['Save as new version…']])
     await choose(BV1)
-    labelsIn('viewing')
+    labelsIn('viewing', true)
     expect([bar().dataset.mode, verbs()]).toEqual(['viewing', ['Edit this version', 'Current']])
     expect(words()).toMatch(/^Viewing bid version: /)
     await press(verb('Current'))
     await openQuietly(BV1)
     await run(() => ctx.dismissUndoToast())
-    labelsIn('open')
+    labelsIn('open', true)
     expect([bar().dataset.mode, verbs()]).toEqual(['current', ['Save', 'Save as new version…']])
     expect(words()).toMatch(new RegExp(`^Open: ${V1.replace(/[()]/g, '\\$&')} · Saved `))
     const t3 = ctx.tasks.find(t => t.id === TASK_ID(3))
     await run(() => ctx.updateTask(TASK_ID(3), { bid_days: Number(t3.bid_days) + 1 }))
-    labelsIn('changed')
+    labelsIn('changed', true)
     expect(words()).toBe(`Open: ${V1} · Unsaved changes`)
     expect(verb('Save').getAttribute('data-attention')).toBe('true')
     expect(bar().querySelector('.ui-btn-attention')?.textContent).toBe('Unsaved')
