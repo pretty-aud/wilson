@@ -408,7 +408,7 @@ describe('S3c step 7 — the unsaved edit asks before every exit (D12)', () => {
     let went
     act(() => { confirmLeave('tab').then((g) => { went = g }) })
     const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
-    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved. Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.')
+    expect(q.textContent).toContain('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.')
     expect([...q.querySelectorAll('.ui-dialog-foot button')].map(b => b.textContent)).toEqual(['Keep editing', 'Discard changes', 'Save edit'])
     expect(document.activeElement.textContent).toBe('Keep editing')
     await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Keep editing' })) })
@@ -459,7 +459,7 @@ describe('S3c step 7 — the unsaved edit asks before every exit (D12)', () => {
     await mountWithQuestion()
     await startDraft()
     const [g] = unsavedForClose()
-    expect(g.describe()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(g.describe()).toBe('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved.')
     await act(async () => { await g.save() })
     expect(holder.adapter.db.edits).toHaveLength(1)
     expect(unsavedForClose()).toEqual([])
@@ -513,7 +513,7 @@ describe('S3c review round 1 — a draft whose list goes, two drafts, another pe
     await pickupsDraft()
     await act(async () => { await ctxRef.archiveShotList('L3') })
     expect(ctxRef.unsavedEditCount()).toBe(1)
-    expect(ctxRef.describeUnsavedEdits()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(ctxRef.describeUnsavedEdits()).toBe('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved.')
     expect(unsavedForClose()[0].count()).toBe(1)
     await act(async () => { await ctxRef.saveOpenDrafts() })
     expect(holder.adapter.db.edits.map(e => e.shot_list_id)).toEqual(['L1'])
@@ -543,13 +543,13 @@ describe('S3c review round 1 — a draft whose list goes, two drafts, another pe
     await startDraft()
     await pickupsDraft()
     expect(ctxRef.unsavedEditCount()).toBe(2)
-    expect(ctxRef.describeUnsavedEdits()).toBe('2 edits are not saved: “Shoot · v1” (of “Shoot · v2”) and “Pickups · v1” (of “Pickups · v1”).')
+    expect(ctxRef.describeUnsavedEdits()).toBe('2 edits have changes that are not saved: “Shoot · v1” (a new edit, of “Shoot · v2”) and “Pickups · v1” (a new edit, of “Pickups · v1”).')
     // R1-12: of two, the leave question says "each" and "them", not "it".
     expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount()))
-      .toBe('2 edits are not saved: “Shoot · v1” (of “Shoot · v2”) and “Pickups · v1” (of “Pickups · v1”). Save edit keeps each as its next version; Discard changes drops them; Keep editing goes back to them.')
+      .toBe('2 edits have changes that are not saved: “Shoot · v1” (a new edit, of “Shoot · v2”) and “Pickups · v1” (a new edit, of “Pickups · v1”). Save edit saves each; Discard changes drops what is not saved; Keep editing goes back to them.')
     expect(unsavedForClose()[0].count()).toBe(2)
     act(() => { ctxRef.discardEditDraft('L3') })
-    expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount())).toContain('Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.')
+    expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount())).toContain('Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.')
     holder.adapter.failListId = 'L1'
     let err
     await act(async () => { try { await ctxRef.saveOpenDrafts() } catch (e) { err = e } })
@@ -609,7 +609,7 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     await startDraft()
     const out = ask('tab')
     const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
-    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(q.textContent).toContain('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved.')
     await auth('SIGNED_OUT', null)
     await waitFor(() => expect(out.went).toBe(true))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -669,7 +669,7 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     const q = await screen.findByRole('dialog', { name: 'Save the edit before leaving?' })
     await act(async () => { ctxRef.discardEditDraft('L3') })
     expect(out.went).toBeUndefined()
-    expect(q.textContent).toContain('“Shoot · v1”, an edit of “Shoot · v2”, is not saved. Save edit keeps it as its next version;')
+    expect(q.textContent).toContain('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved. Save edit saves it;')
     await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Keep editing' })) })
     expect(out.went).toBe(false)
   })
@@ -679,7 +679,7 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     await auth('SIGNED_IN', 'user-A')
     await startDraft()
     const [g] = unsavedForClose()
-    expect(g.describe()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, is not saved.')
+    expect(g.describe()).toBe('“Shoot · v1”, a new edit of “Shoot · v2”, is not saved.')
     expect(g.dirty()).toBe(true)
     await auth('SIGNED_OUT', null)
     expect(g.describe()).toBe('')
@@ -714,7 +714,7 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     await act(async () => { try { await ctxRef.saveOpenDrafts() } catch (e) { err = e } })
     expect(err?.message).toBe('The edit was saved as “Shoot · v1”, but the names it holds were not: disk full “Pickups · v1” was not saved: disk full')
     expect(ctxRef.unsavedEditCount()).toBe(1)
-    expect(ctxRef.describeUnsavedEdits()).toBe('“Pickups · v1”, an edit of “Pickups · v1”, is not saved.')
+    expect(ctxRef.describeUnsavedEdits()).toBe('“Pickups · v1”, a new edit of “Pickups · v1”, is not saved.')
   })
 
   it('R2-03: a sign-out landing in the middle of Save edit — the saved draft\'s copy is removed under ITS person, and is never offered back as unsaved', async () => {
@@ -793,5 +793,235 @@ describe('S3c review round 2 — a question about drafts that went; whose copy a
     await auth('SIGNED_OUT', null)
     await auth('SIGNED_IN', 'user-A')
     expect(ctxRef.recoverableEditDrafts.map(c => [c.personKey, c.listId])).toEqual([['user-A', 'L1']])
+  })
+})
+
+// ── Post-overhaul FX4 (Audrey, 2026-10-12): an edit changes in place ─────────
+// "when i make changes to an edit, it should start to edit the current
+// selected edit instead of asking me to always make a new one ... only when i
+// press save as should it ask me to make a new edit version." A draft with
+// `editId` is that saved edit's unsaved changes: Save edit writes them INTO
+// it; Save as… (saveEditAs) is the one way to a new version.
+describe('FX4 — Save edit writes into the edit on screen; Save as… makes the new version', () => {
+  const auth = async (event, id) => {
+    holder.session = id ? { user: { id } } : null
+    await act(async () => { for (const cb of holder.authCbs) cb(event, holder.session); await new Promise(r => setTimeout(r, 5)) })
+  }
+  /** v1, saved as a new edit from the list's order (D13's path, unchanged): items b (The door), a (Boats). */
+  async function savedV1() {
+    await startDraft()
+    let v1
+    await act(async () => { v1 = await ctxRef.saveEditDraft('L1', { title: 'Shoot', summary: 'First assembly' }) })
+    return JSON.parse(JSON.stringify(holder.adapter.db.edits.find(e => e.id === v1.id)))
+  }
+  /** That edit's unsaved changes — as useEditChanges starts them, asking nothing. */
+  async function changing(edit, items, extra = {}) {
+    await act(async () => {
+      ctxRef.startEditDraft({ listId: 'L1', basedOnEditId: edit.id, editId: edit.id, title: edit.title, version: edit.version, baseSavedAt: edit.snapshot?.saved_at ?? null, base: edit.items, items, ...extra })
+    })
+  }
+  const BOATS_ONLY = (v1) => [v1.items.find(i => i.id === 'a')]
+  const upserts = () => holder.adapter.calls.filter(c => c[0] === 'upsertEdit')
+  afterEach(() => _resetLeaveGuardsForTests())
+
+  it('Save edit writes the changes INTO the edit: one update, its title, version, summary and place in the chain kept, a fresh snapshot of the names; the draft and its copy go', async () => {
+    await mount()
+    const v1 = await savedV1()
+    expect(v1.items.map(i => i.id)).toEqual(['b', 'a'])
+    holder.adapter.calls.length = 0
+    await changing(v1, BOATS_ONLY(v1))
+    expect(ctxRef.editDraftOf('L1')).toMatchObject({ editId: v1.id, title: 'Shoot', version: 1, baseSavedAt: v1.snapshot.saved_at })
+    // Renamed while the changes were open: the saved label is the name now.
+    await act(async () => { await ctxRef.updateShot('sh1', { name: 'Boats, wide' }) })
+    let saved
+    await act(async () => { saved = await ctxRef.saveEditDraft('L1') })
+    expect(upserts()).toEqual([['upsertEdit', v1.id, 'update']])
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    const e = holder.adapter.db.edits[0]
+    expect(e).toMatchObject({ id: v1.id, title: 'Shoot', version: 1, summary: 'First assembly', parent_edit_id: null, archived_at: null })
+    expect(e.items.map(i => [i.id, i.shot_id, i.label])).toEqual([['a', 'sh1', 'Boats, wide']])
+    expect(e.snapshot.shots.sh1.name).toBe('Boats, wide')
+    expect(e.snapshot.item_count).toBe(1)
+    expect(saved.id).toBe(v1.id)
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    expect(localStorage.getItem(EDIT_DRAFTS_KEY)).toBeNull()
+    expect(ctxRef.hasUnsavedEdit).toBe(false)
+  })
+
+  it('is ONE undo step: Ctrl+Z puts the edit\'s cut and snapshot back as they were saved; Ctrl+Y writes the save again', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    const after = JSON.parse(JSON.stringify(holder.adapter.db.edits[0]))
+    expect(after.items.map(i => i.id)).toEqual(['a'])
+    await act(async () => { await ctxRef.undo() })
+    let e = holder.adapter.db.edits[0]
+    expect(e.items.map(i => i.id)).toEqual(['b', 'a'])
+    expect(e.snapshot).toEqual(v1.snapshot)
+    expect(e.archived_at).toBeNull()
+    await act(async () => { await ctxRef.redo() })
+    e = holder.adapter.db.edits[0]
+    expect(e.items.map(i => i.id)).toEqual(['a'])
+    expect(e.snapshot).toEqual(after.snapshot)
+    // Under it, v1's own making, one step: its undo withdraws v1.
+    await act(async () => { await ctxRef.undo() })
+    await act(async () => { await ctxRef.undo() })
+    expect(holder.adapter.db.edits[0].archived_at).toBeTruthy()
+  })
+
+  it('two people on one edit: a Save made since these changes began is never written over — refused, in words that name Save as…, the changes kept; Save as… keeps them', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    // Someone else saves v1 meanwhile (edits are not broadcast: only a read sees it).
+    holder.adapter.db.edits = holder.adapter.db.edits.map(e => ({ ...e, items: [e.items[0]], snapshot: { ...e.snapshot, saved_at: '2099-01-01T00:00:00.000Z' } }))
+    holder.adapter.calls.length = 0
+    await expect(ctxRef.saveEditDraft('L1')).rejects.toThrow('Someone saved “Shoot · v1” since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.')
+    expect(upserts()).toEqual([])
+    expect(holder.adapter.db.edits[0].snapshot.saved_at).toBe('2099-01-01T00:00:00.000Z')
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['b'])
+    expect(ctxRef.editDraftOf('L1')).toMatchObject({ editId: v1.id })
+    await act(async () => { await ctxRef.saveEditAs('L1', { title: 'Shoot', version: 2 }) })
+    const v2 = holder.adapter.db.edits.find(e => e.version === 2)
+    expect(v2).toMatchObject({ parent_edit_id: v1.id })
+    expect(v2.items.map(i => i.id)).toEqual(['a'])
+    expect(holder.adapter.db.edits.find(e => e.id === v1.id).snapshot.saved_at).toBe('2099-01-01T00:00:00.000Z')
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+  })
+
+  it('CONTROL: read again with no Save since — written', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a'])
+  })
+
+  it('an edit archived since the changes began is not saved into (the words say why and name Save as…); the changes stay', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    holder.adapter.db.edits = holder.adapter.db.edits.map(e => ({ ...e, archived_at: 'T' }))
+    holder.adapter.calls.length = 0
+    await expect(ctxRef.saveEditDraft('L1')).rejects.toThrow('“Shoot · v1” has been archived since these changes began, so they cannot be saved into it. Save as… keeps them as a new version.')
+    expect(upserts()).toEqual([])
+    expect(ctxRef.editDraftOf('L1')).not.toBeNull()
+  })
+
+  it('the edit not read again (the backend unreachable) saves nothing, says so, and keeps the changes', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    holder.adapter.listEdits = async () => { throw httpError(503, 'offline') }
+    holder.adapter.calls.length = 0
+    await expect(ctxRef.saveEditDraft('L1')).rejects.toThrow()
+    expect(upserts()).toEqual([])
+    expect(ctxRef.editDraftOf('L1')).not.toBeNull()
+  })
+
+  it('Save as… from the changes: the chain\'s next version, as one undo step; the edit they began from stays exactly as it was saved', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    let v2
+    await act(async () => { v2 = await ctxRef.saveEditAs('L1', { title: 'Shoot', version: 2, summary: '  Boats only ' }) })
+    const db = holder.adapter.db.edits
+    expect(db).toHaveLength(2)
+    expect(db.find(e => e.id === v1.id)).toEqual(v1)
+    expect(db.find(e => e.id === v2.id)).toMatchObject({ title: 'Shoot', version: 2, summary: 'Boats only', parent_edit_id: v1.id })
+    expect(db.find(e => e.id === v2.id).items.map(i => i.shot_id)).toEqual(['sh1'])
+    expect(db.find(e => e.id === v2.id).snapshot).toMatchObject({ kind: 'edit' })
+    expect(ctxRef.editDraftOf('L1')).toBeNull()
+    await act(async () => { await ctxRef.undo() })
+    expect(holder.adapter.db.edits.find(e => e.id === v2.id).archived_at).toBeTruthy()
+    expect(holder.adapter.db.edits.find(e => e.id === v1.id)).toEqual(v1)
+  })
+
+  it('Save as… with nothing changed copies the saved edit as the next version; with neither changes nor an edit named it is refused', async () => {
+    await mount()
+    const v1 = await savedV1()
+    let v2
+    await act(async () => { v2 = await ctxRef.saveEditAs('L1', { title: 'Shoot', version: 2, fromEditId: v1.id }) })
+    expect(holder.adapter.db.edits.find(e => e.id === v2.id).items.map(i => i.shot_id)).toEqual(['sh2', 'sh1'])
+    expect(v2.parent_edit_id).toBe(v1.id)
+    // The changes went while the dialog was up: never the saved cut in their place.
+    await expect(ctxRef.saveEditAs('L1', { title: 'Shoot', version: 3 })).rejects.toThrow('there is no unsaved edit of this shot list')
+    expect(holder.adapter.db.edits).toHaveLength(2)
+  })
+
+  it('the leave and close questions say a saved edit\'s changes as changes TO it, and their Save edit saves them into it', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    expect(ctxRef.describeUnsavedEdits()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, has changes that are not saved.')
+    expect(leaveWords(ctxRef.describeUnsavedEdits(), ctxRef.unsavedEditCount())).toBe('“Shoot · v1”, an edit of “Shoot · v2”, has changes that are not saved. Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.')
+    expect(unsavedForClose()[0].describe()).toBe('“Shoot · v1”, an edit of “Shoot · v2”, has changes that are not saved.')
+    await act(async () => { await ctxRef.saveOpenDrafts() })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a'])
+    expect(hasUnsavedWork('tab')).toBe(false)
+  })
+
+  it('a change whose round trip ended after another began the changes goes onto them (orApply); without it, one draft per list still refuses', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    let d
+    await act(async () => { d = ctxRef.startEditDraft({ listId: 'L1', editId: v1.id, title: 'Shoot', version: 1, base: v1.items, items: [], orApply: (items) => [...items, item('c', 'sh2', 'sc2', 'The door')], made: ['sh9'] }) })
+    expect(d.items.map(i => i.id)).toEqual(['a', 'c'])
+    expect(ctxRef.editDraftOf('L1').items.map(i => i.id)).toEqual(['a', 'c'])
+    expect(ctxRef.editDraftOf('L1').made).toEqual(['sh9'])
+    // One undo of the changes takes back the late change alone.
+    await act(async () => { ctxRef.undoEditDraft('L1') })
+    expect(ctxRef.editDraftOf('L1').items.map(i => i.id)).toEqual(['a'])
+    expect(() => ctxRef.startEditDraft({ listId: 'L1', editId: v1.id, title: 'Shoot', version: 1, base: [], items: [] })).toThrow('this shot list already has an unsaved edit')
+  })
+
+  it('a stored copy of a saved edit\'s changes recovers as those changes, and Save edit writes them into that edit', async () => {
+    await mount()
+    const v1 = await savedV1()
+    await changing(v1, BOATS_ONLY(v1))
+    expect(stored()[storedDraftKey('local', 'p1', 'L1')]).toMatchObject({ editId: v1.id, baseSavedAt: v1.snapshot.saved_at, title: 'Shoot', version: 1 })
+    cleanup()
+    // The next run: the copy is offered back, and recovered.
+    await mount()
+    expect(ctxRef.recoverableEditDrafts.map(c => c.editId)).toEqual([v1.id])
+    await act(async () => { ctxRef.recoverEditDraft('L1') })
+    expect(ctxRef.editDraftOf('L1')).toMatchObject({ editId: v1.id, baseSavedAt: v1.snapshot.saved_at })
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(holder.adapter.db.edits).toHaveLength(1)
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a'])
+  })
+
+  // v1 already saved when the provider loads (no undo step of its making).
+  const SAVED_V1 = () => ({ id: 'e1', project_id: 'p1', shot_list_id: 'L1', title: 'Shoot', version: 1, summary: null, parent_edit_id: null, items: MOVED, snapshot: { kind: 'edit', saved_at: '2026-10-01T09:00:00.000Z', shots: {}, scenes: {} }, archived_at: null, archived_by: null, created_at: '2026-10-01T09:00:00Z' })
+  it('a sign-out in the middle of Save edit: the save finishes, its copy goes under ITS person, and the next person gets no undo step of it', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    expect(ctxRef.canUndo).toBe(false)
+    const v1 = SAVED_V1()
+    await changing(v1, BOATS_ONLY(v1))
+    let release
+    holder.adapter.gate = new Promise((r) => { release = r })
+    let saving
+    act(() => { saving = ctxRef.saveEditDraft('L1').catch(e => e) })
+    await auth('SIGNED_OUT', null)
+    await auth('SIGNED_IN', 'user-B')
+    await act(async () => { release(); await saving })
+    holder.adapter.gate = null
+    expect(holder.adapter.db.edits[0].items.map(i => i.id)).toEqual(['a'])
+    expect(stored()[storedDraftKey('user-A', 'p1', 'L1')]).toBeUndefined()
+    expect(ctxRef.canUndo).toBe(false)
+  })
+  it('CONTROL: the same save with nobody signing in meanwhile is the one undo step', async () => {
+    holder.adapter.db.edits = [SAVED_V1()]
+    await mount()
+    await auth('SIGNED_IN', 'user-A')
+    const v1 = SAVED_V1()
+    await changing(v1, BOATS_ONLY(v1))
+    await act(async () => { await ctxRef.saveEditDraft('L1') })
+    expect(ctxRef.canUndo).toBe(true)
   })
 })

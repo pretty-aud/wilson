@@ -11,6 +11,12 @@
 // list, "Start new version" from an edit. The sentence names that answer by
 // its own label, as the leave question names its three (there is no "Yes"
 // button to look for). Pure (editCopy.test.js).
+//
+// FX4 (Audrey, 2026-10-12): a change to a SAVED edit asks nothing — it is
+// made to that edit, unsaved, until Save edit writes it in; Save as… alone
+// makes a new version. So "Make a new version of this edit?" is gone. The
+// one question left on a saved edit is the kept copy's: the change would
+// replace an unsaved edit of the list kept from before (S3c R1-03).
 // ============================================================
 
 import { formatShotListLabel } from '../../state/shotListModel'
@@ -22,17 +28,21 @@ const q = (s) => `“${s}”`
 export const NEW_SHOT_WRITES = 'The new shot is added to the list now, and stays there whatever becomes of the edit.'
 
 /**
- * D13's question, before a list's or an edit's first change.
+ * D13's question, before the first change in List order — and, FX4, the one
+ * question a SAVED edit's first change can still ask (`from` set): only when
+ * it would replace a kept copy (`replaces`), so the person can keep it.
  *   list      the list on screen
  *   from      the saved edit on screen, or null (the list's order)
  *   tip       the chain's latest edit, or null (the list has none)
- *   name      draftName's { title, version } — what Yes makes
+ *   name      what Yes makes: draftName's { title, version } in List order;
+ *             the saved edit's own name on an edit (FX4: it is changed, not
+ *             copied)
  *   what      the change, in words ("Move “The door” down"), or null (none yet)
  *   writes    what the change writes at once, or null (nothing: the usual)
  *   replaces  the unsaved edit a previous run left for this list and the
  *             person put off ("Recover unsaved edit?" → Not now), or null:
- *             a new edit of the list takes its place (review round 1, R1-03)
- * → { title, lines, confirmLabel }
+ *             a new draft of the list takes its place (review round 1, R1-03)
+ * → { title, lines, confirmLabel, variant }
  */
 export function firstChangeQuestion({ list, from = null, tip = null, name, what = null, writes = null, replaces = null }) {
   const making = q(formatShotListLabel(name))
@@ -40,38 +50,34 @@ export function firstChangeQuestion({ list, from = null, tip = null, name, what 
   const unsaved = writes
     ? `${writes} The edit itself is not saved until you choose Save edit.`
     : 'Nothing is saved until you choose Save edit.'
+  if (from) {
+    const fromLabel = q(formatShotListLabel(from))
+    const made = `${writes ? `${writes} ` : ''}The change${what ? ` (${what})` : ''} is made to ${fromLabel} itself, and is not saved until you choose Save edit.`
+    // Only a kept copy makes a saved edit's change ask; without one (it went
+    // while this was being put up) the question says the change, no more.
+    if (!replaces) return { title: 'Change this edit?', lines: [made], confirmLabel: 'Make the change', variant: 'primary' }
+    const n = (replaces.items || []).length
+    return {
+      title: 'Replace the unsaved edit kept from before?',
+      lines: [
+        `Changing ${fromLabel} replaces ${q(formatShotListLabel(replaces))}, the unsaved edit of this list kept from before (${n} shot${n === 1 ? '' : 's'}), which is then gone.`,
+        made,
+        'To keep the one from before instead, choose Cancel, then Recover unsaved edit… in the bar\'s More menu.',
+      ],
+      confirmLabel: 'Replace kept edit',
+      variant: 'danger',
+    }
+  }
   const after = replaces ? [replacesWords(replaces)] : []
-  if (!from) {
-    return {
-      title: 'Make a new edit from this list?',
-      lines: [
-        `Start new edit makes ${making}, ${tip ? 'the next edit' : 'a new edit'} of ${q(formatShotListLabel(list))}, from the list's order${change}.`,
-        `The list itself does not change. ${unsaved}`,
-        ...after,
-      ],
-      confirmLabel: 'Start new edit',
-    }
-  }
-  const fromLabel = q(formatShotListLabel(from))
-  if (tip && tip.id !== from.id) {
-    return {
-      title: 'Make a new version of this edit?',
-      lines: [
-        `Start new version makes ${making}, the next version after ${q(formatShotListLabel(tip))}, the latest, from ${fromLabel}${change}.`,
-        `Saved versions stay as they are. ${unsaved}`,
-        ...after,
-      ],
-      confirmLabel: 'Start new version',
-    }
-  }
   return {
-    title: 'Make a new version of this edit?',
+    title: 'Make a new edit from this list?',
     lines: [
-      `Start new version makes ${making} from ${fromLabel}${change}.`,
-      `${fromLabel} stays as it was saved. ${unsaved}`,
+      `Start new edit makes ${making}, ${tip ? 'the next edit' : 'a new edit'} of ${q(formatShotListLabel(list))}, from the list's order${change}.`,
+      `The list itself does not change. ${unsaved}`,
       ...after,
     ],
-    confirmLabel: 'Start new version',
+    confirmLabel: 'Start new edit',
+    variant: 'primary',
   }
 }
 
@@ -94,10 +100,13 @@ export function replacesWords(copy) {
 export function recoverWords({ copy, list, locale }) {
   const n = (copy?.items || []).length
   const of = list ? `, an edit of ${q(formatShotListLabel(list))},` : ''
-  const when = copy?.changedAt
-    ? ` It was last changed ${showDate(copy.changedAt, { locale, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
-    : ''
-  const lead = `${q(formatShotListLabel(copy))}${of} was left unsaved. It holds ${n} shot${n === 1 ? '' : 's'}.${when}`
+  const at = copy?.changedAt
+    ? showDate(copy.changedAt, { locale, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null
+  // FX4: a saved edit's changes (`editId`) were left, not a whole edit.
+  const lead = copy?.editId
+    ? `Changes to ${q(formatShotListLabel(copy))}${of} were left unsaved. With them it holds ${n} shot${n === 1 ? '' : 's'}.${at ? ` They were last changed ${at}.` : ''}`
+    : `${q(formatShotListLabel(copy))}${of} was left unsaved. It holds ${n} shot${n === 1 ? '' : 's'}.${at ? ` It was last changed ${at}.` : ''}`
   if (!list) return `${lead} Its list is no longer in this project, so it cannot be recovered.`
   if (list.archived_at) return `${lead} Its list is archived: restore the list to recover the edit.`
   return `${lead} Recover it to keep working on it, or discard it.`
@@ -115,7 +124,34 @@ export function discardWords({ draft, basedOn, made = [] }) {
   const rest = !made.length ? 'Nothing was written, so nothing else changes.'
     : made.length === 1 ? `The new shot it added to the list, ${q(made[0])}, stays there.`
     : `The new shots it added to the list stay there: ${made.map(q).join(', ')}.`
+  // FX4: a saved edit's own changes go, and it is as it was saved.
+  if (draft?.editId) {
+    const shot = !made.length ? rest
+      : made.length === 1 ? `The new shot they added to the list, ${q(made[0])}, stays there.`
+      : `The new shots they added to the list stay there: ${made.map(q).join(', ')}.`
+    return `The changes to ${q(formatShotListLabel(draft))} are not saved: they go, and it comes back as it was saved. ${shot}`
+  }
   return `${q(formatShotListLabel(draft))} is not saved: its changes go, and ${back}. ${rest}`
+}
+
+/**
+ * FX4: what the bar's two saves do, in their hover words (Jakob: Save writes
+ * into what is open; Save as… makes a copy and asks its name).
+ *   draft   the draft on screen, or null (Save edit is greyed: its reason says why)
+ *   edit    the saved edit on screen, or null
+ *   list    the list on screen
+ */
+export function saveEditHint({ draft, list }) {
+  if (!draft) return undefined
+  return draft.editId
+    ? `Saves these changes into ${q(formatShotListLabel(draft))}, replacing its cut as it was saved. Save as… keeps that one and saves these as a new version.`
+    : `Saves ${q(formatShotListLabel(draft))} as a new edit of ${q(formatShotListLabel(list))}.`
+}
+export function saveAsHint({ draft, edit }) {
+  const from = draft?.editId ? draft : edit
+  return from
+    ? `Saves this cut as a new version, asking its title. ${q(formatShotListLabel(from))} stays as it was saved.`
+    : 'Saves this cut as a new edit, asking its title.'
 }
 
 // ── each change, in words (the question's "with this change: …") ─────────

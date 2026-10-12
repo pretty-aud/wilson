@@ -106,7 +106,7 @@ import {
 } from './shotListModel';
 import {
   draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
-  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
+  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft, savedAtOf,
 } from './editDrafts';
 import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // Post-overhaul S5: bid versions as living documents — the one pure answer
@@ -3102,21 +3102,36 @@ export function RabbitProvider({ children }) {
   }
 
   /**
-   * D13's Yes: a draft of this list — `base` what was on screen (the list's
-   * order, or `basedOnEditId`'s items), `items` the first change applied.
-   * `title` / `version` are what the question said Yes would make. Refused
-   * on an archived list (in the backend's words) and when the list already
-   * has a draft (one per list).
+   * A draft of this list — `base` what was on screen (the list's order, or
+   * `basedOnEditId`'s items), `items` the first change applied. D13's Yes in
+   * List order: `title` / `version` are what the question said Yes would
+   * make. FX4: the first change to a SAVED edit, asked nothing — `editId`
+   * (that edit), its own `title` / `version`, and `baseSavedAt` (its last
+   * Save). Refused on an archived list (in the backend's words) and when the
+   * list already has a draft (one per list) — unless `orApply` is given: a
+   * change whose first step took a round trip (New shot) while another change
+   * began the draft goes onto that draft instead (FX4: no question holds the
+   * second change back any more).
    */
   const startEditDraft = useCallback((opts = {}) => {
     const pid = activeProjectIdRef.current;
     if (!pid) throw new Error('no project');
     const list = requireEditableShotList(opts.listId);
-    if (editDraftsRef.current[draftKey(pid, list.id)]) throw new Error('this shot list already has an unsaved edit');
+    const already = editDraftsRef.current[draftKey(pid, list.id)];
+    if (already) {
+      if (typeof opts.orApply !== 'function') throw new Error('this shot list already has an unsaved edit');
+      const items = opts.orApply(already.items);
+      if (!items) return already;
+      const next = changeDraft(already, items, new Date().toISOString(), opts.made || []);
+      setDraft(pid, list.id, next);
+      return next;
+    }
     const draft = startDraft({
       projectId: pid,
       listId: list.id,
       basedOnEditId: opts.basedOnEditId || null,
+      editId: opts.editId || null,
+      baseSavedAt: opts.baseSavedAt || null,
       title: String(opts.title || list.title || '').trim(),
       version: opts.version ?? 1,
       base: opts.base || [],
@@ -3163,12 +3178,112 @@ export function RabbitProvider({ children }) {
     return true;
   }, []);
 
+  // Each item's label is the shot's name NOW (what a Save freezes, D17).
+  function labelledNow(items) {
+    const shots = bundleRef.current.shots || [];
+    return (items || []).map(it => {
+      const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
+      return sh ? { ...it, label: sh.name || it.label || '' } : it;
+    });
+  }
+
   /**
-   * Save edit (D13, D14): the draft becomes the next edit of its list's ONE
-   * chain — createEditFrom continues from the chain's tip whichever edit the
-   * draft began from (D6) — and is Saved with saveEdit, whose snapshot keeps
-   * the names D17's "Missing shot: <name>" shows. Each item's label is the
-   * shot's name now. { title, version, summary }.
+   * Save edit (D13, D14; FX4). A draft of a SAVED edit (`editId`, FX4) is
+   * written INTO that edit — its title and version kept — by saveDraftInPlace.
+   * Any other draft (the first change in List order, or a copy stored before
+   * FX4) becomes the next edit of the list's chain under the name it was
+   * given, by writeNewEdit. { title, version, summary } name that new edit
+   * (the leave question passes none). `asNew` is Save as…'s (saveEditAs).
+   */
+  const saveEditDraft = useCallback(async (listId, opts = {}) => {
+    const { pid, draft } = requireDraft(listId);
+    // Whose draft this is, held across the round trip: a sign-out can land
+    // in the middle of it (review round 2, R2-03).
+    const person = draft.personKey || draftPersonRef.current;
+    if (draft.editId && !opts.asNew) return saveDraftInPlace(pid, listId, draft, person);
+    return writeNewEdit({
+      pid, listId, person,
+      items: draft.items,
+      title: opts.title ?? draft.title,
+      version: opts.version,
+      summary: opts.summary,
+      endDraft: true,
+    });
+  }, []);
+
+  /**
+   * Save as… (FX4: "only when i press save as should it ask me to make a new
+   * edit version"): the cut on screen becomes the next edit of the list's
+   * chain under the title and version its dialog asked for — the list's
+   * draft when it has one (which then ends: it IS the new edit), else, with
+   * `fromEditId`, that saved edit as it is (Save as… with nothing changed).
+   * The edit the changes began from stays as it was saved. With neither
+   * (the draft went while the dialog was up) it is refused, never the saved
+   * cut written in the changes' place.
+   */
+  const saveEditAs = useCallback(async (listId, opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    if (editDraftsRef.current[draftKey(pid, listId)]) return saveEditDraft(listId, { ...opts, asNew: true });
+    if (!opts.fromEditId) requireDraft(listId);
+    const from = findEdit(opts.fromEditId);
+    if (!from || from.shot_list_id !== listId) throw new Error('edit not found');
+    return writeNewEdit({
+      pid, listId, person: draftPersonRef.current,
+      items: from.items || [],
+      title: opts.title ?? from.title,
+      version: opts.version,
+      summary: opts.summary,
+      endDraft: false,
+    });
+  }, [saveEditDraft]);
+
+  /**
+   * FX4: the unsaved changes of a saved edit, written into it — the whole
+   * cut and a fresh snapshot of its names (saveEdit), in one write; its
+   * title, version and summary kept.
+   *
+   * Two people may change one edit (a reviewer and a member; two windows),
+   * and edits are not broadcast: the edit is read again first, and a Save
+   * made since these changes began (another snapshot) is never written over —
+   * Save as… keeps them as a new version instead. The check and the write are
+   * two requests (as rewriteSaveIfStill's are; S3a review R3): a Save landing
+   * between them is still overwritten.
+   *
+   * ONE undo step: the edit's cut and snapshot as they were, put back only
+   * while its snapshot is still this Save's (rewriteSaveIfStill); its redo
+   * the same the other way. The draft ends only once the write is done; a
+   * refusal leaves it, unsaved, and is thrown.
+   */
+  async function saveDraftInPlace(pid, listId, draft, person) {
+    const name = `“${formatShotListLabel(draft)}”`;
+    const fresh = await refreshShotListsNow();
+    if (!fresh) throw new Error(`${name} could not be read again to check that nobody saved it meanwhile, so nothing was saved. Try again, or Save as… to keep the changes as a new version.`);
+    // Its list archived meanwhile refuses, in the backend's words, as a new edit's does.
+    requireEditableShotList(listId);
+    const edit = findEdit(draft.editId);
+    if (!edit || edit.shot_list_id !== listId) throw new Error(`${name} is no longer in this list, so the changes cannot be saved into it. Save as… keeps them as a new edit.`);
+    if (edit.archived_at) throw new Error(`${name} has been archived since these changes began, so they cannot be saved into it. Save as… keeps them as a new version.`);
+    if (savedAtOf(edit.snapshot) !== (draft.baseSavedAt || null)) {
+      throw new Error(`Someone saved ${name} since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.`);
+    }
+    const before = { items: edit.items || [], snapshot: edit.snapshot ?? null };
+    const saved = await mutationsRef.current.saveEdit(edit.id, labelledNow(draft.items), undefined, { history: false });
+    setDraft(pid, listId, null, person);
+    if (activeProjectIdRef.current !== pid || draftPersonRef.current !== person) return saved;
+    const after = { items: saved?.items ?? labelledNow(draft.items), snapshot: saved?.snapshot ?? null };
+    pushHistory({
+      undoOps: [surfaced(() => rewriteSaveIfStill('edit', edit.id, after.snapshot, before))],
+      redoOps: [surfaced(() => rewriteSaveIfStill('edit', edit.id, before.snapshot, after))],
+    });
+    return saved;
+  }
+
+  /**
+   * The next edit of a list's ONE chain (D6) — createEditFrom continues from
+   * the chain's tip whichever edit the cut began from — Saved with saveEdit,
+   * whose snapshot keeps the names D17's "Missing shot: <name>" shows.
+   * `endDraft`: the list's draft IS this edit, and ends once it is written.
    *
    * ONE undo step, recorded here and not through runBatch: the batch is one
    * global slot, and held open across two round trips it takes in whatever
@@ -3181,25 +3296,17 @@ export function RabbitProvider({ children }) {
    * edit); if only the Save is then refused, the edit stays as written (its
    * undo the plain withdraw) and the refusal is thrown with that said.
    */
-  const saveEditDraft = useCallback(async (listId, opts = {}) => {
-    const { pid, draft } = requireDraft(listId);
-    // Whose draft this is, held across the round trip: a sign-out can land
-    // in the middle of it (review round 2, R2-03).
-    const person = draft.personKey || draftPersonRef.current;
-    const shots = bundleRef.current.shots || [];
-    const items = draft.items.map(it => {
-      const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
-      return sh ? { ...it, label: sh.name || it.label || '' } : it;
-    });
+  async function writeNewEdit({ pid, listId, person, items: rawItems, title, version, summary, endDraft }) {
+    const items = labelledNow(rawItems);
     const row = await mutationsRef.current.createEditFrom({
       listId,
-      title: opts.title ?? draft.title,
-      version: opts.version,
-      summary: String(opts.summary || '').trim() || null,
+      title,
+      version,
+      summary: String(summary || '').trim() || null,
       items,
       undoable: false,
     });
-    setDraft(pid, listId, null, person);
+    if (endDraft) setDraft(pid, listId, null, person);
     if (activeProjectIdRef.current !== pid) return row;
     // Its undo step is its person's: one who signed in meanwhile does not
     // get it (the save itself still finishes).
@@ -3231,7 +3338,7 @@ export function RabbitProvider({ children }) {
       ],
     });
     return saved || row;
-  }, []);
+  }
 
   /** "Recover unsaved edit?" → Recover: a previous run's copy, a draft again. */
   const recoverEditDraft = useCallback((listId) => {
@@ -3292,8 +3399,9 @@ export function RabbitProvider({ children }) {
   // The open project's drafts are what every exit asks about
   // (state/leaveGuard.js). The question is the kit Dialog LeaveEditDialog
   // draws from `leaveAsk`, with D12's three answers: Save edit saves every
-  // draft of the open project as its next edit (the name the first-change
-  // question gave it, at that title's next version), Discard changes drops
+  // draft of the open project as the bar's Save edit does (FX4: a saved
+  // edit's changes into it; a new edit under the name the first-change
+  // question gave it), Discard changes drops
   // them, Keep editing stays. The window's close folds the same three into
   // App's own question (describe / save / discard), so it is one question.
   // A draft of ANOTHER project (left there by an automatic switch) is not
@@ -3312,9 +3420,16 @@ export function RabbitProvider({ children }) {
     if (!drafts.length) return '';
     const name = (d) => `“${formatShotListLabel(d)}”`;
     const of = (d) => { const l = findShotList(d.listId); return l ? `“${formatShotListLabel(l)}”` : 'its list'; };
-    if (drafts.length === 1) return `${name(drafts[0])}, an edit of ${of(drafts[0])}, is not saved.`;
-    const each = drafts.map(d => `${name(d)} (of ${of(d)})`);
-    return `${drafts.length} edits are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
+    // FX4: a saved edit's changes are said as changes TO it (it exists, as
+    // saved); a new edit, as an edit not saved at all.
+    if (drafts.length === 1) {
+      const d = drafts[0];
+      return d.editId
+        ? `${name(d)}, an edit of ${of(d)}, has changes that are not saved.`
+        : `${name(d)}, a new edit of ${of(d)}, is not saved.`;
+    }
+    const each = drafts.map(d => (d.editId ? `${name(d)} (of ${of(d)})` : `${name(d)} (a new edit, of ${of(d)})`));
+    return `${drafts.length} edits have changes that are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
   }
   /** How many unsaved edits the leave and close questions are about (their words say "it" or "them"). */
   const unsavedEditCount = useCallback(() => openDraftsNow().length, []);
@@ -3333,7 +3448,7 @@ export function RabbitProvider({ children }) {
     const notices = [];
     for (const d of drafts) {
       try {
-        await saveEditDraft(d.listId, { title: d.title });
+        await saveEditDraft(d.listId);
       } catch (err) {
         if (err?.savedRow) notices.push(err.message);
         else refused.push({ d, err });
@@ -7717,7 +7832,7 @@ export function RabbitProvider({ children }) {
     addToShotList, removeFromShotList, reorderShotListItems, refreshShotLists,
     createEditFrom, updateEdit, saveEdit, archiveEdit,
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
-    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft, saveEditAs,
     recoverEditDraft, dismissStoredEditDraft,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
@@ -7806,7 +7921,7 @@ export function RabbitProvider({ children }) {
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
     recentlyWithdrawn, canWithdrawShotList, canWithdrawEdit,
     openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
-    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft, saveEditAs,
     recoverEditDraft, dismissStoredEditDraft,
     leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts,
     addLevel, updateLevel, deleteLevel,

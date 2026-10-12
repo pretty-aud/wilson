@@ -1,14 +1,23 @@
 // ============================================================
 // RABBIT — a change to the cut, and the one question before the first
-// (post-overhaul S3c, step 4; D13)
+// (post-overhaul S3c, step 4; D13 — and FX4)
 // ============================================================
 //
 // Every verb that changes a cut — a row's or a scene's edit actions, the
 // drag (step 6), "New edit from this list" — comes through `request`:
 //   · a DRAFT on screen: the change is applied to it at once (no question:
 //     "after the first drag and drop, do not ask the user to confirm again")
-//   · otherwise (a saved edit, or the list's own order): nothing changes yet;
-//     the question opens (`asking`), saying what Yes makes. Yes starts the
+//   · a SAVED edit on screen (FX4, Audrey 2026-10-12: "when i make changes to
+//     an edit, it should start to edit the current selected edit instead of
+//     asking me to always make a new one"): the change is applied at once,
+//     to that edit's own unsaved changes — the provider's draft with its
+//     `editId`, title and version — and asks nothing. Save edit then writes
+//     it INTO the edit; only Save as… makes a new version. One exception
+//     asks: an unsaved edit of this list kept from before ("Recover unsaved
+//     edit?" → Not now) would be replaced (S3c R1-03), so the question says
+//     so first, and Cancel keeps it.
+//   · the list's own order (List order: no edit yet): nothing changes yet;
+//     D13's question opens (`asking`), saying what Yes makes. Yes starts the
 //     provider's draft from what was on screen with the change applied;
 //     Cancel leaves everything as it was and makes nothing.
 // A change is { what, apply, prepare?, writes?, made? }:
@@ -24,6 +33,7 @@
 
 import { useCallback, useState } from 'react'
 import { draftName } from './editModel'
+import { savedAtOf } from '../../state/editDrafts'
 
 /**
  * ctx      useRabbit()
@@ -61,12 +71,36 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
     // A change that changes nothing (a row dropped back where it was) asks
     // nothing. Only a change with no `prepare` can be tried before Yes.
     if (apply && !prepare && !apply(base)) return false
+    // FX4: on a saved edit, the change is that edit's at once — unless an
+    // unsaved edit of this list kept from before would be replaced by it.
+    const kept = from ? (ctx?.recoverableEditDrafts || []).find(c => c.listId === list.id) || null : null
+    const ofEdit = from ? { title: from.title, version: from.version } : null
+    if (from && !kept) {
+      try {
+        const prepared = prepare ? await prepare() : null
+        const next = apply ? apply(base, prepared) : null
+        if (!next) return false
+        ctx.startEditDraft({
+          ...inPlaceOf(from, list.id),
+          base,
+          items: next,
+          made: made ? made(prepared) : [],
+          // A draft begun meanwhile (another change, while this one's New
+          // shot was written): this change goes onto it instead.
+          orApply: apply ? (items) => apply(items, prepared) : null,
+        })
+        return true
+      } catch (err) {
+        onError?.(err)
+        return false
+      }
+    }
     setAsking({
       listId: list.id,
       list,
       from,
       tip: ctx?.editChainTip?.(list.id) || null,
-      name: draftName({ edits: ctx?.edits, list }),
+      name: ofEdit || draftName({ edits: ctx?.edits, list }),
       base,
       what,
       writes,
@@ -84,10 +118,7 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
     const prepared = a.prepare ? await a.prepare() : null
     const next = a.apply ? a.apply(a.base, prepared) : null
     ctx.startEditDraft({
-      listId: a.listId,
-      basedOnEditId: a.from?.id || null,
-      title: a.name.title,
-      version: a.name.version,
+      ...(a.from ? inPlaceOf(a.from, a.listId) : { listId: a.listId, basedOnEditId: null, title: a.name.title, version: a.name.version }),
       base: a.base,
       items: next || a.base,
       made: a.made ? a.made(prepared) : [],
@@ -98,4 +129,16 @@ export function useEditChanges({ ctx, session, canEdit, onError }) {
   const cancel = useCallback(() => setAsking(null), [])
 
   return { request, asking, answer, cancel }
+}
+
+/** FX4: a saved edit's unsaved changes — that edit, its own name, and the Save they began from. */
+function inPlaceOf(edit, listId) {
+  return {
+    listId,
+    basedOnEditId: edit.id,
+    editId: edit.id,
+    title: edit.title,
+    version: edit.version,
+    baseSavedAt: savedAtOf(edit.snapshot),
+  }
 }

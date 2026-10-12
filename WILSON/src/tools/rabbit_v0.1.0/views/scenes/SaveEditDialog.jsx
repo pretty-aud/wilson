@@ -1,10 +1,17 @@
 // ============================================================
-// RABBIT — Save edit (post-overhaul S3c, step 5; D13, D14)
+// RABBIT — Save as… an edit's new version (post-overhaul S3c, step 5;
+// D13, D14 — FX4)
 // ============================================================
 //
-// The draft becomes the next edit of its list's ONE chain (D6). S3b's
-// shot-list form, at the form width, with what an edit needs:
-//   Title     the draft's — the chain's latest edit's title, or the list's
+// FX4 (Audrey, 2026-10-12): "only when i press save as should it ask me to
+// make a new edit version." The bar's Save edit writes the changes INTO the
+// edit on screen and opens nothing; this dialog is Save as…'s, the one way to
+// a new version. It makes the next edit of its list's ONE chain (D6) from the
+// cut on screen — the unsaved changes, or a saved edit as it is — and the
+// edit they began from stays as it was saved. S3b's shot-list form, at the
+// form width, with what an edit needs:
+//   Title     the edit's — or, for a new edit from the list, the name the
+//             first-change question gave it
 //   "Same title, next version"  (D14) on: that title at its next free
 //             version; off: a title of the person's own, at ITS next free
 //             version (v1 for a new one)
@@ -14,7 +21,7 @@
 // validateVersionedTitle / assertUniqueEdit — the sentences the provider
 // throws); a refusal from the backend lands in the Dialog's error slot,
 // verbatim, and the form stays. Escape, ✕ and Cancel ask before what was
-// typed here is dropped (the draft itself is never touched by closing).
+// typed here is dropped (the cut itself is never touched by closing).
 // ============================================================
 
 import { useId, useMemo, useRef, useState } from 'react'
@@ -25,16 +32,20 @@ import ListConfirm from './ListConfirm'
 import '../rabbitScenes.css'
 
 /**
- * draft     the provider's draft ({ title, items, … })
+ * source    the cut on screen: the provider's draft, or a saved edit as it is
+ *           ({ title, items, … })
+ * from      the saved edit the cut began from, or null (a new edit from the
+ *           list's order): it stays as it was saved
+ * unsaved   the cut is a draft (its changes stay on screen if this closes)
  * list      its list
  * edits     every edit of the project (the next version, the clash)
  * label     formatShotListLabel
  * onSubmit  async ({ title, version, summary }) — throws a refusal
  * onClose
  */
-export default function SaveEditDialog({ draft, list, edits, label, onSubmit, onClose }) {
+export default function SaveEditDialog({ source, from = null, unsaved = false, list, edits, label, onSubmit, onClose }) {
   const formId = useId()
-  const initial = useRef({ title: draft.title, same: true, summary: '' }).current
+  const initial = useRef({ title: source.title, same: true, summary: '' }).current
   const [title, setTitle] = useState(initial.title)
   const [same, setSame] = useState(initial.same)
   const [summary, setSummary] = useState(initial.summary)
@@ -42,7 +53,7 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
   const [error, setError] = useState(null)
   const [askDiscard, setAskDiscard] = useState(false)
 
-  const effectiveTitle = (same ? draft.title : title) || ''
+  const effectiveTitle = (same ? source.title : title) || ''
   const version = nextEditVersion(edits, list.id, effectiveTitle.trim())
   const problem = useMemo(() => {
     try {
@@ -52,7 +63,8 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
     } catch (err) { return err.message }
   }, [effectiveTitle, version, edits, list.id])
   const dirty = title !== initial.title || same !== initial.same || summary !== initial.summary
-  const n = (draft.items || []).length
+  const n = (source.items || []).length
+  const cut = `this cut, ${n} shot${n === 1 ? '' : 's'} in this order`
 
   async function submit(e) {
     e?.preventDefault?.()
@@ -72,8 +84,10 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
       <Dialog
         width="form"
         className="wilson-dark-scroll"
-        title="Save edit"
-        subtitle={`The next edit of “${label(list)}”: this cut, ${n} shot${n === 1 ? '' : 's'} in this order. Every shot keeps its name.`}
+        title={from ? 'Save as a new version' : 'Save as a new edit'}
+        subtitle={from
+          ? `A new version, from “${label(from)}”: ${cut}. “${label(from)}” stays as it was saved.`
+          : `The next edit of “${label(list)}”: ${cut}. Every shot keeps its name.`}
         busy={busy}
         error={error}
         onBeforeClose={() => {
@@ -85,7 +99,7 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
         footer={(
           <>
             <Button disabled={busy} onClick={() => { if (!dirty) onClose(); else setAskDiscard(true) }}>Cancel</Button>
-            <Button variant="primary" type="submit" form={formId} disabled={!!problem} loading={busy}>Save edit</Button>
+            <Button variant="primary" type="submit" form={formId} disabled={!!problem} loading={busy}>{from ? 'Save new version' : 'Save new edit'}</Button>
           </>
         )}
       >
@@ -107,7 +121,7 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
               checked={same}
               disabled={busy}
               label="Same title, next version"
-              onChange={(on) => { setSame(on); if (on) setTitle(draft.title) }}
+              onChange={(on) => { setSame(on); if (on) setTitle(source.title) }}
             />
             <span className="rb-scene-listform-takes" data-state={problem ? 'refused' : 'ok'} aria-live="polite">
               {problem || `Will be “${label({ title: effectiveTitle.trim(), version })}”`}
@@ -132,7 +146,9 @@ export default function SaveEditDialog({ draft, list, edits, label, onSubmit, on
           onCancel={() => setAskDiscard(false)}
           onConfirm={async () => { onClose() }}
         >
-          The edit stays as it is, not saved; only the title and summary typed here are dropped.
+          {unsaved
+            ? 'The changes stay on screen, not saved; only the title and summary typed here are dropped.'
+            : 'Nothing is saved as a new version; only the title and summary typed here are dropped.'}
         </ListConfirm>
       )}
     </>,

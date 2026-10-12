@@ -198,15 +198,30 @@ describe('S3c step 3: seeing an edit', () => {
     expect(bandLabels(container)).toEqual(['Lighthouse, dawn'])
     expect(container.querySelector('.rb-scene-count').textContent).toBe('2/5')
   })
+  // FX4 (Audrey, 2026-10-12: "lets make the button 'save edit' and 'save
+  // as'"): in List order the list's Save, Save as…, Set active; with an edit
+  // on screen, in the same places, the edit's Save edit and Save as… — never
+  // the list's beside them, and never "Save edit as…".
   it('while an edit is on screen the bar offers its verbs, never the list\'s Save beside them; List order brings the list\'s back', () => {
     page()
-    expect(screen.getByRole('button', { name: 'Save edit as…' })).toBeTruthy()
+    const bar = () => document.querySelector('.rb-scene-lists')
+    const verbs = () => [...bar().querySelectorAll('.ui-toolbar-right button')].map(b => b.textContent.trim()).filter(Boolean)
+    expect(within(bar()).getByRole('button', { name: 'Save' })).toBeTruthy()
+    expect(within(bar()).getByRole('button', { name: 'Save as…' })).toBeTruthy()
     pickEdit('edit-1')
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Save edit as…' })).toBeNull()
-    expect(document.querySelector('.rb-scene-lists').textContent).toContain('Saved')
+    expect(within(bar()).queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(within(bar()).getByRole('button', { name: 'Save edit' })).toBeTruthy()
+    // The edit's Save as…, after Save edit (the list's places, the list's order).
+    const v = verbs()
+    expect(v.indexOf('Save as…')).toBe(v.indexOf('Save edit') + 1)
+    expect(bar().textContent).toContain('Saved')
     pickEdit('')
-    expect(screen.getByRole('button', { name: 'Save edit as…' })).toBeTruthy()
+    expect(within(bar()).getByRole('button', { name: 'Save' })).toBeTruthy()
+    expect(within(bar()).queryByRole('button', { name: 'Save edit' })).toBeNull()
+    for (const view of [() => {}, () => pickEdit('edit-1')]) {
+      view()
+      expect(screen.queryByRole('button', { name: 'Save edit as…' })).toBeNull()
+    }
   })
   it('Archive this edit (a manager\'s): asked, written, and the list goes back to List order', async () => {
     const { ctx } = page()
@@ -261,7 +276,7 @@ describe('S3c step 3: seeing an edit', () => {
 // The page over a stateful stand-in for the provider's draft (the real one is
 // editDraftsProvider.test.jsx's): editDrafts.js's own pure steps, kept in
 // React state, so a change re-renders the page as the provider's does.
-const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], save: [], leave: [] }
+const log = { start: [], change: [], undo: 0, redo: 0, discard: 0, addShot: [], save: [], saveAs: [], leave: [] }
 /** The stand-in provider's leave guard answers: 'stay', 'discard' (drops the draft, goes on) or 'go'. */
 const leave = { answer: 'stay' }
 function DraftHarness({ edits: given, extra, pageActive }) {
@@ -281,7 +296,9 @@ function DraftHarness({ edits: given, extra, pageActive }) {
   }), [])
   const [shots, setShots] = useState(SHOTS)
   const [saved, setSaved] = useState([])
-  const edits = useMemo(() => [...given, ...saved], [given, saved])
+  // FX4: what Save edit wrote INTO a saved edit, by id.
+  const [patched, setPatched] = useState({})
+  const edits = useMemo(() => [...given.map(e => (patched[e.id] ? { ...e, ...patched[e.id] } : e)), ...saved], [given, saved, patched])
   const scenes = useMemo(() => SCENES(), [])
   const items = useMemo(() => itemsFor(LIST_1.id, backfillItems(scenes, SHOTS())), [scenes])
   const ctx = useMemo(() => {
@@ -304,13 +321,35 @@ function DraftHarness({ edits: given, extra, pageActive }) {
       undoEditDraft: (listId) => { log.undo += 1; setDrafts(d => { const n = undoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       redoEditDraft: (listId) => { log.redo += 1; setDrafts(d => { const n = redoDraft(d[listId], 't'); return n ? { ...d, [listId]: n } : d }); return true },
       discardEditDraft: (listId) => { log.discard += 1; setDrafts(d => { const n = { ...d }; delete n[listId]; return n }) },
-      // As the provider's: the draft becomes the next edit (here, at once).
+      // As the provider's (FX4): Save edit writes a saved edit's changes INTO
+      // it (its title and version kept); a new edit from List order becomes
+      // the chain's next edit under the name its question gave it.
       saveEditDraft: async (listId, opts) => {
-        log.save.push([listId, opts])
+        log.save.push(opts === undefined ? [listId] : [listId, opts])
         if (extra.saveRefusal) throw extra.saveRefusal
         const draft = drafts[listId]
-        const row = { ...EDIT_1, id: `edit-saved-${log.save.length}`, title: opts.title, version: opts.version, summary: opts.summary, items: draft.items, parent_edit_id: 'edit-1', created_at: '2026-10-02T12:00:00Z', snapshot: { kind: 'edit' } }
-        setDrafts(d => { const n = { ...d }; delete n[listId]; return n })
+        const end = () => setDrafts(d => { const n = { ...d }; delete n[listId]; return n })
+        if (draft.editId) {
+          const into = edits.find(e => e.id === draft.editId)
+          const row = { ...into, items: draft.items, snapshot: { kind: 'edit', saved_at: '2026-10-12T12:00:00.000Z' } }
+          setPatched(p => ({ ...p, [row.id]: { items: row.items, snapshot: row.snapshot } }))
+          end()
+          return row
+        }
+        const row = { ...EDIT_1, id: `edit-saved-${log.save.length}`, title: draft.title, version: draft.version, summary: null, items: draft.items, parent_edit_id: 'edit-1', created_at: '2026-10-02T12:00:00Z', snapshot: { kind: 'edit' } }
+        end()
+        setSaved(s => [...s, row])
+        return row
+      },
+      // …and Save as… (FX4): always the chain's next edit, named in its dialog —
+      // from the list's draft, or from a saved edit as it is.
+      saveEditAs: async (listId, opts) => {
+        log.saveAs.push([listId, opts])
+        if (extra.saveRefusal) throw extra.saveRefusal
+        const draft = drafts[listId]
+        const items = draft ? draft.items : edits.find(e => e.id === opts.fromEditId).items
+        const row = { ...EDIT_1, id: `edit-as-${log.saveAs.length}`, title: opts.title, version: opts.version, summary: opts.summary, items, parent_edit_id: 'edit-1', created_at: '2026-10-12T12:00:00Z', snapshot: { kind: 'edit', saved_at: '2026-10-12T12:00:00.000Z' } }
+        if (draft) setDrafts(d => { const n = { ...d }; delete n[listId]; return n })
         setSaved(s => [...s, row])
         return row
       },
@@ -327,46 +366,46 @@ function DraftHarness({ edits: given, extra, pageActive }) {
   return <ScenesView pageActive={pageActive} />
 }
 function draftPage({ edits = [EDIT_1], pageActive = true, ...extra } = {}) {
-  log.start = []; log.change = []; log.changeOpts = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []; log.leave = []
+  log.start = []; log.change = []; log.changeOpts = []; log.undo = 0; log.redo = 0; log.discard = 0; log.addShot = []; log.save = []; log.saveAs = []; log.leave = []
   leave.answer = 'stay'
   return render(<DraftHarness edits={edits} extra={extra} pageActive={pageActive} />)
 }
 const cutNames = () => cutRowNames(document)
 const rowMenu = (name, pos) => fireEvent.click(screen.getByRole('button', { name: `Edit actions for ${name} (cut ${pos})` }))
 const bandMenu = (label) => fireEvent.click(screen.getAllByRole('button', { name: `Edit actions for the ${label} block` })[0])
-const question = () => screen.queryByRole('dialog', { name: /^Make a new (edit from this list|version of this edit)\?$/ })
+// Every question a change can put: List order's (D13), and — FX4 — a saved
+// edit's only one, when it would replace a kept copy. "Make a new version of
+// this edit?" is gone, and a test that finds it fails here.
+const question = () => screen.queryByRole('dialog', { name: /^(Make a new edit from this list|Replace the unsaved edit kept from before|Change this edit|Make a new version of this edit)\?$/ })
 const yes = async (label) => { await act(async () => { fireEvent.click(within(question()).getByRole('button', { name: label })) }) }
+/** FX4: a change to a saved edit lands at once — after its round trip, if it had one (New shot). */
+const settle = async () => { await act(async () => {}) }
+/** FX4: the edit's own unsaved changes are on screen — its own name, chosen as itself, no question. */
+const changingEdit1 = () => {
+  expect(question()).toBeNull()
+  expect(editSelect().value).toBe('edit-1')
+  expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v1 (unsaved changes)")
+}
 
 describe('S3c step 4: the first change asks once (D13), and the draft takes every change after it', () => {
-  it('on a saved edit, a change asks first — what Yes makes, from what, with which change — Cancel focused; Cancel changes nothing', () => {
+  // FX4 (Audrey, 2026-10-12): "every single time i went to make the first
+  // change it forced me to make a new version ... when i make changes to an
+  // edit, it should start to edit the current selected edit instead of asking
+  // me to always make a new one."
+  it('FX4: on a saved edit, a change asks nothing — it is made to THAT edit, unsaved: its own title and version, chosen as itself', async () => {
     draftPage()
     pickEdit('edit-1')
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Duplicate in edit'))
-    const q = question()
-    expect(screen.getByRole('dialog', { name: 'Make a new version of this edit?' })).toBe(q)
-    expect(q.textContent).toContain('Start new version makes “Director\'s cut · v2” from “Director\'s cut · v1” with this change: Duplicate “The climb” in the edit.')
-    expect(q.textContent).toContain('“Director\'s cut · v1” stays as it was saved. Nothing is saved until you choose Save edit.')
-    expect(document.activeElement.textContent).toBe('Cancel')
-    fireEvent.click(within(q).getByRole('button', { name: 'Cancel' }))
-    expect(question()).toBeNull()
-    expect(log.start).toEqual([])
-    expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
-  })
-
-  it('Yes starts the draft from the edit with the change applied — on screen, named in the selector — and the next change asks nothing', async () => {
-    draftPage()
-    pickEdit('edit-1')
-    rowMenu('The climb', 1)
-    fireEvent.click(menuItem('Duplicate in edit'))
-    await yes('Start new version')
+    await settle()
+    changingEdit1()
     expect(log.start).toHaveLength(1)
-    expect(log.start[0]).toMatchObject({ listId: 'list-1', basedOnEditId: 'edit-1', title: "Director's cut", version: 2 })
+    expect(log.start[0]).toMatchObject({ listId: 'list-1', basedOnEditId: 'edit-1', editId: 'edit-1', title: "Director's cut", version: 1, baseSavedAt: null })
     expect(log.start[0].base.map(i => i.id)).toEqual(['i1', 'i2', 'i3', 'i4', 'i5'])
     expect(cutNames()).toEqual(['The climb', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
-    expect(editSelect().value).toBe('draft')
-    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v2 (not saved)")
-    // The second change: no question, straight into the draft.
+    // No "new edit" entry beside it: the selector holds the list's edits only.
+    expect([...editSelect().options].map(o => o.value)).toEqual(['', 'edit-1'])
+    // The second change: no question, straight into the same changes.
     rowMenu('Missing shot: The lost pan', 5)
     fireEvent.click(menuItem('Remove from edit'))
     expect(question()).toBeNull()
@@ -375,12 +414,25 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(log.start).toHaveLength(1)
   })
 
+  it('FX4: the changes remember the Save they began from (for Save edit\'s check), and an OLDER edit is changed itself, not the chain\'s next', async () => {
+    const v2 = { ...EDIT_1, id: 'edit-2', version: 2, parent_edit_id: 'edit-1', items: EDIT_1.items.slice(1), snapshot: { kind: 'edit', saved_at: '2026-10-05T10:00:00.000Z' } }
+    const v1 = { ...EDIT_1, snapshot: { kind: 'edit', saved_at: '2026-10-01T09:00:00.000Z' } }
+    draftPage({ edits: [v1, v2] })
+    pickEdit('edit-1')
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Move down'))
+    await settle()
+    expect(log.start[0]).toMatchObject({ editId: 'edit-1', title: "Director's cut", version: 1, baseSavedAt: '2026-10-01T09:00:00.000Z' })
+    expect(editSelect().value).toBe('edit-1')
+    expect([...editSelect().options].map(o => o.textContent)).toEqual(['List order', "Director's cut · v1 (unsaved changes)", "Director's cut · v2"])
+  })
+
   it('Ctrl+Z / Ctrl+Y on a draft are the draft\'s own: its last change taken back and put back; the provider\'s keys are not pressed', async () => {
     const { container } = draftPage()
     pickEdit('edit-1')
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Remove from edit'))
-    await yes('Start new version')
+    await settle()
     expect(cutNames()).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
     fireEvent.keyDown(container, { key: 'z', ctrlKey: true })
     expect(log.undo).toBe(1)
@@ -413,7 +465,7 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     rowMenu('The climb', 1)
     expect(menuItem('Move up').disabled).toBe(true)
     fireEvent.click(menuItem('Move down'))
-    await yes('Start new version')
+    await settle()
     // Across a band's edge the shot joins the next scene's block, in place.
     expect(cutNames()).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
     expect(bandLabels(document)).toEqual(['Lighthouse, dawn', 'Cliff path'])
@@ -431,7 +483,7 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     pickEdit('edit-1')
     bandMenu('Cliff path')
     fireEvent.click(menuItem('Move scene down'))
-    await yes('Start new version')
+    await settle()
     // Moved past the Lighthouse block, the climb meets the cut's other
     // Cliff path run: one band now.
     expect(bandLabels(document)).toEqual(['Lighthouse, dawn', 'Cliff path'])
@@ -450,13 +502,14 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Add shot…'))
     const d = screen.getByRole('dialog', { name: 'Add shots to the edit' })
-    expect(d.textContent).toContain('Into a new version of “Director\'s cut · v1”, after “The climb” (cut 1). A shot added twice plays twice.')
+    // FX4: into the edit itself, not "a new version of" it.
+    expect(d.textContent).toContain('Into “Director\'s cut · v1”, after “The climb” (cut 1). A shot added twice plays twice.')
     const doorRow = within(d).getByText('The door').closest('label')
     expect(doorRow.textContent).toContain('In the cut ×2')
     fireEvent.click(within(within(d).getByText('The cold lamp').closest('label')).getByRole('checkbox'))
     await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Add 1 shot' })) })
-    // A saved edit: the first change still asks.
-    await yes('Start new version')
+    // A saved edit: the change is its own at once (FX4), no question.
+    changingEdit1()
     expect(cutNames()).toEqual(['The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
     expect(log.start[0].items[1]).toMatchObject({ shot_id: 'sh2', scene_id: 'sc2', label: 'The cold lamp' })
   })
@@ -474,20 +527,15 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(screen.queryByRole('dialog', { name: 'Add shots to the edit' })).toBeNull()
   })
 
-  it('New shot makes a real shot on the LIST only once Yes is pressed (Cancel makes none), and puts it at the block\'s end', async () => {
+  // FX4: no question stands before a saved edit's change, so New shot writes
+  // its real shot at once (D6), and the edit's changes carry it. Where a
+  // question still stands (a kept copy, below), Cancel still makes none.
+  it('New shot on a saved edit makes its real shot on the LIST at once and puts it at the block\'s end; Discard changes says it stays', async () => {
     draftPage()
     pickEdit('edit-1')
     bandMenu('Lighthouse, dawn')
-    fireEvent.click(menuItem('New shot'))
-    fireEvent.click(within(question()).getByRole('button', { name: 'Cancel' }))
-    expect(log.addShot).toEqual([])
-    bandMenu('Lighthouse, dawn')
-    fireEvent.click(menuItem('New shot'))
-    expect(question().textContent).toContain('with this change: Add a new shot to “Lighthouse, dawn”.')
-    // Review round 1 (R1-04): it says the shot is written now, and stays.
-    expect(question().textContent).toContain('The new shot is added to the list now, and stays there whatever becomes of the edit. The edit itself is not saved until you choose Save edit.')
-    expect(question().textContent).not.toContain('Nothing is saved until you choose Save edit.')
-    await yes('Start new version')
+    await act(async () => { fireEvent.click(menuItem('New shot')) })
+    changingEdit1()
     expect(log.start[0].made).toEqual(['sh-new-1'])
     expect(log.addShot).toHaveLength(1)
     // The scene's next number past EVERY shot of it (sh1 #10, sh2 #20).
@@ -496,7 +544,7 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(log.start[0].items.map(i => i.shot_id)).toEqual(['sh3', 'sh1', 'sh1', 'gone', 'sh-new-1', 'sh2'])
     // R1-04: Discard changes says the shot it wrote stays in the list.
     fireEvent.click(within(document.querySelector('.rb-scene-lists')).getByRole('button', { name: 'Discard changes' }))
-    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot it added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot they added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
     expect(screen.getByRole('dialog', { name: 'Discard changes?' }).textContent).not.toContain('Nothing was written')
   })
 
@@ -508,14 +556,14 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     pickEdit('edit-1')
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Duplicate in edit'))
-    await yes('Start new version')
+    await settle()
     expect(log.start[0].made || []).toEqual([])
     bandMenu('Lighthouse, dawn')
     await act(async () => { fireEvent.click(menuItem('New shot')) })
     expect(question()).toBeNull()
     expect(log.changeOpts.at(-1).made).toEqual(['sh-new-1'])
     fireEvent.click(within(document.querySelector('.rb-scene-lists')).getByRole('button', { name: 'Discard changes' }))
-    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot it added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' }).querySelector('.ui-dialog-body').textContent).toMatch(/The new shot they added to the list, “PROJ_SC001_SH0021”, stays there\.$/)
   })
 
   it('a reviewer changes edits but not shots: New shot is greyed, "members only"; a seat without list writes gets no edit actions', () => {
@@ -555,16 +603,16 @@ describe('S3c step 4: the first change asks once (D13), and the draft takes ever
     expect(document.activeElement.textContent).toBe('Save edit')
   })
   // Review round 2 (R2-08): R1-06 moves focus only when nothing holds it;
-  // that check had no test. A row action's question hands focus back to the
-  // row's menu, which is still there: focus stays.
-  it('R1-06 / R2-08: after a row action\'s Yes, focus stays on that row\'s menu — still there — and is not taken to Save edit', async () => {
+  // that check had no test. A row action hands focus back to the row's menu,
+  // which is still there: focus stays (FX4: with no question between).
+  it('R1-06 / R2-08: after a row action on a saved edit, focus stays on that row\'s menu — still there — and is not taken to Save edit', async () => {
     draftPage()
     pickEdit('edit-1')
     const trigger = screen.getByRole('button', { name: 'Edit actions for The climb (cut 1)' })
     trigger.focus()
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Duplicate in edit'))
-    await yes('Start new version')
+    await settle()
     expect(document.activeElement.textContent).not.toBe('Save edit')
     expect(document.activeElement.getAttribute('aria-label') || document.activeElement.getAttribute('title')).toMatch(/^Edit actions for The climb \(cut \d\)$/)
   })
@@ -670,6 +718,30 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
     fireEvent.click(menuItem('Recover unsaved edit…'))
     expect(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).toBeTruthy()
   })
+  // FX4: a saved edit's change asks nothing — except when it would replace an
+  // unsaved edit of the list kept from before (R1-03's rule, on an edit now).
+  it('FX4: on a saved edit a change asks only to replace a kept copy — Cancel keeps it and makes nothing (no New shot written); Replace kept edit makes the change on the edit itself', async () => {
+    draftPage({ recoverableEditDrafts: [copy] })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Recover unsaved edit?' })).getByRole('button', { name: 'Not now' }))
+    pickEdit('edit-1')
+    bandMenu('Lighthouse, dawn')
+    await act(async () => { fireEvent.click(menuItem('New shot')) })
+    const q = question()
+    expect(screen.getByRole('dialog', { name: 'Replace the unsaved edit kept from before?' })).toBe(q)
+    expect(q.textContent).toContain('Changing “Director\'s cut · v1” replaces “Shoot · v1”, the unsaved edit of this list kept from before (1 shot), which is then gone.')
+    expect(q.textContent).toContain('The new shot is added to the list now, and stays there whatever becomes of the edit. The change (Add a new shot to “Lighthouse, dawn”) is made to “Director\'s cut · v1” itself')
+    expect(q.textContent).not.toMatch(/new version/)
+    expect(document.activeElement.textContent).toBe('Cancel')
+    expect(within(q).getByRole('button', { name: 'Replace kept edit' }).dataset.variant).toBe('danger')
+    fireEvent.click(within(q).getByRole('button', { name: 'Cancel' }))
+    expect(log.addShot).toEqual([])
+    expect(log.start).toEqual([])
+    rowMenu('The climb', 1)
+    fireEvent.click(menuItem('Move down'))
+    await yes('Replace kept edit')
+    changingEdit1()
+    expect(log.start[0]).toMatchObject({ editId: 'edit-1', title: "Director's cut", version: 1 })
+  })
   it('R1-03 CONTROL: with no copy kept for the list, neither the item nor the sentence', () => {
     draftPage({ edits: [] })
     fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
@@ -689,111 +761,212 @@ describe('S3c step 4: "Recover unsaved edit?"', () => {
   })
 })
 
-// ── Step 5: Save edit, the pulse, Discard (D13, D14, D15) ──────────────────
+// ── Step 5: Save edit, the pulse, Discard (D13, D14, D15) — and FX4 ───────
+// FX4 (Audrey, 2026-10-12): "show me the unsaved and ask me to save or save
+// as on the top button. only when i press save as should it ask me to make a
+// new edit version." Save edit writes the changes INTO the edit on screen and
+// opens nothing; Save as… is the one way to a new version, and asks for it.
 async function draftOnEdit(extra = {}) {
   const page = draftPage(extra)
   pickEdit('edit-1')
   rowMenu('The climb', 1)
   fireEvent.click(menuItem('Remove from edit'))
-  await yes('Start new version')
+  await settle()
   return page
 }
 const lists = () => document.querySelector('.rb-scene-lists')
-const saveEditDialog = () => screen.queryByRole('dialog', { name: 'Save edit' })
+const saveAsDialog = () => screen.queryByRole('dialog', { name: 'Save as a new version' })
 
-describe('S3c step 5: Save edit, the pulse, Discard', () => {
-  it('a saved edit on screen: Save edit stands where Save stood, greyed with the reason; no pulse, no Discard', () => {
+describe('S3c step 5 / FX4: Save edit, Save as…, the pulse, Discard', () => {
+  it('a saved edit on screen: Save edit stands where Save stood, greyed with the reason; Save as… beside it, live; no pulse, no Discard', () => {
     draftPage()
     pickEdit('edit-1')
     const save = within(lists()).getByRole('button', { name: 'Save edit' })
-    expect(save.closest('[aria-disabled="true"]').getAttribute('title')).toBe('Nothing to save: “Director\'s cut · v1” is as it was saved. A change to the cut starts its next version.')
+    expect(save.closest('[aria-disabled="true"]').getAttribute('title')).toBe('Nothing to save: “Director\'s cut · v1” is as it was saved. A change to the cut is made to it, and Save edit then saves it.')
     expect(save.dataset.attention).toBeUndefined()
     expect(lists().querySelector('.ui-btn-attention')).toBeNull()
     expect(within(lists()).queryByRole('button', { name: 'Discard changes' })).toBeNull()
     expect(within(lists()).queryByRole('button', { name: 'Save' })).toBeNull()
+    const as = within(lists()).getByRole('button', { name: 'Save as…' })
+    expect(as.closest('[aria-disabled="true"]')).toBeNull()
+    expect(as.getAttribute('title')).toBe('Saves this cut as a new version, asking its title. “Director\'s cut · v1” stays as it was saved.')
   })
 
-  it('a draft: Save edit pulses (the kit\'s attention: signal edge, "● Unsaved", one polite announcement) with Discard changes beside it', async () => {
+  it('unsaved changes: Save edit pulses (the kit\'s attention: signal edge, "● Unsaved", one polite announcement), then Save as… and Discard changes', async () => {
     await draftOnEdit()
     const save = within(lists()).getByRole('button', { name: 'Save edit' })
     expect(save.dataset.attention).toBe('true')
     expect(save.closest('[aria-disabled="true"]')).toBeNull()
+    expect(save.getAttribute('title')).toBe('Saves these changes into “Director\'s cut · v1”, replacing its cut as it was saved. Save as… keeps that one and saves these as a new version.')
     const note = lists().querySelector('.ui-btn-attention')
     expect(note.textContent).toBe('Unsaved')
     expect(note.nextElementSibling.nextElementSibling).toBe(save)
-    expect(lists().querySelector('.ui-btn-live').textContent).toBe('“Director\'s cut · v2” is not saved yet')
-    expect(within(lists()).getByRole('button', { name: 'Discard changes' })).toBeTruthy()
-    // Never the list's Save beside it.
+    expect(lists().querySelector('.ui-btn-live').textContent).toBe('The changes to “Director\'s cut · v1” are not saved yet')
+    // Save edit, Save as…, Discard changes: in that order, Discard last.
+    const right = [...lists().querySelectorAll('.ui-toolbar-right button')].map(b => b.textContent.trim()).filter(Boolean)
+    expect(right.slice(right.indexOf('Save edit'))).toEqual(['Save edit', 'Save as…', 'Discard changes'])
+    // Never the list's Save beside it, nor the old name.
     expect(within(lists()).queryByRole('button', { name: 'Save' })).toBeNull()
     expect(within(lists()).queryByRole('button', { name: 'Save edit as…' })).toBeNull()
+    // Only Save edit pulses.
+    expect(lists().querySelectorAll('[data-attention="true"]')).toHaveLength(1)
   })
 
-  it('Save edit: the chain\'s title at its next version, a summary — written, then the new edit on screen; the next change asks again', async () => {
+  it('Save edit writes the changes INTO the edit on screen — no dialog, its title and version kept — and the next change asks nothing either', async () => {
     const { container } = await draftOnEdit()
-    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
-    const d = saveEditDialog()
-    expect(d.textContent).toContain('The next edit of “Shoot · v2”: this cut, 4 shots in this order. Every shot keeps its name.')
+    await act(async () => { fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' })) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(log.save).toEqual([['list-1']])
+    expect(log.saveAs).toEqual([])
+    expect(editSelect().value).toBe('edit-1')
+    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v1")
+    // No new edit: the list still has the one.
+    expect([...editSelect().options].map(o => o.value)).toEqual(['', 'edit-1'])
+    expect(cutRowNames(container)).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+    expect(lists().querySelector('.ui-btn-attention')).toBeNull()
+    // "Saved" is when it was last saved now, not when it was made (10/01).
+    expect(lists().textContent).toMatch(/Saved 10\/12\/2026/)
+    // The next change: the same edit's changes again, from the Save just made.
+    rowMenu('The door', 1)
+    fireEvent.click(menuItem('Duplicate in edit'))
+    await settle()
+    changingEdit1()
+    expect(log.start).toHaveLength(2)
+    expect(log.start[1]).toMatchObject({ editId: 'edit-1', version: 1, baseSavedAt: '2026-10-12T12:00:00.000Z' })
+  })
+
+  it('Save edit is one at a time: a second press while the first runs writes nothing more', async () => {
+    let release
+    const gate = new Promise(r => { release = r })
+    const saveEditDraft = vi.fn(async () => { await gate; return { ...EDIT_1 } })
+    await draftOnEdit({ saveEditDraft })
+    const save = () => within(lists()).getByRole('button', { name: 'Save edit' })
+    await act(async () => { fireEvent.click(save()) })
+    expect(save().getAttribute('aria-busy')).toBe('true')
+    await act(async () => { fireEvent.click(save()) })
+    await act(async () => { release() })
+    expect(saveEditDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refused Save edit (someone saved the edit since) is said in the bar\'s Banner, verbatim; the changes stay unsaved, on screen', async () => {
+    const refusal = new Error('Someone saved “Director\'s cut · v1” since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.')
+    const { container } = await draftOnEdit({ saveRefusal: refusal })
+    await act(async () => { fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' })) })
+    expect(screen.getByRole('alert').textContent).toBe(refusal.message)
+    expect(lists().querySelector('.ui-btn-attention')).not.toBeNull()
+    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v1 (unsaved changes)")
+    expect(cutRowNames(container)).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+  })
+
+  it('a new edit from List order: Save edit saves it under the name its question gave it — no dialog', async () => {
+    draftPage({ edits: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'More shot list actions' }))
+    fireEvent.click(menuItem('New edit from this list'))
+    await yes('Start new edit')
+    expect(within(lists()).getByRole('button', { name: 'Save edit' }).getAttribute('title')).toBe('Saves “Shoot · v1” as a new edit of “Shoot · v2”.')
+    await act(async () => { fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' })) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(log.save).toEqual([['list-1']])
+    expect(editSelect().value).toBe('edit-saved-1')
+    expect(editSelect().selectedOptions[0].textContent).toBe('Shoot · v1')
+  })
+
+  it('Save as… is the one way to a new version: its dialog asks the title (same title, next version) and a summary; the edit it began from stays', async () => {
+    const { container } = await draftOnEdit()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    const d = saveAsDialog()
+    expect(d.textContent).toContain('A new version, from “Director\'s cut · v1”: this cut, 4 shots in this order. “Director\'s cut · v1” stays as it was saved.')
     const title = within(d).getByRole('textbox', { name: 'Title' })
     expect(title.value).toBe("Director's cut")
     expect(title.disabled).toBe(true)
     expect(within(d).getByRole('switch', { name: 'Same title, next version' }).getAttribute('aria-checked')).toBe('true')
     expect(d.textContent).toContain('Will be “Director\'s cut · v2”')
     fireEvent.change(within(d).getByRole('textbox', { name: 'Summary' }), { target: { value: '  Without the climb\n' } })
-    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save edit' })) })
-    expect(log.save).toEqual([['list-1', { title: "Director's cut", version: 2, summary: 'Without the climb' }]])
-    expect(saveEditDialog()).toBeNull()
-    expect(editSelect().value).toBe('edit-saved-1')
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save new version' })) })
+    expect(log.saveAs).toEqual([['list-1', { title: "Director's cut", version: 2, summary: 'Without the climb', fromEditId: null }]])
+    expect(log.save).toEqual([])
+    expect(saveAsDialog()).toBeNull()
+    expect(editSelect().value).toBe('edit-as-1')
+    expect([...editSelect().options].map(o => o.textContent)).toEqual(['List order', "Director's cut · v1", "Director's cut · v2"])
     expect(cutRowNames(container)).toEqual(['The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
     expect(lists().querySelector('.ui-btn-attention')).toBeNull()
-    // After a Save, the next change asks again (D13).
-    rowMenu('The door', 1)
-    fireEvent.click(menuItem('Duplicate in edit'))
-    expect(question().textContent).toContain('Start new version makes “Director\'s cut · v3” from “Director\'s cut · v2”')
+    // The edit it began from is as it was saved.
+    pickEdit('edit-1')
+    expect(cutRowNames(container)).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
+  })
+
+  it('Save as… on a saved edit with nothing changed: a copy, as the next version, from that edit', async () => {
+    draftPage()
+    pickEdit('edit-1')
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    const d = saveAsDialog()
+    expect(d.textContent).toContain('A new version, from “Director\'s cut · v1”: this cut, 5 shots in this order.')
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save new version' })) })
+    expect(log.saveAs).toEqual([['list-1', { title: "Director's cut", version: 2, summary: null, fromEditId: 'edit-1' }]])
+    expect(editSelect().value).toBe('edit-as-1')
   })
 
   it('"Same title, next version" off: a title of one\'s own at ITS next version; an empty one is refused before anything is sent', async () => {
     await draftOnEdit()
-    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
-    const d = saveEditDialog()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    const d = saveAsDialog()
     fireEvent.click(within(d).getByRole('switch', { name: 'Same title, next version' }))
     const title = within(d).getByRole('textbox', { name: 'Title' })
     expect(title.disabled).toBe(false)
     fireEvent.change(title, { target: { value: '' } })
     expect(d.textContent).toContain('An edit needs a title.')
-    expect(within(d).getByRole('button', { name: 'Save edit' }).disabled).toBe(true)
+    expect(within(d).getByRole('button', { name: 'Save new version' }).disabled).toBe(true)
     fireEvent.change(title, { target: { value: '  Festival cut ' } })
     expect(d.textContent).toContain('Will be “Festival cut · v1”')
-    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save edit' })) })
-    expect(log.save[0][1]).toEqual({ title: 'Festival cut', version: 1, summary: null })
+    await act(async () => { fireEvent.click(within(d).getByRole('button', { name: 'Save new version' })) })
+    expect(log.saveAs[0][1]).toEqual({ title: 'Festival cut', version: 1, summary: null, fromEditId: null })
   })
 
-  it('a refusal is shown verbatim in the dialog, which stays, and so does the draft', async () => {
+  it('a Save as… refusal is shown verbatim in its dialog, which stays, and so do the changes', async () => {
     await draftOnEdit({ saveRefusal: new Error('This shot list already has an edit with this title and version.') })
-    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
-    await act(async () => { fireEvent.click(within(saveEditDialog()).getByRole('button', { name: 'Save edit' })) })
-    expect(within(saveEditDialog()).getByRole('alert').textContent).toBe('This shot list already has an edit with this title and version.')
-    expect(editSelect().value).toBe('draft')
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    await act(async () => { fireEvent.click(within(saveAsDialog()).getByRole('button', { name: 'Save new version' })) })
+    expect(within(saveAsDialog()).getByRole('alert').textContent).toBe('This shot list already has an edit with this title and version.')
+    expect(editSelect().value).toBe('edit-1')
+    expect(lists().querySelector('.ui-btn-attention')).not.toBeNull()
   })
 
-  it('written but its Save refused: the dialog closes, the edit is on screen, and the bar\'s Banner says what was not done', async () => {
+  it('Save as… written but its names refused: the dialog closes, the new edit is on screen, and the bar\'s Banner says what was not done', async () => {
     const err = new Error('The edit was saved as “Director\'s cut · v2”, but the names it holds were not: disk full')
     err.savedRow = { ...EDIT_1, id: 'edit-1' }
     await draftOnEdit({ saveRefusal: err })
-    fireEvent.click(within(lists()).getByRole('button', { name: 'Save edit' }))
-    await act(async () => { fireEvent.click(within(saveEditDialog()).getByRole('button', { name: 'Save edit' })) })
-    expect(saveEditDialog()).toBeNull()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    await act(async () => { fireEvent.click(within(saveAsDialog()).getByRole('button', { name: 'Save new version' })) })
+    expect(saveAsDialog()).toBeNull()
     expect(screen.getByRole('alert').textContent).toBe('The edit was saved as “Director\'s cut · v2”, but the names it holds were not: disk full')
   })
 
-  it('Discard changes asks (Cancel focused) and says what comes back; Discard ends the draft and the saved edit returns', async () => {
+  it('Save as…\'s Cancel after typing asks first, and says the changes stay on screen, not saved', async () => {
+    await draftOnEdit()
+    fireEvent.click(within(lists()).getByRole('button', { name: 'Save as…' }))
+    fireEvent.change(within(saveAsDialog()).getByRole('textbox', { name: 'Summary' }), { target: { value: 'x' } })
+    fireEvent.click(within(saveAsDialog()).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('dialog', { name: 'Discard what you typed?' }).textContent).toContain('The changes stay on screen, not saved; only the title and summary typed here are dropped.')
+  })
+
+  it('a set-aside edit: no Save as… either — greyed with the reason', () => {
+    draftPage({ edits: [{ ...EDIT_1, archived_at: '2026-10-02T09:00:00Z' }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Shot lists…' }))
+    fireEvent.doubleClick(within(screen.getByRole('dialog', { name: 'Shot lists' })).getByRole('button', { name: "Director's cut" }).closest('tr'))
+    const as = within(lists()).getByRole('button', { name: 'Save as…' })
+    expect(as.closest('[aria-disabled="true"]').getAttribute('title')).toBe('This edit is set aside: restore it to change it.')
+  })
+
+  it('Discard changes asks (Cancel focused) and says what goes; Discard ends the changes and the saved edit returns as it was', async () => {
     const { container } = await draftOnEdit()
     fireEvent.click(within(lists()).getByRole('button', { name: 'Discard changes' }))
     const q = screen.getByRole('dialog', { name: 'Discard changes?' })
-    expect(q.textContent).toContain('“Director\'s cut · v2” is not saved: its changes go, and “Director\'s cut · v1” comes back as it was saved.')
+    expect(q.textContent).toContain('The changes to “Director\'s cut · v1” are not saved: they go, and it comes back as it was saved.')
     expect(document.activeElement.textContent).toBe('Cancel')
     await act(async () => { fireEvent.click(within(q).getByRole('button', { name: 'Discard changes' })) })
     expect(log.discard).toBe(1)
     expect(editSelect().value).toBe('edit-1')
+    expect(editSelect().selectedOptions[0].textContent).toBe("Director's cut · v1")
     expect(cutRowNames(container)).toEqual(['The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
   })
 })
@@ -838,16 +1011,25 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     expect(document.querySelectorAll('.rb-scene-table-cut [draggable="true"]')).toHaveLength(5 + 3)
   })
 
-  it('on a saved edit the first drop asks — naming the move — and Yes makes the draft with it; the drop line shows while over', async () => {
+  // FX4: Audrey's own case — "i went to make a change in an edit and every
+  // single time i went to make the first change it forced me to make a new
+  // version": the first drop on a saved edit is that edit's change, asked
+  // nothing.
+  it('on a saved edit the first drop asks nothing — the edit takes it, unsaved; the drop line shows while over', async () => {
     draftPage()
     pickEdit('edit-1')
     const { line, transfer } = dragTo(cutGrip('The cold lamp'), cutRow('The climb'), BEFORE)
     expect(line).toBe('before')
     expect(transfer.setData).toHaveBeenCalledWith('application/x-wilson-cut', expect.any(String))
-    expect(transfer.setDragImage).toHaveBeenCalledWith(cutRow('The cold lamp'), 16, 16)
+    // The dragged row is the drag's picture (the drop has landed since, and
+    // the cut drawn again, so it is found by its name, not its element).
+    expect(transfer.setDragImage).toHaveBeenCalledWith(expect.any(HTMLTableRowElement), 16, 16)
+    expect(transfer.setDragImage.mock.calls[0][0].querySelector('.rb-scene-cut-name').textContent).toBe('The cold lamp')
     expect(cutRow('The climb').getAttribute('data-drop')).toBeNull()
-    expect(question().textContent).toContain('with this change: Move “The cold lamp” before “The climb”.')
-    await yes('Start new version')
+    await settle()
+    changingEdit1()
+    expect(log.start).toHaveLength(1)
+    expect(lists().querySelector('.ui-btn-attention').textContent).toBe('Unsaved')
     expect(cutNames()).toEqual(['The cold lamp', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan'])
     // It joined the block it landed in.
     expect(bandLabels(document)[0]).toBe('Cliff path')
@@ -858,7 +1040,7 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     pickEdit('edit-1')
     rowMenu('The climb', 1)
     fireEvent.click(menuItem('Duplicate in edit'))
-    await yes('Start new version')
+    await settle()
     expect(cutNames()).toEqual(['The climb', 'The climb', 'The door', 'The door', 'Missing shot: The lost pan', 'The cold lamp'])
     dragTo(cutGrip('The climb', 1), cutRow('The cold lamp'), AFTER)
     expect(question()).toBeNull()
@@ -910,7 +1092,9 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     fire('dragover', boxed(cutRow('The climb')), t2, BEFORE)
     fire('drop', cutRow('The climb'), t2, BEFORE)
     expect(cutRow('The climb').getAttribute('data-drop')).toBeNull()
-    expect(question()).not.toBeNull()
+    // It landed (FX4: on the edit itself, asking nothing).
+    expect(question()).toBeNull()
+    expect(log.start).toHaveLength(1)
   })
 
   // Review round 1 (R1-07): over the lower half of a block's heading, a
@@ -958,8 +1142,8 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     expect(cutBand('Cliff path', 1).getAttribute('data-drop')).toBeNull()
     fire('drop', cutRow('The cold lamp'), transfer, BEFORE)
     fire('dragend', bandGrip, transfer)
-    expect(question().textContent).toContain('with this change:')
-    await yes('Start new version')
+    await settle()
+    changingEdit1()
     expect(cutNames()).toEqual(['The climb', 'The cold lamp', 'The door', 'The door', 'Missing shot: The lost pan'])
   })
 
@@ -1009,9 +1193,11 @@ describe('S3c step 6: drag-and-drop on a cut', () => {
     dragTo(cutGrip('The door', 1), cutRow('The door', 0), AFTER)
     expect(question()).toBeNull()
     expect(log.start).toEqual([])
-    // CONTROL: after the climb it would join the climb's block — a change, asked.
+    // CONTROL: after the climb it would join the climb's block — a change,
+    // made (FX4: to the edit itself, asking nothing).
     dragTo(cutGrip('The door'), cutRow('The climb'), AFTER)
-    expect(question()).not.toBeNull()
+    expect(question()).toBeNull()
+    expect(log.start).toHaveLength(1)
   })
 
   it('nothing to drag where nothing may change: an archived edit, or a seat without list writes', () => {
@@ -1237,7 +1423,9 @@ describe('S3c step 7: what would take the draft off screen asks first', () => {
     await draftOnEdit()
     await act(async () => { pickEdit('') })
     expect(log.leave).toEqual(['edit'])
-    expect(editSelect().value).toBe('draft')
+    // FX4: still the edit's own changes, chosen as itself.
+    expect(editSelect().value).toBe('edit-1')
+    expect(lists().querySelector('.ui-btn-attention')).not.toBeNull()
     leave.answer = 'discard'
     await act(async () => { pickEdit('') })
     expect(editSelect().value).toBe('')

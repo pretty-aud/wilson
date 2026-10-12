@@ -366,7 +366,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>New shot list</span> — Starts a list from the one on screen, from every scene and shot, or empty.</li>
               <li>• <span className={T.listBold}>Shot lists…</span> — Every list, to open one; also "Not in any list" (the scenes and shots no list holds) and Archived….</li>
               <li>• <span className={T.listBold}>Save</span> — Records that the list was saved as it is now: the bar says "Saved" with the date until the list next changes.</li>
-              <li>• <span className={T.listBold}>Save edit as…</span> — Saves the list on screen as a new shot list: by default the same title at the next version. (While an edit is on screen its own Save edit takes this place.)</li>
+              <li>• <span className={T.listBold}>Save as…</span> — Saves the list on screen as a new shot list: by default the same title at the next version. (While an edit is on screen, the edit's own Save edit and Save as… take these places.)</li>
               <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
               <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
             </ul>
@@ -436,19 +436,20 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Making an edit</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
-              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, it asks "Make a new version of this edit?", and Start new version shows the next version.</li>
+              <li>• <span className={T.listBold}>Drag</span> — Drag a scene or a shot by the grip in its number cell. On a list in List order, the first drag asks "Make a new edit from this list?", and Start new edit shows the new edit; the list itself does not change. On an edit, the drag changes that edit at once: nothing asks, and the bar shows Unsaved until you save it or discard the change.</li>
               <li>• <span className={T.listBold}>New edit from this list</span> — In the bar's More menu: the same question, starting from the list's order.</li>
               <li>• <span className={T.listBold}>A row's edit actions</span> — Move up, Move down, Duplicate in edit, Add shot…, New shot and Remove from edit; a scene's: Move scene up, Move scene down, Duplicate scene in edit and Remove scene from edit. New shot adds a real shot to the list.</li>
-              <li>• <span className={T.listBold}>After the first change</span> — Nothing asks again until the edit is saved or discarded.</li>
+              <li>• <span className={T.listBold}>After the first change</span> — Nothing asks again until the edit is saved or discarded. The one exception: a change that would replace an unsaved edit of that list kept from before asks first.</li>
             </ul>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitle}>Saving an edit</h4>
             <ul className={`${T.listItem} space-y-1 ml-2`}>
               <li>• <span className={T.listBold}>Unsaved</span> — An unsaved edit is saved nowhere yet: Save edit pulses slowly beside "Unsaved" (with reduced motion the pulse stops and the word stays).</li>
-              <li>• <span className={T.listBold}>Save edit</span> — Saves it as the next version: by default the same title, next version, which "Same title, next version" turns off for a title of your own; add a summary of what changed.</li>
-              <li>• <span className={T.listBold}>Discard changes</span> — Drops the unsaved edit; what was on screen before comes back.</li>
-              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — An edit left unsaved (WILSON closed, the page reloaded, a sign-out) is offered back on your next visit to the Scenes tab. Not now keeps it: the bar's More menu then has Recover unsaved edit…, and a new edit of that list says it would replace it.</li>
+              <li>• <span className={T.listBold}>Save edit</span> — Saves the changes into the edit on screen: its title and version stay, and its cut is replaced by this one. Nothing asks. A new edit made from the list is saved under the name its question gave it. If someone else saved the edit since you began, Save edit says so and saves nothing: Save as… keeps your changes.</li>
+              <li>• <span className={T.listBold}>Save as…</span> — The only way to a new version: asks its title (by default the same title, next version, which "Same title, next version" turns off for a title of your own) and a summary of what changed. The edit you started from stays as it was saved.</li>
+              <li>• <span className={T.listBold}>Discard changes</span> — Drops what is not saved; the edit as it was saved, or the list's own order, comes back.</li>
+              <li>• <span className={T.listBold}>Recover unsaved edit?</span> — An edit left unsaved (WILSON closed, the page reloaded, a sign-out) is offered back on your next visit to the Scenes tab. Not now keeps it: the bar's More menu then has Recover unsaved edit…, and a change that would replace it asks first.</li>
             </ul>
           </div>
           <div className={T.card}>

@@ -152,7 +152,7 @@ try {
     await click(dialog('Save edit').locator('.ui-dialog-foot .ui-btn[data-variant="primary"]'), 'Save edit (dialog)');
   } else {
     await click(button('Save as…', bar()), 'Save as…');
-    const as = dialog('Save edit as a new version');
+    const as = dialog('Save as a new version');
     await must(as, 'the Save as… dialog');
     await as.getByRole('textbox', { name: 'Summary' }).fill('The stair plays twice.');
     await shot('06', 'save-as');

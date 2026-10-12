@@ -7,8 +7,9 @@
  * Walks walkthrough 53's states in order on the dev fixtures' Salt Hours: the
  * list with its grips, a drag and its line, the first-change question, the
  * draft (Save edit's "Unsaved"), a row's edit actions, a repeat and a removal,
- * Add shot…, the Save edit dialog, the saved edit, the next version's
- * question, the picker's edits, a missing shot, the leave question at four
+ * Add shot…, the Save edit dialog (since FX4, Save as…'s), the saved edit, the next version's
+ * question (since FX4, a saved edit's change asking nothing; its file keeps
+ * the old name), the picker's edits, a missing shot, the leave question at four
  * exits (the tab strip, a page switch, "Show in Bins", the edit selector),
  * "Recover unsaved edit?" after a reload, the Budget's "Based on shot list",
  * the Timeline's "Shot list:" label, and a task showing its shot's list; then
@@ -124,22 +125,26 @@ try {
   await shot('add-shots');
   await click(add.locator('.ui-dialog-foot .ui-btn[data-variant="primary"]'), 'Add 1 shot');
 
-  // ── Save edit: the dialog, then the edit saved ──
-  await click(button('Save edit', bar()), 'Save edit');
-  const save = dialog('Save edit');
-  await must(save, 'the Save edit dialog');
+  // ── Saving: since FX4, Save edit opens nothing and Save as… asks the name,
+  //    so the dialog photographed here is Save as…'s (a new edit's) ──
+  await click(button('Save as…', bar()), 'Save as…');
+  const save = dialog('Save as a new edit');
+  await must(save, 'the Save as… dialog');
   await save.getByRole('textbox', { name: 'Summary' }).fill('The storm moves up; the stair plays twice; his side, without her side.');
   await shot('save-edit');
-  await click(save.locator('.ui-dialog-foot .ui-btn[data-variant="primary"]'), 'Save edit');
+  await click(save.locator('.ui-dialog-foot .ui-btn[data-variant="primary"]'), 'Save new edit');
   await park();
   await shot('saved-edit');
 
-  // ── A change on a saved edit asks for its next version ──
+  // ── A change on a saved edit: since FX4, the edit's own changes, asked nothing ──
   await cutMenu('The door');
   await click(menuItem('Move down'), 'Move down');
-  await must(dialog('Make a new version of this edit?'), 'the next version\'s question');
+  await sleep(200);
+  if (await dialog('Make a new version of this edit?').count()) throw new Error('the old next-version question opened');
+  await park();
   await shot('next-version-question');
-  await click(button('Cancel', dialog('Make a new version of this edit?')), 'Cancel');
+  await click(button('Discard changes', bar()), 'Discard changes');
+  await click(button('Discard changes', dialog('Discard changes?')), 'Discard changes (the question)');
 
   // ── The picker shows the list's edits ──
   await click(button('Shot lists…', bar()), 'Shot lists…');
@@ -159,10 +164,9 @@ try {
   await park();
   await shot('missing-shot');
 
-  // ── Four exits, each asking first while an edit is unsaved (a new draft) ──
+  // ── Four exits, each asking first while an edit is unsaved (its changes) ──
   await cutMenu('The door');
   await click(menuItem('Move down'), 'Move down');
-  await click(button('Start new version', dialog('Make a new version of this edit?')), 'Start new version');
   await click(tab('Timeline'), 'the Timeline tab');
   await must(leaveQ(), 'the leave question (tab strip)');
   await shot('leave-tab');

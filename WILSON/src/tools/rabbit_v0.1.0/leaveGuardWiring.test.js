@@ -77,8 +77,10 @@ describe('App.jsx: leaving R.A.B.B.I.T. asks before the transition; the window\'
     // Still the one quit question: the same heading, no second dialog for the edit.
     expect(dialog).toMatch(/>Close WILSON<\/h2>/)
     expect(app.match(/<LeaveEditDialog \/>/g)).toHaveLength(1)
-    // …and of several edits it says "them" (R1-12).
-    expect(dialog).toMatch(/closeCount > 1 \? 'Save them before closing, or discard them\.' : 'Save it before closing, or discard it\.'/)
+    // …and of several edits it says "them" (R1-12). FX4: what is discarded is
+    // what is not saved — never "discard it" of a saved edit's changes.
+    expect(dialog).toMatch(/closeCount > 1 \? 'Save them before closing, or discard what is not saved\.' : 'Save it before closing, or discard what is not saved\.'/)
+    expect(dialog).not.toMatch(/discard it\.|discard them\./)
   })
   // Review round 1 (R1-11): C1 is lifted for these sessions, and D12 says
   // Escape = Keep editing. The question is a dialog to a screen reader and to

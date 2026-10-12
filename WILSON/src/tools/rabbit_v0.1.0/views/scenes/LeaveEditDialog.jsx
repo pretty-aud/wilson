@@ -7,9 +7,10 @@
 // of Scenes, a project switch, a tool or page switch, the edit selector — and
 // it answers with D12's three: Keep editing (first and focused; Escape too),
 // Discard changes (the kit's danger: it throws work away), Save edit (the
-// primary, last, where a dialog's go-ahead sits). Save edit writes every
-// unsaved edit of the open project as its next version, under the name the
-// first-change question gave it; a refusal stays in the question, verbatim,
+// primary, last, where a dialog's go-ahead sits). Save edit saves every
+// unsaved edit of the open project as the bar's Save edit does (FX4: a saved
+// edit's changes INTO it; a new edit under the name the first-change
+// question gave it); a refusal stays in the question, verbatim,
 // and nothing is left. An edit written whose names alone were refused is
 // saved: the question goes, and the provider says the refusal (review round
 // 2). The window's close asks the same three in App's own question, not
@@ -24,12 +25,14 @@ import AnswerDialog from './AnswerDialog'
 
 /**
  * The question's words: what is unsaved, and what each answer does — of one
- * edit, or of several (review round 1, R1-12: "it" said of two).
+ * edit, or of several (review round 1, R1-12: "it" said of two). FX4: Save
+ * edit no longer makes a next version (a saved edit's changes are saved into
+ * it), and Discard changes drops only what is not saved, never the edit.
  */
 export function leaveWords(unsaved, count = 1) {
   return count > 1
-    ? `${unsaved} Save edit keeps each as its next version; Discard changes drops them; Keep editing goes back to them.`
-    : `${unsaved} Save edit keeps it as its next version; Discard changes drops it; Keep editing goes back to it.`
+    ? `${unsaved} Save edit saves each; Discard changes drops what is not saved; Keep editing goes back to them.`
+    : `${unsaved} Save edit saves it; Discard changes drops what is not saved; Keep editing goes back to it.`
 }
 
 export default function LeaveEditDialog() {

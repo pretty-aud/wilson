@@ -22,7 +22,7 @@
 //
 // Right, in the brief's order: New shot list and Shot lists… — the two
 // buttons she asked for, the bar's two bordered doors — then, after a
-// divider, the verbs on the list on screen as quiet buttons: Save, Save edit as…,
+// divider, the verbs on the list on screen as quiet buttons: Save, Save as…,
 // Set active (hidden when it already is; greyed with the reason for a seat
 // that may not, the GatedAction way). Hick's law: nothing else on the bar;
 // the rare verbs (Add from another list…, Edit details…, Clear, Withdraw,
@@ -62,10 +62,12 @@ function viewName(viewed, hasLiveList) {
  *               { onScreen, value, options, onChange, note, badge, verbs }
  *               (null: no list on screen, no selector). `verbs` is the
  *               right group's edit buttons (Save edit, Discard changes —
- *               step 5); while an edit is on screen they stand where the
- *               list's Save, Save edit as… and Set active stood, so the bar
- *               never offers two Saves at once (the one distinction S3c's
- *               brief asks the design to make).
+ *               step 5; FX4: Save edit, Save as…, Discard changes); while
+ *               an edit is on screen they stand where the list's Save,
+ *               Save as… and Set active stood, so the bar never offers the
+ *               list's saves and the edit's at once (the one distinction
+ *               S3c's brief asks the design to make). Audrey, 2026-10-12:
+ *               "lets make the button 'save edit' and 'save as'".
  */
 export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems, edit = null }) {
   const { mode, list } = viewed
@@ -102,7 +104,7 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
             </GatedAction>
           )}
           <GatedAction allowed={gate.write} reason={gate.writeReason}>
-            <Button size="sm" variant="ghost" onClick={on.saveAs}>Save edit as…</Button>
+            <Button size="sm" variant="ghost" onClick={on.saveAs}>Save as…</Button>
           </GatedAction>
           {mode === 'list' && !isActive && (
             <GatedAction allowed={gate.activate} reason={gate.activateReason}>
