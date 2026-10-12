@@ -637,6 +637,21 @@ const SHOT_TAKE_COLUMNS = new Set([
   'created_at', 'updated_at',
 ]);
 
+// ── 0096 (FX2): a task's items ───────────────────────────────────────────
+// The columns a client may name. The five typed columns (asset_id to
+// experience_id) are GENERATED from entity_type + entity_id and refuse any
+// value (428C9), so they are NOT here; workspace_id is stamped from the
+// project and never sent. NOT task_links (0000's URL links).
+const TASK_ITEM_COLUMNS = new Set([
+  'id', 'task_id', 'project_id', 'workspace_id',
+  'entity_type', 'entity_id', 'position',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+// What every read returns: the row every backend shares, without the five
+// generated columns (the Local Server and the fixtures never had them).
+const TASK_ITEM_SELECT =
+  'id, task_id, project_id, workspace_id, entity_type, entity_id, position, created_at, created_by, updated_at, updated_by';
+
 // ── 0041: the folder tree ────────────────────────────────────────────────
 // `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
 // provider re-sends whole rows on update and PATCH_DROP strips it first.
@@ -829,6 +844,8 @@ export const COLUMN_ALLOWLIST = {
   bins: BIN_COLUMNS,
   bin_files: BIN_FILE_COLUMNS,
   shot_takes: SHOT_TAKE_COLUMNS,
+  // 0096 (FX2): a task's items.
+  task_items: TASK_ITEM_COLUMNS,
 };
 
 /**
@@ -1904,6 +1921,93 @@ function missing0091Function(fnName) {
     || (error?.code === '42883' && (error.message || '').includes(fnName));
 }
 
+// ── 0096 (FX2): a task's items ───────────────────────────────────────────
+// A database WITHOUT 0096 (a client ahead of its database, the beta before
+// staging has it): loadProject's read of public.task_items is the probe (the
+// 0084 / 0091 shape, no extra request). While it is absent the provider keeps
+// the old way (each task's single asset / scene / shot column is the truth,
+// the window keeps its pickers) and every items WRITE refuses before any
+// request with code `task_items_unavailable`. 0096 adds no column to a table
+// the client upserts, so nothing is stripped. Not cleared by
+// resetSupabaseAdapter (auth events do not change the schema); cleared by
+// the next load that finds the table, and by resetTaskItemsSchemaState().
+let taskItemsAbsent = false;
+
+// For tests only: forget what the last load learned about 0096.
+export function resetTaskItemsSchemaState() {
+  taskItemsAbsent = false;
+}
+
+const TASK_ITEMS_UNAVAILABLE_MSG =
+  "A task's items are not on this database yet (migration 0096).";
+function taskItemsUnavailable() {
+  const err = new Error(`[supabase] ${TASK_ITEMS_UNAVAILABLE_MSG}`);
+  err.code = 'task_items_unavailable';
+  return err;
+}
+function requireTaskItems() {
+  if (taskItemsAbsent) throw taskItemsUnavailable();
+}
+
+// loadProject's read of task_items, AND the 0096 probe.
+function probeTaskItems(result) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    taskItemsAbsent = true;
+    return [];
+  }
+  const rows = unwrapOptionalShotListTable(result);
+  taskItemsAbsent = false;
+  return rows;
+}
+
+// Every item of the project, PAGED (a feature with many tasks passes
+// PostgREST's 1,000 rows), in 0096's order: task, kind, position,
+// created_at, id. A total order, so no row straddles two pages.
+function listTaskItemsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('task_items').select(TASK_ITEM_SELECT)
+    .eq('project_id', projectId)
+    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), probeTaskItems);
+}
+
+function missing0096(error) {
+  if (error?.code === 'PGRST205' || error?.code === 'PGRST202') return true;
+  return (error?.code === '42P01' || error?.code === '42883')
+    && /\b(task_items|reorder_task_items)\b/.test(error.message || '');
+}
+
+// One error shape for every items write: `[supabase] ` + the database's
+// words, the SQLSTATE kept on `err.code`; a missing table or function
+// becomes task_items_unavailable AND records it, so the next write refuses
+// before any request.
+// FX2 review round 1 (R1-3): the two refusals an items write meets, in words.
+// `mainHidden`: 0096's trigger moved the task's main item onto a row the task
+// cannot stand on (a trashed asset hides its task, so the tasks UPDATE it
+// makes is refused). Matched on the table Postgres names; anything else keeps
+// Postgres' own words. err.code keeps the SQLSTATE either way.
+export const TASK_ITEMS_REFUSALS = Object.freeze({
+  gate: 'You cannot change this task\'s items.',
+  mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
+  // Review round 2 (R2-5): 0096 §7a locks the task row; a write of the task's
+  // single column from another tab locks it first and then its items, so two
+  // such writes can deadlock (40P01). Postgres takes one back whole.
+  collided: 'Someone changed this task at the same moment, so this change was not made. Try again.',
+});
+function taskItemsWriteError(error) {
+  if (missing0096(error)) {
+    taskItemsAbsent = true;
+    return taskItemsUnavailable();
+  }
+  const text = String(error?.message || '');
+  const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
+    : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+    : error?.code === '40P01' ? TASK_ITEMS_REFUSALS.collided
+    : null;
+  const err = new Error(words || `[supabase] ${text || String(error)}`);
+  if (error?.code) err.code = error.code;
+  return err;
+}
+
 // The sentences a person reads when the database refuses (the refusal map).
 // Matched on the constraint or policy Postgres names, never on the whole
 // text; anything else keeps Postgres' own words. err.code keeps the SQLSTATE.
@@ -2198,7 +2302,7 @@ export function supabaseAdapter() {
       // `binRoots` is answered [] (the signed-out desktop's known roots have
       // no cloud shape; a cloud clip is a location + a relative path). The
       // bins read doubles as the 0091 probe — see binsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations] =
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -2258,6 +2362,8 @@ export function supabaseAdapter() {
           listBinFilesWith(client, projectId),
           listShotTakesWith(client, projectId),
           listBinLocationsWith(client),
+          // 0096 (FX2): a task's items, AND the 0096 probe.
+          listTaskItemsWith(client, projectId),
         ]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
@@ -2271,6 +2377,7 @@ export function supabaseAdapter() {
         scenes, shots, levels, experiences, folders, milestones,
         shotLists, shotListItems, edits,
         bins, binFiles, binRoots: [], shotTakes, binLocations,
+        taskItems,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -2493,6 +2600,68 @@ export function supabaseAdapter() {
     async deleteTaskLink(id) {
       const client = await requireClient();
       unwrap(await client.from('task_links').delete().eq('id', id));
+    },
+
+    // ── A task's items (FX2, migration 0096) ──────────────────
+    // Not the URL links above: the assets, scenes, shots, levels and
+    // experiences a task is about. The database keeps tasks.asset_id /
+    // scene_id / shot_id equal to each kind's main item (0096 §7).
+    taskItemsAvailable() {
+      return !taskItemsAbsent;
+    },
+    async listTaskItems(projectId) {
+      const client = await requireClient();
+      return listTaskItemsWith(client, projectId);
+    },
+    // Adds one item, or, when the task already names it, answers the row
+    // that is there (ON CONFLICT DO NOTHING on (task, kind, entity), then a
+    // read), so an undo's re-add and a collaborator's identical add both
+    // land on the stored row. INSERT only: a client may UPDATE position and
+    // nothing else (0096 §5).
+    async addTaskItem(item) {
+      requireTaskItems();
+      const client = await requireClient();
+      const row = toColumns('task_items', {
+        id: item?.id,
+        task_id: item?.task_id,
+        project_id: item?.project_id,
+        entity_type: item?.entity_type,
+        entity_id: item?.entity_id,
+        position: item?.position ?? 0,
+        ...(item?.created_at ? { created_at: item.created_at } : {}),
+      });
+      if (row.id == null) delete row.id;
+      const { data, error } = await client.from('task_items')
+        .upsert(row, { onConflict: 'task_id,entity_type,entity_id', ignoreDuplicates: true })
+        .select(TASK_ITEM_SELECT);
+      if (error) throw taskItemsWriteError(error);
+      if (Array.isArray(data) && data.length > 0) return data[0];
+      const stored = await client.from('task_items').select(TASK_ITEM_SELECT)
+        .eq('task_id', row.task_id).eq('entity_type', row.entity_type).eq('entity_id', row.entity_id)
+        .maybeSingle();
+      if (stored.error) throw taskItemsWriteError(stored.error);
+      return stored.data || null;
+    },
+    async deleteTaskItem(id) {
+      requireTaskItems();
+      const client = await requireClient();
+      const { error } = await client.from('task_items').delete().eq('id', id);
+      if (error) throw taskItemsWriteError(error);
+    },
+    // One kind of one task, in one statement (reorder_task_items, SECURITY
+    // INVOKER): the named ids first, the rest after, dense from 0. Answers
+    // the rows that moved, in the shared shape.
+    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
+      requireTaskItems();
+      const client = await requireClient();
+      const { data, error } = await client.rpc('reorder_task_items', {
+        p_task: taskId, p_entity_type: kind, p_ids: Array.isArray(orderedIds) ? orderedIds : [],
+      });
+      if (error) throw taskItemsWriteError(error);
+      return (Array.isArray(data) ? data : []).map(r => {
+        const { asset_id: _a, scene_id: _s, shot_id: _h, level_id: _l, experience_id: _x, ...rest } = r || {};
+        return rest;
+      });
     },
 
     // ── Files (Storage + metadata row) ────────────────────────

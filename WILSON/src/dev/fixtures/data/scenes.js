@@ -12,7 +12,7 @@
 import { fid, day, stamp } from '../ids'
 import { placeholder } from '../svg'
 import { WORKSPACE_ID, MEMBER_ID } from './workspace'
-import { PROJECT_ID } from './project'
+import { PROJECT_ID, TASKS } from './project'
 
 const SCENE_ROWS = [
   // [n, name, number, status, type, time_of_day, startDay, endDay, tint, description]
@@ -417,3 +417,61 @@ export const GAME_LINKS = [
   [10, [4],    [3]],
   [11, [2, 3], [2]],
 ]
+
+// ── A task's items (FX2, migration 0096) ────────────────────────────────────
+// Every task's asset, scene and shot is its first item of that kind (the
+// backfill's rule: position 0; project.js puts the four tasks' main scene and
+// shot on their rows), and four tasks are about several things, so the task
+// window's Items table and every reader that lists "the tasks about this"
+// have something to show:
+//   18 Glass and rain rig test  — Lighthouse Interior, then Sea Spray Comp;
+//                                 sc 04; sh 010
+//   21 Weather cover plan       — Cliff Path; sc 02, then sc 06
+//   29 Spray comp, sc 04 sh 010–030 — Sea Spray Comp; sc 04; sh 010, 020, 030
+//   31 Sky replacement, sc 05   — Sky Replacement; sc 05; sh 010, 020
+// The store sets each task's asset_id / scene_id / shot_id to its first item
+// of each kind, as 0096's triggers keep the cloud's columns.
+const EXTRA_ITEM_ROWS = [
+  // [task n, kind, entity n, position]: the items after each kind's first
+  [18, 'asset', 12, 1],
+  [21, 'scene', 6, 1],
+  [29, 'shot', 11, 1], [29, 'shot', 12, 2],
+  [31, 'shot', 14, 1],
+]
+
+const ITEM_FID_KIND = { asset: 'asset', scene: 'scene', shot: 'shot', level: 'level', experience: 'experience' }
+
+function itemRow(n, taskId, kind, entityId, position, createdAt) {
+  return {
+    id: fid('taskItem', n),
+    task_id: taskId,
+    project_id: PROJECT_ID,
+    workspace_id: WORKSPACE_ID,
+    entity_type: kind,
+    entity_id: entityId,
+    position,
+    created_at: createdAt,
+    created_by: MEMBER_ID.mara,
+    updated_at: createdAt,
+    updated_by: MEMBER_ID.mara,
+  }
+}
+
+const FIRST_ITEMS = TASKS.flatMap(t => [
+  ['asset', t.asset_id], ['scene', t.scene_id], ['shot', t.shot_id],
+].filter(([, id]) => id).map(([kind, id]) => [t, kind, id]))
+
+export const TASK_ITEMS = [
+  ...FIRST_ITEMS.map(([t, kind, id], i) => itemRow(i + 1, t.id, kind, id, 0, t.created_at)),
+  ...EXTRA_ITEM_ROWS.map(([task, kind, entity, position], i) =>
+    itemRow(100 + i, fid('task', task), kind, fid(ITEM_FID_KIND[kind], entity), position, stamp(40, 9, i))),
+]
+
+// `?fixtures=game`: two tasks are also about the variant's levels and
+// experiences (their only cloud home is task_items).
+export const GAME_TASK_ITEMS = [
+  // [task n, kind, entity n, position]
+  [17, 'level', 2, 0], [17, 'experience', 1, 0],
+  [18, 'level', 2, 0], [18, 'level', 3, 1], [18, 'experience', 2, 0],
+].map(([task, kind, entity, position], i) =>
+  itemRow(200 + i, fid('task', task), kind, fid(ITEM_FID_KIND[kind], entity), position, stamp(40, 11, i)))

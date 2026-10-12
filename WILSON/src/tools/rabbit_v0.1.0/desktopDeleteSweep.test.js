@@ -229,7 +229,7 @@ describe('the sweep is opt-in per entity, and main.cjs opts tasks and phases in'
     // Post-overhaul S5b: both also carry scheduleRow (the set-aside stamp is
     // dropped from their ordinary writes), pinned exactly, as is the
     // milestones registration's.
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'tasks',\s*'tasks',\s*null,\s*\{\s*sweepDependencies:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'tasks',\s*'tasks',\s*null,\s*\{\s*sweepDependencies:\s*true,\s*scheduleRow:\s*true,\s*taskItems:\s*taskItemHooks\s*\}\s*\)/)
     expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'phases',\s*'phases',\s*null,\s*\{\s*sweepDependencies:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
     expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'milestones',\s*'milestones',\s*null,\s*\{\s*softDelete:\s*true,\s*scheduleRow:\s*true\s*\}\s*\)/)
   })
@@ -427,8 +427,8 @@ describe('the shot-list sweep is opt-in, and main.cjs opts scenes and shots in',
   it('main.cjs registers scenes and shots with shotListLinks', () => {
     // The replay registers routes itself, so it would stay green if main.cjs
     // dropped the option. This is the assertion that it has not.
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'scenes',\s*'scenes',\s*'scene',\s*\{\s*shotListLinks:\s*'scene'\s*\}\s*\)/)
-    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'shots',\s*'shots',\s*'shot',\s*\{\s*shotListLinks:\s*'shot'\s*\}\s*\)/)
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'scenes',\s*'scenes',\s*'scene',\s*\{\s*shotListLinks:\s*'scene',\s*taskItems:\s*taskItemHooks\s*\}\s*\)/)
+    expect(MAIN_CJS).toMatch(/rabbitSubentityRoutes\(\s*'shots',\s*'shots',\s*'shot',\s*\{\s*shotListLinks:\s*'shot',\s*taskItems:\s*taskItemHooks\s*\}\s*\)/)
   })
 
   it('main.cjs takes cascadeSceneOrShotDelete from electron/rabbitShotLists.cjs — the function this replay runs', () => {

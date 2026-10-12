@@ -192,6 +192,9 @@ SELECT ok(
 -- and shot_takes broadcast on the project topic as 0077 did milestones. The
 -- loosening is proven the other way by 94_shot_takes probe 5 and 0091's own
 -- post-condition, both of which fail when the arm is left out of the body.
+-- 2026-10-11 (FX2, migration 0096): fifteen became sixteen — task_items joins
+-- the project_id arm (an item added to a task appears without reloading);
+-- 99_task_items probes 14 and 16 and 0096's post-condition 10g prove it.
 SELECT is(
   (SELECT string_agg(c.relname::text, ',' ORDER BY c.relname::text)
      FROM pg_trigger tg
@@ -200,8 +203,8 @@ SELECT is(
     WHERE p.proname = 'fn_realtime_broadcast'
       AND NOT tg.tgisinternal),
   'asset_versions,assets,bin_files,bins,comments,files,milestones,phase_dependencies,'
-  || 'phases,project_members,projects,shot_takes,task_dependencies,task_links,tasks',
-  'the broadcast trigger is on exactly the fifteen project-scoped tables (0091 added bins, bin_files, shot_takes)');
+  || 'phases,project_members,projects,shot_takes,task_dependencies,task_items,task_links,tasks',
+  'the broadcast trigger is on exactly the sixteen project-scoped tables (0091 added bins, bin_files, shot_takes; 0096 task_items)');
 
 
 -- ── probes 11-14: KEY DATES ONLY — Audrey's ruling, machine-checked ───────

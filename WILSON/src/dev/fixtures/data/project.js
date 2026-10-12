@@ -212,6 +212,18 @@ const TASK_ROWS = [
 
 const PRIORITY_OK = new Set(['low', 'medium', 'high', 'urgent'])
 
+// FX2 (0096): four tasks are about a scene (and a shot) too. Their MAIN scene
+// and shot sit on the row itself, as the database keeps the columns, so the
+// seeded bid versions (money.js, snapshotted from these rows) carry them;
+// their other items are in scenes.js (TASK_ITEMS).
+const TASK_SCENE_SHOT = {
+  // task n: [scene n, shot n | null]
+  18: [4, 10],
+  21: [2, null],
+  29: [4, 10],
+  31: [5, 13],
+}
+
 export const TASKS = TASK_ROWS.map(([n, asset, title, status, priority, s, e, bid, logged, assignee, reviewer, role], i) => {
   if (!PRIORITY_OK.has(priority)) throw new Error(`[fixtures] bad priority on task ${n}`)
   const a = ASSETS[asset - 1]
@@ -222,6 +234,10 @@ export const TASKS = TASK_ROWS.map(([n, asset, title, status, priority, s, e, bi
     workspace_id: WORKSPACE_ID,
     asset_id: a.id,
     phase_id: a.phase_id,
+    ...(TASK_SCENE_SHOT[n] ? {
+      scene_id: fid('scene', TASK_SCENE_SHOT[n][0]),
+      shot_id: TASK_SCENE_SHOT[n][1] ? fid('shot', TASK_SCENE_SHOT[n][1]) : null,
+    } : {}),
     title,
     description: `${title} for ${a.name}.`,
     status,

@@ -56,6 +56,9 @@ const EXPECTED_KEYS = [
   // Post-overhaul S5b (0090): omitted, an open would read every set-aside
   // row as LOST and re-make it instead of bringing it back.
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
+  // FX2 (0096): a task's items. Omitted, the EMPTY_BUNDLE spread would reset
+  // them on every load, and every task would read as about nothing.
+  'taskItems',
 ]
 
 /** A server bundle with one identifiable row in every collection. */
@@ -512,7 +515,7 @@ describe('localServerAdapter — set-aside rows (S5b)', () => {
   it('the Drive loader returns its bundle through the same split', async () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync(new URL('./googleDriveAdapter.js', import.meta.url), 'utf-8')
-    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],\s*\}\);/)
+    expect(src).toMatch(/async loadProject\(projectId\) \{[\s\S]*?return splitSetAside\(\{[\s\S]*?edits:\s+bundle\.edits \|\| \[\],[\s\S]*?taskItems:\s+bundle\.taskItems \|\| \[\],\s*\}\);/)
     expect(src).toMatch(/import \{ splitSetAside \} from '\.\.\/state\/setAside';/)
   })
 })
