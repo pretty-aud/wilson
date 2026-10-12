@@ -42,6 +42,7 @@ import { ReachChecker } from './cloud/reach.mjs';
 import { isEnrolToken, reachKeyOf } from './wire/formats.mjs';
 import { compareVersions, highestVersion } from './update/manifest.mjs';
 import { containerRootFor, locationRoot, parseUncPath } from './rules/mountRule.mjs';
+import { AcmeManager, acmeNameFor } from './acme/manager.mjs';
 
 export const NO_CLOUD_MS = 60_000;
 const SECOND = 1_000;
@@ -79,6 +80,13 @@ export class Gateway {
     // The root by the mount rule's shape check on both platforms (review round 1,
     // finding 2: Windows took the cloud's string as it came).
     this.rootFor = o.locationRootFor || ((unc) => locationRoot(unc, this.platform));
+    // Tests and the CI's Pebble run only, by constructor: the ACME directory and
+    // how to reach it. Not reachable from config.json, the environment or the command line.
+    this.acmeOptions = { directoryUrl: o.acmeDirectoryUrl || null, transport: o.acmeTransport || null, sleep: o.acmeSleep || undefined };
+    // Tests only, by constructor: the addresses the outside door binds (loopback
+    // in a test that must not declare a local proxy, which turns the free
+    // certificate off). A real gateway binds '::', or loopback behind a proxy.
+    this.outsideHostsForTests = Array.isArray(o.outsideHosts) ? o.outsideHosts : null;
     this.intervals = { tick: o.tickMs ?? SECOND, addresses: o.addressMs ?? 30 * SECOND, events: o.eventsMs ?? 60 * SECOND, status: o.statusMs ?? 5 * SECOND, enrolPoll: o.enrolPollMs ?? 3 * SECOND };
     this.timers = [];
     this.enrolOnly = o.enrolOnly === true;
@@ -135,6 +143,18 @@ export class Gateway {
     await this.certs.load();
     const made = await this.certs.ensure({ insideAddresses: this.choice.addresses.map((a) => a.address) });
     this.#noteCertChange(made);
+    // GW4: the outside door's free certificate (design §3, D4).
+    this.acme = new AcmeManager({
+      dir: path.join(this.stateDir, FILES.certs, 'acme'),
+      secrets: this.secrets,
+      now: this.now,
+      ...(this.acmeOptions.directoryUrl ? { directoryUrl: this.acmeOptions.directoryUrl } : {}),
+      transport: this.acmeOptions.transport,
+      sleep: this.acmeOptions.sleep,
+      log: (event, detail) => this.log(event, detail),
+      onCertificate: () => { this.#refreshOutsideCertificate().catch(() => {}); },
+    });
+    await this.acme.load();
 
     this.journal = new Journal({ file: this.#file('journal') });
     const recovered = await this.journal.open();
@@ -306,7 +326,8 @@ export class Gateway {
     if (before !== after || made.leafMade || made.rootMade) {
       this.log('addresses', { before, after });
       if (this.enrolment && !this.revoked) { await this.#closeInside('addresses changed'); await this.#openInside(); }
-      for (const s of this.outside.servers) s.setCertificate(await this.#outsideTls());
+      const tls = await this.#outsideTls();
+      if (tls) { for (const s of this.outside.servers) s.setCertificate(tls); this.outside.certSource = tls.source; }
     }
   }
 
@@ -322,16 +343,45 @@ export class Gateway {
     return st.leafPem ? { cert: st.leafPem, key: st.leafKeyPem } : null;
   }
 
+  /** The name the outside door's free certificate is for, or null when it does not apply (acme/manager.mjs). */
+  acmeName() { return acmeNameFor({ outsideAddress: this.remote.outsideAddress, config: this.config }); }
+
+  /**
+   * The outside door's certificate, in this order (design §3): the company's
+   * own PEM when configured and usable; the free certificate (Let's Encrypt)
+   * when it applies and is valid for the outside name; the gateway's own leaf.
+   * `source` says which, so a change of source re-arms the door.
+   */
   async #outsideTls() {
     if (this.config.outside.certificate) {
       try {
         const own = await loadOwnCertificate({ certFile: inStateDir(this.stateDir, this.config.outside.certificate.cert), keyFile: inStateDir(this.stateDir, this.config.outside.certificate.key) });
         this.ownOutside = own;
-        return { cert: own.certPem, key: own.keyPem };
+        return { cert: own.certPem, key: own.keyPem, source: 'own' };
       } catch (e) { this.log('own_certificate_unusable', { door: 'outside', reason: String(e.message).slice(0, 120) }); }
     }
+    const free = this.acme?.tls(this.acmeName());
+    if (free) return { ...free, source: `acme:${this.acme.cert?.serial}` };
     const st = this.certs.state();
-    return st.leafPem ? { cert: st.leafPem, key: st.leafKeyPem } : null;
+    return st.leafPem ? { cert: st.leafPem, key: st.leafKeyPem, source: `leaf:${st.leafNotAfter}` } : null;
+  }
+
+  /**
+   * The outside door re-armed with the certificate #outsideTls chooses now,
+   * when its source changed (a cheap comparison first: this runs every tick).
+   * A company PEM is read when the door opens and when addresses change, never
+   * here (an unusable one would be read, and logged, every second).
+   */
+  async #refreshOutsideCertificate() {
+    if (!this.outside.servers.length || this.config.outside.certificate) return;
+    const free = this.acme?.tls(this.acmeName());
+    const want = free ? `acme:${this.acme.cert?.serial}` : `leaf:${this.certs.state().leafNotAfter}`;
+    if (want === this.outside.certSource) return;
+    const tls = await this.#outsideTls();
+    if (!tls || tls.source === this.outside.certSource) return;
+    for (const s of this.outside.servers) s.setCertificate(tls);
+    this.outside.certSource = tls.source;
+    this.log('outside_certificate', { source: tls.source.split(':')[0] });
   }
 
   // ── the doors ──────────────────────────────────────────────────────────────
@@ -441,16 +491,18 @@ export class Gateway {
   async #openOutside() {
     const tls = await this.#outsideTls();
     if (!tls) { this.outside.state = 'closed_no_certificate'; return; }
-    const hosts = this.config.outside.behind_local_proxy ? ['127.0.0.1', '::1'] : ['::'];
+    const hosts = this.outsideHostsForTests || (this.config.outside.behind_local_proxy ? ['127.0.0.1', '::1'] : ['::']);
     const opened = [];
+    // The TLS-ALPN-01 challenge, answered on this door while one is pending (GW4).
+    const acme = { challengeFor: (name) => this.acme?.challengeFor(name) ?? null };
     for (const host of hosts) {
-      const s = createDoorServer({ door: 'outside', host, port: this.config.outside.port, tls, limits: this.limits, gate: this.outsideGate, handler: makeHandler(this.doorCtx, 'outside'), onEvent: (e, d) => this.log(`outside_${e}`, d) });
+      const s = createDoorServer({ door: 'outside', host, port: this.config.outside.port, tls, limits: this.limits, gate: this.outsideGate, handler: makeHandler(this.doorCtx, 'outside'), onEvent: (e, d) => this.log(`outside_${e}`, d), acme });
       try {
         await s.listen();
         opened.push(s);
       } catch (e) {
         if (host === '::' && (e.code === 'EAFNOSUPPORT' || e.code === 'EADDRNOTAVAIL')) {
-          const v4 = createDoorServer({ door: 'outside', host: '0.0.0.0', port: this.config.outside.port, tls, limits: this.limits, gate: this.outsideGate, handler: makeHandler(this.doorCtx, 'outside'), onEvent: (ev, d) => this.log(`outside_${ev}`, d) });
+          const v4 = createDoorServer({ door: 'outside', host: '0.0.0.0', port: this.config.outside.port, tls, limits: this.limits, gate: this.outsideGate, handler: makeHandler(this.doorCtx, 'outside'), onEvent: (ev, d) => this.log(`outside_${ev}`, d), acme });
           try { await v4.listen(); opened.push(v4); continue; } catch { /* fall through */ }
         }
         if (host === '::1' && opened.length) continue; // no IPv6 loopback: IPv4's is enough
@@ -459,6 +511,7 @@ export class Gateway {
     }
     if (!opened.length) { this.outside.state = 'closed_bind_failed'; return; }
     this.outside.servers = opened;
+    this.outside.certSource = tls.source;
     this.outside.state = 'open';
     this.outside.port = opened[0].port;
     this.log('outside_open', { port: this.outside.port, hosts: opened.map((s) => s.host) });
@@ -512,7 +565,7 @@ export class Gateway {
           kind: this.config.inside.certificate ? 'own' : 'gateway',
           leaf_not_after: iso(st.leafNotAfter),
           root_not_after: iso(st.rootNotAfter),
-          outside: this.config.outside.certificate ? 'own' : 'gateway',
+          outside: this.config.outside.certificate ? 'own' : this.acmeName() ? 'acme' : 'gateway',
           expires_warning: line.warnings.find((w) => w.text.includes('certificate'))?.text ?? null,
         },
         office_ranges_applied: this.officeRanges.applied,
@@ -652,6 +705,13 @@ export class Gateway {
   // ── the timers ─────────────────────────────────────────────────────────────
   async #tick() {
     await this.#evaluateOutside();
+    // GW4: the free certificate's life: an attempt when one is due and the
+    // outside door is open (F15), and the door re-armed when its certificate
+    // source changes (issued, renewed, expired, the name changed).
+    if (this.acme) {
+      this.acme.tick({ name: this.acmeName(), doorOpen: this.outside.state === 'open' && this.outside.servers.length > 0 });
+      await this.#refreshOutsideCertificate();
+    }
     this.doorCtx.viewings.tick();
     if (!this.lastSweep || this.now() - this.lastSweep > 30 * SECOND) {
       this.lastSweep = this.now();
@@ -684,6 +744,7 @@ export class Gateway {
       outside: { state: this.outside.state, port: this.config?.outside.port, noCloudForMs: this.lastSeenAt ? this.now() - this.lastSeenAt : null, minimumVersion: this.versionFloors().minimum, reachOk: this.remote.reach?.ok, reachCheckedAt: this.remote.reach?.checkedAt },
       locations: [...this.locations.values()].map((l) => ({ name: l.name, unc: l.unc, state: l.state === 'unknown' ? null : l.state, since: l.since, mountAt: containerRootFor(l.unc) })),
       certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter } : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null } : null,
+      outsideCertificate: this.#outsideCertificateState(),
       update: (() => { const u = this.updates.state(); return { ...u, running: VERSION }; })(),
       hardMinimum: (() => { const { hard } = this.versionFloors(); return !!(hard && compareVersions(VERSION, hard) < 0); })(),
       revoked: this.revoked,
@@ -694,6 +755,14 @@ export class Gateway {
   }
 
   healthLine() { return composeHealthLine(this.healthState()); }
+
+  /** The outside door's certificate for the health line (GW4): the company's own, the free one, or nothing to say. */
+  #outsideCertificateState() {
+    if (this.config?.outside.certificate) return { kind: 'own', until: this.ownOutside?.notAfter ?? null, doorOpen: this.outside.state === 'open' };
+    const name = this.acmeName();
+    if (!name || !this.acme) return null;
+    return { ...this.acme.status(name), doorOpen: this.outside.state === 'open' };
+  }
 
   health() {
     const line = this.healthLine();

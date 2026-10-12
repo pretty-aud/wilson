@@ -21,6 +21,41 @@
 
 import https from 'node:https';
 
+// GW4: the outside door answers Let's Encrypt's TLS-ALPN-01 challenge (RFC
+// 8737) on these two hooks (GW2's hook points). A validator offers exactly ONE
+// ALPN protocol, acme-tls/1, and must get the challenge's certificate; a
+// browser offers http/1.1 (and h2) and must get the door's own. In TLS 1.3
+// OpenSSL asks the ALPN callback BEFORE the SNI callback (Node 24.13, measured
+// 2026-10-11), both on the same socket, so the ALPN choice marks the socket and
+// the SNI callback picks the certificate. In TLS 1.2 the order is reversed (the
+// certificate is chosen first), so acme-tls/1 is refused there rather than
+// answered with the wrong certificate; validators speak TLS 1.3. A connection
+// that negotiated acme-tls/1 is closed once its handshake is done: it never
+// reaches HTTP.
+export const ACME_TLS_ALPN = 'acme-tls/1';
+const kAcmeName = Symbol('acmeName');
+const kSniSeen = Symbol('sniSeen');
+
+function acmeTlsOptions(acme, onEvent) {
+  return {
+    ALPNCallback({ servername, protocols }) {
+      if (protocols.length === 1 && protocols[0] === ACME_TLS_ALPN) {
+        const name = String(servername || '').toLowerCase();
+        if (!this[kSniSeen] && name && acme.challengeFor(name)) { this[kAcmeName] = name; return ACME_TLS_ALPN; }
+        onEvent('acme_alpn_refused', { servername: name.slice(0, 80) || null, reason: this[kSniSeen] ? 'tls12' : 'no_challenge' });
+        return undefined;
+      }
+      return protocols.includes('http/1.1') ? 'http/1.1' : undefined;
+    },
+    SNICallback(servername, cb) {
+      this[kSniSeen] = true;
+      const name = String(servername || '').toLowerCase();
+      const ch = this[kAcmeName] && this[kAcmeName] === name ? acme.challengeFor(name) : null;
+      cb(null, ch ? ch.context : null);
+    },
+  };
+}
+
 export const TLS12_CIPHERS = [
   'ECDHE-ECDSA-AES128-GCM-SHA256', 'ECDHE-ECDSA-AES256-GCM-SHA384', 'ECDHE-ECDSA-CHACHA20-POLY1305',
   'ECDHE-RSA-AES128-GCM-SHA256', 'ECDHE-RSA-AES256-GCM-SHA384', 'ECDHE-RSA-CHACHA20-POLY1305',
@@ -36,8 +71,10 @@ export const TLS12_CIPHERS = [
  * @param {(socket: import('node:net').Socket) => { admit: boolean, reason?: string }} o.gate
  * @param {(req, res) => void} o.handler
  * @param {(event: string, detail: object) => void} [o.onEvent]
+ * @param {{ challengeFor: (name: string) => ({ context: import('node:tls').SecureContext } | null) }} [o.acme]
+ *        the outside door only (GW4): the TLS-ALPN-01 challenge, answered while one is pending
  */
-export function createDoorServer({ door, host, port, tls, limits, gate, handler, onEvent = () => {} }) {
+export function createDoorServer({ door, host, port, tls, limits, gate, handler, onEvent = () => {}, acme = null }) {
   const sockets = new Set();
   const server = https.createServer({
     cert: tls.cert,
@@ -51,7 +88,17 @@ export function createDoorServer({ door, host, port, tls, limits, gate, handler,
     keepAliveTimeout: limits.idleMs,
     connectionsCheckingInterval: 1_000,
     maxHeaderSize: 16 * 1024,
+    ...(acme ? acmeTlsOptions(acme, onEvent) : {}),
   }, handler);
+  if (acme) {
+    // The validator's connection carries the challenge and nothing else.
+    server.prependListener('secureConnection', (socket) => {
+      if (socket.alpnProtocol === ACME_TLS_ALPN) {
+        onEvent('acme_challenge_answered', { servername: socket.servername || null, peer: socket.remoteAddress });
+        socket.destroy();
+      }
+    });
+  }
   // At most this many requests on one connection (review round 1, finding 2):
   // the last answer says "Connection: close", so a client must connect again,
   // through the gate's per-peer connection and handshake limits.

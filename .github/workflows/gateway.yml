@@ -8,8 +8,9 @@
 #              against its pinned SHA-256, WiX 5.0.2 as a dotnet LOCAL tool;
 #              its tables read back (the services' accounts, the custom
 #              actions' order, the office door's firewall rule); kept as an
-#              artifact for seven days. Unsigned until D14 (GW4). Nothing is
-#              installed on the runner.
+#              artifact for seven days. Unsigned (D14: ship unsigned for now;
+#              the release workflow, gateway-release.yml, has the signing step
+#              in place). Nothing is installed on the runner.
 #   container  the image built and run on Ubuntu twice, against the fake cloud
 #              (gateway/test/fakeCloud.mjs) on the runner:
 #                1  on Docker's default bridge: the office door stays closed
@@ -19,6 +20,13 @@
 #                   LAN address, served, with that real address in the log;
 #                   the office door closes the same host before TLS; the
 #                   switch turned off closes the outside port
+#   acme       the outside door's free certificate (GW4) against Pebble, Let's
+#              Encrypt's test server, and its DNS (both pinned by digest), on
+#              the runner's loopback: Pebble checks TLS-ALPN-01 on the port the
+#              outside door listens on; issued, renewed on a 90-second
+#              lifetime, refused for a name pointed where nothing answers and
+#              for a name on its block list (test/e2e/acmePebble.mjs). It needs
+#              nothing of the tests job, so a flaky test hides nothing here.
 # =============================================================================
 
 name: Gateway
@@ -212,3 +220,48 @@ jobs:
           docker logs gw-host 2>&1 | grep 'outside_closed' | tail -1
           if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then echo 'the outside door still answers with the switch off'; exit 1; else echo "switch off: the outside port refuses (curl exit $?)"; fi
           docker rm -f gw-host
+  acme:
+    name: ACME against Pebble (Let's Encrypt's test server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pebble and its DNS, pinned by digest; the validator pointed at the outside door on loopback
+        run: |
+          set -euo pipefail
+          # Pebble 2.10.1 (2026-04-20), read from ghcr.io on 2026-10-11. tlsPort is the
+          # port Pebble's validator connects to for TLS-ALPN-01 (443 in the world).
+          cat > "$RUNNER_TEMP/gw-pebble.json" <<'JSON'
+          { "pebble": {
+            "listenAddress": "127.0.0.1:14000", "managementListenAddress": "127.0.0.1:15000",
+            "certificate": "test/certs/localhost/cert.pem", "privateKey": "test/certs/localhost/key.pem",
+            "httpPort": 5002, "tlsPort": 18444, "ocspResponderURL": "", "externalAccountBindingRequired": false,
+            "domainBlocklist": ["blocked-domain.example"], "retryAfter": { "authz": 1, "order": 1 },
+            "keyAlgorithm": "ecdsa",
+            "profiles": { "default": { "description": "90 seconds, to force a renewal", "validityPeriod": 90 } } } }
+          JSON
+          docker run -d --name challtestsrv --network host \
+            ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:12ce21884def456bcf9786542113949e1f19dc7738d2c70e156c2d0c38a1405b \
+            -defaultIPv6 "" -defaultIPv4 127.0.0.1 -http01 "" -https01 "" -tlsalpn01 "" -dnsserver 127.0.0.1:8053 -management 127.0.0.1:8055
+          docker run -d --name pebble --network host \
+            -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=20 -e PEBBLE_AUTHZREUSE=0 \
+            -v "$RUNNER_TEMP/gw-pebble.json:/test/config/gw-pebble.json:ro" \
+            ghcr.io/letsencrypt/pebble:2.10.1@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199 \
+            -config /test/config/gw-pebble.json -strict -dnsserver 127.0.0.1:8053
+          for i in $(seq 1 30); do curl -sk https://127.0.0.1:14000/dir >/dev/null && break; sleep 1; done
+          curl -sk https://127.0.0.1:14000/dir | head -c 400; echo
+          # The name this account does not control points where nothing listens.
+          curl -s -d '{"host":"refused.wilson.test","addresses":["127.0.0.2"]}' http://127.0.0.1:8055/add-a
+          docker cp pebble:/test/certs/pebble.minica.pem "$RUNNER_TEMP/pebble.minica.pem"
+      - name: Issued, renewed on a 90-second lifetime, refused for a name it does not control and for a blocked one
+        run: |
+          node WILSON/gateway/test/e2e/acmePebble.mjs --directory https://127.0.0.1:14000/dir \
+            --ca "$RUNNER_TEMP/pebble.minica.pem" --root https://127.0.0.1:15000/roots/0 --port 18444 \
+            --name gw.wilson.test --refused refused.wilson.test --blocked blocked-domain.example
+      - name: Pebble's log, on failure
+        if: failure()
+        run: |
+          docker logs pebble 2>&1 | tail -40 | sed 's/^/::error::pebble: /'
