@@ -196,6 +196,16 @@
         "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/keen-jemison-976d9b/WILSON --port 5290 --strictPort"
       ],
       "port": 5290
+    },
+    {
+      "_comment": "FX4 (an edit changes in place: Save edit writes into the edit on screen, Save as\u2026 is the only new version; no migration): this worktree's dev server on its own port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours, Scenes: walkthrough 67 (scripts/fx4-shots.mjs photographs it).",
+      "name": "fx4-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/nifty-allen-85e05d/WILSON --port 5293 --strictPort"
+      ],
+      "port": 5293
     }
   ]
 }
