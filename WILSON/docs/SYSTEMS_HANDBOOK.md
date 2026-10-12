@@ -881,6 +881,15 @@ Since **0088 (post-overhaul S4b)** the list the function holds is `INVOICES`,
 the eight `rabbit-thumbnails` policies (0053) moved together and none was
 restated (0088's post-condition 8 re-counts all sixteen).
 
+Since **0092 (post-overhaul S4d)** the eight MONEY policies on both buckets
+are restated once more, with the lock unchanged and the audience split: the
+gate is `(can_access_project_money(project) OR (rabbit_legal_segment(seg)
+AND can_access_project_legal(project)))`. A LEGAL object opens for the Legal
+audience — the money audience plus workspace managers — and an INVOICES or
+FINANCE object for the money audience alone; the eight base policies still
+negate the one list and were not touched. 0092's post-condition 5 pins all
+eight money policies WHOLE and the eight base ones by shape.
+
 ⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
 `rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
 all three explicitly** and replaced them with the money four. Any document still
@@ -942,6 +951,7 @@ only matter if someone **replays a migration by hand**:
 | `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 | `0028` **or** `0031` | `0055` | **(S41)** 0055 widens the same CHECK a second time, to 19 values, with the four `storage_plan.*` actions. **The rule now goes both ways**: a bare re-run of EITHER earlier file restores a list without them, and every `operator-storage-plans` audit write then fails the same silent way — 200 to the operator, no certificate written. 🚨 **0031's own post-condition does not notice**: it greps the constraint for `%model.approved%`, which a 0031 replay satisfies perfectly. Only 0055's post-condition checks for `storage_plan.set`. |
+| `0012`, `0014`, `0027`, `0038`, `0042`, `0047`, `0053`, `0067`, `0073`, `0074`, `0078`, `0082`, `0083` **or** `0088` | `0092` | **(Post-overhaul S4d)** 0092 restates, from each one's latest body, everything that decides which AUDIENCE a Legal thing has: the four `files_*` policies (0038 / 0083 / 0088), the eight money storage policies on both buckets (0042 / 0053), `log_file_downloaded` (0047 / 0074 / 0083 / 0088), `reserve_upload_bytes` (0073 / 0078 / 0083 / 0088), `fn_trash_authz` (0014 / 0067 / 0082 / 0088), the edit-history snapshot trigger and function and `edit_history_select` (0012 / 0088), and `file_events_select` (0027 / 0074 / 0088). What a replay does meanwhile: **0042** also drops `LEGAL` from `rabbit_money_segment`, so every project member can read every Legal object and row (0088's own row above) — re-run 0088, then 0092; **0027 / 0038** also recreate the rabbit-files BASE storage policies with no LEGAL (or FINANCE) exclusion, so every member reads every Legal object — re-run 0042 and 0053 FIRST, then 0088, then 0092 (0088's post-condition 8 and 0092's post-condition 5 refuse meanwhile); **0038 / 0083** put the files policies back on the flag-only arm (a Legal row opens to every reader — 0088's row); **0012** strips BOTH arms off `edit_history_select`, so every workspace manager reads every invoice's history (money widens); **0027 / 0074** bring back ruling 22's `purged` exception WITHOUT 0088's LEGAL carve-out, so a member reads a deleted invoice's AND a deleted Legal file's record again (0027: every event of every invoice and Legal file; 0074 also puts `log_file_downloaded` back on the flag-only arm) — re-run 0074, 0088, then 0092; **0088** puts the files policies, the three definer bodies, `edit_history_select` and `file_events_select` back on the money gate — a workspace manager loses the Legal ROWS, history, events, reservations and trash (nothing opens to the wrong person) while keeping the Legal OBJECTS (0088 restates no storage policy), the snapshot trigger stops setting `is_legal` (fails closed), and a deleted INVOICE's record is every member's again while a deleted Legal file's stays hidden (0088's own arm); **0053** puts the eight thumbnail money policies back on the money gate alone. 0088 IS replayable after 0092: 0092 changes the signature of nothing 0088 defines (its Legal verdict is a function of its own, `edit_history_file_is_legal`). 0092 calls, and does not restate, `can_access_project_money` (0037) and `passes_project_privacy` (0082); post-condition 12 pins the money body to 0037's WHOLE and post-condition 1 the Legal body WHOLE. Re-run 0092 after any of them. |
 | `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. |
 | `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
 
@@ -1781,6 +1791,18 @@ the exception (0088):** it names the file, so a certificate whose `old_path`
 was under `LEGAL/` is hidden from non-money readers too — put to Audrey in the
 S4b hand-off, reversible by deleting that one arm. One policy, every arm restated (a replay of
 0027 would drop the money arm; 0074's post-condition 3 is the tripwire).
+**Since 0092 (post-overhaul S4d, Audrey's Legal 1, 2026-10-09: "keep legal
+docs and invoices hidden from members and reviewers. admins and managers
+should have the ability to see it") the `purged` exception is GONE for both
+kinds.** A financial row — its deletion certificate included — is read by a
+workspace admin, the project's managers (`can_access_project_money`) or, when
+either path is a Legal key (`file_event_is_legal`), the Legal audience
+(`can_access_project_legal`: workspace managers without a seat as well).
+Ruling 22 is narrowed; a member or reviewer reads no event of an invoice or
+a Legal file at all. The hourly sweep's `upload_abandoned` certificate for a
+LEGAL key follows the same arm. 0092's post-condition 11 pins the policy
+whole and refuses any `purged` arm; suites 95 §I, 90 (probe 79) and 78
+(probe 21) probe every reader for both kinds.
 Limit: the flag is a snapshot — a file that becomes financial LATER keeps its
 earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
 no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
@@ -1956,6 +1978,67 @@ project's settings, the database staying authoritative. Written debounced on
 every settings change; read only for portability, recovery and handoff. It
 **excludes per-member rate overrides** — those are manager-only while the
 manifest's path is readable by any project member. See §17.
+
+**2026-10-06, post-overhaul S4c (Audrey, 2026-10-05: "shot folders should be
+in the scene folders … since inheritably shots have to be a part of a
+scene").** A shot's folder is `SCENES/<scene>/<shot>`, inside its scene's row
+(`parent_id` the scene's folder). `entityFolderPath('shot', shot, scene)` /
+`planEntityFolder(project, 'shot', shot, scene)` take the scene — the planner
+stays pure; each backend finds the scene row its own way — and
+`electron/main.cjs` carries the same line for line (`folderParity.test.js`).
+SHOTS is `lazy` in both category lists: never planned for a project, made only
+for a shot with no scene (`shots.scene_id` is nullable), which keeps
+`SHOTS/<shot>`. An EXISTING folder row keeps its parent on a rename, on every
+backend: only the one-time re-filing moves a shot folder into its scene. On
+the cloud a shot's objects sit inside its scene's PREFIX by ids —
+`projects/<pid>/scenes/<sceneId>/<shotId>/<leaf>` (`shotRefiling.
+shotObjectPrefix`) — so the third segment is `scenes`, which no gate locks;
+`uploadFile` keeps the old `shots/<shotId>` prefix while the shot's folder row
+still sits under SHOTS, so objects and folder move together. **The re-filing**
+(`shotRefiling.js` decides what is pending; `supabaseAdapter.refileShotFolders`
+on the cloud, `POST …/folders/refile-shots` on the Local Server, the fixtures
+adapter in memory) is OFFERED on the Files tab to whoever can write the open
+project, never run unasked: one shot folder at a time, the shot CHECKED whole
+before its first object moves (a body in the customer's own bucket, s3; a
+body on another computer; a live row whose body is at neither key; a folder
+row already at the destination — the shot is left with the reason, nothing of
+it moved), its rows read whole by the old key shape (paged: PostgREST stops
+at 1,000 rows), each object moved in `rabbit-files` and SEEN at its new key
+and its files row rewritten AT ONCE, then its thumbnail in
+`rabbit-thumbnails` and the row again (so no object is left moved with a row
+saying the old key for longer than one round trip — `storage-gc` deletes an
+object no row names after 24h, and since S4c keeps one whose twin key a row
+names, `_shared/shotKeys.ts` — and fails CLOSED: a files read that errors
+ends that project's scan with nothing removed); a refused row update, or one
+that reaches no row, moves the object back only after the row is read
+again, successfully, and still names the old key — a read that fails too
+leaves the object where it landed, with "run it again"; an object at both
+keys left alone and reported; one already landed on an earlier run counted
+done; the old prefix read again before the folder row is re-parented. The
+Local Server refuses every shot while the project folder is recorded but
+unreachable — with no root at all, outright; with a fallback root
+(`<root base>/<slug>`, which an asset made offline leaves behind), when
+nothing of the shot is found in it — and a shot whose files are all gone
+from the project's own folder (none found); otherwise it moves the directory
+(entry by entry, in name order, into a destination that exists, never over
+a file), retargets every record the moment its entry has moved, verifies
+each managed file at its new place (a file missing before the move is
+counted and said), rewrites the row, and writes the bundle after each shot.
+The empty SHOTS category row (and its empty directory) goes last, counted
+in the database. Idempotent and resumable; no file is ever deleted. A
+renamed folder's descendants are re-pathed on every ensure, walked by
+`parent_id` (on the Local Server the directory stays; the Files tab places a
+record whose `folder_path` names no row by its entity). Two runs at once are
+not locked against each other (OUTSTANDING S4c-12).
+A body in the customer's own bucket (s3) or on another computer (a private
+project's, off the desktop) leaves its shot where it is, with the reason.
+Rehearsed on wilson-dev in a rolled-back
+transaction as Northwind's manager under the live policies (a reviewer and a
+person with no seat got zero rows; a member one). Levels and experiences have
+their Files section in their popups now; the managed-files POST answers a
+record's `folder_path` from the entity's folder row for scenes, shots, levels
+and experiences (`LEVELS/<slug>/`, `EXPERIENCES/<slug>/`), and FileManager
+copies where the record says.
 
 ### 12.7 The workspace drive, the NAS, and remote access (S34/S35)
 
@@ -2861,7 +2944,49 @@ clean-up runs once per project (`bundle.legalLabelsSettled`). The Projects
 page lists Legal files to the people the database gives them to, with the
 Core box locked — it is where a project file is deleted. Left open, put to
 Audrey: a money-cleared person can rename a Legal OBJECT out of `LEGAL`
-through the Storage API (OUTSTANDING S4b-10). There are
+through the Storage API (OUTSTANDING S4b-10).
+
+**S4d (0092, 2026-10-09): the Legal gate of its own.** "Same as money files
+for now" ended with Audrey's 2026-10-08 answer, "Also workspace managers,
+without taking a seat." `public.can_access_project_legal(project)` =
+`can_access_project_money(project)` (called, not copied) OR `current_app_role()
+= 'manager'` with 0037's hop copied whole (the project in the caller's own
+workspace by the projects row, a live membership) and 0072's privacy arm
+through `passes_project_privacy` (0082); COALESCEd, so never NULL. Three
+classifiers tell a Legal thing from a money thing, each a subset of its
+twin so a Legal key stays locked: `file_row_is_legal(flag, path)` (under
+LEGAL and NOT `is_financial`), `rabbit_legal_key(obj)` and
+`file_event_is_legal(old, new)`; `files_legal_not_financial_chk` makes a
+Legal row never an invoice, so the row's gate and its object's cannot
+disagree. Every closure 0088 made through the money gate asks the Legal gate
+for a LEGAL row, key or event and the money gate for everything else: the
+four `files_*` policies and the eight money storage policies (`… OR
+(file_row_is_legal(…) AND can_access_project_legal(project_id))`),
+`log_file_downloaded`, `reserve_upload_bytes` (the Legal clause inside the
+FIRST refusal, same words, same code), `fn_trash_authz`, `edit_history`
+(a second snapshot column `is_legal`, set by a verdict function of its own,
+`edit_history_file_is_legal` — Legal only when EVERY (flag, path) pair the
+entry carries is a LEGAL path with no flag, so an unflagged FINANCE or
+INVOICES row's history is never Legal — beside 0088's classifier, whose
+signature is untouched so that 0088 stays replayable; the Legal arm on
+`edit_history_select`) and `file_events_select` (above). S4b-10 now reaches
+the Legal audience too: a workspace manager passes the money UPDATE
+policy's USING for a LEGAL key and the base policy's WITH CHECK for an
+ordinary one, so they can rename a Legal object out of `LEGAL` as a
+money-cleared person could (OUTSTANDING S4b-10, dated note).
+Unchanged and said so: `fn_realtime_broadcast` (a Legal row is still never
+broadcast — one topic, no per-recipient filter), `trg_file_events_money`,
+the reserved-bytes meter, the quota exemption and `files_money_provider_chk`.
+🚨 **Money does not widen** (D8): post-condition 12 pins
+`can_access_project_money` to 0037's body (no app-manager leg, no Legal
+predicate) and suite 95 probes a workspace manager — with a member seat and
+with none — against every money closure. The client mirror is
+`canSeeProjectLegal` (`projectRoleMatrix.js`) beside `canSeeProjectMoney`,
+differing on exactly the three app-manager rows; Add as Legal, the cloud
+adapter's pre-upload check (`can_access_project_legal` over RPC, never the
+money RPC) and the dev fixtures (`?fixtures=manager`) read it, and
+`projectLegal.test.js` pins on the source that every Legal site asks it and
+no money site does. There are
 exactly two: `adapters/index.js` registers three adapters and Google Drive's
 `uploadFile` is `readOnly()` — a function that throws (`googleDriveAdapter.js:267`)
 — so Drive cannot write an ungated receipt because it cannot write at all.
@@ -4634,7 +4759,10 @@ of a session — this section is limits by design, that file is faults.
   `LEGAL`).** Its row twin is `public.file_row_is_money(flag, path)` (0088):
   every `files` row decision — the four row policies, `log_file_downloaded`,
   `fn_trash_authz`, the realtime skip, the edit-history snapshot — asks that,
-  never the flag alone. The Edge Function `storage-presign` carries a copy of
+  never the flag alone. Since 0092 each of those also asks the Legal twins
+  (`file_row_is_legal`, `rabbit_legal_key`, `file_event_is_legal`) to pick
+  the Legal audience (`can_access_project_legal`) over the money audience
+  for a LEGAL row, key or event; the lock is the same, the audience is not. The Edge Function `storage-presign` carries a copy of
   the list (`supabase/functions/_shared/moneySegments.ts`), held to the
   function by `storagePresignBoundary.test.js`. The three base `rabbit-files` storage
   policies negate it; the four money policies assert it. Adding a third
@@ -4735,6 +4863,22 @@ of a session — this section is limits by design, that file is faults.
   member trash and restore an invoice by id (a write past the gate and an
   existence oracle); a money row now needs `can_access_project_money`. All
   three hold for Legal files too (suite 90).
+- **A Legal thing's audience is the Legal gate since 0092 (S4d), and two
+  limits are stated with it.** (1) A `file_events` row of a file that was
+  BOTH `is_financial` and under `LEGAL` before 0092 cannot be told from a
+  Legal file's by its paths, so the Legal audience would read it; none
+  exists on dev (measured 2026-10-09: zero rows, objects or events under
+  LEGAL), the client has refused Legal + financial since S4b, and
+  `files_legal_not_financial_chk` refuses such a row from 0092 on. (2) A
+  workspace manager's second window sees a new Legal file on its next
+  refresh, not live, for the reason a project manager's does (S4b-03). (3)
+  A files id is the client's to choose, so a purged file's id can in
+  principle be reused: the edit-history verdict lets the row that now
+  holds an id vote only for history written at or after that row's
+  creation, and older rows are judged on their own diff — a reused id can
+  therefore neither re-label the old file's history nor block a 0092 re-run
+  (review round 2); `file_events` keyed on the same id are already
+  classified by their own paths.
 - **Invoices live in a folder called `INVOICES`** — a sibling of
   `<slug>_FILES` in the project folder on Local Server, and the reserved
   third path segment in cloud storage. 🚨 **The case of that segment is
@@ -4760,6 +4904,136 @@ of a session — this section is limits by design, that file is faults.
 > `docs/MASTER_PLAN.md` §6 now carries a verdict — CLOSED, RE-OWNED or
 > ACCEPTED — against every single entry. `docs/RELEASE_TESTING.md` has the
 > user-facing subset under "Known not to work".
+
+**Bins on the cloud (BC1, migration 0091 — 2026-10-07)**
+
+- **A cloud clip is a REFERENCE: a footage location plus a relative path.
+  Nothing uploads, nothing costs footage storage (Audrey's B1).** `bin_locations`
+  is per WORKSPACE (a share is the company's: `\\server\share`, by network
+  address, never a drive letter, never THIS computer (`localhost`, `127.x`)
+  and never an administrative share (`C$`, `ADMIN$`, `IPC$` — `\\localhost\C$`
+  is `C:` in disguise; review round 1), nor a segment ending in a dot or a
+  space (Windows strips both: `\\server\C$.` is `C$`), nor any spelling of
+  127.0.0.1 (round 2; the same trailing rule guards a clip's relative
+  path, where `.. ` is `..`) — the CHECK refuses each, and the
+  desktop's and the fixtures' guards refuse the same list, held together by
+  `binsAdapterParity.test.js`); `bin_files` holds
+  `location_id` + `relative_path` (forward slashes, no `..`, no drive
+  letter) where the signed-out desktop holds an absolute `source_path`. The
+  desktop's signed-out bundle is UNCHANGED (B12): its `source_path` and
+  `binRoots` stay; the cloud's `binRoots` is always `[]`.
+- **The gate for all four tables is `can_edit_shot_lists()` (0084) — reviewers
+  included (B6).** No bins gate was invented; `project.bins.write` in the
+  client matrix mirrors it. Every write policy hops through `projects` (the
+  private-projects arm, 0072), and suites 93/94 prove a seated manager
+  cannot write into a private project they cannot see — with `workspace_id`
+  SENT, because the stamping trigger would otherwise refuse for the wrong
+  reason.
+- 🚨 **A clip's picture leaves the server only while the company's switch is
+  on (B4, B5a): `workspaces.remote_viewing_enabled`, off by default, a
+  workspace admin's (0020's `workspaces_admin_update`; no new trigger).** Two
+  RESTRICTIVE policies on `rabbit-thumbnails` (`petal_bin_posters_remote_viewing_*`)
+  AND over 0053's permissive set for keys whose third segment is `bin_files`
+  — a planted copy without `AS RESTRICTIVE` or without the switch arm is
+  caught by suite 94's probes 43/57/58 and by 0091's post-conditions. The
+  policies ask `rabbit_remote_viewing_enabled(project)`, SECURITY DEFINER
+  so it can answer past RLS — and therefore it answers only an active
+  member of the project's workspace, false to everyone else (no oracle
+  across companies: suite 94's probes 53/54, breaker B14, a post-condition
+  that demands `has_active_membership` in its body).
+  Reading an existing poster follows membership, never the switch; a
+  reviewer uploads one through the permissive `petal_bin_posters_*` pair
+  (0053's own admit `can_write_project` only). **Posters are metered**
+  (`workspace_petal_bytes` counts `rabbit-thumbnails`, 0055) and never
+  quota-gated (the quota policy is on `rabbit-files` inserts only): a poster
+  is 10–30 KB and shows in the company's storage figure. The cloud adapter
+  asks the switch BEFORE uploading, so a person reads a sentence.
+- **Removing a clip or a bin removes ROWS, never a byte on the server (B10);
+  the FKs cascade** (bin → files → takes; shot → takes; a location in use is
+  RESTRICTed). The desktop keeps a removed file's takes as orphans for the
+  undo; the cloud does not, so the provider snapshots the shots' takes
+  before a removal and puts them back through `replaceShotTakes` — on every
+  backend (a no-op where nothing was lost). A removed clip's poster — and a
+  REPLACED one (`trg_bin_files_poster_replaced`, review round 1) — is
+  queued for disposal on `storage_gc_queue` (kind `thumbnail`, `file_id`
+  NULL) only when no other row — an instance made by `copy_bin_files` —
+  still names it. The orphan scan walks `rabbit-files` only, so a live poster
+  is never swept and a stranded one would never be: that is why a replaced
+  key is queued by the database, and why the adapter takes a just-uploaded
+  object back when its PATCH of `poster_path` is refused — a reviewer's own
+  through `petal_bin_posters_delete_own` (round 2; 0053's delete policy
+  admits writers only).
+- **What the cloud cannot do answers `not_supported_here` through ONE
+  capability object** (`binsCapabilities()`: `CLOUD_BINS_CAPABILITIES`,
+  `LOCAL_SERVER_BINS_CAPABILITIES`, the fixtures'), read onto
+  `binsInfo.capabilities`: no OS pickers, no probe, no stream, no relink, no
+  open-in-OS; rows from a backend that cannot resolve files are marked
+  `online: false` ("not on this computer", B3) on load and on a live insert.
+  The desktop SIGNED IN (BC2) fills those from the Local Server's
+  `/api/rabbit/cloud-bins/*` routes, which read a file by a REGISTERED
+  location's address + a relative path — only a UNC path can be registered
+  (a body can never make `C:\Users` a root, nor `\\localhost\C$\Users`), and a per-computer local path is
+  kept only when it is a folder the person picked this session (B2's
+  fallback).
+- **Live (B7):** `bins`, `bin_files` and `shot_takes` joined
+  `fn_realtime_broadcast`'s project_id arm (fifteen tables now; the body is
+  pinned name-by-name in 0091's post-conditions and suite 94). `bin_locations`
+  is not broadcast: re-read on open.
+- **A client ahead of its database (no 0091) reads empty bins and refuses
+  every bins write with code `bins_unavailable`** — the load's read of
+  `public.bins` is the probe (0084's `shotListsAbsent` shape); nothing is
+  stripped because 0091 adds no column to a table the client upserts.
+- **Known limits, by design:** the browser cannot play a clip until the file
+  gateway (BC4) exists; deleting a SHOT on the cloud drops its takes and the
+  shot's undo does not bring them back (the scenes block is not BC1's — BC3
+  to add the same snapshot); `addBinFiles` on the cloud trusts the technical
+  columns the adding computer read; `removeBinFiles` reads the takes it will
+  lose in one request and deletes in another (a take assigned in between is
+  lost, said in the hand-off).
+
+**A task's items (FX2, migration 0096 — 2026-10-11)**
+
+- **A task relates to many items through `task_items`: assets, scenes,
+  shots, levels and experiences, ordered within each kind. The single
+  columns stay.** `tasks.asset_id`, `scene_id` and `shot_id` are each the
+  task's MAIN item of that kind (the first by position, then created_at,
+  then id), kept in step in both directions by triggers
+  (`fn_task_items_sync_task` on the items, `fn_tasks_sync_items` and
+  `fn_tasks_seed_items` on the tasks, under the transaction-local flag
+  `wilson.task_items_sync`). A writer of a single column (the beta, a
+  template applied to an asset, a bid version opened, the agent) moves an
+  item the task already has to first, replaces the main item with a new one,
+  or removes the main item when it clears the column. `tasks` has no level
+  or experience column: on the cloud those live only as items, and the
+  provider derives all five single fields from the items. The Local Server
+  (`electron/rabbitTaskItems.cjs`) and the fixtures run the same rules.
+- **RLS.** Reads hop to `projects` and `tasks` under the caller's own RLS (a
+  private project's items stay hidden; a task the caller cannot see hides its
+  items); writes add `has_active_membership` and `can_write_project` (a
+  reviewer reads and never writes). The task and each kind's row are
+  same-project composite foreign keys, `ON DELETE CASCADE`. A client may
+  UPDATE `position` only (a column grant); `reorder_task_items` is SECURITY
+  INVOKER. The table is on the project's live channel (`fn_realtime_broadcast`,
+  sixteen tables), pinned by suites 72 and 99. §7a locks the task row before
+  it reads the main item (two writers of one task's items take turns; a
+  single-column write from an older tab can deadlock with one, and Postgres
+  takes one back whole). 0096 refuses to run again after a later migration is
+  recorded, and refuses a broadcast body that is neither 0091's nor its own
+  (review round 1).
+- **A client ahead of its database (no 0096) reads no items and refuses every
+  items write with code `task_items_unavailable`**: the load's read of
+  `public.task_items` is the probe, and nothing is stripped (0096 adds no
+  column to a table the client upserts).
+- **The client re-reads a task's single links from its items only when a
+  write changes that task's items**; a task the backend brings back outside a
+  load (a bid version's open, an undo from the trash) keeps its row's links
+  and has its items read (review round 2). No editor makes a row the project
+  no longer shows a task's main one.
+- **Known limits, by design:** sums and grouped rows (the Budget, the
+  Timeline, the Tasks table's groups) count a task once, under its main item;
+  lists and per-row counts name every item. A bid version keeps the main
+  items only; templates name no items; the edit history sees an item change
+  only as a change of the task's main asset, scene or shot.
 
 **Security-adjacent**
 

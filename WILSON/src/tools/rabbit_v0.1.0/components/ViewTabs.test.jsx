@@ -158,9 +158,11 @@ describe('ViewTabs: twelve peers since S4a (eleven kept, Files added), grouped, 
     expect(tabs.every((t) => t.disabled)).toBe(true)
   })
 
-  it('Rabbit.jsx mounts the Files view as the explorer with the open project and no picker', () => {
+  it('Rabbit.jsx mounts the Files view as the explorer with the open project, no picker, and the page gate (S4c)', () => {
     expect(rabbitSrc).toContain("import ProjectFilesExplorer from '../../components/Resources/ProjectFilesExplorer'")
-    expect(rabbitSrc).toContain("{activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} />}")
+    // pageActive: the Files tab's Backspace and arrows act only while
+    // R.A.B.B.I.T. is the page on screen (every page stays mounted).
+    expect(rabbitSrc).toContain("{activeView === 'files'    && <ProjectFilesExplorer projectId={activeProjectId} showPicker={false} pageActive={currentPage === 'rabbit'} />}")
   })
 
   it('a click still switches the view (C1: what a click does is unchanged)', () => {

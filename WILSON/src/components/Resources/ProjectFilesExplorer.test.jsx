@@ -107,12 +107,13 @@ vi.mock('../../permissions/usePermissions', () => ({
 
 const { default: ProjectFilesExplorer } = await import('./ProjectFilesExplorer')
 const { navigateTo } = await import('../../tools/rabbit_v0.1.0/state/rabbitNavigate')
+const { pushModal, _resetOverlaysForTests } = await import('../../ui/overlay')
 
 afterEach(cleanup)
 
 /** Mount, wait for the adapter promises, and switch to the table view. */
-async function mountTable() {
-  const utils = render(<ProjectFilesExplorer />)
+async function mountTable(props) {
+  const utils = render(<ProjectFilesExplorer {...(props || {})} />)
   // The page opens on COLUMNS, so waiting for a <table> here waits out the
   // full findBy timeout and finds nothing — eight callers, eight seconds. Wait
   // for the tab (which appears once the adapter promises settle), then switch.
@@ -120,6 +121,19 @@ async function mountTable() {
   fireEvent.click(tab)
   return utils
 }
+
+// ── S4c: the Table shows one folder at a time, so a test that wants a file
+// in a sub-folder walks there first, by the folder's name button (a click
+// from Testing Library has `detail` 0, the keyboard's, so the settle guard
+// never holds it back). The crumb and the rows, read as the person reads them.
+const rowsOf = () => [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')]
+const namesOf = () => rowsOf().map(r => r.querySelector('.fx-name-text').textContent)
+const crumbOf = () => [...document.querySelectorAll('[data-files-crumbs] [data-crumb]')].map(c => c.textContent)
+const enter = (name) => fireEvent.click(screen.getByRole('button', { name }))
+const rowNamed = (name) => rowsOf().find(r => r.textContent.includes(name))
+const upButton = () => document.querySelector('[data-folder-up]')
+const filterBox = () => screen.getByLabelText('Filter')
+const search = (q) => fireEvent.change(filterBox(), { target: { value: q } })
 
 describe('the Files page — the chrome', () => {
   it('does NOT render the page title a second time (F-R06)', async () => {
@@ -195,17 +209,25 @@ describe('the Files table — the contract lane B converges on', () => {
     expect(table.hasAttribute('data-files-table')).toBe(true)
   })
 
-  it('declares seven columns whose widths sum to exactly 100', async () => {
+  it('declares six columns in a folder and seven in a search, each set summing to exactly 100 (S4c)', async () => {
     await mountTable()
-    const ths = [...document.querySelectorAll('.ui-table[data-files-table] th')]
-    expect(ths.map(t => t.textContent.trim())).toEqual([
-      'Name', 'Type', 'Size', 'Created', 'Modified', 'Duration', 'Location',
+    const ths = () => [...document.querySelectorAll('.ui-table[data-files-table] th')]
+    // In a folder the crumb names every row's parent, so there is no
+    // Location column; Name takes its width.
+    expect(ths().map(t => t.textContent.trim())).toEqual([
+      'Name', 'Type', 'Size', 'Created', 'Modified', 'Duration',
     ])
     // `table-layout: fixed` reads the header row, so an over-summing set of
     // percentages is not a declared grid at all — the browser reconciles the
     // excess and every column lands somewhere other than where it was written.
-    const total = ths.reduce((n, t) => n + parseFloat(t.style.width), 0)
-    expect(total).toBe(100)
+    const total = () => ths().reduce((n, t) => n + parseFloat(t.style.width), 0)
+    expect(total()).toBe(100)
+    // A search lists matches from the whole tree, so Location comes back.
+    search('hero')
+    expect(ths().map(t => t.textContent.trim())).toEqual([
+      'Name', 'Type', 'Size', 'Created', 'Modified', 'Duration', 'Location',
+    ])
+    expect(total()).toBe(100)
   })
 
   it('right-aligns every figure with tabular mono, headers included (F-R10)', async () => {
@@ -244,39 +266,36 @@ describe('the Files table — the contract lane B converges on', () => {
     expect(xs.size, 'every name slot starts at the same x').toBe(1)
   })
 
-  it('does not indent at all, and leaves every sort state reachable (F-R12)', async () => {
+  it('lists ONE folder: its folders first, then its files, each sorted by the column; no indent, every sort state reachable (S4c, F-R12 settled)', async () => {
+    // F-R12's lying indent cannot arise now: every row in the Table has the
+    // same parent, the one the crumb names, and a sort reorders the folder's
+    // own children (fileTree.folderRows), never a flattened tree.
     await mountTable()
-    // 🚨 THE THIRD ANSWER TO F-R12, and the first two are worth knowing about
-    // because each was green under a test that described it.
-    //
-    // `sortRows` re-sorts the FLATTENED list globally for EVERY key including
-    // name-ascending, which is the default — so the indent never described the
-    // order, on arrival or after any sort. Attempt one dropped the indent only
-    // for non-name sorts and left the default lying. Attempt two made tree
-    // order the default, which fixed the indent and left the Name header
-    // claiming `aria-sort="ascending"` over rows that were not in name order,
-    // and lost flat A-to-Z entirely.
-    //
-    // So: the ordering is untouched and the INDENT is gone.
-    const slots = [...document.querySelectorAll('.ui-table[data-files-table] .fx-name')]
-    expect(slots.length).toBeGreaterThan(1)
-    for (const n of slots) {
+    expect(namesOf(), 'the root: its folder, then its file').toEqual(['ASSETS', 'brief.pdf'])
+    expect(crumbOf()).toEqual(['Project'])
+    for (const n of document.querySelectorAll('.ui-table[data-files-table] .fx-name')) {
       expect(n.getAttribute('style'), 'no per-row indent survives').toBeNull()
     }
-
-    // Every sort state is still reachable and every arrow still honest: the
-    // header claims a direction only when the rows are in it.
-    const nameTh = [...document.querySelectorAll('.ui-table[data-files-table] th')]
-      .find(t => t.textContent.trim() === 'Name')
+    // A second file at the root, and a second folder: the sort stays within
+    // each group, and Name descending inverts each group, not the list.
+    const two = [...FILES, { id: '7', name: 'aaa.txt', folder_id: 'root', size_bytes: 1, mime_type: 'text/plain', created_at: '2026-09-05T10:00:00Z' }]
+    const folders = [...FOLDERS, { id: 'zed', kind: 'category', path: 'ZED', name: 'ZED', parent_id: 'root' }]
+    ctx.getAdapter = () => ({ listFolders: async () => folders, listFiles: async () => two, listManagedFiles: async () => [] })
+    cleanup()
+    await mountTable()
+    expect(namesOf()).toEqual(['ASSETS', 'ZED', 'aaa.txt', 'brief.pdf'])
+    const nameTh = [...document.querySelectorAll('.ui-table[data-files-table] th')].find(t => t.textContent.trim() === 'Name')
     expect(nameTh.getAttribute('aria-sort')).toBe('ascending')
-    const namesOf = () => [...document.querySelectorAll('.ui-table[data-files-table] .fx-name-text')]
-      .map(n => n.textContent)
-    const asc = namesOf()
-    expect(asc, 'the default IS a flat A-to-Z listing').toEqual([...asc].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1))
-
     fireEvent.click(within(nameTh).getByRole('button'))
     expect(nameTh.getAttribute('aria-sort')).toBe('descending')
-    expect(namesOf(), 'and descending is its exact inverse').toEqual([...asc].reverse())
+    expect(namesOf(), 'folders stay first; each group inverts').toEqual(['ZED', 'ASSETS', 'brief.pdf', 'aaa.txt'])
+    // Size descending: a folder has no size, and still sits first.
+    const sizeTh = [...document.querySelectorAll('.ui-table[data-files-table] th')].find(t => t.textContent.trim() === 'Size')
+    fireEvent.click(within(sizeTh).getByRole('button'))
+    fireEvent.click(within(sizeTh).getByRole('button'))
+    expect(sizeTh.getAttribute('aria-sort')).toBe('descending')
+    expect(namesOf()).toEqual(['ASSETS', 'ZED', 'brief.pdf', 'aaa.txt'])
+    ctx.getAdapter = REAL_ADAPTER
   })
 
   it('keeps the sort slot reserved so the header label never shifts', async () => {
@@ -292,22 +311,28 @@ describe('the Files table — the contract lane B converges on', () => {
     expect(th.getAttribute('aria-sort')).toBe('ascending')
   })
 
-  it('makes only FILE rows interactive, and adds no role or tab stop (C1)', async () => {
+  it('makes every row interactive — a folder opens, a file selects — through a name button on each; the row stays a plain <tr> (S4c)', async () => {
     await mountTable()
-    const rows = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')]
+    const rows = rowsOf()
     const files = rows.filter(r => r.getAttribute('data-node-kind') === 'file')
     const folders = rows.filter(r => r.getAttribute('data-node-kind') === 'folder')
     expect(files.length).toBeGreaterThan(0)
     expect(folders.length).toBeGreaterThan(0)
-    // A folder row is not selectable, so it must not promise the pointer.
-    for (const r of files) expect(r.hasAttribute('data-interactive')).toBe(true)
-    for (const r of folders) expect(r.hasAttribute('data-interactive')).toBe(false)
-    // F-R11's hover is CSS on the shared Row. Adding `role`/`tabIndex` to make
-    // the row focusable would be an interaction change, so it was not done.
+    // Both kinds answer the pointer now (F-R11's hover on the shared Row): a
+    // folder row opens on a click, which is what the pointer promises.
+    for (const r of rows) expect(r.hasAttribute('data-interactive')).toBe(true)
+    // The name cell is a <button> for BOTH kinds — the keyboard reaches a
+    // folder as it reaches a file — and the row itself gains no role and no
+    // tab stop: the buttons carry the (roving) focus.
     for (const r of rows) {
+      expect(r.querySelector('button.fx-name-btn[data-node-id]')).toBeTruthy()
       expect(r.hasAttribute('role')).toBe(false)
       expect(r.hasAttribute('tabindex')).toBe(false)
     }
+    expect(folders[0].querySelector('button').hasAttribute('data-folder-name')).toBe(true)
+    expect(files[0].querySelector('button').hasAttribute('data-file-name')).toBe(true)
+    fireEvent.click(folders[0])
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
   })
 
   it('selects a file row with the one selected treatment', async () => {
@@ -398,7 +423,10 @@ describe('the Files page — the three states are three pictures (F-R13)', () =>
     for (const el of code.match(/<EmptyState[\s\S]*?\/>/g) || []) {
       expect(el, 'an EmptyState carrying a loading string').not.toMatch(/[Ll]oading/)
     }
-    expect((code.match(/<EmptyState/g) || []).length).toBe(3)
+    // Five since S4c: no project, nothing filed, the Columns view's empty
+    // folder, and the Table's two — an empty folder and a search that matches
+    // nothing.
+    expect((code.match(/<EmptyState/g) || []).length).toBe(5)
     expect((code.match(/<Loading /g) || []).length).toBe(1)
   })
 })
@@ -489,6 +517,8 @@ describe('one explorer, two hosts (S4a, E8)', () => {
     ctx.files = [FILES[0]]
     const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
     fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    // S4c: the file sits in ASSETS › hero-shot; walk there.
+    enter('ASSETS'); enter('hero-shot')
     const row = () => [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')].find(r => r.textContent.includes('hero_v3.mov'))
     fireEvent.click(row())
     expect(row().hasAttribute('data-selected')).toBe(true)
@@ -664,6 +694,7 @@ describe('the Files tab\'s toolbar: Add files, Relink, File activity (E1)', () =
     const button = screen.getByRole('button', { name: /File activity/ })
     expect(button.disabled).toBe(true)
     expect(button.getAttribute('title')).toBe('Select a file to see its activity')
+    enter('ASSETS'); enter('hero-shot')
     const hero = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')].find(r => r.textContent.includes('hero_v3.mov'))
     fireEvent.click(hero)
     expect(button.disabled).toBe(false)
@@ -762,8 +793,11 @@ describe('the Files table: its dates (V2)', () => {
   it('prints the short date and keeps the date and time in the cell\'s tooltip', async () => {
     await mountTable()
     const heads = [...document.querySelectorAll('.ui-table[data-files-table] th')].map((t) => t.textContent.trim())
-    const rows = [...document.querySelectorAll('.ui-table[data-files-table] tbody tr')]
-    const cells = (name) => [...rows.find((tr) => tr.textContent.includes(name)).querySelectorAll('td')]
+    const cells = (name) => [...rowsOf().find((tr) => tr.textContent.includes(name)).querySelectorAll('td')]
+    // S4c: a folder has no date, and so no tooltip (ASSETS › hero-shot).
+    enter('ASSETS')
+    expect(cells('hero-shot')[heads.indexOf('Created')].hasAttribute('title')).toBe(false)
+    enter('hero-shot')
     const hero = cells('hero_v3.mov')
     const created = hero[heads.indexOf('Created')]
     const modified = hero[heads.indexOf('Modified')]
@@ -774,8 +808,6 @@ describe('the Files table: its dates (V2)', () => {
     expect(modified.getAttribute('title')).toBe(new Date('2026-09-03T10:00:00Z').toLocaleString())
     // Still a figure: right-aligned, tabular (F-R10).
     expect(created.getAttribute('data-numeric')).toBe('true')
-    // A folder has no date, and so no tooltip.
-    expect(cells('hero-shot')[heads.indexOf('Created')].hasAttribute('title')).toBe(false)
   })
 })
 
@@ -788,8 +820,10 @@ describe('the Files table: its dates (V2)', () => {
 // then each upload carries `legal: true`. Where the database lacks 0088 the
 // control is greyed with the reason.
 describe('Add as Legal (S4b)', () => {
-  const LEGAL_ADD_HINT = 'Only project managers and workspace admins will see these files.'
-  const LEGAL_UNAVAILABLE = 'Legal files need a database update (migration 0088) that has not reached this workspace yet.'
+  // S4d (0092): the audience names workspace managers too.
+  const LEGAL_ADD_HINT = 'Only project managers, workspace managers and workspace admins will see these files.'
+  // S4d (0092): the sentence names both migrations — the folder's lock and the gate.
+  const LEGAL_UNAVAILABLE = 'Legal files need a database update (migrations 0088 and 0092) that has not reached this workspace yet.'
   const LEGAL_LOCAL_NOTE = 'On this computer\'s storage Legal is a folder, not a lock: restrict the LEGAL folder on the drive or NAS itself.'
   const legalAdapter = (supported = true) => () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => supported })
 
@@ -928,17 +962,36 @@ describe('Add as Legal (S4b)', () => {
   it('a refusal is READ on screen, in the same banner as Add files\'', async () => {
     seat('admin', null)
     ctx.getAdapter = legalAdapter(true)
-    ctx.uploadFile = async () => { throw new Error('Only project managers and workspace admins can add Legal files.') }
+    ctx.uploadFile = async () => { throw new Error('Only project managers, workspace managers and workspace admins can add Legal files.') }
     onTab()
     await waitFor(() => expect(legalInput()).toBeTruthy())
     pick(['nda.pdf'])
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Add as Legal' }))
-    const banner = await screen.findByText('Only project managers and workspace admins can add Legal files.')
+    const banner = await screen.findByText('Only project managers, workspace managers and workspace admins can add Legal files.')
     expect(banner.closest('[data-upload-error]')).toBeTruthy()
   })
 
-  it('a member, a reviewer, and a workspace manager without a manager seat are not shown it at all', async () => {
-    for (const [appRole, projectRole] of [['member', 'member'], ['member', 'reviewer'], ['manager', 'member'], ['manager', null]]) {
+  // S4d (0092, Audrey 2026-10-08: "Also workspace managers, without taking a
+  // seat"): a workspace manager holding a member seat, a reviewer seat or no
+  // seat IS shown it now — the one row where the Legal gate parts from the
+  // money gate — with the same hint and the same probe of the database.
+  it('a workspace manager without a manager seat is shown it (S4d): the hint, and the database is asked', async () => {
+    for (const [appRole, projectRole] of [['manager', 'member'], ['manager', 'reviewer'], ['manager', null]]) {
+      seat(appRole, projectRole)
+      let probed = false
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { probed = true; return true } })
+      const { unmount } = onTab()
+      await screen.findByRole('tab', { name: 'Table' })
+      await waitFor(() => expect(legalInput(), `${appRole}/${projectRole}`).toBeTruthy())
+      expect(legalButton(), `${appRole}/${projectRole}`).toBeTruthy()
+      expect(legalButton().getAttribute('title'), `${appRole}/${projectRole}`).toBe(LEGAL_ADD_HINT)
+      expect(probed, `${appRole}/${projectRole}`).toBe(true)
+      unmount()
+    }
+  })
+
+  it('a member, a reviewer, and someone with no seat and no app role above user are not shown it at all', async () => {
+    for (const [appRole, projectRole] of [['member', 'member'], ['member', 'reviewer'], ['member', null]]) {
       seat(appRole, projectRole)
       let probed = false
       ctx.getAdapter = () => ({ ...REAL_ADAPTER(), supportsLegalFiles: async () => { probed = true; return true } })
@@ -1120,5 +1173,534 @@ describe('Add as Legal (S4b)', () => {
     await settle()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(calls).toEqual([])
+  })
+})
+
+// ── Post-overhaul S4c: the Table navigates like an explorer ─────────────────
+// Audrey, 2026-10-05: "i should be able to press into a folder and the table
+// should show the files/folders in that folder … at the top i should see the
+// breadcrumb path … think how the table view works in windows explorer". One
+// folder at a time, a crumb bar with an Up button, Backspace and Alt+← go
+// up, the search box reaches the whole tree, and the Columns view keeps the
+// same place. Each guard below has its CONTROL: the state in which the guard
+// must NOT act, which a version without the guard would get wrong.
+describe('the Table as an explorer (S4c)', () => {
+  afterEach(() => { _resetOverlaysForTests(); ctx.getAdapter = REAL_ADAPTER })
+  const keyOn = (el, key, init = {}) => fireEvent.keyDown(el, { key, ...init })
+  const focusedName = () => document.activeElement?.getAttribute?.('data-node-id') || null
+
+  it('opens on the project folder: folders then files, the crumb "Project", Up greyed, no Location column', async () => {
+    await mountTable()
+    expect(namesOf()).toEqual(['ASSETS', 'brief.pdf'])
+    expect(crumbOf()).toEqual(['Project'])
+    expect(document.querySelector('[data-files-crumbs] [aria-current="location"]').textContent).toBe('Project')
+    expect(upButton().disabled).toBe(true)
+    expect(upButton().getAttribute('title')).toBe('This is the project folder')
+    expect(document.querySelector('[data-files-table]').getAttribute('data-mode')).toBe('folder')
+  })
+
+  it('a click on a folder row enters it; the crumb grows; Up names the parent and the key; a crumb goes back', async () => {
+    await mountTable()
+    fireEvent.click(rowNamed('ASSETS'))
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    expect(namesOf()).toEqual(['hero-shot'])
+    expect(upButton().disabled).toBe(false)
+    expect(upButton().getAttribute('title')).toBe('Up to Project (Backspace)')
+    enter('hero-shot')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    expect(namesOf()).toEqual(['hero_v3.mov'])
+    expect(upButton().getAttribute('title')).toBe('Up to ASSETS (Backspace)')
+    // Every crumb but the last is a button; the last is where you are.
+    const crumbButtons = [...document.querySelectorAll('[data-files-crumbs] button.fx-crumb-btn')].map(b => b.textContent)
+    expect(crumbButtons).toEqual(['Project', 'ASSETS'])
+    fireEvent.click(screen.getByRole('button', { name: 'ASSETS', exact: true }))
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    fireEvent.click(upButton())
+    expect(crumbOf()).toEqual(['Project'])
+    expect(namesOf()).toEqual(['ASSETS', 'brief.pdf'])
+  })
+
+  it('entering a folder clears the selected file (the window closes) — the file is not in this folder any more', async () => {
+    await mountTable()
+    fireEvent.click(rowNamed('brief.pdf'))
+    expect(document.querySelector('[data-file-details]')).toBeTruthy()
+    enter('ASSETS')
+    expect(document.querySelector('[data-file-details]')).toBeNull()
+  })
+
+  it('Backspace on a row goes up, and focus lands on the folder just left; Alt+← does the same', async () => {
+    await mountTable()
+    enter('ASSETS'); enter('hero-shot')
+    const hero = screen.getByRole('button', { name: 'hero_v3.mov' })
+    hero.focus()
+    keyOn(hero, 'Backspace')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    await waitFor(() => expect(focusedName()).toBe('hero'))
+    keyOn(document.activeElement, 'ArrowLeft', { altKey: true })
+    expect(crumbOf()).toEqual(['Project'])
+    await waitFor(() => expect(focusedName()).toBe('assets'))
+  })
+
+  it('CONTROL: Backspace does nothing at the root, with Shift, in the search box, under a dialog, or while the page is off screen', async () => {
+    const { rerender } = await mountTable({ projectId: 'p1', showPicker: false, pageActive: true })
+    // At the root there is nowhere to go.
+    const assets = screen.getByRole('button', { name: 'ASSETS' })
+    assets.focus()
+    keyOn(assets, 'Backspace')
+    expect(crumbOf()).toEqual(['Project'])
+    enter('ASSETS')
+    // Shift+Backspace is not the key.
+    const hero = screen.getByRole('button', { name: 'hero-shot' })
+    hero.focus()
+    keyOn(hero, 'Backspace', { shiftKey: true })
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    // In the search box Backspace edits the query: the handler is not there.
+    filterBox().focus()
+    keyOn(filterBox(), 'Backspace')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    // Under a kit dialog or menu the table's keys stand down.
+    const release = pushModal({})
+    hero.focus()
+    keyOn(hero, 'Backspace')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    release()
+    // While R.A.B.B.I.T. is not the page on screen, nothing acts.
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} pageActive={false} />)
+    hero.focus()
+    keyOn(hero, 'Backspace')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    // …and back on screen, the same key goes up (the gate, not a dead key).
+    rerender(<ProjectFilesExplorer projectId="p1" showPicker={false} pageActive={true} />)
+    hero.focus()
+    keyOn(hero, 'Backspace')
+    expect(crumbOf()).toEqual(['Project'])
+    // While a query is typed the rows are a search, not a folder: Backspace
+    // on a result neither changes the folder underneath nor clears the query.
+    enter('ASSETS')
+    search('hero')
+    const result = screen.getByRole('button', { name: 'hero_v3.mov' })
+    result.focus()
+    keyOn(result, 'Backspace')
+    keyOn(result, 'ArrowLeft', { altKey: true })
+    expect(filterBox().value).toBe('hero')
+    expect(document.querySelector('[data-files-table]').getAttribute('data-mode')).toBe('search')
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(crumbOf(), 'the folder underneath was untouched').toEqual(['Project', 'ASSETS'])
+  })
+
+  it('Enter on a folder\'s name opens it; the arrows, Home and End walk the name buttons, one of which is in the tab order', async () => {
+    const files = [...FILES, { id: '7', name: 'aaa.txt', folder_id: 'root', size_bytes: 1, mime_type: 'text/plain', created_at: '2026-09-05T10:00:00Z' }]
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFiles: async () => files })
+    await mountTable()
+    expect(namesOf()).toEqual(['ASSETS', 'aaa.txt', 'brief.pdf'])
+    const buttons = () => [...document.querySelectorAll('[data-files-table] [data-node-id]')]
+    expect(buttons().map(b => b.tabIndex)).toEqual([0, -1, -1])
+    buttons()[0].focus()
+    keyOn(buttons()[0], 'ArrowDown')
+    expect(focusedName()).toBe('f:7')
+    keyOn(document.activeElement, 'End')
+    expect(focusedName()).toBe('f:1')
+    keyOn(document.activeElement, 'ArrowDown')
+    expect(focusedName(), 'the last row stays').toBe('f:1')
+    keyOn(document.activeElement, 'Home')
+    expect(focusedName()).toBe('assets')
+    keyOn(document.activeElement, 'ArrowUp')
+    expect(focusedName(), 'the first row stays').toBe('assets')
+    // Enter on a folder's name is the button's click: the folder opens, and
+    // focus goes to its first row.
+    fireEvent.click(document.activeElement)
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    await waitFor(() => expect(focusedName()).toBe('hero'))
+    // The selected file's row is the one in the tab order.
+    fireEvent.click(upButton())
+    fireEvent.click(rowNamed('brief.pdf'))
+    expect(buttons().map(b => b.tabIndex)).toEqual([-1, -1, 0])
+  })
+
+  it('the second click of a double-click (detail 2) on the new folder\'s row is dropped; a FRESH click (detail 1) and a keyboard click (detail 0) right after a move are never held back', async () => {
+    await mountTable()
+    fireEvent.click(rowNamed('ASSETS'), { detail: 1 })
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    // The second click of the double-click lands on the new folder's first row.
+    fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
+    expect(crumbOf(), 'held back').toEqual(['Project', 'ASSETS'])
+    // A fresh click is a new gesture (round 2, item 5: holding every click
+    // for a fixed time was both too short for a slow double-click and a
+    // needless wait for a quick person).
+    fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    // CONTROL: a keyboard click (detail 0) right after a move is never held back.
+    fireEvent.click(upButton())
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    enter('hero-shot')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+  })
+
+  it('the window is by the clock and longer than any OS double-click time: a detail-2 click 100 ms and 999 ms after a move is held, at 1,000 ms it acts; the name button the same', async () => {
+    await mountTable()
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(1_000_000)
+      fireEvent.click(rowNamed('ASSETS'), { detail: 1 })
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+      now.mockReturnValue(1_000_100)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
+      expect(crumbOf(), 'held back at 100 ms').toEqual(['Project', 'ASSETS'])
+      // The name button's own click too (it stops the row's).
+      fireEvent.click(rowNamed('hero-shot').querySelector('[data-node-id]'), { detail: 2 })
+      expect(crumbOf(), 'the name button is held back too').toEqual(['Project', 'ASSETS'])
+      now.mockReturnValue(1_000_999)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 3 })
+      expect(crumbOf(), 'held back at 999 ms').toEqual(['Project', 'ASSETS'])
+      now.mockReturnValue(1_001_000)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 2 })
+      expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    } finally { now.mockRestore() }
+  })
+
+  it('a double-click on a folder opens it ONCE: the dblclick that lands on the new folder\'s row within the window previews nothing; past it, a double-click previews (review round 1, item 5)', async () => {
+    await mountTable()
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(2_000_000)
+      enter('ASSETS')
+      // The double-click, 480 ms apart (slower than round 1's window, within
+      // Windows' default 500 ms): its first click opens the folder, its
+      // second (detail 2) is held, and the dblclick fires on the file now
+      // under the pointer.
+      now.mockReturnValue(2_002_000)
+      fireEvent.click(rowNamed('hero-shot'), { detail: 1 })
+      expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+      now.mockReturnValue(2_002_480)
+      fireEvent.click(rowNamed('hero_v3.mov'), { detail: 2 })
+      fireEvent.doubleClick(rowNamed('hero_v3.mov'))
+      expect(document.querySelector('[data-file-preview]'), 'no preview of a file nobody chose').toBeNull()
+      now.mockReturnValue(2_003_000)
+      fireEvent.doubleClick(rowNamed('hero_v3.mov'))
+      expect(document.querySelector('[data-file-preview]')).toBeTruthy()
+    } finally { now.mockRestore() }
+  })
+
+  it('the keys stand down in a text field inside the table area — by the element, whatever the case of its tag name', async () => {
+    await mountTable()
+    enter('ASSETS')
+    const main = document.querySelector('.fx-main')
+    const input = document.createElement('input')
+    main.appendChild(input)
+    try {
+      input.focus()
+      keyOn(input, 'Backspace')
+      expect(crumbOf(), 'Backspace in a field edits the field').toEqual(['Project', 'ASSETS'])
+      keyOn(input, 'ArrowLeft', { altKey: true })
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    } finally { main.removeChild(input) }
+  })
+
+  it('Alt+← is taken, never the browser\'s Back: at the project folder and during a search it is prevented and does nothing; a plain ← is left alone (review round 1, item 9)', async () => {
+    await mountTable()
+    const row = rowNamed('ASSETS').querySelector('[data-node-id]')
+    row.focus()
+    expect(fireEvent.keyDown(row, { key: 'ArrowLeft', altKey: true }), 'prevented at the root').toBe(false)
+    expect(crumbOf()).toEqual(['Project'])
+    expect(fireEvent.keyDown(row, { key: 'ArrowLeft' }), 'a plain ← is not the explorer\'s').toBe(true)
+    enter('ASSETS')
+    search('hero')
+    const match = document.querySelector('[data-files-table] [data-node-id]')
+    expect(fireEvent.keyDown(match, { key: 'ArrowLeft', altKey: true }), 'prevented in a search').toBe(false)
+    expect(document.querySelector('[data-files-table]').getAttribute('data-mode')).toBe('search')
+  })
+
+  it('the search box reaches the whole tree: matches with their Location, a count, Clear returns to the folder you were in', async () => {
+    await mountTable()
+    enter('ASSETS')
+    search('hero')
+    expect(document.querySelector('[data-files-table]').getAttribute('data-mode')).toBe('search')
+    expect(document.querySelector('[data-search-note]').textContent).toBe('2 matches for “hero” across the project')
+    expect(namesOf()).toEqual(['hero-shot', 'hero_v3.mov'])
+    const heads = [...document.querySelectorAll('.ui-table[data-files-table] th')].map(t => t.textContent.trim())
+    expect(heads).toContain('Location')
+    const loc = (name) => rowNamed(name).querySelectorAll('td')[heads.indexOf('Location')].textContent
+    expect(loc('hero_v3.mov')).toBe('assets/hero-shot')
+    expect(loc('hero-shot')).toBe('assets/hero-shot')
+    expect(document.querySelector('[data-folder-up]'), 'no Up while searching').toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    expect(namesOf()).toEqual(['hero-shot'])
+  })
+
+  it('a search with no match says so, naming the query and the project', async () => {
+    await mountTable()
+    search('zzz-nothing')
+    expect(document.querySelector('[data-files-table]')).toBeNull()
+    expect(document.querySelector('[data-files-empty="search"]').textContent).toContain('No files match “zzz-nothing” in this project')
+    expect(document.querySelector('[data-search-note]').textContent).toBe('0 matches for “zzz-nothing” across the project')
+  })
+
+  it('a folder opened from the search results becomes the current folder, and the query clears', async () => {
+    await mountTable()
+    search('hero')
+    enter('hero-shot')
+    expect(filterBox().value).toBe('')
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    expect(namesOf()).toEqual(['hero_v3.mov'])
+  })
+
+  it('an empty folder says so inside the table area, and Backspace still goes up from it', async () => {
+    const folders = [...FOLDERS, { id: 'empty', kind: 'category', path: 'EMPTY', name: 'EMPTY', parent_id: 'root' }]
+    ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async () => folders })
+    await mountTable()
+    enter('EMPTY')
+    expect(document.querySelector('[data-files-table]')).toBeNull()
+    expect(document.querySelector('[data-files-empty="folder"]').textContent).toContain('Empty folder')
+    // Focus fell to the Up button (there is no row to take it).
+    await waitFor(() => expect(document.activeElement).toBe(upButton()))
+    keyOn(upButton(), 'Backspace')
+    expect(crumbOf()).toEqual(['Project'])
+  })
+
+  it('the Columns view keeps the same place, and so does the file window\'s Location', async () => {
+    await mountTable()
+    enter('ASSETS'); enter('hero-shot')
+    fireEvent.click(screen.getByRole('tab', { name: 'Columns' }))
+    const heads = [...document.querySelectorAll('.fx-column-head')].map(h => h.textContent)
+    expect(heads).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    fireEvent.click(document.querySelector('.fx-col-item[data-node-id="f:2"]'))
+    const location = [...document.querySelectorAll('[data-file-details] .fx-details-pair')].find(p => p.querySelector('dt').textContent === 'Location')
+    expect(location.querySelector('dd').textContent).toBe('ASSETS › hero-shot')
+    fireEvent.click(screen.getByRole('tab', { name: 'Table' }))
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    expect(rowNamed('hero_v3.mov').hasAttribute('data-selected')).toBe(true)
+  })
+
+  it('"Show in Files" lands in the file\'s folder with the file selected, in the Table too', async () => {
+    navigateTo({ view: 'files', fileId: '2', projectId: 'p1' })
+    render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+    await waitFor(() => expect(document.querySelector('[data-file-details]')?.getAttribute('data-file-details')).toBe('f:2'))
+    expect(crumbOf()).toEqual(['Project', 'ASSETS', 'hero-shot'])
+    expect(rowNamed('hero_v3.mov').hasAttribute('data-selected')).toBe(true)
+  })
+
+  // ── The one-time re-filing of shot folders (S4c item 2) ─────────────────
+  // A project from before S4c has its shot folders under SHOTS. The tab
+  // OFFERS the move to someone who can write the open project — a banner
+  // with the count and the names — asks first, shows the run, and says what
+  // moved and what was left with the reason. Never on the Resources page,
+  // never to a reader, never when nothing is pending.
+  describe('the offer to move shot folders into their scenes', () => {
+    const LEGACY_FOLDERS = [
+      ...FOLDERS,
+      { id: 'cs', kind: 'category', path: 'SCENES', name: 'SCENES', parent_id: 'root' },
+      { id: 'csh', kind: 'category', path: 'SHOTS', name: 'SHOTS', parent_id: 'root' },
+      { id: 'f-sc1', kind: 'entity', path: 'SCENES/Dawn', name: 'Dawn', parent_id: 'cs', scene_id: 'sc1', slug: 'Dawn' },
+      { id: 'f-sh1', kind: 'entity', path: 'SHOTS/The-Door', name: 'The-Door', parent_id: 'csh', shot_id: 'sh1', slug: 'The-Door' },
+      { id: 'f-sh2', kind: 'entity', path: 'SHOTS/The-Lamp', name: 'The-Lamp', parent_id: 'csh', shot_id: 'sh2', slug: 'The-Lamp' },
+    ]
+    function legacy({ canWrite = true, result } = {}) {
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async () => LEGACY_FOLDERS })
+      // EVERY shot and scene of the project (`allShots` / `allScenes`): the
+      // active list's rows (`shots` / `scenes`) are empty here on purpose —
+      // the run moves every shot's folder, so the offer must count every
+      // one (review round 1, item 3).
+      ctx.allShots = [{ id: 'sh1', name: 'The door', scene_id: 'sc1' }, { id: 'sh2', name: 'The lamp', scene_id: 'sc1' }]
+      ctx.allScenes = [{ id: 'sc1', name: 'Dawn' }]
+      ctx.shots = []
+      ctx.scenes = []
+      ctx.adapterMode = 'supabase'
+      ctx.refileShotFolders = vi.fn(async (opts) => {
+        opts?.onProgress?.({ name: 'The-Door', done: 0, total: 2 })
+        return result || { moved: [{ shotId: 'sh1', name: 'The-Door', from: 'SHOTS/The-Door', to: 'SCENES/Dawn/The-Door', files: 1 }, { shotId: 'sh2', name: 'The-Lamp', from: 'SHOTS/The-Lamp', to: 'SCENES/Dawn/The-Lamp', files: 0 }], left: [], removedShotsCategory: true }
+      })
+      // A reader: a workspace user holding a REVIEWER seat on a staffed
+      // project (projectRoleMatrix: reviewers read, comment and build lists,
+      // and change nothing else).
+      perms.role = canWrite ? 'admin' : 'user'
+      ctx.projectIsStaffed = !canWrite
+      ctx.myProjectRole = canWrite ? null : 'reviewer'
+    }
+    afterEach(() => { delete ctx.shots; delete ctx.scenes; delete ctx.allShots; delete ctx.allScenes; delete ctx.refileShotFolders; delete ctx.adapterMode; delete ctx.projectIsStaffed; delete ctx.myProjectRole; perms.role = 'admin' })
+    const offer = () => document.querySelector('[data-shot-refile-offer]')
+
+    it('is a banner on the tab naming how many and which, with the one action; the question lists each move; the run reports', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      expect(offer().textContent).toContain('2 shot folders still sit under SHOTS: The-Door, The-Lamp.')
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      const dialog = screen.getByRole('dialog', { name: 'Move 2 shot folders into their scenes?' })
+      const lines = [...dialog.querySelectorAll('[data-shot-refile-list] li')].map(li => li.getAttribute('title'))
+      expect(lines).toEqual(['SHOTS/The-Door → SCENES/Dawn/The-Door', 'SHOTS/The-Lamp → SCENES/Dawn/The-Lamp'])
+      // "no file is deleted" since review round 1: the empty SHOTS folder IS
+      // removed at the end, and the sentence says so — and a trashed file,
+      // which the cloud cannot see, keeps its place.
+      expect(dialog.textContent).toContain('no file is deleted, and only an empty SHOTS folder is removed at the end. A file in Recently deleted keeps its place and still restores. If it stops part way')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Move shot folders' }))
+      expect(ctx.refileShotFolders).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-result]').textContent).toBe('Moved 2 shot folders into their scenes. The empty SHOTS folder is gone.')
+      expect(document.querySelector('[data-shot-refile-result]').getAttribute('data-tone')).toBe('success')
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('what was left is named with its reason, on a warning banner; the offer stays for what is still pending', async () => {
+      legacy({ result: { moved: [{ shotId: 'sh1', name: 'The-Door', files: 1 }], left: [{ shotId: 'sh2', name: 'The-Lamp', reason: '“board.png” is missing from rabbit-files' }], removedShotsCategory: false } })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      const result = document.querySelector('[data-shot-refile-result]')
+      expect(result.textContent).toBe('Moved 1 of 2. Left where it was: The-Lamp (“board.png” is missing from rabbit-files).')
+      expect(result.getAttribute('data-tone')).toBe('warning')
+      // The rows are what they were (the fake moved nothing), so the offer is back.
+      expect(offer()).toBeTruthy()
+      fireEvent.click(within(result).getByRole('button', { name: 'Dismiss' }))
+      expect(document.querySelector('[data-shot-refile-result]')).toBeNull()
+    })
+
+    it('while it runs, the line names the shot it is on; a backend that answers in one go gets "shot folders"; what was not found on disk is said with the result (round 2, items 1 and 10)', async () => {
+      legacy()
+      let release
+      ctx.refileShotFolders = vi.fn((opts) => new Promise((resolve) => {
+        opts.onProgress({ name: 'The-Door', done: 0, total: 2 })
+        release = () => resolve({ moved: [{ shotId: 'sh1', name: 'The-Door', files: 2, missing: 1 }, { shotId: 'sh2', name: 'The-Lamp', files: 0, missing: 0 }], left: [], removedShotsCategory: true })
+      }))
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-progress]').textContent).toContain('Moving The-Door (1 of 2)…')
+      expect(offer(), 'no offer while it runs').toBeNull()
+      release()
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-result]').textContent).toBe('Moved 2 shot folders into their scenes. The empty SHOTS folder is gone. 1 file was not found on this computer; its record moved with the folder, and the relink census finds it.')
+      cleanup()
+      // One answer, no progress: the line names the shot folders.
+      legacy()
+      let release2
+      ctx.refileShotFolders = vi.fn(() => new Promise((resolve) => { release2 = () => resolve({ moved: [], left: [], removedShotsCategory: false }) }))
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      expect(document.querySelector('[data-shot-refile-progress]').textContent).toContain('Moving shot folders (1 of 2)…')
+      release2()
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeNull())
+    })
+
+    it('a run still going for the last project is not shown on the next: the line goes, and its offer is read afresh (round 2, item 10)', async () => {
+      legacy()
+      ctx.refileShotFolders = vi.fn((opts) => new Promise(() => { opts.onProgress({ name: 'The-Door', done: 0, total: 2 }) }))
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async (id) => (id === 'p1' ? LEGACY_FOLDERS : FOLDERS) })
+      const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeTruthy())
+      ctx.activeProjectId = 'p2'
+      rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-progress]')).toBeNull())
+      expect(offer()).toBeNull()
+      ctx.activeProjectId = 'p1'
+    })
+
+    it('the question\'s words on a trashed file follow the store: the cloud cannot see one (it keeps its place), the Local Server moves it with its folder (round 2, item 12)', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      expect(screen.getByRole('dialog').textContent).toContain('A file in Recently deleted keeps its place and still restores.')
+      cleanup()
+      legacy()
+      ctx.supportsManagedFiles = true
+      try {
+        await mountTable({ projectId: 'p1', showPicker: false })
+        await waitFor(() => expect(offer()).toBeTruthy())
+        fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+        expect(screen.getByRole('dialog').textContent).toContain('A file in Recently deleted moves with its folder.')
+        expect(screen.getByRole('dialog').textContent).not.toContain('keeps its place')
+      } finally { delete ctx.supportsManagedFiles }
+    })
+
+    it('the move keeps the folder you were in (the rows are read again; the place is not lost)', async () => {
+      legacy()
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      enter('ASSETS')
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-result]')).toBeTruthy())
+      await new Promise(r => setTimeout(r, 30))
+      expect(crumbOf()).toEqual(['Project', 'ASSETS'])
+    })
+
+    it('a refusal from the backend is read on screen; Cancel on the question moves nothing', async () => {
+      legacy()
+      ctx.refileShotFolders = vi.fn(async () => { throw new Error('permission denied for table folders') })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await waitFor(() => expect(offer()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(ctx.refileShotFolders).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders into their scenes…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Move shot folders' }))
+      await waitFor(() => expect(document.querySelector('[data-shot-refile-error]')?.textContent).toBe('permission denied for table folders'))
+    })
+
+    it('CONTROL: no offer to a reader, none on the Resources page, none when every shot folder is already in its scene, none with no shots', async () => {
+      legacy({ canWrite: false })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      await mountTable()  // the Resources host
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async () => LEGACY_FOLDERS.map(f => (f.shot_id ? { ...f, path: `SCENES/Dawn/${f.slug}`, parent_id: 'f-sc1' } : f)) })
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      cleanup()
+      legacy()
+      ctx.allShots = []
+      ctx.shots = [{ id: 'sh1', name: 'The door', scene_id: 'sc1' }] // the active list alone is not the project's shots
+      await mountTable({ projectId: 'p1', showPicker: false })
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+    })
+
+    it('the offer is the OPEN project\'s: switching to a project with nothing under SHOTS drops it', async () => {
+      legacy()
+      ctx.getAdapter = () => ({ ...REAL_ADAPTER(), listFolders: async (id) => (id === 'p1' ? LEGACY_FOLDERS : FOLDERS) })
+      const { rerender } = render(<ProjectFilesExplorer projectId="p1" showPicker={false} />)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Table' }))
+      await waitFor(() => expect(offer()).toBeTruthy())
+      ctx.activeProjectId = 'p2'
+      rerender(<ProjectFilesExplorer projectId="p2" showPicker={false} />)
+      await waitFor(() => expect(offer()).toBeNull())
+      await new Promise(r => setTimeout(r, 20))
+      expect(offer()).toBeNull()
+      ctx.activeProjectId = 'p1'
+    })
+  })
+
+  it('the crumb bar is the table head\'s height on its paper, never wraps, and the keys handler sits on the table area only', () => {
+    expect(css).toMatch(/\.fx-crumbs \{[^}]*height: var\(--table-head\);[^}]*background-color: var\(--color-paper-raised\);[^}]*overflow: hidden;/s)
+    expect(css).toMatch(/\.fx-crumb-list \{[^}]*white-space: nowrap;/s)
+    expect(css).toMatch(/\.fx-crumb-here \{[^}]*color: var\(--color-ink\); font-weight: 600; \}/)
+    // The handler is React's, on the table area — not on document or window,
+    // which would act from every page (S2a-01, S4a-07).
+    expect(code).toMatch(/className="fx-main" onKeyDown=\{view === 'table' \? onTableKeyDown : undefined\}/)
+    expect(code).not.toMatch(/(document|window)\.addEventListener\('keydown'/)
+    // …and it stands down for the page, an overlay and a text field.
+    expect(code).toMatch(/if \(!pageActive \|\| overlayOpen\(\)\) return/)
+    expect(code).toMatch(/if \(isTextField\(e\.target\) \|\| e\.ctrlKey \|\| e\.metaKey\) return/)
   })
 })

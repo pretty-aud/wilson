@@ -206,7 +206,10 @@ describe('FILES under RESOURCES, and the file facts (Audrey, 2026-09-11 00:50)',
     expect(explorer).toContain('adapter.listFolders?.bind(adapter)')
     expect(explorer).toContain('adapter.listFiles?.bind(adapter)')
     expect(explorer).toContain('adapter.listManagedFiles?.bind(adapter)')
-    expect(explorer).toContain('buildFileTree({ folders, files, managedFiles })')
+    // S4c: the three lists are gathered first (rowsOnScreen, which the
+    // re-filing offer reads too) and the tree is built from them.
+    expect(explorer).toContain('return { folders, files, managedFiles }')
+    expect(explorer).toContain('buildFileTree(rowsOnScreen)')
     expect(explorer).toContain('data-files-table')
     expect(explorer).toContain('data-files-columns')
     expect(explorer).toContain('data-file-details')

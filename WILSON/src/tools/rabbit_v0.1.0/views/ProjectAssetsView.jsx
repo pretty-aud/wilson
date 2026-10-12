@@ -44,10 +44,13 @@ import {
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, Badge, CellSelect, statusMeta,
+  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
+// FX2 (0096): an asset's task count and its window's tasks count every task
+// ABOUT it (any of its items).
+import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
 import { usePermissions } from '../../../permissions/usePermissions'
@@ -261,14 +264,12 @@ export default function ProjectAssetsView() {
     return map
   }, [phases])
 
-  const taskCountByAsset = useMemo(() => {
-    const map = {}
-    for (const t of tasks) {
-      if (!t.asset_id) continue
-      map[t.asset_id] = (map[t.asset_id] || 0) + 1
-    }
-    return map
-  }, [tasks])
+  // FX2 (0096): every task ABOUT the asset counts (a per-row count, never
+  // added into a total); without items, the task's single asset, as before.
+  const taskCountByAsset = useMemo(
+    () => taskCountsByEntity(tasks, ctx?.taskItems, 'asset', ctx?.taskItemsAvailable === true),
+    [tasks, ctx?.taskItems, ctx?.taskItemsAvailable],
+  )
 
   // ── Filtering ──
   const applyFilters = useCallback((assetList) => {
@@ -645,7 +646,7 @@ export default function ProjectAssetsView() {
       {detailAssetId && (
         <AssetDetailPopup
           asset={assets.find(a => a.id === detailAssetId)}
-          tasks={tasks.filter(t => t.asset_id === detailAssetId)}
+          tasks={tasksAbout(tasks, ctx?.taskItems, 'asset', detailAssetId, ctx?.taskItemsAvailable === true)}
           phase={phaseById[assets.find(a => a.id === detailAssetId)?.phase_id]}
           ctx={ctx}
           thumbRevision={thumbRevision}
@@ -1838,9 +1839,9 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
           />
         </span>
       )}
-      // The status, where the 3px status-coloured rule under the header used
-      // to say it (R4-05; B2's TaskDetailPopup does the same).
-      subtitle={<StatusBadge status={asset.status || 'not_started'} />}
+      // The status banner across the popup under the title (FX3; every item
+      // popup draws the same one). It reads the live asset.
+      band={<StatusBanner status={asset.status || 'not_started'} />}
       // The backdrop closed it before, and still does.
       dismissOnBackdrop
       onClose={onClose}

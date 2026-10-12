@@ -166,7 +166,31 @@ export function createLocalServerStorageProvider({ available = hasLocalServer, f
     async exists(key) {
       here()
       const res = await f(localMediaUrl(key), { method: 'HEAD' })
-      return res.ok
+      if (res.ok) return true
+      // Only "not there" is false. A refusal or a fault (401, 503, the
+      // desktop mid-restart) is NOT an absence: the re-filing clears a
+      // thumbnail it finds at neither key and refuses a body it finds at
+      // neither, and a 503 read as "missing" would do either to a file that
+      // is there (S4c review round 2, item 12).
+      if (res.status === 404) return false
+      throw new Error(`[local] media check failed: ${await errorText(res)}`)
+    },
+
+    // Post-overhaul S4c: a body moves to a new key — the one-time re-filing
+    // of a private project's shot folders into their scenes. OPTIONAL, like
+    // getUrl: the registry's REQUIRED five are untouched, and a caller
+    // asks `typeof provider.move === 'function'` first. The route renames
+    // on disk, never overwrites (409) and answers only once the file is at
+    // its new key.
+    async move(from, to) {
+      here()
+      const res = await f(`${LOCAL_MEDIA_BASE}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      })
+      if (!res.ok) throw new Error(`[local] media move failed: ${await errorText(res)}`)
+      return await res.json()
     },
 
     // A URL a <video> can Range-request and an <a download> can save from.

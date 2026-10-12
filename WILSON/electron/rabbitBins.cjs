@@ -42,6 +42,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Worker } = require('node:worker_threads');
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
 const { refuseToOpen } = require('./openPath.cjs');
@@ -1426,6 +1427,909 @@ function mountRabbitBins(expressApp, deps) {
     writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json(takeResponse(bundle, shotIds));
   });
+
+  mountCloudBins(expressApp, {
+    gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow,
+    dialog, getMainWindow, shell, cloudBinsLocalPaths: deps.cloudBinsLocalPaths || null,
+    // How long a location's root is given to answer, its answer kept (an
+    // "off" answer longer), and how many questions may be out at once
+    // (defaults 2 s, 15 s, 60 s, 4; a test passes its own).
+    cloudBinsRootWaitMs: deps.cloudBinsRootWaitMs, cloudBinsRootTtlMs: deps.cloudBinsRootTtlMs,
+    cloudBinsRootOffTtlMs: deps.cloudBinsRootOffTtlMs, cloudBinsRootMaxAsking: deps.cloudBinsRootMaxAsking,
+    // How a root is asked (default: a worker thread, off libuv's pool); a
+    // test passes one built on the fs it spies.
+    cloudBinsAskRoot: deps.cloudBinsAskRoot,
+  });
+}
+
+// ── The desktop SIGNED IN (Bins on the cloud, BC1 / 0091; built on by BC2) ──
+//
+// A cloud clip is a LOCATION (the company's share, by network address —
+// \\server\footage, B2) plus a path inside it. These routes read such a file
+// on THIS computer: nothing here touches the project bundle (B12: the
+// signed-out mode above is unchanged), nothing here writes the cloud, and
+// nothing here is reached by the signed-out Bins tab.
+//
+// AUTHORISATION — the known-roots rule extended to a location's address.
+// The signed-out routes stream only a path a bundle row holds or one under
+// a folder the person picked (isAuthorizedDir). Signed in, the rows are in
+// the cloud, so the renderer first REGISTERS the company's locations here
+// (POST /cloud-bins/locations). A registered location's unc_path is then an
+// authorised root for the file routes — and ONLY a UNC path can be
+// registered (isUncPath): a body can never make C:\Users a root, which is
+// the S14 rule's whole concern. Per computer, a location may also be given a
+// LOCAL path (B2's fallback: the share seen as a drive letter) — accepted
+// only when it is a folder the person picked through the OS dialog this
+// session (`authorized`, the pick routes' Set), never from the body alone.
+//
+// The same-origin gate applies to every route below (the renderer is the
+// one caller); the per-path wall is the registration above. Paths inside a
+// location are validated the way 0091's CHECK validates relative_path.
+
+const cloudLocations = new Map(); // id -> { id, unc_path, local_path }
+
+// ── B2's fallback, per computer (BC2) ──
+// "Where is this location on this computer?" — the share seen as a drive
+// letter, or under another folder, on THIS machine only. It lives in the
+// desktop's own settings (main.cjs injects a JSON file under userData as
+// `cloudBinsLocalPaths: { read(), write(obj) }`), never in the cloud, and it
+// is written by ONE route only: the OS folder dialog this process opens for
+// that location (POST /cloud-bins/locations/:id/pick-local). A body can name a
+// folder, but a body is not consent (the S14 rule), so registration reads the
+// folder from here, keyed by the location's id AND the network address it was
+// chosen for: a location re-addressed since points at another share, and its
+// old folder is not followed — but kept (review round 1: an edit the cloud
+// refuses, or one undone, must not cost this computer its answer).
+//
+// The same file keeps the network ADDRESSES this computer's person has agreed
+// to connect to (review round 1). Any member can name or re-address a company
+// location; without that agreement every teammate's desktop would open a
+// connection, with their Windows sign-in, to whatever host a row names.
+function makeLocalPathStore(io) {
+  let memory = { version: 1, locations: {} };
+  const read = () => {
+    if (!io) return memory;
+    try {
+      const v = io.read();
+      return v && typeof v === 'object' && v.locations && typeof v.locations === 'object' ? v : { version: 1, locations: {} };
+    } catch { return { version: 1, locations: {} }; }
+  };
+  const write = (v) => { if (io) { try { io.write(v); } catch (e) { console.warn('cloud-bins local paths not saved:', e?.message || e); } } else memory = v; };
+  const connectedOf = (v) => (v.connected && typeof v.connected === 'object' ? v.connected : {});
+  return {
+    get(id) { const e = read().locations[String(id)]; return e && typeof e.local_path === 'string' && typeof e.unc_path === 'string' ? e : null; },
+    set(id, entry) { const v = read(); v.locations[String(id)] = entry; write(v); },
+    remove(id) { const v = read(); if (!(String(id) in v.locations)) return false; delete v.locations[String(id)]; write(v); return true; },
+    // BC2 review round 1: the network addresses this computer's person has
+    // agreed to connect to (keyed lower-cased; an address, not a location id,
+    // so a re-addressed location asks again).
+    connectedAddresses() { return Object.keys(connectedOf(read())); },
+    connect(unc) { const v = read(); v.connected = { ...connectedOf(v), [String(unc).toLowerCase()]: { unc_path: unc, at: new Date().toISOString() } }; write(v); },
+  };
+}
+const sameUnc = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
+// 0091's unc_path shape, as the database refuses it: two leading
+// backslashes, a server and at least a share, segments free of \ / : * ? "
+// < > |, no . or .. segment, no trailing backslash.
+const UNC_SEGMENT = '[^\\\\/:*?"<>|]+';
+const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`);
+// Two things a network address must never be (0091's CHECK has the same two
+// arms; review round 1 of BC1): an ADMINISTRATIVE share — C$, ADMIN$, IPC$,
+// the local disk in disguise, so \\localhost\C$\Users would make C:\Users a
+// root again — and the LOOPBACK host (localhost, 127.x, 0.0.0.0), which is
+// this very computer. A hidden share that is not administrative (footage$)
+// is an ordinary share.
+// Review round 2: the loopback arm knows every spelling of 127.0.0.1 (127.1,
+// 2130706433, 0177.0.0.1, 0x7f.0.0.1) and refuses an all-digit or 0-led host
+// outright; and NO segment may end in a dot or a space, because Windows
+// strips both when it opens a path — \\server\C$. is C$ to anything that is
+// not node:fs (which reads the literal name under its \\?\ prefix and finds
+// nothing). The same rule guards a relative path: ".. " is ".." to Windows.
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+)$/i;
+const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i;
+const TRAILING_DOT_OR_SPACE_RE = /[. ]$/;
+function isUncPath(p) {
+  if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false;
+  // Review round 2: no control character (a newline, a tab, a NUL…) — the
+  // address is shown verbatim in the native "Connect this computer to …?"
+  // question, and a row-writer must not be able to write lines into it.
+  // (0091's CHECK still admits them: deferred, a migration.) BC3 review
+  // round 1: the C1 controls, the zero-width and bidi marks, the line and
+  // paragraph separators, the invisible formatting characters and a BOM
+  // too; review round 2: by Unicode property (every control and format
+  // character, both separators, every default-ignorable code point — the
+  // Arabic letter mark, the TAG characters, the Hangul filler and the
+  // variation selectors were past the list) — the renderer's
+  // UNC_FORBIDDEN_CHARS_RE, held to this one by binsAdapterParity.test.js.
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(p)) return false;
+  const segs = p.split('\\'); // ['', '', host, share, ...]
+  if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false;
+  // BC2 review round 1: Windows' WebDAV forms put a port or SSL after the
+  // host (\\localhost@8080\x, \\127.0.0.1@SSL\x) — still THIS computer. The
+  // host is judged without them. (0091's CHECK still admits these forms; the
+  // desktop and the renderer refuse them — deferred to a migration.)
+  const host = segs[2].split('@')[0];
+  return !!host && !UNC_LOOPBACK_HOST_RE.test(host) && !UNC_ADMIN_SHARE_RE.test(segs[3]);
+}
+// 0091's relative_path shape: forward slashes, no leading or trailing
+// slash, no empty segment, no . or .., no backslash, no colon, and no
+// segment ending in a dot or a space (review round 2).
+function isSafeRelativePath(p) {
+  if (typeof p !== 'string' || !p || p.length > 1024) return false;
+  if (/(^\/|\/$|\/\/|\\|:)/.test(p)) return false;
+  return !p.split('/').some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg));
+}
+/**
+ * The absolute path of a cloud clip on this computer: the location's local
+ * path when one is registered for this computer, else its network address,
+ * joined with the relative path. Null when either is not the shape the
+ * database allows, or the location is not registered.
+ */
+// The ROOT's shape chooses the path rules, not the computer's. A network
+// address (\\server\share) or a drive letter is joined and compared the
+// Windows way on every platform — backslashes, case-folded — and a POSIX root
+// (the share a Mac mounts at /Volumes/footage) the POSIX way. Deciding by
+// process.platform was wrong twice over: CI runs these routes on Linux
+// against a POSIX temp folder, and a Mac desktop registers a POSIX local
+// path for a Windows-shaped network address.
+const WINDOWS_ROOT_RE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+function rootPathModule(root) {
+  return WINDOWS_ROOT_RE.test(String(root || '')) ? path.win32 : path.posix;
+}
+function resolveCloudFilePath(locations, locationId, relativePath) {
+  const loc = locations.get(String(locationId || ''));
+  if (!loc || !isSafeRelativePath(relativePath)) return null;
+  const root = loc.local_path || loc.unc_path;
+  const mod = rootPathModule(root);
+  const fold = (p) => (mod === path.win32 ? p.toLowerCase() : p);
+  const joined = mod.join(root, ...relativePath.split('/'));
+  // Containment, belt to the shape's braces: the joined path must still sit
+  // under the root (join normalises away nothing we allow, but a root that
+  // ends oddly must never let a path escape).
+  const rootKey = fold(mod.resolve(root)).replace(/[\\/]+$/, '');
+  const key = fold(mod.resolve(joined));
+  if (key !== rootKey && !key.startsWith(rootKey + mod.sep)) return null;
+  return joined;
+}
+
+/**
+ * BC2: the registered location a path on THIS computer lies in, and the
+ * path inside it the database's way (forward slashes). A location's folder
+ * on this computer (B2's fallback) is tried before its network address;
+ * containment by the ROOT's shape, case-folded where Windows folds. Null
+ * when the path is in none of them.
+ */
+function locateCloudPath(locations, abs) {
+  if (typeof abs !== 'string' || !abs) return null;
+  for (const loc of locations.values()) {
+    for (const root of [loc.local_path, loc.unc_path].filter(Boolean)) {
+      const mod = rootPathModule(root);
+      if (rootPathModule(abs) !== mod) continue;
+      const fold = (p) => (mod === path.win32 ? p.toLowerCase() : p);
+      const r = mod.resolve(root).replace(/[\\/]+$/, '');
+      const a = mod.resolve(abs).replace(/[\\/]+$/, '');
+      if (fold(a) === fold(r)) return { location: loc, relative_path: '' };
+      if (fold(a).startsWith(fold(r) + mod.sep)) {
+        return { location: loc, relative_path: a.slice(r.length + 1).split(mod.sep).join('/') };
+      }
+    }
+  }
+  return null;
+}
+// The share a network path lies in (\\server\share), when it is one a
+// location could be: never this computer, never an administrative share.
+function shareRootOfPath(p) {
+  const m = /^\\\\([^\\/]+)[\\/]([^\\/]+)/.exec(String(p || ''));
+  if (!m) return null;
+  const root = `\\\\${m[1]}\\${m[2]}`;
+  return isUncPath(root) ? root : null;
+}
+
+// A location root's one question, asked OFF libuv's pool (BC2, after review
+// round 1): a synchronous stat in a short-lived worker thread, which answers
+// whether the root is a folder and ends. A server that does not answer holds
+// that thread — never one of the four the main process's own files share.
+// The root is passed as data (workerData), never as code.
+const ROOT_WORKER_CODE = "const { workerData, parentPort } = require('node:worker_threads'); const fs = require('node:fs'); let ok = false; try { ok = fs.statSync(workerData).isDirectory(); } catch { ok = false; } parentPort.postMessage(ok);";
+function askRootInWorker(root) {
+  return new Promise((resolve) => {
+    let w;
+    try { w = new Worker(ROOT_WORKER_CODE, { eval: true, workerData: String(root) }); } catch { resolve(false); return; }
+    w.once('message', (ok) => resolve(ok === true));
+    w.once('error', () => resolve(false));
+    w.once('exit', () => resolve(false)); // no message: not reachable
+    w.unref();
+  });
+}
+
+function mountCloudBins(expressApp, deps) {
+  const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
+  const localPaths = makeLocalPathStore(deps.cloudBinsLocalPaths || null);
+  // ── Consent before contact (BC2 review round 1) ──
+  // A company location's network address is contacted from THIS computer
+  // only once its person has agreed: through the native confirmation below
+  // (POST /locations/:id/connect), or by picking files on that share in this
+  // process's own OS dialog. Until then nothing here touches the address —
+  // no stat at registration, no resolve, no stream — and registration says
+  // `connected: false`. A folder on this computer chosen for a location
+  // (pick-local) is the person's own choice and needs no more.
+  const connected = new Set(localPaths.connectedAddresses());
+  const isConnectedUnc = (unc) => typeof unc === 'string' && connected.has(unc.toLowerCase());
+  const connectUnc = (unc) => { if (!isConnectedUnc(unc)) { connected.add(unc.toLowerCase()); localPaths.connect(unc); } };
+  // Share roots the person picked files on in this process's OS dialogs
+  // (lower-cased): naming such a share as a location connects it.
+  const pickedShares = new Set();
+  const C = '/api/rabbit/cloud-bins';
+  expressApp.use(C, gate);
+
+  // BC2: "the desktop's file process is reachable" — the renderer asks this
+  // before it reads a cloud clip through these routes, and builds its
+  // composite capability object (data from the cloud, files from here) only
+  // on a 200. It says whether a decoder is installed, as the signed-out list
+  // route does. Nothing else: no path, no location, no state.
+  expressApp.get(`${C}/ping`, (_req, res) => {
+    res.json({ ok: true, ffmpeg: ffmpeg.hasFfmpeg() });
+  });
+  const authKey = (p) => pathKey(p).toLowerCase();
+  const pickedDir = (p) => {
+    if (!isAbs(p)) return false;
+    const lk = authKey(p);
+    if (authorized.has(lk)) return true;
+    for (const a of authorized) if (lk.startsWith(a + path.sep)) return true;
+    return false;
+  };
+  function isAbs(p) { return typeof p === 'string' && p.length > 0 && path.isAbsolute(p); }
+  function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
+  function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
+  // ── A location's ROOT, asked once and never on the main thread's clock ──
+  // Found on a real network path (BC2): Windows can hold a filesystem call
+  // on a share whose server does not answer for a long time — measured 5 s
+  // for a name that does not resolve and 42 s for an address nothing
+  // answers — and every route here runs in the desktop's MAIN process,
+  // where a synchronous call freezes the whole window. So a location's root
+  // is asked asynchronously, given ROOT_WAIT_MS to answer, and the answer is
+  // kept ROOT_TTL_MS; one question per root is in flight at a time (a pool
+  // thread waiting on a dead server is not asked again until it returns);
+  // and a clip under a root that did not answer is "not on this computer"
+  // without a call of its own. A root that answers after the limit counts
+  // from then on.
+  const ROOT_WAIT_MS = Number(deps.cloudBinsRootWaitMs) > 0 ? Number(deps.cloudBinsRootWaitMs) : 2000;
+  const ROOT_TTL_MS = Number(deps.cloudBinsRootTtlMs) > 0 ? Number(deps.cloudBinsRootTtlMs) : 15000;
+  // Review round 1: a root known to be off is asked again less often, and
+  // at most ROOT_MAX_ASKING questions are out at once — a question to a
+  // server that does not answer is held for as long as the server keeps it
+  // (42 s measured). A question past the cap waits for a free slot, inside
+  // the same ROOT_WAIT_MS.
+  //
+  // Where the question is asked (measured in the desktop app itself, after
+  // round 1): NOT on libuv's pool. Electron's main process has four pool
+  // threads, they serve the app's own files, posters and streams, and they
+  // cannot be widened from main.cjs (UV_THREADPOOL_SIZE set there read 16
+  // and changed nothing: with six such questions out, a local file read
+  // waited the full 8 s). Each question is a synchronous stat in its own
+  // short-lived worker thread instead (about 16 ms, measured): a held
+  // question holds that thread, never the pool (the same read: 2 ms).
+  // `deps.cloudBinsAskRoot(root) → Promise<boolean>` replaces it in a test.
+  const ROOT_OFF_TTL_MS = Number(deps.cloudBinsRootOffTtlMs) > 0 ? Number(deps.cloudBinsRootOffTtlMs) : 60000;
+  // Sixteen: a held question costs a parked worker thread, not a pool slot
+  // (measured: with a cap of four, six servers that do not answer kept a
+  // live share's question waiting past the limit, "not reachable").
+  const ROOT_MAX_ASKING = Number(deps.cloudBinsRootMaxAsking) > 0 ? Number(deps.cloudBinsRootMaxAsking) : 16;
+  const askRoot = typeof deps.cloudBinsAskRoot === 'function' ? deps.cloudBinsAskRoot : askRootInWorker;
+  let askingNow = 0;
+  const slotWaiters = [];
+  const takeSlot = () => (askingNow < ROOT_MAX_ASKING ? (askingNow++, Promise.resolve()) : new Promise((r) => slotWaiters.push(r)));
+  const freeSlot = () => { const next = slotWaiters.shift(); if (next) next(); else askingNow--; };
+  const rootAnswers = new Map();
+  function rootReachable(root) {
+    if (typeof root !== 'string' || !root) return Promise.resolve(false);
+    const k = root.toLowerCase();
+    const c = rootAnswers.get(k) || { ok: false, at: 0, asking: null, waiting: null };
+    if (c.waiting) return c.waiting;
+    // An off answer from ONE slow clip (`brief`) is kept as long as an on
+    // answer, not the full off time (review round 2).
+    if (c.asking || Date.now() - c.at < (c.ok || c.brief ? ROOT_TTL_MS : ROOT_OFF_TTL_MS)) return Promise.resolve(c.ok);
+    const asking = takeSlot().then(() => Promise.resolve().then(() => askRoot(root)).then((ok) => ok === true, () => false).finally(freeSlot));
+    asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null, brief: false }); });
+    // Known to be off and due again: "not reachable" at once, asked again
+    // behind it — a location that stays off costs nothing after the first
+    // time, one that comes back counts from the next question. (A root that
+    // WAS reachable is waited for, so a server that just went down is not
+    // read clip by clip.)
+    if (c.at > 0 && !c.ok) { rootAnswers.set(k, { ...c, asking }); return Promise.resolve(false); }
+    let timer = null;
+    const waiting = Promise.race([asking, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
+      clearTimeout(timer);
+      const cur = rootAnswers.get(k) || {};
+      if (v === null) { rootAnswers.set(k, { ...cur, ok: false, at: Date.now(), waiting: null, brief: false }); return false; }
+      rootAnswers.set(k, { ...cur, waiting: null });
+      return v;
+    });
+    rootAnswers.set(k, { ...c, asking, waiting });
+    return waiting;
+  }
+  // A location's root on THIS computer: its folder here, else its network
+  // address once this computer's person has agreed to connect to it, else
+  // none (never contacted).
+  const rootOf = (loc) => (loc ? loc.local_path || (isConnectedUnc(loc.unc_path) ? loc.unc_path : null) : null);
+  // The clip's location answers right now (a request's location_id).
+  const hereNow = (q) => rootReachable(rootOf(cloudLocations.get(String(q?.location_id || ''))));
+  // A file or a folder, asked without holding the thread — and within
+  // ROOT_WAIT_MS: a server that died after its root answered marks that
+  // root off at once, so the next clip on it is not asked (after review
+  // round 1; each such call can hold a pool thread until the server lets go).
+  // Review round 2: these run on libuv's pool (four threads in the main
+  // process, shared with the app's own files), so at most STAT_MAX are out
+  // at once — a share that dies mid-session holds at most two threads, not
+  // the pool. A check that waited for a slot asks again whether its root is
+  // still on before it stats; one that runs out of time while still waiting
+  // says "not here" without marking a healthy root off.
+  const STAT_MAX = 2;
+  let statNow = 0;
+  const statWaiters = [];
+  const takeStat = () => (statNow < STAT_MAX ? (statNow++, Promise.resolve()) : new Promise((r) => statWaiters.push(r)));
+  const freeStat = () => { const next = statWaiters.shift(); if (next) next(); else statNow--; };
+  const statKind = (p, kind) => {
+    let timer = null; let started = false; let abandoned = false;
+    const run = takeStat().then(() => {
+      if (abandoned || rootKnownOffFor(p)) { freeStat(); return false; }
+      started = true;
+      const ask = fs.promises.stat(p).then((s) => (kind === 'dir' ? s.isDirectory() : s.isFile()), () => false);
+      ask.finally(freeStat); // the slot is held as long as the thread is
+      return ask;
+    });
+    return Promise.race([run, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
+      clearTimeout(timer);
+      if (v === null) { if (started) markRootOffFor(p); else abandoned = true; return false; }
+      return v;
+    });
+  };
+  // The root this path lies under is known to be off right now.
+  function rootKnownOffFor(p) {
+    const lp = String(p).toLowerCase();
+    for (const loc of cloudLocations.values()) {
+      const root = rootOf(loc);
+      if (!root) continue;
+      const k = root.toLowerCase().replace(/[\\/]+$/, '');
+      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
+        const c = rootAnswers.get(root.toLowerCase());
+        if (c && c.at > 0 && !c.ok) return true;
+      }
+    }
+    return false;
+  }
+  function markRootOffFor(p) {
+    const lp = String(p).toLowerCase();
+    for (const loc of cloudLocations.values()) {
+      const root = rootOf(loc);
+      if (!root) continue;
+      const k = root.toLowerCase().replace(/[\\/]+$/, '');
+      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
+        rootAnswers.set(root.toLowerCase(), { ...(rootAnswers.get(root.toLowerCase()) || {}), ok: false, at: Date.now(), brief: true });
+      }
+    }
+  }
+  async function mapLimit(list, limit, fn) {
+    const out = new Array(list.length); let next = 0;
+    const run = async () => { while (next < list.length) { const i = next++; out[i] = await fn(list[i], i); } };
+    await Promise.all(Array.from({ length: Math.min(limit, list.length) }, run));
+    return out;
+  }
+  function resolveBody(q) {
+    const abs = resolveCloudFilePath(cloudLocations, q?.location_id, q?.relative_path);
+    return abs;
+  }
+
+  // Register the company's locations for this process: the list REPLACES
+  // what was registered before (BC2 — a sign-out, a switch of company or a
+  // location removed in the cloud must take its address off this computer's
+  // list, not leave it readable for the rest of the session). Each:
+  // { id, unc_path, local_path? }. A location whose unc_path is not a network
+  // address is refused by name. Its folder on THIS computer (B2's fallback)
+  // is the one the person chose through the OS dialog for it — saved by
+  // pick-local below, for the address it was chosen for — or a body
+  // local_path that is a folder picked this session (BC1); any other body
+  // local_path is dropped with its reason, never kept. Answers what this
+  // computer can reach right now — each root asked once, in parallel, within
+  // ROOT_WAIT_MS (a server that is off answers "not reachable", it does not
+  // freeze the window).
+  expressApp.post(`${C}/locations`, async (req, res) => {
+    const list = Array.isArray(req.body?.locations) ? req.body.locations : null;
+    if (!list) return res.status(400).json({ error: 'locations required' });
+    cloudLocations.clear();
+    // Review round 2: an empty list is a sign-out (or a company with none):
+    // the shares picked in this session's dialogs are forgotten with it, so
+    // the next company's list cannot connect on an earlier person's pick.
+    // (An address agreed to through Connect stays this computer's answer.)
+    if (list.length === 0) pickedShares.clear();
+    const out = [];
+    for (const l of list) {
+      const id = l && typeof l.id === 'string' ? l.id : null;
+      if (!id || !isUncPath(l.unc_path)) {
+        out.push({ id, unc_path: l?.unc_path ?? null, status: 'refused', reason: 'not_a_network_address' });
+        continue;
+      }
+      let local_path = null; let localReason = null; let localSource = null;
+      if (l.local_path != null && l.local_path !== '') {
+        if (isAbs(l.local_path) && pickedDir(l.local_path) && isDir(l.local_path)) { local_path = path.resolve(l.local_path); localSource = 'picked'; }
+        else localReason = 'local_path_not_picked';
+      }
+      if (!local_path) {
+        const saved = localPaths.get(id);
+        if (saved && sameUnc(saved.unc_path, l.unc_path) && isAbs(saved.local_path)) { local_path = saved.local_path; localSource = 'saved'; localReason = null; }
+        // Chosen for another address: not followed, but KEPT (review round 1).
+        else if (saved && !sameUnc(saved.unc_path, l.unc_path)) { localReason = localReason || 'address_changed'; }
+      }
+      // A share the person picked files on in this process's dialog, now
+      // named as a location ("Which location is this? Name it."): agreed.
+      if (pickedShares.has(String(l.unc_path).toLowerCase())) connectUnc(l.unc_path);
+      const loc = { id, unc_path: l.unc_path, local_path };
+      cloudLocations.set(id, loc);
+      const root = rootOf(loc);
+      out.push({
+        id, unc_path: l.unc_path, local_path, status: 'registered', reachable: false,
+        // Not agreed to yet: never contacted, and said so (review round 1).
+        connected: !!root, root: root || l.unc_path,
+        ...(localSource ? { local_path_source: localSource } : {}),
+        ...(localReason ? { local_path_reason: localReason } : {}),
+      });
+    }
+    await Promise.all(out.map(async (o) => { if (o.status === 'registered' && o.connected) o.reachable = await rootReachable(o.root); }));
+    res.json({ locations: out });
+  });
+
+  // ── Consent before contact (review round 1) ──
+  // "Connect this computer to \\server\share?" — a NATIVE confirmation,
+  // opened here for one REGISTERED location, naming its address exactly as
+  // the cloud holds it (never a name a page supplies: a name is a lever, the
+  // address is what is contacted). Cancel is the default. On Connect the
+  // address is kept in this computer's settings and asked at once.
+  // → { id, connected: true, reachable, root } or { canceled: true }.
+  expressApp.post(`${C}/locations/:id/connect`, async (req, res) => {
+    const loc = cloudLocations.get(String(req.params.id));
+    if (!loc) return res.status(403).json({ error: 'that footage location is not registered on this computer', code: 'unauthorized_location' });
+    if (!isConnectedUnc(loc.unc_path)) {
+      const win = deps.getMainWindow ? deps.getMainWindow() : null;
+      if (!deps.dialog?.showMessageBox || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+      const r = await deps.dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Connect', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'Connect to a footage location',
+        message: `Connect this computer to ${loc.unc_path}?`,
+        detail: 'WILSON will read footage there with your Windows sign-in. Connect only to a share you recognise, such as your company\'s file server or NAS. Only this computer keeps this answer.',
+      });
+      if (r?.response !== 0) return res.json({ canceled: true });
+      connectUnc(loc.unc_path);
+    }
+    const root = rootOf(cloudLocations.get(loc.id) || loc);
+    res.json({ id: loc.id, unc_path: loc.unc_path, connected: true, reachable: await rootReachable(root), root });
+  });
+
+  // ── B2's fallback: "Where is this location on this computer?" ──
+  // The OS folder dialog, opened HERE for one REGISTERED location (a body
+  // cannot save a folder for an address the renderer did not register from
+  // the cloud's list), and the answer kept in this computer's settings for
+  // that location and that address. The folder is not added to
+  // `authorized` (the process-wide set other subsystems trust): it is a
+  // root for this location's clips only (a body's name is ignored).
+  // → { id, local_path, reachable, root } or { canceled: true }.
+  expressApp.post(`${C}/locations/:id/pick-local`, async (req, res) => {
+    const loc = cloudLocations.get(String(req.params.id));
+    if (!loc) return res.status(403).json({ error: 'that footage location is not registered on this computer', code: 'unauthorized_location' });
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    // The title names the address as the cloud holds it, never a name the
+    // page supplies (review round 1: a name is a social-engineering lever).
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: `Where is ${loc.unc_path} on this computer?`,
+    });
+    if (result.canceled || !result.filePaths?.length) return res.json({ canceled: true });
+    const picked = result.filePaths[0];
+    if (!isAbs(picked) || !isDir(picked)) return res.status(400).json({ error: 'pick a folder', code: 'not_a_directory' });
+    const local_path = path.resolve(picked);
+    localPaths.set(loc.id, { unc_path: loc.unc_path, local_path, saved_at: new Date().toISOString() });
+    cloudLocations.set(loc.id, { ...loc, local_path });
+    res.json({ id: loc.id, unc_path: loc.unc_path, local_path, local_path_source: 'saved', reachable: await rootReachable(local_path), root: local_path });
+  });
+
+  // Forget this computer's folder for a location: its clips are read at the
+  // network address again. → { id, local_path: null, reachable, root }
+  expressApp.delete(`${C}/locations/:id/local`, async (req, res) => {
+    const id = String(req.params.id);
+    const had = localPaths.remove(id);
+    const loc = cloudLocations.get(id);
+    if (loc) cloudLocations.set(id, { ...loc, local_path: null });
+    if (!had && !loc) return res.status(404).json({ error: 'no folder is saved for that location on this computer', code: 'not_found' });
+    // Review round 2: through rootOf, like every other route — the address
+    // is asked only if this computer's person agreed to it.
+    const root = loc ? rootOf({ ...loc, local_path: null }) : null;
+    res.json({ id, unc_path: loc?.unc_path ?? null, local_path: null, connected: !!root, reachable: root ? await rootReachable(root) : false, root: loc?.unc_path ?? null });
+  });
+
+  // ── Adding clips from a location (BC2 item 3) ──
+  // The OS dialogs, opened here (a page never types a path into a request
+  // it then reads), starting at the first registered location this computer
+  // reaches. Nothing is added to the process-wide picked set: `prepare`
+  // below reads only inside the company's registered locations anyway.
+  // Every root asked at once (each within ROOT_WAIT_MS, most already known):
+  // the dialog opens at the first, in the company's order, that answered.
+  const firstReachableRoot = async () => {
+    const roots = [...cloudLocations.values()].map(rootOf);
+    const oks = await Promise.all(roots.map(rootReachable));
+    return roots.find((_r, i) => oks[i]) || undefined;
+  };
+  // A path's real target without holding the main thread: a drive letter
+  // mapped to a share whose server is off must not freeze the window
+  // (review round 1). Null on no answer within ROOT_WAIT_MS.
+  const realpathWithin = (p) => {
+    let timer = null;
+    return Promise.race([
+      fs.promises.realpath(p).catch(() => null),
+      new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); }),
+    ]).finally(() => clearTimeout(timer));
+  };
+  // What the person picked in this process's own OS dialog is their choice
+  // of share: it is remembered, and a registered location on it connects.
+  async function noteDialogPicks(paths) {
+    for (const p of paths || []) {
+      let share = shareRootOfPath(p);
+      if (!share && /^[A-Za-z]:[\\/]/.test(String(p))) share = shareRootOfPath(await realpathWithin(p));
+      if (!share) continue;
+      pickedShares.add(share.toLowerCase());
+      for (const loc of cloudLocations.values()) if (sameUnc(loc.unc_path, share)) connectUnc(loc.unc_path);
+    }
+  }
+  expressApp.post(`${C}/pick-files`, async (_req, res) => {
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      title: 'Add clips from a footage location',
+      defaultPath: await firstReachableRoot(),
+    });
+    if (result.canceled) return res.json({ paths: [], canceled: true });
+    await noteDialogPicks(result.filePaths);
+    res.json({ paths: result.filePaths, canceled: false });
+  });
+  expressApp.post(`${C}/pick-folder`, async (req, res) => {
+    const win = deps.getMainWindow ? deps.getMainWindow() : null;
+    if (!deps.dialog || !win) return res.status(503).json({ error: 'no window to open a dialog from', code: 'no_window' });
+    const result = await deps.dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: String(req.body?.title || 'Add a folder from a footage location').slice(0, 120),
+      defaultPath: await firstReachableRoot(),
+    });
+    if (result.canceled || !result.filePaths.length) return res.json({ path: null, canceled: true });
+    await noteDialogPicks(result.filePaths.slice(0, 1));
+    res.json({ path: result.filePaths[0], canceled: false });
+  });
+
+  // The location a picked path lies in. A drive letter that is a mapped
+  // network share is read through to its network address (the OS's own
+  // answer, realpath), so a share mapped as Z: still lands on its location.
+  async function locate(abs) {
+    const hit = locateCloudPath(cloudLocations, abs);
+    if (hit) return { ...hit, seen: abs };
+    if (/^[A-Za-z]:[\\/]/.test(abs)) {
+      // Asked off the main thread, within ROOT_WAIT_MS (a disconnected
+      // mapped drive must not freeze the window: review round 1).
+      const real = await realpathWithin(abs);
+      if (real && real !== abs) {
+        const viaReal = locateCloudPath(cloudLocations, real);
+        if (viaReal) return { ...viaReal, seen: real };
+        return { outside: true, real };
+      }
+    }
+    return null;
+  }
+  function outsideItem(p, real = null) {
+    const net = shareRootOfPath(real || p);
+    return {
+      kind: 'file', status: 'outside', source_path: p, original_name: path.basename(p),
+      reason: net ? 'no_location' : 'not_a_share', share_root: net,
+    };
+  }
+  function cloudFileItem(abs, rel, loc, name, subBin) {
+    if (!isSafeRelativePath(rel)) return { kind: 'file', status: 'unsafe_name', source_path: abs, original_name: name };
+    let st; try { st = fs.statSync(abs); } catch { return { kind: 'file', status: 'missing', source_path: abs, original_name: name }; }
+    const ext = extOf(name);
+    return {
+      kind: 'file', status: 'ok', location_id: loc.id, relative_path: rel,
+      source_path: abs, original_name: name, extension: ext, mime_type: guessMime(ext),
+      size_bytes: st.size, mtime: st.mtime.toISOString(),
+      media_type: guessMediaType(ext), is_sequence: false,
+      display_name: name.replace(/\.[A-Za-z0-9]{1,12}$/, ''),
+      suggestions: parseNameSuggestions(name),
+      sub_bin: subBin || null,
+    };
+  }
+  function cloudSequenceItem(dir, rel, loc, seq, subBin) {
+    const name = path.basename(dir);
+    if (!isSafeRelativePath(rel)) return { kind: 'sequence', status: 'unsafe_name', source_path: dir, original_name: name };
+    return {
+      kind: 'sequence', status: 'ok', location_id: loc.id, relative_path: rel,
+      source_path: dir, original_name: name, extension: seq.ext, mime_type: guessMime(seq.ext),
+      size_bytes: seq.size_bytes, mtime: seq.mtime, media_type: 'sequence',
+      is_sequence: true, sequence_pattern: seq.pattern, frame_count: seq.frame_count,
+      display_name: name,
+      sequence: { pattern: seq.pattern, frame_count: seq.frame_count, first_frame: seq.first_frame, last_frame: seq.last_frame, missing_frames: seq.missing_frames, sidecars: seq.sidecars || 0 },
+      suggestions: parseNameSuggestions(name),
+      sub_bin: subBin || null,
+    };
+  }
+
+  // paths → the add dialog's plan, by location. A path in none of the
+  // company's registered locations is REFUSED, never walked and never
+  // silently added: `status: 'outside'`, with the share it lies on when it
+  // is one (`share_root`, the add flow's "Which location is this? Name it.").
+  // Inside a location: a file, a frame sequence (one item per folder) or a
+  // folder walked as the signed-out prepare walks it (bounded; subfolders
+  // become nested bins unless folderAsBin is false). A name the database
+  // cannot store (a segment ending in a dot or a space) is `unsafe_name`.
+  // Duplicates (B8) are the renderer's to find: the cloud's rows are there.
+  expressApp.post(`${C}/prepare`, async (req, res) => {
+    // Absolute by either shape (BC1's trap 2: CI runs this on Linux, where a
+    // \\server\share path is not absolute to path.isAbsolute and would be
+    // dropped silently instead of refused by name).
+    const anyAbs = (p) => typeof p === 'string' && p.length > 0 && (path.win32.isAbsolute(p) || path.posix.isAbsolute(p));
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter(anyAbs) : [];
+    if (!paths.length) return res.status(400).json({ error: 'paths required (absolute)' });
+    const folderAsBin = req.body?.folderAsBin !== false;
+    const items = []; const folders = []; let truncated = false;
+    const seen = new Set();
+    const push = (item) => { const k = String(item.source_path).toLowerCase(); if (seen.has(k)) return; seen.add(k); items.push(item); };
+    const joinSub = (prefix, rel) => [prefix, rel].filter(Boolean).join('/') || null;
+    const joinRel = (base, rel) => [base, rel].filter(Boolean).join('/');
+    for (const p of paths) {
+      const where = await locate(p);
+      if (!where || where.outside) { push(outsideItem(p, where?.real || null)); continue; }
+      const { location: loc, relative_path: baseRel } = where;
+      // Its location answers first (a body can name a path in a location
+      // whose server is off; it is missing here, not a frozen window): the
+      // share the path itself names — only if this computer's person agreed
+      // to it, or picked on it in this process's dialog (review round 1) —
+      // else the location's root here.
+      const share = shareRootOfPath(p);
+      const agreed = !share || isConnectedUnc(loc.unc_path) || pickedShares.has(share.toLowerCase());
+      if (!agreed || !(await rootReachable(share || rootOf(loc)))) { push({ kind: 'file', status: 'missing', source_path: p, original_name: path.basename(p) }); continue; }
+      if (isFile(p)) { push(cloudFileItem(p, baseRel, loc, path.basename(p), null)); continue; }
+      if (!isDir(p)) { push({ kind: 'file', status: 'missing', source_path: p, original_name: path.basename(p) }); continue; }
+      const seq = detectSequence(p);
+      if (seq) { push(cloudSequenceItem(p, baseRel, loc, seq, null)); continue; }
+      const prefix = folderAsBin && baseRel ? path.basename(p) : null;
+      folders.push({ path: p, name: path.basename(p), sub_bin: prefix, location_id: loc.id });
+      const r = walkFolder(p, {
+        maxEntries: 5000, maxDepth: 8,
+        onDir: (abs, rel) => {
+          const s = detectSequence(abs);
+          if (s) {
+            const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+            push(cloudSequenceItem(abs, joinRel(baseRel, rel), loc, s, joinSub(prefix, parentRel)));
+            return false;
+          }
+          return true;
+        },
+        onFile: (abs, rel, name) => {
+          const sub = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+          push(cloudFileItem(abs, joinRel(baseRel, rel), loc, name, joinSub(prefix, sub)));
+        },
+      });
+      if (r.truncated) truncated = true;
+    }
+    res.json({ items, folders, truncated });
+  });
+
+  // files: [{ id, location_id, relative_path, is_sequence }] → what this
+  // computer can reach. A file whose location is not registered, or whose
+  // path is not the database's shape, reads online:false with a reason.
+  // Each location's root is asked once for the whole list; a clip under one
+  // that did not answer is not on this computer without a call of its own
+  // (reason location_unreachable); the rest are asked a few at a time, off
+  // the main thread.
+  expressApp.post(`${C}/resolve`, async (req, res) => {
+    const files = Array.isArray(req.body?.files) ? req.body.files : null;
+    if (!files) return res.status(400).json({ error: 'files required' });
+    const out = await mapLimit(files, 8, async (f) => {
+      const abs = resolveBody(f);
+      if (!abs) return { id: f?.id ?? null, path: null, online: false, reason: cloudLocations.has(String(f?.location_id || '')) ? 'bad_path' : 'unknown_location' };
+      // Never contacted until this computer's person agrees (review round 1).
+      if (!rootOf(cloudLocations.get(String(f?.location_id || '')))) return { id: f?.id ?? null, path: abs, online: false, reason: 'not_connected' };
+      if (!(await hereNow(f))) return { id: f?.id ?? null, path: abs, online: false, reason: 'location_unreachable' };
+      const online = await statKind(abs, f?.is_sequence ? 'dir' : 'file');
+      return { id: f?.id ?? null, path: abs, online };
+    });
+    res.json({ files: out });
+  });
+
+  // Reads the technical columns of a cloud clip on this computer. Body:
+  // { location_id, relative_path, is_sequence, media_type, extension, fps }.
+  // → the columns probeRow fills (duration, size, dimensions, codec…), or
+  // 410 offline.
+  expressApp.post(`${C}/probe`, async (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = req.body?.is_sequence === true;
+    if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const row = { source_path: abs, is_sequence: isSeq, media_type: String(req.body?.media_type || guessMediaType(extOf(abs))), extension: String(req.body?.extension || extOf(abs)) };
+    const fps = Number(req.body?.fps);
+    try {
+      const patch = await probeRow({ project: { fps: fps > 0 ? fps : 24 } }, row);
+      res.json({ ...patch, path: abs, online: true });
+    } catch (e) {
+      res.json({ probe_status: 'failed', path: abs, online: true, error: e?.message || String(e) });
+    }
+  });
+
+  // A poster for a cloud clip, from the shared cache (keyed by path + mtime,
+  // as the signed-out route keys it, so a file re-exported in place gets a
+  // fresh frame). Query: location_id, relative_path, is_sequence, media_type.
+  // BC2: the poster cache's key time. A stored mtime comes back from the
+  // cloud as Postgres writes a timestamptz ("…+00:00"), the disk's as
+  // Date.toISOString ("…Z"): both are read as an instant and written the
+  // one way, so the poster made at add time is found again.
+  const keyTime = (v) => { const d = v ? new Date(String(v)) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString() : ''; };
+  // Where this computer keeps a cloud clip's poster: by the path and the
+  // clip's modification time — a file's own, a frame sequence's newest
+  // frame (what prepare stored), so the key is the same online and off.
+  // Review round 1: a sequence is keyed by the newest-frame time the cloud
+  // stored (every poster URL carries the row's mtime), so a poster already
+  // made is found without listing and stat-ing every frame on the share —
+  // thousands of synchronous calls per tile for a long plate. The folder is
+  // read only with no stored time, or to MAKE the poster (`seq: null` then;
+  // the caller detects it on a miss). A file's own time is read off the
+  // main thread.
+  async function cloudPosterKey(abs, isSeq, storedMtime = null) {
+    if (isSeq) {
+      const stored = keyTime(storedMtime);
+      if (stored) return { seq: null, thumbPath: resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, stored)) };
+      const seq = detectSequence(abs);
+      if (!seq) return { seq: null, thumbPath: null, gone: true };
+      return { seq, thumbPath: resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, keyTime(seq.mtime))) };
+    }
+    let mtime = ''; try { mtime = (await fs.promises.stat(abs)).mtime.toISOString(); } catch { /* keyed without */ }
+    return { seq: null, thumbPath: resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, mtime)) };
+  }
+
+  // A poster the renderer decoded itself (no decoder on this computer), into
+  // THIS computer's cache — never the cloud (an upload is the provider's
+  // switch-gated step). The same narrowing as the signed-out route: a
+  // registered location, the file present, a JPEG by its magic number, at
+  // most 256 KB, the path contained under the cache.
+  expressApp.post(`${C}/thumbnail`, async (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = req.body?.is_sequence === true;
+    if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const base64 = req.body?.base64;
+    if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: 'base64 required' });
+    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
+    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
+    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const { thumbPath } = await cloudPosterKey(abs, isSeq, req.body?.mtime);
+    if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
+    try { fs.writeFileSync(thumbPath + '.part', buf); fs.renameSync(thumbPath + '.part', thumbPath); }
+    catch { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    res.json({ ok: true });
+  });
+  expressApp.get(`${C}/thumbnail`, async (req, res) => {
+    const abs = resolveBody(req.query);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
+    // One tile asks this per clip: the location answers first, so a server
+    // that is off costs one question for the whole grid, not one per tile.
+    if (!(await hereNow(req.query)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) {
+      // Not reachable right now (B3): a poster this computer made earlier
+      // still shows — found by the clip's stored mtime, as the signed-out
+      // route finds an offline row's. Nothing is made while it is out.
+      const stored = keyTime(req.query?.mtime);
+      const cached = stored ? resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, stored)) : null;
+      if (cached && fs.existsSync(cached)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(cached); }
+      return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    }
+    const ext = extOf(abs);
+    const mediaType = String(req.query?.media_type || (isSeq ? 'sequence' : guessMediaType(ext)));
+    if (mediaType === 'audio' || mediaType === 'document' || mediaType === 'other') {
+      return res.status(415).json({ error: 'no poster for this type', code: 'unsupported_type' });
+    }
+    let { seq, thumbPath, gone } = await cloudPosterKey(abs, isSeq, req.query?.mtime);
+    if (gone) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' });
+    if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
+    if (fs.existsSync(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    // A miss: only now is a sequence's folder read, to make its poster.
+    if (isSeq && !seq) { seq = detectSequence(abs); if (!seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' }); }
+    const source = isSeq ? seq.middle_frame_path : abs;
+    const stillLike = STILL_EXTS.has(ext) && !isSeq;
+    if (stillLike || (isSeq && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(extOf(source)))) {
+      try {
+        const sharp = require('sharp');
+        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+        const part = thumbPath + '.part';
+        fs.writeFileSync(part, buf);
+        fs.renameSync(part, thumbPath);
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.sendFile(thumbPath);
+      } catch (err) {
+        if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
+      }
+    }
+    if (!ffmpeg.hasFfmpeg()) return res.status(415).json({ error: 'no video decoder installed on this machine', code: 'ffmpeg_missing' });
+    try {
+      const out = await generateVideoThumbOnce(source, thumbPath);
+      if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.sendFile(thumbPath);
+    } catch (err) {
+      return res.status(500).json({ error: 'thumbnail generation failed' });
+    }
+  });
+
+  // ── "Open in default app" / "Reveal in Explorer" (BC2 item 5) ──
+  // By location + path, never a body path. The signed-out route's rule
+  // stands (post-overhaul S4a R2-SEC-01, openPath.cjs, deny by default): a
+  // FILE opens only if it is a document, picture, video, audio or 3D file,
+  // judged by where it really leads, and what opens is what was judged — a
+  // share holds whatever its folders hold, `Take3.mov.cmd` included. A
+  // sequence opens its middle frame; Reveal shows the folder.
+  expressApp.post(`${C}/open`, async (req, res) => {
+    const abs = resolveBody(req.body);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    if (!deps.shell) return res.status(503).json({ error: 'no shell in this process', code: 'no_shell' });
+    if (!(await hereNow(req.body))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const reveal = req.body?.reveal === true;
+    const isSeq = req.body?.is_sequence === true;
+    let target = abs;
+    if (isSeq && !reveal) { const seq = detectSequence(abs); if (seq) target = seq.middle_frame_path; }
+    // Asked off the main thread (review round 1: a share that died since its
+    // root answered must not freeze the window).
+    const targetIsFile = await statKind(target, 'file');
+    if (!(isSeq && reveal ? await statKind(target, 'dir') : targetIsFile || await statKind(target, 'dir'))) {
+      return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    }
+    try {
+      if (reveal) { deps.shell.showItemInFolder(target); return res.json({ ok: true }); }
+      let opened = target;
+      if (targetIsFile) {
+        const real = await fs.promises.realpath(target);
+        const refusal = refuseToOpen(real) || refuseToOpen(target);
+        if (refusal) return res.status(422).json({ error: refusal, code: 'refused_type' });
+        opened = real;
+      }
+      const err = await deps.shell.openPath(opened);
+      if (err) return res.status(422).json({ error: String(err), code: 'open_failed' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || 'open failed' });
+    }
+  });
+
+  // The bytes, Range-capable, allowlisted Content-Type, never a folder (a
+  // sequence streams its middle frame). Query: location_id, relative_path,
+  // is_sequence.
+  expressApp.get(`${C}/stream`, async (req, res) => {
+    let abs = resolveBody(req.query);
+    if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
+    if (!(await hereNow(req.query))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    const isSeq = String(req.query?.is_sequence || '') === 'true' || req.query?.is_sequence === '1';
+    if (isSeq) {
+      const seq = detectSequence(abs);
+      if (!seq) return res.status(410).json({ error: 'sequence missing on this computer', code: 'offline' });
+      abs = seq.middle_frame_path;
+    }
+    if (!(await statKind(abs, 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
+    res.setHeader('Content-Type', safeMediaContentType(guessMime(extOf(abs))));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
+      if (!err) return;
+      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
+      res.status(err.status || 500).json({ error: 'could not read the file' });
+    });
+  });
 }
 
 const TAKE_ROLES = ['primary', 'part', 'alt'];
@@ -1462,6 +2366,10 @@ module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
   guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
+  // BC1: the cloud clip's address on this computer (the cloud-bins routes).
+  isUncPath, isSafeRelativePath, resolveCloudFilePath,
+  // BC2: the location a picked path lies in, and the share a network path is on.
+  locateCloudPath, shareRootOfPath,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
   MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };

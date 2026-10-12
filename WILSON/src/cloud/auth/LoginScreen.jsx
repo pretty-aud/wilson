@@ -739,6 +739,10 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
   return (
     <AuthShell
       isRevealing={revealing}
+      // S6a: the sign-in hands over to the WELCOME, so its reveal lands on the
+      // welcome's bars, not Home's — one motion from the form to the title
+      // (REVEAL_TARGETS in AuthShell; App's playWelcome takes it from there).
+      revealTo="welcome"
       onIntroComplete={() => setReady(true)}
       onAnimationComplete={() => {
         if (completedRef.current) return

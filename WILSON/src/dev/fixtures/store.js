@@ -17,11 +17,15 @@ import {
   COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
 import {
-  SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES,
+  SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES,
   GAME_LEVELS, GAME_EXPERIENCES, GAME_LINKS, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
+  TASK_ITEMS, GAME_TASK_ITEMS,
 } from './data/scenes'
 import { fid } from './ids'
-import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
+// FX2 (0096): the one statement of a task's items' rules (pure, imports
+// nothing), so the fake cloud keeps a task's columns as the database does.
+import { COLUMN_KINDS, KIND_FIELD, mainItemOf } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
+import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS, GAME_FOLDERS, GAME_FILES } from './data/files'
 import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
   EXPENSES, PROJECT_RATE_OVERRIDES,
@@ -62,12 +66,19 @@ export function applyGameVariant(store) {
   project.experiences_enabled = true
   store.levels = clone(GAME_LEVELS)
   store.experiences = clone(GAME_EXPERIENCES)
+  // FX2 (0096): two tasks are also about the variant's levels and experiences.
+  store.taskItems.push(...clone(GAME_TASK_ITEMS))
   for (const [n, levels, experiences] of GAME_LINKS) {
     const asset = store.assets.find(a => a.id === fid('asset', n))
     if (!asset) throw new Error(`[fixtures] game variant: no asset ${n}`)
     asset.level_ids = levels.map(l => fid('level', l))
     asset.experience_ids = experiences.map(x => fid('experience', x))
   }
+  // S4c: the levels' and experiences' folders, and a file on one of each
+  // (data/files.js) — the explorer and the two popups' Files sections have
+  // something to show.
+  store.folders.push(...clone(GAME_FOLDERS))
+  store.files.push(...clone(GAME_FILES))
   return store
 }
 
@@ -86,16 +97,40 @@ export function applyMemberVariant(store, userId) {
   return store
 }
 
-/** `game` or `member` from `?fixtures=…`, else null. */
+/**
+ * Post-overhaul S4d: `?fixtures=manager` — the same project seen by a
+ * WORKSPACE MANAGER holding only a member seat (Audrey, 2026-10-08: "Also
+ * workspace managers, without taking a seat"). Mara's seat is lowered to
+ * 'member' and her app role to 'manager', and the fixtures adapter then
+ * gives her the Legal file and its activity (the Legal gate, 0092) but not
+ * the invoice, the budget or the bid versions (the money gate, unchanged) —
+ * the one row where the two gates differ, on screen.
+ */
+export function applyWorkspaceManagerVariant(store, userId) {
+  for (const m of store.projectMembers) if (m.user_id === userId) m.project_role = 'member'
+  for (const m of store.members) if (m.user_id === userId) m.app_role = 'manager'
+  return store
+}
+
+/** `game`, `member` or `manager` from `?fixtures=…`, else null. */
 export function fixtureVariant(search = typeof location === 'undefined' ? '' : location.search) {
   const v = new URLSearchParams(search).get('fixtures')
-  return v === 'game' || v === 'member' ? v : null
+  return v === 'game' || v === 'member' || v === 'manager' ? v : null
+}
+
+// BC3: `?bins=browser` makes the fake cloud answer the Bins tab as the real
+// cloud does in a BROWSER — no row reachable (`resolveFiles` false, no
+// `online` on any row), so the catalogue's "not on this computer" surfaces
+// can be rehearsed on the fixtures. The default stays what BC1 made it:
+// every row answered for.
+export function binsFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
+  return new URLSearchParams(search).get('bins') === 'browser' ? 'browser' : null
 }
 
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)
-  return {
+  const store = {
     workspace: clone(WORKSPACE),
     members: clone(MEMBERS),
 
@@ -106,6 +141,8 @@ export function createStore() {
     tasks: clone(TASKS),
     dependencies: clone(DEPENDENCIES),
     taskLinks: clone(TASK_LINKS),
+    // FX2 (0096): a task's items (not the URL links above).
+    taskItems: clone(TASK_ITEMS),
     comments: clone(COMMENTS),
     assetVersions: clone(ASSET_VERSIONS),
     editHistory: clone(EDIT_HISTORY),
@@ -124,6 +161,9 @@ export function createStore() {
     binFiles: BIN_FILES.map(({ __poster, ...f }) => clone(f)),
     posters: new Map(BIN_FILES.map(f => [f.id, f.__poster])),
     binRoots: clone(BIN_ROOTS),
+    // Bins on the cloud (BC1, 0091): the company's footage locations — a
+    // cloud clip is one of these plus a relative path.
+    binLocations: clone(BIN_LOCATIONS),
     shotTakes: clone(SHOT_TAKES),
     // 0084 (S3a): lists are archived, never deleted; items are the membership.
     shotLists: clone(SHOT_LISTS),
@@ -154,6 +194,27 @@ export function createStore() {
     progress,
     quizAttempts: clone(QUIZ_ATTEMPTS),
   }
+  // FX2 (0096): each task's asset_id / scene_id / shot_id is its first item
+  // of that kind, as the database's triggers keep the cloud's three columns.
+  syncTaskItemColumns(store)
+  return store
+}
+
+/** Every task's three cloud columns set to its main items (0096 §7a's rule). */
+// `kinds`: the kinds a write touched (0096 §7a recomputes the column of the
+// item's kind only; review round 2, R2-7). Null: every column (a load's
+// reconcile, as 0096's backfill and post-condition 10h).
+export function syncTaskItemColumns(store, taskIds = null, kinds = null) {
+  const only = taskIds ? new Set(taskIds) : null
+  const which = kinds ? COLUMN_KINDS.filter(k => kinds.includes(k)) : COLUMN_KINDS
+  for (const t of store.tasks) {
+    if (only && !only.has(t.id)) continue
+    for (const kind of which) {
+      const main = mainItemOf(store.taskItems, t.id, kind)
+      t[KIND_FIELD[kind]] = main ? main.entity_id : null
+    }
+  }
+  return store
 }
 
 // ── Row helpers ──────────────────────────────────────────────────────────────

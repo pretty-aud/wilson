@@ -23,6 +23,8 @@ import { splitSetAside } from '../state/setAside';
 // the cookie main sets would carry these too, and both arms being present is
 // the point — see src/lib/localServerFetch.js.
 import { localFetch } from '../../../lib/localServerFetch.js';
+// FX2 (0096): a task's items, in the order the cloud reads them.
+import { compareItems } from '../state/taskItemsModel.js';
 
 const BASE = '/api/rabbit';
 
@@ -110,6 +112,18 @@ function cmpCodeUnits(a, b) {
 function sortByCreatedThenId(rows) {
   return [...(rows || [])].sort((a, b) => cmpCodeUnits(a?.created_at, b?.created_at) || cmpCodeUnits(a?.id, b?.id))
 }
+// FX2 (0096): the cloud's read order for a task's items: task, kind, then
+// position, created_at, id.
+function sortTaskItems(rows) {
+  return (Array.isArray(rows) ? rows.slice() : []).sort((a, b) => {
+    const ta = String(a?.task_id ?? ''), tb = String(b?.task_id ?? '');
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    const ka = String(a?.entity_type ?? ''), kb = String(b?.entity_type ?? '');
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return compareItems(a, b);
+  });
+}
+
 function sortByPositionThenId(rows) {
   return [...(rows || [])].sort((a, b) => ((Number(a?.position) || 0) - (Number(b?.position) || 0)) || cmpCodeUnits(a?.id, b?.id))
 }
@@ -195,6 +209,11 @@ export function localServerAdapter() {
         binFiles:        bundle.binFiles || [],
         binRoots:        bundle.binRoots || [],
         shotTakes:       bundle.shotTakes || [],
+        // Bins on the cloud (BC1, 0091): a cloud clip is a LOCATION plus a
+        // relative path; the signed-out desktop keeps absolute source_paths
+        // and known roots instead (B12) and has no locations. The key is
+        // answered so the EMPTY_BUNDLE spread has nothing to reset.
+        binLocations:    [],
         // Post-overhaul S3a (0084) — same reason as every key above: omitted,
         // the EMPTY_BUNDLE spread would reset them to [] on every load, and
         // every surface that reads the ACTIVE list (D10) would fall back to
@@ -202,6 +221,11 @@ export function localServerAdapter() {
         shotLists:       sortByCreatedThenId(bundle.shotLists),
         shotListItems:   sortByPositionThenId(bundle.shotListItems),
         edits:           sortByCreatedThenId(bundle.edits),
+        // FX2 (0096): a task's items. Same reason as every key above; the
+        // server backfills them from the tasks' single fields on read
+        // (electron/rabbitTaskItems.cjs) and keeps those fields in step.
+        // Sorted as the cloud orders them: task, kind, then 0096's order.
+        taskItems:       sortTaskItems(bundle.taskItems),
       });
     },
 
@@ -257,6 +281,30 @@ export function localServerAdapter() {
       body:    JSON.stringify(link),
     }),
     deleteTaskLink: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/task-links/${id}`, { method: 'DELETE' }),
+
+    // ── A task's items (FX2, 0096's twin: electron/rabbitTaskItems.cjs) ──
+    // Not the URL links above. The server keeps each task's five single
+    // fields equal to its main item of each kind, as 0096's triggers do.
+    taskItemsAvailable: () => true,
+    listTaskItems: async (projectId) =>
+      sortTaskItems(await jfetch(`${BASE}/projects/${projectId}/task-items`)),
+    // Adds one item, or answers the stored row when the task already names
+    // it (the cloud's ON CONFLICT DO NOTHING, then a read).
+    addTaskItem: (item) => jfetch(`${BASE}/projects/${item.project_id}/task-items`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(item),
+    }),
+    deleteTaskItem: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/task-items/${id}`, { method: 'DELETE' }),
+    // reorder_task_items' twin: the named ids first, the rest after, dense
+    // from 0; answers the rows that moved.
+    reorderTaskItems: (projectId, taskId, kind, orderedIds) =>
+      jfetch(`${BASE}/projects/${projectId}/task-items/reorder`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ task_id: taskId, entity_type: kind, ids: Array.isArray(orderedIds) ? orderedIds : [] }),
+      }),
 
     // ── Files ─────────────────────────────────────────────────
     // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a
@@ -693,12 +741,18 @@ export function localServerAdapter() {
       }),
     listEdits: async (projectId) =>
       sortByCreatedThenId((await jfetch(`${BASE}/projects/${projectId}`)).edits),
-    upsertEdit: async (edit) => {
+    // FX4 review round 1 (R1-03): `{ expectSavedAt }` (a string, or null for
+    // none) makes the write conditional on the stored edit's Save; the route
+    // refuses another with 409 and code `edit_saved_since` (on the error).
+    upsertEdit: async (edit, opts) => {
       if (!edit?.project_id) throw new Error('[localServer] upsertEdit needs edit.project_id')
+      const body = opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')
+        ? { ...edit, expect_saved_at: opts.expectSavedAt ?? null }
+        : edit
       return jfetch(`${BASE}/projects/${edit.project_id}/edits`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(edit),
+        body:    JSON.stringify(body),
       })
     },
     // null clears the active list. `listId ?? null`, never a bare listId:
@@ -776,6 +830,19 @@ export function localServerAdapter() {
 
     deleteFolder: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/folders/${id}`, { method: 'DELETE' }),
+
+    // Post-overhaul S4c: the one-time move of the project's shot folders
+    // into their scenes' folders. The SERVER does the whole thing — the
+    // directories on disk, the managed-file paths, the folder rows — one
+    // shot at a time, and answers what moved and what was left with why.
+    // `project` and the progress callback are the cloud adapter's shape;
+    // here the route is one call, so neither is sent.
+    refileShotFolders: async (projectId, _project, _opts) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/refile-shots`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
 
     // The manifest is written by the SERVER, not posted from here: the server
     // has the bundle, and the bundle is the copy the file has to mirror.
@@ -971,5 +1038,131 @@ export function localServerAdapter() {
     replaceShotTakes: (projectId, shotIds, rows) => jfetch(`${BASE}/projects/${projectId}/shot-takes/replace`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIds, rows }),
     }),
+
+    // ── Bins on the cloud (BC1, 0091): the signed-out desktop's answers ──
+    // ONE capability object per backend, the shape the cloud adapter's
+    // CLOUD_BINS_CAPABILITIES has: the provider reads it instead of
+    // feature-detecting method by method. Here everything the loopback
+    // server does is true and everything that is the company's (locations,
+    // the admin's switch) is false — B12: nothing of the signed-out desktop
+    // changes.
+    binsCapabilities: () => LOCAL_SERVER_BINS_CAPABILITIES,
+    // Footage locations are a company's (bin_locations, per workspace); the
+    // signed-out desktop records known ROOTS instead (binRoots), so the list
+    // is empty and a write is refused with the one sentence.
+    listBinLocations: async () => [],
+    createBinLocation: async () => { throw localBinsNotHere('Naming a footage location'); },
+    updateBinLocation: async () => { throw localBinsNotHere('Renaming a footage location'); },
+    removeBinLocation: async () => { throw localBinsNotHere('Removing a footage location'); },
+    // The admin's switch belongs to a company; nobody is signed in here.
+    getRemoteViewingEnabled: async () => false,
+    setRemoteViewingEnabled: async () => { throw localBinsNotHere('The remote-viewing switch'); },
+    // Posters are served by the loopback route (binFileThumbnailUrl); nothing
+    // is signed.
+    binFilePosterUrl: async () => null,
+
+    // ── The desktop SIGNED IN (BC2's plumbing, electron/rabbitBins.cjs
+    //    cloud-bins routes): a cloud clip's file read by its location's
+    //    network address + its relative path. ──
+    // Tell the server the company's locations (and, per computer, where a
+    // location is seen as a drive letter — B2's fallback — a folder the person
+    // picked through the OS dialog, never a body path). → { locations: [{ id,
+    // unc_path, local_path, reachable, root }] }
+    registerCloudBinLocations: (locations) => jfetch(`${BASE}/cloud-bins/locations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locations }),
+    }),
+    // files: [{ id, location_id, relative_path, is_sequence }] →
+    // { files: [{ id, path, online }] } — what this computer can reach.
+    resolveCloudBinFiles: (files) => jfetch(`${BASE}/cloud-bins/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }),
+    }),
+    // Reads a cloud clip's technical columns on this computer (ffmpeg / sharp).
+    probeCloudBinFile: (file) => jfetch(`${BASE}/cloud-bins/probe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // URL builders for <img> / <video>: bytes and posters by location + path.
+    // BC2: a frame sequence says so (it streams its middle frame); a poster
+    // names its media type (audio has none) and the clip's stored mtime, so a
+    // poster cached on this computer still shows while the share is out.
+    cloudBinFileStreamUrl: (locationId, relativePath, { probe = false, isSequence = false } = {}) =>
+      `${BASE}/cloud-bins/stream?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${isSequence ? '&is_sequence=true' : ''}${probe ? '&probe=1' : ''}`,
+    cloudBinFileThumbnailUrl: (locationId, relativePath, rev = 0, { isSequence = false, mediaType = null, mtime = null } = {}) =>
+      `${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${isSequence ? '&is_sequence=true' : ''}${mediaType ? `&media_type=${encodeURIComponent(mediaType)}` : ''}${mtime ? `&mtime=${encodeURIComponent(mtime)}` : ''}${rev ? `&v=${rev}` : ''}`,
+
+    // ── BC2: the rest of the desktop signed in (electron/rabbitBins.cjs,
+    //    mountCloudBins). The composite in adapters/desktopCloudBins.js is
+    //    the only caller: the provider reaches these through it. ──
+    // "Is the desktop's file process reachable?" → { ok, ffmpeg }
+    cloudBinsPing: () => jfetch(`${BASE}/cloud-bins/ping`),
+    // The OS dialogs, opened by the main process (no path is typed into a
+    // request by a page). → { paths } / { path }
+    pickCloudBinFiles: () => jfetch(`${BASE}/cloud-bins/pick-files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    pickCloudBinFolder: (title) => jfetch(`${BASE}/cloud-bins/pick-folder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    }),
+    // paths → a plan whose items are { location_id, relative_path, … } or
+    // refused as outside every registered location (never walked).
+    prepareCloudBinFiles: (paths, opts = {}) => jfetch(`${BASE}/cloud-bins/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, ...opts }),
+    }),
+    // The OS default app, or Explorer with reveal:true.
+    openCloudBinFile: (file) => jfetch(`${BASE}/cloud-bins/open`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // A renderer-decoded JPEG into THIS computer's poster cache (never the cloud).
+    postCloudBinFileThumbnail: (file) => jfetch(`${BASE}/cloud-bins/thumbnail`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file),
+    }),
+    // The cached poster's bytes, as base64 — what an upload to the cloud
+    // sends (only while the company's switch is on; the provider asks first).
+    cloudBinFileThumbnailBase64: async (locationId, relativePath, opts = {}) => {
+      const res = await localFetch(`${BASE}/cloud-bins/thumbnail?location_id=${encodeURIComponent(locationId)}&relative_path=${encodeURIComponent(relativePath)}${opts.isSequence ? '&is_sequence=true' : ''}${opts.mediaType ? `&media_type=${encodeURIComponent(opts.mediaType)}` : ''}`);
+      if (!res.ok) {
+        let code = null; try { code = (await res.json())?.code || null; } catch { /* not JSON */ }
+        const err = new Error(`[localServer] no picture on this computer (HTTP ${res.status})`);
+        err.status = res.status; if (code) err.code = code;
+        throw err;
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    },
+    // B2's fallback, per computer: the OS folder dialog for one location;
+    // the main process keeps the answer in this computer's settings.
+    pickCloudBinLocationLocalPath: (id, { name = '', unc_path = '' } = {}) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/pick-local`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, unc_path }),
+    }),
+    forgetCloudBinLocationLocalPath: (id) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/local`, { method: 'DELETE' }),
+    // Review round 1: consent before contact — the main process asks its
+    // person, natively, before this computer ever connects to the address.
+    connectCloudBinLocation: (id) => jfetch(`${BASE}/cloud-bins/locations/${encodeURIComponent(id)}/connect`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
   };
+}
+
+// Bins on the cloud (BC1): the signed-out desktop's capability object. The
+// same keys as the cloud adapter's CLOUD_BINS_CAPABILITIES, by name
+// (binsAdapterParity.test.js pins the two against each other).
+export const LOCAL_SERVER_BINS_CAPABILITIES = Object.freeze({
+  backend: 'local_server',
+  pickFiles: true,
+  probe: true,
+  stream: true,
+  resolveFiles: true,
+  relink: true,
+  openInOs: true,
+  posters: 'local',
+  locations: false,
+  remoteViewingSwitch: false,
+});
+
+function localBinsNotHere(what) {
+  const err = new Error(`[localServer] ${what} belongs to a company; the signed-out desktop keeps known folders (binRoots) instead.`);
+  err.code = 'not_supported_here';
+  err.status = 501;
+  return err;
 }

@@ -64,16 +64,17 @@ describe('planProjectFolders — which categories a project gets', () => {
     expect(paths).toEqual(['', 'ASSETS', 'INVOICES'])
   })
 
-  it('reveals SCENES and SHOTS together on scenes_enabled', () => {
-    // One flag, two categories: there is no shots_enabled anywhere in the
-    // app, and a SHOTS folder with no SCENES folder makes no sense.
+  it('reveals SCENES on scenes_enabled — and no SHOTS: a shot\'s folder sits in its scene\'s (S4c)', () => {
+    // One flag, one category now. Post-overhaul S4c: shots nest under their
+    // scenes, so SHOTS is `lazy` — never planned for a project, made only
+    // for a shot that has no scene (the column allows it).
     const paths = planProjectFolders({ ...FILM, scenes_enabled: true }).map(f => f.path)
-    expect(paths).toEqual(['', 'ASSETS', 'SCENES', 'SHOTS', 'INVOICES'])
+    expect(paths).toEqual(['', 'ASSETS', 'SCENES', 'INVOICES'])
   })
 
-  it('gives a fully enabled project all six', () => {
+  it('gives a fully enabled project all five planned categories (SHOTS is lazy, S4c)', () => {
     expect(planProjectFolders(GAME).map(f => f.path)).toEqual(
-      ['', 'ASSETS', 'SCENES', 'SHOTS', 'LEVELS', 'EXPERIENCES', 'INVOICES'],
+      ['', 'ASSETS', 'SCENES', 'LEVELS', 'EXPERIENCES', 'INVOICES'],
     )
   })
 

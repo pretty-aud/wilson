@@ -50,11 +50,20 @@ import { fileSlugify } from './entityNaming'
  * appears — never speculatively, because a film project has no use for a
  * LEVELS folder. 🚨 Turning the toggle back OFF removes NOTHING: that is
  * Audrey's stated requirement and the reason the tree is a table at all.
+ *
+ * Post-overhaul S4c (Audrey, 2026-10-05: "shot folders should be in the
+ * scene folders … since inheritably shots have to be a part of a scene"): a
+ * shot's folder is SCENES/<scene>/<shot>, inside its scene's. SHOTS is
+ * `lazy`: never planned for a project any more, kept in the list for the
+ * one shot the schema allows with no scene (shots.scene_id is nullable),
+ * which still gets SHOTS/<shot> so nothing is unrepresentable — and for the
+ * projects that predate this, whose shot folders sit under SHOTS until the
+ * one-time re-filing moves them (shotRefiling.js).
  */
 export const FOLDER_CATEGORIES = [
   { slug: 'ASSETS',      entityType: 'asset',      enabledBy: null },
   { slug: 'SCENES',      entityType: 'scene',      enabledBy: 'scenes_enabled' },
-  { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled' },
+  { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled', lazy: true },
   { slug: 'LEVELS',      entityType: 'level',      enabledBy: 'levels_enabled' },
   { slug: 'EXPERIENCES', entityType: 'experience', enabledBy: 'experiences_enabled' },
   { slug: 'INVOICES',    entityType: 'invoice',    enabledBy: null },
@@ -155,16 +164,28 @@ export function entityFolderSlug(entityType, entity) {
  * Paths are RELATIVE to the project folder, so the same string works on every
  * backend: disk resolves it against projects.folder_root, Supabase against
  * projects/<project_id>/ in the rabbit-files bucket. The root's path is ''.
+ *
+ * S4c: a SHOT's path takes its scene — `entityFolderPath('shot', shot,
+ * scene)` is SCENES/<scene>/<shot>. The scene is an argument, not a lookup:
+ * this module is pure, and each backend finds the scene row its own way
+ * (the bundle, a query, the store). A shot handed no scene (scene_id null,
+ * or the scene gone) is SHOTS/<shot>. The one function both backends run:
+ * electron/main.cjs carries it line for line, pinned by folderParity.test.js.
  */
-export function entityFolderPath(entityType, entity) {
+export function entityFolderPath(entityType, entity, scene = null) {
   const category = categoryForEntityType(entityType)
   if (!category) return null
+  if (entityType === 'shot' && scene) {
+    return `${entityFolderPath('scene', scene)}/${entityFolderSlug('shot', entity)}`
+  }
   return `${category.slug}/${entityFolderSlug(entityType, entity)}`
 }
 
 /**
  * The folders a project should have before any entity exists: the root, plus
- * every category that is either unconditional or currently revealed.
+ * every category that is either unconditional or currently revealed. A
+ * `lazy` category (SHOTS since S4c) is never planned here: it is made only
+ * when an entity needs it.
  *
  * Returns plain descriptors — `parentPath` rather than `parent_id`, because a
  * plan is computed before any row exists. Each adapter resolves the parent as
@@ -180,6 +201,7 @@ export function planProjectFolders(project) {
     parentPath: null,
   }]
   for (const category of FOLDER_CATEGORIES) {
+    if (category.lazy) continue
     if (category.enabledBy && !project?.[category.enabledBy]) continue
     plan.push({
       kind: 'category',
@@ -213,26 +235,33 @@ export function planProjectFolders(project) {
  * migration, because the column is already there. Deferring the expensive
  * decision to the session that can price it is the point.
  */
-export function planEntityFolder(project, entityType, entity) {
+export function planEntityFolder(project, entityType, entity, scene = null) {
   const category = categoryForEntityType(entityType)
   if (!category) return null
   const slug = entityFolderSlug(entityType, entity)
+  // S4c: a shot in a scene sits in the scene's own folder — the plan carries
+  // that folder as `parent` (the scene's entity folder, under SCENES), and
+  // the shot's `parentPath` is its path. A shot with no scene keeps SHOTS.
+  const nested = entityType === 'shot' && scene ? planEntityFolder(project, 'scene', scene) : null
+  const base = nested ? nested.category : {
+    kind: 'category',
+    entityType: category.entityType,
+    slug: category.slug,
+    label: null,
+    path: category.slug,
+    parentPath: '',
+  }
+  const parentPath = nested ? nested.folder.path : base.path
   return {
-    category: {
-      kind: 'category',
-      entityType: category.entityType,
-      slug: category.slug,
-      label: null,
-      path: category.slug,
-      parentPath: '',
-    },
+    category: base,
+    parent: nested ? nested.folder : null,
     folder: {
       kind: 'entity',
       entityType,
       slug,
       label: entity?.name || null,
-      path: `${category.slug}/${slug}`,
-      parentPath: category.slug,
+      path: `${parentPath}/${slug}`,
+      parentPath,
       [ENTITY_FK_COLUMN[entityType]]: entity?.id || null,
     },
   }
@@ -241,18 +270,26 @@ export function planEntityFolder(project, entityType, entity) {
 /**
  * The whole tree a loaded project bundle implies — used to reconcile a
  * project whose folders predate this feature, and by the Local Server route
- * that has no incremental hook to attach to.
+ * that has no incremental hook to attach to. S4c: a shot's scene is read
+ * from `bundle.scenes`; scenes are planned before shots (ENTITY_BUNDLE_KEY's
+ * order), so a shot's parent folder is always already in the plan.
  */
 export function planFullTree(project, bundle = {}) {
   const plan = planProjectFolders(project)
   const seen = new Set(plan.map(f => f.path))
+  const scenes = bundle.scenes || []
   for (const [entityType, bundleKey] of Object.entries(ENTITY_BUNDLE_KEY)) {
     for (const entity of bundle[bundleKey] || []) {
-      const planned = planEntityFolder(project, entityType, entity)
+      const scene = entityType === 'shot' && entity?.scene_id ? (scenes.find(s => s && s.id === entity.scene_id) || null) : null
+      const planned = planEntityFolder(project, entityType, entity, scene)
       if (!planned) continue
       if (!seen.has(planned.category.path)) {
         seen.add(planned.category.path)
         plan.push(planned.category)
+      }
+      if (planned.parent && !seen.has(planned.parent.path)) {
+        seen.add(planned.parent.path)
+        plan.push(planned.parent)
       }
       // Two entities whose names slugify identically would collide on `path`.
       // The database refuses that (folders_project_path_uniq); dropping the

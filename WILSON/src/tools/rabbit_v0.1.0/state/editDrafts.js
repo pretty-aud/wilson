@@ -9,11 +9,26 @@
 // screen with the change applied; nothing is asked again until the draft is
 // saved or discarded.
 //
+// Post-overhaul FX4 (Audrey, 2026-10-12): "when i make changes to an edit, it
+// should start to edit the current selected edit instead of asking me to
+// always make a new one." A change to a SAVED edit asks nothing: its draft is
+// that edit's unsaved changes (`editId`), and Save edit writes them INTO it,
+// keeping its title and version. Only Save as… makes a new version. The first
+// change in List order (no edit yet) still asks, and its draft (`editId`
+// null) becomes a new edit, as before.
+//
 // The draft lives in the PROVIDER (RabbitProvider's `editDrafts`), keyed by
 // project and list: the views mount one at a time, and a draft in
 // ScenesView's state would die on a tab switch. One draft per list. Its shape
 // is the brief's — { listId, basedOnEditId | null, title, version, items,
 // dirty } — plus what the provider needs to keep it:
+//   editId      FX4: the saved edit these are the unsaved changes OF (its
+//               title and version are the draft's), or null: a new edit,
+//               named by the first-change question. A stored copy from
+//               before FX4 has none, and stays a new edit.
+//   baseSavedAt FX4: that edit's last Save (its snapshot's saved_at) when the
+//               changes began, so Save edit can refuse to write over a Save
+//               someone else made since (null: the edit had no snapshot)
 //   projectId   the project it belongs to
 //   base        the items it started from (the list's order, or the edit's)
 //   past/future the draft's own undo and redo (D13: the provider's undo
@@ -53,16 +68,29 @@ export function storedDraftKey(personKey, projectId, listId) {
 const copyItems = (items) => (Array.isArray(items) ? items.map(it => ({ ...it })) : [])
 
 /**
+ * FX4 review round 2 (R2-02): a draft's own identity, kept through its
+ * changes, its undo, a save that rebases it and its stored copy — so a
+ * change whose round trip outlived a save (New shot) finds the changes it
+ * was made to, whatever edit they are now changes to.
+ */
+function newDraftId() {
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
  * A new draft: `base` is what was on screen, `items` the first change
  * applied to it (D13). Its undo goes back to `base`.
  */
 const copyIds = (ids) => (Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [])
 
-export function startDraft({ projectId, listId, basedOnEditId = null, title, version, base, items, now, made = [] }) {
+export function startDraft({ projectId, listId, basedOnEditId = null, editId = null, baseSavedAt = null, title, version, base, items, now, made = [], draftId = null }) {
   return {
+    draftId: draftId || newDraftId(),
     projectId,
     listId,
     basedOnEditId: basedOnEditId || null,
+    editId: editId || null,
+    baseSavedAt: baseSavedAt || null,
     title,
     version,
     base: copyItems(base),
@@ -119,6 +147,9 @@ export function storedCopy(draft, personKey) {
     projectId: draft.projectId,
     listId: draft.listId,
     basedOnEditId: draft.basedOnEditId || null,
+    editId: draft.editId || null,
+    baseSavedAt: draft.baseSavedAt || null,
+    draftId: draft.draftId || null,
     title: draft.title,
     version: draft.version,
     base: draft.base,
@@ -128,15 +159,55 @@ export function storedCopy(draft, personKey) {
   }
 }
 
+/** FX4: the Save a saved edit carries (its snapshot's saved_at), or null. */
+export function savedAtOf(snapshot) {
+  return snapshot && typeof snapshot === 'object' && typeof snapshot.saved_at === 'string' ? snapshot.saved_at : null
+}
+
+/**
+ * FX4 review round 1 (R1-01): changes made WHILE a Save edit was in flight
+ * are not that save's. Once it is written they stay unsaved — the same items
+ * — as changes to the edit it saved (`saved`): its id, name and Save are the
+ * draft's now, and its cut is where they start from. They keep their
+ * identity (`draftId`), so a change still in flight finds them. Review round
+ * 2 (R2-03): their undo goes back to the cut just saved — one step — never
+ * past it (the save is the provider's own undo step).
+ */
+export function rebaseDraft(draft, saved) {
+  return {
+    ...draft,
+    editId: saved.id,
+    basedOnEditId: saved.id,
+    title: saved.title,
+    version: saved.version,
+    baseSavedAt: savedAtOf(saved.snapshot),
+    base: copyItems(saved.items),
+    past: [copyItems(saved.items)],
+    future: [],
+  }
+}
+
+/** Review round 2 (R2-03): two cuts are the same when their items are, in order (ids, shots, blocks). */
+export function sameCut(a, b) {
+  const x = Array.isArray(a) ? a : []
+  const y = Array.isArray(b) ? b : []
+  return x.length === y.length && x.every((it, i) => it?.id === y[i]?.id && (it?.shot_id || null) === (y[i]?.shot_id || null) && (it?.scene_id || null) === (y[i]?.scene_id || null))
+}
+
 /**
  * A draft again from its stored copy ("Recover unsaved edit?" → Recover).
  * Its undo starts empty: the recovered items are where the person picks up.
  */
 export function draftFromCopy(copy) {
   return {
+    // FX4 review round 2: a copy from before has no identity of its own; it gets one.
+    draftId: typeof copy.draftId === 'string' && copy.draftId ? copy.draftId : newDraftId(),
     projectId: copy.projectId,
     listId: copy.listId,
     basedOnEditId: copy.basedOnEditId || null,
+    // FX4: a copy from before has neither, and is a new edit, as it was.
+    editId: typeof copy.editId === 'string' ? copy.editId : null,
+    baseSavedAt: typeof copy.baseSavedAt === 'string' ? copy.baseSavedAt : null,
     title: copy.title,
     version: copy.version,
     base: copyItems(copy.base),

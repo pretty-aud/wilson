@@ -19,6 +19,9 @@ import BinPoster from './BinPoster'
 import { slateLine, techLine } from '../../bins/binMedia'
 import { TAKE_ROLES, TAKE_ROLE_META, primaryOf, takeLengthFrames, takesSummary } from '../../bins/shotTakeSelectors'
 import { navigateTo } from '../../state/rabbitNavigate'
+// BC3: a company's clip this computer cannot reach is "not on this computer"
+// (B3), as the Bins tab marks it; the signed-out desktop's says "offline" (B12).
+import { NOT_ON_THIS_COMPUTER } from '../../bins/binLocations'
 
 function NoteInput({ take, canWrite, onUpdate }) {
   const [draft, setDraft] = useState(take.notes || '')
@@ -99,7 +102,7 @@ export default function ShotTakesPanel({
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="truncate text-dense font-mono" style={{ color: C.bright }} title={file.display_name || file.original_name}>{file.display_name || file.original_name}</span>
                     {isPrimary && <Star className="w-3 h-3 flex-shrink-0" style={{ color: C.accentText, fill: C.accentText }} />}
-                    {file.online === false && <span className="text-label uppercase" style={{ color: C.amber }}>offline</span>}
+                    {file.online === false && <span className="text-label uppercase" style={{ color: C.amber }}>{file.location_id ? NOT_ON_THIS_COMPUTER : 'offline'}</span>}
                   </div>
                   <div className="truncate text-dense font-mono" style={{ color: C.dim }}>
                     {[slateLine(file), techLine(file), binPathFor?.(file.bin_id)].filter(Boolean).join(' · ') || file.original_name}

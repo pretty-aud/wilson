@@ -64,6 +64,7 @@ export function setDevFixturesActive(on) {
 //     workspace:     { listMembers(), getMember(id), updateMember(id, patch) }
 //     profile:       { email, ... }          what ProfileSection shows
 //     bins:          true                    the Bins tab may open on the dataset
+//     gateways:      { listGateways(), … }   gatewayApi.js's in-memory cloud (GW1)
 //     label:         'Salt Hours'            for the badge's tooltip
 //   }
 // Nothing is installed in a production build: install.js is never imported.

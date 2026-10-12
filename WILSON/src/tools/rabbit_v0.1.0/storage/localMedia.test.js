@@ -171,6 +171,59 @@ describe('the five verbs on a temp root', () => {
   })
 })
 
+// ── Post-overhaul S4c: the move verb ────────────────────────────────────────
+// The one-time re-filing of a private project's shot folders renames each
+// body on this computer through POST …/move { from, to }: a real rename,
+// verified, never over a file that is there, and no delete anywhere.
+describe('move (S4c): a body to a new key', () => {
+  const move = (from, to) => fetch(`${base}/move`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ from, to }),
+  })
+  const FROM = 'projects/8d2c/shots/sh1/1731-plate.exr'
+  const TO = 'projects/8d2c/scenes/sc1/sh1/1731-plate.exr'
+  it('renames the body under the root, makes the new directory, and answers the keys and size', async () => {
+    expect((await put(FROM, 'plate-bytes')).status).toBe(200)
+    const res = await move(FROM, TO)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ from: FROM, to: TO, size: 11 })
+    expect(fs.existsSync(path.join(root, ...TO.split('/')))).toBe(true)
+    expect(fs.existsSync(path.join(root, ...FROM.split('/')))).toBe(false)
+    expect((await fetch(`${base}/${TO}`)).status).toBe(200)
+    expect((await fetch(`${base}/${FROM}`, { method: 'HEAD' })).status).toBe(404)
+    expect(logged.some((l) => l.includes(`moved ${FROM} -> ${TO}`))).toBe(true)
+  })
+  it('a second move of the same key is 404 (the source is gone), and nothing was deleted', async () => {
+    expect((await move(FROM, TO)).status).toBe(404)
+    expect(fs.readFileSync(path.join(root, ...TO.split('/')), 'utf8')).toBe('plate-bytes')
+  })
+  it('never overwrites: a move onto a key that has a body is 409, and both bodies stay', async () => {
+    const OTHER = 'projects/8d2c/shots/sh1/1732-other.exr'
+    expect((await put(OTHER, 'other-bytes')).status).toBe(200)
+    expect((await move(OTHER, TO)).status).toBe(409)
+    expect(fs.readFileSync(path.join(root, ...TO.split('/')), 'utf8')).toBe('plate-bytes')
+    expect(fs.readFileSync(path.join(root, ...OTHER.split('/')), 'utf8')).toBe('other-bytes')
+  })
+  it('refuses a key of the wrong shape, a traversal, and a missing body, with 404 and no write', async () => {
+    const before = fs.readdirSync(root).length
+    for (const [from, to] of [
+      ['projects/8d2c/shots/sh1/1732-other.exr', 'projects/8d2c/../8d2c/x/y'],
+      ['projects/../shots/sh1/1732-other.exr', TO + '.b'],
+      ['', TO + '.c'],
+      ['projects/8d2c/shots/sh1/1732-other.exr', ''],
+      ['projects/8d2c/shots/sh1/no-such.exr', TO + '.d'],
+    ]) {
+      expect((await move(from, to)).status, `${from} -> ${to}`).toBe(404)
+    }
+    expect(fs.readdirSync(root).length).toBe(before)
+    // A body is not a directory: moving a directory key is 404 too.
+    expect((await move('projects/8d2c/shots/sh1', 'projects/8d2c/scenes/sc1/sh1b')).status).toBe(404)
+  })
+  it('a missing root is 503, as for every verb', async () => {
+    rootAvailable = false
+    try { expect((await move(FROM, TO)).status).toBe(503) } finally { rootAvailable = true }
+  })
+})
+
 describe('the boundary holds against a row-shaped key', () => {
   const treeBefore = () => fs.readdirSync(outside)
 

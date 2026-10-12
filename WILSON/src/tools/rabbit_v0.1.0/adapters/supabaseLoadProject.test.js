@@ -30,6 +30,9 @@ function builder(result) {
     select: () => b,
     eq: () => b,
     order: () => b,
+    // S4c: scenes and shots are read page by page (readAllPages); one page
+    // of fewer than 1,000 rows is the whole list here.
+    range: () => b,
     single: () => b,
     then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
   }
@@ -97,6 +100,12 @@ const CLOUD_BUNDLE_KEYS = [
   'shotLists', 'shotListItems', 'edits',
   // 0090 (post-overhaul S5b): the set-aside rows, split out by the loader.
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
+  // 0096 (FX2): a task's items; the read doubles as the 0096 probe.
+  'taskItems',
+  // 0091 (BC1): bins, bin files, takes and the company's locations ride the
+  // load; binRoots is answered [] (the signed-out desktop's known roots have
+  // no cloud shape). An omitted key would reset the Bins tab on every load.
+  'bins', 'binFiles', 'binRoots', 'shotTakes', 'binLocations',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {
@@ -559,7 +568,7 @@ function recordingClient(perTable = {}, { perWrite = {}, rpc = null } = {}) {
         select: (cols) => { if (entry?.op === 'delete') entry.select = cols; else if (!entry) query.select = cols; return b },
         eq: (col, v) => { if (entry?.op === 'delete') entry.filters.push(['eq', col, v]); else if (!entry) query.filters.push(['eq', col, v]); return b },
         in: (col, vs) => { if (entry?.op === 'delete') entry.filters.push(['in', col, vs]); else if (!entry) query.filters.push(['in', col, vs]); return b },
-        order: () => b, single: () => b,
+        order: () => b, single: () => b, range: () => b,
         upsert: record('upsert'), update: record('update'), insert: record('insert'),
         delete: () => { written = {}; entry = { table, op: 'delete', filters: [] }; writes.push(entry); return b },
         then: (resolve, reject) => {
@@ -1468,6 +1477,108 @@ describe('the six unique violations speak the contract\'s sentences (R2-3)', () 
   })
 })
 
+// ── Post-overhaul FX4 review round 1 (R1-03): the conditional edit write ────
+// Since FX4 Save edit writes INTO an edit, and two people may change one.
+// With { expectSavedAt } the adapter UPDATEs filtered on the stored
+// snapshot's saved_at: the database applies it only where that Save is still
+// the edit's. Zero rows back is told apart by one read.
+describe('upsertEdit(edit, { expectSavedAt }) — the conditional write (FX4 R1-03)', () => {
+  /** A fake client: records the update, its filters and the select, and answers as `answer(filters)` says. */
+  function conditionalClient({ updated, stored }) {
+    const log = { updates: [], reads: [] }
+    const client = {
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+      from: (table) => {
+        const q = { table, op: null, set: null, filters: [], select: null }
+        const b = {
+          update: (set) => { q.op = 'update'; q.set = set; return b },
+          select: (cols) => { q.select = cols ?? '*'; return b },
+          eq: (col, v) => { q.filters.push(['eq', col, v]); return b },
+          is: (col, v) => { q.filters.push(['is', col, v]); return b },
+          maybeSingle: () => { q.single = true; return b },
+          single: () => { q.single = true; return b },
+          order: () => b, in: () => b, range: () => b,
+          then: (resolve, reject) => {
+            let res
+            if (q.op === 'update') { log.updates.push(q); res = { data: updated, error: null } }
+            else if (table === 'edits') { log.reads.push(q); res = { data: stored, error: null } }
+            else res = { data: table === 'projects' ? { id: 'p1' } : [], error: null }
+            return Promise.resolve(res).then(resolve, reject)
+          },
+        }
+        return b
+      },
+      rpc: async () => ({ data: null, error: null }),
+    }
+    return { client, log }
+  }
+  const EDIT = { id: 'e1', project_id: 'p1', shot_list_id: 'l1', title: 'Cut', version: 1, items: [{ id: 'x', shot_id: 'sh1', label: 'Wide', notes: '' }], snapshot: { kind: 'edit', saved_at: 'T2' }, created_by: 'u9', updated_at: 'Z' }
+
+  it('a named Save: UPDATE … WHERE id AND snapshot->>saved_at = it, returning the row; nothing is upserted', async () => {
+    const { client, log } = conditionalClient({ updated: [{ ...EDIT, snapshot: { kind: 'edit', saved_at: 'T2' } }], stored: null })
+    const adapter = install({ client })
+    const row = await adapter.upsertEdit(EDIT, { expectSavedAt: 'T1' })
+    expect(row.id).toBe('e1')
+    expect(log.updates).toHaveLength(1)
+    expect(log.updates[0].filters).toEqual([['eq', 'id', 'e1'], ['eq', 'snapshot->>saved_at', 'T1']])
+    expect(log.updates[0].set.id).toBeUndefined()
+    expect(log.updates[0].set.items).toEqual(EDIT.items)
+    // The server-owned columns are stripped, as the upsert strips them.
+    expect(log.updates[0].set.created_by).toBeUndefined()
+    expect(log.updates[0].set.updated_at).toBeUndefined()
+    expect(log.reads).toEqual([])
+  })
+
+  it('no Save named (null): the filter is IS NULL', async () => {
+    const { client, log } = conditionalClient({ updated: [EDIT], stored: null })
+    await install({ client }).upsertEdit(EDIT, { expectSavedAt: null })
+    expect(log.updates[0].filters).toEqual([['eq', 'id', 'e1'], ['is', 'snapshot->>saved_at', null]])
+  })
+
+  it('zero rows, and the stored edit carries another Save: refused with code edit_saved_since, status 409', async () => {
+    const { client } = conditionalClient({ updated: [], stored: { id: 'e1', snapshot: { saved_at: 'T9' } } })
+    const err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('edit_saved_since')
+    expect(err.status).toBe(409)
+    expect(err.message).toBe('[supabase] this edit has been saved by someone else since — nothing was written')
+  })
+
+  it('zero rows, and the stored edit carries the SAME Save (or none is visible): not "someone saved" — the row is not this person\'s to change', async () => {
+    let { client } = conditionalClient({ updated: [], stored: { id: 'e1', snapshot: { saved_at: 'T1' } } })
+    let err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe('[supabase] the edit was not written: it is no longer one you can change here')
+    ;({ client } = conditionalClient({ updated: [], stored: null }))
+    err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.code).toBe('42501')
+  })
+
+  // Review round 2 (R2-09): the read after zero rows that FAILED says its own error, never "not yours".
+  it('zero rows, and the read after it fails: that read\'s own error, not a permission refusal', async () => {
+    const { client } = conditionalClient({ updated: [], stored: null })
+    const from = client.from
+    client.from = (table) => {
+      const b = from(table)
+      const then = b.then
+      b.then = (resolve, reject) => (b.__isRead ? Promise.resolve({ data: null, error: { message: 'network down', code: 'PGRST000' } }).then(resolve, reject) : then(resolve, reject))
+      const select = b.select
+      b.select = (cols) => { if (cols === 'id, snapshot') b.__isRead = true; return select(cols) }
+      return b
+    }
+    const err = await install({ client }).upsertEdit(EDIT, { expectSavedAt: 'T1' }).then(() => null, e => e)
+    expect(err.message).toBe('[supabase] network down')
+    expect(err.code).toBe('PGRST000')
+  })
+
+  it('CONTROL: without expectSavedAt (or for a new row with no id) the write is the upsert it was', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const adapter = install(rec)
+    await adapter.upsertEdit(EDIT)
+    await adapter.upsertEdit({ ...EDIT, id: undefined }, { expectSavedAt: 'T1' })
+    expect(rec.writes.map(w => w.op)).toEqual(['upsert', 'upsert'])
+  })
+})
+
 describe('upsertShotList / upsertEdit send no audit or archive column (R1 addendum F)', () => {
   const SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by', 'archived_at', 'archived_by']
   const rest = (row) => Object.fromEntries(Object.entries(row).filter(([k]) => !SERVER_OWNED.includes(k)))
@@ -1526,7 +1637,7 @@ describe('patchShotList (post-overhaul S3b): an UPDATE of the named columns, not
           upsert: (row) => { entry.op = 'upsert'; entry.row = row; sent.push(entry); return b },
           eq: (col, v) => { entry.filters.push([col, v]); return b },
           select: (cols) => { entry.select = cols ?? '*'; return b },
-          single: () => b, order: () => b, in: () => b,
+          single: () => b, order: () => b, in: () => b, range: () => b,
           then: (resolve, reject) => Promise.resolve(typeof result === 'function' ? result(entry) : result).then(resolve, reject),
         }
         return b
@@ -1586,5 +1697,409 @@ describe('Google Drive: every cloud shot-list write is a LOUD read-only stub the
       expect(typeof drive[name], `googleDriveAdapter has no ${name}`).toBe('function')
       await expect(drive[name]('p1', 'l1', []), name).rejects.toThrow(`[gdrive] ${name}() — Google Drive adapter is read-only`)
     }
+  })
+})
+
+
+// ── Bins on the cloud (0091, BC1) ───────────────────────────────────────────
+//
+// The four reads ride the load (and binRoots is answered []); on a database
+// without 0091 the bins read IS the probe — the reads answer [] and every
+// bins WRITE refuses with code `bins_unavailable` before any request. Every
+// RPC is sent with its exact function and parameter NAMES (a missing name is
+// PGRST202, which reads as "0091 is not here"). The refusal map words what
+// the database names; the poster upload asks the switch first.
+
+const { resetBinsSchemaState, BINS_REFUSALS, binsRefusalSentence } = await import('./supabaseAdapter')
+
+describe('bins ride the same load (0091)', () => {
+  afterEach(() => resetBinsSchemaState())
+
+  it('carries bins, bin files, takes and the company\'s locations through, with binRoots empty', async () => {
+    globalThis.__testSupabase = makeClient({
+      projects:      { data: { id: 'p1', title: 'Project One' }, error: null },
+      bins:          { data: [{ id: 'b1', name: 'Footage' }], error: null },
+      bin_files:     { data: [{ id: 'f1', bin_id: 'b1', relative_path: 'A001/T1.mov' }], error: null },
+      shot_takes:    { data: [{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1' }], error: null },
+      bin_locations: { data: [{ id: 'L1', name: 'Footage NAS' }], error: null },
+    })
+    resetSupabaseAdapter(); resetBinsSchemaState()
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.bins).toEqual([{ id: 'b1', name: 'Footage' }])
+    expect(bundle.binFiles).toEqual([{ id: 'f1', bin_id: 'b1', relative_path: 'A001/T1.mov' }])
+    expect(bundle.shotTakes).toEqual([{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1' }])
+    expect(bundle.binLocations).toEqual([{ id: 'L1', name: 'Footage NAS' }])
+    expect(bundle.binRoots).toEqual([])
+    // No `online` on a cloud row: the provider marks it from the capability object.
+    expect('online' in bundle.binFiles[0]).toBe(false)
+  })
+
+  it('degrades to empty lists on a client deployed ahead of 0091, and refuses the writes with ONE code', async () => {
+    const missing = (t) => ({ data: null, error: { code: '42P01', message: `relation "public.${t}" does not exist` } })
+    const rec = recordingClient({
+      projects: PROJECT_ROW, bins: missing('bins'), bin_files: missing('bin_files'), shot_takes: missing('shot_takes'), bin_locations: missing('bin_locations'),
+    })
+    const adapter = install(rec)
+    const bundle = await adapter.loadProject('p1')
+    expect(bundle.bins).toEqual([]); expect(bundle.binFiles).toEqual([]); expect(bundle.shotTakes).toEqual([]); expect(bundle.binLocations).toEqual([])
+    const before = rec.rpcs.length + rec.writes.length
+    const writes = {
+      createBin: () => adapter.createBin('p1', { name: 'X' }),
+      updateBin: () => adapter.updateBin('p1', 'b1', { name: 'Y' }),
+      deleteBin: () => adapter.deleteBin('p1', 'b1', {}),
+      reorderBins: () => adapter.reorderBins('p1', []),
+      addBinFiles: () => adapter.addBinFiles('p1', 'b1', [{}]),
+      updateBinFile: () => adapter.updateBinFile('p1', 'f1', { review_flag: 'select' }),
+      bulkUpdateBinFiles: () => adapter.bulkUpdateBinFiles('p1', ['f1'], { color: 'red' }),
+      moveBinFiles: () => adapter.moveBinFiles('p1', ['f1'], 'b2'),
+      copyBinFiles: () => adapter.copyBinFiles('p1', ['f1'], 'b2'),
+      removeBinFiles: () => adapter.removeBinFiles('p1', ['f1']),
+      restoreBinFiles: () => adapter.restoreBinFiles('p1', [{ id: 'f1' }]),
+      assignShotTakes: () => adapter.assignShotTakes('p1', [{ shot_id: 's', bin_file_id: 'f' }]),
+      updateShotTake: () => adapter.updateShotTake('p1', 't1', { role: 'alt' }),
+      removeShotTakes: () => adapter.removeShotTakes('p1', ['t1']),
+      reorderShotTakes: () => adapter.reorderShotTakes('p1', 's', ['t1']),
+      replaceShotTakes: () => adapter.replaceShotTakes('p1', ['s'], []),
+      createBinLocation: () => adapter.createBinLocation({ name: 'N', unc_path: '\\\\nas\\x' }),
+      updateBinLocation: () => adapter.updateBinLocation('L1', { name: 'M' }),
+      removeBinLocation: () => adapter.removeBinLocation('L1'),
+      setRemoteViewingEnabled: () => adapter.setRemoteViewingEnabled('w1', true),
+      postBinFileThumbnail: () => adapter.postBinFileThumbnail('p1', 'f1', btoa('\xff\xd8\xffx')),
+    }
+    for (const [name, call] of Object.entries(writes)) {
+      const err = await call().catch(e => e)
+      expect(err, name).toBeInstanceOf(Error)
+      expect(err.code, name).toBe('bins_unavailable')
+    }
+    expect(rec.rpcs.length + rec.writes.length).toBe(before) // not one request
+  })
+
+  it('CONTROL: a load REFUSED on bins (42501) does not mark 0091 absent — the write still goes out', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, bins: { data: null, error: { code: '42501', message: 'permission denied for table bins' } } })
+    const adapter = install(rec)
+    await expect(adapter.loadProject('p1')).rejects.toThrow(/permission denied/)
+    const err = await adapter.updateBin('p1', 'b1', { name: 'Y' }).catch(e => e)
+    expect(err.code).not.toBe('bins_unavailable')
+    expect(rec.writes.some(w => w.table === 'bins')).toBe(true)
+  })
+
+  it('a later load that finds the table clears it (a database migrated mid-session)', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW, bins: { data: null, error: { code: 'PGRST205', message: 'no table' } } })
+    const adapter = install(rec)
+    await adapter.loadProject('p1')
+    expect((await adapter.updateBin('p1', 'b1', {}).catch(e => e)).code).toBe('bins_unavailable')
+    rec.perTable.bins = { data: [], error: null }
+    await adapter.loadProject('p1')
+    const err = await adapter.updateBin('p1', 'b1', { name: 'Y' }).catch(e => e)
+    expect(err.code).not.toBe('bins_unavailable')
+  })
+})
+
+describe('the bins RPCs send the exact function and parameter names (0091 §10)', () => {
+  afterEach(() => resetBinsSchemaState())
+  function rpcClient(reply) { return recordingClient({ projects: PROJECT_ROW }, { rpc: reply }) }
+  const echo = (name, args) => ({ data: { name, args }, error: null })
+
+  it('deleteBin → delete_bin(p_bin, p_mode, p_target), target NAMED as null in remove mode', async () => {
+    const rec = rpcClient(echo); const a = install(rec)
+    await a.deleteBin('p1', 'b1', { mode: 'remove' })
+    await a.deleteBin('p1', 'b1', { mode: 'move', target: 'b2' })
+    expect(rec.rpcs).toStrictEqual([
+      { name: 'delete_bin', args: { p_bin: 'b1', p_mode: 'remove', p_target: null } },
+      { name: 'delete_bin', args: { p_bin: 'b1', p_mode: 'move', p_target: 'b2' } },
+    ])
+  })
+
+  it('reorderBins / addBinFiles / moveBinFiles / copyBinFiles / restoreBinFiles', async () => {
+    const rec = rpcClient(echo); const a = install(rec)
+    await a.reorderBins('p1', [{ id: 'b1', parent_bin_id: null, sort_order: 0 }])
+    await a.addBinFiles('p1', 'b1', [{ location_id: 'L1', relative_path: 'A001/T1.mov' }], true)
+    await a.addBinFiles('p1', 'b1', [{ location_id: 'L1', relative_path: 'A001/T2.mov' }], false)
+    await a.moveBinFiles('p1', ['f1'], 'b2', { f1: 3 })
+    await a.moveBinFiles('p1', ['f1'], 'b2')
+    await a.copyBinFiles('p1', ['f1'], 'b2')
+    await a.restoreBinFiles('p1', [{ id: 'f1', bin_id: 'b1' }])
+    expect(rec.rpcs.map(r => [r.name, r.args])).toStrictEqual([
+      ['reorder_bins', { p_order: [{ id: 'b1', parent_bin_id: null, sort_order: 0 }] }],
+      ['add_bin_files', { p_bin: 'b1', p_items: [{ location_id: 'L1', relative_path: 'A001/T1.mov' }], p_create_sub_bins: true }],
+      ['add_bin_files', { p_bin: 'b1', p_items: [{ location_id: 'L1', relative_path: 'A001/T2.mov' }], p_create_sub_bins: false }],
+      ['move_bin_files', { p_ids: ['f1'], p_bin: 'b2', p_sort_orders: { f1: 3 } }],
+      ['move_bin_files', { p_ids: ['f1'], p_bin: 'b2', p_sort_orders: null }],
+      ['copy_bin_files', { p_ids: ['f1'], p_bin: 'b2' }],
+      ['restore_bin_files', { p_rows: [{ id: 'f1', bin_id: 'b1' }] }],
+    ])
+  })
+
+  it('the five take RPCs, every parameter named', async () => {
+    const rec = rpcClient(echo); const a = install(rec)
+    await a.assignShotTakes('p1', [{ shot_id: 'sh1', bin_file_id: 'f1', role: 'primary' }])
+    await a.updateShotTake('p1', 't1', { role: 'alt', position: 2 })
+    await a.removeShotTakes('p1', ['t1'])
+    await a.reorderShotTakes('p1', 'sh1', ['t2', 't1'])
+    await a.replaceShotTakes('p1', ['sh1'], [{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0 }])
+    expect(rec.rpcs.map(r => [r.name, r.args])).toStrictEqual([
+      ['assign_shot_takes', { p_assignments: [{ shot_id: 'sh1', bin_file_id: 'f1', role: 'primary' }] }],
+      ['update_shot_take', { p_id: 't1', p_patch: { role: 'alt', position: 2 } }],
+      ['remove_shot_takes', { p_ids: ['t1'] }],
+      ['reorder_shot_takes', { p_shot: 'sh1', p_ids: ['t2', 't1'] }],
+      ['replace_shot_takes', { p_shots: ['sh1'], p_rows: [{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0 }] }],
+    ])
+  })
+
+  it('a missing function (PGRST202) becomes bins_unavailable and marks 0091 absent', async () => {
+    const rec = rpcClient(() => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })); const a = install(rec)
+    const err = await a.assignShotTakes('p1', [{ shot_id: 'sh1', bin_file_id: 'f1' }]).catch(e => e)
+    expect(err.code).toBe('bins_unavailable')
+    const again = await a.removeShotTakes('p1', ['t1']).catch(e => e)
+    expect(again.code).toBe('bins_unavailable')
+    expect(rec.rpcs).toHaveLength(1) // the second never left
+  })
+
+  it('a refusal keeps its SQLSTATE and the database\'s own words (the RPCs\' RAISEs)', async () => {
+    const rec = rpcClient(() => ({ data: null, error: { code: '42501', message: 'you cannot change this project\'s takes' } })); const a = install(rec)
+    const err = await a.updateShotTake('p1', 't1', { notes: 'x' }).catch(e => e)
+    expect(err.code).toBe('42501')
+    expect(err.message).toBe('[supabase] you cannot change this project\'s takes')
+    const cycle = rpcClient(() => ({ data: null, error: { code: '23514', message: 'a bin cannot be inside itself' } }))
+    const b = install(cycle)
+    expect((await b.reorderBins('p1', [{ id: 'b1' }]).catch(e => e)).message).toBe('[supabase] a bin cannot be inside itself')
+  })
+})
+
+describe('the refusal map: the sentences a person reads (0091)', () => {
+  it('names the constraint or policy Postgres names, never the whole text', () => {
+    const pg = (code, message) => ({ code, message })
+    expect(binsRefusalSentence(pg('23514', 'new row for relation "bin_locations" violates check constraint "bin_locations_unc_path_shape_chk"'))).toBe(BINS_REFUSALS.locationShape)
+    expect(binsRefusalSentence(pg('23505', 'duplicate key value violates unique constraint "bin_locations_workspace_unc_key"'))).toBe(BINS_REFUSALS.locationExists)
+    expect(binsRefusalSentence(pg('23503', 'update or delete on table "bin_locations" violates foreign key constraint "bin_files_location_fk" on table "bin_files"'))).toBe(BINS_REFUSALS.locationInUse)
+    expect(binsRefusalSentence(pg('23514', 'new row for relation "bin_files" violates check constraint "bin_files_relative_path_shape_chk"'))).toBe(BINS_REFUSALS.relativePath)
+    expect(binsRefusalSentence(pg('23514', 'new row for relation "bin_files" violates check constraint "bin_files_poster_path_shape_chk"'))).toBe(BINS_REFUSALS.posterPath)
+    expect(binsRefusalSentence(pg('23505', 'duplicate key value violates unique constraint "shot_takes_shot_file_key"'))).toBe(BINS_REFUSALS.takeTwice)
+    expect(binsRefusalSentence(pg('23503', 'insert or update on table "shot_takes" violates foreign key constraint "shot_takes_shot_fk"'))).toBe(BINS_REFUSALS.takeProject)
+    expect(binsRefusalSentence(pg('42501', 'new row violates row-level security policy for table "bins"'))).toBe(BINS_REFUSALS.gate)
+    expect(binsRefusalSentence(pg('42501', 'new row violates row-level security policy for table "bin_files"'))).toBe(BINS_REFUSALS.gate)
+    expect(binsRefusalSentence(pg('42501', 'new row violates row-level security policy for table "shot_takes"'))).toBe(BINS_REFUSALS.takesGate)
+    expect(binsRefusalSentence(pg('42501', 'new row violates row-level security policy for table "bin_locations"'))).toBe(BINS_REFUSALS.locationsGate)
+    expect(binsRefusalSentence(pg('42501', 'new row violates row-level security policy "petal_bin_posters_remote_viewing_insert" for table "objects"'))).toBe(BINS_REFUSALS.remoteViewingOff)
+    // Anything else keeps Postgres' own words.
+    expect(binsRefusalSentence(pg('23505', 'duplicate key value violates unique constraint "bins_pkey"'))).toBeNull()
+    expect(binsRefusalSentence(pg('42501', 'permission denied for table bins'))).toBeNull()
+    expect(binsRefusalSentence(null)).toBeNull()
+  })
+
+  it('a constraint refusal on a write reaches the caller worded, with its SQLSTATE', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { perWrite: {
+      bin_locations: { data: null, error: { code: '23514', message: 'new row for relation "bin_locations" violates check constraint "bin_locations_unc_path_shape_chk"' } },
+    } })
+    const a = install(rec)
+    const err = await a.createBinLocation({ name: 'Drive', unc_path: 'Z:\\footage' }).catch(e => e)
+    expect(err.code).toBe('23514')
+    expect(err.message).toBe(`[supabase] ${BINS_REFUSALS.locationShape}`)
+  })
+
+  it('an UPDATE or DELETE that RLS filtered to nothing is the gate sentence, not a quiet success', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { perWrite: {
+      bins: { data: [], error: null }, bin_files: { data: [], error: null }, bin_locations: { data: [], error: null }, workspaces: { data: [], error: null },
+    } })
+    const a = install(rec)
+    expect((await a.updateBin('p1', 'b1', { name: 'Y' }).catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.gate}`)
+    expect((await a.updateBinFile('p1', 'f1', { color: 'red' }).catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.gate}`)
+    expect((await a.removeBinFiles('p1', ['f1']).catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.gate}`)
+    expect((await a.updateBinLocation('L1', { name: 'M' }).catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.locationsGate}`)
+    expect((await a.removeBinLocation('L1').catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.locationsGate}`)
+    expect((await a.setRemoteViewingEnabled('w1', true).catch(e => e)).message).toBe(`[supabase] ${BINS_REFUSALS.switchAdminOnly}`)
+  })
+
+  it('updateBinFile sends neither `online` nor the audit columns, and a blank name is refused before any request', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { perWrite: { bin_files: { data: [{ id: 'f1' }], error: null } } })
+    const a = install(rec)
+    await a.updateBinFile('p1', 'f1', { review_flag: 'select', online: true, added_by: 'x', updated_at: 'y', project_id: 'z' })
+    expect(rec.writes[0].row).toStrictEqual({ review_flag: 'select' })
+    const err = await a.updateBinFile('p1', 'f1', { display_name: '   ' }).catch(e => e)
+    expect(err.code).toBe('invalid')
+    expect(rec.writes).toHaveLength(1)
+  })
+})
+
+// PostgREST answers PGRST202 both for a function that does not exist and for
+// one called with parameter names it does not declare, and the adapter reads
+// PGRST202 as "0091 is not on this database". So the names the client sends
+// are held to the names the migration DECLARES, read from the file (review
+// round 1 of BC1): a renamed parameter fails here, not as "0091 missing" in
+// front of a person.
+describe('the client sends exactly the parameter names 0091 declares (PGRST202 would otherwise read as 0091 missing)', () => {
+  afterEach(() => resetBinsSchemaState())
+  const SQL = readFileSync(new URL('../../../../supabase/migrations/0091_bins_on_the_cloud.sql', import.meta.url), 'utf8')
+  function declared(name) {
+    const m = SQL.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(([^)]*)\\)`))
+    if (!m) throw new Error(`0091 declares no function ${name}`)
+    return m[1].split(',').map(s => s.trim().split(/\s+/)[0]).filter(Boolean).sort()
+  }
+  const CALLS = {
+    delete_bin: (a) => a.deleteBin('p1', 'b1', { mode: 'move', target: 'b2' }),
+    reorder_bins: (a) => a.reorderBins('p1', [{ id: 'b1', parent_bin_id: null, sort_order: 0 }]),
+    add_bin_files: (a) => a.addBinFiles('p1', 'b1', [{ location_id: 'L1', relative_path: 'A001/T1.mov' }], true),
+    move_bin_files: (a) => a.moveBinFiles('p1', ['f1'], 'b2', { f1: 3 }),
+    copy_bin_files: (a) => a.copyBinFiles('p1', ['f1'], 'b2'),
+    restore_bin_files: (a) => a.restoreBinFiles('p1', [{ id: 'f1', bin_id: 'b1' }]),
+    assign_shot_takes: (a) => a.assignShotTakes('p1', [{ shot_id: 'sh1', bin_file_id: 'f1', role: 'primary' }]),
+    update_shot_take: (a) => a.updateShotTake('p1', 't1', { role: 'alt', position: 2 }),
+    remove_shot_takes: (a) => a.removeShotTakes('p1', ['t1']),
+    reorder_shot_takes: (a) => a.reorderShotTakes('p1', 'sh1', ['t2', 't1']),
+    replace_shot_takes: (a) => a.replaceShotTakes('p1', ['sh1'], [{ id: 't1', shot_id: 'sh1', bin_file_id: 'f1', role: 'primary', position: 0 }]),
+    rabbit_remote_viewing_enabled: (a) => a.getRemoteViewingEnabled('p1'),
+  }
+  for (const [fn, call] of Object.entries(CALLS)) {
+    it(`${fn}: the parameter names the client sends are the ones the migration declares`, async () => {
+      const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: fn === 'rabbit_remote_viewing_enabled' ? true : {}, error: null }) })
+      const a = install(rec)
+      await call(a).catch(() => {})
+      const sent = rec.rpcs.find(r => r.name === fn)
+      expect(sent, `${fn} was not called`).toBeTruthy()
+      expect(Object.keys(sent.args).sort()).toStrictEqual(declared(fn))
+    })
+  }
+  it('CONTROL: the migration is read for real — a function it does not declare is reported, and the declared list is exact', () => {
+    expect(() => declared('no_such_function')).toThrow(/declares no function/)
+    expect(declared('delete_bin')).toStrictEqual(['p_bin', 'p_mode', 'p_target'])
+  })
+})
+
+describe('the poster upload asks the switch first (B4)', () => {
+  afterEach(() => resetBinsSchemaState())
+  const JPEG = btoa('\xff\xd8\xff' + 'x'.repeat(16))
+
+  it('with the switch OFF: the sentence, code remote_viewing_off, and no byte moves', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: (name) => ({ data: name === 'rabbit_remote_viewing_enabled' ? false : null, error: null }) })
+    const upload = vi.fn(async () => ({ error: null }))
+    rec.client.storage = { from: () => ({ upload }) }
+    const a = install(rec)
+    const err = await a.postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)
+    expect(err.code).toBe('remote_viewing_off')
+    expect(err.message).toBe(`[supabase] ${BINS_REFUSALS.remoteViewingOff}`)
+    expect(upload).not.toHaveBeenCalled()
+    expect(rec.rpcs).toStrictEqual([{ name: 'rabbit_remote_viewing_enabled', args: { p_project: 'p1' } }])
+  })
+
+  it('with the switch ON: uploads to projects/{project}/bin_files/{id}/{ts}-poster.jpg and writes poster_path', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: true, error: null }),
+      perWrite: { bin_files: (entry) => ({ data: [{ id: 'f1', ...entry.row }], error: null }) },
+    })
+    const upload = vi.fn(async () => ({ error: null }))
+    rec.client.storage = { from: (bucket) => { expect(bucket).toBe('rabbit-thumbnails'); return { upload } } }
+    const a = install(rec)
+    const res = await a.postBinFileThumbnail('p1', 'f1', JPEG)
+    expect(res.ok).toBe(true)
+    expect(res.poster_path).toMatch(/^projects\/p1\/bin_files\/f1\/\d+-poster\.jpg$/)
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(upload.mock.calls[0][0]).toBe(res.poster_path)
+    expect(upload.mock.calls[0][2]).toMatchObject({ contentType: 'image/jpeg', upsert: false })
+    expect(rec.writes.find(w => w.table === 'bin_files').row).toStrictEqual({ poster_path: res.poster_path })
+  })
+
+  it('when the PATCH of poster_path is refused after the upload landed, the object is taken back (best effort) and the refusal propagates', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, {
+      rpc: () => ({ data: true, error: null }),
+      // The PATCH filtered to nothing: the adapter reads a 0-row UPDATE as the gate's 42501.
+      perWrite: { bin_files: () => ({ data: [], error: null }) },
+    })
+    const upload = vi.fn(async () => ({ error: null }))
+    const remove = vi.fn(async () => ({ error: null }))
+    rec.client.storage = { from: () => ({ upload, remove }) }
+    const a = install(rec)
+    const err = await a.postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)
+    expect(err.code).toBe('42501')
+    expect(upload).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove.mock.calls[0][0]).toStrictEqual([upload.mock.calls[0][0]])
+    // And a remove that itself fails changes nothing: the PATCH's refusal is still the answer.
+    const rec2 = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: true, error: null }), perWrite: { bin_files: () => ({ data: [], error: null }) } })
+    rec2.client.storage = { from: () => ({ upload: async () => ({ error: null }), remove: async () => { throw new Error('storage down') } }) }
+    expect((await install(rec2).postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)).code).toBe('42501')
+  })
+
+  it('a storage refusal that slips past the pre-check reads the same sentence; a non-JPEG never reaches storage', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW }, { rpc: () => ({ data: true, error: null }) })
+    const upload = vi.fn(async () => ({ error: { message: 'new row violates row-level security policy "petal_bin_posters_remote_viewing_insert" for table "objects"' } }))
+    rec.client.storage = { from: () => ({ upload }) }
+    const a = install(rec)
+    expect((await a.postBinFileThumbnail('p1', 'f1', JPEG).catch(e => e)).code).toBe('remote_viewing_off')
+    expect((await a.postBinFileThumbnail('p1', 'f1', btoa('notajpeg')).catch(e => e)).message).toContain('not a JPEG')
+    expect(upload).toHaveBeenCalledTimes(1)
+  })
+
+  it('binFilePosterUrl signs the row\'s key and answers null without one', async () => {
+    const rec = recordingClient({ projects: PROJECT_ROW })
+    const createSignedUrl = vi.fn(async (key, ttl) => ({ data: { signedUrl: `https://signed/${key}?t=${ttl}` }, error: null }))
+    rec.client.storage = { from: () => ({ createSignedUrl }) }
+    const a = install(rec)
+    expect(await a.binFilePosterUrl('p1', { poster_path: 'projects/p1/bin_files/f1/1-poster.jpg' })).toBe('https://signed/projects/p1/bin_files/f1/1-poster.jpg?t=3600')
+    expect(await a.binFilePosterUrl('p1', { id: 'f2' })).toBeNull()
+    expect(createSignedUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+// ── GW1 (0093): one clip's viewings from outside, for the Bins inspector ────
+describe('remoteViewsOfClip (GW1): the inspector line\'s read', () => {
+  // One builder per query, each answering the next queued result.
+  function recording(...results) {
+    const calls = []
+    const queue = [...results]
+    const builder = () => {
+      const result = queue.shift() ?? { data: null, error: null, count: 0 }
+      const b = new Proxy({}, {
+        get(_, prop) {
+          if (prop === 'then') return (res, rej) => Promise.resolve(result).then(res, rej)
+          return (...args) => { calls.push([prop, ...args]); return b }
+        },
+      })
+      return b
+    }
+    return {
+      calls,
+      client: {
+        auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+        from: (t) => { calls.push(['from', t]); return builder() },
+      },
+    }
+  }
+
+  it('asks file_events for the viewed_remote rows of that clip: the newest one, the count, and how many no ticket matched', async () => {
+    const rec = recording(
+      { data: [{ actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z', unverified_mint: true }], error: null, count: 3 },
+      { data: null, error: null, count: 1 },
+    )
+    const res = await install(rec).remoteViewsOfClip('bf1')
+    expect(res).toEqual({ count: 3, unverified: 1, last: { actor_label: 'Priya Raman', created_at: '2026-10-09T15:00:00Z', unverified_mint: true } })
+    expect(rec.calls).toEqual([
+      ['from', 'file_events'],
+      ['select', 'actor_label, created_at, unverified_mint:details->unverified_mint', { count: 'exact' }],
+      ['eq', 'event', 'viewed_remote'],
+      ['eq', 'subject', 'bin_file'],
+      ['eq', 'file_id', 'bf1'],
+      ['order', 'created_at', { ascending: false }],
+      ['limit', 1],
+      ['from', 'file_events'],
+      ['select', 'id', { count: 'exact', head: true }],
+      ['eq', 'event', 'viewed_remote'],
+      ['eq', 'subject', 'bin_file'],
+      ['eq', 'file_id', 'bf1'],
+      ['eq', 'details->>unverified_mint', 'true'],
+    ])
+  })
+
+  it('no viewing asks nothing more', async () => {
+    const rec = recording({ data: [], error: null, count: 0 })
+    expect(await install(rec).remoteViewsOfClip('bf1')).toEqual({ count: 0, unverified: 0, last: null })
+    expect(rec.calls.filter(([p]) => p === 'from')).toHaveLength(1)
+  })
+
+  it('a database before 0093 (no subject column) answers none, quietly; any other failure is loud', async () => {
+    expect(await install(recording({ data: null, error: { code: '42703', message: 'column file_events.subject does not exist' } })).remoteViewsOfClip('bf1'))
+      .toEqual({ count: 0, unverified: 0, last: null })
+    await expect(install(recording({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } })).remoteViewsOfClip('bf1'))
+      .rejects.toThrow('[supabase] remoteViewsOfClip failed: canceling statement due to statement timeout')
   })
 })

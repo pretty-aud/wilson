@@ -10,9 +10,12 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, fixtureVariant } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
+import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
+// GW3: the gateway's doors in the page (the probe, the tickets, the bytes).
+import { createGatewayDoorsStub } from './gatewayDoors'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
 import { BUILTIN } from '../../lib/aiModels'
@@ -21,13 +24,21 @@ import { BUILTIN } from '../../lib/aiModels'
 // Hours' levels and experiences on — B4's walk screens for those two views.
 // `variant: 'member'` (S4b) seats the reviewer as a plain project member, so
 // the money gate's absences can be seen (store.applyMemberVariant).
-export function buildDevFixtures({ variant = null } = {}) {
+// `variant: 'manager'` (S4d) makes her a workspace manager with a member
+// seat: the Legal gate's presences beside the money gate's absences
+// (store.applyWorkspaceManagerVariant).
+// `bins: 'browser'` (BC3, `?bins=browser`) makes the bins answer as the cloud
+// does in a browser: no row reachable (store.binsFixtureMode).
+export function buildDevFixtures({ variant = null, bins = null } = {}) {
   const store = createStore()
   if (variant === 'game') applyGameVariant(store)
   if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
-  const appRole = variant === 'member' ? 'user' : PERMISSIONS.role
+  if (variant === 'manager') applyWorkspaceManagerVariant(store, PERMISSIONS.userId)
+  const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : PERMISSIONS.role
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
+  const binsOptions = { browser: bins === 'browser' }
   let rabbitAdapter = null
+  const gatewayDoors = createGatewayDoorsStub(store, identity)
 
   return {
     label: PROJECT.title,
@@ -52,11 +63,27 @@ export function buildDevFixtures({ variant = null } = {}) {
 
     /** One adapter per session — the provider's adapterRef holds it. */
     rabbitAdapter() {
-      if (!rabbitAdapter) rabbitAdapter = createRabbitFixturesAdapter(store, identity)
+      if (!rabbitAdapter) rabbitAdapter = createRabbitFixturesAdapter(store, identity, binsOptions)
       return rabbitAdapter
     },
 
     otter: createOtterFixturesHandler(store, identity),
+
+    /**
+     * GW1: what src/cloud/gatewayApi.js answers from — Settings, Storage,
+     * File gateway and the Bins inspector's one line, without a database.
+     * `?gateways=empty` starts before the company's first gateway.
+     */
+    gateways: createGatewayFixtures(store, identity, { mode: gatewayFixtureMode(), doors: gatewayDoors }),
+
+    /**
+     * GW3: what the Bins tab's gateway adapter talks to instead of a gateway
+     * on the network — the probe, the tickets, the bytes (a bundled clip of
+     * random frames), the renewal — so port 5289 plays a clip "through the
+     * gateway" with no listener. `?gateway=outside` puts the viewer's mark
+     * over every player; `?gateway=none|unseen|unreachable` are §2's cases.
+     */
+    gatewayDoors,
 
     /** What useWorkspaceMembers / ProfileSection read and write. */
     workspace: {
@@ -90,4 +117,4 @@ export function buildDevFixtures({ variant = null } = {}) {
   }
 }
 
-installDevFixtures(buildDevFixtures({ variant: fixtureVariant() }))
+installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode() }))

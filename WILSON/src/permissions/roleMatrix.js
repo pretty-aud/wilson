@@ -43,6 +43,10 @@ export const ACTIONS = Object.freeze([
   'rabbit.history.view',
   'rate_card.edit',
   'rate_card.view',
+  // GW1 (2026-10-10): the company's audit of its own access — who viewed
+  // which clip from outside the office (file_events' viewed_remote rows) and
+  // workspace_audit. Admins only, as 0093's live-admin read says.
+  'workspace.audit.read',
   'workspace.settings.read',
   'workspace.settings.write',
 ])
@@ -62,6 +66,7 @@ const ALLOW = {
     'rabbit.history.view',
     'rate_card.edit',
     'rate_card.view',
+    'workspace.audit.read',
     'workspace.settings.read',
     'workspace.settings.write',
   ]),

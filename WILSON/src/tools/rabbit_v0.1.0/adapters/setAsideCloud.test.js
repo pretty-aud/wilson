@@ -31,6 +31,9 @@ function makeClient(data = {}) {
     const rec = { table: name, op: 'select', payload: null }
     const b = {
       select: () => b, eq: () => b, in: () => b, or: () => b, order: () => b, limit: () => b,
+      // S4c: scenes and shots are read page by page (readAllPages); one page
+      // of fewer than 1,000 rows is the whole list here.
+      range: () => b,
       single: () => b, maybeSingle: () => b,
       update: (row) => { rec.op = 'update'; rec.payload = row; return b },
       upsert: (row) => { rec.op = 'upsert'; rec.payload = row; return b },

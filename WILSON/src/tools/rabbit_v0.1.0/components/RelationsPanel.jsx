@@ -11,6 +11,7 @@
 //   • RelationBadge — clickable badge for asset table rows
 //   • NewTaskSidePopup — task creation form (appears to left)
 //   • AssetRelationsSidebar — left sidebar for asset popup
+//   • TaskItemsTable — the task window's Items, on its left (FX2, 0096)
 //
 // UI overhaul B4b, surface 4 (2026-09-25): on the shared kit (src/ui) and
 // lane B4's sheet, rabbitFiles.css (`rb-rel-`). Both sidebars are the kit
@@ -33,10 +34,11 @@ import {
   Boxes, ListChecks, Plus, X, Search,
   ChevronDown, ChevronRight, Square, CheckSquare,
   Film, Clapperboard, Gamepad2, Sparkles,
+  ListTree, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import {
   Panel, Dialog, Button, IconButton, Field, EmptyState, HoverActions,
-  StatusDot, statusMeta, Switch,
+  StatusDot, statusMeta, Switch, Badge,
 } from '../../../ui'
 // Post-overhaul S3c, step 1: a seat that may not write sees the relations'
 // verbs greyed with the reason (S3b-01); a linked scene or shot names the
@@ -44,6 +46,9 @@ import {
 import GatedAction from '../../../permissions/GatedAction'
 import LinkHome, { useHomeIndex } from '../views/scenes/LinkHome'
 import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
+// FX2 (0096): a task's items — the window's Items table, and "the tasks
+// about" a scene, shot, level or experience read from them.
+import { ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, itemsOfTask, tasksAbout } from '../state/taskItemsModel'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -178,10 +183,15 @@ export default function RelationsPanel({
     [assets, assetField, entityId]
   )
 
-  // Related tasks: tasks where task[scene_id/shot_id/etc.] === entityId
+  // Related tasks: every task ABOUT this scene, shot, level or experience —
+  // any of its items (FX2, 0096: a task about two scenes is listed in both).
+  // Without items (a cloud before 0096), the task's own single link, as it
+  // was; a level's and an experience's never matched a task on the cloud.
   const relatedTasks = useMemo(() =>
-    tasks.filter(t => t[taskField] === entityId),
-    [tasks, taskField, entityId]
+    ctx?.taskItemsAvailable === true
+      ? tasksAbout(tasks, ctx?.taskItems, entityType, entityId, true)
+      : tasks.filter(t => t[taskField] === entityId),
+    [tasks, taskField, entityId, entityType, ctx?.taskItems, ctx?.taskItemsAvailable]
   )
 
   // Add asset relation (refused for a seat that may not write: S3b-01)
@@ -1140,5 +1150,302 @@ export function RelationBadge({ icon: Icon, count, label, onClick }) {
       {Icon && <Icon aria-hidden="true" className="rb-rel-badge-glyph" />}
       <span className="rb-rel-badge-count">{n}</span>
     </button>
+  )
+}
+
+
+// ═════════════════════════════════════════════════════════
+// TaskItemsTable — the task window's ITEMS, on its left (FX2, 0096)
+// ═════════════════════════════════════════════════════════
+//
+// Audrey (2026-10-11): "a task may be related to multiple items … we could do
+// it how assets work in the scene system where its the table on the left side
+// of the window." So this is the scene window's Assets group, in the same
+// parts (Jakob): the group head (chevron, glyph, "Items (n)", ONE + for all
+// five kinds — Hick), the rows (dot, name, status words), the remove at the
+// row's end in the kit's hover slot (Fitts), and the in-column picker (one
+// search over the project's assets, scenes, shots, levels and experiences,
+// grouped by kind). The rows group by kind (Proximity), each kind in its
+// order; the FIRST of a kind is the task's MAIN item of that kind — the one
+// the Timeline and the Budget put the task under — marked with the kit Badge
+// where a kind holds more than one (Von Restorff, and only where it is a
+// choice). Move up / Move down reorder within a kind, the keyboard's way (as
+// the edit table's). Removing the task's LAST item asks first (Cancel
+// focused); any other remove is one click and one Ctrl+Z. A scene's or a
+// shot's row names the shot list that holds it (LinkHome, S3c's words). An
+// item whose row the project no longer shows (a trashed asset) reads "No
+// longer in the project" and can be removed. A seat that may not write (a
+// reviewer) sees every verb greyed with the reason.
+
+const ITEM_GLYPH = { asset: Boxes, scene: Film, shot: Clapperboard, level: Gamepad2, experience: Sparkles }
+
+// The rows each kind's names and statuses are read from: every scene and
+// shot (a link may be to a row only another shot list holds, S3c), the
+// project's assets, levels and experiences.
+function useItemRows(ctx) {
+  const assets = ctx?.assets
+  const scenes = ctx?.allScenes || ctx?.scenes
+  const shots = ctx?.allShots || ctx?.shots
+  const levels = ctx?.levels
+  const experiences = ctx?.experiences
+  return useMemo(() => {
+    const byId = (rows) => new Map((rows || []).filter(Boolean).map(r => [r.id, r]))
+    return { asset: byId(assets), scene: byId(scenes), shot: byId(shots), level: byId(levels), experience: byId(experiences) }
+  }, [assets, scenes, shots, levels, experiences])
+}
+
+// A row's words: a shot is "Scene › Shot", as the Budget names it.
+function itemName(kind, row, rows) {
+  if (!row) return null
+  if (kind === 'shot') {
+    const scene = row.scene_id ? rows.scene.get(row.scene_id) : null
+    return `${scene ? `${scene.name || 'Untitled scene'} › ` : ''}${row.name || 'Untitled shot'}`
+  }
+  return row.name || `Untitled ${kind}`
+}
+
+const GONE_WORDS = 'No longer in the project'
+
+// "assets, scenes or shots": the kinds a project's picker offers, in words.
+function kindsInWords(kinds) {
+  const words = kinds.map(k => KIND_LABEL_PLURAL[k].toLowerCase())
+  return words.length < 2 ? (words[0] || 'assets') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`
+}
+
+export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const [picking, setPicking] = useState(false)
+  // The item whose remove asks first: the task's last.
+  const [lastOne, setLastOne] = useState(null)
+  const rows = useItemRows(ctx)
+  const homeOf = useHomeIndex(ctx)
+  const listsKnown = Array.isArray(ctx?.shotLists)
+  const taskId = task?.id
+  const items = useMemo(() => itemsOfTask(ctx?.taskItems || [], taskId), [ctx?.taskItems, taskId])
+  const groups = useMemo(
+    () => ITEM_KINDS.map(kind => ({ kind, items: items.filter(i => i.entity_type === kind) })).filter(g => g.items.length > 0),
+    [items],
+  )
+  if (!task) return null
+
+  // Every verb reports its own failure (the provider's banner); the window
+  // does not throw on top of it.
+  const quiet = (p) => { if (p && typeof p.catch === 'function') p.catch(() => {}) }
+  // Review round 1, R1-3: an item whose row the project no longer shows (on
+  // the cloud, in the trash) never becomes the task's main one from here. The
+  // cloud refuses it (a task's main asset decides whether the task can be
+  // seen), and a main scene or shot that is gone would leave the Timeline and
+  // the Budget on a row nobody sees. The verbs that would make it main (the
+  // main's remove and move down, its own move up) are greyed with the reason;
+  // removing it first stays open.
+  const goneAt = (kindItems, i) => !!kindItems[i] && !rows[kindItems[i].entity_type]?.get(kindItems[i].entity_id)
+  const nextGoneWords = (kind) => `The next ${KIND_LABEL[kind].toLowerCase()} is no longer in the project: remove it first, so it does not become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
+  const selfGoneWords = (kind) => `This ${KIND_LABEL[kind].toLowerCase()} is no longer in the project, so it cannot become this task's main ${KIND_LABEL[kind].toLowerCase()}.`
+  function remove(item) {
+    if (!canWrite) return
+    if (items.length === 1) { setLastOne(item); return }
+    const kindItems = items.filter(i => i.entity_type === item.entity_type)
+    if (kindItems[0]?.id === item.id && goneAt(kindItems, 1)) return
+    quiet(ctx?.removeTaskItem?.(item.id))
+  }
+  function move(kind, kindItems, index, delta) {
+    if (!canWrite) return
+    const j = index + delta
+    if (j < 0 || j >= kindItems.length) return
+    if (Math.min(index, j) === 0 && goneAt(kindItems, Math.max(index, j))) return
+    const order = kindItems.map(i => i.id)
+    ;[order[index], order[j]] = [order[j], order[index]]
+    quiet(ctx?.reorderTaskItems?.(task.id, kind, order))
+  }
+  function pick(kind, entityId) {
+    if (!canWrite) return
+    quiet(ctx?.addTaskItem?.({ task_id: task.id, entity_type: kind, entity_id: entityId }))
+  }
+  const lastName = lastOne ? (itemName(lastOne.entity_type, rows[lastOne.entity_type]?.get(lastOne.entity_id), rows) || GONE_WORDS) : null
+
+  return (
+    <div className="rb-rel-list rb-rel-items">
+      <RelSection
+        Icon={ListTree}
+        title={`Items (${items.length})`}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(c => !c)}
+        actions={(
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            <IconButton size="sm" Icon={Plus} title="Add an item" onClick={() => { if (canWrite) setPicking(true) }} />
+          </GatedAction>
+        )}
+      >
+        {items.length === 0 ? (
+          <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, items))} this task is about.`}</p>
+        ) : groups.map(g => {
+          const Glyph = ITEM_GLYPH[g.kind]
+          return (
+            <div key={g.kind} className="rb-rel-kind" role="group" aria-label={KIND_LABEL_PLURAL[g.kind]}>
+              <span className="rb-rel-kind-label" aria-hidden="true">{KIND_LABEL_PLURAL[g.kind]}</span>
+              {g.items.map((item, index) => {
+                const row = rows[g.kind].get(item.entity_id) || null
+                const name = itemName(g.kind, row, rows)
+                const words = name || GONE_WORDS
+                const main = index === 0 && g.items.length > 1
+                // R1-3: what would make a gone row main, and why it is greyed.
+                const nextGone = index === 0 && goneAt(g.items, 1)
+                const selfGone = index === 1 && !row
+                return (
+                  <div key={item.id} className="rb-rel-row ui-hover-host rb-rel-item"
+                    data-gone={row ? undefined : 'true'}>
+                    <Glyph aria-hidden="true" className="rb-rel-glyph" />
+                    {row ? <QuietDot status={row.status || 'not_started'} /> : <span className="rb-rel-dot-gap" aria-hidden="true" />}
+                    <span className="rb-rel-stack">
+                      <span className="rb-rel-name" title={words}>{words}</span>
+                      {row && listsKnown && (g.kind === 'scene' || g.kind === 'shot') && (
+                        <LinkHome homeOf={homeOf} id={row.id} name={row.name || 'Untitled'} />
+                      )}
+                    </span>
+                    {main && (
+                      <Badge className="rb-rel-main"
+                        title={`The main ${KIND_LABEL[g.kind].toLowerCase()}: the Timeline and the Budget show this task under it`}>
+                        Main
+                      </Badge>
+                    )}
+                    {row && <StatusWord status={row.status || 'not_started'} />}
+                    <HoverActions className="rb-rel-item-acts">
+                      {g.items.length > 1 && (
+                        <>
+                          <GatedAction allowed={canWrite && !selfGone} reason={canWrite ? selfGoneWords(g.kind) : writeReason}>
+                            <IconButton size="sm" Icon={ArrowUp} title={`Move ${words} up`}
+                              disabled={index === 0} onClick={() => move(g.kind, g.items, index, -1)} />
+                          </GatedAction>
+                          <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
+                            <IconButton size="sm" Icon={ArrowDown} title={`Move ${words} down`}
+                              disabled={index === g.items.length - 1} onClick={() => move(g.kind, g.items, index, 1)} />
+                          </GatedAction>
+                        </>
+                      )}
+                      <GatedAction allowed={canWrite && !nextGone} reason={canWrite ? nextGoneWords(g.kind) : writeReason}>
+                        <IconButton size="sm" Icon={X} danger title={`Remove ${words}`} onClick={() => remove(item)} />
+                      </GatedAction>
+                    </HoverActions>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </RelSection>
+
+      {picking && (
+        <TaskItemPickerOverlay ctx={ctx} items={items} rows={rows}
+          onPick={pick} onClose={() => setPicking(false)} />
+      )}
+
+      {lastOne && createPortal(
+        <Dialog
+          width="confirm"
+          title="Remove the last item"
+          onClose={() => setLastOne(null)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setLastOne(null)}>Cancel</Button>
+              <Button variant="danger" onClick={() => { const it = lastOne; setLastOne(null); quiet(ctx?.removeTaskItem?.(it.id)) }}>
+                Remove
+              </Button>
+            </>
+          )}
+        >
+          <p className="rb-rel-confirm">
+            {`Remove “${lastName}”? It is this task's only item: the Timeline and the Budget will show the task under no asset, scene or shot until you add one.`}
+          </p>
+        </Dialog>,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+// The kinds a project's picker offers: assets always; scenes and shots, levels
+// and experiences where the project turns them on (the window's old pickers'
+// rule) or the task already names one.
+function pickerKinds(ctx, items) {
+  const p = ctx?.project
+  const has = (kind) => items.some(i => i.entity_type === kind)
+  return ITEM_KINDS.filter(kind => {
+    if (kind === 'asset') return true
+    if (kind === 'scene' || kind === 'shot') return !!p?.scenes_enabled || has(kind)
+    if (kind === 'level') return !!p?.levels_enabled || has(kind)
+    return !!p?.experiences_enabled || has(kind)
+  })
+}
+
+// AssetPickerOverlay's shell, over the same column, for all five kinds: one
+// search, then a group per kind, each row an add. A row the task already
+// names is not offered. Scenes and shots are the ACTIVE shot list's (D10),
+// with "Show all lists" for the rest, as the window's old pickers were.
+function TaskItemPickerOverlay({ ctx, items, rows, onPick, onClose }) {
+  const [search, setSearch] = useState('')
+  const [showAllLists, setShowAllLists] = useState(false)
+  useFocusBackOnClose()
+  const kinds = pickerKinds(ctx, items)
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  const allScenes = ctx?.allScenes || scenes
+  const allShots = ctx?.allShots || shots
+  const scopeOn = kinds.includes('scene') && (otherListRows({ active: scenes, all: allScenes }) || otherListRows({ active: shots, all: allShots }))
+  const taken = new Set(items.map(i => `${i.entity_type}:${i.entity_id}`))
+  const q = search.trim().toLowerCase()
+  const source = {
+    asset: () => ctx?.assets || [],
+    scene: () => pickerRows({ active: scenes, all: allScenes, showAll: showAllLists }),
+    shot: () => pickerRows({ active: shots, all: allShots, showAll: showAllLists }),
+    level: () => ctx?.levels || [],
+    experience: () => ctx?.experiences || [],
+  }
+  const groups = kinds.map(kind => ({
+    kind,
+    offers: source[kind]()
+      .filter(r => r && !taken.has(`${kind}:${r.id}`))
+      .map(r => ({ row: r, name: itemName(kind, r, rows) }))
+      .filter(o => !q || o.name.toLowerCase().includes(q)),
+  })).filter(g => g.offers.length > 0)
+  const total = groups.reduce((n, g) => n + g.offers.length, 0)
+
+  return (
+    <div className="rb-rel-pick rb-rel-items-pick" onKeyDown={markOwnEscape}>
+      <div className="rb-rel-pick-head">
+        <span className="rb-rel-pick-title">Add an item</span>
+        <IconButton size="sm" Icon={X} title="Close" onClick={onClose} />
+      </div>
+      <PickerSearch value={search} onChange={setSearch}
+        placeholder={`Search ${kinds.map(k => KIND_LABEL_PLURAL[k].toLowerCase()).join(', ')}…`}
+        label="Search the project's items" />
+      {scopeOn && (
+        <div className="rb-rel-pick-scope">
+          <Switch checked={showAllLists} onChange={setShowAllLists} label="Show all lists" />
+        </div>
+      )}
+      <div className="rb-rel-pick-list">
+        {total === 0 ? (
+          <EmptyState compact title={q ? 'No matches' : 'Everything here is already an item'} />
+        ) : groups.map(g => {
+          const Glyph = ITEM_GLYPH[g.kind]
+          return (
+            <div key={g.kind} className="rb-rel-kind" role="group" aria-label={KIND_LABEL_PLURAL[g.kind]}>
+              <span className="rb-rel-kind-label" aria-hidden="true">
+                {`${KIND_LABEL_PLURAL[g.kind]} (${g.offers.length})`}
+              </span>
+              {g.offers.map(({ row, name }) => (
+                <button key={row.id} type="button" className="rb-rel-pick-row"
+                  title={`Add ${name}`} aria-label={`Add ${name}`} onClick={() => onPick(g.kind, row.id)}>
+                  <Glyph aria-hidden="true" className="rb-rel-glyph" />
+                  <StatusDot status={row.status || 'not_started'} />
+                  <span className="rb-rel-name">{name}</span>
+                  <Plus aria-hidden="true" className="rb-rel-pick-add" />
+                </button>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

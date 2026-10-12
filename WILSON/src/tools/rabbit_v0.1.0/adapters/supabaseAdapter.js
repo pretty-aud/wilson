@@ -50,8 +50,16 @@ import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClie
 import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
+// Post-overhaul S4c: a shot's folder sits in its scene's, and the one-time
+// re-filing of a project's older shot folders (the pure rule lives there).
+import {
+  pendingShotRefiling, shotsCategoryRow, shotObjectPrefix, nestedShotKey,
+} from '../shotRefiling';
+import { THUMBNAIL_BUCKET } from '../storage/thumbnails';
+import { hasLocalServer } from '../../../lib/localData';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 import { splitSetAside, isSetAside } from '../state/setAside';
+import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../state/shotListModel';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
 // Session 37: the workspace's CONFIGURED provider decides where a new body
 // goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
@@ -277,22 +285,36 @@ async function fileTagsAvailable(client) {
 // it. So only a positive `true` counts; false, an error or no answer means
 // "not offered", and only `true` is remembered (a database migrated
 // mid-session is picked up on the next ask).
+// S4d (0092): and the Legal GATE must be there too — can_access_project_legal,
+// asked with the nil uuid (a project nobody has: it answers false where the
+// function exists and "no such function" where it does not). A database with
+// 0088 but not 0092 locks the folder for the money audience only; Add as
+// Legal is greyed there with LEGAL_UNAVAILABLE naming both migrations, and a
+// Legal upload is refused by the same sentence — not by the gate's, which
+// would tell a project manager they are not one (review round 1, finding 8).
+const NIL_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 let legalFilesKnown = false;
 async function legalFilesAvailable(client) {
   if (legalFilesKnown) return true;
   try {
     const { data, error } = await client.rpc('rabbit_money_segment', { seg: LEGAL_SEGMENT });
-    if (!error && data === true) legalFilesKnown = true;
+    if (error || data !== true) return false;
+    const gate = await client.rpc('can_access_project_legal', { p_project: NIL_PROJECT_ID });
+    if (gate?.error) return false;
+    legalFilesKnown = true;
   } catch { /* not now */ }
   return legalFilesKnown;
 }
-// The money gate itself (0037's can_access_project_money, executable by
-// authenticated), asked before a Legal upload moves a byte: the database
-// would refuse the object and the row anyway, but only after the transfer.
-// Fails CLOSED — an error is a no.
-async function canAccessProjectMoney(client, projectId) {
+// The Legal gate itself (0092's can_access_project_legal — the money gate OR
+// a workspace manager of the project's own workspace, with 0072's privacy
+// arm; executable by authenticated), asked before a Legal upload moves a
+// byte: the database would refuse the object and the row anyway, but only
+// after the transfer. Until 0092 this asked the money gate. Fails CLOSED —
+// an error, a null or anything but `true` is a no (legalFilesAvailable has
+// already said the function exists, so a no here is the gate's own answer).
+async function canAccessProjectLegal(client, projectId) {
   try {
-    const { data, error } = await client.rpc('can_access_project_money', { p_project: projectId });
+    const { data, error } = await client.rpc('can_access_project_legal', { p_project: projectId });
     return !error && data === true;
   } catch {
     return false;
@@ -573,6 +595,64 @@ const EDIT_COLUMNS = new Set([
   'created_at', 'created_by', 'updated_at', 'updated_by',
 ]);
 
+// ── 0091 (Bins on the cloud, BC1): locations, bins, bin files, takes ─────
+// Exactly the four tables' columns — the row shapes every backend returns
+// (electron/rabbitBins.cjs for the signed-out desktop, with `source_path` in
+// place of location_id + relative_path and `binRoots` beside them). These say
+// what the TABLE has; `online` is NEVER a column (it is a fact about the
+// computer reading the row — updateBinFile strips it silently, without the
+// S23 warning, because it is a computed flag and not a person's input).
+//
+// 🚨 bin_files.poster_path is the key of the clip's picture in
+// rabbit-thumbnails; a row may only name a key under its own project's
+// bin_files prefix (0091's CHECK), and the upload itself lands only while the
+// workspace's remote_viewing_enabled is on (B4, the RESTRICTIVE policies) —
+// postBinFileThumbnail asks the switch first so the person reads a sentence,
+// not a storage error.
+const BIN_LOCATION_COLUMNS = new Set([
+  'id', 'workspace_id', 'name', 'unc_path',
+  'added_by', 'created_at', 'updated_at',
+]);
+
+const BIN_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id',
+  'name', 'description', 'kind', 'color', 'parent_bin_id', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
+const BIN_FILE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'bin_id', 'location_id', 'relative_path',
+  'display_name', 'original_name', 'extension', 'mime_type',
+  'is_sequence', 'sequence_pattern', 'frame_count', 'size_bytes', 'mtime',
+  'media_type', 'tags', 'scene_id', 'shot_id',
+  'slate', 'take_number', 'take_modifier', 'camera', 'roll', 'shoot_day',
+  'description', 'notes', 'review_flag', 'circled', 'color',
+  'duration_sec', 'width', 'height', 'fps', 'codec', 'timecode_start',
+  'probe_status', 'sort_order', 'poster_path',
+  'added_by', 'added_at', 'updated_at',
+]);
+
+const SHOT_TAKE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'shot_id', 'bin_file_id',
+  'role', 'position', 'notes',
+  'created_at', 'updated_at',
+]);
+
+// ── 0096 (FX2): a task's items ───────────────────────────────────────────
+// The columns a client may name. The five typed columns (asset_id to
+// experience_id) are GENERATED from entity_type + entity_id and refuse any
+// value (428C9), so they are NOT here; workspace_id is stamped from the
+// project and never sent. NOT task_links (0000's URL links).
+const TASK_ITEM_COLUMNS = new Set([
+  'id', 'task_id', 'project_id', 'workspace_id',
+  'entity_type', 'entity_id', 'position',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+// What every read returns: the row every backend shares, without the five
+// generated columns (the Local Server and the fixtures never had them).
+const TASK_ITEM_SELECT =
+  'id, task_id, project_id, workspace_id, entity_type, entity_id, position, created_at, created_by, updated_at, updated_by';
+
 // ── 0041: the folder tree ────────────────────────────────────────────────
 // `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
 // provider re-sends whole rows on update and PATCH_DROP strips it first.
@@ -760,6 +840,13 @@ export const COLUMN_ALLOWLIST = {
   shot_lists: SHOT_LIST_COLUMNS,
   shot_list_items: SHOT_LIST_ITEM_COLUMNS,
   edits: EDIT_COLUMNS,
+  // 0091 (BC1): the four bins tables.
+  bin_locations: BIN_LOCATION_COLUMNS,
+  bins: BIN_COLUMNS,
+  bin_files: BIN_FILE_COLUMNS,
+  shot_takes: SHOT_TAKE_COLUMNS,
+  // 0096 (FX2): a task's items.
+  task_items: TASK_ITEM_COLUMNS,
 };
 
 /**
@@ -1007,12 +1094,33 @@ async function listDependenciesWith(client, projectId) {
 // `this` — one destructured `const { listFolders } = adapter` would break
 // every method that leaned on it, silently and only at runtime.
 
+// S4c review round 1: PostgREST answers at most `max_rows` rows a call
+// (1,000 on Supabase) and says nothing about the rest. A list that has to
+// be WHOLE — the folder tree, the files a move must take — is read page by
+// page until a short page. The query is built afresh per page (a builder
+// is single-use) and must carry a total order, so no row straddles two.
+const READ_PAGE = 1000;
+// `unwrapPage` reads one page's answer (unwrapOptionalTable by default; the
+// bins' lists bring their own, which remember whether 0091 is there).
+async function readAllPagesWith(makeQuery, unwrapPage) {
+  const out = [];
+  for (let from = 0; ; from += READ_PAGE) {
+    const page = unwrapPage(await makeQuery().range(from, from + READ_PAGE - 1));
+    out.push(...page);
+    if (page.length < READ_PAGE) return out;
+  }
+}
+async function readAllPages(makeQuery) {
+  return readAllPagesWith(makeQuery, unwrapOptionalTable);
+}
+
 function listFoldersWith(client, projectId) {
   // unwrapOptionalTable: a client deployed ahead of 0041 shows no folders
   // rather than failing every project load. Same treatment 0040's tables got,
-  // and for the same reason — the web build ships continuously.
-  return client.from('folders').select('*')
-    .eq('project_id', projectId).order('path').then(unwrapOptionalTable);
+  // and for the same reason — the web build ships continuously. Paged (S4c
+  // review round 1): `path` is unique per project, so it orders the pages.
+  return readAllPages(() => client.from('folders').select('*')
+    .eq('project_id', projectId).order('path'));
 }
 
 async function foldersByPath(client, projectId) {
@@ -1064,6 +1172,392 @@ async function insertFolderIfMissing(client, projectId, planned, byPath) {
   }
   byPath.set(ins.data.path, ins.data);
   return ins.data;
+}
+
+// ── S4c: the per-entity folder, module-level so the re-filing can call it ──
+//
+// The per-entity folder. Audrey, explicitly: five scenes means five
+// independent folders under SCENES/, not one shared one. Creates the
+// category lazily too — a scene can exist from before the toggle was
+// flipped, and its folder must not be orphaned.
+//
+// S4c: a SHOT's folder nests in its scene's. The scene row is read here
+// (this adapter's own way of finding it — one small query; the planner stays
+// pure), the scene's folder is ensured first so its id is there to parent
+// on, and the shot's row goes under the scene's ACTUAL path. An EXISTING row
+// keeps the parent it has: a rename moves it within that parent, never
+// across one, so a project from before S4c keeps its shot folders under
+// SHOTS until refileShotFolders (below) moves the objects and the rows
+// together — the only thing that re-parents a shot.
+async function sceneRowFor(client, shot) {
+  if (!shot || !shot.scene_id) return null;
+  try {
+    const { data } = await client.from('scenes').select('id, name').eq('id', shot.scene_id).maybeSingle();
+    return data && data.id ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The scene a shot belongs to, by the shot's id (uploadFile's key needs it). */
+async function shotSceneId(client, shotId) {
+  if (!shotId) return null;
+  try {
+    const { data } = await client.from('shots').select('scene_id').eq('id', shotId).maybeSingle();
+    return data?.scene_id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureEntityFolderWith(client, projectId, project, entityType, entity) {
+  const scene = entityType === 'shot' ? await sceneRowFor(client, entity) : null;
+  const planned = planEntityFolder(project, entityType, entity, scene);
+  if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
+  const fk = ENTITY_FK_COLUMN[entityType];
+  const byPath = await foldersByPath(client, projectId);
+  const rows = [...byPath.values()];
+
+  // Renaming the entity MOVES its folder (folderPaths.js explains why),
+  // and this is checked before anything is inserted. Matching on the FK
+  // rather than the path is the whole point: the path is the thing that
+  // changed, so a path lookup would miss the existing row and create a
+  // second folder for one scene — the exact defect this session exists to
+  // prevent. The database would refuse it (folders_scene_uniq), which is
+  // the backstop, not the plan.
+  const mine = rows.find(f => f[fk] && f[fk] === entity?.id);
+  if (mine) {
+    const parentRow = mine.parent_id ? rows.find(f => f.id === mine.parent_id) : null;
+    const keptPath = parentRow
+      ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}`
+      : planned.folder.path;
+    let renamed = mine;
+    if (mine.path !== keptPath) {
+      renamed = unwrap(await client.from('folders')
+        .update({
+          slug:  planned.folder.slug,
+          path:  keptPath,
+          label: planned.folder.label,
+        })
+        .eq('id', mine.id).select().single());
+    }
+    // The rows under it follow — a scene's shot folders since S4c (review
+    // round 1, item 7): each re-pathed under its PARENT's path, walked by
+    // parent_id (never by a path prefix, which would sweep up another
+    // row's stale child), the parent before its children so the unique
+    // path index never sees a child before its parent's new name — and on
+    // EVERY pass, not only the renaming one, so a pass that stopped part
+    // way, or an older build's rename that moved nothing, is finished the
+    // next time the row is ensured (round 2, item 6).
+    const byId = new Map(rows.map(f => [f.id, f]));
+    byId.set(mine.id, { ...mine, path: keptPath, slug: planned.folder.slug });
+    const queue = [mine.id];
+    while (queue.length > 0) {
+      const parentId = queue.shift();
+      const parent = byId.get(parentId);
+      for (const child of rows) {
+        if (child.parent_id !== parentId || child.id === mine.id) continue;
+        const want = `${parent.path}/${child.slug}`;
+        if (child.path !== want) {
+          unwrap(await client.from('folders').update({ path: want }).eq('id', child.id).select('id').maybeSingle());
+          byId.set(child.id, { ...child, path: want });
+        }
+        queue.push(child.id);
+      }
+    }
+    return renamed;
+  }
+
+  // The root has to exist before a category can point at it, and a
+  // project created before 0041 has no rows at all.
+  if (!byPath.has('')) {
+    for (const step of planProjectFolders(project)) {
+      await insertFolderIfMissing(client, projectId, step, byPath);
+    }
+  }
+  await insertFolderIfMissing(client, projectId, planned.category, byPath);
+  if (planned.parent) {
+    const sceneRow = await ensureEntityFolderWith(client, projectId, project, 'scene', scene);
+    if (sceneRow) {
+      byPath.set(sceneRow.path, sceneRow);
+      if (sceneRow.path !== planned.folder.parentPath) {
+        planned.folder.parentPath = sceneRow.path;
+        planned.folder.path = `${sceneRow.path}/${planned.folder.slug}`;
+      }
+    }
+  }
+  await insertFolderIfMissing(client, projectId, planned.folder, byPath);
+  return byPath.get(planned.folder.path) || null;
+}
+
+// ── S4c: the one-time re-filing, cloud half ──────────────────────────────
+//
+// For each shot folder still under SHOTS whose shot has a scene
+// (shotRefiling.pendingShotRefiling), in this order — and the order is the
+// whole design: a stop anywhere leaves rows that say where every file this
+// account can see IS, within one round trip of where it is:
+//
+//   1. the scene's folder row is ensured (no object moves for that);
+//   2. the shot's rows are read WHOLE by the old key shape, paged
+//      (filesUnderPrefix: PostgREST stops at 1,000 rows and says nothing),
+//      and the shot is CHECKED before anything moves (refileShotPreflight):
+//      a body in the customer's own bucket (s3 — there is no move for it
+//      yet), a body on another computer (a private project's, off the
+//      desktop), a live row whose body is at neither key, a folder row
+//      already at the destination — any of these leaves the shot where it
+//      is, with the reason, and not one object of it moved (review round 1,
+//      item 6: a refusal found mid-shot split a shot across two prefixes
+//      for good);
+//   3. EVERY object is moved in its bucket and SEEN at its new key, and its
+//      files row is rewritten AT ONCE (refileOneObject): the body first
+//      (rabbit-files), then the row's storage_path; then its thumbnail
+//      (rabbit-thumbnails — a thumbnail lives where its source lives, S44),
+//      then the row's thumbnail_url. storage-gc's orphan scan deletes an
+//      object no row names once it is 24h old, so no object is ever left
+//      moved with its row still saying the old key for longer than one
+//      round trip (round 1, item 1; the scan now also keeps an object whose
+//      twin key a row names, _shared/shotKeys.ts). A row update that answers
+//      an error, or no row — a row a teammate trashed meanwhile is invisible
+//      to the update (files_select, 0014) — puts the object back, but only
+//      after RE-READING the row, successfully, and only while it still
+//      names the old key: an update that committed and lost its answer is
+//      left as it committed, and when the read fails too nothing is moved
+//      (round 2, item 4). An object already at its new key with nothing at
+//      the old one is a move that landed on an earlier run and is counted
+//      done; an object at BOTH keys is left alone and reported (a move
+//      never overwrites and nothing here deletes). A thumbnail at neither
+//      key is a derived picture: the row stops naming it rather than the
+//      shot being held back;
+//   4. the old prefix is read again: a live row still under it (an upload
+//      that landed meanwhile) leaves the folder where it is, to be run
+//      again; then, and only then, the folder row is re-parented, and the
+//      update must answer the row.
+//
+// One run per project at a time in this tab (refilingNow); another tab's or
+// another person's run meets the same checks per object, which is what makes
+// two runs safe rather than a lock. The SHOTS category row goes only once no
+// folder row sits under it, COUNTED in the database (never in a list that
+// may be cut short), and "gone" is said only when the delete answers the row.
+const BUCKET_FILES = 'rabbit-files';
+const REFILE_FILE_COLUMNS = 'id, name, storage_path, storage_provider, thumbnail_url, shot_id, folder_id';
+const refilingNow = new Set();
+
+/**
+ * Every files row this account can see whose body OR thumbnail still sits
+ * under `prefix`, whole. The thumbnail too: a run that stopped between a
+ * body's move and its thumbnail's leaves a row whose body is nested and
+ * whose picture is not, and the next run must find it. A row in Recently
+ * deleted is NOT seen (files_select, 0014: `deleted_at IS NULL`), so a
+ * trashed file's body keeps its old key — which still works after a
+ * restore, since nothing gates the `shots` segment either.
+ */
+function filesUnderPrefix(client, projectId, prefix) {
+  const like = `${prefix}%`;
+  return readAllPages(() => client.from('files')
+    .select(REFILE_FILE_COLUMNS)
+    .eq('project_id', projectId)
+    .or(`storage_path.like.${like},thumbnail_url.like.${like}`)
+    .order('id'));
+}
+
+async function objectExistsIn(bucket, key) {
+  const slash = key.lastIndexOf('/');
+  const dir = slash === -1 ? '' : key.slice(0, slash);
+  const leaf = slash === -1 ? key : key.slice(slash + 1);
+  const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
+  if (error) throw new Error(`storage list failed: ${error.message}`);
+  // `search` is a substring match: the leaf itself, not a neighbour that
+  // contains it (round 1's mutant: `length > 0` saw “plate.exr.bak” as the
+  // plate).
+  return (data || []).some(o => o.name === leaf);
+}
+
+/** The store an object lives in: a bucket, or this computer's media root. */
+function storeFor({ client, local, bucketName }) {
+  if (local) {
+    const provider = getStorageProvider(FILE_PROVIDERS.LOCAL_SERVER);
+    return {
+      name: 'this computer',
+      exists: (key) => provider.exists(key),
+      move: async (from, to) => {
+        if (typeof provider.move !== 'function') throw new Error('its storage cannot move it');
+        await provider.move(from, to);
+      },
+    };
+  }
+  const bucket = client.storage.from(bucketName);
+  return {
+    name: bucketName,
+    exists: (key) => objectExistsIn(bucket, key),
+    move: async (from, to) => {
+      const { error } = await bucket.move(from, to);
+      if (error) throw new Error(error.message);
+    },
+  };
+}
+
+async function moveObjectVerified(where, from, to, name) {
+  const store = storeFor(where);
+  const [atTo, atFrom] = await Promise.all([store.exists(to), store.exists(from)]);
+  if (atTo) {
+    if (!atFrom) return 'landed-earlier';
+    throw new Error(`“${name}” exists at both its old and its new place in ${store.name}; both were left`);
+  }
+  if (!atFrom) throw new Error(`“${name}” is missing from ${store.name} (${from})`);
+  try {
+    await store.move(from, to);
+  } catch (err) {
+    throw new Error(`“${name}” could not be moved in ${store.name}: ${err?.message || err}`);
+  }
+  if (!(await store.exists(to))) throw new Error(`“${name}” did not arrive at ${to} in ${store.name}`);
+  return 'moved';
+}
+
+/**
+ * The row read again: `{ ok: true, row }` with what it names NOW (`row`
+ * null when this account cannot see it), or `{ ok: false, error }` when
+ * the read itself failed — which is NOT "not visible" (round 2, item 4:
+ * postgrest-js answers a lost connection as `{ data: null, error }`).
+ */
+async function rereadFileRow(client, id) {
+  const { data, error } = await client.from('files').select('id, storage_path, thumbnail_url').eq('id', id).maybeSingle();
+  if (error) return { ok: false, error: error.message || String(error) };
+  return { ok: true, row: data && data.id ? data : null };
+}
+
+/**
+ * The row rewritten to say where its object now is. An error, or no row
+ * answered (the update reached nothing this account can see), puts the
+ * object back — but only after the row has been READ AGAIN, successfully,
+ * and still names the old key (or cannot be seen at all): an update that
+ * committed and lost its answer stays as it committed; a row someone else
+ * changed meanwhile is left to them; and when the read fails too, nothing
+ * is known, so nothing is moved — the object stays at its new key, the
+ * shot is left with "run it again", and the next run finds it (the row
+ * still old: landed earlier; the row new: done) while storage-gc keeps it
+ * (its twin key is named either way).
+ */
+async function rewriteFileRow(client, row, column, from, to, putBack) {
+  const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
+  const failed = up.error
+    ? up.error.message
+    : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
+  if (!failed) return;
+  const again = await rereadFileRow(client, row.id);
+  if (!again.ok) {
+    throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and could not be read back (${again.error}); run it again`);
+  }
+  const now = again.row;
+  if (now && now[column] === to) return;
+  if (!now || now[column] === from) {
+    try {
+      await putBack();
+    } catch (back) {
+      throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
+    }
+  }
+  throw new Error(`“${row.name}” could not be re-filed: ${failed}`);
+}
+
+/** Everything that would stop a shot, found BEFORE its first object moves. */
+async function refileShotPreflight(client, projectId, p, rows, folders, toPath) {
+  const taken = folders.find(f => f && f.id !== p.folder.id && f.path === toPath);
+  if (taken) throw new Error(`a folder already sits at ${toPath}`);
+  const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
+  for (const row of rows) {
+    const to = nestedShotKey(row.storage_path, ctx);
+    const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
+    if (!to && !thumbTo) continue;
+    if (row.storage_provider === FILE_PROVIDERS.S3) {
+      throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
+    }
+    const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
+    if (local && !hasLocalServer()) {
+      throw new Error(`“${row.name}” lives on the computer that holds this private project's media: run this from the desktop app there`);
+    }
+    if (to) {
+      const store = storeFor({ client, local, bucketName: BUCKET_FILES });
+      const [atFrom, atTo] = await Promise.all([store.exists(row.storage_path), store.exists(to)]);
+      if (!atFrom && !atTo) throw new Error(`“${row.name}” is missing from ${store.name} (${row.storage_path})`);
+      if (atFrom && atTo) throw new Error(`“${row.name}” exists at both its old and its new place in ${store.name}; both were left`);
+    }
+    if (thumbTo) {
+      // A picture at neither key is cleared later, not refused; one at both
+      // keys is the same refusal as a body at both.
+      const store = storeFor({ client, local, bucketName: THUMBNAIL_BUCKET });
+      const [atFrom, atTo] = await Promise.all([store.exists(row.thumbnail_url), store.exists(thumbTo)]);
+      if (atFrom && atTo) throw new Error(`“${row.name}” exists at both its old and its new place in ${store.name}; both were left`);
+    }
+  }
+}
+
+async function refileOneObject(client, projectId, p, row) {
+  const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
+  const to = nestedShotKey(row.storage_path, ctx);
+  const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
+  // Already nested (body and picture), or not this shot's key shape.
+  if (!to && !thumbTo) return 'untouched';
+  const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
+  const where = { client, local, bucketName: BUCKET_FILES };
+  let did = 'untouched';
+  // 1. The body, then its row — at once. (A row whose body is nested already
+  // and whose picture is not — a run that stopped between the two — skips
+  // to the picture.)
+  if (to) {
+    await moveObjectVerified(where, row.storage_path, to, row.name);
+    await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
+      () => moveObjectVerified(where, to, row.storage_path, row.name));
+    did = 'moved';
+  }
+  // 2. Its thumbnail, then its row — at once. The body is moved and its row
+  // says so: whatever happens here, nothing above is put back.
+  if (thumbTo) {
+    const thumbWhere = { ...where, bucketName: THUMBNAIL_BUCKET };
+    try {
+      await moveObjectVerified(thumbWhere, row.thumbnail_url, thumbTo, row.name);
+    } catch (err) {
+      if (/is missing from/.test(err?.message || '')) {
+        // A derived picture at neither key: the row stops naming it rather
+        // than the shot being held back. (The file shows no picture from
+        // then on — nothing regenerates a cloud thumbnail from its source
+        // today, thumbnails.js — but the file itself is whole and moved.)
+        await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
+        return 'moved';
+      }
+      throw err;
+    }
+    await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, thumbTo,
+      () => moveObjectVerified(thumbWhere, thumbTo, row.thumbnail_url, row.name));
+    did = 'moved';
+  }
+  return did;
+}
+
+async function refileOneShot(client, projectId, project, p) {
+  const sceneFolder = await ensureEntityFolderWith(client, projectId, project, 'scene', p.scene);
+  if (!sceneFolder) throw new Error('the scene has no folder row');
+  const toPath = `${sceneFolder.path}/${p.folder.slug}`;
+  const legacyPrefix = `${shotObjectPrefix(projectId, null, p.shot.id)}/`;
+  const rows = await filesUnderPrefix(client, projectId, legacyPrefix);
+  await refileShotPreflight(client, projectId, p, rows, await listFoldersWith(client, projectId), toPath);
+  let files = 0;
+  for (const row of rows) {
+    const did = await refileOneObject(client, projectId, p, row);
+    if (did === 'moved') files += 1;
+  }
+  // Read again before the folder is re-parented: a row that landed under
+  // the old prefix meanwhile keeps the folder where it is — this run can
+  // be run again for it, and the offer stays until it is.
+  const still = await filesUnderPrefix(client, projectId, legacyPrefix);
+  if (still.length > 0) {
+    throw new Error(`${still.length} file${still.length === 1 ? ' is' : 's are'} still under the old prefix after the move (“${still[0].name}”); run it again`);
+  }
+  const up = await client.from('folders')
+    .update({ parent_id: sceneFolder.id, path: toPath })
+    .eq('id', p.folder.id).select('id').maybeSingle();
+  if (up.error) throw new Error(`the folder row could not be moved: ${up.error.message}`);
+  if (!up.data || !up.data.id) throw new Error('the folder row could not be moved: the update reached no row');
+  return { files, toPath };
 }
 
 // ── Shot lists, items and edits (0084) — module-level helpers ────────────
@@ -1318,6 +1812,315 @@ async function explainItemDeleteShortfall(client, listId, ids, deleted) {
   if (!(list.data || [])[0]) throw shotListRefusal('shot list not found', 'P0002');
 }
 
+// ── Bins on the cloud (0091, BC1) — module-level helpers ──────────────────
+//
+// The same contract electron/rabbitBins.cjs gives the signed-out desktop,
+// over the four cloud tables and the eleven SECURITY INVOKER RPCs. What the
+// cloud cannot do on its own — pick files with an OS dialog, read a file's
+// columns, stream its bytes, relink a drive, open a file — answers
+// `not_supported_here` through ONE capability object (CLOUD_BINS_CAPABILITIES)
+// the provider reads; BC2's desktop-signed-in mode fills those from the Local
+// Server's routes when the computer can reach the file.
+//
+// A database WITHOUT 0091 (a client ahead of its database): loadProject's
+// read of public.bins is the probe (0084's shotListsAbsent shape, no extra
+// request) — a 42P01 / PGRST205 there marks the four tables absent, every
+// bins READ answers [] and every bins WRITE refuses before any request with
+// code `bins_unavailable`. 0091 adds no column to any table the client
+// upserts, so there is nothing for stripUnmigrated to strip. Not cleared by
+// resetSupabaseAdapter (auth events do not change the schema); cleared by the
+// next load that finds the table, and by resetBinsSchemaState() for tests.
+
+export const CLOUD_BINS_CAPABILITIES = Object.freeze({
+  backend: 'supabase',
+  // the OS dialogs (pickBinFiles / pickBinFolder) and the walk of a picked
+  // folder (prepareBinFiles): the desktop's alone
+  pickFiles: false,
+  // probeBinFile reads a file's technical columns: needs the file
+  probe: false,
+  // binFileStreamUrl plays or scrubs bytes: needs the file
+  stream: false,
+  // the backend says whether each file is reachable (`online` on the rows);
+  // false means the provider marks every row "not on this computer"
+  resolveFiles: false,
+  // binRelinkScan / binRelinkApply, removeBinRoot: the desktop's known roots
+  relink: false,
+  // openBinFile (the OS default app / Explorer)
+  openInOs: false,
+  // where a clip's picture lives: 'cloud' = rabbit-thumbnails, signed per
+  // read (binFilePosterUrl); 'local' = the desktop's cache (binFileThumbnailUrl)
+  posters: 'cloud',
+  // bin_locations exist (a cloud clip is a location + a relative path)
+  locations: true,
+  // the admin's switch (B5a) can be read and, by an admin, set
+  remoteViewingSwitch: true,
+});
+
+let binsAbsent = false;
+
+// For tests only: forget what the last load learned about 0091.
+export function resetBinsSchemaState() {
+  binsAbsent = false;
+}
+
+const BINS_UNAVAILABLE_MSG = 'Bins are not on this database yet (migration 0091).';
+function binsUnavailable() {
+  const err = new Error(`[supabase] ${BINS_UNAVAILABLE_MSG}`);
+  err.code = 'bins_unavailable';
+  return err;
+}
+function requireBins() {
+  if (binsAbsent) throw binsUnavailable();
+}
+
+// loadProject's read of bins — AND the 0091 probe.
+function probeBins(result) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    binsAbsent = true;
+    return [];
+  }
+  const rows = unwrapOptionalShotListTable(result);
+  binsAbsent = false;
+  return rows;
+}
+
+// The orders every backend returns (the Local Server sorts its arrays the
+// same way, binsOrder.js): bins and files by sort_order then id; takes by
+// shot, position, then id; locations by name then id.
+function listBinsWith(client, projectId) {
+  // Every list is PAGED (BC3 review round 2): PostgREST answers at most
+  // max_rows (1,000, supabase/config.toml) and says nothing about the rest,
+  // so an unpaged read showed a browser's catalogue — "every bin and clip" —
+  // cut at the thousandth clip of a larger project. Each order is total
+  // (its last key is the id), so no row straddles two pages.
+  return readAllPagesWith(() => client.from('bins').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id'), probeBins);
+}
+function listBinFilesWith(client, projectId) {
+  return readAllPagesWith(() => client.from('bin_files').select('*').eq('project_id', projectId)
+    .order('sort_order').order('id'), unwrapOptionalShotListTable);
+}
+function listShotTakesWith(client, projectId) {
+  return readAllPagesWith(() => client.from('shot_takes').select('*').eq('project_id', projectId)
+    .order('shot_id').order('position').order('id'), unwrapOptionalShotListTable);
+}
+// The caller's workspace's locations: RLS scopes the read to it, so no
+// workspace id is needed (and none is trusted from a caller).
+function listBinLocationsWith(client) {
+  return readAllPagesWith(() => client.from('bin_locations').select('*')
+    .order('name').order('id'), unwrapOptionalShotListTable);
+}
+
+function missing0091Table(error) {
+  if (error?.code === 'PGRST205') return true;
+  return error?.code === '42P01'
+    && /\b(bins|bin_files|bin_locations|shot_takes)\b/.test(error.message || '');
+}
+function missing0091Function(fnName) {
+  return (error) => error?.code === 'PGRST202'
+    || (error?.code === '42883' && (error.message || '').includes(fnName));
+}
+
+// ── 0096 (FX2): a task's items ───────────────────────────────────────────
+// A database WITHOUT 0096 (a client ahead of its database, the beta before
+// staging has it): loadProject's read of public.task_items is the probe (the
+// 0084 / 0091 shape, no extra request). While it is absent the provider keeps
+// the old way (each task's single asset / scene / shot column is the truth,
+// the window keeps its pickers) and every items WRITE refuses before any
+// request with code `task_items_unavailable`. 0096 adds no column to a table
+// the client upserts, so nothing is stripped. Not cleared by
+// resetSupabaseAdapter (auth events do not change the schema); cleared by
+// the next load that finds the table, and by resetTaskItemsSchemaState().
+let taskItemsAbsent = false;
+
+// For tests only: forget what the last load learned about 0096.
+export function resetTaskItemsSchemaState() {
+  taskItemsAbsent = false;
+}
+
+const TASK_ITEMS_UNAVAILABLE_MSG =
+  "A task's items are not on this database yet (migration 0096).";
+function taskItemsUnavailable() {
+  const err = new Error(`[supabase] ${TASK_ITEMS_UNAVAILABLE_MSG}`);
+  err.code = 'task_items_unavailable';
+  return err;
+}
+function requireTaskItems() {
+  if (taskItemsAbsent) throw taskItemsUnavailable();
+}
+
+// loadProject's read of task_items, AND the 0096 probe.
+function probeTaskItems(result) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    taskItemsAbsent = true;
+    return [];
+  }
+  const rows = unwrapOptionalShotListTable(result);
+  taskItemsAbsent = false;
+  return rows;
+}
+
+// Every item of the project, PAGED (a feature with many tasks passes
+// PostgREST's 1,000 rows), in 0096's order: task, kind, position,
+// created_at, id. A total order, so no row straddles two pages.
+function listTaskItemsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('task_items').select(TASK_ITEM_SELECT)
+    .eq('project_id', projectId)
+    .order('task_id').order('entity_type').order('position').order('created_at').order('id'), probeTaskItems);
+}
+
+function missing0096(error) {
+  if (error?.code === 'PGRST205' || error?.code === 'PGRST202') return true;
+  return (error?.code === '42P01' || error?.code === '42883')
+    && /\b(task_items|reorder_task_items)\b/.test(error.message || '');
+}
+
+// One error shape for every items write: `[supabase] ` + the database's
+// words, the SQLSTATE kept on `err.code`; a missing table or function
+// becomes task_items_unavailable AND records it, so the next write refuses
+// before any request.
+// FX2 review round 1 (R1-3): the two refusals an items write meets, in words.
+// `mainHidden`: 0096's trigger moved the task's main item onto a row the task
+// cannot stand on (a trashed asset hides its task, so the tasks UPDATE it
+// makes is refused). Matched on the table Postgres names; anything else keeps
+// Postgres' own words. err.code keeps the SQLSTATE either way.
+export const TASK_ITEMS_REFUSALS = Object.freeze({
+  gate: 'You cannot change this task\'s items.',
+  mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
+  // Review round 2 (R2-5): 0096 §7a locks the task row; a write of the task's
+  // single column from another tab locks it first and then its items, so two
+  // such writes can deadlock (40P01). Postgres takes one back whole.
+  collided: 'Someone changed this task at the same moment, so this change was not made. Try again.',
+});
+function taskItemsWriteError(error) {
+  if (missing0096(error)) {
+    taskItemsAbsent = true;
+    return taskItemsUnavailable();
+  }
+  const text = String(error?.message || '');
+  const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
+    : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+    : error?.code === '40P01' ? TASK_ITEMS_REFUSALS.collided
+    : null;
+  const err = new Error(words || `[supabase] ${text || String(error)}`);
+  if (error?.code) err.code = error.code;
+  return err;
+}
+
+// The sentences a person reads when the database refuses (the refusal map).
+// Matched on the constraint or policy Postgres names, never on the whole
+// text; anything else keeps Postgres' own words. err.code keeps the SQLSTATE.
+export const BINS_REFUSALS = Object.freeze({
+  gate: 'you cannot change this project\'s bins',
+  takesGate: 'you cannot change this project\'s takes',
+  locationsGate: 'you cannot change this company\'s footage locations',
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never this computer (localhost), never an administrative share like C$, never with .. in it, and without a trailing backslash.',
+  locationExists: 'This location is already in the company\'s list.',
+  locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
+  locationName: 'A footage location needs a name.',
+  relativePath: 'A clip\'s path inside its location must be relative: forward slashes, no leading slash, no .., no drive letter.',
+  posterPath: 'A clip\'s picture must sit under its own project in the thumbnails bucket.',
+  binName: 'A bin needs a name.',
+  clipName: 'A clip needs a name.',
+  binCycle: 'a bin cannot be inside itself',
+  takeTwice: 'this take is already assigned to that shot',
+  takeProject: 'a take must name a shot and a clip of the same project',
+  remoteViewingOff: 'This company has not allowed files to be viewed from outside the office network, so WILSON keeps no picture of this clip in the cloud. A workspace admin can turn that on in the company settings.',
+  switchAdminOnly: 'Only a workspace admin can change whether files may be viewed from outside the office network.',
+  notSupportedHere: 'is not supported here — it needs the desktop app on a computer that can reach the footage.',
+});
+
+const BINS_CONSTRAINT_SENTENCES = new Map([
+  ['bin_locations_unc_path_shape_chk', BINS_REFUSALS.locationShape],
+  ['bin_locations_workspace_unc_key', BINS_REFUSALS.locationExists],
+  ['bin_locations_name_not_blank_chk', BINS_REFUSALS.locationName],
+  ['bin_files_location_fk', BINS_REFUSALS.locationInUse],
+  ['bin_files_relative_path_shape_chk', BINS_REFUSALS.relativePath],
+  ['bin_files_poster_path_shape_chk', BINS_REFUSALS.posterPath],
+  ['bin_files_display_name_not_blank_chk', BINS_REFUSALS.clipName],
+  ['bins_name_not_blank_chk', BINS_REFUSALS.binName],
+  ['shot_takes_shot_file_key', BINS_REFUSALS.takeTwice],
+  ['shot_takes_shot_fk', BINS_REFUSALS.takeProject],
+  ['shot_takes_file_fk', BINS_REFUSALS.takeProject],
+]);
+
+// The sentence for a refusal the database worded as a constraint, a policy
+// or one of 0091's own RAISEs, else null.
+export function binsRefusalSentence(error) {
+  if (!error) return null;
+  const msg = error.message || '';
+  const named = /(?:constraint|policy) "([^"]+)"/.exec(msg);
+  if (named && BINS_CONSTRAINT_SENTENCES.has(named[1])) return BINS_CONSTRAINT_SENTENCES.get(named[1]);
+  if (/petal_bin_posters_remote_viewing/.test(msg)) return BINS_REFUSALS.remoteViewingOff;
+  if (error.code === '42501' && /row-level security policy for table "(bins|bin_files)"/.test(msg)) return BINS_REFUSALS.gate;
+  if (error.code === '42501' && /row-level security policy for table "shot_takes"/.test(msg)) return BINS_REFUSALS.takesGate;
+  if (error.code === '42501' && /row-level security policy for table "bin_locations"/.test(msg)) return BINS_REFUSALS.locationsGate;
+  return null;
+}
+
+// The unwrap for every 0091 write and RPC: keeps the SQLSTATE on err.code,
+// words a named refusal as the map words it, and marks 0091 absent on a
+// missing table or function (unwrapShotList's three differences, kept).
+function unwrapBins({ data, error }, isMissing) {
+  if (error) {
+    if (isMissing(error)) {
+      binsAbsent = true;
+      lastError  = null;
+      lastSyncAt = new Date();
+      throw binsUnavailable();
+    }
+    const msg = binsRefusalSentence(error) || error.message || String(error);
+    lastError = msg;
+    const err = new Error(`[supabase] ${lastError}`);
+    if (error.code) err.code = error.code;
+    throw err;
+  }
+  lastError  = null;
+  lastSyncAt = new Date();
+  return data;
+}
+
+// A refusal the adapter words itself (the shotListRefusal shape).
+function binsRefusal(message, code) {
+  const err = new Error(`[supabase] ${message}`);
+  err.code = code;
+  return err;
+}
+function notSupportedHere(what) {
+  const err = new Error(`[supabase] ${what} ${BINS_REFUSALS.notSupportedHere}`);
+  err.code = 'not_supported_here';
+  err.status = 501;
+  return err;
+}
+
+// What an upsert of a bin never sends: the four audit columns fn_audit_touch
+// stamps (S3a's addendum F, the same reasons).
+const BIN_SERVER_OWNED = ['created_at', 'created_by', 'updated_at', 'updated_by'];
+// What a bin_files patch never sends: identity, who added it and when, the
+// stamps, and `online` (not a column — a fact about the reading computer).
+const BIN_FILE_PATCH_DROP = ['id', 'project_id', 'workspace_id', 'added_by', 'added_at', 'updated_at', 'online'];
+const BIN_KINDS_0091 = ['footage', 'audio', 'stills', 'graphics', 'vfx', 'selects', 'other'];
+const POSTER_BUCKET = 'rabbit-thumbnails';
+const POSTER_MAX_BYTES = 262144; // the bucket's own cap (0053)
+
+// A renderer-decoded JPEG, as a Uint8Array; the same narrowing the Local
+// Server's thumbnail route makes (magic number, size cap).
+function posterBytesFrom(base64) {
+  if (!base64 || typeof base64 !== 'string') throw binsRefusal('base64 required', 'invalid');
+  let bin;
+  try { bin = atob(base64); } catch { throw binsRefusal('unreadable body', 'invalid'); }
+  if (!bin.length) throw binsRefusal('unreadable body', 'invalid');
+  if (bin.length > POSTER_MAX_BYTES) throw binsRefusal('thumbnail too large', 'invalid');
+  if (!(bin.charCodeAt(0) === 0xff && bin.charCodeAt(1) === 0xd8 && bin.charCodeAt(2) === 0xff)) {
+    throw binsRefusal('not a JPEG', 'invalid');
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 // Columns a per-field patch must never carry: identity/tenancy, audit
 // stamps, and the trash columns (RPC-only under the 0014 policies — a
 // plain UPDATE with deleted_at either 42501s or silently no-ops).
@@ -1495,7 +2298,12 @@ export function supabaseAdapter() {
       // fifth time for the same reason (0084, D1–D22). They use the
       // 42P01/PGRST205-tolerant reads with NO blanket catch, and the
       // shot_lists read doubles as the 0084 probe — see shotListsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits] =
+      // Bins on the cloud (BC1, 0091): bins / binFiles / shotTakes /
+      // binLocations join for the sixth time for the same reason — and
+      // `binRoots` is answered [] (the signed-out desktop's known roots have
+      // no cloud shape; a cloud clip is a location + a relative path). The
+      // bins read doubles as the 0091 probe — see binsAbsent.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -1527,10 +2335,14 @@ export function supabaseAdapter() {
           // Ordered by sort_order to match the local bundle, which is an
           // array and therefore ordered by construction. Without this the two
           // adapters would disagree on row order for the same project.
-          client.from('scenes').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('shots').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
+          // Paged (S4c review round 2, item 8): the re-filing's offer counts
+          // the bundle's shots and scenes, so a feature-sized project must
+          // not be cut at PostgREST's 1,000 rows. `sort_order, id` is a
+          // total order, so no row straddles two pages.
+          readAllPages(() => client.from('scenes').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id')),
+          readAllPages(() => client.from('shots').select('*').eq('project_id', projectId)
+            .order('sort_order').order('id')),
           client.from('levels').select('*').eq('project_id', projectId)
             .order('sort_order').then(unwrapOptionalTable),
           client.from('experiences').select('*').eq('project_id', projectId)
@@ -1547,6 +2359,12 @@ export function supabaseAdapter() {
           listShotListsWith(client, projectId),
           listShotListItemsWith(client, projectId),
           listEditsWith(client, projectId),
+          listBinsWith(client, projectId),
+          listBinFilesWith(client, projectId),
+          listShotTakesWith(client, projectId),
+          listBinLocationsWith(client),
+          // 0096 (FX2): a task's items, AND the 0096 probe.
+          listTaskItemsWith(client, projectId),
         ]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
@@ -1559,6 +2377,8 @@ export function supabaseAdapter() {
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
         scenes, shots, levels, experiences, folders, milestones,
         shotLists, shotListItems, edits,
+        bins, binFiles, binRoots: [], shotTakes, binLocations,
+        taskItems,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -1783,6 +2603,68 @@ export function supabaseAdapter() {
       unwrap(await client.from('task_links').delete().eq('id', id));
     },
 
+    // ── A task's items (FX2, migration 0096) ──────────────────
+    // Not the URL links above: the assets, scenes, shots, levels and
+    // experiences a task is about. The database keeps tasks.asset_id /
+    // scene_id / shot_id equal to each kind's main item (0096 §7).
+    taskItemsAvailable() {
+      return !taskItemsAbsent;
+    },
+    async listTaskItems(projectId) {
+      const client = await requireClient();
+      return listTaskItemsWith(client, projectId);
+    },
+    // Adds one item, or, when the task already names it, answers the row
+    // that is there (ON CONFLICT DO NOTHING on (task, kind, entity), then a
+    // read), so an undo's re-add and a collaborator's identical add both
+    // land on the stored row. INSERT only: a client may UPDATE position and
+    // nothing else (0096 §5).
+    async addTaskItem(item) {
+      requireTaskItems();
+      const client = await requireClient();
+      const row = toColumns('task_items', {
+        id: item?.id,
+        task_id: item?.task_id,
+        project_id: item?.project_id,
+        entity_type: item?.entity_type,
+        entity_id: item?.entity_id,
+        position: item?.position ?? 0,
+        ...(item?.created_at ? { created_at: item.created_at } : {}),
+      });
+      if (row.id == null) delete row.id;
+      const { data, error } = await client.from('task_items')
+        .upsert(row, { onConflict: 'task_id,entity_type,entity_id', ignoreDuplicates: true })
+        .select(TASK_ITEM_SELECT);
+      if (error) throw taskItemsWriteError(error);
+      if (Array.isArray(data) && data.length > 0) return data[0];
+      const stored = await client.from('task_items').select(TASK_ITEM_SELECT)
+        .eq('task_id', row.task_id).eq('entity_type', row.entity_type).eq('entity_id', row.entity_id)
+        .maybeSingle();
+      if (stored.error) throw taskItemsWriteError(stored.error);
+      return stored.data || null;
+    },
+    async deleteTaskItem(id) {
+      requireTaskItems();
+      const client = await requireClient();
+      const { error } = await client.from('task_items').delete().eq('id', id);
+      if (error) throw taskItemsWriteError(error);
+    },
+    // One kind of one task, in one statement (reorder_task_items, SECURITY
+    // INVOKER): the named ids first, the rest after, dense from 0. Answers
+    // the rows that moved, in the shared shape.
+    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
+      requireTaskItems();
+      const client = await requireClient();
+      const { data, error } = await client.rpc('reorder_task_items', {
+        p_task: taskId, p_entity_type: kind, p_ids: Array.isArray(orderedIds) ? orderedIds : [],
+      });
+      if (error) throw taskItemsWriteError(error);
+      return (Array.isArray(data) ? data : []).map(r => {
+        const { asset_id: _a, scene_id: _s, shot_id: _h, level_id: _l, experience_id: _x, ...rest } = r || {};
+        return rest;
+      });
+    },
+
     // ── Files (Storage + metadata row) ────────────────────────
     // 🚨 SESSION 42 — `opts` IS A FOURTH PARAMETER AND NOT A KEY ON `scope`.
     // `scope` is the row's shape: uploadContainerFor reads it, and its keys land
@@ -1839,8 +2721,13 @@ export function supabaseAdapter() {
       // ties the two), and the Supabase pin in the same three branches that
       // pin money. Both refusals below come BEFORE any byte moves: a database
       // without 0088 would file it in an ordinary folder every member can
-      // read, and someone outside the money gate would be refused by the
-      // storage policy only after the transfer.
+      // read, and someone outside the gate would be refused by the storage
+      // policy only after the transfer.
+      // S4d (0092, Audrey 2026-10-08): the gate asked is the LEGAL gate —
+      // can_access_project_legal, the money audience plus workspace managers
+      // — never the money gate (legalUpload.test.js pins which RPC is named;
+      // files_legal_not_financial_chk refuses a Legal row that is also an
+      // invoice in the database, as the first refusal here does).
       const legal = !!scope.legal;
       if (legal && scope.financial) {
         throw new Error('A file is added as Legal or as an invoice or receipt, not both.');
@@ -1850,16 +2737,11 @@ export function supabaseAdapter() {
       if (legal && scope.isCoreDefiner) throw new Error(LEGAL_NOT_CORE_REASON);
       if (legal) {
         if (!(await legalFilesAvailable(client))) throw new Error(LEGAL_UNAVAILABLE);
-        if (!(await canAccessProjectMoney(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
+        if (!(await canAccessProjectLegal(client, projectId))) throw new Error(LEGAL_GATE_REFUSAL);
       }
       // Money-gated: under a locked folder, and never out of Supabase.
       const moneyGated = !!scope.financial || legal;
       const container = uploadContainerFor(scope, projectId);
-
-      const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
-      const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
-      const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
-      const storagePath = `projects/${projectId}/${entity}/${entityId}/${Date.now()}-${safeName}`;
 
       // The folder row this file belongs to (0043). The caller may pass one —
       // the folder view knows exactly where it dropped the file — otherwise
@@ -1871,17 +2753,37 @@ export function supabaseAdapter() {
       // A Legal file is not filed in an entity's folder, passed or looked up:
       // the explorer shows it in the LEGAL folder (fileTree.js), whatever it
       // is about.
-      let folderId = legal ? null : (scope.folderId || null);
-      if (!folderId && container.key && !legal) {
+      let folderRow = null;
+      if (container.key && !legal) {
         try {
           const { data } = await client
-            .from('folders').select('id')
+            .from('folders').select('id, path')
             .eq('project_id', projectId)
             .eq(container.key, container.id)
             .maybeSingle();
-          folderId = data?.id || null;
+          folderRow = data && data.id ? data : null;
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
+      const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
+
+      const entity   = legal ? LEGAL_SEGMENT : scope.financial ? 'INVOICES' : container.seg;
+      const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
+      const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
+      let prefix = `projects/${projectId}/${entity}/${entityId}`;
+      // S4c: a SHOT's objects sit inside its scene's prefix
+      // (shotRefiling.shotObjectPrefix: projects/<pid>/scenes/<sceneId>/
+      // <shotId>) — unless the shot's folder row still sits under SHOTS, a
+      // project from before S4c that has not been re-filed, where the old
+      // prefix keeps the objects and the folder together until the one-time
+      // move takes both. The third segment is `scenes` either way for a
+      // nested key, which no gate locks; never money-gated (an invoice is
+      // never a shot's).
+      if (!moneyGated && container.key === 'shot_id') {
+        const underShots = typeof folderRow?.path === 'string' && folderRow.path.startsWith('SHOTS/');
+        const sceneId = underShots ? null : await shotSceneId(client, container.id);
+        prefix = shotObjectPrefix(projectId, sceneId, container.id);
+      }
+      const storagePath = `${prefix}/${Date.now()}-${safeName}`;
 
       // Session 36: which store holds this body. Decided ONCE, here, next to
       // the branch that already chose the INVOICES segment — so the row and
@@ -2317,6 +3219,49 @@ export function supabaseAdapter() {
       // else restored it first) — callers must not treat that as a fresh
       // restore (Session 7 review finding).
       return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
+    },
+
+    // ── Viewed from outside (GW1, migration 0093) ─────────────
+    // One clip's viewings through the file gateway's OUTSIDE door, for the
+    // Bins inspector's one line: { count, unverified, last: { actor_label,
+    // created_at, unverified_mint } } — `unverified` counts the rows no ticket
+    // on record matched (R4; GW1 review round 1, finding 2).
+    // file_events_select shows viewed_remote rows to LIVE workspace admins
+    // only, so anyone else counts none — and BinsView asks only for an admin.
+    // A database before 0093 has no `subject` column: none, not an error.
+    async remoteViewsOfClip(binFileId) {
+      const client = await requireClient();
+      const { data, error, count } = await client
+        .from('file_events')
+        .select('actor_label, created_at, unverified_mint:details->unverified_mint', { count: 'exact' })
+        .eq('event', 'viewed_remote')
+        .eq('subject', 'bin_file')
+        .eq('file_id', binFileId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205' || error.code === '42703' || error.code === '22P02') return { count: 0, unverified: 0, last: null };
+        lastError = error.message;
+        throw new Error(`[supabase] remoteViewsOfClip failed: ${error.message}`);
+      }
+      const total = count ?? (data || []).length;
+      let unverified = 0;
+      if (total > 0) {
+        const flagged = await client
+          .from('file_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('event', 'viewed_remote')
+          .eq('subject', 'bin_file')
+          .eq('file_id', binFileId)
+          .eq('details->>unverified_mint', 'true');
+        if (flagged.error) {
+          lastError = flagged.error.message;
+          throw new Error(`[supabase] remoteViewsOfClip failed: ${flagged.error.message}`);
+        }
+        unverified = flagged.count ?? 0;
+      }
+      const row = (data || [])[0] ?? null;
+      return { count: total, unverified, last: row ? { actor_label: row.actor_label, created_at: row.created_at, unverified_mint: row.unverified_mint === true } : null };
     },
 
     // ── File lifecycle events (Session 14, migration 0027) ────
@@ -3118,48 +4063,64 @@ export function supabaseAdapter() {
       return { folders: [...byPath.values()], created };
     },
 
-    // The per-entity folder. Audrey, explicitly: five scenes means five
-    // independent folders under SCENES/, not one shared one.
-    //
-    // Creates the category lazily too — a scene can exist from before the
-    // toggle was flipped, and its folder must not be orphaned.
+    // The per-entity folder (ensureEntityFolderWith, module-level, above):
+    // five scenes means five folders under SCENES/; a shot's folder sits in
+    // its scene's (S4c); an existing folder keeps its parent.
     async ensureEntityFolder(projectId, project, entityType, entity) {
       const client = await requireClient();
-      const planned = planEntityFolder(project, entityType, entity);
-      if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
-      const fk = ENTITY_FK_COLUMN[entityType];
-      const byPath = await foldersByPath(client, projectId);
+      return ensureEntityFolderWith(client, projectId, project, entityType, entity);
+    },
 
-      // Renaming the entity MOVES its folder (folderPaths.js explains why),
-      // and this is checked before anything is inserted. Matching on the FK
-      // rather than the path is the whole point: the path is the thing that
-      // changed, so a path lookup would miss the existing row and create a
-      // second folder for one scene — the exact defect this session exists to
-      // prevent. The database would refuse it (folders_scene_uniq), which is
-      // the backstop, not the plan.
-      const mine = [...byPath.values()].find(f => f[fk] && f[fk] === entity?.id);
-      if (mine) {
-        if (mine.path === planned.folder.path) return mine;
-        return unwrap(await client.from('folders')
-          .update({
-            slug:  planned.folder.slug,
-            path:  planned.folder.path,
-            label: planned.folder.label,
-          })
-          .eq('id', mine.id).select().single());
-      }
-
-      // The root has to exist before a category can point at it, and a
-      // project created before 0041 has no rows at all.
-      if (!byPath.has('')) {
-        for (const step of planProjectFolders(project)) {
-          await insertFolderIfMissing(client, projectId, step, byPath);
+    // ── S4c: the one-time re-filing of a project's shot folders ─────────
+    // What is pending is read from the rows (shotRefiling.pendingShotRefiling);
+    // each shot is moved whole (refileOneShot: checked first, each object
+    // moved, seen and its row rewritten at once, the folder re-parented
+    // last) and a failure in one shot leaves it where it is, named with its
+    // reason, while the others go on. `onProgress({ shot, done, total })`
+    // before each shot. One run per project at a time in this tab.
+    // The database refuses this for anyone who cannot write the project:
+    // folders_update and files_update (0041, 0083) and the storage UPDATE
+    // policies (0042, 0053) all demand can_write_project.
+    async refileShotFolders(projectId, project, opts = {}) {
+      if (refilingNow.has(projectId)) throw new Error('The move is already running for this project.');
+      refilingNow.add(projectId);
+      try {
+        const client = await requireClient();
+        const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
+        const folders = await listFoldersWith(client, projectId);
+        const shots = await readAllPages(() => client.from('shots').select('id, name, scene_id').eq('project_id', projectId).order('id'));
+        const scenes = await readAllPages(() => client.from('scenes').select('id, name').eq('project_id', projectId).order('id'));
+        const pending = pendingShotRefiling({ folders, shots, scenes });
+        const moved = [];
+        const left = [];
+        for (const p of pending) {
+          progress({ shot: p.shot, name: p.folder.slug, done: moved.length + left.length, total: pending.length });
+          try {
+            const { files, toPath } = await refileOneShot(client, projectId, project, p);
+            moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files });
+          } catch (err) {
+            left.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, reason: err?.message || String(err) });
+          }
         }
+        // The empty SHOTS category goes only once nothing is left under it:
+        // counted in the database, and said to be gone only when the delete
+        // answers the row (an RLS-filtered delete answers none).
+        let removedShotsCategory = false;
+        const category = shotsCategoryRow(folders);
+        if (category) {
+          const under = await client.from('folders')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId)
+            .like('path', 'SHOTS/%');
+          if (!under.error && under.count === 0) {
+            const del = await client.from('folders').delete().eq('id', category.id).select('id');
+            removedShotsCategory = !del.error && Array.isArray(del.data) && del.data.length > 0;
+          }
+        }
+        return { moved, left, removedShotsCategory };
+      } finally {
+        refilingNow.delete(projectId);
       }
-      for (const step of [planned.category, planned.folder]) {
-        await insertFolderIfMissing(client, projectId, step, byPath);
-      }
-      return byPath.get(planned.folder.path) || null;
     },
 
     // The project manifest — a generated MIRROR of the project's settings,
@@ -3548,10 +4509,41 @@ export function supabaseAdapter() {
       const client = await requireClient();
       return listEditsWith(client, projectId);
     },
-    async upsertEdit(edit) {
+    async upsertEdit(edit, opts) {
       requireProjectIdOn(edit, 'an edit');
       const client = await requireClient();
       requireShotLists();
+      // Post-overhaul FX4 review round 1 (R1-03): Save edit writes INTO an
+      // edit, and two people may change one. With `{ expectSavedAt }` (the
+      // Save the changes began from: a saved_at string, or null for none) the
+      // write is an UPDATE filtered on the stored snapshot's saved_at, so the
+      // database applies it only where that Save is still the edit's — no
+      // request can land between a check and the write. Zero rows back is
+      // told apart by one read: another Save (refused with code
+      // EDIT_SAVED_SINCE), or a row this person cannot change or see (RLS
+      // filters an UPDATE silently).
+      if (edit.id && opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')) {
+        const { id, ...set } = toColumns('edits', blankDatesToNull(sanitize(edit, SHOT_LIST_SERVER_OWNED)));
+        const want = opts.expectSavedAt ?? null;
+        let q = client.from('edits').update(set).eq('id', id);
+        q = want === null ? q.is('snapshot->>saved_at', null) : q.eq('snapshot->>saved_at', want);
+        const res = await q.select();
+        if (res.error) return unwrapShotList(res, missing0084Table);
+        if (Array.isArray(res.data) && res.data.length) return res.data[0];
+        const now = await client.from('edits').select('id, snapshot').eq('id', id).maybeSingle();
+        // Review round 2 (R2-09): a read that failed says its own error, never "not yours".
+        if (now?.error) return unwrapShotList(now, missing0084Table);
+        const have = now?.data?.snapshot && typeof now.data.snapshot.saved_at === 'string' ? now.data.snapshot.saved_at : null;
+        if (now?.data && have !== want) {
+          const err = new Error(`[supabase] ${EDIT_SAVED_SINCE_MESSAGE}`);
+          err.code = EDIT_SAVED_SINCE;
+          err.status = 409;
+          throw err;
+        }
+        const err = new Error('[supabase] the edit was not written: it is no longer one you can change here');
+        err.code = '42501';
+        throw err;
+      }
       // `items` is one jsonb array (0084 §5); toColumns does not reach inside
       // it. The six server-owned columns are stripped first, for
       // upsertShotList's reasons (addendum F). The same-list parent, the one
@@ -3599,6 +4591,380 @@ export function supabaseAdapter() {
         }),
         missing0084Function('archive_edit'),
       );
+    },
+
+    // ── Bins on the cloud (BC1, migration 0091) ───────────────
+    //
+    // The Local Server adapter's names and shapes (localServerAdapter.js's
+    // bins block; electron/rabbitBins.cjs is the contract), over the four
+    // cloud tables and the eleven RPCs. Every method takes projectId first.
+    // Reads answer [] on a database without 0091; writes refuse with
+    // `bins_unavailable` before any request (see binsAbsent). What the cloud
+    // cannot do answers `not_supported_here` — the capability object says
+    // which (binsCapabilities).
+    //
+    // 🚨 Every RPC parameter is SENT, as null when the caller has no value —
+    // never left undefined (the 0084 rule: a missing name is PGRST202, which
+    // reads as "0091 is not here").
+    binsCapabilities() { return CLOUD_BINS_CAPABILITIES; },
+
+    async listBins(projectId) {
+      const client = await requireClient();
+      const [bins, binFiles, shotTakes, binLocations] = await Promise.all([
+        listBinsWith(client, projectId),
+        listBinFilesWith(client, projectId),
+        listShotTakesWith(client, projectId),
+        listBinLocationsWith(client),
+      ]);
+      // No `online` on the rows: the cloud does not know what this computer
+      // can reach (the provider marks them from the capability object). No
+      // orphans: the FKs cascade, so every take's shot and file exist.
+      return { bins, binFiles, binRoots: [], binLocations, shotTakes, orphanTakes: [], ffmpeg: false, capabilities: CLOUD_BINS_CAPABILITIES };
+    },
+    async createBin(projectId, bin) {
+      const client = await requireClient();
+      requireBins();
+      const name = String(bin?.name ?? '').trim();
+      if (!name) throw binsRefusal(BINS_REFUSALS.binName, 'invalid');
+      const row = toColumns('bins', sanitize({ ...bin, name, project_id: projectId }, BIN_SERVER_OWNED));
+      if (!BIN_KINDS_0091.includes(row.kind)) row.kind = 'other';
+      if (row.parent_bin_id === undefined || row.parent_bin_id === '') row.parent_bin_id = null;
+      if (!Number.isFinite(Number(row.sort_order)) || row.sort_order === null || row.sort_order === undefined) {
+        // The next slot among its siblings (the Local Server's nextSortOrder).
+        let q = client.from('bins').select('sort_order').eq('project_id', projectId);
+        q = row.parent_bin_id ? q.eq('parent_bin_id', row.parent_bin_id) : q.is('parent_bin_id', null);
+        const siblings = unwrapBins(await q.order('sort_order', { ascending: false }).limit(1), missing0091Table) || [];
+        row.sort_order = siblings.length ? Number(siblings[0].sort_order || 0) + 1 : 0;
+      }
+      return unwrapBins(await client.from('bins').upsert(row).select().single(), missing0091Table);
+    },
+    async updateBin(projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw binsRefusal(BINS_REFUSALS.binName, 'invalid'); }
+      if ('kind' in p && !BIN_KINDS_0091.includes(p.kind)) p.kind = 'other';
+      if ('parent_bin_id' in p && !p.parent_bin_id) p.parent_bin_id = null;
+      const cols = toColumns('bins', sanitize(p, [...BIN_SERVER_OWNED, 'id', 'project_id', 'workspace_id']));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(
+        await client.from('bins').update(cols).eq('id', id ?? null).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      // An UPDATE that RLS does not let through matches nothing and returns
+      // no row — not an error (the S3b patch rule): no row back is the refusal.
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return rows[0];
+    },
+    // mode 'move' needs target (the bin that receives the files); 'remove'
+    // drops the rows. → { ok, removedBins, movedFiles, removedFiles, removedTakes }
+    // — removedTakes is the cloud's extra: the FKs cascade, so the takes of a
+    // removed clip go with it, and the provider's undo puts them back through
+    // replaceShotTakes.
+    async deleteBin(_projectId, id, { mode = 'remove', target = null } = {}) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('delete_bin', { p_bin: id ?? null, p_mode: mode === 'move' ? 'move' : 'remove', p_target: target ?? null }),
+        missing0091Function('delete_bin'),
+      );
+      return res || { ok: true, removedBins: [], movedFiles: [], removedFiles: [], removedTakes: [] };
+    },
+    async reorderBins(_projectId, order) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('reorder_bins', { p_order: Array.isArray(order) ? order : null }),
+        missing0091Function('reorder_bins'),
+      );
+      return res || { ok: true, bins: [] };
+    },
+    // The OS dialogs, the walk of a picked folder, a file's columns, its
+    // bytes, the OS: the desktop's alone (CLOUD_BINS_CAPABILITIES).
+    async pickBinFiles() { throw notSupportedHere('Picking files'); },
+    async pickBinFolder() { throw notSupportedHere('Picking a folder'); },
+    async prepareBinFiles() { throw notSupportedHere('Reading a folder'); },
+    async probeBinFile() { throw notSupportedHere('Reading a file\'s columns'); },
+    async openBinFile() { throw notSupportedHere('Opening a file'); },
+    async binRelinkApply() { throw notSupportedHere('Relinking a drive'); },
+    async removeBinRoot() { throw notSupportedHere('Forgetting a folder'); },
+    // The view scans known roots on open; the cloud has none to scan.
+    async binRelinkScan() { return { offline: [], candidates: null, truncated: false }; },
+    // items: the rows as the adding computer described them, each with
+    // location_id + relative_path (BC2 builds them from the desktop's
+    // prepare); createSubBins nests a `sub_bin` path. `roots` is the
+    // desktop's and is ignored here. → { created, bins, results }
+    async addBinFiles(_projectId, binId, items, createSubBins = true) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('add_bin_files', {
+          p_bin: binId ?? null,
+          p_items: Array.isArray(items) ? items : null,
+          p_create_sub_bins: createSubBins !== false,
+        }),
+        missing0091Function('add_bin_files'),
+      );
+      return res || { created: [], bins: [], results: [] };
+    },
+    async updateBinFile(projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('display_name' in p) { p.display_name = String(p.display_name ?? '').trim(); if (!p.display_name) throw binsRefusal(BINS_REFUSALS.clipName, 'invalid'); }
+      const cols = toColumns('bin_files', sanitize(p, BIN_FILE_PATCH_DROP));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(
+        await client.from('bin_files').update(cols).eq('id', id ?? null).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return rows[0];
+    },
+    async bulkUpdateBinFiles(projectId, ids, patch) {
+      const client = await requireClient();
+      requireBins();
+      if (!Array.isArray(ids) || ids.length === 0) throw binsRefusal('ids required', 'invalid');
+      const cols = toColumns('bin_files', sanitize(patch || {}, BIN_FILE_PATCH_DROP));
+      if (!cols || Object.keys(cols).length === 0) return { updated: [] };
+      const rows = unwrapBins(
+        await client.from('bin_files').update(cols).in('id', ids).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return { updated: rows };
+    },
+    // sortOrders (optional, { id: n }): an undo puts rows back at their old
+    // positions. → { moved: [{ id, from, sort_order }], binFiles }
+    async moveBinFiles(_projectId, ids, binId, sortOrders = null) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('move_bin_files', {
+          p_ids: Array.isArray(ids) ? ids : null,
+          p_bin: binId ?? null,
+          p_sort_orders: sortOrders && typeof sortOrders === 'object' ? sortOrders : null,
+        }),
+        missing0091Function('move_bin_files'),
+      );
+      return res || { moved: [], binFiles: [] };
+    },
+    async copyBinFiles(_projectId, ids, binId) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('copy_bin_files', { p_ids: Array.isArray(ids) ? ids : null, p_bin: binId ?? null }),
+        missing0091Function('copy_bin_files'),
+      );
+      return res || { created: [] };
+    },
+    // Removes the ROWS only; the files on the server are the company's (B10).
+    // The takes of those clips go with them (CASCADE) and are read FIRST, so
+    // the answer carries them for the undo. → { removed, removedTakes }
+    async removeBinFiles(projectId, ids) {
+      const client = await requireClient();
+      requireBins();
+      if (!Array.isArray(ids) || ids.length === 0) throw binsRefusal('ids required', 'invalid');
+      const removedTakes = unwrapBins(
+        await client.from('shot_takes').select('*').in('bin_file_id', ids).eq('project_id', projectId ?? null),
+        missing0091Table,
+      ) || [];
+      const removed = unwrapBins(
+        await client.from('bin_files').delete().in('id', ids).eq('project_id', projectId ?? null).select(),
+        missing0091Table,
+      ) || [];
+      // 🚨 RLS FILTERS a DELETE rather than refusing it (S3a, r2 closure#10):
+      // nothing removed for ids that were given is the refusal, said.
+      if (removed.length === 0) throw binsRefusal(BINS_REFUSALS.gate, '42501');
+      return { removed, removedTakes };
+    },
+    // The undo of a removal: the rows go back with their ids and who added
+    // them. → { restored, skipped: [{ id, reason: invalid | bin_gone }],
+    // affectedShotIds: [], shotTakes: [], orphanTakes: [] } — the takes come
+    // back through replaceShotTakes, not here.
+    async restoreBinFiles(_projectId, rows) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('restore_bin_files', { p_rows: Array.isArray(rows) ? rows : null }),
+        missing0091Function('restore_bin_files'),
+      );
+      return res || { restored: [], skipped: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    // A renderer-decoded JPEG (the desktop's fallback poster, or BC2's) goes
+    // to rabbit-thumbnails at projects/{project}/bin_files/{id}/{ts}-poster.jpg
+    // and the row learns its key. The switch is asked FIRST (B4), so the
+    // person reads the sentence and no byte moves while it is off; a storage
+    // refusal that slips past the pre-check reads the same sentence.
+    // → { ok: true, poster_path }
+    async postBinFileThumbnail(projectId, id, base64) {
+      const client = await requireClient();
+      requireBins();
+      const bytes = posterBytesFrom(base64);
+      const allowed = unwrapBins(
+        await client.rpc('rabbit_remote_viewing_enabled', { p_project: projectId ?? null }),
+        missing0091Function('rabbit_remote_viewing_enabled'),
+      );
+      if (allowed !== true) throw binsRefusal(BINS_REFUSALS.remoteViewingOff, 'remote_viewing_off');
+      const key = `projects/${projectId}/bin_files/${id}/${Date.now()}-poster.jpg`;
+      const { error } = await client.storage.from(POSTER_BUCKET).upload(key, bytes, { contentType: 'image/jpeg', upsert: false });
+      if (error) {
+        const msg = /row-level security|petal_bin_posters/.test(error.message || '')
+          ? BINS_REFUSALS.remoteViewingOff
+          : `storage upload failed: ${error.message || error}`;
+        const err = new Error(`[supabase] ${msg}`);
+        err.code = /row-level security|petal_bin_posters/.test(error.message || '') ? 'remote_viewing_off' : 'storage';
+        throw err;
+      }
+      try {
+        await this.updateBinFile(projectId, id, { poster_path: key });
+      } catch (e) {
+        // The object just uploaded names nothing now, and the orphan scan
+        // never walks this bucket (0091 §6) — take it back, best effort
+        // (0053's rabbit_thumbnails_delete_own lets the uploader delete their
+        // own object). The PATCH's refusal stays the answer (review round 1).
+        try { await client.storage.from(POSTER_BUCKET).remove([key]); } catch { /* the refusal below is the answer */ }
+        throw e;
+      }
+      return { ok: true, poster_path: key };
+    },
+    // The cloud signs a poster per read (the bucket is private, 0053): an
+    // async URL, unlike the desktop's sync route URL. null when the row has
+    // no picture or the read is refused (the view shows its placeholder).
+    async binFilePosterUrl(_projectId, row, { expiresIn = 3600 } = {}) {
+      const key = row?.poster_path;
+      if (!key) return null;
+      const client = await requireClient();
+      const { data, error } = await client.storage.from(POSTER_BUCKET).createSignedUrl(key, expiresIn);
+      if (error) return null;
+      return data?.signedUrl || null;
+    },
+    // Sync URL builders: the cloud has no route to point an <img> or <video>
+    // at — a poster is signed (binFilePosterUrl), bytes are the desktop's.
+    binFileThumbnailUrl() { return null; },
+    binFileStreamUrl() { return null; },
+
+    // Footage locations (B2): the company's named shares. Every member reads
+    // them; anyone past the gate on a project of the workspace writes them.
+    async listBinLocations() {
+      const client = await requireClient();
+      return listBinLocationsWith(client);
+    },
+    async createBinLocation(location) {
+      const client = await requireClient();
+      requireBins();
+      const name = String(location?.name ?? '').trim();
+      const unc_path = String(location?.unc_path ?? '').trim();
+      if (!name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid');
+      if (!unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid');
+      const row = toColumns('bin_locations', sanitize({ ...location, name, unc_path }, ['added_by', 'created_at', 'updated_at', 'workspace_id']));
+      return unwrapBins(await client.from('bin_locations').insert(row).select().single(), missing0091Table);
+    },
+    async updateBinLocation(id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const p = { ...(patch || {}) };
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw binsRefusal(BINS_REFUSALS.locationName, 'invalid'); }
+      if ('unc_path' in p) { p.unc_path = String(p.unc_path ?? '').trim(); if (!p.unc_path) throw binsRefusal(BINS_REFUSALS.locationShape, 'invalid'); }
+      const cols = toColumns('bin_locations', sanitize(p, ['id', 'workspace_id', 'added_by', 'created_at', 'updated_at']));
+      if (!cols || Object.keys(cols).length === 0) return null;
+      const rows = unwrapBins(await client.from('bin_locations').update(cols).eq('id', id ?? null).select(), missing0091Table);
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.locationsGate, '42501');
+      return rows[0];
+    },
+    // Refused while any clip names it (ON DELETE RESTRICT): a clip never loses
+    // its address. → the removed row
+    async removeBinLocation(id) {
+      const client = await requireClient();
+      requireBins();
+      const rows = unwrapBins(await client.from('bin_locations').delete().eq('id', id ?? null).select(), missing0091Table);
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.locationsGate, '42501');
+      return rows[0];
+    },
+    // The admin's switch (B5a). Read for any project of the workspace; set by
+    // a workspace admin (workspaces_admin_update, 0020) — anyone else's write
+    // matches nothing and reads the sentence.
+    async getRemoteViewingEnabled(projectId) {
+      const client = await requireClient();
+      const v = unwrapBins(
+        await client.rpc('rabbit_remote_viewing_enabled', { p_project: projectId ?? null }),
+        missing0091Function('rabbit_remote_viewing_enabled'),
+      );
+      return v === true;
+    },
+    // BC2: the same switch read for the WORKSPACE, where no project is open
+    // (Settings, Storage). workspaces_select (0002) lets every active member
+    // read their own company's row; another company's id reads as off.
+    async getWorkspaceRemoteViewing(workspaceId) {
+      const client = await requireClient();
+      if (!workspaceId) return false;
+      const { data, error } = await client.from('workspaces').select('remote_viewing_enabled').eq('id', workspaceId).maybeSingle();
+      if (error) {
+        if (error.code === '42703') return false; // a database without 0091's column
+        throw new Error(`[supabase] ${error.message || error}`);
+      }
+      return data?.remote_viewing_enabled === true;
+    },
+    async setRemoteViewingEnabled(workspaceId, enabled) {
+      const client = await requireClient();
+      requireBins();
+      const rows = unwrapBins(
+        await client.from('workspaces').update({ remote_viewing_enabled: enabled === true }).eq('id', workspaceId ?? null).select('id, remote_viewing_enabled'),
+        missing0091Table,
+      );
+      if (!Array.isArray(rows) || rows.length === 0) throw binsRefusal(BINS_REFUSALS.switchAdminOnly, '42501');
+      return rows[0].remote_viewing_enabled === true;
+    },
+
+    // Shot takes: every mutation answers { affectedShotIds, shotTakes,
+    // orphanTakes: [] } — the FULL row set of the shots it touched, because a
+    // role change or a removal renumbers and re-roles the siblings; the
+    // provider replaces those shots' rows (the Local Server's contract).
+    async assignShotTakes(_projectId, assignments) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('assign_shot_takes', { p_assignments: Array.isArray(assignments) ? assignments : null }),
+        missing0091Function('assign_shot_takes'),
+      );
+      return res || { created: [], skipped: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async updateShotTake(_projectId, id, patch) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('update_shot_take', { p_id: id ?? null, p_patch: patch && typeof patch === 'object' ? patch : null }),
+        missing0091Function('update_shot_take'),
+      );
+      return res || { take: null, affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async removeShotTakes(_projectId, ids) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('remove_shot_takes', { p_ids: Array.isArray(ids) ? ids : null }),
+        missing0091Function('remove_shot_takes'),
+      );
+      return res || { removed: [], affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    async reorderShotTakes(_projectId, shotId, ids) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('reorder_shot_takes', { p_shot: shotId ?? null, p_ids: Array.isArray(ids) ? ids : null }),
+        missing0091Function('reorder_shot_takes'),
+      );
+      return res || { affectedShotIds: [], shotTakes: [], orphanTakes: [] };
+    },
+    // The undo primitive: the given shots' rows become exactly `rows`.
+    async replaceShotTakes(_projectId, shotIds, rows) {
+      const client = await requireClient();
+      requireBins();
+      const res = unwrapBins(
+        await client.rpc('replace_shot_takes', { p_shots: Array.isArray(shotIds) ? shotIds : null, p_rows: Array.isArray(rows) ? rows : null }),
+        missing0091Function('replace_shot_takes'),
+      );
+      return res || { affectedShotIds: [], shotTakes: [], orphanTakes: [] };
     },
 
     // ── Realtime (Session 7, migration 0016) ──────────────────

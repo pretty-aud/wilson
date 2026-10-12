@@ -1,5 +1,7 @@
 # Before the beta takes this branch — the checklist (2026-10-05)
 
+> **Done, 2026-10-05 evening.** Steps 1–4 were carried out by the controller at Audrey's word ("push all migrations as well" / "run them"): staging migrated through 0090 and checked, `storage-presign` deployed, the CLI re-linked to dev, the merge commit `cb7cf9d8` pushed to `feat/multi-user-v1`, and the beta verified serving `index-CRVCLYfk.js` with the new code. Section 5 remains hers.
+
 Every bundle of the post-overhaul plan is built, reviewed twice and on `feat/post-overhaul-edit-versioning` (tip `bd7f4b72`, 272 test files / 6,591 tests, CI green). The beta (`https://beta.petalstudios.co/wilson`, Vercel, backed by the STAGING database) deploys whatever is on `feat/multi-user-v1`. Nothing below is started by Claude without your word; the merge is the last step and it is Claude's.
 
 **The order matters:** the database first, the app after. The S4b and S5 screens need 0088, 0089 and 0090 on staging before they run there, and 0084 should not sit on staging for days before the new app arrives (a scene made by the old app in between would belong to no shot list). So steps 1–3 and step 4 go in one sitting.

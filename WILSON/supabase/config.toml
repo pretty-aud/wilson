@@ -192,5 +192,28 @@ verify_jwt = false
 [functions.storage-secret]
 verify_jwt = false
 
+# GW1 (post-overhaul, 2026-10-10): the file gateway's cloud side. Same
+# gateway opt-out as every function here — the Edge gateway's built-in
+# verify_jwt only speaks HS256 and would refuse this project's ES256 tokens
+# before the body runs — and in-function validation instead: gateway-ticket
+# and gateway-reach take a member's sign-in token (memberGuard, live row);
+# gateway-sync and gateway-events take a gateway's credential (gatewayGuard,
+# its SHA-256 looked up); gateway-enrol takes the one-use enrolment token and
+# no sign-in at all.
+[functions.gateway-enrol]
+verify_jwt = false
+
+[functions.gateway-sync]
+verify_jwt = false
+
+[functions.gateway-events]
+verify_jwt = false
+
+[functions.gateway-ticket]
+verify_jwt = false
+
+[functions.gateway-reach]
+verify_jwt = false
+
 [analytics]
 enabled = false

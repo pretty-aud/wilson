@@ -20,6 +20,12 @@ export const WORKSPACE = {
   name: 'Lantern & Ash Pictures',
   slug: 'lantern-ash',
   created_at: stamp(-120),
+  // Bins on the cloud (BC1, 0091, Audrey's B5a): "Allow files to be viewed
+  // from outside the office network." Off, as every company starts; while it
+  // is off the fake cloud keeps no picture of a clip (postBinFileThumbnail
+  // refuses with the sentence the real one answers) — the dataset's posters
+  // were made while it was on, exactly as a real company's would have been.
+  remote_viewing_enabled: false,
 }
 
 const PEOPLE = [

@@ -78,6 +78,170 @@ after her report.
 
 ## Broken features
 
+### The scene window's SHOTS / ASSETS / TASKS line counts no asset
+**MEASURED (FX2, 2026-10-12, on the test data, port 5291).** Scenes → The
+storm's window: after Sea Spray Comp is linked in the window's own Assets
+table (*Assets (1)*), the line under SHOTS / ASSETS / TASKS still reads
+`3 / 0 / 2`. `ScenesView.jsx` → `assetCountByScene` counts `a.scene_id`, a
+field no asset has: since 0084 an asset names its scenes in `scene_ids`. So
+the count is 0 for every scene, on every backend. Fix shape: count each
+asset once for each id in its `scene_ids` (and decide whether an asset linked
+only to one of the scene's shots counts too). Found in passing by FX2, which
+changed only the TASKS count beside it.
+
+### On the desktop, a deleted asset's tasks come back when the project is read again
+**INFERRED (FX2, 2026-10-12; read from `electron/main.cjs` and
+`RabbitProvider.jsx`, not seen in the desktop app).** The provider's
+`deleteAsset` takes the asset's tasks off the screen with it on every
+backend, as the cloud's `ON DELETE CASCADE` deletes them (0034). The Local
+Server's asset DELETE route removes the asset and its managed files only: the
+tasks stay in the bundle, and the next read of the project shows them again.
+Before FX2 they came back pointing at an asset that no longer exists; since
+FX2 the asset leaves their items, so each comes back under its next asset, or
+under no asset if that was its only one. Settle it by deleting an asset that
+has tasks in the desktop app and opening the project again. Fix shape: the
+route removes the tasks whose `asset_id` is the asset (with their
+dependencies and items, as the generic task DELETE does), and the provider's
+undo, which re-inserts them on the desktop, is unchanged.
+
+### The Tasks table's Bid days field hides a figure's first characters behind the browser's arrows
+**MEASURED (FX1, 2026-10-12).** Playwright on the dev fixtures at
+1440x900, the browser's spinner read through the DevTools protocol (the
+input's user-agent shadow root). `ProjectTasksView`'s bid-days cell
+(`rb-task-cell-number`, an `<input type="number">` in 13px Geist Mono,
+7.8px a character) is 52px with 6px of padding a side, and the browser's
+spinner takes 15px of the 40 left: the figure has 25px, three characters.
+**12.5** reads **2.5** while the field is focused (the spinner shows and the
+figure scrolls to its end); pointed at, it reads **12…** with the spinner
+beside it; at rest the lane's ellipsis reads **120.5** as **12…** (FX1's
+review round 2 corrected "or pointed at"). The same defect as the shot's frame count that
+FX1 fixed (walkthrough 64), outside FX1's brief (the shots table and the
+shot popup). FX1's `views/scenes/NumberField.jsx` — the spinner put away,
+the field's own chevrons in room its padding keeps, an ellipsis past five
+figures — is the fix shape; serving this field means promoting it to the
+kit (FX1's hand-off, kit request FX1-KR-1). Owner: the Tasks lane
+(`rabbitTasks.css`, `ProjectTasksView.jsx`).
+
+### A held number field fills R.A.B.B.I.T.'s undo history: holding for a second leaves nothing earlier to undo
+**MEASURED (FX1 review round 2, R2-08, 2026-10-12).** Every step of a held
+chevron on a Scenes number field is one `updateShot` write and one undo
+entry (`RabbitProvider`'s `pushHistory`), and the history keeps
+`HISTORY_CAP = 10`. With the field's chevrons at their round-one pace (13
+steps in 1.5 s) ten Ctrl+Z took a held 2000 → 2013 back only to 2003, and
+the two edits made before the hold (another shot's frame count, and this
+one's) could no longer be undone; at the pace FX1 shipped, the browser's
+own (24 steps in 1.5 s, measured by `scripts/shot-number-fields-shots.mjs`),
+a hold of 0.7 s fills it (the press, the first repeat at 250 ms, then one
+every 50 ms). The browser's spinner did the same before
+FX1, at that same pace: not a regression, and not FX1's to change. Fix
+shape: coalesce consecutive `updateShot` entries for the same shot and key
+in `pushHistory`, or run a hold inside `runBatch` so it is one undo step.
+Owner: `RabbitProvider.jsx` (the undo history).
+
+### The signed-out desktop's bins freeze the window on a share whose server does not answer
+**MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
+(`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,
+relink scan, probe, thumbnail, stream) test each clip's path with
+synchronous `fs.existsSync` / `fs.statSync` in the desktop's MAIN process.
+Measured on Windows with Node, the first such call on a dead network
+address is held **5.0 s** for a name that does not resolve
+(`\\salthours-nas\footage`) and **42.1 s** for an address nothing answers
+(`\\10.255.255.1\…`); the window is frozen for that long. BC2 fixed the
+same thing for the cloud routes (`rootReachable`: one asynchronous question
+per location root, 2 s limit, kept 15 s — `rabbitCloudBinsDeadShare.routes.test.js`)
+but B12 kept the signed-out routes untouched. Fix shape: the same root
+question for each known bin root before its clips are touched.
+
+### Adding a big folder from a company share walks it on the desktop's main thread
+**INFERRED (BC2 review round 2, 2026-10-09).** `POST /api/rabbit/cloud-bins/prepare`
+(`electron/rabbitBins.cjs`) asks the location's ROOT off the main thread
+first, then walks the picked folder with the synchronous helpers the
+signed-out add uses (`walkFolder`, `detectSequence`, `cloudFileItem`'s
+`statSync`): up to 5,000 entries, one network round trip each, on the main
+process. A big folder on a slow share holds the window for seconds while the
+add dialog fills; a share that dies mid-walk holds it until Windows lets go
+(up to 42 s measured for one call). Measured only small: a 12-frame sequence
+walked in 33–44 ms over the stood-up share. Settle it by timing a folder of a
+few thousand files over SMB on a LAN. Fix shape: run prepare's walk in a
+worker thread, as the root question now is.
+
+### The desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks
+**INFERRED (BC3, 2026-10-09; read from `src/cloud/migrate/runMigration.js`;
+widened by review round 2).** The runner copies projects, phases, assets,
+tasks, the two edge tables, files, and — since BC3, because a take needs its
+shot — scenes, shots, bins, footage locations, clips and takes. It copies
+none of the desktop bundle's other collections: `shotLists`,
+`shotListItems`, `edits`, `folders` (S3a, `active_shot_list_id` dropped,
+scope#9, chose not to carry lists, and nothing since has), nor `comments`,
+`assetVersions`, `milestones`, `budgetVersions`, `budgetLines`,
+`budgetActuals`, `expenses`, `projectRateOverrides`, `levels`,
+`experiences`, `teamAssignments`, `projectTeam` or `taskLinks` — each a
+route the desktop serves (`rabbitSubentityRoutes` in `electron/main.cjs`)
+and keeps in the same bundle; nor a scene's or shot's `thumbnail_image` (a
+file on the desktop's disk). "Archive and clear local" then moves the only
+copy of all of it into the archive JSON, which no screen reads back. Since
+review round 2 the report names what stays, by count, BEFORE the archive is
+offered (`NOT_CARRIED` / `notCarriedOf` in `src/cloud/migrate/binsMigration.js`,
+the panel's "Stays on this computer (the migration does not carry it)"
+line, the archive button's hover), so "Done" means what moved and this says
+what did not. Settle it by migrating a desktop project that has a budget,
+two lists and an edit and opening its tabs in the cloud. Fix shape: carry
+`shot_lists` and `shot_list_items` after the shots (ids kept; the composite
+FKs of 0084 allow it), then `edits`, with `active_shot_list_id` set last;
+`folders` after the files; the budget tables in their own order (versions,
+lines, actuals, expenses, overrides); comments, asset versions, milestones,
+levels, experiences and the team after their parents — and the archive
+button waiting until the list is empty. Since FX2 (0096) the runner carries a task's items
+about an asset, a scene or a shot (`task_items`, after the takes); its items
+about a level or an experience stay with the levels and experiences, counted
+in the report and named in the same line (*levels and experiences named on
+tasks*, `NOT_CARRIED` → `taskLevelItems`).
+
+### The cloud's own address CHECK admits control and formatting characters
+**INFERRED (BC2 review round 2 deferred it; BC3 review rounds 1 and 2 widened
+the guards; read from `supabase/migrations/0091_bins_on_the_cloud.sql`
+`bin_locations_unc_path_shape_chk` and the three `isUncPath` guards).** The
+desktop's, the renderer's and the fixtures' guards refuse every control and
+format character, both separators and every default-ignorable code point
+(`UNC_FORBIDDEN_CHARS_RE`, one Unicode-property regex, held equal by
+`binsAdapterParity.test.js`); 0091's CHECK refuses the path's shape and the
+nine Windows-forbidden characters only. A location written past the app —
+through the REST API with a member's key — can carry a right-to-left
+override or a zero-width space into every Connect question in the company.
+Settle it with `psql`: insert a `bin_locations` row whose `unc_path` holds
+U+202E and watch it land. Fix shape: a migration (0095 or later: 0093 is the
+file gateway's, GW1, and 0094 is reserved) adding the
+same refusal to the CHECK through a small SQL function (PostgreSQL's regex
+has no Unicode-property classes; the function tests the code points), and
+the adapter's `BINS_REFUSALS.locationShape` sentence already covers it.
+
+### A second desktop→cloud migration brings back rows a teammate removed from the cloud
+**INFERRED (BC3 review round 1, 2026-10-09; read from `src/cloud/migrate/runMigration.js`
+`insertOrSkip`).** The runner is idempotent by KEY: a row already in the
+cloud is skipped (23505), a row not there is inserted — for every table it
+carries, since Track A A2, and since BC3 for scenes, shots, bins, clips and
+takes too. So a run after a teammate removed a clip (B10), a bin, a scene or
+a task in the cloud puts it back, with its takes; nothing in the cloud
+records "carried, then removed". The dry run's *Would insert* column shows
+the count and Help says it; walkthrough 58 step 23 walks it. Settle it by
+migrating, removing a clip in the browser, and running again. Fix shape: a
+per-computer record of the ids each run carried (the desktop's own settings
+file, as the per-computer folder of a footage location is kept), so a later
+run inserts only ids never carried; until then, archive and clear the
+desktop's copy once everything is in the cloud.
+
+### The cloud keeps no sample rate or channel count on a clip
+**INFERRED (BC3 review round 1, 2026-10-09).** The desktop's probe writes
+`sample_rate` and `channels` on a clip (`electron/rabbitBins.cjs`, the
+probe route) and the inspector shows them (`BinInspector.jsx` `TechRows`,
+the Audio line); 0091's `bin_files` has no such columns and the cloud
+adapter's `BIN_FILE_COLUMNS` drops them, so a clip added from the desktop
+signed in, or migrated, shows no Audio line in the cloud. The migration
+strips them before `toColumns` so the console is not warned once per clip.
+Fix shape: two nullable columns on `bin_files` (0095 or later: 0093 is the
+file gateway's, GW1, and 0094 is reserved), the
+allowlist, and `add_bin_files` accepting them.
+
 ### A private project's media body is never purged from the desktop
 **INFERRED from the design (2026-09-11, the private-projects build,
 `4c10387`); a stated limit, not yet seen to matter.** Cloud rows with
@@ -1441,6 +1605,46 @@ non-zero wherever receipts predate 0076.
    literal defect this entry marks fixed. New desktop uploads are gated
    correctly; only the existing ones are stranded.
 
+### The gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM
+**MEASURED (FX3, 2026-10-11/12, on the gateway as it was at `2c31d5db`, before GW4 merged).** In three of four full `npx vitest run`s
+on Windows (the dev server and Playwright running beside them), one to
+three gateway tests failed, and each passed alone every time
+(`gateway/test/platform.test.mjs` 63/63 and `runtime.test.mjs` with it;
+`doorsOutside.test.mjs` with `platform` 82/82): `platform.test.mjs`'s
+"Windows, for real: the owners read by PowerShell … check-state refuses this
+folder" (7.6 s, 11.0 s), `runtime.test.mjs`'s "an outside viewing: journal
+start and end, posted as one row" (5.0 s) and `doorsOutside.test.mjs`'s
+"/v1/health is { ok: true }" (9.9 s) and its GW3 nonce proof (6.9 s). The
+runtime run also reported an **unhandled rejection**: `EPERM: operation not
+permitted, rename '…\.journal.rewrite' -> '…\journal'` from
+`gateway/src/journal/journal.mjs` (the rewrite's `fsp.rename`). The time-outs
+are the suite's (a PowerShell spawn and a loopback server under load); the
+EPERM is **INFERRED** to be able to happen on a real Windows gateway too (a
+rename over a file another process holds open, an antivirus scan say), where
+nothing catches it. Settle it: retry the rename on EPERM / EBUSY as Node's
+own `fs` guidance for Windows does, and give the three tests the time-outs a
+loaded Windows runner needs. *(FX4, 2026-10-12, MEASURED in its five full
+runs on Windows: the PowerShell check-state test every time, and once each
+`acme.test.mjs`'s "an expired certificate … is renewed within a tick",
+`doorsInside.test.mjs`'s "a real TLS client is cut before it",
+`doorsOutside.test.mjs`'s "a response still streaming when its authority
+runs out is cut" and, outside
+the gateway, `src/tools/otter_v0.3.1/quizWiring.test.js`'s whole-tree scan
+"nothing anywhere still calls the retired per-course route" (5 s); each
+passed alone.)*
+
+### The gateway's reach-proof test races the gateway's own sync, and fails CI now and then
+**MEASURED (FX4, 2026-10-12).** CI's Vitest job (the "RLS tests" workflow,
+Linux) failed on two of FX4's first four pushes — run 38214523896 on
+`91523bca`, which changed no product code, and run 38216853649 on
+`2af04f85` — both at `gateway/test/runtime.test.mjs:493`, GW3's "a fresh
+nonce the gateway has not synced yet … proves nothing for the new":
+expected `isThisGateway: false`, received `true`. The next push's run passed
+with the same gateway code. **INFERRED:** the runtime's own periodic sync
+can land between the test setting a fresh nonce and probing, so the door
+already holds the new nonce. Settle it: stop (or stub) the gateway's sync
+timer in that test, or probe before the next tick. Owner: a GW session.
+
 ---
 
 ## Session log
@@ -1449,6 +1653,17 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX4 (2026-10-12; `po/fx4-edits-update-in-place` into `feat/post-overhaul-edit-versioning`) — an edit changes in place (Audrey: "when i make changes to an edit, it should start to edit the current selected edit"): a change to a saved edit asks nothing, Save edit writes into it, Save as… is the only new version, the list's "Save edit as…" reads "Save as…" again; the edit write made conditional on every backend; client-only, no migration; walkthrough 67; two review rounds | **one entry under Broken features:** *the gateway's reach-proof test races the gateway's own sync, and fails CI now and then* (MEASURED: two of FX4's CI runs, one on a commit with no product code; not FX4's code). A dated FX4 line on FX3's gateway-load entry (the tests seen timing out under load in FX4's full runs). **S3c-05** gains an FX4 note (Save edit from the leave question saves a saved edit's changes into it) | **S3c-09, struck through:** untrue since BC1 (`0b38077c`) — the cloud's Scenes tab binds Ctrl+Z (FX4's review round 1, R1-04); Help's Undo card corrected. Comment markers: 4 → 4. |
+| Post-overhaul FX2 (2026-10-12; `po/fx2-task-multi-links` into `feat/post-overhaul-edit-versioning`) — a task relates to many items (assets, scenes, shots, levels, experiences): item 1 measured before building (the brief's table name was taken; the cloud never had a level or experience column), migration 0096 and suite 99 on wilson-dev (`task_items`, the single columns kept in step both ways), the adapters, the Local Server, the fixtures, the provider, the task window's Items table, walkthrough 65; two review rounds, the second finding that round 1's bundle wrapper nulled a revived task's links | **two entries under Broken features, both found in passing and not FX2's:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (MEASURED) and *on the desktop, a deleted asset's tasks come back when the project is read again* (INFERRED); the migration entry gains a sentence (a task's asset, scene and shot items move; its level and experience items stay with the levels and experiences) | **nothing.** Every finding of the two rounds (six in round 1, seven in round 2, one High each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-fx2-2026-10-11.md`). Comment markers: 4 → 4. |
+| Post-overhaul FX1 (2026-10-12; `po/fx1-shot-frame-count` into `feat/post-overhaul-edit-versioning`) — the shot's frame-count field (Audrey's "the chevrons are covering up the numbers"): every number field of the shot rows and the popups is `views/scenes/NumberField.jsx`, the browser's spinner put away, its own chevrons clear of the figure, five figures and an ellipsis past that; display only, no migration; two review rounds | **two entries under Broken features:** *the Tasks table's Bid days field hides a figure's first characters behind the browser's arrows* (MEASURED: 12.5 reads 2.5 while focused; found while measuring where else FX1's defect lives; the Tasks lane's), and *a held number field fills R.A.B.B.I.T.'s undo history* (MEASURED by review round 2: ten undo steps, one per step of a hold; the browser's spinner did it too; `RabbitProvider`'s). A dated note on P1-03 (Home's document keydown listener): until FX3's fix reached FX1's branch it also cancelled the arrow keys in every number field and select, and Enter after one of them left the page from a shot's Frames field (MEASURED by FX1's review round 1). | **P1-03, marked FIXED**: by FX3 (`35265888`), which merged into the integration branch before FX1; measured by FX1 after its merge (`b531a799`): the arrow keys step the Scenes number fields and Enter stays on the page. Comment markers: 4 → 4, still pairing. |
+| Post-overhaul FX3 (2026-10-12; `po/fx3-banner-version-bar-team-gallery` into `feat/post-overhaul-edit-versioning`) — the status banner back under every item's title, the Timeline's bid version bar under the project title ("Bid ver."), "Save edit as…" on the Scenes tab, the Team tab's Table / Gallery with signed profile pictures (walkthrough 66); two review rounds | **one entry under Broken features:** *the gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM* (MEASURED in this session's full runs; not the session's code). Everything FX3 leaves undone otherwise is a named limit or a question in its hand-off (`docs/sessions/handoffs/po-fx3-2026-10-12.md`), none of it broken | nothing. Comment markers: 4 → 4. |
+| Post-overhaul GW4 (2026-10-11; `po/gw4-gateway-release` into `feat/post-overhaul-edit-versioning`) — the file gateway's release and install stories: the release signing key (its public half in slot 1, its private half in one Desktop file for Audrey) and the channel on GitHub Releases, the release workflow and its one dry run (a draft left for Audrey), the outside door's free certificate (ACME TLS-ALPN-01) proven against Pebble in CI, the two install stories as Help pages, the hardening guide, walkthrough 63; two review rounds, both security attacks on the release path | **nothing.** Every finding of the two rounds (six in round 1, eleven in round 2; five Medium in all) was fixed in the session or is written down in the hand-off (`docs/sessions/handoffs/po-gw4-2026-10-11.md`): its "Deferred" (Authenticode in an approved environment, a second release key, an administrator's check of an MSI), its "For GW5" (two other workflows' token, the pushed image run) and its "Known limits"; what is Audrey's (the key's secret and its environment, three repository settings, the draft, the first tag, the rehearsal) is in its "Waiting on Audrey" | **nothing.** Comment markers: 4 → 4. |
+| Post-overhaul GW3 (2026-10-11; `po/gw3-gateway-web` into `feat/post-overhaul-edit-versioning`) — the file gateway in the web app: the two halves reconciled first (the workspace id in both answers, the reach PROOF on both halves proven by the design's `proof_vector`, a new or next root landing at sync, a viewing's fraction as the gateway's coverage; migration 0095 and suite 98 on wilson-dev), then the Bins tab in a browser playing through a gateway (the adapter, `canStream`, the hand-over, the overlay through the outside door, one clip's viewings, the words and Help, walkthrough 62), measured against GW2's real executable with the fake cloud on loopback; two review rounds | **nothing.** Every finding of the two rounds (sixteen in round 1, eighteen in round 2, two Medium each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-gw3-2026-10-11.md`). The office door is not played from the gateway's own computer (by design), the install stories are GW4's, the attack on the player GW5's | **one entry removed from Broken features:** *the cloud's reach check and GW2's gateway disagree* — closed by item 0.2: the gateway's outside `/v1/health` answers `nonce_proof` (never `nonce_echo`), the cloud reads only the proof, and both halves prove the same `proof_vector` in one `npx vitest run`. GW2's pin on this log is loosened to "GW2's row is in the log" so this row sits on top. Comment markers: 4 → 4. |
+| Post-overhaul GW2 (2026-10-10; `po/gw2-gateway-service` into `feat/post-overhaul-edit-versioning`) — the file gateway program (`WILSON/gateway/`: the two doors, the tickets, the share rules, the cloud client against a fake cloud, the Windows service and its MSI, the container, CI); two review rounds, both security attacks on the program | **nothing.** Every finding of the two rounds was fixed in the session or is a named limit in the hand-off's "Known limits". Where GW1's functions and the gateway differ (first: neither of GW1's answers carries the workspace id, so the gateway would refuse every ticket) is GW3's planned work, listed in the hand-off's "For GW3": neither half is merged with the other, and nothing a person uses calls either yet | nothing. Comment markers: 4 → 4. |
+| Post-overhaul GW1 (2026-10-10; `po/gw1-gateway-cloud` into `feat/post-overhaul-edit-versioning`) — the file gateway's cloud side: migration 0093 and suite 96 (on wilson-dev), the five gateway functions (on wilson-dev), App settings → Storage → File gateway, the file drawer's *Viewed from outside* and the Bins inspector's admin line; two review rounds | **one entry under Broken features:** *the cloud's reach check and GW2's gateway disagree* (MEASURED by both halves' tests, review round 2: GW2's gateway answers `nonce_echo`, the cloud reads only `nonce_proof`; fails safe, nothing published). What GW1 leaves undone otherwise is the gateway program (GW2) and playing in a browser (GW3), and its known limits are in its hand-off (`docs/sessions/handoffs/po-gw1-2026-10-10.md`), none of them broken | **nothing removed;** two fix shapes re-pointed: BC3's *a location's address admits control characters* and *no sample rate or channel count in the cloud* each said *a migration (0093 or later)*, and 0093 is now the file gateway's, so they say 0095 |
+| Post-overhaul BC4 (2026-10-09; `po/bc4-gateway-design` into `feat/post-overhaul-edit-versioning`) — the file gateway's design, design first, no product code (`docs/design/GATEWAY_DESIGN.md`); two review rounds, both security attacks on the design | **nothing.** No product code and no migration were written; the 47 findings of the two rounds and their corrections live in the design's own review history, and the decisions it made for Audrey are questions in its hand-off | nothing |
+| Post-overhaul BC3 (2026-10-09; `po/bc3-bins-web` into `feat/post-overhaul-edit-versioning`) — the browser's Bins tab (the catalogue, B5) and a desktop project's bins moving to the cloud (B9); two review rounds | **four entries under Broken features:** *the desktop→cloud migration carries no shot lists, list items, edits, folders, comments, milestones, budgets, expenses, levels, experiences, team or links on tasks* (INFERRED; pre-existing, found while adding the bins' part, widened to every collection by review round 2, which also made the report name what stays before the archive is offered; scenes and shots are carried since BC3); *a second desktop→cloud migration brings back rows a teammate removed from the cloud* (INFERRED, review round 1; pre-existing for every table, widened by BC3); *the cloud keeps no sample rate or channel count on a clip* (INFERRED, review round 1; 0091); *the cloud's own address CHECK admits control and formatting characters* (INFERRED; BC2 deferred the migration, BC3's guards refuse them by Unicode property since review round 2). | nothing. |
+| Post-overhaul S4d (2026-10-09; `po/s4d-legal-gate-managers` into `feat/post-overhaul-edit-versioning`) — the Legal gate of its own (0092): workspace managers see Legal files without a seat, money unchanged, a deleted file's record follows the file's gate; two review rounds | **one section at the end: S4d-01**, an older gap found while copying 0072's arm into the predicate (the eight money storage policies carry no private-project hop of their own, so a non-creator project manager reaches a private project's invoice OBJECT while its row is hidden; INFERRED from 0042's text). Dated notes on S4b-03 (the Legal audience refreshes too) and S4b-05 (the Legal half is moot). | nothing closed: S4b-10 and S4b-11 stay Audrey's. |
 | Post-overhaul S2a (2026-09-30; `po/s2a-settings-placement` into `feat/post-overhaul-edit-versioning`) — settings at each strip's right end, the orange Audrey named, the pet's Shift tap; two review rounds | **one section at the end: seven entries the two review rounds found and S2a did not fix** (other sessions' files, the kit, or not S2a's to change): S2a-01 🚨 Bins' keys act from every page (Delete removes up to five selected files without a question; MEASURED for Enter), S2a-02 the hand-rolled modals the Shift rule cannot see, S2a-03 the kit Drawer's focus, S2a-04 the workspace chooser's Enter, S2a-05 the unlayered scrollbar rule, S2a-06 D.O.G.'s Enter during the leave transition, S2a-07 the Timeline drawer's "RABBIT settings". Dated notes on P1-02, P1-03 (now the one place Enter does something else; a stranded Search freezes the keys) and P1-04 (D.O.G.'s Alt, arrows and Ctrl+Z have no page check). | **P1-01 closed**: a bare Shift tap toggles the pet and Enter presses the focused control (`05bf5fe`, `edb7fa9`, `07d34d6`). |
 | UI overhaul P1 (2026-09-27; `ui/p1-close` into `feat/ui-overhaul`, which is merged nowhere) | **one section at the end: the overhaul as its last session left it.** V2's §4.2 sections A (behaviour, left under C1) and B (older bugs and data), each row with its number, owner and origin; the visual rows P1 did not close and why; autoplay (R4-36), which plan §5 named for this file; the pet over the page. Questions stay in walkthrough 47, not here. | nothing: no earlier entry was the overhaul's. Comment markers: 5 → 5, still pairing. |
 | Track C / **migration 0078** (2026-09-09) — the quota exemption bounded by size; pgTAP suite **77 extended** (probes 54-68), five breakers; two review rounds | **nothing.** | **One entry CLOSED: a receipt was exempt from the Petal storage quota at any size.** C4 made a receipt land under an `INVOICES/` segment so it would be money-gated, and that segment is what `rabbit_quota_exempt_path` (0055) keys on — so a receipt could not be refused however large, while `workspace_petal_committed_bytes` kept counting its bytes against the allowance that refuses ordinary media. Measured ceiling: the bucket's own **50 GiB** per object. Not a security hole (0037 gates `expenses`), a billing one. Audrey's ruling, asked and answered this session: **bound the exemption by size**, not cap the picker. 0078 adds `public.rabbit_quota_exempt_max_bytes()` = **25 MiB** as the one definition, plus `rabbit_quota_exempt_bytes(name,bytes)` and `rabbit_quota_exempt_object(name,md)` composed over it; `rabbit_quota_exempt_path` is UNCHANGED and delegated to, so suite 65's probes 13-17 stay green. 🚨 **THE HAND-OFF NAMED ONE ENFORCEMENT SITE AND THERE ARE TWO.** Besides the RESTRICTIVE `petal_storage_quota_insert`, `reserve_upload_bytes` (0073, C1) returned NULL early for any exempt path — and that is the one the CLIENT calls, before any byte moves. Bounding only the policy would have let a large receipt reserve nothing, upload, and be refused at commit, which is the exact failure C1 exists to remove. Breaker B3 proves it: bound the policy alone and probe 55 is the ONLY probe that reddens. 🚨 **`COALESCE(bytes, 0)` is load-bearing and the polarity is the counter-intuitive one: an UNKNOWN size KEEPS the exemption**, because a bare comparison yields NULL and a NULL DENIES under a RESTRICTIVE policy — every manifest and rates-mirror write with absent metadata would fail with a symptom indistinguishable from the bound working. Safe because `completeUpload` writes storage-api's own `size`. ⚠️ **A STATED LIMIT, not a hole: only bodies over 50 MiB reserve at all** (`RESUMABLE_THRESHOLD_BYTES`), so between 25 and 50 MiB the refusal lands at the policy AFTER the bytes move, and as a raw RLS error rather than the friendly PT402 sentence — walkthrough 13 step 3 now says so. ⚠️ **The bound applies to the manifest and mirror arms too**, since `rabbit_quota_exempt_path` is one predicate; the cost is stated in handbook §12.10 and pinned by probe 57. **REVIEW ROUND 1** found the 25-50 MiB band; that the header misquoted 0055's three reasons and dropped the decisive one (invoices are how a company pays Petal — the reason 0078 actually overrides above the bound, now argued rather than hidden); that post-conditions 6a and 7 asserted SUBSTRINGS a polarity inversion walks straight through (`%rabbit-files%` is true of `bucket_id = 'rabbit-files'`); and that a retyped 100-line SECURITY DEFINER function had two LIKE probes as its whole evidence. **REVIEW ROUND 2 then found four defects in round 1's own corrections**, which is why the track runs two: 🚨 **§12.10 — the section every other file forwards to — was never corrected at all** (the handbook diff had exactly ONE hunk, in §17), so four round-0 defects survived in the canonical place; 🚨 **round 1 silently DELETED the manifest's positive assertion** and then wrote "the manifest arm was untested", which is the defect class probe 10's own note warns about, three sections later in the same file — restored as probe 68 at a stricter fixture; probe 57 asserted a bare PT402 while probe 55's comment, written by the same round, argues at length that a bare PT402 is not enough; and the bound-duplication inventory was stale in the commit that introduced it (round 1 wrote "probes 55, 60 and 61" while adding 54, 57 and 66). Also: `site 1`/`site 2` meant opposite things in 0078 and suite 77; post-condition 9b was narrowed by a `public.` prefix an unqualified call would slip past; §12.9's four present-tense clauses were still false. **Five breakers, each reddening exactly what it should:** B1 (size axis dropped) → the refusal probes 55, 57, 60, 61; B2 (COALESCE removed) → 63 only; B3 (policy bounded, reservation not) → 55 only; B4 (bucket arm inverted) → post-condition 7; B5 (exemption arm negated) → post-condition 6a — B4 and B5 both PASSED the original LIKE form. ⚠️ **Measured and recorded, not fixed:** `storage.foldername` and `fn_try_uuid` are `proparallel = 'u'`, yet `rabbit_money_segment` (0042) and `rabbit_quota_exempt_path` (0055) are labelled PARALLEL SAFE while calling them; the new functions inherit that pre-existing mislabel by delegating to the chain. Someone should fix 0042/0055 together. State: 0078 on **dev** by query (statements first, history row second; recorded md5 `56277f68cccf8285571e77a96f145d12`, 44828 bytes / 43744 chars, equal to the file's LF blob). Suite 77 **68/68**; suites 65/66/77/78 **198/198**; full `tap-all` sweep **73 suites, 72 clean, 1394/1394, 0 failed** — the one problem is `67_member_full_time`'s known `col_type_is` shim gap, not this track's. ⚠️ That sweep ran while suite 77 stood at 67; review round 2 added probe 68 afterwards, so the next full sweep reads **1395**, not 1394 — the figures are from two moments, not a contradiction. Vitest **1815 / 76**. Migration number taken with Audrey's explicit permission; **Track D moves to 0079** and the ledger says so. **CI GREEN on both pushed heads** — `bb896c1` (run 34436340815) and the final `bcc6815` (run 34436440185), each success with all four jobs (pgTAP, Vitest, issue-session smoke, Playwright auth); the pgTAP job is what proves 0078 and suite 77's 68 probes outside hosted dev, since it builds a clean database from every migration including 0065. Handbook §12.10. |
@@ -1596,7 +1811,7 @@ defines them; a row's "owner" is who acts first.
 
 - ~~**P1-01 · Enter toggles the pet.** MEASURED. `App.jsx` ~1404–1417: Enter on any focused button toggles the pet and never presses the button (every kit Dialog, drawer, picker; Space works). Owner: Audrey (C5), then a session. From A4-1, B3d, B4c-6, B5b-27.~~ — FIXED by post-overhaul S2a (2026-09-30, branch `po/s2a-settings-placement`, ruling C12): a bare Shift tap toggles the pet (`src/lib/companionHotkey.js`) and Enter presses the focused control, measured in the running app in all three tools (`05bf5fe`, hardened by `edb7fa9` and `07d34d6`). What is left of the class is in the S2a section at the end of this file.
 - **P1-02 · Space opens O.T.T.E.R.'s Search from any focused control** that is not a field, and can stack Search over an open Dialog or Drawer (`Otter.jsx` global shortcuts). MEASURED. From A4-2. S2a (2026-09-30): the same on the Help and Settings buttons S2a added to O.T.T.E.R.'s strip; Enter presses them (MEASURED, S2a review round 1).
-- **P1-03 · Home's document keydown listener runs on every page** (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3. S2a (2026-09-30): now that Enter presses the focused control everywhere else, this is the one place Enter can still do something different (after an arrow key on any page, Enter can open a Home destination). It also strands a kit Dialog: Search, left open when ArrowDown+Enter went to /dog, stayed registered, so on D.O.G. `overlayOpen()` was true, the Shift tap was dead and Tab never moved focus (the hidden dialog's trap found no visible control) until she went back and closed Search. MEASURED by S2a's review round 1 (B-R1-09). Owner: Audrey (Home is fonts-only under C3), or the kit (a Dialog on a hidden page should neither count nor trap).
+- ~~**P1-03 · Home's document keydown listener runs on every page**~~ — FIXED by post-overhaul FX3 (`35265888`, its review round 2, R2-01, 2026-10-12): Home's handler acts only when `currentPage === 'home'`; measured by FX1 below. (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3. S2a (2026-09-30): now that Enter presses the focused control everywhere else, this is the one place Enter can still do something different (after an arrow key on any page, Enter can open a Home destination). It also strands a kit Dialog: Search, left open when ArrowDown+Enter went to /dog, stayed registered, so on D.O.G. `overlayOpen()` was true, the Shift tap was dead and Tab never moved focus (the hidden dialog's trap found no visible control) until she went back and closed Search. MEASURED by S2a's review round 1 (B-R1-09). Owner: Audrey (Home is fonts-only under C3), or the kit (a Dialog on a hidden page should neither count nor trap). FX1 (2026-10-12): until FX3's fix reached FX1's branch, the same listener cancelled ArrowUp / ArrowDown in every number field and select on every page (the Scenes tab's frame counts and scene and shot numbers never stepped by keyboard, a Status select did not move), and Enter after one of them left the page: in a shot's Frames field ArrowUp then Enter opened `/settings`, ArrowDown then Enter `/dog` (MEASURED by FX1's review round 1, R1-01, and re-run by the session). After the merge (`b531a799`), in Playwright on the dev fixtures: in the shot table's Frames field and the shot popup's Frame count, ArrowUp twice took 2000 to 2002, ArrowDown back to 2001, and Enter stayed on `/rabbit`.
 - **P1-04 · D.O.G.'s document keys act behind its overlays** (Alt toggles Full deck; ←/→ switch the page). MEASURED. Needs a C1 ruling. From A4-4. S2a (2026-09-30) narrowed D.O.G.'s Enter only (`enterGenerates.js`: never on another page, never over a drawer, dialog or kit overlay). Alt, ←/→ and Ctrl+Z/Y also have no page check (`DeckOutlineGenerator.jsx` ~3206–3290), and D.O.G. stays mounted, so they act from every page: Ctrl+Z on O.T.T.E.R.'s page, outside a field, undoes D.O.G.'s last text edit unseen. INFERRED from the code; would settle it: a text edit in D.O.G., then Ctrl+Z on another page, then back. S2a gave D.O.G. its `currentPage`, so each handler can gate on it in one line.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.
@@ -2199,6 +2414,11 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   `realtime.broadcast_changes` is not possible — a broadcast has no
   per-recipient filter — so the fix is a second, money-only topic whose join
   gate is `can_access_project_money`. Owner: the next session on realtime.
+  **2026-10-09 (S4d, 0092):** the same for the Legal audience — a Legal row
+  stays off the topic (its audience is wider than money's and still narrower
+  than the topic's), so a workspace manager's second window refreshes to see
+  a new Legal file too. The fix would then be TWO extra topics, or one per
+  gate: the Legal one joined on `can_access_project_legal`.
 - ~~**S4b-04 · A desktop file tagged Legal during S4a's label period stays
   in the project's files folder.**~~ **Fixed in the same bundle (review
   rounds 1 and 2):** the Local Server removes such a LABEL once per project
@@ -2235,6 +2455,10 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   money files by taking its manager seat, and nothing records that step.
   Not to be "fixed" without a new ruling (`POST_OVERHAUL_ANSWERS.md`,
   2026-10-02).
+  **2026-10-09 (S4d, 0092):** the Legal half is moot — a workspace manager
+  sees Legal files WITHOUT the seat now (`can_access_project_legal`, Audrey
+  2026-10-08). The money half stands as accepted: invoices, the budget and
+  the rates still need the seat, and taking it is still unrecorded.
 - **S4b-06 · Storage totals tell a member when a hidden file arrives, and
   one function answers any company's.** PRE-EXISTING (0055/0057/0073).
   MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
@@ -2267,15 +2491,26 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   passes `rabbit_files_money_update`'s USING, the new one `rabbit_files_update`'s
   WITH CHECK — so `UPDATE storage.objects SET name = …/project/…` moves the
   body (and its thumbnail) where every member can list and read it. The
-  `files` row stays Legal (`trg_files_legal_fixed`). No client calls
-  storage move or copy, and the same person can always download and re-add
-  the file, so nobody gains what they could not already give away. The
+  `files` row stays Legal (`trg_files_legal_fixed`). Since S4c one client
+  path calls storage move — the shot-folder re-filing, on keys whose third
+  segment is `shots` or `scenes`, never LEGAL — so the restrictive policy
+  below would not refuse it; before S4c no client did, and the same person
+  can always download and re-add the file, so nobody gains what they could
+  not already give away. The
   validated fix is a RESTRICTIVE `FOR UPDATE` policy on both buckets,
   `NOT rabbit_legal_segment((storage.foldername(name))[3])` in USING and
   WITH CHECK — but it may refuse Supabase Storage's OWN updates of a Legal
   object (a resumable upload completing, a thumbnail regenerated), and that
   cannot be smoke-tested from a session. Owner: Audrey's decision; if yes,
   its own migration with a resumable-upload smoke test on dev first.
+  **2026-10-09 (S4d, 0092):** the same person set now includes a WORKSPACE
+  MANAGER without a seat: they pass `rabbit_files_money_update`'s USING for
+  a LEGAL key (the Legal arm) and `rabbit_files_update`'s WITH CHECK for an
+  ordinary key, so they too can rename or copy a Legal body or thumbnail to
+  where members read it (S4d review round 1, finding 7; not measured — the
+  same OR of permissive policies S4b measured). With remote viewing on,
+  0091's `petal_bin_posters_update` is a second route for a thumbnail. The
+  fix above closes both for everyone; the decision is still Audrey's.
 - **S4b-11 · Files migrated desktop→cloud before S4b may hold the app's own
   page instead of their contents.** Until S4b's review round 1 the migration
   read each body from `/files/:id`, a route the Local Server never had; the
@@ -2439,7 +2674,10 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   or saveEdit where the API calls for it").
 - **S3c-05 · Save edit from the leave or close question saves without a
   summary.** Under the name the first-change question gave it, at that
-  title's next version. Owner: Audrey.
+  title's next version. Owner: Audrey. *(FX4, 2026-10-12: a saved edit's
+  changes are now saved INTO it, its summary kept; only a new edit from
+  List order is saved this way, as the bar's Save edit saves it too —
+  walkthrough 67.)*
 - ~~**S3c-06 · "Recover unsaved edit?" says "WILSON closed" after a browser
   tab was reloaded too.**~~ Closed in S3c's review round 2 (R2-03): it says
   the edit "was left unsaved", true of a closed window, a reloaded tab and
@@ -2454,9 +2692,13 @@ active list, Set active, Archive and Withdraw say so. The executable test:
   (leaveGuardWiring.test.js, each pin with a CONTROL) and were exercised
   for real in Chromium and once in the desktop app. Owner: a session that
   mounts the shell.
-- **S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
+- ~~**S3c-09 · On the cloud the Scenes tab still binds Ctrl+Z only with an
   unsaved edit on screen** (then the draft's own undo, on every backend);
-  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).
+  otherwise S3b-03 stands. Owner: Audrey (with S3b-03).~~ No longer true
+  (FX4's review round 1, 2026-10-12): since BC1 (`0b38077c`, 2026-10-07)
+  `supportsBins` is true on the cloud, so the Scenes tab binds Ctrl+Z there
+  as on the Local Server; after FX4's Save edit, Ctrl+Z takes the save back
+  on both. Help's Undo card says so.
 - **S3c-10 · P1-32b is still open** (the Timeline's weekends-off
   conversions): S5's, as the brief said.
 - **S3c-11 · One exit can ask two questions in a row.** A Scenes popup
@@ -2726,3 +2968,204 @@ project's budget amount and currency are shown to every member on the
 Projects page); S5b-04 (once a version is opened, every client of that
 project must be S5b or later). S5-03, S5-04, S5b-02, S5b-03, S5b-05, S5b-07,
 S5b-08, S5c-04, S5c-05 and S5d-01 – 07 stand as written.
+
+## Post-overhaul S4c (`po/s4c-files-explorer`) — left open (2026-10-06)
+
+S4c built Audrey's first beta report on the Files tab (walkthrough 56): the
+Table as an explorer (one folder at a time, a crumb bar, Backspace goes up,
+the search box reaches the whole tree), shot folders inside their scene's
+folder with a one-time, offered re-filing on every backend, and files on
+levels and experiences. The overhaul review's flat list (F-R12, the long
+note that was above `TableView`) is superseded at her word; the Location
+column lives only in a search now. Questions for Audrey are in walkthrough
+56 §5, not here.
+
+- **S4c-01 · A shot folder is never re-filed for a body in the customer's
+  own bucket (s3).** The cloud move needs copy-then-delete through presigned
+  URLs, which the s3 provider does not have (S44 left its display for its
+  own session too); `refileShotFolders` leaves such a shot where it is and
+  names it ("… is in your own bucket, which cannot be moved from here yet").
+  No s3 workspace exists on any environment to build or verify it against.
+  Owner: the s3 session, when one is scoped.
+- **S4c-02 · A private project's shot bodies move only from the desktop
+  that holds them.** Their bodies live under the desktop's local media root
+  (storage_provider `local_server`); the cloud adapter moves them through
+  the desktop's new `POST /api/rabbit/local-media/move` and, off the desktop,
+  leaves the shot with the reason ("… run this from the desktop app there").
+  By design (A9's private-project rule), recorded so the beta's words are
+  expected. Owner: none.
+- **S4c-03 · A live file whose object is missing from storage holds its shot
+  folder back.** The re-filing checks every file of a shot BEFORE its first
+  object moves (review round 1) and leaves the shot where it is while one of
+  its live files is "missing from rabbit-files": the rows would otherwise
+  describe a file nowhere. The way out is to delete the dead row. A file in
+  Recently deleted is invisible to the client (`files_select`, 0014), so its
+  body keeps its old key — which still works after a restore (the key is a
+  key; the third segment `shots` is not gated). Owner: Audrey, if it ever
+  shows; the sentence names the file.
+- **S4c-04 · A shot moved to another scene keeps its folder where it is.**
+  Nothing in the Scenes tab changes a shot's scene today (measured: no
+  writer of `scene_id` on a shot), so there is no surface for it; if one
+  comes, its folder should move with the same verified move primitive the
+  re-filing uses (`refileOneShot` / `refileOneShotRow`), never a bare row
+  update. `ensureEntityFolder` deliberately keeps an existing folder's
+  parent on every backend. Owner: the session that adds the control.
+- **S4c-05 · The cloud rehearsal was the database half only.** The spawned
+  session has no signed-in cloud session (`VITE_DEV_AUTOLOGIN=tester` skips
+  sign-in with no session; the credentialed variant needs a test account's
+  password this machine does not hold), so the Storage API's `move` itself
+  was not called against wilson-dev. What was proven there, in a rolled-back
+  transaction as Northwind's manager: the policies admit every step (the
+  scene's folder row, both buckets' object rows renamed to the nested key,
+  the files row, the folder row), and refuse a reviewer and a person with
+  no seat. The API's move is that UPDATE plus a copy in the store, under the
+  same policies (S4b-10 measured the same UPDATE for a money-cleared
+  person). Owner: Audrey — the first run on staging's one project is the
+  first real move (walkthrough 56 §2 says what to look for); S5 lists the
+  four shots.
+- **S4c-06 · The Local Server re-filing was not run in Electron.** It is
+  replayed on a real temp directory with the shipped functions lifted out of
+  `main.cjs` (`desktopShotRefiling.test.js`: the directory move, the
+  entry-by-entry merge, the never-overwrite refusal, the verify-then-rewrite
+  order, the empty SHOTS tidy, the rows-only path). Not opened on Audrey's
+  screen. Owner: Audrey's next desktop run (walkthrough 56 §2, the Local
+  Server steps).
+- **S4c-07 · `FileManager` re-rendered without end when mounted with no
+  files** (`files = []` as a default and `ctx?.files || []` each made a new
+  array per render; the signing effect depends on it and sets state). Fixed
+  in S4c with one shared empty array; the asset, scene and shot popups never
+  hit it because they always passed the provider's list. Recorded because
+  the shape (a default-argument array in a memo chain) exists elsewhere.
+  Owner: none; a sweep for the pattern is a cheap future task.
+- **S4c-08 · The fixtures' default dataset stands for a project from before
+  S4c.** Its sixteen shot folders sit under SHOTS and two shot files with
+  them, so the offer shows on first open and the walkthrough's move has
+  something to move; the fixtures adapter re-files them in memory. A test
+  that wants the nested layout re-files first (`shotRefiling.fixtures.test.js`
+  shows how). The fixtures' keys are path-based
+  (`…/projects/<pid>/<folder path>/<name>`) where the cloud's are id-based
+  (`projects/<pid>/scenes/<sceneId>/<shotId>/<leaf>`); the fixtures adapter
+  rewrites by path, so a test of the cloud's key shape belongs in
+  `shotRefilingCloud.test.js`, not the fixtures. Owner: none.
+- **S4c-09 · A move that stops between an object and its row leaves one
+  file the next run must find.** On the cloud each file's row is rewritten
+  at once after its object is seen at the new key, so the window is one
+  round trip per object; `storage-gc` now keeps an object whose twin key a
+  row names (`_shared/shotKeys.ts`), and the next run counts the object
+  landed and rewrites the row. On the Local Server the directory moves in
+  one step and every record is retargeted at once, but the bundle is
+  written after the shot, so a crash in between leaves records saying the
+  old place until the next run (which finds each file at its new place and
+  counts it done) — unless the shot was RENAMED in between: the next run
+  then looks under the shot's new slug, finds no record there, re-parents
+  the row, and the records still say `SHOTS/<old>/`, a folder that no
+  longer exists; the files are at `SCENES/<scene>/<old>/`, where the relink
+  census finds them (review round 2). On the cloud, a row that could not be
+  rewritten and could not be read back is left where it landed, said with
+  "run it again", and the next run counts it landed. A journal written
+  before the move would close every window for good. Owner: a future
+  session, if a stopped move ever shows in the beta.
+- **S4c-10 · `storage-gc` must be deployed for the twin-key guard to hold.**
+  The Edge Function's orphan scan deleted any `rabbit-files` object no row
+  named once it was 24h old — exactly what a stopped move leaves. The code
+  on this branch asks the files table for the other shape of a shot key
+  before it deletes (one query per unreferenced object only), counted as
+  `skipped_twin`; pinned by `storageGcShotTwins.test.js`. Nothing deploys
+  Edge Functions from a session: `supabase functions deploy storage-gc`
+  on staging, then prod, by Audrey. Until then the walkthrough says to run
+  the move with the app open and the network up. Owner: Audrey.
+- **S4c-11 · On the Local Server a rename moves the folder ROWS, never the
+  directory.** As before S4c for every entity (the PATCH route's note: the
+  old directory is left with whatever is in it, and a managed record stays
+  with its file). Since S4c a renamed scene re-paths the rows under it
+  (walked by `parent_id`, finished on any later ensure if a pass stopped),
+  so no row says a path its parent no longer has — but the directories and
+  the records keep the old scene's name on disk, as they always did. The
+  Files tab places such a record by its ENTITY when its `folder_path` names
+  no row (`fileTree.js`, review round 2: before that fix a renamed scene's
+  shot files fell to the project root), and the stream route and Show in
+  folder read the record's own path, so everything still opens; a new
+  upload to the shot lands in the NEW directory, so one shot's files can sit
+  in two directories until someone moves them by hand. Moving the directory
+  and the records on a rename (as the asset route does) is one change on
+  each backend. Owner: a session that takes renames.
+- **S4c-12 · Two runs of the move at once are NOT safe against each other.**
+  One tab runs one move per project at a time (`refilingNow` in the
+  adapter), and a second tab or a second person meets the same checks per
+  object — but in one narrow window they can undo each other's step on one
+  file (review round 2: A's row update fails without committing; B counts
+  the object landed and sends its own update; A reads the row before B's
+  commit, sees the old key, and moves the object back; B's update then
+  commits the new key — a row naming a key the object is not at, which only
+  A's result mentions, as an update error). A lock row in the database, or a
+  `pg_advisory_xact_lock` in a function that does the row writes, is the
+  answer; until one exists, run the move from ONE place (walkthrough 56
+  says so). Owner: a session that takes the lock, before a team of two
+  runs it.
+- **S4c-13 · The create form holds while its files are added.** A level or
+  experience made with files picked in the form is created, then its files
+  are added one by one with the button naming each (*Adding <file> (i of
+  n)…*) and a line saying the dialog closes when they are all added; Cancel,
+  Escape and the backdrop wait. A multi-gigabyte copy on the Local Server is
+  minutes of that with no way out but to wait (review round 2). The fuller
+  answer is to close the form once the row exists and hand the files to the
+  entity's FileManager, which has per-file progress. Owner: a session on
+  the entity popups.
+- **S4c-14 · A build from before S4c, still open during a deploy, can put a
+  moved shot's row back under a SHOTS path.** Its `ensureEntityFolderWith`
+  wrote `path: SHOTS/<slug>` on a shot rename (its planner knew no nesting)
+  without touching `parent_id`, and kept uploading under `shots/<id>/`.
+  Since review round 2 the next ensure by a current build walks the scene's
+  rows by `parent_id` and puts the path right; the upload's old prefix is
+  what the offer is for, and the offer returns. Owner: none (deploy windows
+  only).
+
+## Post-overhaul S4d (`po/s4d-legal-gate-managers`) — left open (2026-10-09)
+
+S4d gave Legal files a gate of their own (migration 0092,
+`can_access_project_legal`: the money gate OR a workspace manager, with
+0037's workspace hop and 0072's privacy arm), re-pointed every closure 0088
+had made through the money gate, and — Audrey's Legal 1 — made a deleted
+file's record follow the file's gate for invoices and Legal files alike.
+Money is unchanged and pinned (0092's post-condition 12). Questions for
+Audrey are in walkthrough 54 §6 and the S4d hand-off, not here. S4b-10 and
+S4b-11 are untouched and still hers.
+
+- **S4d-01 · The eight money storage policies carry no private-project hop
+  of their own, so a project manager who did not create a private project
+  can read its invoice OBJECTS while its rows are hidden.** PRE-EXISTING
+  (0042 / 0053 / 0072). INFERRED from the policy text while 0092 copied
+  0072's arm into the Legal predicate: `rabbit_files_money_select` and its
+  seven siblings are `bucket … AND rabbit_money_segment(seg) AND
+  can_access_project_money(project)`, with no `EXISTS (SELECT 1 FROM
+  projects p …)` hop — the eight BASE policies have one, which is how a
+  private project's ordinary objects follow projects_select. The money
+  predicate is SECURITY DEFINER and reads projects with RLS bypassed, so for
+  a project_members row with project_role = manager on a private project it
+  answers true whoever created the project. The ROW is hidden (files_select
+  hops), and such a seat can only be placed by someone who can already see
+  the project; the MANAGER leg 0092 added does carry the privacy arm
+  (inside can_access_project_legal, suite 95 §H), while the predicate's
+  money half is the money gate called as it is — so a non-creator holding a
+  manager seat on a private project reaches its Legal objects through the
+  money half exactly as it reaches its invoice objects (S4d review round 1,
+  finding 9). Would settle it: seat a second manager on a private project
+  and read `storage.objects` under `projects/<id>/INVOICES/` as them. Fix:
+  the hop in all eight money policies, or `passes_project_privacy` inside
+  can_access_project_money (0037's body is pinned WHOLE by 0092's
+  post-condition 12 and suite 95 probe 167; both move with it). Owner: a
+  session on private projects, with Audrey's nod (it narrows the money gate
+  for a non-creator manager).
+- **S4d-02 · `edit_history_select` has no private-project arm, so every
+  workspace admin and manager reads a private project's ordinary edit
+  history.** PRE-EXISTING (0012 / 0072). INFERRED from the policy text while
+  0092 restated it (S4d review round 1, finding 10): the policy is workspace
+  + app role admin/manager + membership + the money / Legal arms, with no
+  hop through `projects` and no `passes_project_privacy`; `edit_history`
+  rows carry `project_id` only for `files` entries (0088), so a hop would
+  need the column for every entity type first. A private project's money
+  rows are already the money audience's and its Legal rows the Legal
+  audience's (the arms); what is open is the rest — a task's or scene's
+  history, with names and notes in the diff. Would settle it: read
+  `edit_history` for a private project's task as a workspace manager who
+  did not create it. Owner: a session on private projects.

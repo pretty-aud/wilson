@@ -103,8 +103,9 @@ describe('what a row shows and what the client writes', () => {
     expect(tagSettable(GATED_TAG, { canWrite: true, canSeeMoney: true, legal: false }).reason).toBe(LEGAL_AT_ADD_REASON)
     expect(tagSettable('shots', { canWrite: false, canSeeMoney: true }).ok).toBe(false)
     expect(tagSettable('shots', { canWrite: true, canSeeMoney: false }).ok).toBe(true)
-    // The hint is the truth now, not "not restricted yet".
-    expect(LEGAL_HINT).toBe('Only project managers and workspace admins can see this file.')
+    // The hint is the truth now, not "not restricted yet" — and since 0092
+    // (S4d) the truth names workspace managers too.
+    expect(LEGAL_HINT).toBe('Only project managers, workspace managers and workspace admins can see this file.')
     expect(LEGAL_LOCKED_REASON).toBe('Added as Legal. To change this, add the file again.')
   })
 

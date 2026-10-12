@@ -24,6 +24,7 @@ const EXPECTED = {
   'rabbit.history.view':         ['admin', 'manager'],
   'rate_card.edit':              ['admin'],
   'rate_card.view':              ['admin', 'manager'],
+  'workspace.audit.read':        ['admin'],
   'workspace.settings.read':     ['admin', 'manager', 'user'],
   'workspace.settings.write':    ['admin'],
 }

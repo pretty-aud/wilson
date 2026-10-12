@@ -38,7 +38,7 @@ import { v4 as uuidv4 } from 'uuid'
 // kit Dialog in <body>.
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
-  StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
   SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
@@ -52,10 +52,16 @@ import MenuButton from './scenes/MenuButton'
 import ListConfirm from './scenes/ListConfirm'
 import { deleteQuestion, ARCHIVED_ADD_REASON } from './scenes/membershipCopy'
 import { sortShotLists } from '../state/shotListModel'
+// FX2 (0096): a scene's task count, and an asset window's tasks, count every
+// task ABOUT it (any of its items).
+import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
 // Post-overhaul S3c: an edit on screen — its cut, its bands, its tiles.
 import { useEditSession } from './scenes/useEditSession'
 import EditTable from './scenes/EditTable'
 import { framesToTimecode } from './scenes/timecode'
+// Post-overhaul FX1: every number field of the rows and popups — its own
+// chevrons clear of the figure, five figures and an ellipsis past that.
+import NumberField from './scenes/NumberField'
 // …and (step 4) the cut's own verbs, the first-change question (D13).
 import { useEditChanges } from './scenes/useEditChanges'
 import AddShotsDialog from './scenes/AddShotsDialog'
@@ -89,8 +95,11 @@ import {
   formatShotCode as shotCodeFor,
   nextSceneNumber as nextSceneNumberFor,
   nextShotNumber as nextShotNumberFor,
-  fileSlugify,
 } from '../entityNaming'
+// Post-overhaul S4c: the popups' Folder line is the folder ROW's path (a
+// shot's inside its scene's), planned by the one path function when the
+// row is not there yet.
+import { entityFolderPath } from '../folderPaths'
 // Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
 // Everything below is ADDED to the existing rows and popups — a chip strip
 // per shot row in both content modes, the primary take's poster standing in
@@ -103,6 +112,8 @@ import { binPathLabel } from '../bins/binSelectors'
 import ShotTakeChips from './bins/ShotTakeChips'
 import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
 import TakePickerDialog from './bins/TakePickerDialog'
+// BC3: in a browser no clip is reachable, so the picker does not dim them all.
+import { binsModeOf } from '../bins/browserCatalogue'
 import BinPoster from './bins/BinPoster'
 // S4a-07 (S3b step 7): the Bins keys' own "is something in front of me?".
 import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/binUi'
@@ -403,6 +414,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   // reviewers write lists; set active and archive are a project manager's
   // or a workspace admin's; on the Local Server (no roles) both are open.
   const { canWrite: canWriteProject, writeReason, can: canOn, reasonFor } = useProjectAccess()
+  // BC2 (B6): the takes on a shot are bins data — the Bins gate.
+  const canTakes = canOn('project.bins.write')
   const canListWrite = canOn('project.shotlist.write')
   const canListActivate = canOn('project.shotlist.activate')
   const supportsBins = !!ctx?.supportsBins
@@ -471,11 +484,13 @@ export default function ScenesView({ pageActive = false } = {}) {
     try { await ctx?.updateShot?.(shotId, { frame_count: frames }) } catch (err) { takeFail(err, 'set the frame count') }
   }, [ctx])
   const takesApi = useMemo(() => ({
-    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canWriteProject && supportsBins,
+    // BC2 (B6): takes are bins data, gated as the Bins tab is — a reviewer
+    // assigns takes too (shot_takes' gate is can_edit_shot_lists, 0091).
+    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canTakes && supportsBins,
     open: setTakesShotId, openPicker: setPickerShotId, binPathFor, projectId: project?.id || null,
     onUpdate: handleUpdateTake, onRemove: handleRemoveTakes, onReorder: handleReorderTakes, onUseLength: handleUseTakeLength,
     notice: takesNotice, clearNotice: () => setTakesNotice(null),
-  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
+  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canTakes, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
   // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
   // Declined (false) until the shot is in state, so the request is retried
   // rather than lost; a payload for another project is dropped by the hook.
@@ -608,14 +623,13 @@ export default function ScenesView({ pageActive = false } = {}) {
     return map
   }, [assets])
 
-  const taskCountByScene = useMemo(() => {
-    const map = {}
-    for (const t of tasks) {
-      if (!t.scene_id) continue
-      map[t.scene_id] = (map[t.scene_id] || 0) + 1
-    }
-    return map
-  }, [tasks])
+  // FX2 (0096): every task ABOUT the scene counts (a task about two scenes
+  // counts in both rows: a per-row count, never added into a total); without
+  // items, the task's single scene, as before.
+  const taskCountByScene = useMemo(
+    () => taskCountsByEntity(tasks, ctx?.taskItems, 'scene', ctx?.taskItemsAvailable === true),
+    [tasks, ctx?.taskItems, ctx?.taskItemsAvailable],
+  )
 
   // In List order a scene's shots keep the list's order (S3b step 2); in any
   // other sort, shot-number order as before.
@@ -737,8 +751,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   // ── The cut's own verbs (post-overhaul S3c, step 4; D13, D16) ──
   // A row's or a scene block's edit actions, while an edit or a draft is on
   // screen. Each goes through useEditChanges: on a draft it changes the draft
-  // at once; otherwise the first-change question opens, and nothing changes
-  // until Yes. Only the ORDER is the edit's: Move, Duplicate, Remove and Add
+  // at once; on a saved edit too (FX4: the edit's own unsaved changes, asked
+  // nothing). Only the ORDER is the edit's: Move, Duplicate, Remove and Add
   // change the draft; New shot also makes a real shot ON THE LIST (D6:
   // "entirely new shots" are real shot rows), so it needs the seat that
   // writes scenes and shots, and a scene that exists. Reviewers write edits
@@ -849,8 +863,8 @@ export default function ScenesView({ pageActive = false } = {}) {
   }, [addShotsAt, shotById, requestCut])
 
   // ── Drag-and-drop (post-overhaul S3c, step 6; D16) ──
-  // On an edit or a draft a drop changes the cut — asking first on a saved
-  // edit (D13). On the LIST, in its own order, a drop is Audrey's way to an
+  // On an edit or a draft a drop changes the cut at once (FX4: a saved edit
+  // is changed in place, unsaved, asking nothing). On the LIST, in its own order, a drop is Audrey's way to an
   // edit ("before applying the changes please ask the user to confirm if they
   // would like to make a new edit"): it asks D13's question, and Yes puts the
   // draft on screen; the list itself never moves by a drag (its Move up /
@@ -1810,6 +1824,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           <div className="wilson-dark-scroll">
             <TakePickerDialog shot={shot} scene={sceneById?.(shot.scene_id) || null} files={binFiles} bins={bins}
               assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+              markOffline={!binsModeOf(ctx?.binsInfo?.capabilities).nothingReachable}
               onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
           </div>,
           document.body,
@@ -1828,7 +1843,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           <ListConfirm
             title={qn.title}
             confirmLabel={qn.confirmLabel}
-            variant="primary"
+            variant={qn.variant || 'primary'}
             onConfirm={editChanges.answer}
             onCancel={editChanges.cancel}
           >
@@ -1840,9 +1855,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* …and "Add shot…" from a row's or a scene's edit actions. */}
       {addShotsAt && editSession.list && canEditCut && (
         <AddShotsDialog
-          intoWords={editSession.mode === 'draft'
-            ? `“${listLabel({ title: editSession.draft.title, version: editSession.draft.version })}”`
-            : `a new version of “${listLabel(editSession.row)}”`}
+          intoWords={`“${listLabel(editSession.mode === 'draft' ? { title: editSession.draft.title, version: editSession.draft.version } : editSession.row)}”`}
           whereWords={addShotsAt.where}
           scenes={scenes}
           shots={shots}
@@ -2433,14 +2446,14 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                 <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
                                   {framesToTimecode(shot.frame_count || 0, fps)}
                                 </Td>
-                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26) */}
+                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26),
+                                    as the number field (FX1): its own chevrons, five figures and an ellipsis */}
                                 <Td numeric className="rb-scene-frames-cell">
-                                  <input type="number" min={0} value={shot.frame_count ?? ''}
+                                  <NumberField min={0} value={shot.frame_count ?? ''}
                                     onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
                                     disabled={!canWrite}
                                     aria-label={`Frames for ${shotName}`}
-                                    className="ui-input rb-scene-frames"
-                                    data-size="sm"
+                                    className="rb-scene-frames"
                                     placeholder="0" />
                                 </Td>
                                 <Td align="right" className="rb-scene-acts-cell">
@@ -2940,10 +2953,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       {framesToTimecode(shot.frame_count || 0, fps)}
                     </Td>
 
-                    {/* Frame count (editable): the kit's small field */}
+                    {/* Frame count (editable): the kit's small field, as the number field (FX1) */}
                     <Td numeric className="rb-scene-frames-cell">
-                      <input
-                        type="number"
+                      <NumberField
                         min={0}
                         value={shot.frame_count ?? ''}
                         onChange={e => {
@@ -2952,8 +2964,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         }}
                         disabled={!canWrite}
                         aria-label={`Frames for ${shotName}`}
-                        className="ui-input rb-scene-frames"
-                        data-size="sm"
+                        className="rb-scene-frames"
                         placeholder="0"
                       />
                     </Td>
@@ -3170,8 +3181,8 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 // window. The header keeps the scene's glyph, its name and its code: the name
 // is the H2 title, read-only — the "Scene name" field below is still where it
 // is edited (C1: the two stay two) — and names the Dialog. The status is the
-// kit's StatusBadge, where the 3px status-coloured rule under the header said
-// it (R3-11). The kit brings the named ✕ (the old one had no name), Escape
+// kit's StatusBanner across the popup under the title (FX3; it was a
+// StatusBadge from R3-11 until then). The kit brings the named ✕ (the old one had no name), Escape
 // (Q17) and the backdrop, which closed it before and still does. The body
 // keeps its two columns — RelationsPanel's sidebar, then the properties — and
 // every section, field and button in its old order.
@@ -3304,8 +3315,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   }
 
   const sceneCode = sceneCodeFor(project, scene.scene_number ?? 0)
-  const sceneSlug = fileSlugify(scene.name || 'Untitled-Scene')
-  const sceneFolderPath = `SCENES/${sceneSlug}/`
+  // The folder as the tree HAS it (its row), else as it would be planned —
+  // post-overhaul S4c: the row is the truth of where a folder is, and a
+  // scene's folder now holds its shots' folders (the Files tab shows them).
+  const sceneFolderRow = (ctx?.folders || []).find(f => f && f.scene_id === scene.id)
+  const sceneFolderPath = `${sceneFolderRow?.path || entityFolderPath('scene', scene)}/`
 
   return (
     <>
@@ -3327,7 +3341,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
               <Badge className="rb-scene-detail-code">{sceneCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
@@ -3489,14 +3503,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Scene number</FieldLabel>
-                    <input type="number" value={scene.scene_number ?? ''} onChange={e => {
+                    <NumberField value={scene.scene_number ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
                     }}
                       disabled={!canWrite}
-                      aria-label="Scene number"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm" />
+                      aria-label="Scene number" />
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Runtime</FieldLabel>
@@ -3801,8 +3813,12 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 
   // Build shot code
   const shotCode = shotCodeFor(project, scene?.scene_number ?? 0, shot.shot_number ?? 0)
-  const shotSlug = fileSlugify(shot.name || 'Untitled-Shot')
-  const shotFolderPath = `SHOTS/${shotSlug}/`
+  // The folder as the tree HAS it (post-overhaul S4c): inside its scene's
+  // folder — SCENES/<scene>/<shot>/ — or still under SHOTS/ in a project
+  // whose shot folders have not been re-filed (the Files tab offers it);
+  // with no row yet, where it would be planned.
+  const shotFolderRow = (ctx?.folders || []).find(f => f && f.shot_id === shot.id)
+  const shotFolderPath = `${shotFolderRow?.path || entityFolderPath('shot', shot, scene || null)}/`
   // Shot takes (milestone 2): the ordered list, and the primary take's poster
   // standing in while the shot has no thumbnail of its own (Q6).
   const shotTakeEntries = takes?.map?.get(shot.id) || []
@@ -3823,7 +3839,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
               <Badge className="rb-scene-detail-code">{shotCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
@@ -3989,25 +4005,21 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Shot number</FieldLabel>
-                    <input type="number" value={shot.shot_number ?? ''} onChange={e => {
+                    <NumberField value={shot.shot_number ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
                     }}
                       disabled={!canWrite}
-                      aria-label="Shot number"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm" />
+                      aria-label="Shot number" />
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Frame count</FieldLabel>
-                    <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
+                    <NumberField min={0} value={shot.frame_count ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                     }}
                       disabled={!canWrite}
                       aria-label="Frame count"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm"
                       placeholder="0" />
                   </div>
                   <div className="rb-scene-prop">
@@ -4627,7 +4639,7 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, can
   return (
     <AssetDetailPopup
       asset={asset}
-      tasks={(ctx?.tasks || []).filter(t => t.asset_id === asset.id)}
+      tasks={tasksAbout(ctx?.tasks || [], ctx?.taskItems, 'asset', asset.id, ctx?.taskItemsAvailable === true)}
       phase={(ctx?.phases || []).find(p => p.id === asset.phase_id)}
       ctx={ctx}
       thumbRevision={thumbRevision}

@@ -15,10 +15,23 @@ import { C, MediaTag, FlagMark, ColorDot, EmptyState } from './binUi'
 import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
 import { canHoverScrub, techLine, slateLine, COLOR_HEX } from '../../bins/binMedia'
+// GW3: through the gateway a tile's ticket is fetched when the pointer
+// enters it (R12: never fifty at once when the grid mounts), and a scrub
+// through the OUTSIDE door carries the viewer's mark (D9).
+import { ViewerMark } from './GatewayVideo'
 
+// `markOffline` (BC3): a row this computer cannot reach is dimmed (bins.css'
+// dim) only where some row COULD be reached. In a browser none can (B3: every
+// row is "not on this computer"), the tab's notice says so once, and a whole
+// catalogue in the disabled ink would read as a tab that does not work; the
+// poster's own "not on this computer" mark stays on every tile.
 export default function BinFileGrid({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor, streamUrlFor,
-  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin, usageCount = null,
+  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin, usageCount = null, markOffline = true,
+  // GW3: `onTicketWanted(id)` when the pointer enters a tile (the stream URL
+  // then arrives through streamUrlFor on the next render); `markFor(id)` →
+  // { door, viewer } for the mark over a remote scrub, or null.
+  onTicketWanted = null, markFor = null,
 }) {
   const currentRef = useRef(null)
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
@@ -35,7 +48,9 @@ export default function BinFileGrid({
             thumbUrl={thumbUrlFor?.(row.id)} streamUrl={canHoverScrub(row) && row.online !== false ? streamUrlFor?.(row.id) : null}
             binName={showBin ? (binsById?.get(row.bin_id)?.name || '') : null} binColor={binsById?.get(row.bin_id)?.color || null}
             used={usageCount?.get(row.id) || 0}
-            canWrite={canWrite}
+            canWrite={canWrite} markOffline={markOffline}
+            onTicketWanted={onTicketWanted && canHoverScrub(row) && row.online !== false ? onTicketWanted : null}
+            mark={markFor?.(row.id) || null}
             onClick={e => onRowClick?.(row.id, e)}
             onDoubleClick={() => onRowDoubleClick?.(row.id)}
             onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, row.id) }}
@@ -51,13 +66,16 @@ export default function BinFileGrid({
   )
 }
 
-function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, used = 0, canWrite, onClick, onDoubleClick, onContextMenu, onDragStart }) {
+function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, used = 0, canWrite, markOffline = true, onClick, onDoubleClick, onContextMenu, onDragStart, onTicketWanted = null, mark = null }) {
   const [hover, setHover] = useState(false)
   const [scrubFrac, setScrubFrac] = useState(null)
   const [failed, setFailed] = useState(false)
   const videoRef = useRef(null)
   const boxRef = useRef(null)
   const scrubbing = hover && !!streamUrl && !failed
+  // One failure is the URL's, not the tile's: a new ticket (a new URL), or the
+  // pointer leaving and coming back, scrubs again (GW3 review round 1, note 11).
+  useEffect(() => { setFailed(false) }, [streamUrl])
 
   useEffect(() => {
     const v = videoRef.current
@@ -74,8 +92,8 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
   return (
     <div ref={innerRef} role="gridcell" aria-selected={selected} draggable={canWrite} onDragStart={onDragStart}
       onClick={onClick} onDoubleClick={onDoubleClick} onContextMenu={onContextMenu}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setScrubFrac(null) }}
+      onMouseEnter={() => { setHover(true); onTicketWanted?.(row.id) }}
+      onMouseLeave={() => { setHover(false); setScrubFrac(null); setFailed(false) }}
       onMouseMove={e => {
         if (!scrubbing) return
         const r = boxRef.current?.getBoundingClientRect()
@@ -85,14 +103,17 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
       className="bn-tile rounded-control overflow-hidden cursor-default flex flex-col"
       data-selected={selected ? 'true' : undefined}
       data-current={current ? 'true' : undefined}
-      data-offline={row.online === false ? 'true' : undefined}>
+      data-offline={row.online === false && markOffline ? 'true' : undefined}>
       <div ref={boxRef} className="relative w-full" style={{ aspectRatio: '16 / 9', backgroundColor: C.deep }}>
         <BinPoster row={row} src={thumbUrl} width="100%" height="100%" radius={0} style={{ border: 'none', position: 'absolute', inset: 0 }} iconSize={36} />
         {scrubbing && (
-          <video ref={videoRef} src={streamUrl} muted preload="metadata" playsInline
-            onError={() => setFailed(true)}
+          // Cosmetic, through the gateway as on the desktop (GW3): no Save
+          // as…, no picture-in-picture; the ticket in the URL is the authority.
+          <video ref={videoRef} src={streamUrl} muted preload="metadata" playsInline disablePictureInPicture
+            onError={() => setFailed(true)} onContextMenu={e => e.preventDefault()}
             className="absolute inset-0 w-full h-full object-cover" style={{ pointerEvents: 'none', backgroundColor: C.deep }} />
         )}
+        {scrubbing && mark?.door === 'outside' && <ViewerMark viewer={mark.viewer} />}
         {scrubbing && scrubFrac != null && (
           <div className="absolute bottom-0 left-0 h-[2px]" style={{ width: `${scrubFrac * 100}%`, backgroundColor: C.accent }} />
         )}

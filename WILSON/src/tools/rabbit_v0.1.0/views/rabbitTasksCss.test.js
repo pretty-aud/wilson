@@ -340,3 +340,14 @@ describe('V2: a template\'s "Global" is a value on the second ink', () => {
     expect(mgr).not.toMatch(/className="rb-task-none">Global</)
   })
 })
+
+// FX2: the task window's Items table sits above the files in the left column.
+// A section's own `overflow: hidden` lets a flex item shrink to nothing, so at
+// 1280x700 the files were crushed under the table (measured in the pictures):
+// every part keeps its height and the column scrolls.
+describe('FX2: the task window\'s left column scrolls; its parts never shrink', () => {
+  it('every child of .rb-task-detail-files keeps its height, and the column scrolls', () => {
+    expect(normal(sheet)).toMatch(/\.rb-task-detail-files > \* \{ flex-shrink: 0; \}/)
+    expect(normal(sheet)).toMatch(/\.rb-task-detail-files \{[^}]*overflow-y: auto;/)
+  })
+})

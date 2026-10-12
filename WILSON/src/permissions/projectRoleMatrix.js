@@ -66,6 +66,7 @@ export const PROJECT_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
 // Unrecognised actions passed to canOnProject() warn at development time
 // (dev-build) and return false in production. Keep this list alphabetised.
 export const PROJECT_ACTIONS = Object.freeze([
+  'project.bins.write',
   'project.comment.write',
   'project.entity.write',
   'project.roster.manage',
@@ -132,6 +133,46 @@ export function canSeeProjectMoney(ctx) {
 export function canSeeMoneyHere({ adapterMode, appRole, projectRole } = {}) {
   if (adapterMode === 'local_server') return true
   return canSeeProjectMoney({ appRole, projectRole })
+}
+
+/**
+ * Post-overhaul S4d — LEGAL. Who sees a Legal file: the money audience, AND
+ * a workspace-level manager without a seat on the project.
+ *
+ * Audrey, 2026-10-08, asked who else should see Legal files besides
+ * workspace admins and the project's managers: "Also workspace managers,
+ * without taking a seat." And 2026-10-02: "inherently workspace manager may
+ * need to access a folder to review things." Money does NOT widen (D8: only
+ * project admins reach the budget): a workspace manager still reaches
+ * invoices, budgets and rates only by taking the project's manager seat, so
+ * this is a function of its own beside canSeeProjectMoney, never a change to
+ * it — projectLegal.test.js pins that every money site still asks the money
+ * gate and no Legal site asks it.
+ *
+ * Like money, deliberately NOT a PROJECT_ACTIONS entry: no unstaffed-project
+ * opening (Legal fails CLOSED), no `ready` opening (a Legal control arrives a
+ * beat late for a project manager rather than being shown to a member and
+ * snatched back — the S23 pattern). It differs from money in exactly one row
+ * of the (appRole × projectRole) table: `appRole === 'manager'` with any seat
+ * or none. The Local Server has no roles at all; its callers open the gate
+ * themselves (`noRoles`), as they do for money.
+ *
+ * This is the client mirror of `can_access_project_legal(uuid)` (0092):
+ * can_access_project_money OR current_app_role() = 'manager', with 0037's
+ * workspace hop and 0072's privacy arm — neither of which the client has in
+ * hand, so a workspace manager looking at another workspace's project, or at
+ * a private project they did not create, is told yes here and refused by the
+ * database (RLS is the gate; this exists so the Add as Legal control and the
+ * LEGAL folder's words are right for the people the database admits).
+ *
+ * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
+ *           projectRole: 'manager'|'reviewer'|'member'|null|undefined }} ctx
+ * @returns {boolean}
+ */
+export function canSeeProjectLegal(ctx) {
+  const { appRole, projectRole } = ctx || {}
+  if (canSeeProjectMoney({ appRole, projectRole })) return true
+  return appRole === 'manager'
 }
 
 /**
@@ -295,6 +336,10 @@ export function projectActionDeniedReason(ctx, action) {
     case 'project.shotlist.write':
       return 'Only this project\'s managers, members and reviewers can change its shot lists and edits.'
 
+    // 0091 / B6 (Bins on the cloud) — the same gate, the same shape.
+    case 'project.bins.write':
+      return 'Only this project\'s managers, members and reviewers can change its bins, clips and takes.'
+
     // 0084 / D8 — denied to everyone but a workspace ADMIN or the project
     // MANAGER; a workspace manager is told the same, because the rule names
     // the two seats that work and theirs is not one of them.
@@ -360,7 +405,10 @@ export function canOnProject(ctx, action) {
   // PURPOSE: the four older actions already resolve on the Local Server
   // through the unstaffed opening, and roster management is cloud-only, so
   // widening noRoles to them would change behaviour nobody asked to change.
+  // 0091 (BC1): project.bins.write joins them — the signed-out desktop's bins
+  // routes check no seat either (B12), and the gate is the same function.
   const isShotListAction = action === 'project.shotlist.activate' || action === 'project.shotlist.write'
+    || action === 'project.bins.write'
   if (noRoles === true && isShotListAction) return true
 
   // 🚨 project.shotlist.activate MUST be decided BEFORE the admin/manager
@@ -426,6 +474,14 @@ export function canOnProject(ctx, action) {
     // project.entity.write. The unstaffed opening matches the SQL's
     // NOT project_is_staffed() leg.
     case 'project.shotlist.write':
+      return !isStaffed || projectRole === 'manager' || projectRole === 'member' || projectRole === 'reviewer'
+    // Bins on the cloud (0091, BC1): Audrey's B6, "reviewers may do everything
+    // members may" in bins — add and remove bins and clips, log, flag, assign
+    // takes. The database's gate for all four bins tables IS
+    // can_edit_shot_lists() (no bins gate was invented), so this mirrors
+    // project.shotlist.write exactly. BC3 gates the browser's Bins controls
+    // on it; the signed-out Local Server has no roles (noRoles opens it).
+    case 'project.bins.write':
       return !isStaffed || projectRole === 'manager' || projectRole === 'member' || projectRole === 'reviewer'
     default:
       return false

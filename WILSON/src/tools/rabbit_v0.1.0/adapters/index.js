@@ -35,7 +35,9 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {object[]} assets
  * @property {object[]} tasks
  * @property {object[]} dependencies
- * @property {object[]} taskLinks
+ * @property {object[]} taskLinks      a task's URL links (0000)
+ * @property {object[]} taskItems      a task's items: the assets, scenes,
+ *   shots, levels and experiences it is about (FX2, 0096)
  * @property {object[]} files
  * @property {object[]} assetVersions
  * @property {object[]} comments
@@ -60,8 +62,10 @@ import { devFixtures } from '../../../dev/devFixtures';
  *   folder, files.is_financial, and the body pinned to Supabase (0038/0050).
  * @property {boolean=} legal  Post-overhaul S4b: a Legal file — the LEGAL
  *   locked folder and the legal tag, written together at upload and never
- *   changed after; seen by workspace admins and the project's managers only
- *   (0088). Never combined with `financial`.
+ *   changed after; seen by the Legal gate's audience — workspace admins, the
+ *   project's managers and, since 0092 (S4d), workspace managers without a
+ *   seat (0088 / 0092). Never combined with `financial`: a Legal file is
+ *   never an invoice (files_legal_not_financial_chk).
  */
 
 /**
@@ -221,7 +225,7 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {(projectId: string, listId: string, items: Array<{id: string, position: number}>) => Promise<object[]>} repositionShotListItems
  * @property {(projectId: string, listId: string, itemIds: string[]) => Promise<{deleted: string[]}>} deleteShotListItems
  * @property {(projectId: string) => Promise<object[]>}             listEdits
- * @property {(edit: object) => Promise<object>}                    upsertEdit
+ * @property {(edit: object, opts?: {expectSavedAt: string|null}) => Promise<object>} upsertEdit
  * @property {(projectId: string, listId: string|null) => Promise<string|null>} setActiveShotList
  * @property {(projectId: string, listId: string, archived?: boolean) => Promise<object>} archiveShotList
  * @property {(projectId: string, editId: string, archived?: boolean) => Promise<object>} archiveEdit
@@ -237,6 +241,12 @@ import { devFixtures } from '../../../dev/devFixtures';
  *     every list; only item rows and their positions are per list. Scene
  *     items order a list's scenes; shot items order shots within their
  *     scene (restarting at 0 per scene and for the unlinked bucket).
+ *   - upsertEdit(edit, { expectSavedAt }) (post-overhaul FX4 review round 1,
+ *     R1-03) writes an EXISTING edit only while its stored snapshot's
+ *     saved_at is the one named (null: none); another is refused with code
+ *     `edit_saved_since` (shotListModel's EDIT_SAVED_SINCE), status 409.
+ *     The cloud filters its UPDATE on it; the Local Server and the fixtures
+ *     check and write in one step.
  *   - upsertShotList / upsertEdit need `project_id` on the row and return
  *     the stored row (the cloud sends neither the audit columns nor
  *     archived_at / archived_by — the database stamps the first four and

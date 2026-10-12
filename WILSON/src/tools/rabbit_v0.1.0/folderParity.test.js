@@ -30,6 +30,7 @@ import { fileSlugify } from './entityNaming'
 import {
   FOLDER_CATEGORIES, ENTITY_FK_COLUMN, planEntityFolder, planProjectFolders,
 } from './folderPaths'
+import { pendingShotRefiling } from './shotRefiling'
 import { RATES_SEGMENT, RATES_FILENAME, projectRatesPath } from './projectRates'
 import { MANIFEST_FILENAME } from './projectManifest'
 
@@ -118,7 +119,8 @@ const mainPlanners = new Function(`
   ${extractFunction(MAIN_CJS, 'slugOrFallback')}
   ${extractFunction(MAIN_CJS, 'planProjectFolderList')}
   ${extractFunction(MAIN_CJS, 'planEntityFolderFor')}
-  return { planProjectFolderList, planEntityFolderFor };
+  ${extractFunction(MAIN_CJS, 'pendingShotRefilingFor')}
+  return { planProjectFolderList, planEntityFolderFor, pendingShotRefilingFor };
 `)()
 
 
@@ -250,6 +252,68 @@ describe('the folder categories agree between the two processes', () => {
         expect(theirs.folder.slug).not.toBe('')
       }
     }
+  })
+
+  // Post-overhaul S4c: a shot's folder sits in its scene's. The scene is an
+  // argument to both planners; with one the plan carries the scene's folder
+  // as `parent` and nests the shot under its path, with none the shot keeps
+  // SHOTS/<shot>. Hostile names on BOTH the scene and the shot.
+  it('plans the same NESTED shot folder for the same shot and scene, hostile names included (S4c)', () => {
+    const NAMES = ['WLSN_SC001', 'Lighthouse, dawn', '..', '###', '', undefined, 'A/B Test']
+    const project = { id: 'p1', title: 'Film', scenes_enabled: true }
+    for (const sceneName of NAMES) {
+      for (const shotName of NAMES) {
+        const scene = { id: 'sc1', name: sceneName }
+        const shot = { id: 'sh1', name: shotName, scene_id: 'sc1' }
+        const mine   = planEntityFolder(project, 'shot', shot, scene)
+        const theirs = mainPlanners.planEntityFolderFor('shot', shot, scene)
+        const label = `scene ${JSON.stringify(sceneName)} / shot ${JSON.stringify(shotName)}`
+        expect(theirs.folder.path, label).toBe(mine.folder.path)
+        expect(theirs.folder.parentPath, label).toBe(mine.folder.parentPath)
+        expect(theirs.parent.path, label).toBe(mine.parent.path)
+        expect(theirs.category.path, label).toBe('SCENES')
+        expect(mine.folder.path.split('/')).toHaveLength(3)
+        expect(mine.folder.path.startsWith(`${mine.parent.path}/`)).toBe(true)
+        expect(theirs.folder.slug).not.toBe('')
+      }
+    }
+    // CONTROL: with no scene both keep SHOTS/<shot>, and neither has a parent.
+    const shot = { id: 'sh1', name: 'Loose', scene_id: null }
+    expect(mainPlanners.planEntityFolderFor('shot', shot, null).folder.path).toBe('SHOTS/Loose')
+    expect(planEntityFolder(project, 'shot', shot, null).folder.path).toBe('SHOTS/Loose')
+    expect(mainPlanners.planEntityFolderFor('shot', shot, null).parent).toBeNull()
+  })
+
+  it('SHOTS is lazy in both lists, and neither planner plans it for a project (S4c)', () => {
+    for (const list of [mainCategories, FOLDER_CATEGORIES]) {
+      expect(list.find(c => c.slug === 'SHOTS').lazy).toBe(true)
+      expect(list.filter(c => c.lazy).map(c => c.slug)).toEqual(['SHOTS'])
+    }
+    const project = { id: 'p2', title: 'Space Game', scenes_enabled: true }
+    expect(mainPlanners.planProjectFolderList(project).map(f => f.path)).not.toContain('SHOTS')
+    expect(planProjectFolders(project).map(f => f.path)).not.toContain('SHOTS')
+  })
+
+  it('finds the same pending shot folders for the same rows (the re-filing, S4c)', () => {
+    const scenes = [{ id: 'sc1', name: 'Dawn' }]
+    const shots = [
+      { id: 'sh1', name: 'A', scene_id: 'sc1' }, { id: 'sh2', name: 'B', scene_id: 'sc1' },
+      { id: 'sh3', name: 'C', scene_id: null }, { id: 'sh4', name: 'D', scene_id: 'gone' },
+    ]
+    const folders = [
+      { id: 'r', kind: 'root', path: '', parent_id: null },
+      { id: 'csh', kind: 'category', path: 'SHOTS', parent_id: 'r' },
+      { id: 'f2', kind: 'entity', path: 'SHOTS/B', parent_id: 'csh', shot_id: 'sh2', slug: 'B' },
+      { id: 'f1', kind: 'entity', path: 'SHOTS/A', parent_id: 'csh', shot_id: 'sh1', slug: 'A' },
+      { id: 'f3', kind: 'entity', path: 'SHOTS/C', parent_id: 'csh', shot_id: 'sh3', slug: 'C' },
+      { id: 'f4', kind: 'entity', path: 'SHOTS/D', parent_id: 'csh', shot_id: 'sh4', slug: 'D' },
+      { id: 'f5', kind: 'entity', path: 'SHOTS/E', parent_id: 'csh', shot_id: 'nope', slug: 'E' },
+      { id: 'f6', kind: 'entity', path: 'SCENES/Dawn/F', parent_id: 'x', shot_id: 'sh1', slug: 'F' },
+    ]
+    const mine = pendingShotRefiling({ folders, shots, scenes }).map(p => [p.folder.id, p.shot.id, p.scene.id])
+    const theirs = mainPlanners.pendingShotRefilingFor({ folders, shots, scenes }).map(p => [p.folder.id, p.shot.id, p.scene.id])
+    expect(theirs).toEqual(mine)
+    expect(mine).toEqual([['f1', 'sh1', 'sc1'], ['f2', 'sh2', 'sc1']])
   })
 
   it('does not model <slug>_DATABASES — the second-datastore trap', () => {

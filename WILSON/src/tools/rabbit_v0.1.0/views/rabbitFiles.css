@@ -1137,6 +1137,23 @@
   .rb-asset-task-bid { color: var(--color-ink-2); }
   .rb-asset-task-bid[data-empty="true"] { color: var(--color-ink-3); }
   .rb-asset-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  /* Post-overhaul S4c: the level and experience popups' Files section, the
+     asset popup's frame and spacing (one hairline above, the table on the
+     paper inside the raised popup). */
+  .rb-ent-detail-files { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-rule); }
+  .rb-ent-detail-files .ui-table-scroll.rb-fm-scroll {
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+  }
+  /* The create form's note under Add files (a refused desktop pick). */
+  .rb-ent-files-note {
+    display: block;
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
 
   /* ── InlineText: the asset's name edited in place — the gallery card's
      (Dense, the card's 600) and the popup's title (H2, above). ── */
@@ -1520,6 +1537,36 @@
   }
   /* The create question's words (W9), on the kit Dialog. */
   .rb-rel-confirm { margin: 0; color: var(--color-ink); }
+
+  /* ── FX2 (0096): the task window's Items ──
+     The scene window's Assets group in the same parts (RelSection, the
+     rows, the hover slot, the in-column picker), at the top of the task
+     window's files column, which pads 12px: the list's own padding stands
+     down there. A kind is a run of rows under its name, at Caption in the
+     third ink (5.04:1 on the column's paper); one 4px breath between kinds,
+     as between a group's rows and the next group. */
+  .rb-rel-list.rb-rel-items { padding: 0 0 4px; }
+  .rb-rel-kind { display: flex; flex-direction: column; }
+  .rb-rel-kind + .rb-rel-kind { margin-top: 4px; }
+  .rb-rel-kind-label {
+    padding: 4px 4px 2px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+  /* A row whose item the project no longer shows (a trashed asset): the
+     dot's 8px held, the words in the third ink. */
+  .rb-rel-dot-gap { flex: none; width: 8px; }
+  .rb-rel-item[data-gone="true"] .rb-rel-name { color: var(--color-ink-3); }
+  /* Every row's hover slot holds three of the kit's small buttons' room
+     (Move up, Move down, Remove), so the status words end at one edge in
+     every kind, a kind of one item included (its slot holds Remove alone). */
+  .rb-rel-item-acts { flex: none; justify-content: flex-end; min-width: calc(var(--control-sm) * 3 + 4px); }
+  /* The MAIN item of a kind, where the kind holds more than one: the kit's
+     inert Badge (a word, never a state), between the name and the status. */
+  .rb-rel-main { flex: none; }
+  /* The picker's groups sit at its list's 4px gutter. */
+  .rb-rel-items-pick .rb-rel-kind-label { padding: 6px 8px 2px; }
 
   /* ═══ FileThumbnail ═══════════════════════════════════════════════════════
      A file's preview tile at FileManager's two sites: the table's 32px

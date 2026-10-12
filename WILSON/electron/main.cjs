@@ -39,6 +39,9 @@ const {
   pruneDanglingShotListItems,
   cascadeSceneOrShotDelete,
 } = require('./rabbitShotLists.cjs');
+// FX2 (0096's twin): a task's items — bundle.taskItems, each task's five
+// single fields kept equal to its main item of each kind.
+const rabbitTaskItems = require('./rabbitTaskItems.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -331,11 +334,15 @@ function folderRootRefusal(candidate) {
 
 // Next version number for a file within an asset: finds max existing version
 // and returns max+1. Returns 1 if no prior versions exist.
-function getNextVersion(managedFiles, fileName, assetId, shotId, sceneId) {
+// S4c: a level's and an experience's files version among themselves, as a
+// scene's and a shot's do.
+function getNextVersion(managedFiles, fileName, assetId, shotId, sceneId, levelId, experienceId) {
   const existing = (managedFiles || []).filter(f => {
     if (f.file_name !== fileName || f.deleted_at) return false;
     if (sceneId) return f.scene_id === sceneId;
     if (shotId) return f.shot_id === shotId;
+    if (levelId) return f.level_id === levelId;
+    if (experienceId) return f.experience_id === experienceId;
     return f.asset_id === assetId;
   });
   if (existing.length === 0) return 1;
@@ -1466,6 +1473,14 @@ function startLocalServer(distPath) {
         if (ensureShotListKeys(bundle)) dirty = true;
         if (pruneDanglingShotListItems(bundle)) dirty = true;
       } catch (e) { console.error('shot list backfill failed:', e.message); }
+      // FX2 (0096's twin): a bundle from before a task's items gains them
+      // from each task's single fields (deterministic ids, so a failed
+      // write-back mints the same rows next read); dangling items go, as the
+      // cloud's CASCADE drops them; every task's five single fields are its
+      // main items. Converges: once in step it changes nothing.
+      try {
+        if (rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId })) dirty = true;
+      } catch (e) { console.error('task items reconcile failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
       // moved or copied elsewhere would keep pointing at where it USED to be —
@@ -1592,6 +1607,8 @@ function startLocalServer(distPath) {
         tasks:           [],
         dependencies:    [],
         taskLinks:       [],
+        // FX2 (0096's twin): a task's items.
+        taskItems:       [],
         files:           [],
         assetVersions:   [],
         comments:        [],
@@ -1691,10 +1708,13 @@ function startLocalServer(distPath) {
     //
     // INVOICES keeps its exact spelling: migration 0039 matches that segment
     // with upper() on the Supabase side and the case is load-bearing there.
+    // Post-overhaul S4c: a shot's folder is SCENES/<scene>/<shot>; SHOTS is
+    // `lazy` — never planned for a project, made only for a shot with no
+    // scene (folderPaths.js says why, and the two lists are pinned equal).
     const FOLDER_CATEGORIES = [
       { slug: 'ASSETS',      entityType: 'asset',      enabledBy: null },
       { slug: 'SCENES',      entityType: 'scene',      enabledBy: 'scenes_enabled' },
-      { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled' },
+      { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled', lazy: true },
       { slug: 'LEVELS',      entityType: 'level',      enabledBy: 'levels_enabled' },
       { slug: 'EXPERIENCES', entityType: 'experience', enabledBy: 'experiences_enabled' },
       { slug: 'INVOICES',    entityType: 'invoice',    enabledBy: null },
@@ -1794,6 +1814,7 @@ function startLocalServer(distPath) {
         parentPath: null,
       }];
       for (const c of FOLDER_CATEGORIES) {
+        if (c.lazy) continue;
         if (c.enabledBy && !project?.[c.enabledBy]) continue;
         out.push({
           kind: 'category', entityType: c.entityType, slug: c.slug,
@@ -1803,22 +1824,36 @@ function startLocalServer(distPath) {
       return out;
     }
 
-    function planEntityFolderFor(entityType, entity) {
+    // S4c: `scene` is the shot's scene row, found by the caller in the
+    // bundle; with one the shot's folder sits in the scene's (`parent` is
+    // the scene's own entity folder), without one it is SHOTS/<shot>.
+    // folderPaths.planEntityFolder, line for line (folderParity.test.js).
+    function planEntityFolderFor(entityType, entity, scene) {
       const c = FOLDER_CATEGORIES.find(x => x.entityType === entityType);
       if (!c) return null;
       const slug = slugOrFallback(entity?.name, FOLDER_FALLBACK_NAME[entityType] || 'Untitled');
+      const nested = entityType === 'shot' && scene ? planEntityFolderFor('scene', scene) : null;
+      const base = nested ? nested.category : {
+        kind: 'category', entityType: c.entityType, slug: c.slug,
+        label: null, path: c.slug, parentPath: '',
+      };
+      const parentPath = nested ? nested.folder.path : base.path;
       return {
-        category: {
-          kind: 'category', entityType: c.entityType, slug: c.slug,
-          label: null, path: c.slug, parentPath: '',
-        },
+        category: base,
+        parent: nested ? nested.folder : null,
         folder: {
           kind: 'entity', entityType, slug,
           label: entity?.name || null,
-          path: `${c.slug}/${slug}`, parentPath: c.slug,
+          path: `${parentPath}/${slug}`, parentPath,
           fk: FOLDER_ENTITY_FK[entityType], entityId: entity?.id || null,
         },
       };
+    }
+
+    /** S4c: the scene row a shot's folder nests in, from the bundle. */
+    function sceneOfShot(bundle, shot) {
+      if (!shot || !shot.scene_id) return null;
+      return (bundle.scenes || []).find(s => s && s.id === shot.scene_id) || null;
     }
 
     // Adds the row when its path is free. Returns true when it wrote one, so
@@ -1887,24 +1922,67 @@ function startLocalServer(distPath) {
     // exists to prevent. On the Supabase side the database refuses that
     // (folders_scene_uniq); the local bundle has no such backstop, so getting
     // the lookup right is the whole guard here.
+    //
+    // S4c: a NEW shot's folder goes inside its scene's (the scene's own row is
+    // ensured first, so its id is there to parent on). An EXISTING row keeps
+    // the parent it has — a rename moves it within that parent, never across
+    // one: a project from before S4c keeps its shot folders under SHOTS until
+    // the one-time re-filing (POST …/folders/refile-shots) moves the files
+    // and the rows together, which is the only thing that re-parents a shot.
     function ensureEntityFolderRow(bundle, projectId, entityType, entity) {
-      const planned = planEntityFolderFor(entityType, entity);
+      const scene = entityType === 'shot' ? sceneOfShot(bundle, entity) : null;
+      const planned = planEntityFolderFor(entityType, entity, scene);
       if (!planned) return { row: null, changed: false };
       if (!bundle.folders) bundle.folders = [];
       let changed = ensureProjectFolderRows(bundle, projectId);
-      if (addFolderRow(bundle, projectId, planned.category)) changed = true;
 
       const fk = FOLDER_ENTITY_FK[entityType];
       const mine = bundle.folders.find(f => f[fk] && f[fk] === entity?.id);
       if (mine) {
-        if (mine.path !== planned.folder.path) {
+        const parentRow = mine.parent_id ? bundle.folders.find(f => f.id === mine.parent_id) : null;
+        const keptPath = parentRow ? `${parentRow.path ? parentRow.path + '/' : ''}${planned.folder.slug}` : planned.folder.path;
+        if (mine.path !== keptPath) {
           mine.slug = planned.folder.slug;
-          mine.path = planned.folder.path;
+          mine.path = keptPath;
           mine.label = planned.folder.label;
           mine.updated_at = new Date().toISOString();
           changed = true;
         }
+        // The rows under it follow — a scene's shot folders since S4c
+        // (review round 1, item 7): each re-pathed under its PARENT's path,
+        // walked by parent_id (never by a path prefix, which would sweep up
+        // another row's stale child), on EVERY pass — so a pass that
+        // stopped, or an older build's rename that moved nothing, is
+        // finished the next time the row is ensured (round 2, item 6). The
+        // directory on disk is left where it is, as a rename always has
+        // here (the PATCH route's note), and a managed record stays with
+        // its file: the Files tab places such a record by its entity
+        // (fileTree.js).
+        const queue = [mine.id];
+        while (queue.length > 0) {
+          const parentId = queue.shift();
+          const parent = bundle.folders.find(f => f.id === parentId);
+          for (const f of bundle.folders) {
+            if (f.parent_id !== parentId || f.id === mine.id) continue;
+            const want = `${parent.path}/${f.slug}`;
+            if (f.path !== want) { f.path = want; f.updated_at = new Date().toISOString(); changed = true; }
+            queue.push(f.id);
+          }
+        }
         return { row: mine, changed };
+      }
+      if (addFolderRow(bundle, projectId, planned.category)) changed = true;
+      if (planned.parent) {
+        // The scene's folder: by its own FK, so a renamed scene is found
+        // (the rule this function already keeps for every entity).
+        const parentEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', scene);
+        if (parentEnsured.changed) changed = true;
+        if (parentEnsured.row && parentEnsured.row.path !== planned.folder.parentPath) {
+          // The scene's row sits where IT is (a parent kept, as above): the
+          // shot's folder nests under the scene's actual path.
+          planned.folder.parentPath = parentEnsured.row.path;
+          planned.folder.path = `${parentEnsured.row.path}/${planned.folder.slug}`;
+        }
       }
       if (addFolderRow(bundle, projectId, planned.folder)) changed = true;
       return {
@@ -1934,11 +2012,14 @@ function startLocalServer(distPath) {
         const livePhases = (bundle.phases || []).filter(p => !isAside(p));
         const liveDeps = (bundle.dependencies || []).filter(d => !asideIds.has(String(d.predecessor_id)) && !asideIds.has(String(d.successor_id)));
         const liveLinks = (bundle.taskLinks || []).filter(l => !asideIds.has(String(l.task_id)));
-        // tasks.json — tasks + dependencies + task links
+        const liveItems = (bundle.taskItems || []).filter(i => i && !asideIds.has(String(i.task_id)));
+        // tasks.json — tasks + dependencies + task links + (FX2) the items
+        // each task is about
         writeJSON(path.join(dbDir, 'tasks.json'), {
           tasks:        liveTasks,
           dependencies: liveDeps,
           taskLinks:    liveLinks,
+          taskItems:    liveItems,
         });
         // timeline.json — phases + scheduling data
         writeJSON(path.join(dbDir, 'timeline.json'), {
@@ -2460,6 +2541,11 @@ function startLocalServer(distPath) {
       // `set_aside_at: null` would otherwise bring a set-aside row back
       // unasked; the stamp is dropped from every ordinary body here.
       const scheduleRow = !!(opts && opts.scheduleRow);
+      // FX2 (0096's twin): `taskItems: taskItemHooks` (tasks, scenes, shots,
+      // levels, experiences). A task write runs 0096 §7b / §7c's rules on the
+      // task's items (onWrite); a hard DELETE takes every item the row ends
+      // and hands "main" to the next item (onRemoved), in the same write.
+      const taskItemHooks = (opts && opts.taskItems) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -2468,13 +2554,16 @@ function startLocalServer(distPath) {
         const body = { ...req.body };
         if (scheduleRow) delete body.set_aside_at;
         const row = rabbitTouch({ ...body, project_id: req.params.projectId });
+        const prior = taskItemHooks ? bundle[bundleKey].find(x => x.id === row.id) : null;
+        const before = prior ? { ...prior } : null;
         const result = rabbitUpsertInto(bundle[bundleKey], row);
         if (folderEntityType) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, result);
           materializeFolderDirs(bundle);
         }
+        if (taskItemHooks) taskItemHooks.onWrite(bundleKey, bundle, before, result);
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json(result);
+        res.json(taskItemHooks ? (bundle[bundleKey].find(x => x.id === result.id) || result) : result);
       });
       // PATCH
       expressApp.patch(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
@@ -2486,6 +2575,7 @@ function startLocalServer(distPath) {
         if (idx < 0) return rabbitNotFound(res, entityName);
         const patch = { ...req.body };
         if (scheduleRow) delete patch.set_aside_at;
+        const before = taskItemHooks ? { ...arr[idx] } : null;
         arr[idx] = { ...arr[idx], ...patch, id: req.params.id, updated_at: new Date().toISOString() };
         if (folderEntityType) {
           // A rename moves the folder ROW here and CREATES the new directory
@@ -2496,8 +2586,9 @@ function startLocalServer(distPath) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, arr[idx]);
           materializeFolderDirs(bundle);
         }
+        if (taskItemHooks) taskItemHooks.onWrite(bundleKey, bundle, before, arr[idx]);
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json(arr[idx]);
+        res.json(taskItemHooks ? (bundle[bundleKey].find(x => x.id === req.params.id) || arr[idx]) : arr[idx]);
       });
       // DELETE
       expressApp.delete(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
@@ -2538,6 +2629,7 @@ function startLocalServer(distPath) {
             }
           }
         }
+        if (taskItemHooks) taskItemHooks.onRemoved(bundleKey, bundle, req.params.id);
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });
@@ -2739,11 +2831,16 @@ function startLocalServer(distPath) {
         }
       }
       rabbitRemoveFrom(bundle.assets, req.params.id);
+      // FX2 (0096's twin): the asset leaves every task's items, and a task
+      // that had it as its main asset takes its next asset as main.
+      rabbitTaskItems.afterRowRemoved(bundle);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true });
+    // FX2 (0096's twin): the item hooks the generic routes call.
+    const taskItemHooks = rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 });
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true, taskItems: taskItemHooks });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
@@ -2816,10 +2913,10 @@ function startLocalServer(distPath) {
     // side-effects before this session).
     // Post-overhaul S3a, rule 8: deleting a scene or a shot takes it out of
     // every shot list and unlinks the tasks that named it (0084's FKs).
-    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene' });
-    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot' });
-    rabbitSubentityRoutes('levels',          'levels',      'level');
-    rabbitSubentityRoutes('experiences',     'experiences', 'experience');
+    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene', taskItems: taskItemHooks });
+    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot', taskItems: taskItemHooks });
+    rabbitSubentityRoutes('levels',          'levels',      'level', { taskItems: taskItemHooks });
+    rabbitSubentityRoutes('experiences',     'experiences', 'experience', { taskItems: taskItemHooks });
     // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
     // Not a dependency endpoint, so no sweep — a milestone has no edges.
     rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true, scheduleRow: true });
@@ -2903,6 +3000,241 @@ function startLocalServer(distPath) {
       bundle.folders = bundle.folders.filter(f => !doomed.has(f.id));
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true, removed: doomed.size });
+    });
+
+    // ── Post-overhaul S4c: the one-time re-filing of shot folders ─────────
+    //
+    // Audrey, 2026-10-05: "shot folders should be in the scene folders".
+    // A project from before S4c has its shot folders under SHOTS/, on disk
+    // and in the bundle; this moves them into their scenes' folders, one
+    // shot at a time, and never by surprise (the Files tab offers it to
+    // someone who can write the project).
+    //
+    // Two directories, the same place? By real path where both exist, by
+    // the resolved string where one does not; case-blind on Windows.
+    function sameDir(a, b) {
+      if (!a || !b) return false;
+      const norm = (d) => {
+        let real = path.resolve(String(d));
+        try { real = fs.realpathSync.native(real); } catch { /* not there: the resolved string stands */ }
+        return process.platform === 'win32' ? real.toLowerCase() : real;
+      };
+      return norm(a) === norm(b);
+    }
+
+    // The rule for WHAT is pending is the renderer's
+    // shotRefiling.pendingShotRefiling, copied here (folderParity.test.js
+    // pins the two): a folder row under SHOTS/ whose shot exists and has a
+    // scene that exists. A shot with no scene stays under SHOTS; it has
+    // nowhere to go.
+    function pendingShotRefilingFor(bundle) {
+      const folders = bundle.folders || [];
+      const shots = bundle.shots || [];
+      const scenes = bundle.scenes || [];
+      const out = [];
+      for (const folder of folders) {
+        if (!folder || !folder.shot_id || typeof folder.path !== 'string') continue;
+        if (!folder.path.startsWith('SHOTS/')) continue;
+        const shot = shots.find(s => s && String(s.id) === String(folder.shot_id));
+        if (!shot || !shot.scene_id) continue;
+        const scene = scenes.find(s => s && String(s.id) === String(shot.scene_id));
+        if (!scene) continue;
+        out.push({ folder, shot, scene });
+      }
+      return out.sort((a, b) => String(a.folder.path).localeCompare(String(b.folder.path)));
+    }
+
+    // One shot folder: the scene's folder row (and directory) first; the
+    // shot CHECKED before anything moves — a folder row already at the
+    // destination; no project folder reachable while the project RECORDS
+    // one, or while a managed record sits under the folder (rows moved
+    // without their files would describe a file nowhere: review round 1,
+    // item 2); then the directory moved — whole when nothing sits at the
+    // destination, entry by entry into a destination that already exists,
+    // never over a file that is there (both are left and the shot is
+    // reported); every record retargeted THE MOMENT its entry has moved
+    // (all of them after the one rename, each entry — and everything under
+    // a moved sub-directory — in the merge), so a stop on the next step
+    // leaves no record pointing at a file that has gone; every managed file
+    // that was on disk VERIFIED at its new place; then, and only then, the
+    // folder row rewritten. The bundle is written by the caller after each
+    // shot, so a stop part way leaves rows that say where every file is. A
+    // managed file already missing from disk before the move is counted as
+    // missing, not moved, and does not hold the folder back — the relink
+    // census is where it is found again; one already at its new place (an
+    // earlier run moved the directory and never got to write the bundle) is
+    // counted done. With no project folder recorded and none resolving, the
+    // rows alone move — only for a shot with no record under its folder.
+    //
+    // 🚨 A ROOT THAT RESOLVES IS NOT YET THE PROJECT'S FOLDER (round 2, item
+    // 1). resolveProjectFolder falls back to <root base>/<slug> when the
+    // recorded folder_root cannot be reached, and that fallback exists
+    // whenever an asset was once made offline (ensureAssetFolder) or the
+    // project was later relinked — a folder with none of the shot's files
+    // in it. There, the shot's directory is absent and not one of its
+    // records is found at the old place or the new: the shot is refused
+    // with the recorded folder named, never counted "missing" and moved.
+    // The demo-folder fallback (a copied project inside the open demo
+    // folder) still works: its directories and files ARE there.
+    function refileOneShotRow(bundle, projectId, root, p, opts = {}) {
+      const now = new Date().toISOString();
+      const sceneEnsured = ensureEntityFolderRow(bundle, projectId, 'scene', p.scene);
+      const sceneRow = sceneEnsured.row;
+      if (!sceneRow) throw new Error('the scene has no folder row');
+      const fromPath = p.folder.path;
+      const toPath = `${sceneRow.path}/${p.folder.slug}`;
+      if ((bundle.folders || []).some(f => f.id !== p.folder.id && f.path === toPath)) {
+        throw new Error(`a folder already sits at ${toPath}`);
+      }
+      const prefixFrom = `${fromPath}/`;
+      const prefixTo = `${toPath}/`;
+      const retarget = (mf) => { mf.folder_path = prefixTo + mf.folder_path.slice(prefixFrom.length); mf.updated_at = now; };
+      const mine = (bundle.managedFiles || []).filter(mf => mf && typeof mf.folder_path === 'string' && mf.folder_path.startsWith(prefixFrom));
+      let files = 0;
+      let missing = 0;
+      if (!root) {
+        if (opts.folderRecorded) {
+          throw new Error(`the project folder (${opts.folderRecorded}) cannot be reached from this computer; nothing was moved`);
+        }
+        if (mine.length > 0) {
+          throw new Error(`${mine.length} file record${mine.length === 1 ? ' sits' : 's sit'} under ${fromPath} and no project folder resolves on this computer; nothing was moved`);
+        }
+      } else {
+        const fromDir = resolveContainedFilePath(root, fromPath);
+        const toDir = resolveContainedFilePath(root, toPath);
+        if (!fromDir || !toDir) throw new Error('the folder path could not be resolved inside the project');
+        // Each record's place BEFORE anything moves: whether its file is at
+        // the old place, already at the new one, and which entry of the
+        // folder carries it (the file itself at the top, or the first
+        // sub-directory of its sub-path). The moves below rewrite a record
+        // the moment its entry has moved, so nothing after this reads a
+        // record's path again.
+        const places = mine.map(mf => {
+          const rel = mf.folder_path.slice(prefixFrom.length).split('/').filter(Boolean);
+          const oldAt = mf.stored_name ? resolveContainedFilePath(root, path.join(...fromPath.split('/'), ...rel, mf.stored_name)) : null;
+          const newAt = mf.stored_name ? resolveContainedFilePath(root, path.join(...toPath.split('/'), ...rel, mf.stored_name)) : null;
+          return {
+            mf,
+            entry: rel.length > 0 ? rel[0] : (mf.stored_name || null),
+            atOld: !!(oldAt && fs.existsSync(oldAt)),
+            atNew: !!(newAt && fs.existsSync(newAt)),
+            newAt,
+          };
+        });
+        const landed = (pl) => { if (!pl.mf.folder_path.startsWith(prefixTo)) retarget(pl.mf); };
+        // An EMPTY directory is "no directory" here: materializeFolderDirs
+        // (run after each moved shot) makes a directory for every row, this
+        // shot's still-pending one among them, so its mere existence says
+        // nothing about where the files are.
+        const dirHolds = fs.existsSync(fromDir) && fs.readdirSync(fromDir).length > 0;
+        if (!dirHolds && !places.some(pl => pl.atOld || pl.atNew)) {
+          // Nothing of this shot is here: neither its directory's contents
+          // nor one of its files, at the old place or the new. Either the
+          // project's folder is somewhere this computer cannot reach (the
+          // recorded one, with this root a fallback), or every file is
+          // gone; in neither case may the rows say the files moved.
+          const elsewhere = opts.recordedRoot && !sameDir(root, opts.recordedRoot);
+          if (elsewhere) {
+            throw new Error(`the project folder (${opts.recordedRoot}) cannot be reached from this computer, and ${root} holds nothing of ${fromPath}; nothing was moved`);
+          }
+          if (mine.length > 0) {
+            throw new Error(`none of the ${mine.length} file${mine.length === 1 ? '' : 's'} recorded under ${fromPath} can be found in ${root} (at the old place or the new); nothing was moved`);
+          }
+        }
+        if (fs.existsSync(fromDir)) {
+          fs.mkdirSync(path.dirname(toDir), { recursive: true });
+          if (fs.existsSync(toDir)) {
+            // In name order on every platform (readdir's own order is the
+            // file system's), so what has moved before a clash is predictable.
+            for (const entry of fs.readdirSync(fromDir).sort()) {
+              const s = path.join(fromDir, entry);
+              const d = path.join(toDir, entry);
+              if (fs.existsSync(d)) throw new Error(`“${entry}” exists at both ${fromPath} and ${toPath}; both were left`);
+              fs.renameSync(s, d);
+              // The rows of what just moved — the file at the top, or every
+              // record under a moved sub-directory — at once, so a stop on
+              // the next entry leaves no row pointing at a file that has gone.
+              for (const pl of places) if (pl.atOld && pl.entry === entry) landed(pl);
+            }
+            try { fs.rmdirSync(fromDir); } catch { /* something unknown is still in it; left */ }
+          } else {
+            fs.renameSync(fromDir, toDir);
+            // One step moved everything: every record that was on disk says so now.
+            for (const pl of places) if (pl.atOld) landed(pl);
+          }
+        }
+        for (const pl of places) {
+          if (!pl.atOld) {
+            if (pl.atNew) { landed(pl); continue; }
+            missing += 1;
+            continue;
+          }
+          if (!pl.newAt || !fs.existsSync(pl.newAt)) {
+            const where = pl.mf.folder_path.startsWith(prefixTo) ? 'its record was moved' : 'its record still says where it was';
+            throw new Error(`“${pl.mf.file_name || pl.mf.stored_name}” did not arrive at ${toPath} (${where})`);
+          }
+        }
+      }
+      for (const mf of mine) { if (mf.folder_path.startsWith(prefixFrom)) retarget(mf); files += 1; }
+      for (const f of bundle.folders) {
+        if (f.id === p.folder.id) { f.parent_id = sceneRow.id; f.path = toPath; f.updated_at = now; }
+        else if (typeof f.path === 'string' && f.path.startsWith(prefixFrom)) { f.path = prefixTo + f.path.slice(prefixFrom.length); f.updated_at = now; }
+      }
+      return { shotId: p.shot.id, name: p.folder.slug, from: fromPath, to: toPath, files, missing };
+    }
+
+    expressApp.post('/api/rabbit/projects/:projectId/folders/refile-shots', (req, res) => {
+      const projectId = req.params.projectId;
+      const bundle = readRabbitBundle(projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const root = resolveProjectFolder(bundle);
+      // A folder the project RECORDS (folder_root) that this computer cannot
+      // reach — a NAS offline, an unplugged drive, a root outside the open
+      // demo folder — is not "no folder": the files are somewhere, and rows
+      // moved without them would describe a file nowhere. Each shot is
+      // refused with that reason (refileOneShotRow): with no root at all,
+      // outright; with a FALLBACK root (round 2, item 1), when nothing of
+      // the shot is found in it. Nothing moves.
+      const recordedRoot = (bundle.project && bundle.project.folder_root) || null;
+      const folderRecorded = root ? null : recordedRoot;
+      const moved = [];
+      const left = [];
+      for (const p of pendingShotRefilingFor(bundle)) {
+        try {
+          const result = refileOneShotRow(bundle, projectId, root, p, { folderRecorded, recordedRoot });
+          materializeFolderDirs(bundle);
+          writeRabbitBundle(projectId, bundle);
+          moved.push(result);
+        } catch (err) {
+          // The rows already say where everything is (refileOneShotRow
+          // rewrites as it moves); write them so the next read agrees.
+          writeRabbitBundle(projectId, bundle);
+          left.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, reason: err.message });
+        }
+      }
+      // The SHOTS category row, and its directory, go only once nothing is
+      // left under them — the directory only when it is empty on disk.
+      let removedShotsCategory = false;
+      const stillUnder = (bundle.folders || []).some(f => f && typeof f.path === 'string' && f.path.startsWith('SHOTS/'));
+      const category = (bundle.folders || []).find(f => f && f.kind === 'category' && f.path === 'SHOTS');
+      if (category && !stillUnder) {
+        let dirEmpty = true;
+        if (root) {
+          const dir = resolveContainedFilePath(root, 'SHOTS');
+          if (dir && fs.existsSync(dir)) {
+            try {
+              dirEmpty = fs.readdirSync(dir).length === 0;
+              if (dirEmpty) fs.rmdirSync(dir);
+            } catch { dirEmpty = false; }
+          }
+        }
+        if (dirEmpty) {
+          bundle.folders = bundle.folders.filter(f => f.id !== category.id);
+          writeRabbitBundle(projectId, bundle);
+          removedShotsCategory = true;
+        }
+      }
+      res.json({ moved, left, removedShotsCategory, folders: bundle.folders || [], managedFiles: (bundle.managedFiles || []).filter(f => !f.deleted_at) });
     });
 
     // ── The project manifest (Session 26) ─────────────────────────
@@ -3435,7 +3767,7 @@ function startLocalServer(distPath) {
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const now = new Date().toISOString();
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
-      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id);
+      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id, req.body.level_id, req.body.experience_id);
       const vLabel = formatVersion(version);
       // 🚨 SANITISED. This lands in stored_name, which is joined under the
       // project root, so `/../../../Users/…/secret.docx` walks straight out of
@@ -3447,16 +3779,31 @@ function startLocalServer(distPath) {
       const fileNameSlug = fileSlugify(req.body.file_name || 'File');
       const storedName = `${projectSlug}_${fileNameSlug}_${vLabel}${ext}`;
 
-      // Build folder_path — scenes use SCENES/{slug}/, shots use SHOTS/{slug}/, assets use ASSETS/{slug}/
+      // Build folder_path. Post-overhaul S4c: a scene's, a shot's, a level's
+      // or an experience's file goes where the entity's FOLDER ROW says —
+      // ensureEntityFolderRow, the one planner both backends run
+      // (folderParity.test.js) — so a shot's files land in
+      // SCENES/<scene>/<shot>/ (or under SHOTS/ while the project's shot
+      // folders have not been re-filed, the row keeping its parent), and a
+      // level's or an experience's in LEVELS/<slug>/ or EXPERIENCES/<slug>/,
+      // which this route never filed before (Audrey, 2026-10-05: "levels
+      // and experiences dont allow for me to add files"). An asset's keeps
+      // its own slug column, as the import and rename routes do.
       let folderPath;
-      if (req.body.scene_id && !req.body.asset_id && !req.body.shot_id) {
-        const scene = (bundle.scenes || []).find(s => s.id === req.body.scene_id);
-        const sceneSlug = fileSlugify(scene?.name || 'Untitled-Scene');
-        folderPath = `SCENES/${sceneSlug}/`;
-      } else if (req.body.shot_id && !req.body.asset_id) {
-        const shot = (bundle.shots || []).find(s => s.id === req.body.shot_id);
-        const shotSlug = fileSlugify(shot?.name || 'Untitled-Shot');
-        folderPath = `SHOTS/${shotSlug}/`;
+      const entityFile = (
+        req.body.scene_id && !req.body.asset_id && !req.body.shot_id ? ['scene', 'scenes', req.body.scene_id]
+        : req.body.shot_id && !req.body.asset_id ? ['shot', 'shots', req.body.shot_id]
+        : req.body.level_id && !req.body.asset_id ? ['level', 'levels', req.body.level_id]
+        : req.body.experience_id && !req.body.asset_id ? ['experience', 'experiences', req.body.experience_id]
+        : null);
+      if (entityFile) {
+        const [entityType, bundleKey, entityId] = entityFile;
+        const entity = (bundle[bundleKey] || []).find(e => e.id === entityId);
+        if (!entity) return res.status(404).json({ error: `${entityType} not found` });
+        const ensured = ensureEntityFolderRow(bundle, req.params.projectId, entityType, entity);
+        if (!ensured.row) return res.status(500).json({ error: `no folder for this ${entityType}` });
+        if (ensured.changed) materializeFolderDirs(bundle);
+        folderPath = `${ensured.row.path}/`;
       } else {
         const asset = (bundle.assets || []).find(a => a.id === req.body.asset_id);
         const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
@@ -3469,6 +3816,8 @@ function startLocalServer(distPath) {
         asset_id:         req.body.asset_id || null,
         shot_id:          req.body.shot_id || null,
         scene_id:         req.body.scene_id || null,
+        level_id:         req.body.level_id || null,
+        experience_id:    req.body.experience_id || null,
         task_id:          req.body.task_id || null,
         file_name:        req.body.file_name || 'Untitled',
         stored_name:      storedName,
@@ -4141,12 +4490,32 @@ function startLocalServer(distPath) {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+      // BC2 (Bins on the cloud, the desktop signed in): B2's fallback — where
+      // each of the company's footage locations is on THIS computer, when it
+      // is seen as a drive letter. This computer's settings only, never the
+      // cloud; written by the folder dialog the bins module opens, nothing else.
+      cloudBinsLocalPaths: {
+        read: () => {
+          try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json'), 'utf8')); }
+          catch { return null; }
+        },
+        write: (obj) => {
+          const file = path.join(app.getPath('userData'), 'rabbit-cloud-bins-local.json');
+          fs.writeFileSync(file + '.part', JSON.stringify(obj, null, 2));
+          fs.renameSync(file + '.part', file);
+        },
+      },
     });
 
     // ── Shot lists, their membership and edits (post-overhaul S3a, 0084) —
     // electron/rabbitShotLists.cjs. Same placement rule as the bins: after the
     // /api/rabbit missing-folder guard, BEFORE the static/SPA fallback. Uses
     // the default-touch writeRabbitBundle so scenes.json is re-mirrored.
+    // FX2 (0096's twin): GET / POST /task-items, POST /task-items/reorder,
+    // DELETE /task-items/:itemId.
+    rabbitTaskItems.mountRabbitTaskItems(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4,
+    });
     mountRabbitShotLists(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,
     });

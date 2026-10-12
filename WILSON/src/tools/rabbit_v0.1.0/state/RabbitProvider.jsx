@@ -21,7 +21,6 @@
 // is otter-data/otter-settings.json).
 
 import React, {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -30,6 +29,9 @@ import React, {
   useState,
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+// The context object lives in its own module (BC2): a leaf that only reads
+// it — BinPoster — need not import this file, which builds the cloud client.
+import { RabbitContext } from './rabbitContext';
 // Session 26: the project folder's self-description. Built here from the
 // loaded bundle and handed to the adapter, so both backends mirror the
 // same shape — that is the one job a portable manifest has.
@@ -37,6 +39,17 @@ import { buildProjectManifest } from '../projectManifest';
 import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../fileTags';
 import { selectAdapter, ADAPTER_MODES, adapterSupportsWrites } from '../adapters';
 import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
+// Bins on the cloud, the desktop signed in (BC2): the cloud's data, this
+// computer's files — the composite and the client of the desktop's routes.
+import { localServerAdapter } from '../adapters/localServerAdapter';
+import { composeDesktopCloudBins } from '../adapters/desktopCloudBins';
+// GW3: a browser signed in to a company plays through the company's file
+// gateway — the composite over the cloud adapter, its doors, and the
+// cloud's three calls it needs (the view, the tickets, one clip's viewings).
+import { composeGatewayBins } from '../adapters/gatewayBins';
+import { realGatewayDoors } from '../bins/gatewayDoors';
+import { listGatewaysForPlayback, fetchGatewayTickets, listRemoteViewingsOfClip as listRemoteViewingsOfClipApi } from '../../../cloud/gatewayApi';
+import { needsCloudPoster, BIN_POSTERS_OFF_SENTENCE } from '../bins/cloudPosters';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
 import {
@@ -45,6 +58,8 @@ import {
   selectProjectBudgetRollup,
   selectAssetDerivedStatus,
   selectAssetStatusWarning,
+  assetStatusOfTasks,
+  assetWarningOfTasks,
   selectCriticalPath,
   selectVarianceForAsset,
   selectVarianceForProject,
@@ -86,6 +101,7 @@ import {
   buildShotListSnapshot,
   normalizeEditItems,
   buildEditSnapshot,
+  EDIT_SAVED_SINCE,
   shotListWithdrawRefusal,
   editWithdrawRefusal,
   withdrawnRestoreRefusal,
@@ -93,7 +109,7 @@ import {
 } from './shotListModel';
 import {
   draftKey, storedDraftKey, startDraft, changeDraft, undoDraft, redoDraft,
-  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft,
+  storedCopy, draftFromCopy, readStoredDrafts, writeStoredDraft, savedAtOf, rebaseDraft, sameCut,
 } from './editDrafts';
 import { addLeaveGuard, confirmLeave, leaveGuardsChanged } from './leaveGuard';
 // Post-overhaul S5: bid versions as living documents — the one pure answer
@@ -110,11 +126,16 @@ import {
 } from './setAside';
 import { removalToastWords, rowsWords } from './versionWords';
 import { revertOwnChange } from './revertOwnChange';
+// FX2 (0096): a task's items — the one statement of their rules.
+import {
+  LINK_FIELDS, FIELD_KIND, isItemKind,
+  itemsOfTask, linkFieldsFromItems, withItemLinks, tasksAbout, nextPosition,
+  planReorder, applyPositions, planSingleFieldWrite, linkFieldsIn, withoutLinkFields,
+  itemShapeProblem, linksInStep, mainAfterLinkWrite, KIND_LABEL,
+} from './taskItemsModel';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
-
-const RabbitContext = createContext(null);
 
 // ─── Settings persistence (otter-settings via localData: Express in
 //     Electron, localStorage on the web — Session 12) ─────────────
@@ -149,6 +170,10 @@ const EMPTY_BUNDLE = {
   tasks:          [],
   dependencies:   [],
   taskLinks:      [],
+  // FX2 (0096): a task's items — the assets, scenes, shots, levels and
+  // experiences it is about (NOT the URL links above). Same rule as every
+  // key here: every adapter's loadProject returns it.
+  taskItems:      [],
   files:          [],
   assetVersions:  [],
   comments:       [],
@@ -173,6 +198,10 @@ const EMPTY_BUNDLE = {
   binFiles:       [],
   binRoots:       [],
   shotTakes:      [],
+  // Bins on the cloud (BC1, migration 0091): the company's footage locations
+  // (a cloud clip is one of these plus a relative path). Same rule, in the
+  // same three test lists below.
+  binLocations:   [],
   // Shot lists and edits (post-overhaul S3a, migration 0084). Same rule, on
   // EVERY adapter: supabase, localServer, the dev fixtures — and the key
   // lists in loadProjectBundle.test.js (EXPECTED_KEYS),
@@ -199,6 +228,51 @@ function indexById(rows) {
   return out;
 }
 
+// Bins on the cloud (BC1): what an adapter WITHOUT binsCapabilities() is
+// read as — the signed-out desktop's answers, which is what every bins
+// backend was before 0091 (and what the older test doubles still are).
+// The real adapters each export their own object (CLOUD_BINS_CAPABILITIES,
+// LOCAL_SERVER_BINS_CAPABILITIES); binsAdapterParity.test.js pins the keys.
+const LEGACY_BINS_CAPABILITIES = Object.freeze({
+  backend: 'legacy',
+  pickFiles: true, probe: true, stream: true, resolveFiles: true, relink: true, openInOs: true,
+  posters: 'local', locations: false, remoteViewingSwitch: false,
+});
+
+// The capability object of a bins backend. An adapter without
+// binsCapabilities (an older test double) is read as the signed-out
+// desktop: everything the loopback server does, nothing of a company's.
+function binsCapabilitiesOf(a) {
+  return (typeof a?.binsCapabilities === 'function' ? a.binsCapabilities() : null) || LEGACY_BINS_CAPABILITIES;
+}
+
+/**
+ * BC2: a project load (or a realtime refetch) brings clip rows without
+ * `online` — it is never stored; it is a fact about the reading computer.
+ * What they read as depends on the backend:
+ *   - one that cannot say what this computer can reach (the cloud in a
+ *     browser, `resolveFiles: false`): every row is "not on this computer";
+ *   - the desktop signed in (`backend: 'desktop_cloud'`): a row keeps what
+ *     this computer last resolved for it, and a row it has not resolved yet
+ *     reads "not on this computer" until the resolve lands — never "here"
+ *     before anything has looked;
+ *   - the signed-out desktop and the fixtures: untouched (B12).
+ * Pure; `prevFiles` is the state the load replaces.
+ */
+export function markLoadedBinFiles(nextFiles, prevFiles, caps, { markOnline = null } = {}) {
+  if (!Array.isArray(nextFiles) || !caps) return nextFiles;
+  if (caps.resolveFiles === false) return nextFiles.map(f => ({ ...f, online: false }));
+  // GW3: a browser through the gateway knows each row at once — the reach a
+  // reached gateway reports for its location — so a load asks the composite
+  // (never "not on this computer" for every row until the next re-read).
+  if (caps.backend === 'gateway_cloud' && typeof markOnline === 'function') return markOnline(nextFiles);
+  // Without the composite's word, a known row keeps what was last marked and
+  // a new one reads "not on this computer" (the desktop signed in's rule).
+  if (caps.backend !== 'desktop_cloud' && caps.backend !== 'gateway_cloud') return nextFiles;
+  const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
+  return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
+}
+
 export function RabbitProvider({ children }) {
   // ── adapter ──────────────────────────────────────────────
   const [adapterMode, setAdapterMode] = useState(DEFAULT_ADAPTER_MODE);
@@ -208,7 +282,34 @@ export function RabbitProvider({ children }) {
   // ── data ─────────────────────────────────────────────────
   const [projectsIndex, setProjectsIndex] = useState({});
   const [activeProjectId, setActiveProjectIdState] = useState(null);
-  const [bundle, setBundle] = useState(EMPTY_BUNDLE);
+  const [bundle, setBundleState] = useState(EMPTY_BUNDLE);
+  // FX2 review round 1 (R1-1): where the backend keeps a task's items, every
+  // task row's five single links ARE its main items, in the bundle itself and
+  // not only in ctx.tasks. The item verbs change `taskItems` alone; before
+  // this, the rows kept the links they loaded with, and every reader of the
+  // raw rows saw them: the desktop's whole-row task write re-sent them (the
+  // Local Server then ran 0096 §7b's rule on them, putting back a removed
+  // item or undoing a reorder), and deleteAsset took the tasks whose LOADED
+  // asset it was. One place, every write: a write that changes the tasks or
+  // the items re-reads each task's links from its items (withItemLinks
+  // answers the same array when nothing differs). The adapter's own flag,
+  // read at the write: a load of a project whose backend has no items (a
+  // cloud before 0096, Drive) is never re-read against an empty list.
+  //
+  // Review round 2 (R2-1): ONLY the tasks whose items the write changed. Every
+  // task re-read nulled the links of a task the backend had brought back
+  // before this bundle read its items (a bid version's open reviving it, an
+  // undo after a refetch): Save then recorded no links and the next open
+  // removed the task's items. A task whose items did not change keeps the
+  // links it came with — the backend's, kept in step by 0096 — and the
+  // places that bring a task back read its items (refreshItemsOfTasks).
+  // The flag is the adapter's, read when the write is made, not inside the
+  // state updater.
+  const setBundle = useCallback((update) => {
+    const adapter = adapterRef.current;
+    const itemsOn = typeof adapter?.taskItemsAvailable === 'function' && adapter.taskItemsAvailable() === true;
+    setBundleState(prev => linksInStep(prev, typeof update === 'function' ? update(prev) : update, itemsOn));
+  }, []);
   const [loadingProject, setLoadingProject] = useState(false);
   const [error, setError] = useState(null);
 
@@ -227,6 +328,76 @@ export function RabbitProvider({ children }) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const bundleRef = useRef(bundle);
   useEffect(() => { bundleRef.current = bundle; }, [bundle]);
+  // FX2 (0096): whether this backend keeps a task's items (set each render
+  // from the adapter, below the selectors; read by the mutators).
+  const taskItemsOnRef = useRef(false);
+
+  // ── Bins on the cloud, the desktop signed in (BC2) ──
+  // The composite (adapters/desktopCloudBins.js): the cloud's DATA, this
+  // computer's FILES. Built only when the backend is the cloud AND the
+  // desktop's file process answers — window.electronAPI.rabbit and the
+  // cloud-bins ping (the effect in the bins block). The predicate is never
+  // the storage mode, and it picks no store: `supportsManagedFiles` decides
+  // the FILES store and stays exactly as it was; bins are not files.
+  // `desktopBinFiles` is { files, ping } (the Local Server adapter's
+  // cloud-bins client and its answer) or null. binsBackend() is what every
+  // bins call goes through: the composite when there is one, else the
+  // adapter itself (the signed-out desktop, the browser, the fixtures).
+  const [desktopBinFiles, setDesktopBinFiles] = useState(null);
+  const desktopBinFilesRef = useRef(null);
+  const desktopCompositeRef = useRef({ cloud: null, files: null, composite: null });
+  // GW3: the gateway composite (a browser on the cloud), one per cloud
+  // adapter; its doors are the page's, or the dev fixtures' stub in the page.
+  const gatewayCompositeRef = useRef({ cloud: null, composite: null });
+  const gatewayChangedRef = useRef(null);
+  // The signed-in person, for the composite: a ticket minted for anyone else
+  // is never used (GW3 review round 1, finding 1). Kept current below.
+  const authUserIdRef = useRef(null);
+  // "The backend is the cloud": the provider's own mode, which the dev
+  // fixtures share with the cloud adapter (they are the cloud in a dev
+  // build), not the adapter object's name.
+  const adapterModeRef = useRef(adapterMode);
+  adapterModeRef.current = adapterMode;
+  const binsBackend = useCallback(() => {
+    const a = adapterRef.current;
+    const d = desktopBinFilesRef.current;
+    if (!a || adapterModeRef.current !== 'supabase') return a;
+    if (d) {
+      const memo = desktopCompositeRef.current;
+      if (memo.cloud === a && memo.files === d && memo.composite) return memo.composite;
+      const composite = composeDesktopCloudBins(a, d.files, {
+        rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
+        projectFps: () => Number(bundleRef.current.project?.fps) || 24,
+        ping: d.ping,
+      });
+      desktopCompositeRef.current = { cloud: a, files: d, composite };
+      return composite;
+    }
+    // GW3: a BROWSER signed in to a company (D20: the desktop app never comes
+    // here — signed in, its own composite above reads files directly; before
+    // its ping answers, the cloud's own answers stand). The gateway composite
+    // over the cloud adapter, or over the dev fixtures in its slot, whose
+    // doors then answer in the page (the fixtures' stub) instead of over the
+    // network.
+    if (globalThis.window?.electronAPI?.rabbit) return a;
+    const memo = gatewayCompositeRef.current;
+    if (memo.cloud === a && memo.composite) return memo.composite;
+    const doors = (import.meta.env.DEV && devFixtures()) ? (devFixtures().gatewayDoors || realGatewayDoors) : realGatewayDoors;
+    const composite = composeGatewayBins(a, {
+      listGateways: listGatewaysForPlayback,
+      fetchTickets: fetchGatewayTickets,
+      doors,
+      rowOf: (id) => (bundleRef.current.binFiles || []).find(f => f.id === id) || null,
+      onChange: () => gatewayChangedRef.current?.(),
+      userId: () => authUserIdRef.current,
+    });
+    gatewayCompositeRef.current = { cloud: a, composite };
+    return composite;
+  }, []);
+  // Asks the desktop again what this computer can reach (debounced; the
+  // bins block defines it). Called after every load and for a teammate's
+  // clip arriving live — a no-op where there is no composite.
+  const scheduleBinResolveRef = useRef(null);
   // Serializes full-bundle loads (setActiveProject + reloadActiveProject):
   // only the newest load may land, so a slow stale snapshot can't wipe
   // fresher state — e.g. realtime events or a post-join refetch that
@@ -637,7 +808,17 @@ export function RabbitProvider({ children }) {
       // A newer load (rapid project switch, post-join realtime refetch)
       // supersedes this snapshot — never land stale data over it.
       if (loadSeq === bundleLoadSeqRef.current) {
-        setBundle({ ...EMPTY_BUNDLE, ...next });
+        // BC2: clip rows read as what this computer can reach (never stored).
+        // BC3: the capability object is known the moment the project is
+        // (review round 1: the Bins tab read a null object as the signed-out
+        // desktop until the first list, and for good when that list failed).
+        const backend = binsBackend();
+        const caps = binsCapabilitiesOf(backend);
+        const binFiles = markLoadedBinFiles(next?.binFiles, null, caps, { markOnline: backend?.markOnline });
+        setBundle({ ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) });
+        binsCapsRef.current = caps;
+        setBinsInfo(i => (i.capabilities === caps ? i : { ...i, capabilities: caps }));
+        scheduleBinResolveRef.current?.();
       }
     } catch (err) {
       setError(err.message || String(err));
@@ -654,6 +835,24 @@ export function RabbitProvider({ children }) {
   // snapshot rollback, like the other mutators.
   const [projectMembers, setProjectMembers] = useState([]);
   const [authUserId, setAuthUserId] = useState(null);
+  authUserIdRef.current = authUserId;
+  // GW3 (review round 1, finding 1): a ticket is one person's. A sign-out, or
+  // another person signing in without one, drops the browser's gateway
+  // composite with every ticket and door it held; the next load (or the
+  // re-discovery below) builds a new one for whoever is here.
+  const gatewayUserRef = useRef(null);
+  useEffect(() => {
+    const was = gatewayUserRef.current;
+    gatewayUserRef.current = authUserId;
+    if (!was || was === authUserId) return;
+    const memo = gatewayCompositeRef.current;
+    if (memo.composite) { try { memo.composite.dispose?.(); } catch { /* gone */ } }
+    gatewayCompositeRef.current = { cloud: null, composite: null };
+    if (authUserId) {
+      const fresh = binsBackend();
+      if (fresh && typeof fresh.discover === 'function') Promise.resolve(fresh.discover()).catch(() => {});
+    }
+  }, [authUserId, binsBackend]);
 
   // StrictMode-safe mounted flag — same pattern as useWorkspaceMembers:
   // the effect BODY must reset the flag to true, because StrictMode runs
@@ -841,6 +1040,12 @@ export function RabbitProvider({ children }) {
   // pending debounce can never reload a project the user already left.
   const activeProjectIdRef = useRef(activeProjectId);
   useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
+  // Bins on the cloud (BC1): the backend's capability object for bins, as
+  // the last refreshBins read it (see the bins block). Read here by the
+  // realtime handler: a bin_files row arriving from a backend that cannot
+  // say whether this computer can reach the file is marked "not on this
+  // computer", as the rows of a load are.
+  const binsCapsRef = useRef(null);
 
   const reloadActiveProject = useCallback(async () => {
     const pid = activeProjectIdRef.current;
@@ -860,9 +1065,18 @@ export function RabbitProvider({ children }) {
         return null;
       }
       const listsStale = listWriteSeq !== shotListWriteSeqRef.current;
-      setBundle(prev => (listsStale
-        ? { ...EMPTY_BUNDLE, ...next, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }
-        : { ...EMPTY_BUNDLE, ...next }));
+      // BC2: a refetch's clip rows keep what this computer resolved for them
+      // (a teammate's edit must not make every clip read "here" or "not here").
+      const binBackend = binsBackend();
+      const binCaps = binsCapabilitiesOf(binBackend);
+      setBundle(prev => {
+        const binFiles = markLoadedBinFiles(next?.binFiles, prev.binFiles, binCaps, { markOnline: binBackend?.markOnline });
+        const merged = { ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) };
+        return listsStale
+          ? { ...merged, shotLists: prev.shotLists, shotListItems: prev.shotListItems, edits: prev.edits }
+          : merged;
+      });
+      scheduleBinResolveRef.current?.();
       if (!listsStale) unmarkIfServerShowsLive(next.shotLists, next.edits);
       // Callers (revert's restore path) inspect the fresh bundle
       // directly — bundleRef only catches up after the next commit.
@@ -886,6 +1100,26 @@ export function RabbitProvider({ children }) {
   // they are all idempotent (refetch is debounced, roster refresh and
   // teardown re-run safely), so a StrictMode double-invoke is harmless.
   const handleRealtimeEvent = useCallback((evt) => {
+    // BC1: a teammate's clip arrives without `online` (never stored); on a
+    // backend that cannot resolve files it is marked as the load marks it.
+    if (evt?.table === 'bin_files' && evt.record && binsCapsRef.current && binsCapsRef.current.resolveFiles === false) {
+      evt = { ...evt, record: { ...evt.record, online: false } };
+    }
+    // BC2, the desktop signed in: a teammate's clip arrives without `online`
+    // too. It keeps what this computer last resolved for that row, else
+    // reads "not on this computer" until the desktop has been asked — which
+    // is scheduled here, for this row.
+    else if (evt?.table === 'bin_files' && evt.record?.id && binsCapsRef.current?.backend === 'desktop_cloud' && typeof evt.record.online !== 'boolean') {
+      const was = (bundleRef.current.binFiles || []).find(f => f.id === evt.record.id);
+      evt = { ...evt, record: { ...evt.record, online: typeof was?.online === 'boolean' ? was.online : false } };
+      scheduleBinResolveRef.current?.([evt.record.id]);
+    }
+    // GW3, a browser through the gateway: the composite marks the row from
+    // the reach a reached gateway reports for its location, at once.
+    else if (evt?.table === 'bin_files' && evt.record?.id && binsCapsRef.current?.backend === 'gateway_cloud' && typeof evt.record.online !== 'boolean') {
+      const comp = gatewayCompositeRef.current.composite;
+      evt = { ...evt, record: comp ? comp.markOnline([evt.record])[0] : { ...evt.record, online: false } };
+    }
     setBundle(prev => {
       const { bundle: next, effects } = applyRealtimeEvent(prev, evt, {
         pendingFields: pendingFieldsFor,
@@ -1262,9 +1496,24 @@ export function RabbitProvider({ children }) {
     const projectId = activeProjectIdRef.current;
     if (!adapter || !projectId || typeof adapter.ensureEntityFolder !== 'function') return null;
     try {
+      const fk = `${entityType}_id`;
+      const had = (bundleRef.current?.folders || []).find(f => f && f[fk] && String(f[fk]) === String(entity?.id));
       const row = await adapter.ensureEntityFolder(
         projectId, bundleRef.current?.project, entityType, entity,
       );
+      // A RENAME re-paths the rows under the folder too (a scene's shot
+      // folders since S4c), and the adapter answers only the folder's own
+      // row: read the tree again so the shots' Folder lines and the Files
+      // tab say the new path at once (round 2, item 6). A new row, or a
+      // name unchanged, merges as before.
+      if (row && had && had.path !== row.path && typeof adapter.listFolders === 'function') {
+        let folders = null;
+        try { folders = await adapter.listFolders(projectId); } catch { folders = null; }
+        if (Array.isArray(folders) && activeProjectIdRef.current === projectId) {
+          setBundle(prev => ({ ...prev, folders }));
+          return row;
+        }
+      }
       mergeFolder(row);
       return row;
     } catch (err) {
@@ -1276,6 +1525,39 @@ export function RabbitProvider({ children }) {
       return null;
     }
   }, [mergeFolder]);
+
+  // ── Post-overhaul S4c: the one-time re-filing of the open project's shot
+  // folders into their scenes' folders (shotRefiling.js; the adapter does the
+  // moving). Not an undoable edit — it moves real objects and directories —
+  // so it keeps no history entry. Afterwards the three lists the explorer
+  // reads are read again from the adapter, so what is on screen is what the
+  // backend now holds (the cloud adapter's rows may have moved under rows the
+  // bundle still has by their old keys).
+  const refileShotFolders = useCallback(async (opts = {}) => {
+    const adapter = adapterRef.current;
+    const projectId = activeProjectIdRef.current;
+    if (!adapter || !projectId) throw new Error('no project');
+    if (typeof adapter.refileShotFolders !== 'function') throw new Error('This backend cannot move folders.');
+    const result = await adapter.refileShotFolders(projectId, bundleRef.current?.project, opts);
+    const safe = async (fn) => { try { return typeof fn === 'function' ? await fn(projectId) : null; } catch { return null; } };
+    const [folders, files, managedFiles] = await Promise.all([
+      safe(adapter.listFolders?.bind(adapter)),
+      safe(adapter.listFiles?.bind(adapter)),
+      safe(adapter.listManagedFiles?.bind(adapter)),
+    ]);
+    if (activeProjectIdRef.current === projectId) {
+      setBundle(prev => ({
+        ...prev,
+        ...(Array.isArray(folders) ? { folders } : {}),
+        ...(Array.isArray(files) ? { files } : {}),
+        ...(Array.isArray(managedFiles) ? { managedFiles } : {}),
+      }));
+      // The manifest mirrors the folder tree (projectManifest.js): rewritten
+      // for the tree the move just changed (review round 1, item 13).
+      writeManifestSoon(projectId);
+    }
+    return result;
+  }, [writeManifestSoon]);
 
   // ── Backfill the tree for a project that predates 0041 (Session 27) ────
   //
@@ -1677,13 +1959,29 @@ export function RabbitProvider({ children }) {
     // deleteAsset cascades locally onto tasks (see mutator). Capture
     // those tasks too so undo restores them.
     const removedTasks = bundleRef.current.tasks.filter(t => t.asset_id === id);
+    // FX2 (0096): on a backend whose delete removes the row (the Local
+    // Server), the asset leaves every task's items there (its sweep), and the
+    // re-insert undo puts them back with the removed tasks' own items. A soft
+    // delete touches no item (hidden with the asset, as on the cloud).
+    const goneTaskIds = new Set(removedTasks.map(t => t.id));
+    const assetItemsGone = (bundleRef.current.taskItems || [])
+      .filter(i => (i.entity_type === 'asset' && i.entity_id === id) || goneTaskIds.has(i.task_id)).map(i => ({ ...i }));
     // Soft-aware: a supabase soft delete touches only the asset row —
     // the children were never deleted in the DB, so undo restores the
     // asset and reinstates the captured rows straight into local state
     // (no re-insert mutations). Local mode keeps the re-insert path.
     const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
+    // Review round 2 (R2-6): where the delete removes the row (the Local
+    // Server sweeps the asset's items in the same write), its items leave
+    // the screen with it; a soft delete keeps them, as the cloud does.
+    const sweepItems = !canSoftDelete && taskItemsOnRef.current;
     const result = await optimistic(
-      prev => ({ ...prev, assets: prev.assets.filter(a => a.id !== id), tasks: prev.tasks.filter(t => t.asset_id !== id) }),
+      prev => ({
+        ...prev,
+        assets: prev.assets.filter(a => a.id !== id),
+        tasks: prev.tasks.filter(t => t.asset_id !== id),
+        ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && i.entity_id === id)) } : {}),
+      }),
       () => adapterRef.current.deleteAsset(id, activeProjectId),
     );
     if (oldAsset) {
@@ -1696,10 +1994,12 @@ export function RabbitProvider({ children }) {
                 assets: [...prev.assets, oldAsset],
                 tasks:  [...prev.tasks, ...removedTasks],
               }));
+              await refreshItemsOfTasks(removedTasks.map(t => t.id));
             }]
           : [
               () => mutationsRef.current.addAsset(oldAsset),
-              ...removedTasks.map(t => () => mutationsRef.current.addTask(t)),
+              ...removedTasks.map(t => () => mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(t) : t)),
+              async () => { if (taskItemsOnRef.current) await restoreItemRows(assetItemsGone); },
             ],
         redoOps: [() => mutationsRef.current.deleteAsset(id)],
       });
@@ -1725,11 +2025,18 @@ export function RabbitProvider({ children }) {
       .filter(r => r.asset);
     if (removed.length === 0) return;
     const idSet = new Set(removed.map(r => r.asset.id));
+    // FX2 (0096): as deleteAsset — the items, for the re-insert undo.
+    const goneTaskIds = new Set(removed.flatMap(r => r.tasks.map(t => t.id)));
+    const assetItemsGone = (bundleRef.current.taskItems || [])
+      .filter(i => (i.entity_type === 'asset' && idSet.has(i.entity_id)) || goneTaskIds.has(i.task_id)).map(i => ({ ...i }));
+    // R2-6, as deleteAsset.
+    const sweepItems = !canSoftDelete && taskItemsOnRef.current;
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => !idSet.has(a.id)),
         tasks:  prev.tasks.filter(t => !idSet.has(t.asset_id)),
+        ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && idSet.has(i.entity_id))) } : {}),
       }),
       async () => {
         // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
@@ -1757,11 +2064,15 @@ export function RabbitProvider({ children }) {
               assets: [...prev.assets, ...removed.map(r => r.asset)],
               tasks:  [...prev.tasks, ...removed.flatMap(r => r.tasks)],
             }));
+            await refreshItemsOfTasks(removed.flatMap(r => r.tasks.map(t => t.id)));
           }]
-        : removed.slice().reverse().flatMap(r => [
-            () => mutationsRef.current.addAsset(r.asset),
-            ...r.tasks.map(t => () => mutationsRef.current.addTask(t)),
-          ]),
+        : [
+            ...removed.slice().reverse().flatMap(r => [
+              () => mutationsRef.current.addAsset(r.asset),
+              ...r.tasks.map(t => () => mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(t) : t)),
+            ]),
+            async () => { if (taskItemsOnRef.current) await restoreItemRows(assetItemsGone); },
+          ],
       redoOps: [() => mutationsRef.current.deleteAssets([...idSet])],
     });
     if (token != null) {
@@ -1940,7 +2251,9 @@ export function RabbitProvider({ children }) {
   // re-reads them first; if it cannot, it changes nothing. The check and the
   // write are two requests: a Save that lands between them is still
   // overwritten (review R3; closing that needs a conditional write in each
-  // backend — recorded in the hand-off's known limits).
+  // backend — recorded in the hand-off's known limits). FX4 review round 1
+  // (R1-03) closed it for EDITS: their write names the Save it expects
+  // (`expectSavedAt`), and every backend refuses it when another landed.
   async function rewriteSaveIfStill(kind, id, expected, values) {
     const isEdit = kind === 'edit';
     const fresh = await refreshShotListsNow();
@@ -1957,7 +2270,7 @@ export function RabbitProvider({ children }) {
         : 'this shot list has been Saved again since — going back would erase that Save');
     }
     return isEdit
-      ? mutationsRef.current.updateEdit(id, values)
+      ? mutationsRef.current.updateEdit(id, values, { expectSavedAt: savedAtOf(expected) })
       : mutationsRef.current.updateShotList(id, values);
   }
 
@@ -2592,9 +2905,14 @@ export function RabbitProvider({ children }) {
     for (const k of ['items', 'snapshot']) {
       if (!Object.prototype.hasOwnProperty.call(allowed, k)) delete wire[k];
     }
+    // FX4 review round 1 (R1-03): `expectSavedAt` makes the write conditional
+    // in the backend itself — refused (code EDIT_SAVED_SINCE) when the stored
+    // edit carries another Save than the one named, so a Save landing between
+    // a re-read and this write is never written over.
+    const conditional = Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt') ? { expectSavedAt: opts.expectSavedAt ?? null } : undefined;
     const res = await optimistic(
       prev => ({ ...prev, edits: (prev.edits || []).map(e => (e.id === id ? nextRow : e)) }),
-      () => (++shotListWriteSeqRef.current, a.upsertEdit(wire)),
+      () => (++shotListWriteSeqRef.current, conditional ? a.upsertEdit(wire, conditional) : a.upsertEdit(wire)),
     );
     if (activeProjectIdRef.current !== pid) return res || nextRow;
     if (res) putRow('edits', res, pid);
@@ -2626,6 +2944,10 @@ export function RabbitProvider({ children }) {
         shots: bundleRef.current.shots,
         scenes: bundleRef.current.scenes,
         savedAt: new Date().toISOString(),
+        // FX4 review round 1 (R1-02): a name the project no longer has stays
+        // frozen — from the snapshot this Save replaces, or (a new version)
+        // the one of the edit its cut began from.
+        previous: opts.previous !== undefined ? opts.previous : (findEdit(editId)?.snapshot ?? null),
       }),
     };
     if (summary !== undefined) patch.summary = summary;
@@ -2864,21 +3186,53 @@ export function RabbitProvider({ children }) {
   }
 
   /**
-   * D13's Yes: a draft of this list — `base` what was on screen (the list's
-   * order, or `basedOnEditId`'s items), `items` the first change applied.
-   * `title` / `version` are what the question said Yes would make. Refused
-   * on an archived list (in the backend's words) and when the list already
-   * has a draft (one per list).
+   * A draft of this list — `base` what was on screen (the list's order, or
+   * `basedOnEditId`'s items), `items` the first change applied. D13's Yes in
+   * List order: `title` / `version` are what the question said Yes would
+   * make. FX4: the first change to a SAVED edit, asked nothing — `editId`
+   * (that edit), its own `title` / `version`, and `baseSavedAt` (its last
+   * Save). Refused on an archived list (in the backend's words) and when the
+   * list already has a draft (one per list) — unless `orApply` is given: a
+   * change whose first step took a round trip (New shot) while another change
+   * began the draft goes onto that draft instead (FX4: no question holds the
+   * second change back any more).
    */
   const startEditDraft = useCallback((opts = {}) => {
     const pid = activeProjectIdRef.current;
     if (!pid) throw new Error('no project');
     const list = requireEditableShotList(opts.listId);
-    if (editDraftsRef.current[draftKey(pid, list.id)]) throw new Error('this shot list already has an unsaved edit');
+    const already = editDraftsRef.current[draftKey(pid, list.id)];
+    if (already) {
+      if (typeof opts.orApply !== 'function') throw new Error('this shot list already has an unsaved edit');
+      // Review round 1 (R1-09): only onto changes to the SAME edit — never
+      // another edit's, or a new edit's, begun while this change's round
+      // trip ran.
+      if ((already.editId || null) !== (opts.editId || null)) {
+        throw new Error('another edit of this list has unsaved changes now, so this change was not made');
+      }
+      const items = opts.orApply(already.items);
+      if (!items) return already;
+      const next = changeDraft(already, items, new Date().toISOString(), opts.made || []);
+      setDraft(pid, list.id, next);
+      return next;
+    }
+    // Review round 2 (R2-02c): a first change to a saved edit whose round
+    // trip (New shot) outlived a Save edit of that edit starts from the edit
+    // as it is NOW — its cut and its Save — never the one seen at the press.
+    if (opts.editId && typeof opts.orApply === 'function') {
+      const current = findEdit(opts.editId);
+      if (current && current.shot_list_id === list.id) {
+        const items = opts.orApply(current.items || []);
+        if (!items) return null;
+        opts = { ...opts, base: current.items || [], items, title: current.title, version: current.version, baseSavedAt: savedAtOf(current.snapshot) };
+      }
+    }
     const draft = startDraft({
       projectId: pid,
       listId: list.id,
       basedOnEditId: opts.basedOnEditId || null,
+      editId: opts.editId || null,
+      baseSavedAt: opts.baseSavedAt || null,
       title: String(opts.title || list.title || '').trim(),
       version: opts.version ?? 1,
       base: opts.base || [],
@@ -2891,10 +3245,45 @@ export function RabbitProvider({ children }) {
     return draft;
   }, []);
 
-  /** A change to the draft (each one a step its own undo takes back); opts.made: shots it wrote. */
+  /**
+   * A change to the draft (each one a step its own undo takes back); opts.made: shots it wrote.
+   * FX4 review round 1 (R1-09's twin): `items` may be a function of the
+   * draft's items as they are NOW (a change whose New shot took a round trip
+   * is applied to the draft the provider holds, never to the one the view
+   * saw before it). Review round 2 (R2-02): `opts.draftId`, when given, names
+   * the changes it was made to — kept through a save that rebases them — and
+   * a change never lands on other changes; when those changes were SAVED
+   * meanwhile (nothing unsaved is left of them), it starts the changes of the
+   * edit they became, from that edit as it is now.
+   */
   const changeEditDraft = useCallback((listId, items, opts = {}) => {
-    const { pid, draft } = requireDraft(listId);
-    const next = changeDraft(draft, items, new Date().toISOString(), opts.made || []);
+    const pid = activeProjectIdRef.current;
+    const named = Object.prototype.hasOwnProperty.call(opts, 'draftId') ? opts.draftId : undefined;
+    const held = pid ? editDraftsRef.current[draftKey(pid, listId)] : null;
+    if (!held && named && typeof items === 'function') {
+      const became = savedAsRef.current.get(named);
+      const edit = became ? findEdit(became) : null;
+      if (edit && edit.shot_list_id === listId && !edit.archived_at) {
+        const nextItems = items(edit.items || []);
+        if (!nextItems) return null;
+        const started = startDraft({
+          projectId: pid, listId, draftId: named,
+          basedOnEditId: edit.id, editId: edit.id, baseSavedAt: savedAtOf(edit.snapshot),
+          title: edit.title, version: edit.version,
+          base: edit.items || [], items: nextItems,
+          now: new Date().toISOString(), made: opts.made || [],
+        });
+        setDraft(pid, listId, started);
+        return started;
+      }
+    }
+    const { draft } = requireDraft(listId);
+    if (named !== undefined && draft.draftId !== named) {
+      throw new Error('another edit of this list has unsaved changes now, so this change was not made');
+    }
+    const nextItems = typeof items === 'function' ? items(draft.items) : items;
+    if (!nextItems) return null;
+    const next = changeDraft(draft, nextItems, new Date().toISOString(), opts.made || []);
     setDraft(pid, listId, next);
     return next;
   }, []);
@@ -2925,12 +3314,203 @@ export function RabbitProvider({ children }) {
     return true;
   }, []);
 
+  // Each item's label is the shot's name NOW (what a Save freezes, D17).
+  function labelledNow(items) {
+    const shots = bundleRef.current.shots || [];
+    return (items || []).map(it => {
+      const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
+      return sh ? { ...it, label: sh.name || it.label || '' } : it;
+    });
+  }
+
+  // FX4 review round 1 (R1-01): the saves of a list's changes in flight, by
+  // draft key — one at a time. Before FX4 Save edit opened a dialog, which
+  // held everything still while it wrote; now it is one press and two round
+  // trips while the cut, its keys and the ways out stay live.
+  const editSavesRef = useRef(new Map());
+  // Review round 2 (R2-02): which edit a draft (by its draftId) was saved as,
+  // so a change still in flight when it was saved finds the changes it was
+  // made to — or, nothing unsaved being left of them, the edit they became.
+  const savedAsRef = useRef(new Map());
+
   /**
-   * Save edit (D13, D14): the draft becomes the next edit of its list's ONE
-   * chain — createEditFrom continues from the chain's tip whichever edit the
-   * draft began from (D6) — and is Saved with saveEdit, whose snapshot keeps
-   * the names D17's "Missing shot: <name>" shows. Each item's label is the
-   * shot's name now. { title, version, summary }.
+   * Save edit (D13, D14; FX4). A draft of a SAVED edit (`editId`, FX4) is
+   * written INTO that edit — its title and version kept — by saveDraftInPlace.
+   * Any other draft (the first change in List order, or a copy stored before
+   * FX4) becomes the next edit of the list's chain under the name it was
+   * given, by writeNewEdit. { title, version, summary } name that new edit
+   * (the leave question passes none). `asNew` is Save as…'s (saveEditAs).
+   *
+   * Review round 1 (R1-01): one save of a list at a time. A second (the leave
+   * or close question's, while the bar's is still writing) waits for the
+   * first; when that one has saved everything, there is nothing left to save
+   * and it returns what was saved. What changed WHILE a save wrote stays
+   * unsaved after it, as changes to the edit it saved (rebaseDraft).
+   */
+  const saveEditDraft = useCallback(async (listId, opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    const key = draftKey(pid, listId);
+    // Review round 2 (R2-07): chained at the call, before any await, so three
+    // callers or more run one after another, never two at once.
+    const earlier = editSavesRef.current.get(key) || null;
+    const run = (async () => {
+      if (earlier) {
+        const done = await earlier.catch(() => undefined);
+        if (!editDraftsRef.current[key]) return done;
+      }
+      const { pid: at, draft } = requireDraft(listId);
+      // Whose draft this is, held across the round trip: a sign-out can land
+      // in the middle of it (review round 2, R2-03).
+      const person = draft.personKey || draftPersonRef.current;
+      // R1-08: changes to an edit the list no longer holds are a new edit of
+      // it (as the bar says), at the next free version of that title.
+      const held = draft.editId && (bundleRef.current.edits || []).some(e => e.id === draft.editId && e.shot_list_id === listId);
+      if (held && !opts.asNew) return saveDraftInPlace(at, listId, draft, person);
+      return writeNewEdit({
+        pid: at, listId, person, draft,
+        items: draft.items,
+        title: opts.title ?? draft.title,
+        version: opts.version,
+        summary: opts.summary,
+        previous: draft.basedOnEditId ? (findEdit(draft.basedOnEditId)?.snapshot ?? null) : null,
+      });
+    })();
+    editSavesRef.current.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (editSavesRef.current.get(key) === run) editSavesRef.current.delete(key);
+    }
+  }, []);
+
+  /**
+   * Save as… (FX4: "only when i press save as should it ask me to make a new
+   * edit version"): the cut on screen becomes the next edit of the list's
+   * chain under the title and version its dialog asked for. With
+   * `fromEditId` (the dialog opened on a saved edit with nothing changed) it
+   * is that edit as it is — never a draft that began meanwhile (review round
+   * 1, R1-09). Without it, the list's draft, which then ends: it IS the new
+   * edit; with no draft (it went while the dialog was up) it is refused,
+   * never the saved cut written in the changes' place. The edit the cut began
+   * from stays as it was saved.
+   */
+  const saveEditAs = useCallback(async (listId, opts = {}) => {
+    const pid = activeProjectIdRef.current;
+    if (!pid) throw new Error('no project');
+    // (saveEditDraft refuses when there is no draft: "there is no unsaved edit of this shot list".)
+    if (!opts.fromEditId) return saveEditDraft(listId, { ...opts, asNew: true });
+    const from = findEdit(opts.fromEditId);
+    if (!from || from.shot_list_id !== listId) throw new Error('edit not found');
+    return writeNewEdit({
+      pid, listId, person: draftPersonRef.current, draft: null,
+      items: from.items || [],
+      title: opts.title ?? from.title,
+      version: opts.version,
+      summary: opts.summary,
+      previous: from.snapshot ?? null,
+    });
+  }, [saveEditDraft]);
+
+  // Review round 1 (R1-01): once a save is written, the list's draft is
+  // either the one it wrote — it ends — or one that changed while it wrote
+  // (the same person's, changes to the same edit, or for a new edit the one
+  // it became): those changes stay, unsaved, on the version just saved.
+  // Anything else (another person's draft, begun after a sign-out) is not
+  // this save's to touch.
+  function settleDraftAfterSave(pid, listId, draft, person, saved) {
+    if (draft.draftId && saved?.id) savedAsRef.current.set(draft.draftId, saved.id);
+    const now = editDraftsRef.current[draftKey(pid, listId)];
+    // The one written: it ends, and its stored copy goes under ITS person
+    // (S3c R2-03).
+    if (now === draft) { setDraft(pid, listId, null, person); return; }
+    if (!now) {
+      // Gone from memory (a sign-out meanwhile). Review round 2 (R2-08): its
+      // stored copy goes only if it is what was written; one holding changes
+      // made while the save wrote is kept, on the version just saved, for
+      // "Recover unsaved edit?" to offer.
+      const stored = storedDraftKey(person, pid, listId);
+      const copy = readStoredDrafts()[stored];
+      if (!copy || copy.changedAt === draft.changedAt || sameCut(copy.items, saved?.items)) setDraft(pid, listId, null, person);
+      else writeStoredDraft(stored, storedCopy(rebaseDraft(draftFromCopy(copy), saved), person));
+      return;
+    }
+    const mine = (now.personKey || person) === person;
+    const sameChanges = !!draft.draftId && now.draftId === draft.draftId;
+    // Review round 2 (R2-03): changes made meanwhile that came back to the cut
+    // just saved leave nothing unsaved: they end.
+    if (mine && sameChanges && sameCut(now.items, saved?.items)) { setDraft(pid, listId, null, person); return; }
+    if (mine && sameChanges) setDraft(pid, listId, rebaseDraft(now, saved), person);
+    // Another person's draft (begun after a sign-out) stays as it is; only
+    // the saved draft's own stored copy goes (setDraft never ends another
+    // person's draft). The same person's other changes (discarded and begun
+    // again meanwhile) own the list's stored copy now, and are left alone.
+    else if (!mine) setDraft(pid, listId, null, person);
+  }
+
+  /**
+   * FX4: the unsaved changes of a saved edit, written into it — the whole
+   * cut and a fresh snapshot of its names (saveEdit), in one write; its
+   * title, version and summary kept.
+   *
+   * Two people may change one edit (a reviewer and a member; two windows),
+   * and edits are not broadcast: the edit is read again first, and a Save
+   * made since these changes began (another snapshot) is never written over —
+   * Save as… keeps them as a new version instead. Review round 1 (R1-03):
+   * the write itself is conditional too (`expectSavedAt`), so a Save landing
+   * between the re-read and the write is refused by the backend, in the same
+   * words.
+   *
+   * ONE undo step: the edit's cut and snapshot as they were, put back only
+   * while its snapshot is still this Save's (rewriteSaveIfStill); its redo
+   * the same the other way. The draft ends only once the write is done; a
+   * refusal leaves it, unsaved, and is thrown.
+   */
+  async function saveDraftInPlace(pid, listId, draft, person) {
+    const name = `“${formatShotListLabel(draft)}”`;
+    const savedSince = () => {
+      const words = `Someone saved ${name} since these changes began, and Save edit would write over that. Save as… keeps your changes as a new version; Discard changes shows the edit as they saved it.`;
+      // ctx.error says the same as the refusal, never the backend's raw words.
+      setError(words);
+      return new Error(words);
+    };
+    const fresh = await refreshShotListsNow();
+    if (!fresh) throw new Error(`${name} could not be read again to check that nobody saved it meanwhile, so nothing was saved. Try again, or Save as… to keep the changes as a new version.`);
+    // Its list archived meanwhile refuses, in the backend's words, as a new edit's does.
+    requireEditableShotList(listId);
+    const edit = findEdit(draft.editId);
+    if (!edit || edit.shot_list_id !== listId) throw new Error(`${name} is no longer in this list, so the changes cannot be saved into it. Save as… keeps them as a new edit.`);
+    if (edit.archived_at) throw new Error(`${name} has been archived since these changes began, so they cannot be saved into it. Save as… keeps them as a new version.`);
+    if (savedAtOf(edit.snapshot) !== (draft.baseSavedAt || null)) throw savedSince();
+    const before = { items: edit.items || [], snapshot: edit.snapshot ?? null };
+    let saved;
+    try {
+      saved = await mutationsRef.current.saveEdit(edit.id, labelledNow(draft.items), undefined, {
+        history: false,
+        expectSavedAt: draft.baseSavedAt || null,
+        previous: edit.snapshot ?? null,
+      });
+    } catch (err) {
+      if (err?.code === EDIT_SAVED_SINCE) throw savedSince();
+      throw err;
+    }
+    settleDraftAfterSave(pid, listId, draft, person, saved || { ...edit, items: labelledNow(draft.items) });
+    if (activeProjectIdRef.current !== pid || draftPersonRef.current !== person) return saved;
+    const after = { items: saved?.items ?? labelledNow(draft.items), snapshot: saved?.snapshot ?? null };
+    pushHistory({
+      undoOps: [surfaced(() => rewriteSaveIfStill('edit', edit.id, after.snapshot, before))],
+      redoOps: [surfaced(() => rewriteSaveIfStill('edit', edit.id, before.snapshot, after))],
+    });
+    return saved;
+  }
+
+  /**
+   * The next edit of a list's ONE chain (D6) — createEditFrom continues from
+   * the chain's tip whichever edit the cut began from — Saved with saveEdit,
+   * whose snapshot keeps the names D17's "Missing shot: <name>" shows
+   * (`previous`: the snapshot of the edit the cut began from, R1-02).
+   * `draft`: the list's draft this edit IS (null: Save as… of a saved edit
+   * as it is); it ends once the edit is written, or, changed meanwhile,
+   * stays as changes to the new edit (R1-01).
    *
    * ONE undo step, recorded here and not through runBatch: the batch is one
    * global slot, and held open across two round trips it takes in whatever
@@ -2943,33 +3523,33 @@ export function RabbitProvider({ children }) {
    * edit); if only the Save is then refused, the edit stays as written (its
    * undo the plain withdraw) and the refusal is thrown with that said.
    */
-  const saveEditDraft = useCallback(async (listId, opts = {}) => {
-    const { pid, draft } = requireDraft(listId);
-    // Whose draft this is, held across the round trip: a sign-out can land
-    // in the middle of it (review round 2, R2-03).
-    const person = draft.personKey || draftPersonRef.current;
-    const shots = bundleRef.current.shots || [];
-    const items = draft.items.map(it => {
-      const sh = it.shot_id ? shots.find(s => s.id === it.shot_id) : null;
-      return sh ? { ...it, label: sh.name || it.label || '' } : it;
-    });
+  async function writeNewEdit({ pid, listId, person, draft, items: rawItems, title, version, summary, previous = null }) {
+    const items = labelledNow(rawItems);
     const row = await mutationsRef.current.createEditFrom({
       listId,
-      title: opts.title ?? draft.title,
-      version: opts.version,
-      summary: String(opts.summary || '').trim() || null,
+      title,
+      version,
+      summary: String(summary || '').trim() || null,
       items,
       undoable: false,
     });
-    setDraft(pid, listId, null, person);
-    if (activeProjectIdRef.current !== pid) return row;
+    // Review round 2 (R2-04): the draft stays on screen until the edit is
+    // Saved too — ending it here showed List order between the two writes —
+    // and is settled once, below: it ends (it IS the edit), or, changed
+    // meanwhile, stands on the Save (R1-01).
+    if (activeProjectIdRef.current !== pid) {
+      // No Save follows on another project's visit: it settles on the edit as written.
+      if (draft) settleDraftAfterSave(pid, listId, draft, person, row);
+      return row;
+    }
     // Its undo step is its person's: one who signed in meanwhile does not
     // get it (the save itself still finishes).
     const stillTheirs = () => activeProjectIdRef.current === pid && draftPersonRef.current === person;
     let saved;
     try {
-      saved = await mutationsRef.current.saveEdit(row.id, row.items, undefined, { history: false });
+      saved = await mutationsRef.current.saveEdit(row.id, row.items, undefined, { history: false, previous });
     } catch (err) {
+      if (draft) settleDraftAfterSave(pid, listId, draft, person, row);
       if (stillTheirs()) {
         pushHistory({
           undoOps: [surfaced(() => mutationsRef.current.withdrawEdit(row.id))],
@@ -2980,6 +3560,7 @@ export function RabbitProvider({ children }) {
       e.savedRow = row;
       throw e;
     }
+    if (draft) settleDraftAfterSave(pid, listId, draft, person, saved || row);
     if (!stillTheirs()) return saved || row;
     const snapshot = saved?.snapshot ?? null;
     pushHistory({
@@ -2993,7 +3574,7 @@ export function RabbitProvider({ children }) {
       ],
     });
     return saved || row;
-  }, []);
+  }
 
   /** "Recover unsaved edit?" → Recover: a previous run's copy, a draft again. */
   const recoverEditDraft = useCallback((listId) => {
@@ -3004,7 +3585,13 @@ export function RabbitProvider({ children }) {
     if (!copy) throw new Error('there is no unsaved edit of this shot list to recover');
     requireEditableShotList(listId);
     if (editDraftsRef.current[draftKey(pid, listId)]) throw new Error('this shot list already has an unsaved edit');
-    const draft = draftFromCopy(copy);
+    let draft = draftFromCopy(copy);
+    // FX4 review round 1 (R1-08): changes to an edit this list no longer
+    // holds are a new edit of it — at the next free version of that title —
+    // never "saved into" an edit that is not there.
+    if (draft.editId && !(bundleRef.current.edits || []).some(e => e.id === draft.editId && e.shot_list_id === listId)) {
+      draft = { ...draft, editId: null, basedOnEditId: null, baseSavedAt: null, version: nextEditVersionOf(bundleRef.current.edits || [], listId, draft.title) };
+    }
     setDraft(pid, listId, draft);
     return draft;
   }, [storedEditDrafts]);
@@ -3054,8 +3641,9 @@ export function RabbitProvider({ children }) {
   // The open project's drafts are what every exit asks about
   // (state/leaveGuard.js). The question is the kit Dialog LeaveEditDialog
   // draws from `leaveAsk`, with D12's three answers: Save edit saves every
-  // draft of the open project as its next edit (the name the first-change
-  // question gave it, at that title's next version), Discard changes drops
+  // draft of the open project as the bar's Save edit does (FX4: a saved
+  // edit's changes into it; a new edit under the name the first-change
+  // question gave it), Discard changes drops
   // them, Keep editing stays. The window's close folds the same three into
   // App's own question (describe / save / discard), so it is one question.
   // A draft of ANOTHER project (left there by an automatic switch) is not
@@ -3074,9 +3662,16 @@ export function RabbitProvider({ children }) {
     if (!drafts.length) return '';
     const name = (d) => `“${formatShotListLabel(d)}”`;
     const of = (d) => { const l = findShotList(d.listId); return l ? `“${formatShotListLabel(l)}”` : 'its list'; };
-    if (drafts.length === 1) return `${name(drafts[0])}, an edit of ${of(drafts[0])}, is not saved.`;
-    const each = drafts.map(d => `${name(d)} (of ${of(d)})`);
-    return `${drafts.length} edits are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
+    // FX4: a saved edit's changes are said as changes TO it (it exists, as
+    // saved); a new edit, as an edit not saved at all.
+    if (drafts.length === 1) {
+      const d = drafts[0];
+      return d.editId
+        ? `${name(d)}, an edit of ${of(d)}, has changes that are not saved.`
+        : `${name(d)}, a new edit of ${of(d)}, is not saved.`;
+    }
+    const each = drafts.map(d => (d.editId ? `${name(d)} (of ${of(d)})` : `${name(d)} (a new edit, of ${of(d)})`));
+    return `${drafts.length} edits have changes that are not saved: ${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}.`;
   }
   /** How many unsaved edits the leave and close questions are about (their words say "it" or "them"). */
   const unsavedEditCount = useCallback(() => openDraftsNow().length, []);
@@ -3095,7 +3690,7 @@ export function RabbitProvider({ children }) {
     const notices = [];
     for (const d of drafts) {
       try {
-        await saveEditDraft(d.listId, { title: d.title });
+        await saveEditDraft(d.listId);
       } catch (err) {
         if (err?.savedRow) notices.push(err.message);
         else refused.push({ d, err });
@@ -3108,9 +3703,18 @@ export function RabbitProvider({ children }) {
     if (drafts.length === 1) throw refused[0].err;
     throw new Error([...notices, ...refused.map(({ d, err }) => `“${formatShotListLabel(d)}” was not saved: ${err?.message || err}`)].join(' '));
   }, [saveEditDraft]);
-  const discardOpenDrafts = useCallback(() => {
+  // Discard drops what is unsaved now. A Save edit pressed before it and
+  // still writing is not taken back (it was asked for first), and when it
+  // lands nothing of it comes back. FX4 review round 2 (R2-01): Discard never
+  // waits for it — a write that never settles must not hold the window's
+  // close question (or any exit) for ever.
+  const discardOpenDrafts = useCallback(async () => {
     for (const d of openDraftsNow()) setDraft(d.projectId, d.listId, null);
   }, []);
+  // Review round 2 (R2-06): whether Save edit can save any of the open
+  // project's unsaved changes — not when every one is changes to an edit
+  // archived since (those only Save as… keeps, as a new version).
+  const canSaveOpenDrafts = useCallback(() => openDraftsNow().some(d => !d.editId || !findEdit(d.editId)?.archived_at), []);
   const answerLeave = useCallback((go) => {
     const ask = leaveAskRef.current;
     leaveAskRef.current = null;
@@ -3131,6 +3735,12 @@ export function RabbitProvider({ children }) {
     order: 2,
     applies: (reason) => reason !== 'popup',
     dirty: () => editDraftHeldRef.current,
+    // FX4 review round 2 (R2-01): the question opens at once, as it always
+    // did, even while a Save edit is still writing — waiting for it left
+    // every exit dead and the page live under it. When that save lands and
+    // nothing unsaved is left, the question settles as "go" by itself (the
+    // effect above); its own Save edit waits behind the one in flight and
+    // never writes the same changes twice (saveEditDraft's chain).
     ask: (reason) => new Promise((resolve) => {
       const ask = { reason, resolve };
       leaveAskRef.current = ask;
@@ -3188,7 +3798,11 @@ export function RabbitProvider({ children }) {
       try { await restoreMemberships(opts.restoreItems); } catch (err) {
         console.warn('[rabbit] scene restored but a shot-list membership was not:', err?.message || err);
       }
-      await restoreTaskLinks('scene_id', finalRow.id, opts.restoreTaskLinks);
+      // FX2 (0096): the task items the delete took come back first; where
+      // the backend keeps items they ARE the tasks' links, so the old
+      // single-column restore would only re-write what they already say.
+      if (opts.restoreTaskItems) await restoreItemRows(opts.restoreTaskItems);
+      if (!taskItemsOnRef.current) await restoreTaskLinks('scene_id', finalRow.id, opts.restoreTaskLinks);
     } else {
       try {
         listId = await addNewEntityToList('scene', finalRow, opts);
@@ -3247,6 +3861,11 @@ export function RabbitProvider({ children }) {
     const childIds = new Set(childShots.map(s => s.id));
     const items = bundleRef.current.shotListItems || [];
     const tasks = bundleRef.current.tasks || [];
+    // FX2 (0096): the scene's and its shots' task items go with them (the
+    // CASCADE; the Local Server's sweep); the undo puts them back.
+    const namesGone = (i) => (i.entity_type === 'scene' && i.entity_id === id)
+      || (i.entity_type === 'shot' && childIds.has(i.entity_id));
+    const taskItemsGone = (bundleRef.current.taskItems || []).filter(namesGone).map(i => ({ ...i }));
     const sceneItems = items.filter(i => i.scene_id === id).map(i => ({ ...i }));
     const sceneTaskIds = tasks.filter(t => t.scene_id === id).map(t => t.id);
     const shotRestore = childShots.map(sh => ({
@@ -3260,6 +3879,7 @@ export function RabbitProvider({ children }) {
         scenes: prev.scenes.filter(s => s.id !== id),
         shots: prev.shots.filter(s => !childIds.has(s.id)),
         shotListItems: (prev.shotListItems || []).filter(i => i.scene_id !== id && !childIds.has(i.shot_id)),
+        taskItems: (prev.taskItems || []).filter(i => !namesGone(i)),
         tasks: prev.tasks.map(t => {
           if (t.scene_id !== id && !childIds.has(t.shot_id)) return t;
           return {
@@ -3274,8 +3894,14 @@ export function RabbitProvider({ children }) {
     if (oldScene) {
       pushHistory({
         undoOps: [
-          () => mutationsRef.current.addScene(oldScene, { restoreItems: sceneItems, restoreTaskLinks: sceneTaskIds }),
-          ...shotRestore.map(r => () => mutationsRef.current.addShot(r.shot, { restoreItems: r.items, restoreTaskLinks: r.taskIds })),
+          () => mutationsRef.current.addScene(oldScene, {
+            restoreItems: sceneItems, restoreTaskLinks: sceneTaskIds,
+            restoreTaskItems: taskItemsGone.filter(i => i.entity_type === 'scene'),
+          }),
+          ...shotRestore.map(r => () => mutationsRef.current.addShot(r.shot, {
+            restoreItems: r.items, restoreTaskLinks: r.taskIds,
+            restoreTaskItems: taskItemsGone.filter(i => i.entity_type === 'shot' && i.entity_id === r.shot.id),
+          })),
         ],
         redoOps: [() => mutationsRef.current.deleteScene(id)],
       });
@@ -3317,7 +3943,9 @@ export function RabbitProvider({ children }) {
       try { await restoreMemberships(opts.restoreItems); } catch (err) {
         console.warn('[rabbit] shot restored but a shot-list membership was not:', err?.message || err);
       }
-      await restoreTaskLinks('shot_id', finalRow.id, opts.restoreTaskLinks);
+      // FX2 (0096): as addScene — the items first, and they carry the links.
+      if (opts.restoreTaskItems) await restoreItemRows(opts.restoreTaskItems);
+      if (!taskItemsOnRef.current) await restoreTaskLinks('shot_id', finalRow.id, opts.restoreTaskLinks);
     } else {
       try {
         listId = await addNewEntityToList('shot', finalRow, opts);
@@ -3367,18 +3995,31 @@ export function RabbitProvider({ children }) {
     const oldShot = bundleRef.current.shots.find(s => s.id === id);
     const removedItems = (bundleRef.current.shotListItems || []).filter(i => i.shot_id === id).map(i => ({ ...i }));
     const linkedTaskIds = (bundleRef.current.tasks || []).filter(t => t.shot_id === id).map(t => t.id);
+    // FX2 (0096): the shot's task items go with it; the undo puts them back.
+    const taskItemsGone = (bundleRef.current.taskItems || [])
+      .filter(i => i.entity_type === 'shot' && i.entity_id === id).map(i => ({ ...i }));
+    // BC2 (BC1's Deferred): the shot's TAKES, before the delete. On the
+    // cloud they go with the shot (0091's shot_takes_shot_fk CASCADE); the
+    // Local Server keeps them as orphans. The undo puts them back through
+    // replaceShotTakes after the shot — exact on every backend, as
+    // removeBinFiles' undo does for a clip's takes.
+    const takesBefore = (bundleRef.current.shotTakes || []).filter(t => t.shot_id === id).map(t => ({ ...t }));
     const result = await optimistic(
       prev => ({
         ...prev,
         shots: prev.shots.filter(s => s.id !== id),
         shotListItems: (prev.shotListItems || []).filter(i => i.shot_id !== id),
         tasks: prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
+        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'shot' && i.entity_id === id)),
       }),
       () => adapterRef.current.deleteShot(id, activeProjectId),
     );
     if (oldShot) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds })],
+        undoOps: [async () => {
+          await mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds, restoreTaskItems: taskItemsGone });
+          if (takesBefore.length) await mutationsRef.current.replaceShotTakes([id], takesBefore);
+        }],
         redoOps: [() => mutationsRef.current.deleteShot(id)],
       });
     }
@@ -3441,13 +4082,23 @@ export function RabbitProvider({ children }) {
 
   const deleteLevel = useCallback(async (id) => {
     const oldLevel = bundleRef.current.levels.find(l => l.id === id);
+    // FX2 (0096): the level's task items go with it; the undo puts them back.
+    const taskItemsGone = (bundleRef.current.taskItems || [])
+      .filter(i => i.entity_type === 'level' && i.entity_id === id).map(i => ({ ...i }));
     const result = await optimistic(
-      prev => ({ ...prev, levels: prev.levels.filter(l => l.id !== id) }),
+      prev => ({
+        ...prev,
+        levels: prev.levels.filter(l => l.id !== id),
+        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'level' && i.entity_id === id)),
+      }),
       () => adapterRef.current.deleteLevel(id, activeProjectId),
     );
     if (oldLevel) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addLevel(oldLevel)],
+        undoOps: [async () => {
+          await mutationsRef.current.addLevel(oldLevel);
+          if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
+        }],
         redoOps: [() => mutationsRef.current.deleteLevel(id)],
       });
     }
@@ -3510,13 +4161,23 @@ export function RabbitProvider({ children }) {
 
   const deleteExperience = useCallback(async (id) => {
     const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
+    // FX2 (0096): the experience's task items go with it; the undo puts them back.
+    const taskItemsGone = (bundleRef.current.taskItems || [])
+      .filter(i => i.entity_type === 'experience' && i.entity_id === id).map(i => ({ ...i }));
     const result = await optimistic(
-      prev => ({ ...prev, experiences: prev.experiences.filter(e => e.id !== id) }),
+      prev => ({
+        ...prev,
+        experiences: prev.experiences.filter(e => e.id !== id),
+        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'experience' && i.entity_id === id)),
+      }),
       () => adapterRef.current.deleteExperience(id, activeProjectId),
     );
     if (oldExperience) {
       pushHistory({
-        undoOps: [() => mutationsRef.current.addExperience(oldExperience)],
+        undoOps: [async () => {
+          await mutationsRef.current.addExperience(oldExperience);
+          if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
+        }],
         redoOps: [() => mutationsRef.current.deleteExperience(id)],
       });
     }
@@ -3765,7 +4426,8 @@ export function RabbitProvider({ children }) {
 
   // ── Tasks ───────────────────────────────────────────────
   // See addPhase — same adapter-first pattern.
-  const addTask = useCallback(async (task) => {
+  // FX2: addTaskRow writes the task row as given; addTask (below) is the verb.
+  const addTaskRow = useCallback(async (task) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId)    throw new Error('no project');
     const row = {
@@ -3811,7 +4473,51 @@ export function RabbitProvider({ children }) {
     return finalRow;
   }, [activeProjectId]);
 
-  const updateTask = useCallback(async (id, patch) => {
+  // FX2 (0096): where the backend keeps a task's items, a new task's single
+  // links (asset_id, scene_id, shot_id, level_id, experience_id — every
+  // creator still sends them) become its first items: the row is written
+  // without them, then one item per link, one undo step for all of it. The
+  // backend sets the row's columns from the items; ctx.tasks reads them from
+  // the items at once. Without items (a cloud before 0096, Drive), the row
+  // carries them as before. Answers the row with the links it was given.
+  const addTask = useCallback(async (task) => {
+    if (!taskItemsOnRef.current || !task || typeof task !== 'object') return addTaskRow(task);
+    const links = linkFieldsIn(task);
+    const wanted = Object.keys(links).filter(f => links[f] != null && links[f] !== '');
+    if (wanted.length === 0) return addTaskRow(withoutLinkFields(task));
+    return runBatch(async () => {
+      const batch = historyRef.current.batch;
+      const mark = batch ? batch.entries.length : 0;
+      const created = await addTaskRow(withoutLinkFields(task));
+      try {
+        for (const f of wanted) {
+          await mutationsRef.current.addTaskItem({
+            task_id: created.id, entity_type: FIELD_KIND[f], entity_id: links[f], position: 0,
+          });
+        }
+      } catch (err) {
+        // Review round 2 (R2-4): a link the backend refused takes the new
+        // task back out, so the caller's "failed" is true (the agent's retry
+        // makes no second task) — and no undo step is left for it.
+        if (batch && historyRef.current.batch === batch) batch.entries.length = mark;
+        try {
+          await adapterRef.current.deleteTask(created.id, created.project_id || activeProjectIdRef.current);
+        } catch (undoErr) {
+          console.warn('[rabbit] a task whose link was refused was not taken back out:', undoErr?.message || undoErr);
+        }
+        setBundle(prev => ({
+          ...prev,
+          tasks: (prev.tasks || []).filter(t => t.id !== created.id),
+          taskItems: (prev.taskItems || []).filter(i => i.task_id !== created.id),
+        }));
+        throw err;
+      }
+      return { ...created, ...links };
+    });
+  }, [addTaskRow, runBatch]);
+
+  // FX2: updateTaskFields writes the task row's fields; updateTask (below) is the verb.
+  const updateTaskFields = useCallback(async (id, patch) => {
     const visit = projectVisitRef.current;
     const oldTask = bundleRef.current.tasks.find(t => t.id === id);
     const oldValues = {};
@@ -3825,9 +4531,17 @@ export function RabbitProvider({ children }) {
     try {
       result = await optimistic(
         prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
-        () => typeof adapterRef.current.patchTask === 'function'
-          ? adapterRef.current.patchTask(id, patch)
-          : adapterRef.current.upsertTask({ ...bundleRef.current.tasks.find(t => t.id === id), ...patch, id }),
+        () => {
+          if (typeof adapterRef.current.patchTask === 'function') return adapterRef.current.patchTask(id, patch);
+          // A backend that takes the whole row (the Local Server) merges it
+          // into the stored one. FX2 review round 1 (R1-1): with items on, the
+          // row goes without its single links, so the backend's own (kept by
+          // its item writes) stand; a link changes only by an item write
+          // (updateTask), never by an edit of another field.
+          const stored = bundleRef.current.tasks.find(t => t.id === id);
+          const base = taskItemsOnRef.current && stored ? withoutLinkFields(stored) : stored;
+          return adapterRef.current.upsertTask({ ...base, ...patch, id });
+        },
       );
     } finally {
       clearPendingFields('tasks', id, fields);
@@ -3841,9 +4555,60 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, notePendingFields, clearPendingFields]);
 
+  // FX2 (0096): a single link written through updateTask — the Tasks table's
+  // asset cell, a kanban drag, the Timeline's editor, a bid version's open,
+  // the agent — is 0096 §7b's rule, run as item writes so every backend gets
+  // it (the cloud has no level or experience column) and Ctrl+Z takes back
+  // exactly it: a value the task already has moves first (nothing removed);
+  // a new value replaces the main item; a cleared one removes it (the next
+  // becomes main). Fields that already say the main item change nothing
+  // (the Timeline's editor re-sends all five on every save). One undo step.
+  const updateTask = useCallback(async (id, patch) => {
+    if (!taskItemsOnRef.current || !patch || typeof patch !== 'object'
+        || !LINK_FIELDS.some(f => Object.prototype.hasOwnProperty.call(patch, f))) {
+      return updateTaskFields(id, patch);
+    }
+    const links = linkFieldsIn(patch);
+    const rest = withoutLinkFields(patch);
+    const current = linkFieldsFromItems(itemsOfTask(bundleRef.current.taskItems || [], id));
+    const norm = (v) => (v == null || v === '' ? '' : String(v));
+    const changed = Object.keys(links).filter(f => norm(links[f]) !== norm(current[f]));
+    if (changed.length === 0) {
+      if (Object.keys(rest).length) return updateTaskFields(id, rest);
+      return (bundleRef.current.tasks || []).find(t => t.id === id);
+    }
+    // Review round 2 (R2-3): a write that would make a row the project no
+    // longer shows the task's main one (the Tasks table's Asset cell set to
+    // none over [A, B-in-the-trash]; the Timeline's editor; the agent) is
+    // refused here, in words, BEFORE any field is written — the cloud refuses
+    // it anyway (a task whose main asset is trashed cannot be seen), and the
+    // editor's other fields went first.
+    for (const f of changed) {
+      const kind = FIELD_KIND[f];
+      if (!linkLandsOnGone(bundleRef.current, id, kind, links[f])) continue;
+      const title = (bundleRef.current.tasks || []).find(t => t.id === id)?.title || 'This task';
+      const word = KIND_LABEL[kind].toLowerCase();
+      const msg = links[f] == null || links[f] === ''
+        ? `“${title}”: its next ${word} is no longer in the project, so it cannot become the task's main ${word}. Remove that ${word} from the task's items first, or restore it.`
+        : `“${title}”: that ${word} is no longer in the project, so it cannot become the task's main ${word}.`;
+      setError(msg);
+      throw new Error(msg);
+    }
+    return runBatch(async () => {
+      let result;
+      if (Object.keys(rest).length) result = await updateTaskFields(id, rest);
+      for (const f of changed) await applyLinkWrite(id, FIELD_KIND[f], links[f]);
+      return result ?? (bundleRef.current.tasks || []).find(t => t.id === id);
+    });
+  }, [updateTaskFields, runBatch]);
+
   const deleteTask = useCallback(async (id) => {
     const visit = projectVisitRef.current;
     const oldTask = bundleRef.current.tasks.find(t => t.id === id);
+    // FX2 (0096): the task's items. A soft delete keeps them (hidden with
+    // the task); where the delete removes the row (the Local Server) they go
+    // with it, and the re-insert undo puts them back.
+    const oldItems = itemsOfTask(bundleRef.current.taskItems || [], id).map(i => ({ ...i }));
     // deleteTask also strips matching dependency rows. Capture them
     // for undo so the dependency graph restores too.
     const removedDeps = bundleRef.current.dependencies.filter(
@@ -3872,9 +4637,13 @@ export function RabbitProvider({ children }) {
                 tasks:        [...prev.tasks, oldTask],
                 dependencies: [...prev.dependencies, ...removedDeps],
               }));
+              await refreshItemsOfTasks([id]);
             }]
           : [
-              () => mutationsRef.current.addTask(oldTask),
+              async () => {
+                await mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(oldTask) : oldTask);
+                if (taskItemsOnRef.current) await restoreItemRows(oldItems);
+              },
               ...removedDeps.map(d => async () => {
                 // Re-insert the dependency row directly (preserves id +
                 // kind), bypassing the link* helpers' fresh-uuid path.
@@ -3903,6 +4672,8 @@ export function RabbitProvider({ children }) {
     const removedDeps = bundleRef.current.dependencies.filter(
       d => idSet.has(d.predecessor_id) || idSet.has(d.successor_id),
     );
+    // FX2 (0096): as deleteTask — the items, for the re-insert undo.
+    const removedItems = (bundleRef.current.taskItems || []).filter(i => idSet.has(i.task_id)).map(i => ({ ...i }));
     if (removedTasks.length === 0) return;
     const dropping = (gone) => (prev) => ({
       ...prev,
@@ -3925,9 +4696,13 @@ export function RabbitProvider({ children }) {
                 tasks:        [...prev.tasks, ...rows],
                 dependencies: [...prev.dependencies, ...deps],
               }));
+              await refreshItemsOfTasks(rows.map(t => t.id));
             }]
           : [
-              ...rows.slice().reverse().map(t => () => mutationsRef.current.addTask(t)),
+              ...rows.slice().reverse().map(t => async () => {
+                await mutationsRef.current.addTask(taskItemsOnRef.current ? withoutLinkFields(t) : t);
+                if (taskItemsOnRef.current) await restoreItemRows(itemsOfTask(removedItems, t.id));
+              }),
               ...deps.map(d => async () => {
                 await optimistic(
                   prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
@@ -4115,6 +4890,185 @@ export function RabbitProvider({ children }) {
     }
     return result;
   }, [optimistic, activeProjectId]);
+
+  // ── A task's items (FX2, migration 0096) ─────────────────
+  // The assets, scenes, shots, levels and experiences a task is about — NOT
+  // the URL links above. Each kind's first item (position, created_at, id)
+  // is the task's MAIN item of that kind, and ctx.tasks reads every task's
+  // five single fields from its items (withItemLinks), so the Timeline, the
+  // Budget and every reader that groups or sums by one link see the main
+  // item, on every backend. The backends keep their own stored columns in
+  // step (0096's triggers; electron/rabbitTaskItems.cjs; the fixtures).
+  function requireTaskItemsOn() {
+    if (taskItemsOnRef.current) return;
+    const err = new Error("A task's items are not on this database yet (migration 0096). The task keeps its one asset, scene and shot until they are.");
+    err.code = 'task_items_unavailable';
+    setError(err.message);
+    throw err;
+  }
+
+  // The stored row takes the optimistic one's place: the backend answers the
+  // row it holds, which is a collaborator's when they added the same item
+  // first (under another id).
+  // Review round 2 (R2-1): a task row the backend brought back outside a
+  // load — a bid version's open reviving it (the backend re-made or un-hid
+  // its items: 0096 §7c's seed, the restore), an undo restoring it from the
+  // trash — arrives with no items in this bundle. Read the project's items
+  // and take these tasks' from the answer, so the Items table, ctx.tasks and
+  // the next edit see them. A failed read leaves the rows' own links standing.
+  async function refreshItemsOfTasks(taskIds) {
+    if (!taskItemsOnRef.current) return;
+    const ids = new Set((taskIds || []).filter(id => id != null).map(String));
+    if (ids.size === 0) return;
+    const a = adapterRef.current;
+    const pid = activeProjectIdRef.current;
+    if (!pid || typeof a?.listTaskItems !== 'function') return;
+    const visit = projectVisitRef.current;
+    let rows;
+    try {
+      rows = await a.listTaskItems(pid);
+    } catch (err) {
+      console.warn('[rabbit] the items of a task brought back were not read:', err?.message || err);
+      return;
+    }
+    if (projectVisitRef.current !== visit || activeProjectIdRef.current !== pid) return;
+    const theirs = (Array.isArray(rows) ? rows : []).filter(i => i && ids.has(String(i.task_id)));
+    const merge = (b) => ({ ...b, taskItems: [...(b.taskItems || []).filter(i => !ids.has(String(i.task_id))), ...theirs] });
+    setBundle(merge);
+    bundleRef.current = linksInStep(bundleRef.current, merge(bundleRef.current), true);
+  }
+
+  function settleItemRow(localId, stored) {
+    if (!stored || !stored.id) return;
+    setBundle(prev => {
+      const items = (prev.taskItems || []).filter(i => i.id === stored.id || (i.id !== localId
+        && !(i.task_id === stored.task_id && i.entity_type === stored.entity_type && String(i.entity_id) === String(stored.entity_id))));
+      const next = items.some(i => i.id === stored.id)
+        ? items.map(i => (i.id === stored.id ? { ...i, ...stored } : i))
+        : [...items, stored];
+      return { ...prev, taskItems: next };
+    });
+  }
+
+  // Undo's primitive: put these exact rows back (same id, position and
+  // created_at), whatever the bundle says — a delete on the Local Server took
+  // them on the server while this window kept its copy. Idempotent (the
+  // backend answers a row it already has). No history.
+  async function restoreItemRows(rows) {
+    for (const row of rows || []) {
+      if (!row || !row.id) continue;
+      setBundle(prev => ((prev.taskItems || []).some(i => i.id === row.id)
+        ? prev : { ...prev, taskItems: [...(prev.taskItems || []), row] }));
+      try {
+        settleItemRow(row.id, await adapterRef.current.addTaskItem(row));
+      } catch (err) {
+        setBundle(prev => ({ ...prev, taskItems: (prev.taskItems || []).filter(i => i.id !== row.id) }));
+        console.warn('[rabbit] an item of a restored task was not put back:', err?.message || err);
+      }
+    }
+  }
+
+  const addTaskItem = useCallback(async (item) => {
+    requireTaskItemsOn();
+    const problem = itemShapeProblem(item);
+    if (problem) { setError(problem); throw new Error(problem); }
+    const visit = projectVisitRef.current;
+    const items = bundleRef.current.taskItems || [];
+    const existing = items.find(i => i.task_id === item.task_id && i.entity_type === item.entity_type
+      && String(i.entity_id) === String(item.entity_id));
+    if (existing) return existing;
+    const row = {
+      id:          item.id || uuidv4(),
+      task_id:     item.task_id,
+      project_id:  activeProjectId,
+      entity_type: item.entity_type,
+      entity_id:   item.entity_id,
+      position:    Number.isInteger(item.position) ? item.position : nextPosition(items, item.task_id, item.entity_type),
+      created_at:  item.created_at || new Date().toISOString(),
+    };
+    const stored = await optimistic(
+      prev => ({ ...prev, taskItems: [...(prev.taskItems || []), row] }),
+      () => adapterRef.current.addTaskItem(row),
+    );
+    const finalRow = stored ? { ...row, ...stored } : row;
+    if (projectVisitRef.current !== visit) return finalRow;
+    settleItemRow(row.id, stored);
+    pushHistory({
+      undoOps: [() => mutationsRef.current.removeTaskItem(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addTaskItem(finalRow)],
+    }, visit);
+    return finalRow;
+  }, [optimistic, activeProjectId]);
+
+  const removeTaskItem = useCallback(async (itemId) => {
+    requireTaskItemsOn();
+    const visit = projectVisitRef.current;
+    const oldRow = (bundleRef.current.taskItems || []).find(i => i.id === itemId);
+    if (!oldRow) return;
+    await optimistic(
+      prev => ({ ...prev, taskItems: (prev.taskItems || []).filter(i => i.id !== itemId) }),
+      () => adapterRef.current.deleteTaskItem(itemId, activeProjectId),
+    );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.addTaskItem(oldRow)],
+      redoOps: [() => mutationsRef.current.removeTaskItem(oldRow.id)],
+    }, visit);
+  }, [optimistic, activeProjectId]);
+
+  // One kind of one task: the named ids first in that order, every other
+  // item of the kind after in its order, positions dense from 0 (0096 §6).
+  const reorderTaskItems = useCallback(async (taskId, kind, orderedIds) => {
+    requireTaskItemsOn();
+    if (!isItemKind(kind)) {
+      const msg = `${kind} is not a kind of item (asset, scene, shot, level, experience)`;
+      setError(msg);
+      throw new Error(msg);
+    }
+    const visit = projectVisitRef.current;
+    const before = itemsOfTask(bundleRef.current.taskItems || [], taskId, kind).map(i => i.id);
+    if (planReorder(bundleRef.current.taskItems || [], taskId, kind, orderedIds).length === 0) return [];
+    const result = await optimistic(
+      prev => ({
+        ...prev,
+        taskItems: applyPositions(prev.taskItems || [], planReorder(prev.taskItems || [], taskId, kind, orderedIds)),
+      }),
+      () => adapterRef.current.reorderTaskItems(activeProjectId, taskId, kind, orderedIds),
+    );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.reorderTaskItems(taskId, kind, before)],
+      redoOps: [() => mutationsRef.current.reorderTaskItems(taskId, kind, orderedIds)],
+    }, visit);
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // Review round 2 (R2-3): would this single-field write leave a row the
+  // project no longer shows (the cloud: in the trash) as the task's main one?
+  function linkLandsOnGone(b, taskId, kind, value) {
+    const lands = mainAfterLinkWrite(b?.taskItems || [], taskId, kind, value);
+    if (lands == null) return false;
+    const rows = { asset: b?.assets, scene: b?.scenes, shot: b?.shots, level: b?.levels, experience: b?.experiences }[kind];
+    return !(rows || []).some(r => r && String(r.id) === String(lands));
+  }
+
+  // 0096 §7b for one kind, as item writes (updateTask's single links). The
+  // order the rule asks for is checked against the plan, never against
+  // bundleRef (which catches up only after a render).
+  async function applyLinkWrite(taskId, kind, value) {
+    const items = bundleRef.current.taskItems || [];
+    const main = itemsOfTask(items, taskId, kind)[0] || null;
+    const make = (base) => ({ id: uuidv4(), created_at: new Date().toISOString(), ...base });
+    const plan = planSingleFieldWrite(items, taskId, kind, value, main ? main.entity_id : null, make);
+    for (const r of plan.remove) await mutationsRef.current.removeTaskItem(r.id);
+    if (plan.insert) await mutationsRef.current.addTaskItem(plan.insert);
+    if (plan.order) {
+      const gone = new Set(plan.remove.map(r => r.id));
+      const after = items.filter(i => !gone.has(i.id)).concat(plan.insert ? [plan.insert] : []);
+      const first = itemsOfTask(after, taskId, kind)[0] || null;
+      if (!first || first.id !== plan.order[0]) {
+        await mutationsRef.current.reorderTaskItems(taskId, kind, plan.order);
+      }
+    }
+  }
 
   // ── Team assignments (project-scoped) ────────────────────
   // Each assignment: { id, project_id, member_id, role: 'member' | 'manager' | 'reviewer' }
@@ -4382,63 +5336,283 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, managedFiles: files }));
   }, [activeProjectId]);
 
-  // ── Bins (demo 2026-09-11, docs/BINS_DESIGN.md) ─────────────
+  // ── Bins (demo 2026-09-11, docs/BINS_DESIGN.md; on the cloud since BC1) ──
   //
-  // Local Server only, like managed files: the adapter methods exist on that
-  // adapter and nowhere else, so every callback feature-detects and throws a
-  // sentence rather than a TypeError. State lives in the bundle (bins,
-  // binFiles, binRoots) so project switches and realtime refetches reset it
-  // the same way as everything else. History entries call through
-  // mutationsRef so undo always reaches the latest mutator; pushHistory is
-  // suspended while an undo runs, so the mutators may push unconditionally.
+  // Every backend that can hold bins — the Local Server, the cloud (0091),
+  // the dev fixtures — exposes the same method names; Google Drive has none,
+  // so every callback feature-detects and throws a sentence rather than a
+  // TypeError. What a backend CANNOT do (the cloud cannot pick files with an
+  // OS dialog, read a file's columns, stream its bytes or relink a drive) it
+  // says through ONE capability object, `binsCapabilities()`, kept on
+  // binsInfo.capabilities; the adapter answers `not_supported_here` for
+  // those, and the mutators here stand down where a capability is absent
+  // (no probe pass on the cloud). State lives in the bundle (bins, binFiles,
+  // binRoots, binLocations, shotTakes) so project switches and realtime
+  // refetches reset it the same way as everything else. History entries
+  // call through mutationsRef so undo always reaches the latest mutator;
+  // pushHistory is suspended while an undo runs, so the mutators may push
+  // unconditionally.
+  // BC2: through binsBackend() — the desktop-signed-in composite when this
+  // computer's file process answers on the cloud, else the adapter itself.
   const binsAdapter = useCallback(() => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId) throw new Error('no project');
     if (typeof adapterRef.current.listBins !== 'function') {
-      throw new Error('Bins require the Local Server backend');
+      throw new Error('Bins are not available on this backend');
     }
-    return adapterRef.current;
-  }, [activeProjectId]);
+    return binsBackend();
+  }, [activeProjectId, binsBackend]);
+  // The company's footage locations and the switch need no open project:
+  // Settings, Storage manages them with or without one (BC2, item 2).
+  const locationsAdapter = useCallback(() => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (typeof adapterRef.current.listBins !== 'function') {
+      throw new Error('Bins are not available on this backend');
+    }
+    return binsBackend();
+  }, [binsBackend]);
 
   // `posterRev` counts posters the renderer's own probe posted, so every
   // <img> built from binFileThumbnailUrl(id, rev) re-requests a poster that
   // arrived after it first failed (BinPoster remembers WHICH src failed).
-  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0 });
+  // `capabilities` is the backend's object (above); `remoteViewing` is the
+  // company's switch (B5a) where the backend has one, else null.
+  // BC2: `locations` is what THIS computer's desktop process answered when
+  // the company's locations were registered — [{ id, reachable, root,
+  // local_path, local_path_source?, local_path_reason?, status }] — empty
+  // where there is no desktop composite.
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0, capabilities: null, remoteViewing: null, locations: [] });
+
+  // ── BC2: is the desktop's file process reachable? ──
+  // On the cloud inside the desktop app, the cloud-bins ping decides. Off
+  // the cloud (or on leaving it), this computer is told to forget the
+  // company's addresses: an empty registration replaces the list.
+  useEffect(() => {
+    let cancelled = false;
+    const inDesktop = !!globalThis.window?.electronAPI?.rabbit;
+    if (adapterMode !== 'supabase' || !inDesktop) {
+      const had = desktopBinFilesRef.current;
+      desktopBinFilesRef.current = null;
+      setDesktopBinFiles(null);
+      if (had) had.files.registerCloudBinLocations([]).catch(() => {});
+      return undefined;
+    }
+    const files = localServerAdapter();
+    Promise.resolve().then(() => files.cloudBinsPing()).then((ping) => {
+      if (cancelled || !ping?.ok) return;
+      const d = { files, ping };
+      desktopBinFilesRef.current = d;
+      setDesktopBinFiles(d);
+    }).catch(() => { /* no desktop process: the cloud's own answers stand */ });
+    return () => { cancelled = true; };
+  }, [adapterMode]);
+
+  // What this computer can reach, asked again for the given rows (or all of
+  // them), debounced. A row the desktop does not answer for reads "not on
+  // this computer". Dropped when the project changed meanwhile.
+  const binResolveTimerRef = useRef(null);
+  const binResolvePendingRef = useRef(null); // null = nothing pending; 'all' or a Set of ids
+  // Review round 1, finding 7: answers can land out of order (a resolve
+  // waiting on a slow root, then a quick one after "Where is it on this
+  // computer?"). Each row keeps the number of the latest question asked for
+  // it; an older answer for it is dropped.
+  // (One entry per clip resolved this session — bounded by the clips seen;
+  // review round 2 noted it, a known limit.)
+  const binResolveSeqRef = useRef({ n: 0, byId: new Map() });
+  // Finding 4: a clip on a location this computer was never told of (a
+  // teammate named it since; locations are not broadcast) — the company's
+  // list is read again, at most every ten seconds, and its key change
+  // registers it and resolves its clips. Reached through a ref: the reader
+  // is defined in the bins block below.
+  const refreshBinLocationsRef = useRef(null);
+  const binLocationsRereadAtRef = useRef(0);
+  // Location ids already read again once and still unknown: not read again
+  // (a location gone from the company's list would otherwise poll forever).
+  const binLocationsRereadForRef = useRef(new Set());
+  const resolveBinOnline = useCallback(async (ids = null) => {
+    const a = binsBackend();
+    if (typeof a?.resolveBinFiles !== 'function') return;
+    const pid = activeProjectIdRef.current;
+    const want = ids ? new Set(ids) : null;
+    const rows = (bundleRef.current.binFiles || []).filter(f => f.location_id && (!want || want.has(f.id)));
+    if (!rows.length) return;
+    const seq = binResolveSeqRef.current;
+    const n = ++seq.n;
+    for (const r of rows) seq.byId.set(r.id, n);
+    let map;
+    try { map = await a.resolveBinFiles(rows); } catch { return; }
+    if (activeProjectIdRef.current !== pid) return;
+    const asked = new Set(rows.filter(r => seq.byId.get(r.id) === n).map(r => r.id));
+    if (asked.size) {
+      setBundle(prev => ({
+        ...prev,
+        binFiles: (prev.binFiles || []).map(f => (asked.has(f.id) ? { ...f, online: map.get(f.id)?.online === true } : f)),
+      }));
+    }
+    // Finding 8: what resolve learned about a LOCATION reaches the notices
+    // and the relink dialog, not only the rows — a server that went down
+    // after registration reads "not reachable", never "the file is not at
+    // its path" (which would counsel removing the clip).
+    const byLoc = new Map();
+    for (const r of rows) {
+      const ans = asked.has(r.id) ? map.get(r.id) : null;
+      if (!ans) continue;
+      const cur = byLoc.get(r.location_id) || {};
+      if (ans.online) cur.online = true;
+      if (ans.reason === 'location_unreachable') cur.unreachable = true;
+      if (ans.reason === 'not_connected') cur.notConnected = true;
+      byLoc.set(r.location_id, cur);
+    }
+    if (byLoc.size) {
+      setBinsInfo(i => ({
+        ...i,
+        locations: (i.locations || []).map(st => {
+          const b = st && byLoc.get(st.id);
+          if (!b || st.status === 'refused') return st;
+          if (b.online) return st.reachable === true && st.connected !== false ? st : { ...st, reachable: true, connected: true };
+          if (b.notConnected) return st.connected === false ? st : { ...st, connected: false, reachable: false };
+          if (b.unreachable) return st.reachable === false ? st : { ...st, reachable: false };
+          return st;
+        }),
+      }));
+    }
+    const known = new Set((bundleRef.current.binLocations || []).map(l => l.id));
+    const rereadFor = binLocationsRereadForRef.current;
+    const unknownIds = [...new Set(rows.filter(r => map.get(r.id)?.reason === 'unknown_location' || !known.has(r.location_id)).map(r => r.location_id))]
+      .filter(id => id && !rereadFor.has(id));
+    if (unknownIds.length && Date.now() - binLocationsRereadAtRef.current > 10000) {
+      binLocationsRereadAtRef.current = Date.now();
+      for (const id of unknownIds) rereadFor.add(id);
+      Promise.resolve(refreshBinLocationsRef.current?.()).catch(() => {});
+    }
+  }, [binsBackend]);
+  scheduleBinResolveRef.current = (ids = null) => {
+    if (!desktopBinFilesRef.current) return;
+    const cur = binResolvePendingRef.current;
+    if (!ids || cur === 'all') binResolvePendingRef.current = 'all';
+    else binResolvePendingRef.current = new Set([...(cur || []), ...ids]);
+    clearTimeout(binResolveTimerRef.current);
+    binResolveTimerRef.current = setTimeout(() => {
+      const p = binResolvePendingRef.current;
+      binResolvePendingRef.current = null;
+      resolveBinOnline(p === 'all' ? null : [...(p || [])]).catch(() => {});
+    }, 250);
+  };
+  useEffect(() => () => clearTimeout(binResolveTimerRef.current), []);
+
+  // ── BC2: register the company's locations with this computer ──
+  // On sign-in (the composite appears) and on every change of the company's
+  // locations (an add, a re-address, a removal), the list is registered with
+  // the desktop process — only what the cloud returned, never a typed path —
+  // and every clip is resolved again. refreshBins registers through the
+  // composite's listBins itself; the key it registered is remembered so the
+  // same list is not sent twice for one load.
+  const binLocationsKey = (bundle.binLocations || []).map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+  const registeredKeyRef = useRef(null);
+  // `explicit`: the list as a mutator just made it (state lands a render
+  // later than the mutator's next line).
+  const registerBinLocationsNow = useCallback(async (explicit = null) => {
+    const a = binsBackend();
+    if (typeof a?.registerBinLocations !== 'function') return [];
+    const list = explicit || bundleRef.current.binLocations || [];
+    const status = await a.registerBinLocations(list);
+    registeredKeyRef.current = list.map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+    setBinsInfo(i => ({ ...i, locations: status }));
+    return status;
+  }, [binsBackend]);
+  useEffect(() => {
+    if (!desktopBinFiles) { registeredKeyRef.current = null; return; }
+    // The composite appeared after a list was read with the cloud's own
+    // answers: the capability object the tab reads is the composite's now.
+    const caps = binsCapabilitiesOf(binsBackend());
+    if (binsCapsRef.current && binsCapsRef.current.backend !== caps.backend) {
+      binsCapsRef.current = caps;
+      setBinsInfo(i => ({ ...i, capabilities: caps, ffmpeg: desktopBinFiles.ping?.ffmpeg === true }));
+    }
+    if (registeredKeyRef.current === binLocationsKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await registerBinLocationsNow();
+        if (!cancelled) await resolveBinOnline(null);
+      } catch (e) {
+        if (!cancelled) setBinsInfo(i => ({ ...i, notice: { text: `This computer could not be told where the company's footage is: ${e?.message || e}`, kind: 'warn', at: Date.now() } }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [desktopBinFiles, binLocationsKey, registerBinLocationsNow, resolveBinOnline, binsBackend]);
   // The renderer's own probe and the once-per-project pass are defined below
   // (they need the URL and PATCH helpers); refreshBins and probeBinFile reach
   // them through refs — the mutationsRef pattern.
   const browserProbeRef = useRef(null);
   const browserProbeSweepRef = useRef(null);
   const browserProbeSweptRef = useRef(null);
+  // BC2: the switch-gated poster upload (defined below, beside the poster
+  // helpers); addBinFiles and the renderer's probe reach it through here.
+  const uploadPostersRef = useRef(null);
 
   const mergeRows = (rows, incoming) => {
     const byId = new Map((rows || []).map(r => [r.id, r]));
     for (const r of incoming || []) byId.set(r.id, { ...(byId.get(r.id) || {}), ...r });
     return [...byId.values()];
   };
+  // BC3: a clip row a mutation hands back (a copy, a restore, a patch) carries
+  // no `online` where the backend cannot say what this computer reaches (a
+  // browser): it is "not on this computer" like every other (B3), never
+  // read as reachable for want of the mark (review round 1).
+  const mergeFileRows = (rows, incoming) => mergeRows(rows, binsCapsRef.current?.resolveFiles === false
+    ? (incoming || []).map(r => ({ ...r, online: false }))
+    : incoming);
 
   const refreshBins = useCallback(async () => {
     if (!adapterRef.current || !activeProjectId) return null;
     if (typeof adapterRef.current.listBins !== 'function') return null;
     const projectId = activeProjectId;
-    const data = await adapterRef.current.listBins(projectId);
+    const a = binsBackend();
+    const caps = binsCapabilitiesOf(a);
+    binsCapsRef.current = caps;
+    const data = await a.listBins(projectId);
+    // BC2: the composite registered the company's locations as it listed.
+    if (Array.isArray(data.locationStatus)) {
+      registeredKeyRef.current = (data.binLocations || []).map(l => `${l.id}|${l.unc_path}`).sort().join('\n');
+    }
+    // The company's switch (B5a), where the backend has one. Read beside the
+    // list, never instead of it: a refused read leaves the value unknown.
+    let remoteViewing = null;
+    if (caps.remoteViewingSwitch && typeof a.getRemoteViewingEnabled === 'function') {
+      try { remoteViewing = await a.getRemoteViewingEnabled(projectId); } catch { remoteViewing = null; }
+    }
     // The project may have been switched during the await: nothing is
     // applied and nothing is handed back for a caller to apply either.
     if (activeProjectIdRef.current !== projectId) return null;
+    // A backend that cannot say what this computer can reach (the cloud, in
+    // a browser) answers rows without `online`; they are marked "not on this
+    // computer" here (B3: the clip still shows, with its details, and can be
+    // logged, flagged and assigned — it cannot be played here).
+    const binFiles = caps.resolveFiles === false
+      ? (data.binFiles || []).map(f => ({ ...f, online: false }))
+      : (data.binFiles || []);
     // Live rows AND the orphans (their shot or file is gone): the selectors
     // ignore the orphans; the undo that brings a shot or file back needs them.
-    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
-    setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
+    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles, binRoots: data.binRoots || [], binLocations: data.binLocations || prev.binLocations || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
+    setBinsInfo(i => ({
+      ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId, capabilities: caps, remoteViewing,
+      ...(Array.isArray(data.locationStatus) ? { locations: data.locationStatus } : {}),
+      // The desktop process did not answer: the rows read "not on this
+      // computer" and the tab says why, once.
+      ...(data.filesError ? { notice: { text: `This computer's desktop process did not answer, so no clip can be played here right now: ${data.filesError}`, kind: 'warn', at: Date.now() } } : {}),
+    }));
     // Once per project per session, from HERE and not from a tab: rows left
     // pending (the app closed mid-add) are probed again and rows the server
     // has no decoder for get the renderer's probe, so a take assigned on the
     // Scenes tab has its poster and length without Bins ever being opened.
-    if (browserProbeSweptRef.current !== projectId) {
+    // Not on a backend that cannot read a file's columns: nothing to probe.
+    if (caps.probe && browserProbeSweptRef.current !== projectId) {
       browserProbeSweptRef.current = projectId;
-      Promise.resolve(browserProbeSweepRef.current?.(data.binFiles || [], projectId)).catch(() => {});
+      Promise.resolve(browserProbeSweepRef.current?.(binFiles, projectId)).catch(() => {});
     }
-    return data;
-  }, [activeProjectId]);
+    return { ...data, binFiles };
+  }, [activeProjectId, binsBackend]);
 
   // 🚨 Every mutator below captures the project it was called for and drops
   // its response when the project changed during the await — the refreshBins
@@ -4483,7 +5657,7 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const res = await a.restoreBinFiles(pid, rows);
     if (activeProjectIdRef.current !== pid) return res.restored;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.restored) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.restored) }));
     // The takes of the shots these files serve, as the server presents them
     // now that the files are back.
     applyTakeResponse(res);
@@ -4506,6 +5680,19 @@ export function RabbitProvider({ children }) {
   const deleteBin = useCallback(async (id, { mode = 'remove', target = null } = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
+    // The takes of the clips this bin (and its children) hold, before the
+    // call: on the cloud a removed clip's takes go with it (CASCADE), and the
+    // undo puts them back through replaceShotTakes after the rows.
+    const doomedBins = new Set([id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const b of bundleRef.current.bins || []) {
+        if (b.parent_bin_id && doomedBins.has(b.parent_bin_id) && !doomedBins.has(b.id)) { doomedBins.add(b.id); grew = true; }
+      }
+    }
+    const doomedFiles = new Set((bundleRef.current.binFiles || []).filter(f => doomedBins.has(f.bin_id)).map(f => f.id));
+    const takeShotIds = mode === 'move' ? [] : [...new Set((bundleRef.current.shotTakes || []).filter(t => doomedFiles.has(t.bin_file_id)).map(t => t.shot_id))];
+    const takesBefore = takeShotIds.length ? snapshotTakes(takeShotIds) : [];
     const res = await a.deleteBin(pid, id, { mode, target });
     if (activeProjectIdRef.current !== pid) return res;
     const removedIds = new Set((res.removedBins || []).map(b => b.id));
@@ -4543,6 +5730,7 @@ export function RabbitProvider({ children }) {
           for (const [from, g] of byFrom) await mutationsRef.current.moveBinFiles(g.ids, from, g.orders);
         } else if ((res.removedFiles || []).length) {
           await mutationsRef.current.restoreBinFiles(res.removedFiles);
+          if (takeShotIds.length) await mutationsRef.current.replaceShotTakes(takeShotIds, takesBefore);
         }
       }],
       redoOps: [() => mutationsRef.current.deleteBin(id, { mode, target })],
@@ -4584,7 +5772,7 @@ export function RabbitProvider({ children }) {
     // The project may have been switched during the await (the refreshBins
     // rule): project B must not receive project A's row.
     if (activeProjectIdRef.current !== pid) return row;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [row]) }));
     // No decoder on this machine: the renderer's own probe, right where the
     // verdict lands (after an add, a re-probe, "Read columns again").
     if (needsBrowserProbe(row)) {
@@ -4600,6 +5788,9 @@ export function RabbitProvider({ children }) {
   const probeBinFiles = useCallback(async (ids) => {
     const queue = [...(ids || [])];
     if (!queue.length) return;
+    // A backend that cannot read a file's columns (the cloud): nothing to
+    // probe, and a row must not be marked failed for it.
+    if (!binsCapabilitiesOf(binsBackend()).probe) return;
     setBinsInfo(i => ({ ...i, probing: i.probing + queue.length }));
     const worker = async () => {
       while (queue.length) {
@@ -4619,10 +5810,18 @@ export function RabbitProvider({ children }) {
     await Promise.all([worker(), worker()]);
   }, [probeBinFile]);
 
+  // 🚨 NEVER a file delete on any backend (B10, pinned by binsProvider.test):
+  // this removes ROWS. On the cloud the takes of a removed clip go with it
+  // (0091's CASCADE), so the takes of the shots those clips serve are
+  // snapshotted FIRST and put back by the undo through replaceShotTakes —
+  // exact whatever the backend did (the Local Server keeps them as orphans
+  // and the replace is then a no-op).
   const removeBinFiles = useCallback(async (ids, { quiet = false } = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
     const set = new Set(ids);
+    const takeShotIds = [...new Set((bundleRef.current.shotTakes || []).filter(t => set.has(t.bin_file_id)).map(t => t.shot_id))];
+    const takesBefore = takeShotIds.length ? snapshotTakes(takeShotIds) : [];
     const res = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.filter(f => !set.has(f.id)) }),
       () => a.removeBinFiles(pid, ids),
@@ -4631,7 +5830,10 @@ export function RabbitProvider({ children }) {
     const removed = res.removed || [];
     if (removed.length) {
       const token = pushHistory({
-        undoOps: [() => mutationsRef.current.restoreBinFiles(removed)],
+        undoOps: [async () => {
+          await mutationsRef.current.restoreBinFiles(removed);
+          if (takeShotIds.length) await mutationsRef.current.replaceShotTakes(takeShotIds, takesBefore);
+        }],
         redoOps: [() => mutationsRef.current.removeBinFiles(removed.map(r => r.id), { quiet: true })],
       });
       if (token != null && !quiet) {
@@ -4645,14 +5847,17 @@ export function RabbitProvider({ children }) {
 
   // roots (optional): the folders the batch was picked or dropped from, as
   // prepare reported them; the server records those as the known roots.
-  const addBinFiles = useCallback(async (binId, items, createSubBins = true, roots = null) => {
+  // BC2: `opts.onProgress({ done, total })` while the desktop signed in reads
+  // each clip's columns before the add (the composite); other backends
+  // ignore it.
+  const addBinFiles = useCallback(async (binId, items, createSubBins = true, roots = null, opts = {}) => {
     const a = binsAdapter();
     const pid = activeProjectId;
-    const res = await a.addBinFiles(pid, binId, items, createSubBins, roots);
+    const res = await a.addBinFiles(pid, binId, items, createSubBins, roots, opts);
     if (activeProjectIdRef.current !== pid) return res;
     const created = res.created || [];
     const bins = res.bins || [];
-    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeRows(prev.binFiles, created) }));
+    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeFileRows(prev.binFiles, created) }));
     if (created.length) {
       pushHistory({
         undoOps: [async () => {
@@ -4664,11 +5869,51 @@ export function RabbitProvider({ children }) {
           await mutationsRef.current.restoreBinFiles(created);
         }],
       });
-      // Not awaited: the rows are saved; the columns fill in as they arrive.
-      probeBinFiles(created.filter(r => r.online !== false).map(r => r.id)).catch(() => {});
+      // Not awaited: the rows are saved; the columns fill in as they arrive
+      // (probeBinFiles stands down on a backend that cannot read a file).
+      // Review round 1, finding 5: on the desktop signed in the composite
+      // already read each clip BEFORE the add (its columns are in the row);
+      // only a clip still pending is read again — not a second network probe
+      // and a second write fanned out to every teammate per clip, whose late
+      // answer could also overwrite the poster the upload just stored.
+      const desktopCloudAdd = binsCapabilitiesOf(a).backend === 'desktop_cloud';
+      probeBinFiles(created.filter(r => r.online !== false && (!desktopCloudAdd || r.probe_status === 'pending')).map(r => r.id)).catch(() => {});
+      // BC2: on the desktop signed in, the new clips' pictures go to the
+      // cloud only if the company allows it — asked first, quietly when not.
+      if (binsCapabilitiesOf(a).backend === 'desktop_cloud') {
+        Promise.resolve(uploadPostersRef.current?.(null, { quiet: true, rows: created })).catch(() => {});
+      }
     }
     return res;
   }, [binsAdapter, activeProjectId, probeBinFiles]);
+
+  // B8: "a clip already in the project (same location, same file)". Answers,
+  // for each item a computer is about to add ({ location_id, relative_path }),
+  // the row this project already holds for that file — compared as Windows
+  // shares compare, case-insensitively — or null. The Add dialog then offers
+  // Skip or Add anyway (an instance). Pure over the loaded rows; the Local
+  // Server answers the same question from paths inside `prepare`.
+  const findDuplicateBinFiles = useCallback((items) => {
+    const rows = bundleRef.current.binFiles || [];
+    const bins = bundleRef.current.bins || [];
+    const key = (loc, rel) => `${loc || ''}|${String(rel || '').replace(/\\/g, '/').toLowerCase()}`;
+    const byKey = new Map();
+    for (const r of rows) {
+      if (!r.location_id || !r.relative_path) continue;
+      const k = key(r.location_id, r.relative_path);
+      if (!byKey.has(k)) byKey.set(k, r);
+    }
+    return (items || []).map((it) => {
+      const hit = it ? byKey.get(key(it.location_id, it.relative_path)) : null;
+      if (!hit) return null;
+      return {
+        reason: 'same_path',
+        existing_id: hit.id,
+        existing_bin_id: hit.bin_id,
+        existing_bin_name: bins.find(b => b.id === hit.bin_id)?.name || null,
+      };
+    });
+  }, []);
 
   const updateBinFile = useCallback(async (id, patch) => {
     const a = binsAdapter();
@@ -4681,7 +5926,7 @@ export function RabbitProvider({ children }) {
       () => a.updateBinFile(pid, id, patch),
     );
     if (activeProjectIdRef.current !== pid) return result;
-    if (result) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [result]) }));
+    if (result) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [result]) }));
     if (old) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateBinFile(id, oldValues)],
@@ -4703,7 +5948,7 @@ export function RabbitProvider({ children }) {
       () => a.bulkUpdateBinFiles(pid, ids, patch),
     );
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.updated) }));
     if (olds.length) {
       pushHistory({
         undoOps: [async () => {
@@ -4736,7 +5981,7 @@ export function RabbitProvider({ children }) {
       () => a.moveBinFiles(pid, ids, binId, sortOrders),
     );
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.binFiles) }));
+    if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.binFiles) }));
     if (before.length) {
       pushHistory({
         undoOps: [async () => {
@@ -4759,7 +6004,7 @@ export function RabbitProvider({ children }) {
     const res = await a.copyBinFiles(pid, ids, binId);
     if (activeProjectIdRef.current !== pid) return res.created || [];
     const created = res.created || [];
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, created) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, created) }));
     if (created.length) {
       pushHistory({
         undoOps: [() => mutationsRef.current.removeBinFiles(created.map(r => r.id), { quiet: true })],
@@ -4787,7 +6032,7 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const res = await a.binRelinkApply(pid, mappings);
     if (activeProjectIdRef.current !== pid) return res;
-    if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, res.updated) }));
     const reprobe = rowsToReprobeAfterRelink(res?.updated);
     if (reprobe.length) probeBinFiles(reprobe).catch(() => {});
     return res;
@@ -4803,7 +6048,237 @@ export function RabbitProvider({ children }) {
     return res;
   }, [binsAdapter, activeProjectId]);
 
+  // ── Footage locations (BC1, 0091; Audrey's B2) ──
+  // A company's named shares, by network address. They are the WORKSPACE's,
+  // not the project's, so they are kept beside the bundle (reset with it,
+  // re-read with the bins) and every project of the company sees the same
+  // list. A location in use cannot be removed (the database refuses with its
+  // sentence; the undo of a removal is an add with the same row).
+  const refreshBinLocations = useCallback(async () => {
+    const a = binsBackend();
+    if (!a || typeof a.listBinLocations !== 'function') return [];
+    const rows = await a.listBinLocations();
+    setBundle(prev => ({ ...prev, binLocations: rows || [] }));
+    return rows || [];
+  }, [binsBackend]);
+  refreshBinLocationsRef.current = refreshBinLocations;
+
+  // BC2: the four location verbs and the switch run with or without an open
+  // project (locationsAdapter): Settings, Storage manages the company's list.
+  const addBinLocation = useCallback(async (location) => {
+    const a = locationsAdapter();
+    if (typeof a.createBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const created = await a.createBinLocation(location);
+    setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [created]) }));
+    // BC2: this computer learns the new address at once — the add flow's
+    // "Which location is this? Name it." reads the batch again right after.
+    if (desktopBinFilesRef.current) {
+      await registerBinLocationsNow([...(bundleRef.current.binLocations || []).filter(l => l.id !== created.id), created]).catch(() => {});
+    }
+    pushHistory({
+      undoOps: [() => mutationsRef.current.removeBinLocation(created.id)],
+      redoOps: [() => mutationsRef.current.addBinLocation(created)],
+    });
+    return created;
+  }, [locationsAdapter, registerBinLocationsNow]);
+
+  const updateBinLocation = useCallback(async (id, patch) => {
+    const a = locationsAdapter();
+    if (typeof a.updateBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    const oldValues = {};
+    if (old) for (const k of Object.keys(patch || {})) oldValues[k] = old[k];
+    const result = await optimistic(
+      prev => ({ ...prev, binLocations: (prev.binLocations || []).map(l => l.id === id ? { ...l, ...patch } : l) }),
+      () => a.updateBinLocation(id, patch),
+    );
+    if (result) setBundle(prev => ({ ...prev, binLocations: mergeRows(prev.binLocations, [result]) }));
+    // BC2: a re-address reaches this computer at once (and every clip of the
+    // location is resolved at the new share).
+    if (desktopBinFilesRef.current && result) {
+      await registerBinLocationsNow((bundleRef.current.binLocations || []).map(l => (l.id === id ? { ...l, ...result } : l))).catch(() => {});
+      scheduleBinResolveRef.current?.();
+    }
+    if (old) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateBinLocation(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateBinLocation(id, patch)],
+      });
+    }
+    return result;
+  }, [locationsAdapter, optimistic, registerBinLocationsNow]);
+
+  const removeBinLocation = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.removeBinLocation !== 'function') throw new Error('Footage locations are not available on this backend');
+    const old = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    // Server-first, no optimistic removal: a location in use is REFUSED by
+    // the database (RESTRICT), and a row that vanished then came back would
+    // read as "removed, then not".
+    const removed = await a.removeBinLocation(id);
+    setBundle(prev => ({ ...prev, binLocations: (prev.binLocations || []).filter(l => l.id !== id) }));
+    const row = removed || old;
+    if (row) {
+      const token = pushHistory({
+        undoOps: [() => mutationsRef.current.addBinLocation(row)],
+        redoOps: [() => mutationsRef.current.removeBinLocation(row.id)],
+      });
+      // BC2: Settings has no Ctrl+Z of its own; the app's undo toast does it.
+      if (token != null) showUndoToast(`Removed the footage location "${row.name || row.unc_path}"`, () => undoHistoryEntry(token));
+    }
+    return row;
+  }, [locationsAdapter, showUndoToast, undoHistoryEntry]);
+
+  // The company's switch (B5a): "Allow files to be viewed from outside the
+  // office network." A workspace admin's verb; anyone else reads the
+  // database's sentence. Undoable, like every other change a person makes.
+  // BC2: `workspaceId` for a caller with no open project (Settings); the
+  // undo and redo carry the same company, whatever project is open later.
+  const setRemoteViewingEnabled = useCallback(async (enabled, { workspaceId: ws = null } = {}) => {
+    const a = locationsAdapter();
+    if (typeof a.setRemoteViewingEnabled !== 'function') throw new Error('The remote-viewing switch is not available on this backend');
+    const workspaceId = ws || bundleRef.current.project?.workspace_id || null;
+    const before = binsInfo.remoteViewing;
+    const now = await a.setRemoteViewingEnabled(workspaceId, enabled === true);
+    setBinsInfo(i => ({ ...i, remoteViewing: now }));
+    if (before !== null && before !== now) {
+      const token = pushHistory({
+        undoOps: [() => mutationsRef.current.setRemoteViewingEnabled(before, { workspaceId })],
+        redoOps: [() => mutationsRef.current.setRemoteViewingEnabled(now, { workspaceId })],
+      });
+      if (token != null) {
+        // Short enough for the undo toast's one line (480 px, truncated).
+        showUndoToast(now
+          ? 'Viewing from outside the office turned on'
+          : 'Viewing from outside the office turned off', () => undoHistoryEntry(token));
+      }
+    }
+    return now;
+  }, [locationsAdapter, binsInfo.remoteViewing, showUndoToast, undoHistoryEntry]);
+
+  // BC2: the switch read where no project is open (Settings), for the
+  // company the person is signed in to. Where a project is open it is the
+  // project's own read (refreshBins), which says the same thing.
+  const refreshRemoteViewing = useCallback(async ({ workspaceId = null } = {}) => {
+    const a = binsBackend();
+    if (!a) return null;
+    let v = null;
+    try {
+      if (activeProjectId && typeof a.getRemoteViewingEnabled === 'function') v = await a.getRemoteViewingEnabled(activeProjectId);
+      else if (workspaceId && typeof a.getWorkspaceRemoteViewing === 'function') v = await a.getWorkspaceRemoteViewing(workspaceId);
+    } catch { v = null; }
+    if (v !== null) setBinsInfo(i => ({ ...i, remoteViewing: v === true }));
+    return v;
+  }, [binsBackend, activeProjectId]);
+
+  // BC2, B2's fallback: "Where is this location on this computer?" — the
+  // desktop's own folder dialog for that location; the answer stays in this
+  // computer's settings. Then the list is registered again and every clip
+  // resolved. Not an edit of the company's data, so no history entry: the
+  // way back is forgetBinLocationLocalPath.
+  const pickBinLocationLocalPath = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.pickBinLocationLocalPath !== 'function') throw new Error('Choosing where a location is on this computer needs the desktop app.');
+    const loc = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    if (!loc) throw new Error('That footage location is not in the company\'s list.');
+    // The desktop only answers for a REGISTERED location: register first.
+    await registerBinLocationsNow();
+    const res = await a.pickBinLocationLocalPath(loc);
+    if (res?.canceled) return res;
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
+
+  // BC2 review round 1: consent before contact. A company location's
+  // address is contacted from this computer only once its person agrees —
+  // the desktop's own native confirmation names the address (Cancel is the
+  // default). Then the list is registered again and every clip resolved.
+  // Like the folder above, this computer's answer, not company data: no
+  // history entry.
+  const connectBinLocation = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.connectBinLocation !== 'function') throw new Error('Connecting to a footage location needs the desktop app.');
+    const loc = (bundleRef.current.binLocations || []).find(l => l.id === id);
+    if (!loc) throw new Error('That footage location is not in the company\'s list.');
+    await registerBinLocationsNow();
+    const res = await a.connectBinLocation(loc);
+    if (res?.canceled) return res;
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
+
+  const forgetBinLocationLocalPath = useCallback(async (id) => {
+    const a = locationsAdapter();
+    if (typeof a.forgetBinLocationLocalPath !== 'function') throw new Error('This computer keeps no folder for footage locations outside the desktop app.');
+    const res = await a.forgetBinLocationLocalPath(id);
+    await registerBinLocationsNow();
+    await resolveBinOnline(null);
+    return res;
+  }, [locationsAdapter, registerBinLocationsNow, resolveBinOnline]);
+
+  // A clip's picture where the backend signs it per read (the cloud:
+  // rabbit-thumbnails is private). null where the backend has a sync route
+  // instead (binFileThumbnailUrl), or the row has no picture.
+  const binFilePosterUrl = useCallback(async (row, opts) => {
+    const a = binsBackend();
+    if (!a || typeof a.binFilePosterUrl !== 'function' || !activeProjectId) return null;
+    return a.binFilePosterUrl(activeProjectId, row, opts);
+  }, [activeProjectId, binsBackend]);
+
   const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
+
+  // ── BC2: a clip's picture to the cloud — ONLY while the company allows it ──
+  // Audrey (B4): "if the user allows external access pictures are fine.
+  // never take images when external access is denied." On the desktop
+  // signed in a poster is made and kept on THIS computer for every clip it
+  // can reach; this uploads the ones the cloud has no picture for yet. The
+  // switch is asked FIRST, once per call: off, and not a byte moves (the
+  // database refuses regardless — 0091's RESTRICTIVE policy). A refusal
+  // that slips past the pre-check (the admin turned it off meanwhile) stops
+  // the batch and is said ONCE, not per clip. `ids` null: every clip this
+  // computer reaches without a picture (the catch-up). `quiet`: the
+  // automatic pass after an add says nothing when the switch is off.
+  // Already-uploaded pictures are never touched here: turning the switch off
+  // deletes nothing (BINS_CLOUD_PLAN §1).
+  const uploadBinFilePosters = useCallback(async (ids = null, { quiet = false, rows: given = null } = {}) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const none = { uploaded: 0, failed: 0, refused: false };
+    if (typeof a.uploadBinFilePoster !== 'function') return none;
+    let on = false;
+    try { on = (await a.getRemoteViewingEnabled(pid)) === true; } catch { on = false; }
+    if (activeProjectIdRef.current !== pid) return none;
+    setBinsInfo(i => ({ ...i, remoteViewing: on }));
+    if (!on) {
+      if (!quiet) setBinsInfo(i => ({ ...i, notice: { text: BIN_POSTERS_OFF_SENTENCE, kind: 'warn', at: Date.now() } }));
+      return { ...none, refused: true };
+    }
+    const want = ids ? new Set(ids) : null;
+    // `given`: rows a mutator just created (state lands a render later).
+    const rows = (given || bundleRef.current.binFiles || []).filter(f => (!want || want.has(f.id)) && needsCloudPoster(f));
+    // `failedIds` (review round 1): the clips whose picture could not be
+    // made on this computer, so the catch-up stops counting them.
+    let uploaded = 0; let failed = 0; const failedIds = [];
+    for (const r of rows) {
+      if (activeProjectIdRef.current !== pid) break;
+      try {
+        const res = await a.uploadBinFilePoster(pid, r.id, r);
+        uploaded++;
+        if (res?.poster_path) setBundle(prev => ({ ...prev, binFiles: (prev.binFiles || []).map(f => (f.id === r.id ? { ...f, poster_path: res.poster_path } : f)) }));
+      } catch (e) {
+        if (e?.code === 'remote_viewing_off') {
+          setBinsInfo(i => ({ ...i, remoteViewing: false, notice: { text: BIN_POSTERS_OFF_SENTENCE, kind: 'warn', at: Date.now() } }));
+          return { uploaded, failed, failedIds, refused: true };
+        }
+        failed++;
+        failedIds.push(r.id);
+      }
+    }
+    return { uploaded, failed, failedIds, refused: false };
+  }, [binsAdapter, activeProjectId]);
+  uploadPostersRef.current = uploadBinFilePosters;
   const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
   // What the renderer's own probe read (bins/binProbeFallback.js) — a machine
   // write, so no history entry, unlike updateBinFile.
@@ -4812,15 +6287,91 @@ export function RabbitProvider({ children }) {
     const pid = activeProjectId;
     const row = await a.updateBinFile(pid, id, { ...patch, probe_status: patch.probe_status || 'done' });
     if (activeProjectIdRef.current !== pid) return row;
-    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    setBundle(prev => ({ ...prev, binFiles: mergeFileRows(prev.binFiles, [row]) }));
     return row;
   }, [binsAdapter, activeProjectId]);
-  const binFileThumbnailUrl = useCallback((id, rev = 0) =>
-    (adapterRef.current && typeof adapterRef.current.binFileThumbnailUrl === 'function' && activeProjectId)
-      ? adapterRef.current.binFileThumbnailUrl(activeProjectId, id, rev) : null, [activeProjectId]);
-  const binFileStreamUrl = useCallback((id, opts) =>
-    (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
-      ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+  // BC2: through binsBackend() — on the desktop signed in, the poster cache
+  // and the bytes of a clip by its location + path.
+  const binFileThumbnailUrl = useCallback((id, rev = 0) => {
+    const a = binsBackend();
+    return (a && typeof a.binFileThumbnailUrl === 'function' && activeProjectId) ? a.binFileThumbnailUrl(activeProjectId, id, rev) : null;
+  }, [activeProjectId, binsBackend]);
+  const binFileStreamUrl = useCallback((id, opts) => {
+    const a = binsBackend();
+    return (a && typeof a.binFileStreamUrl === 'function' && activeProjectId) ? a.binFileStreamUrl(activeProjectId, id, opts) : null;
+  }, [activeProjectId, binsBackend]);
+
+  // ── GW3: the gateway in a browser (GATEWAY_DESIGN.md §2, §5, §7) ──
+  // The composite's doors, tickets and summary reach the tab through here.
+  // `ticketsRev` and `gateway` on binsInfo change whenever the composite
+  // learned something (a door answered, a ticket landed), so streamUrlFor is
+  // read again by every tile and player that asked.
+  const gatewayComposite = useCallback(() => {
+    const a = binsBackend();
+    return a && typeof a.ensureTickets === 'function' && typeof a.summary === 'function' ? a : null;
+  }, [binsBackend]);
+  gatewayChangedRef.current = () => {
+    const comp = gatewayCompositeRef.current.composite;
+    if (!comp) return;
+    const caps = comp.binsCapabilities();
+    if (binsCapsRef.current && binsCapsRef.current.backend === 'gateway_cloud') binsCapsRef.current = caps;
+    setBundle(prev => ({ ...prev, binFiles: comp.markOnline(prev.binFiles || []) }));
+    setBinsInfo(i => ({
+      ...i,
+      capabilities: i.capabilities && i.capabilities.backend === 'gateway_cloud' ? caps : i.capabilities,
+      ticketsRev: (i.ticketsRev || 0) + 1,
+      gateway: comp.summary(),
+      locations: comp.locationStatus(bundleRef.current.binLocations || []),
+    }));
+  };
+  /** The ticket batch (≤ 50): on hover for a tile, for a shot's takes, for a played selection (R12). */
+  const ensureBinTickets = useCallback(async (ids) => {
+    const comp = gatewayComposite();
+    if (!comp || !ids?.length) return;
+    await comp.ensureTickets(ids);
+  }, [gatewayComposite]);
+  /** The door the clip plays through (the overlay's cue), its jti, a refusal. */
+  const gatewayStreamInfo = useCallback((id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.streamInfo(id) : null;
+  }, [gatewayComposite]);
+  /** §5 step 7: the stream renewed at 75 s; the URL never changes. */
+  const renewGatewayStream = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.renewStream(id) : { ok: false, status: 0, reason: 'no_stream' };
+  }, [gatewayComposite]);
+  /** A 401 is never retried with the same ticket: a fresh URL, or null. */
+  const freshGatewayStreamUrl = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    return comp ? comp.freshStreamUrl(id) : null;
+  }, [gatewayComposite]);
+  /** What a <video> could not say; a 404 flips the row to "missing at its location" (§5's last paragraph). */
+  const diagnoseGatewayClip = useCallback(async (id) => {
+    const comp = gatewayComposite();
+    if (!comp) return { verdict: 'no_stream', status: 0 };
+    const r = await comp.diagnoseClip(id);
+    if (r.verdict === 'missing') {
+      setBundle(prev => ({ ...prev, binFiles: (prev.binFiles || []).map(f => (f.id === id ? { ...f, online: false, gateway_missing: true } : f)) }));
+    }
+    return r;
+  }, [gatewayComposite]);
+  /** §2: the view read again, the unreached gateways probed again (the tab's 60 s timer). */
+  const refreshGateways = useCallback(async () => {
+    const comp = gatewayComposite();
+    if (!comp) return null;
+    await comp.refreshGateways();
+    return comp.summary();
+  }, [gatewayComposite]);
+  /** Item 5: one clip's viewings from outside, the Settings table's rows (admins; the policy answers nobody else). */
+  const listRemoteViewingsOfClip = useCallback((id, opts) => listRemoteViewingsOfClipApi(id, opts), []);
+  // GW1 (0093): one clip's viewings from outside the office — the cloud's
+  // audit, so the project adapter answers it (on the desktop signed in as in
+  // a browser); null where no adapter keeps one (the Local Server). BinsView
+  // asks only for a workspace admin, and the policy answers no one else.
+  const remoteViewsOfClip = useCallback(async (id) => {
+    const a = adapterRef.current;
+    return (a && typeof a.remoteViewsOfClip === 'function') ? a.remoteViewsOfClip(id) : null;
+  }, []);
 
   // ── The renderer's own probe (no ffmpeg on this machine) ──
   // Chromium decodes H.264 MP4 / WebM, the common audio formats and images: a
@@ -4836,6 +6387,8 @@ export function RabbitProvider({ children }) {
   // poster until Bins had been opened. A machine write, so no history entry.
   const browserProbe = useCallback(async (row) => {
     if (!needsBrowserProbe(row)) return null;
+    // No bytes to decode on a backend that cannot stream them (the cloud).
+    if (!binsCapabilitiesOf(binsBackend()).stream) return null;
     const pid = activeProjectId;
     const src = binFileStreamUrl(row.id, { probe: true });
     if (!src) return null;
@@ -4850,6 +6403,11 @@ export function RabbitProvider({ children }) {
       if (r.jpegBase64) {
         await postBinFileThumbnail(row.id, r.jpegBase64);
         setBinsInfo(i => ({ ...i, posterRev: i.posterRev + 1 }));
+        // BC2: on the desktop signed in that poster went to THIS computer's
+        // cache; it goes to the cloud only if the company allows it.
+        if (binsCapabilitiesOf(binsBackend()).backend === 'desktop_cloud') {
+          Promise.resolve(uploadPostersRef.current?.([row.id], { quiet: true, rows: [{ ...row, ...done, online: true }] })).catch(() => {});
+        }
       }
       return done;
     } catch {
@@ -5361,7 +6919,7 @@ export function RabbitProvider({ children }) {
     phase:     { key: 'phases',     restore: 'restorePhase',     upsert: 'upsertPhase',     del: 'deletePhase' },
     milestone: { key: 'milestones', restore: 'restoreMilestone', upsert: 'upsertMilestone', del: 'deleteMilestone' },
   };
-  async function reviveBudgetRow(kind, row) {
+  async function reviveBudgetRow(kind, row, opts = {}) {
     const visit = projectVisitRef.current;
     const k = REVIVE[kind];
     const a = adapterRef.current;
@@ -5390,6 +6948,9 @@ export function RabbitProvider({ children }) {
     };
     setBundle(merge);
     bundleRef.current = merge(bundleRef.current);
+    // R2-1: the backend made or un-hid its items; read them (one read for a
+    // whole open: its caller passes items: false and reads once after).
+    if (kind === 'task' && opts.items !== false) await refreshItemsOfTasks([finalRow.id]);
     pushHistory({
       undoOps: [() => mutationsRef.current[k.del](finalRow.id)],
       redoOps: [() => reviveBudgetRow(kind, row)],
@@ -5956,8 +7517,23 @@ export function RabbitProvider({ children }) {
     if (countRows(plan.bringBack)) { await m.setAsideRows(false, plan.bringBack); still(); }
     for (const row of plan.phases.create) { await reviveBudgetRow('phase', row); still(); }
     for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
-    for (const row of plan.tasks.create) { await reviveBudgetRow('task', row); still(); }
-    for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
+    for (const row of plan.tasks.create) { await reviveBudgetRow('task', row, { items: false }); still(); }
+    if (plan.tasks.create.length) { await refreshItemsOfTasks(plan.tasks.create.map(r => r.id)); still(); }
+    for (const u of plan.tasks.update) {
+      // Review round 2 (R2-3): a link the version would set that makes a row
+      // the project no longer shows the task's main one (its saved "no
+      // asset" over [A, B-in-the-trash]) is left out and counted, as planOpen
+      // leaves out a link to a row that is gone: opening never stops half
+      // way for it, and the cloud would refuse it.
+      const patch = { ...u.patch };
+      if (taskItemsOnRef.current) {
+        for (const f of LINK_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(patch, f)) continue;
+          if (linkLandsOnGone(bundleRef.current, u.id, FIELD_KIND[f], patch[f])) { delete patch[f]; plan.droppedLinks += 1; }
+        }
+      }
+      if (Object.keys(patch).length) { await m.updateTask(u.id, patch); still(); }
+    }
     for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
     for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
     if (countRows(plan.setAside)) { await m.setAsideRows(true, plan.setAside); still(); }
@@ -6465,6 +8041,10 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.unlinkTasks  = unlinkTasks;
   mutationsRef.current.addTaskLink  = addTaskLink;
   mutationsRef.current.removeTaskLink = removeTaskLink;
+  // FX2 (0096): a task's items.
+  mutationsRef.current.addTaskItem      = addTaskItem;
+  mutationsRef.current.removeTaskItem   = removeTaskItem;
+  mutationsRef.current.reorderTaskItems = reorderTaskItems;
   mutationsRef.current.addScene       = addScene;
   mutationsRef.current.updateScene    = updateScene;
   mutationsRef.current.deleteScene    = deleteScene;
@@ -6492,6 +8072,17 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.copyBinFiles     = copyBinFiles;
   mutationsRef.current.removeBinFiles   = removeBinFiles;
   mutationsRef.current.restoreBinFiles  = restoreBinFiles;
+  // Bins on the cloud (BC1): the company's locations and its switch — each
+  // an undo step calls, so each is here (the same silent-undo hazard).
+  mutationsRef.current.addBinLocation   = addBinLocation;
+  mutationsRef.current.updateBinLocation = updateBinLocation;
+  mutationsRef.current.removeBinLocation = removeBinLocation;
+  mutationsRef.current.setRemoteViewingEnabled = setRemoteViewingEnabled;
+  // BC2: every new mutator in the registry, history op or not.
+  mutationsRef.current.pickBinLocationLocalPath = pickBinLocationLocalPath;
+  mutationsRef.current.forgetBinLocationLocalPath = forgetBinLocationLocalPath;
+  mutationsRef.current.connectBinLocation = connectBinLocation;
+  mutationsRef.current.uploadBinFilePosters = uploadBinFilePosters;
   // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
   // and undo SWALLOWS a throw — a mutator missing from this list fails
   // silently (measured: Ctrl+Z after an assignment did nothing until
@@ -6631,21 +8222,46 @@ export function RabbitProvider({ children }) {
     }) === null;
   }, [withdrawWritable, bundle.edits, withdrawUserId]);
 
+  // ── A task's items (FX2, 0096): what every screen reads ──
+  // Whether this backend keeps them (the cloud answers false once a load has
+  // found no 0096; Drive has no items), and the tasks with their five single
+  // fields read from their items — the main item of each kind. Every reader
+  // that groups or sums by one link (the Timeline, the Budget) sees the main
+  // item; the relation readers list every item (tasksAbout).
+  const taskItemsOn = useMemo(
+    () => typeof adapterRef.current?.taskItemsAvailable === 'function'
+      && adapterRef.current.taskItemsAvailable() === true,
+    // The flag is the adapter's, learned by each load: re-read per bundle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bundle, adapterMode],
+  );
+  taskItemsOnRef.current = taskItemsOn;
+  const tasksView = useMemo(
+    () => withItemLinks(bundle.tasks, bundle.taskItems, taskItemsOn),
+    [bundle.tasks, bundle.taskItems, taskItemsOn],
+  );
+
   // ── Memoized selectors ──────────────────────────────────
-  const memoSelectors = useMemo(() => ({
-    selectAssetsByPhase:        (phaseId) => selectAssetsByPhase(bundle.assets, phaseId),
-    selectTasksByAsset:         (assetId) => selectTasksByAsset(bundle.tasks, assetId),
-    selectAssetDerivedStatus:   (assetId) => selectAssetDerivedStatus(bundle.tasks, assetId),
-    selectAssetStatusWarning:   (asset)   => selectAssetStatusWarning(asset, bundle.tasks),
-    selectCriticalPath:         ()        => selectCriticalPath(bundle.tasks, bundle.dependencies),
-    selectVarianceForAsset:     (assetId) => selectVarianceForAsset(bundle.tasks, assetId),
-    selectVarianceForProject:   ()        => selectVarianceForProject(bundle.tasks),
-    selectProjectBudgetRollup:  (opts = {}) => selectProjectBudgetRollup({
-      tasks:    bundle.tasks,
-      currency: bundle.project?.budget_currency || 'USD',
-      ...opts,
-    }),
-  }), [bundle]);
+  // FX2: a task ABOUT an asset (any of its items) counts for the asset's
+  // status and its warning — relations, never added into a total; the
+  // asset's variance is a sum, so it reads the task's MAIN asset.
+  const memoSelectors = useMemo(() => {
+    const aboutAsset = (assetId) => tasksAbout(tasksView, bundle.taskItems, 'asset', assetId, taskItemsOn);
+    return {
+      selectAssetsByPhase:        (phaseId) => selectAssetsByPhase(bundle.assets, phaseId),
+      selectTasksByAsset:         (assetId) => aboutAsset(assetId),
+      selectAssetDerivedStatus:   (assetId) => assetStatusOfTasks(aboutAsset(assetId)),
+      selectAssetStatusWarning:   (asset)   => assetWarningOfTasks(asset, asset ? aboutAsset(asset.id) : []),
+      selectCriticalPath:         ()        => selectCriticalPath(tasksView, bundle.dependencies),
+      selectVarianceForAsset:     (assetId) => selectVarianceForAsset(tasksView, assetId),
+      selectVarianceForProject:   ()        => selectVarianceForProject(tasksView),
+      selectProjectBudgetRollup:  (opts = {}) => selectProjectBudgetRollup({
+        tasks:    tasksView,
+        currency: bundle.project?.budget_currency || 'USD',
+        ...opts,
+      }),
+    };
+  }, [bundle, tasksView, taskItemsOn]);
 
   // ── Adapter accessor ─────────────────────────────────────
   // Returns the live adapter instance. Used by callers that need
@@ -6669,9 +8285,14 @@ export function RabbitProvider({ children }) {
     project:       bundle.project,
     phases:        bundle.phases,
     assets:        bundle.assets,
-    tasks:         bundle.tasks,
+    // FX2 (0096): each task's five single fields read from its items.
+    tasks:         tasksView,
     dependencies:  bundle.dependencies,
     taskLinks:     bundle.taskLinks,
+    // FX2 (0096): a task's items (NOT the URL links above) and whether the
+    // backend keeps them — the task window draws its Items table only then.
+    taskItems:     bundle.taskItems || [],
+    taskItemsAvailable: taskItemsOn,
     files:         bundle.files,
     assetVersions: bundle.assetVersions,
     comments:      bundle.comments,
@@ -6727,6 +8348,7 @@ export function RabbitProvider({ children }) {
     unsavedEditCount,
     saveOpenDrafts,
     discardOpenDrafts,
+    canSaveOpenDrafts,
     // The bin system (demo 2026-09-11).
     bins:            bundle.bins || [],
     binFiles:        bundle.binFiles || [],
@@ -6792,6 +8414,7 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask: deleteTaskVerb, deleteTasks: deleteTasksVerb,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
+    addTaskItem, removeTaskItem, reorderTaskItems,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
@@ -6812,19 +8435,39 @@ export function RabbitProvider({ children }) {
     supportsManagedFiles:
       adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
 
-    // The bin system (demo 2026-09-11). Same two conditions as managed files
-    // and for the same reason: the adapter methods exist on local_server
-    // only, and the picker dialogs and dropped-file paths need the desktop.
+    // The bin system (demo 2026-09-11; on the cloud since BC1, 0091).
+    // "This backend can hold bins": the signed-out desktop (the loopback
+    // server, with the OS pickers), the cloud (the four 0091 tables — what
+    // the cloud cannot do is on binsInfo.capabilities), and the dev fixtures.
+    // Google Drive cannot. Before BC1 this meant "Local Server + desktop";
+    // the Bins tab's desktop-only notice was the whole cloud experience.
     supportsBins:
       (adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit)
+      || adapterMode === 'supabase'
       // Dev fixtures (dev builds only): the Bins tab opens on the dataset's bins.
       || (import.meta.env.DEV && !!devFixtures()?.bins),
     binsInfo,
+    binLocations:  bundle.binLocations,
+    // BC2: this computer's desktop process answers on the cloud — the
+    // composite reads clips where they are (bins only; never the FILES store).
+    binsDesktopFiles: !!desktopBinFiles,
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
-    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
-    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
+    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
     binRelinkScan, binRelinkApply, removeBinRoot,
+    // GW1: one clip's viewings from outside (the inspector's line, admins).
+    remoteViewsOfClip,
+    // GW3: the gateway in a browser — the tickets, the door, the renewal, the
+    // diagnosis of a failed play, the 60 s refresh, one clip's viewings table;
+    // and who is signed in, for the viewer's name over remote playback (D9).
+    ensureBinTickets, gatewayStreamInfo, renewGatewayStream, freshGatewayStreamUrl, diagnoseGatewayClip, refreshGateways, listRemoteViewingsOfClip,
+    authUserId,
+    // Footage locations and the company's switch (BC1).
+    refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
+    // BC2: the switch read without a project; where a location is on THIS computer;
+    // pictures to the cloud only while the company allows it.
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, connectBinLocation,
     // Shot takes (milestone 2).
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
@@ -6835,7 +8478,7 @@ export function RabbitProvider({ children }) {
     addToShotList, removeFromShotList, reorderShotListItems, refreshShotLists,
     createEditFrom, updateEdit, saveEdit, archiveEdit,
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
-    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft, saveEditAs,
     recoverEditDraft, dismissStoredEditDraft,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
@@ -6878,6 +8521,8 @@ export function RabbitProvider({ children }) {
     // path rules — folderPaths.js stays the only place paths are decided.
     ensureProjectFolders: ensureProjectFoldersFor,
     ensureEntityFolder:   ensureEntityFolderFor,
+    // S4c: the one-time move of shot folders into their scenes (Files tab).
+    refileShotFolders,
 
     // history
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
@@ -6901,16 +8546,19 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
+    addTaskItem, removeTaskItem, reorderTaskItems, tasksView, taskItemsOn,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
-    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
-    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
-    binRelinkScan, binRelinkApply, removeBinRoot,
+    probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl, binFilePosterUrl,
+    binRelinkScan, binRelinkApply, removeBinRoot, remoteViewsOfClip,
+    refreshBinLocations, addBinLocation, updateBinLocation, removeBinLocation, setRemoteViewingEnabled,
+    refreshRemoteViewing, pickBinLocationLocalPath, forgetBinLocationLocalPath, uploadBinFilePosters, connectBinLocation, desktopBinFiles,
     assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
@@ -6920,9 +8568,9 @@ export function RabbitProvider({ children }) {
     withdrawShotList, withdrawEdit, restoreWithdrawn, clearRecentlyWithdrawn,
     recentlyWithdrawn, canWithdrawShotList, canWithdrawEdit,
     openProjectDrafts, editDraftOf, hasUnsavedEdit, recoverableEditDrafts,
-    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft,
+    startEditDraft, changeEditDraft, undoEditDraft, redoEditDraft, discardEditDraft, saveEditDraft, saveEditAs,
     recoverEditDraft, dismissStoredEditDraft,
-    leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts,
+    leaveAsk, answerLeave, describeUnsavedEdits, unsavedEditCount, saveOpenDrafts, discardOpenDrafts, canSaveOpenDrafts,
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,

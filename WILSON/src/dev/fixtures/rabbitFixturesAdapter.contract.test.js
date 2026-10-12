@@ -40,6 +40,10 @@ const BINS_SURFACE = [
   'probeBinFile', 'binFileThumbnailUrl', 'binFileStreamUrl', 'postBinFileThumbnail',
   'binRelinkScan', 'binRelinkApply', 'removeBinRoot',
   'assignShotTakes', 'updateShotTake', 'removeShotTakes', 'reorderShotTakes', 'replaceShotTakes',
+  // BC1 (0091): the capability object, the company's locations and switch,
+  // the signed poster — on every backend that holds bins.
+  'binsCapabilities', 'listBinLocations', 'createBinLocation', 'updateBinLocation', 'removeBinLocation',
+  'getRemoteViewingEnabled', 'setRemoteViewingEnabled', 'binFilePosterUrl',
 ]
 
 // Mirror of EMPTY_BUNDLE's collection keys (RabbitProvider.jsx) — the same list
@@ -50,10 +54,14 @@ const BUNDLE_KEYS = [
   'managedFiles', 'budgetVersions', 'expenses', 'projectTeam',
   'scenes', 'shots', 'levels', 'experiences', 'milestones', 'folders',
   'bins', 'binFiles', 'binRoots', 'shotTakes',
+  // Bins on the cloud (BC1, 0091): the company's footage locations.
+  'binLocations',
   // Post-overhaul S3a (0084): every adapter's loadProject returns these three.
   'shotLists', 'shotListItems', 'edits',
   // Post-overhaul S5b (0090): the rows the open bid version does not hold.
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
+  // FX2 (0096): a task's items.
+  'taskItems',
 ]
 
 // The S3a contract's nine shot-list methods plus review round 1's two
@@ -174,7 +182,51 @@ describe('the fixtures adapter implements the Supabase adapter contract', () => 
     expect(await fx.listFileEvents(legal.id)).toEqual([])
     const cleared = buildDevFixtures()
     cleared.store.fileEvents.push(event)
-    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id)).toEqual(['ev-legal'])
+    // S4d: the dataset seeds the Legal file's own upload event, so the
+    // money-cleared reader lists it beside the pushed one; the member above
+    // listed neither.
+    expect((await cleared.rabbitAdapter().listFileEvents(legal.id)).map((e) => e.id).sort())
+      .toEqual(['ev-legal', fid('fileEvent', 4)].sort())
+  })
+
+  it('`?fixtures=manager` reads as a workspace manager with a member seat: the Legal file and its events, not the invoice nor its events (S4d, 0092)', async () => {
+    const reviewer = buildDevFixtures().rabbitAdapter()
+    const all = await reviewer.listFiles(PROJECT_ID)
+    const legal = all.find((f) => f.tags.includes('legal'))
+    const invoice = all.find((f) => f.is_financial)
+    expect(legal).toBeTruthy()
+    expect(invoice).toBeTruthy()
+    const wm = buildDevFixtures({ variant: 'manager' })
+    expect(wm.permissions.role).toBe('manager')
+    expect(wm.store.members.find((m) => m.user_id === PERMISSIONS.userId).app_role).toBe('manager')
+    expect(wm.store.projectMembers.filter((m) => m.user_id === PERMISSIONS.userId).every((m) => m.project_role === 'member')).toBe(true)
+    const legalEvent = { id: 'ev-legal-wm', file_id: legal.id, project_id: PROJECT_ID, event: 'uploaded', actor_id: 'x', actor_name: 'Theo', detail: {}, created_at: '2026-09-20T10:00:00Z' }
+    const invoiceEvent = { id: 'ev-invoice-wm', file_id: invoice.id, project_id: PROJECT_ID, event: 'purged', actor_id: 'x', actor_name: 'Theo', detail: {}, created_at: '2026-09-21T10:00:00Z' }
+    wm.store.fileEvents.push(legalEvent, invoiceEvent)
+    const fx = wm.rabbitAdapter()
+    const seen = await fx.listFiles(PROJECT_ID)
+    // The Legal gate admits her; the money gate still does not.
+    expect(seen.find((f) => f.id === legal.id)).toBeTruthy()
+    expect(seen.find((f) => f.id === invoice.id)).toBeUndefined()
+    expect(seen.length).toBe(all.length - all.filter((f) => f.is_financial).length)
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.files.some((f) => f.tags.includes('legal'))).toBe(true)
+    expect(bundle.files.some((f) => f.is_financial)).toBe(false)
+    // D8: no budget, no bid versions for a workspace manager without the seat.
+    expect(bundle.budgetVersions).toEqual([])
+    // Her file activity: the Legal file's (the dataset's seeded upload and
+    // the pushed event), and not the invoice's deletion record (Legal 1: a
+    // deleted file's record follows the file's gate).
+    expect((await fx.listFileEvents(legal.id)).map((e) => e.id).sort()).toEqual(['ev-legal-wm', fid('fileEvent', 4)].sort())
+    expect(await fx.listFileEvents(invoice.id)).toEqual([])
+    // CONTROLS: the member variant reads neither; the default reviewer reads both.
+    const member = buildDevFixtures({ variant: 'member' })
+    member.store.fileEvents.push(legalEvent, invoiceEvent)
+    expect(await member.rabbitAdapter().listFileEvents(legal.id)).toEqual([])
+    expect(await member.rabbitAdapter().listFileEvents(invoice.id)).toEqual([])
+    const admin = buildDevFixtures()
+    admin.store.fileEvents.push(legalEvent, invoiceEvent)
+    expect((await admin.rabbitAdapter().listFileEvents(invoice.id)).map((e) => e.id)).toEqual(['ev-invoice-wm'])
   })
 
   it('"fixtures" is NOT a selectable mode — the adapter substitutes for the cloud slot', () => {
@@ -736,6 +788,14 @@ describe('shot lists, items and edits (post-overhaul S3a, 0084)', () => {
     expect((await fx.upsertEdit({ ...restored, summary: 'Back' })).summary).toBe('Back')
     await expect(fx.archiveEdit(PROJECT_ID, fid('edit', 99))).rejects.toMatchObject(no(404, 'not_found', 'edit not found'))
 
+    // Post-overhaul FX4 review round 1 (R1-03): the conditional write — an
+    // existing edit only while its stored Save is the one named (null: none).
+    const savedOnce = await fx.upsertEdit({ ...restored, snapshot: { kind: 'edit', saved_at: '2026-10-12T09:00:00.000Z' } })
+    await expect(fx.upsertEdit({ ...savedOnce, items: [] }, { expectSavedAt: '2026-10-12T08:00:00.000Z' })).rejects.toMatchObject(
+      no(409, 'edit_saved_since', 'this edit has been saved by someone else since — nothing was written'))
+    await expect(fx.upsertEdit({ ...savedOnce, items: [] }, { expectSavedAt: null })).rejects.toMatchObject({ code: 'edit_saved_since' })
+    expect((await fx.upsertEdit({ ...savedOnce, summary: 'Into it' }, { expectSavedAt: '2026-10-12T09:00:00.000Z' })).summary).toBe('Into it')
+
     const edits = await fx.listEdits(PROJECT_ID)
     expect(edits.map((e) => e.id).sort()).toEqual([first.id, second.id, onTwo.id].sort())
     expect(inCreatedOrder(edits)).toBe(true)
@@ -1055,5 +1115,123 @@ describe('S5b — set-aside rows and the budget settings (0090 on the fixtures)'
     const fx = buildDevFixtures().rabbitAdapter()
     expect(await refusal(fx.updateProject(PROJECT_ID, { budget_margin_pct: 12 }))).toBeNull()
     expect(await refusal(fx.setAsideRows(PROJECT_ID, { on: true, tasks: [TASK(2)] }))).toBeNull()
+  })
+})
+
+
+// ── Bins on the cloud (BC1, 0091): the fake cloud keeps the cloud's rules ──
+describe('the fixtures keep 0091\'s rules for bins (BC1)', () => {
+  it('loadProject and listBins carry the location; every clip is a location + a relative path with a poster key', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const bundle = await fx.loadProject(PROJECT_ID)
+    expect(bundle.binLocations).toHaveLength(1)
+    expect(bundle.binLocations[0].unc_path).toMatch(/^\\\\/)
+    expect(bundle.binRoots).toEqual([])
+    const { binFiles, binLocations, capabilities } = await fx.listBins(PROJECT_ID)
+    expect(binLocations).toHaveLength(1)
+    expect(capabilities).toMatchObject({ backend: 'fixtures', locations: true, remoteViewingSwitch: true, pickFiles: false })
+    for (const f of binFiles) {
+      expect(f.location_id).toBe(binLocations[0].id)
+      expect(f.relative_path).not.toMatch(/^[A-Za-z]:|\\|^\//)
+      expect(f.poster_path.startsWith(`projects/${PROJECT_ID}/bin_files/${f.id}/`)).toBe(true)
+      expect('source_path' in f).toBe(false)
+    }
+  })
+
+  it('removing a clip takes its takes (the CASCADE) and says so; deleting a bin in remove mode too', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { shotTakes } = await fx.listBins(PROJECT_ID)
+    const take = shotTakes[0]
+    const res = await fx.removeBinFiles(PROJECT_ID, [take.bin_file_id])
+    expect(res.removed.map(r => r.id)).toEqual([take.bin_file_id])
+    expect(res.removedTakes.some(t => t.id === take.id)).toBe(true)
+    expect((await fx.listBins(PROJECT_ID)).shotTakes.some(t => t.id === take.id)).toBe(false)
+    const { bins, binFiles } = await fx.listBins(PROJECT_ID)
+    const leaf = bins.find(b => b.parent_bin_id && binFiles.some(f => f.bin_id === b.id))
+    const takesIn = (await fx.listBins(PROJECT_ID)).shotTakes.filter(t => binFiles.some(f => f.bin_id === leaf.id && f.id === t.bin_file_id))
+    const del = await fx.deleteBin(PROJECT_ID, leaf.id, { mode: 'remove' })
+    expect(del.removedTakes.map(t => t.id).sort()).toEqual(takesIn.map(t => t.id).sort())
+  })
+
+  it('a location: the address must be a network address, once per company; one in use cannot be removed', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    await expect(fx.createBinLocation({ name: 'Drive', unc_path: 'Z:\\footage' })).rejects.toMatchObject({ code: '23514' })
+    await expect(fx.createBinLocation({ name: 'Trail', unc_path: '\\\\nas\\footage\\' })).rejects.toMatchObject({ code: '23514' })
+    await expect(fx.createBinLocation({ name: '', unc_path: '\\\\nas\\sound' })).rejects.toThrow(/needs a name/)
+    const [existing] = await fx.listBinLocations()
+    await expect(fx.createBinLocation({ name: 'Again', unc_path: existing.unc_path.toUpperCase() })).rejects.toMatchObject({ code: 'conflict' })
+    const made = await fx.createBinLocation({ name: ' Sound ', unc_path: '\\\\salthours-nas\\sound' })
+    expect(made.name).toBe('Sound')
+    expect((await fx.listBinLocations()).map(l => l.id)).toContain(made.id)
+    await expect(fx.removeBinLocation(existing.id)).rejects.toMatchObject({ code: '23503' })
+    expect((await fx.removeBinLocation(made.id)).id).toBe(made.id)
+  })
+
+  it('the switch is off; a poster is refused with the cloud\'s sentence until an admin turns it on, and then kept', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    expect(await fx.getRemoteViewingEnabled(PROJECT_ID)).toBe(false)
+    const [file] = (await fx.listBins(PROJECT_ID)).binFiles
+    const jpeg = btoa('\xff\xd8\xffx')
+    await expect(fx.postBinFileThumbnail(PROJECT_ID, file.id, jpeg)).rejects.toMatchObject({ code: 'remote_viewing_off' })
+    expect(await fx.setRemoteViewingEnabled(WORKSPACE_ID, true)).toBe(true)
+    const res = await fx.postBinFileThumbnail(PROJECT_ID, file.id, jpeg)
+    expect(res.poster_path).toMatch(new RegExp(`^projects/${PROJECT_ID}/bin_files/${file.id}/`))
+    const [again] = (await fx.listBins(PROJECT_ID)).binFiles
+    expect(again.poster_path).toBe(res.poster_path)
+    expect(await fx.binFilePosterUrl(PROJECT_ID, again)).toMatch(/^data:image\/jpeg;base64,/)
+  })
+
+  it('a member cannot flip the switch (the ?fixtures=member variant)', async () => {
+    const fx = buildDevFixtures({ variant: 'member' }).rabbitAdapter()
+    await expect(fx.setRemoteViewingEnabled(WORKSPACE_ID, true)).rejects.toMatchObject({ code: 'forbidden' })
+    expect(await fx.getRemoteViewingEnabled(PROJECT_ID)).toBe(false)
+  })
+})
+
+describe('the fixtures add clips as 0091\'s add_bin_files does (BC2, for the desktop signed in)', () => {
+  it('a location + a path becomes a row in the bin, with what the adding computer read; no poster yet', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binLocations } = await fx.listBins(PROJECT_ID)
+    const day = bins.find(b => b.name === 'Day 1')
+    const res = await fx.addBinFiles(PROJECT_ID, day.id, [
+      { location_id: binLocations[0].id, relative_path: 'A001/A001C001_261008_T1.mp4', original_name: 'A001C001_261008_T1.mp4', media_type: 'video', size_bytes: 2097802, duration_sec: 1, width: 640, height: 360, fps: 24, codec: 'h264', probe_status: 'done', slate: '1A', take_number: 1 },
+    ])
+    expect(res.results).toEqual([{ relative_path: 'A001/A001C001_261008_T1.mp4', status: 'added', id: res.created[0].id, bin_id: day.id }])
+    expect(res.created[0]).toMatchObject({ bin_id: day.id, location_id: binLocations[0].id, display_name: 'A001C001_261008_T1', extension: '.mp4', size_bytes: 2097802, codec: 'h264', probe_status: 'done', slate: '1A', take_number: 1, poster_path: null })
+    expect('source_path' in res.created[0]).toBe(false)
+    expect((await fx.listBins(PROJECT_ID)).binFiles.some(f => f.id === res.created[0].id)).toBe(true)
+  })
+
+  it('an item that is not a reference to one of the company\'s locations is answered invalid, and nothing is written', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binFiles } = await fx.listBins(PROJECT_ID)
+    const res = await fx.addBinFiles(PROJECT_ID, bins[0].id, [
+      { source_path: 'D:\\x\\T1.mov' },
+      { location_id: 'not-a-location', relative_path: 'A001/T1.mov' },
+      { location_id: (await fx.listBins(PROJECT_ID)).binLocations[0].id, relative_path: '  ' },
+    ])
+    expect(res.results.map(r => r.status)).toEqual(['invalid', 'invalid', 'invalid'])
+    expect(res.created).toEqual([])
+    expect((await fx.listBins(PROJECT_ID)).binFiles).toHaveLength(binFiles.length)
+    await expect(fx.addBinFiles(PROJECT_ID, 'no-such-bin', [{}])).rejects.toMatchObject({ status: 404 })
+    await expect(fx.addBinFiles(PROJECT_ID, bins[0].id, [])).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('a folder\'s sub-bins are found or made under the target, once (the folder walk)', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const { bins, binLocations } = await fx.listBins(PROJECT_ID)
+    const vfx = bins.find(b => b.name === 'VFX plates')
+    const loc = binLocations[0].id
+    const res = await fx.addBinFiles(PROJECT_ID, vfx.id, [
+      { location_id: loc, relative_path: 'VFX/plate_seq', is_sequence: true, original_name: 'plate_seq', sub_bin: 'VFX/plates' },
+      { location_id: loc, relative_path: 'VFX/plates/ref.jpg', media_type: 'still', sub_bin: 'vfx/Plates' },
+    ])
+    expect(res.bins.map(b => b.name)).toEqual(['VFX', 'plates'])
+    const leaf = res.bins[1]
+    expect(res.created.map(r => r.bin_id)).toEqual([leaf.id, leaf.id])
+    expect(res.created[0]).toMatchObject({ is_sequence: true, media_type: 'sequence', display_name: 'plate_seq', extension: '' })
+    const flat = await fx.addBinFiles(PROJECT_ID, vfx.id, [{ location_id: loc, relative_path: 'VFX/x.jpg', sub_bin: 'VFX' }], false)
+    expect(flat.created[0].bin_id).toBe(vfx.id)
+    expect(flat.bins).toEqual([])
   })
 })

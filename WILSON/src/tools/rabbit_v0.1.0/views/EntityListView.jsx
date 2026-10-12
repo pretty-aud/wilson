@@ -61,7 +61,7 @@ import {
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, CellSelect, statusMeta,
+  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -69,6 +69,15 @@ import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
+// Post-overhaul S4c (Audrey, 2026-10-05: "levels and experiences dont allow
+// for me to add files to a them … when i open an experience or level im not
+// seeing a way to see the files"): the detail popup gains the Files section
+// the scene and shot popups have — FileManager, one component over the two
+// stores (ctx.supportsManagedFiles decides), mounted with levelId or
+// experienceId — and the create form's picked files are really uploaded
+// (addFilesToEntity), which nothing did before.
+import FileManager from '../components/FileManager'
+import { addFilesToEntity } from '../components/entityFiles'
 
 // ── Status config ──
 const STATUSES = [
@@ -809,8 +818,8 @@ function EntityCard({ entity, item, onOpenDetail, onRequestDelete }) {
 // that popup re-made in this lane's classes. The header keeps the entity's
 // glyph and name: the name is the H2 title, read-only, and the "<Noun> name"
 // field below is still where it is edited (C1: the two stay two). The status
-// is the kit's StatusBadge, where the 3px status-coloured rule under the
-// header said it (R4-05). The kit brings the named ✕ (the old one had no
+// is the kit's StatusBanner across the popup under the title (FX3; a
+// StatusBadge from R4-05 until then). The kit brings the named ✕ (the old one had no
 // name), Escape (Q17) and the backdrop, which closed it before and still
 // does. The body keeps its two columns — RelationsPanel's sidebar, then the
 // properties — and every section, field and button in its old order: each
@@ -857,6 +866,12 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const name = item.name || `Untitled ${entity.noun}`
   const status = item.status || 'not_started'
   const hasThumbnail = !!item.thumbnail_image
+  // S4c: the files this row owns, counted from the store FileManager reads
+  // (the managed records on the Local Server, the cloud rows otherwise), by
+  // the same link the Files section filters on.
+  const managed = ctx?.supportsManagedFiles === true
+  const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
+    .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
 
   function handleUpdate(patch) { ctx?.[entity.updateMethod]?.(item.id, patch) }
 
@@ -900,7 +915,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
               <span className="rb-ent-detail-name">{name}</span>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onClose={onClose}
           footer={(
@@ -1018,7 +1033,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 <div className="rb-ent-prop">
                   <FieldLabel>Linked counts</FieldLabel>
                   <span className="rb-ent-prop-value">
-                    {assetCountById[itemId] || 0} assets / {taskCountById[itemId] || 0} tasks
+                    {assetCountById[itemId] || 0} assets / {taskCountById[itemId] || 0} tasks / {fileCount} file{fileCount === 1 ? '' : 's'}
                   </span>
                 </div>
                 <div className="rb-ent-prop">
@@ -1108,6 +1123,27 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   </button>
                 )}
               </div>
+
+              {/* Files (S4c): FileManager's own head says "Files (N)", as it
+                  does in the scene and shot popups (P1-24). Add files on
+                  both stores, the list, the player and download as
+                  elsewhere; a level's files go to LEVELS/<slug>, an
+                  experience's to EXPERIENCES/<slug>, on both backends. */}
+              <div className="rb-ent-detail-files">
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  levelId={entity.type === 'level' ? item.id : undefined}
+                  levelName={entity.type === 'level' ? (item.name || 'Untitled-Level') : undefined}
+                  experienceId={entity.type === 'experience' ? item.id : undefined}
+                  experienceName={entity.type === 'experience' ? (item.name || 'Untitled-Experience') : undefined}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
             </div>
           </div>
         </Dialog>,
@@ -1183,24 +1219,83 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null })
 // status the kit's dot inside its field, Cancel and Confirm & create the
 // kit's Buttons in its footer. The default name, every field and the files
 // picker are as they were. 🚨 PORTALLED into <body>, as NewAssetPopup is.
+// S4c: the picked files are UPLOADED once the row exists — into the level's
+// or the experience's own folder, through the same two paths FileManager's
+// Add files takes (entityFiles.addFilesToEntity): the cloud rows and the
+// bucket for a File from the browser's picker, the managed store and a
+// streamed copy for a path from the desktop's own picker. Before this the
+// list rode into the row as `files` and nothing read it. On the managed
+// store the browser's picker cannot give a path (Electron 32 took
+// `File.path` away), so there the button opens the desktop's picker and
+// keeps the paths; the rows are the same either way.
 function CreateEntityPopup({ entity, ctx, count, onClose }) {
   const [name, setName] = useState(`${entity.Noun} ${count + 1}`)
   const [status, setStatus] = useState('not_started')
   const [description, setDescription] = useState('')
-  const [files, setFiles] = useState([]) // [{ name, path }]
+  const [files, setFiles] = useState([]) // [{ name, file? (a File), path? (a desktop path) }]
+  const [fileNote, setFileNote] = useState('')
   const fileInputRef = useRef(null)
+  const managed = ctx?.supportsManagedFiles === true
+  // One create per press (S4c review round 1, item 8): the buttons are
+  // disabled (React drops a click on a disabled button, whatever the DOM
+  // says) and the dialog cannot be dismissed while the row and its files
+  // are written, and a file that was not added is SAID — the row exists by
+  // then, so the dialog stays open with the sentence and one button, Close.
+  // The ref mirrors `busy` for the Dialog's own close (Escape, the
+  // backdrop), whose closure may be a render old.
+  const [busy, setBusy] = useState(false)
+  const [madeWithFailures, setMadeWithFailures] = useState(false)
+  // Which file is being added (round 2, item 9: a long copy showed
+  // "Creating…" for minutes with nothing said). The button names it, and a
+  // line under the list says the dialog closes when they are all added.
+  const [adding, setAdding] = useState(null) // { index, total, name }
+  const busyRef = useRef(false)
+  const closeUnlessBusy = () => { if (!busyRef.current) onClose() }
 
   async function handleConfirm() {
+    busyRef.current = true
+    setBusy(true)
+    let row = null
     try {
-      await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description, files })
-    } catch (err) { console.error(`Failed to create ${entity.noun}:`, err) }
+      row = await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description })
+    } catch (err) {
+      console.error(`Failed to create ${entity.noun}:`, err)
+      busyRef.current = false
+      setBusy(false)
+      setFileNote(`The ${entity.noun} was not created: ${err?.message || err}`)
+      return
+    }
+    let failed = []
+    if (row?.id && files.length > 0) {
+      try {
+        ({ failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files, onProgress: setAdding }))
+      } catch (err) { failed = [err?.message || String(err)] }
+    }
+    setAdding(null)
+    busyRef.current = false
+    setBusy(false)
+    if (failed.length > 0) {
+      console.error(`${entity.Noun} created; ${failed.length} file(s) were not added:`, failed.join('; '))
+      setMadeWithFailures(true)
+      setFileNote(`${entity.Noun} created. ${failed.length === 1 ? 'One file was' : `${failed.length} files were`} not added: ${failed.join('; ')}`)
+      return
+    }
     onClose()
   }
 
   function handleFileSelect(e) {
-    const newFiles = Array.from(e.target.files || []).map(f => ({ name: f.name, path: f.path || f.name }))
+    const newFiles = Array.from(e.target.files || []).map(f => ({ name: f.name, file: f }))
     setFiles(prev => [...prev, ...newFiles])
     e.target.value = ''
+  }
+  async function pickFiles() {
+    if (!managed) { fileInputRef.current?.click(); return }
+    const api = window.electronAPI?.rabbit
+    if (!api?.pickFiles) { setFileNote('On this storage files are picked through the desktop app.'); return }
+    const paths = await api.pickFiles()
+    if (!paths || paths.length === 0) return
+    setFileNote('')
+    setFiles(prev => [...prev, ...paths.map(p => ({ name: String(p).replace(/\\/g, '/').split('/').pop(), path: p }))])
   }
 
   return createPortal(
@@ -1208,14 +1303,16 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
       width="form"
       title={`New ${entity.noun}`}
       // The backdrop closed it before and still does; Escape closes it too
-      // (Q17).
-      dismissOnBackdrop
-      onClose={onClose}
-      footer={(
+      // (Q17) — neither while the row is being written.
+      dismissOnBackdrop={!busy}
+      onClose={closeUnlessBusy}
+      footer={madeWithFailures ? (
+        <Button variant="primary" onClick={onClose}>Close</Button>
+      ) : (
         <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleConfirm} disabled={!name.trim()}>
-            Confirm & create
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={!name.trim() || busy}>
+            {busy ? (adding ? `Adding ${adding.name} (${adding.index} of ${adding.total})…` : 'Creating…') : 'Confirm & create'}
           </Button>
         </>
       )}
@@ -1245,10 +1342,15 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
             open it from a click anywhere in the list. */}
         <div className="ui-field">
           <span className="ui-field-label">Files</span>
-          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
-          <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={() => fileInputRef.current?.click()}>
+          {!managed && <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />}
+          <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={pickFiles} title={`Added to the ${entity.noun}'s own folder once it is created`}>
             Add files
           </Button>
+          {(fileNote || adding) && (
+            <span className="rb-ent-files-note">
+              {adding ? `Adding ${adding.index} of ${adding.total} file${adding.total === 1 ? '' : 's'}; this closes when they are all added.` : fileNote}
+            </span>
+          )}
           {files.length > 0 && (
             <div className="rb-ent-files">
               {files.map((f, i) => (

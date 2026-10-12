@@ -96,6 +96,8 @@ const MSG = {
   editBranch: 'an edit\'s parent must be the latest edit of its shot list',
   editChainFixed: 'an edit\'s place in its chain cannot change',
   editArchived: 'this edit is archived — restore it before changing it',
+  // FX4 review round 1 (R1-03); the client's shotListModel EDIT_SAVED_SINCE_MESSAGE.
+  editSavedSince: 'this edit has been saved by someone else since — nothing was written',
   editArchiveForbidden: 'edits are archived and restored only by a project manager or a workspace admin, through archive_edit()',
   editMove: 'an edit cannot move to another shot list',
   editNotFound: 'edit not found',
@@ -929,6 +931,18 @@ function mountRabbitShotLists(expressApp, deps) {
       return fail(res, 403, 'forbidden', MSG.editArchiveForbidden);
     }
     if (stored && stored.archived_at) return fail(res, 409, 'conflict', MSG.editArchived);
+    // Post-overhaul FX4 review round 1 (R1-03): since FX4, Save edit writes
+    // INTO an edit, and two people may change one. A write that names the
+    // Save it began from (`expect_saved_at`: that snapshot's saved_at, or
+    // null for none) is refused when the stored edit carries another —
+    // someone saved it since. Checked and written in this one handler, so
+    // nothing lands between. Only a body that CARRIES the key is examined;
+    // the key itself is never stored.
+    if (stored && has(body, 'expect_saved_at')) {
+      const want = typeof body.expect_saved_at === 'string' ? body.expect_saved_at : null;
+      const have = isPlainObject(stored.snapshot) && typeof stored.snapshot.saved_at === 'string' ? stored.snapshot.saved_at : null;
+      if (want !== have) return fail(res, 409, 'edit_saved_since', MSG.editSavedSince);
+    }
 
     const title = has(body, 'title') ? body.title : (stored ? stored.title : undefined);
     if (typeof title !== 'string' || !title.trim()) return fail(res, 400, 'invalid', MSG.editTitle);

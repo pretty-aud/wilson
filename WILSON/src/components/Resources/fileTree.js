@@ -147,6 +147,16 @@ export function buildFileTree({ folders = [], files = [], managedFiles = [] } = 
       // row whose path ends the same way is the same folder
       parent = folderNodes.find(n => !n.isRoot && (n.path === fp || n.path.endsWith(`/${fp}`) || fp.endsWith(`/${n.path}`)))
     }
+    if (!parent) {
+      // S4c review round 2 (item 3): a record whose folder_path names no row
+      // — its entity's folder was renamed, and on the Local Server a rename
+      // moves the rows and leaves the directory and the records where they
+      // are — belongs to its entity's folder, as a cloud row does. Without
+      // this, renaming a scene dropped every shot's files to the root here.
+      for (const fk of ENTITY_FKS) {
+        if (row[fk]) { parent = findByFk(fk, row[fk]); if (parent) break }
+      }
+    }
     place({ id: `m:${row.id}`, kind: 'file', name: row.file_name || row.original_name || row.stored_name || 'file', row, meta: fileMeta(row, 'managed'), children: [] }, parent || root)
     fileCount += 1
   }
@@ -168,23 +178,19 @@ export function flattenTree(root) {
   return out
 }
 
-/** Case-insensitive name filter over the flattened tree; folders whose
- *  descendants match are kept so the path stays readable. Since
+/** Case-insensitive name filter over the flattened tree: the search. Since
  *  post-overhaul S4a a file also matches by one of its tags ("shots",
- *  "Legal"; Finance from is_financial) — E10's filter. */
+ *  "Legal"; Finance from is_financial) — E10's filter. Post-overhaul S4c:
+ *  the MATCHES only. The flat list kept every ancestor of a match so its
+ *  indent read; the Table shows a search with a Location column now, so a
+ *  folder that only contains a match would be a row that matched nothing. */
 export function filterFlat(rows, query) {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return rows
-  const keep = new Set()
-  for (const r of rows) {
+  return rows.filter((r) => {
     const byTag = r.node.kind === 'file' && tagsMatch(r.node.row, q)
-    if (byTag || String(r.node.name).toLowerCase().includes(q) || String(r.node.path).toLowerCase().includes(q)) {
-      keep.add(r.node)
-      let p = r.node.parent
-      while (p) { keep.add(p); p = p.parent }
-    }
-  }
-  return rows.filter(r => keep.has(r.node))
+    return byTag || String(r.node.name).toLowerCase().includes(q) || String(r.node.path).toLowerCase().includes(q)
+  })
 }
 
 /**
@@ -211,6 +217,49 @@ export function breadcrumb(node) {
   let n = node
   while (n && !n.isRoot) { parts.unshift(n.name); n = n.parent }
   return parts.join(' › ')
+}
+
+// ── Post-overhaul S4c: the Table shows ONE folder at a time (Audrey, ──────────
+// 2026-10-05: "there are folders in folders i need to be able to press the
+// folder, and the table in the files tab should be everything in that
+// folder. at the top i should see the breadcrumb path"). These three are the
+// pure half of that: the crumb, the walk the Columns view's `selected` needs
+// to open a folder from the root, and a folder's rows in the order an
+// explorer lists them.
+
+/** The folders from the root down to `folder`, root first: the crumb bar. */
+export function crumbsFor(folder) {
+  const out = []
+  let n = folder
+  while (n) {
+    out.unshift(n)
+    if (n.isRoot) break
+    n = n.parent
+  }
+  return out
+}
+
+/**
+ * The folder ids a `columnsFor` walk needs to reach `folder` from the root
+ * (the root itself is where the walk starts, so it is not in the list). The
+ * one shape the Table and the Columns view share for "where you are", so a
+ * folder entered in one view is the folder open in the other.
+ */
+export function folderPathIds(folder) {
+  return crumbsFor(folder).filter(n => !n.isRoot).map(n => n.id)
+}
+
+/**
+ * One folder's rows for the Table: its folders first, then its files, each
+ * group sorted by `key` — Explorer's and Finder's order. Sorting a folder's
+ * CHILDREN, never the flattened tree, is what makes a sort honest here: every
+ * row in the list has the same parent, which the crumb above the table names.
+ */
+export function folderRows(folder, key, dir = 'asc') {
+  const rows = (folder?.children || []).map(node => ({ node, depth: 0 }))
+  const folders = sortRows(rows.filter(r => r.node.kind === 'folder'), key, dir)
+  const files = sortRows(rows.filter(r => r.node.kind === 'file'), key, dir)
+  return [...folders, ...files]
 }
 
 export function sortRows(rows, key, dir = 'asc') {

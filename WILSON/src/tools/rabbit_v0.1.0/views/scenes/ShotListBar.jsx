@@ -62,12 +62,17 @@ function viewName(viewed, hasLiveList) {
  *               { onScreen, value, options, onChange, note, badge, verbs }
  *               (null: no list on screen, no selector). `verbs` is the
  *               right group's edit buttons (Save edit, Discard changes —
- *               step 5); while an edit is on screen they stand where the
- *               list's Save, Save as… and Set active stood, so the bar
- *               never offers two Saves at once (the one distinction S3c's
- *               brief asks the design to make).
+ *               step 5; FX4: Save edit, Save as…, Discard changes); while
+ *               an edit is on screen they stand where the list's Save,
+ *               Save as… and Set active stood, so the bar never offers the
+ *               list's saves and the edit's at once (the one distinction
+ *               S3c's brief asks the design to make). Audrey, 2026-10-12:
+ *               "lets make the button 'save edit' and 'save as'".
+ *   announce    FX4 review round 2 (R2-05): what a save or a discard did, for a
+ *               screen reader — one polite region, always in the bar, so it is
+ *               there before its words change whatever the bar shows.
  */
-export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems, edit = null }) {
+export default function ShotListBar({ viewed, label, activeList, activeLabel, hasLiveList, saveState, saving = false, withdrawn, recent, recentLabel, gate, on, moreItems, edit = null, announce = '' }) {
   const { mode, list } = viewed
   const onList = mode === 'list' || mode === 'archived'
   const isActive = mode === 'list' && !!activeList && activeList.id === list?.id
@@ -158,6 +163,7 @@ export default function ShotListBar({ viewed, label, activeList, activeLabel, ha
             {edit.note && <span className="rb-scene-lists-note" data-state="saved">{edit.note}</span>}
           </span>
         )}
+        <span className="sr-only" role="status" aria-live="polite">{announce}</span>
         {recent && (
           <span className="rb-scene-lists-recent">
             <span className="rb-scene-divider" aria-hidden="true" />

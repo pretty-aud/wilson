@@ -33,11 +33,19 @@
 
 import { devWriteRefused } from '../devFixtures'
 import { planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN } from '../../tools/rabbit_v0.1.0/folderPaths'
+import { pendingShotRefiling, shotsCategoryRow, shotsCategoryEmpty } from '../../tools/rabbit_v0.1.0/shotRefiling'
 import { FILE_TAG_IDS, GATED_TAG, isLegalFile, storedTags, legalRefusalSentence } from '../../tools/rabbit_v0.1.0/fileTags'
 import {
   clone, newId, now, findById, live, upsert, patch, remove, softDelete, restore, notFound,
+  syncTaskItemColumns,
 } from './store'
+// FX2 (0096): a task's items — the one statement of their rules (pure).
+import {
+  COLUMN_KINDS, KIND_FIELD, isItemKind, itemShapeProblem, mainItemOf,
+  planReorder, applyPositions, planSingleFieldWrite, seedItemsFor,
+} from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
+import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
 
 const PRIMARY = 'primary'
 
@@ -80,6 +88,58 @@ const SET_ASIDE_ONLY = 'a row is set aside or brought back only by someone who c
 const BUDGET_SETTINGS_ONLY = 'the budget\'s settings (margin, contingency, agency, actuals and the lock) are changed only by someone who can see this project\'s budget (a project manager or a workspace admin)'
 const BUDGET_SETTINGS = ['budget_margin_pct', 'budget_contingency_pct', 'budget_agency_pct', 'budget_agency_enabled', 'budget_actual_column_mode', 'budget_actual_column_count', 'budget_active', 'budget_active_version_id', 'budget_finalized']
 const VERSION_NOT_HERE = 'bid version not found in this project'
+// BC1 (0091): the bins refusal map's sentences, word for word with the cloud
+// adapter's BINS_REFUSALS (restated here because devFixtures.test.js
+// allow-lists what src/dev may import; binsAdapterParity.test.js pins the two).
+const BINS_SENTENCES = {
+  locationShape: 'A footage location is written as its network address, like \\\\server\\footage — never a drive letter, never this computer (localhost), never an administrative share like C$, never with .. in it, and without a trailing backslash.',
+  locationExists: 'This location is already in the company\'s list.',
+  locationInUse: 'This location still has clips in it — move or remove them before taking it away.',
+  locationName: 'A footage location needs a name.',
+  remoteViewingOff: 'This company has not allowed files to be viewed from outside the office network, so WILSON keeps no picture of this clip in the cloud. A workspace admin can turn that on in the company settings.',
+  switchAdminOnly: 'Only a workspace admin can change whether files may be viewed from outside the office network.',
+}
+// 0091's unc_path CHECK, as the database refuses it: two leading backslashes,
+// a server and at least a share, no forbidden characters, no . or .. segment,
+// no trailing backslash.
+const UNC_SEGMENT = '[^\\\\/:*?"<>|]+'
+const UNC_RE = new RegExp(`^\\\\\\\\${UNC_SEGMENT}(\\\\${UNC_SEGMENT})+$`)
+// The same two refusals as 0091's CHECK and electron/rabbitBins.cjs (review
+// round 1 of BC1): an administrative share (C$, ADMIN$, IPC$) and the
+// loopback host. binsAdapterParity.test.js holds this copy to the desktop's.
+// Review round 2: every spelling of 127.0.0.1, an all-digit or 0-led host,
+// and any segment ending in a dot or a space (Windows strips both).
+const UNC_LOOPBACK_HOST_RE = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+)$/i
+const UNC_ADMIN_SHARE_RE = /^([a-z]|admin|ipc)\$$/i
+const TRAILING_DOT_OR_SPACE_RE = /[. ]$/
+function isUncPath(p) {
+  if (typeof p !== 'string' || p.length > 1024 || !UNC_RE.test(p)) return false
+  // BC3 review round 1: no control, zero-width, bidi, separator or
+  // formatting character; round 2: by Unicode property, one regex on every
+  // backend (the desktop's and the renderer's, held equal by
+  // binsAdapterParity.test.js).
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(p)) return false
+  const segs = p.split('\\')
+  if (segs.slice(2).some(seg => seg === '.' || seg === '..' || TRAILING_DOT_OR_SPACE_RE.test(seg))) return false
+  return !UNC_LOOPBACK_HOST_RE.test(segs[2]) && !UNC_ADMIN_SHARE_RE.test(segs[3])
+}
+// The fake cloud's capability object: a browser signed in to a company —
+// no OS pickers, no bytes, no relink; locations, the switch, signed posters.
+// `resolveFiles` is true because the dataset answers `online` itself (every
+// fixture file is "reachable", there being no disk behind it).
+const FIXTURES_BINS_CAPABILITIES = Object.freeze({
+  backend: 'fixtures',
+  pickFiles: false, probe: false, stream: false, resolveFiles: true, relink: false, openInOs: false,
+  posters: 'cloud', locations: true, remoteViewingSwitch: true,
+})
+// BC3 (`?bins=browser`): the fake cloud as the real cloud answers a BROWSER —
+// it cannot say what this computer reaches, so no row carries `online` and
+// the provider marks every one "not on this computer" (B3). The same keys,
+// one answer changed (binsBrowserVariant.test.js pins it).
+const FIXTURES_BROWSER_BINS_CAPABILITIES = Object.freeze({ ...FIXTURES_BINS_CAPABILITIES, resolveFiles: false })
+// For binsAdapterParity.test.js: the sentences and the capability object,
+// pinned against the cloud adapter's.
+export { BINS_SENTENCES as FIXTURES_BINS_SENTENCES, FIXTURES_BINS_CAPABILITIES, FIXTURES_BROWSER_BINS_CAPABILITIES }
 // 0084 §7a's frozen-row sentences: an archived list or edit ROW is frozen.
 // Its MEMBERSHIP is not — round 1 (addendum B) gave LIST_FROZEN to every item
 // write on an archived list too, and round 2 reverted that (R2-1, below).
@@ -186,8 +246,15 @@ function validateVersioned(row, noun) {
   }
 }
 
-export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }) {
+// `browser` (BC3): answer the bins as the cloud does in a browser — the
+// capability object above with `resolveFiles` false, and no `online` on any
+// clip row (the provider marks them from the capability object).
+export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRole = 'admin' }, { browser = false } = {}) {
   const by = userId
+  const binsCaps = browser ? FIXTURES_BROWSER_BINS_CAPABILITIES : FIXTURES_BINS_CAPABILITIES
+  // A clip row as this backend hands it out: answered for (online) where the
+  // dataset answers, bare where a browser's cloud would not know.
+  const withOnline = (row) => { if (!browser) return { ...row, online: true }; const { online: _o, ...bare } = row; return bare }
   const stampBy = (row) => ({ ...row, updated_by: by, last_updated_by: by, last_updated_at: now() })
   const projectOf = (id) => findById(store.projects, id)
 
@@ -197,10 +264,19 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   // any file read, exactly as the cloud's RLS hides them (0038, 0088). The
   // default reviewer passes (Mara: admin and manager); `?fixtures=member`
   // does not.
+  // S4d (0092): the LEGAL gate, as can_access_project_legal answers it — the
+  // money gate OR a workspace manager (the project's own workspace; the
+  // fixtures have one). A Legal row (isLegalRow: Legal and not an invoice —
+  // files_legal_not_financial_chk) is readable past EITHER gate; an invoice
+  // only past the money gate. `?fixtures=manager` is Mara as a workspace
+  // manager holding a member seat: she sees the Legal file and not the
+  // invoice, as the cloud's RLS answers her (0092).
   const passesMoneyGate = (projectId) => appRole === 'admin'
     || store.projectMembers.some(m => m.project_id === projectId && m.user_id === userId && m.project_role === 'manager')
+  const passesLegalGate = (projectId) => passesMoneyGate(projectId) || appRole === 'manager'
   const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
-  const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id))
+  const isLegalRow = (f) => isLegalFile(f) && !f?.is_financial
+  const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id) || (isLegalRow(f) && passesLegalGate(f.project_id)))
 
   // 0090 (S5b): the set-aside stamp is written only by setAsideRows — never
   // by an ordinary write (the store MERGES, so a stale copy re-sent with
@@ -215,6 +291,93 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     const row = softDelete(list, id, by)
     delete row.set_aside_at
     return row
+  }
+
+  // ── A task's items (FX2, migration 0096): the fake cloud runs the
+  // database's rules. An item names a row of its task's own project (the
+  // composite keys: 23503), a task names an item once (the unique key: the
+  // stored row is answered, as ON CONFLICT DO NOTHING then a read), a
+  // trashed task's items are hidden and refused (the task hop: 42501), and
+  // each task's asset_id / scene_id / shot_id is its main item of that kind
+  // (§7) — levels and experiences have no column on the cloud.
+  const ITEM_ROWS = { asset: 'assets', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
+  const itemError = (code, message) => { const err = new Error(`[supabase] ${message}`); err.code = code; return err }
+  const liveTaskOf = (id) => { const t = findById(store.tasks, id); return t && !t.deleted_at ? t : null }
+  const entityIn = (kind, id, projectId) => !!(store[ITEM_ROWS[kind]] || [])
+    .find(r => r.id === id && r.project_id === projectId)
+  const makeItem = (task) => (base) => ({
+    id: newId(), project_id: task.project_id, workspace_id: workspaceId,
+    created_at: now(), created_by: by, updated_at: now(), updated_by: by, ...base,
+  })
+  function applyItemPlan(plan) {
+    if (plan.remove.length) {
+      const gone = new Set(plan.remove.map(i => i.id))
+      store.taskItems = store.taskItems.filter(i => !gone.has(i.id))
+    }
+    if (plan.insert) store.taskItems.push(plan.insert)
+    if (plan.order) {
+      const first = store.taskItems.find(i => i.id === plan.order[0])
+      if (first) store.taskItems = applyPositions(store.taskItems, planReorder(store.taskItems, first.task_id, first.entity_type, plan.order))
+    }
+  }
+  // §7b / §7c for a task row just written: each of the three columns the
+  // write changed moves, replaces or removes the main item; a new task's set
+  // columns become its first items. Another project's row is refused before
+  // anything changes (the composite key).
+  function itemsAfterTaskWrite(before, after) {
+    const task = findById(store.tasks, after.id)
+    if (!task) return
+    for (const kind of COLUMN_KINDS) {
+      const f = KIND_FIELD[kind]
+      const was = before ? (before[f] ?? null) : null
+      const is = task[f] == null || task[f] === '' ? null : task[f]
+      if (before && String(was) === String(is)) continue
+      if (!before && is == null) continue
+      if (is != null && !entityIn(kind, is, task.project_id)) {
+        // The statement is refused whole, as the database rolls it back.
+        if (before) { for (const k of Object.keys(task)) delete task[k]; Object.assign(task, before) }
+        else store.tasks = store.tasks.filter(t => t.id !== task.id)
+        throw itemError('23503', `insert or update on table "task_items" violates foreign key constraint "task_items_${kind}_fk"`)
+      }
+      const main = mainItemOf(store.taskItems, task.id, kind)
+      applyItemPlan(before
+        ? planSingleFieldWrite(store.taskItems, task.id, kind, is, main ? main.entity_id : was, makeItem(task))
+        : { remove: [], insert: null, order: null, ...seedPlan(task, kind) })
+    }
+    syncTaskItemColumns(store, [task.id])
+  }
+  function seedPlan(task, kind) {
+    const seeded = seedItemsFor(task, store.taskItems, makeItem(task), [KIND_FIELD[kind]])
+    return seeded.length ? { insert: seeded[0], order: [seeded[0].id, ...store.taskItems
+      .filter(i => i.task_id === task.id && i.entity_type === kind).sort((a, b) => a.position - b.position).map(i => i.id)] } : {}
+  }
+  // The database's invariant (0096 post-condition 10h): every same-project
+  // single column has its item, and each column is its kind's main item. A
+  // test or a variant that writes a task's columns straight into the store
+  // gets, at the next read, the items the database would hold: seeded as the
+  // main item, as the backfill and §7b do (nothing is removed).
+  function reconcileTaskItems(projectId) {
+    const ids = []
+    for (const t of store.tasks) {
+      if (t.project_id !== projectId) continue
+      ids.push(t.id)
+      for (const kind of COLUMN_KINDS) {
+        const v = t[KIND_FIELD[kind]]
+        if (v == null || v === '' || !entityIn(kind, v, t.project_id)) continue
+        const main = mainItemOf(store.taskItems, t.id, kind)
+        if (main && main.entity_id === v) continue
+        applyItemPlan(planSingleFieldWrite(store.taskItems, t.id, kind, v, null, makeItem(t)))
+      }
+    }
+    syncTaskItemColumns(store, ids)
+  }
+  // A hard delete's CASCADE: the row's items leave every task, and each task
+  // that had one takes its next item as main (0096 §7a, §7b).
+  function sweepTaskItemsOf(kind, id) {
+    const touched = store.taskItems.filter(i => i.entity_type === kind && i.entity_id === id).map(i => i.task_id)
+    if (!touched.length) return
+    store.taskItems = store.taskItems.filter(i => !(i.entity_type === kind && i.entity_id === id))
+    syncTaskItemColumns(store, touched, [kind])
   }
 
   // ── Folders (shared by the folder methods and entity creation) ─────────────
@@ -256,7 +419,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     const orphanTakes = store.shotTakes.filter(t => !fileIds.has(t.bin_file_id) || !shotIds.has(t.shot_id))
     return { affectedShotIds: [...new Set(affectedShotIds)], shotTakes: clone(liveTakes), orphanTakes: clone(orphanTakes), ...extra }
   }
-  const binFilesWithOnline = () => store.binFiles.map(f => ({ ...f, online: true }))
+  const binFilesWithOnline = () => store.binFiles.map(withOnline)
 
   // ── Shot lists (0084) ──────────────────────────────────────────────────────
   // A trashed project hides its lists in the cloud (the SELECT hop to a LIVE
@@ -394,6 +557,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async loadProject(projectId) {
       const project = projectOf(projectId)
       if (!project || project.deleted_at) throw notFound(projectId)
+      reconcileTaskItems(projectId)
       const inProject = (list) => list.filter(r => r.project_id === projectId)
       const assetIds = new Set(inProject(store.assets).map(a => a.id))
       const taskIds = new Set(inProject(store.tasks).map(t => t.id))
@@ -431,11 +595,15 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         binFiles: binFilesWithOnline().filter(f => f.project_id === projectId),
         binRoots: inProject(store.binRoots),
         shotTakes: inProject(store.shotTakes),
+        // BC1 (0091): the company's footage locations, every project of it.
+        binLocations: clone(store.binLocations),
         // 0084 (S3a): the three bundle keys every adapter returns, in the
         // contract's order.
         shotLists: inProject(store.shotLists).sort(byCreated),
         shotListItems: inProject(store.shotListItems).sort(byPosition),
         edits: inProject(store.edits).sort(byCreated),
+        // FX2 (0096): a task's items, a trashed task's hidden (the task hop).
+        taskItems: inProject(store.taskItems).filter(i => liveTaskOf(i.task_id)),
       }))
     },
     async createProject(payload) {
@@ -503,8 +671,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async restoreAsset(id) { return restore(store.assets, id) },
 
     async listTasks(projectId) { return clone(live(store.tasks.filter(t => t.project_id === projectId))) },
-    async upsertTask(task) { return clone(upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...unstamped(task) }))) },
-    async patchTask(id, fields) { return clone(patch(store.tasks, id, stampBy(unstamped(fields)))) },
+    async upsertTask(task) {
+      const prior = task?.id ? findById(store.tasks, task.id) : null
+      const before = prior ? { ...prior } : null
+      const row = upsert(store.tasks, stampBy({ workspace_id: workspaceId, created_by: by, ...unstamped(task) }))
+      itemsAfterTaskWrite(before, row)
+      return clone(findById(store.tasks, row.id))
+    },
+    async patchTask(id, fields) {
+      const prior = findById(store.tasks, id)
+      const before = prior ? { ...prior } : null
+      const row = patch(store.tasks, id, stampBy(unstamped(fields)))
+      if (row) itemsAfterTaskWrite(before, row)
+      return clone(row ? findById(store.tasks, id) : row)
+    },
     async deleteTask(id) { trash(store.tasks, id) },
     async restoreTask(id) { return restore(store.tasks, id) },
 
@@ -516,6 +696,52 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async deleteDependency(id) { remove(store.dependencies, id) },
     async upsertTaskLink(link) { return clone(upsert(store.taskLinks, link)) },
     async deleteTaskLink(id) { remove(store.taskLinks, id) },
+
+    // ── A task's items (FX2, migration 0096) ─────────────────────────────────
+    taskItemsAvailable() { return true },
+    async listTaskItems(projectId) {
+      return clone(store.taskItems.filter(i => i.project_id === projectId && liveTaskOf(i.task_id)))
+    },
+    async addTaskItem(item) {
+      const problem = itemShapeProblem(item)
+      if (problem) throw itemError('23514', problem)
+      const task = liveTaskOf(item.task_id)
+      if (!task || task.project_id !== item.project_id) {
+        throw itemError('42501', 'new row violates row-level security policy for table "task_items"')
+      }
+      if (!entityIn(item.entity_type, item.entity_id, task.project_id)) {
+        throw itemError('23503', `insert or update on table "task_items" violates foreign key constraint "task_items_${item.entity_type}_fk"`)
+      }
+      const stored = store.taskItems.find(i => i.task_id === task.id && i.entity_type === item.entity_type && i.entity_id === item.entity_id)
+      if (stored) return clone(stored)
+      const row = makeItem(task)({
+        ...(item.id ? { id: item.id } : {}),
+        task_id: task.id, entity_type: item.entity_type, entity_id: item.entity_id,
+        position: item.position ?? 0,
+        ...(item.created_at ? { created_at: item.created_at } : {}),
+      })
+      store.taskItems.push(row)
+      syncTaskItemColumns(store, [task.id], [row.entity_type])
+      return clone(row)
+    },
+    async deleteTaskItem(id) {
+      const row = findById(store.taskItems, id)
+      if (!row || !liveTaskOf(row.task_id)) return
+      store.taskItems = store.taskItems.filter(i => i.id !== id)
+      syncTaskItemColumns(store, [row.task_id], [row.entity_type])
+    },
+    async reorderTaskItems(projectId, taskId, kind, orderedIds) {
+      if (!isItemKind(kind)) throw itemError('22023', `reorder_task_items: ${kind} is not a kind of item (asset, scene, shot, level, experience)`)
+      const ids = Array.isArray(orderedIds) ? orderedIds : []
+      if (new Set(ids).size !== ids.length) throw itemError('22023', 'reorder_task_items: an item is named twice')
+      const task = liveTaskOf(taskId)
+      if (!task || task.project_id !== projectId) return []
+      const changes = planReorder(store.taskItems, taskId, kind, ids)
+      store.taskItems = applyPositions(store.taskItems, changes)
+      syncTaskItemColumns(store, [taskId], [kind])
+      const moved = new Set(changes.map(c => c.id))
+      return clone(store.taskItems.filter(i => moved.has(i.id)))
+    },
 
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
@@ -568,10 +794,26 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async listFileEvents(fileId) {
       // S4b: a money file's history is the money gate's, like its row (0074,
-      // 0088's certificate arm for Legal).
+      // 0088's certificate arm for Legal). S4d (0092, Audrey's Legal 1): a
+      // Legal file's history — its deletion record included — is the Legal
+      // audience's, an invoice's the money audience's; a member or reviewer
+      // reads neither. (The fake cloud never carried ruling 22's purged
+      // exception; it now matches the real one.)
       const f = findById(store.files, fileId)
-      if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id)) return []
+      if (f && isMoneyFile(f) && !passesMoneyGate(f.project_id) && !(isLegalRow(f) && passesLegalGate(f.project_id))) return []
       return clone(store.fileEvents.filter(e => e.file_id === fileId).sort((a, b) => b.created_at.localeCompare(a.created_at)))
+    },
+    // GW1 (0093): one clip's viewings from outside the office, as the cloud
+    // answers a LIVE workspace admin (and nobody else: file_events_select).
+    // The rows are the gateway fixture's (gatewayFixtures.js seeds them into
+    // the store), so Settings' table and the inspector's line agree.
+    async remoteViewsOfClip(binFileId) {
+      if (appRole !== 'admin') return { count: 0, unverified: 0, last: null }
+      const rows = (store.gatewayViewings || []).filter(v => v.file_id === binFileId)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      const unverified = rows.filter(v => v.details?.unverified_mint === true).length
+      const last = rows[0] ? { actor_label: rows[0].actor_label, created_at: rows[0].created_at, unverified_mint: rows[0].details?.unverified_mint === true } : null
+      return { count: rows.length, unverified, last }
     },
     // S4a (E13): the cloud's log_file_downloaded, as an event the activity
     // drawer can show. No bytes exist here, so nothing calls it today (the
@@ -808,20 +1050,24 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       const shotIds = store.shots.filter(s => s.scene_id === id).map(s => s.id)
       remove(store.scenes, id)
       sweepShotListLinks('scene_id', id)
+      sweepTaskItemsOf('scene', id)
       for (const shotId of shotIds) {
         remove(store.shots, shotId)
         sweepShotListLinks('shot_id', shotId)
+        sweepTaskItemsOf('shot', shotId)
       }
     },
     async listShots(projectId) { return clone(store.shots.filter(s => s.project_id === projectId)) },
     async upsertShot(shot) { return clone(upsert(store.shots, { workspace_id: workspaceId, created_by: by, ...shot, updated_by: by })) },
-    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id) },
+    // BC2: a shot's takes go with it, as 0091's shot_takes_shot_fk CASCADE
+    // takes them on the cloud (the provider's undo puts them back).
+    async deleteShot(id, _projectId) { remove(store.shots, id); sweepShotListLinks('shot_id', id); sweepTaskItemsOf('shot', id); store.shotTakes = store.shotTakes.filter(t => t.shot_id !== id) },
     async listLevels(projectId) { return clone(store.levels.filter(s => s.project_id === projectId)) },
     async upsertLevel(level) { return clone(upsert(store.levels, { workspace_id: workspaceId, created_by: by, ...level, updated_by: by })) },
-    async deleteLevel(id) { remove(store.levels, id) },
+    async deleteLevel(id) { remove(store.levels, id); sweepTaskItemsOf('level', id) },
     async listExperiences(projectId) { return clone(store.experiences.filter(s => s.project_id === projectId)) },
     async upsertExperience(exp) { return clone(upsert(store.experiences, { workspace_id: workspaceId, created_by: by, ...exp, updated_by: by })) },
-    async deleteExperience(id) { remove(store.experiences, id) },
+    async deleteExperience(id) { remove(store.experiences, id); sweepTaskItemsOf('experience', id) },
 
     // ── Shot lists, items, edits (0084; the S3a contract's nine methods plus
     //    round 1's two membership deltas and round 2's reorder) ──────────────
@@ -1001,12 +1247,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       return clone(store.edits.filter(e => e.project_id === projectId).sort(byCreated))
     },
 
-    async upsertEdit(edit) {
+    // FX4 review round 1 (R1-03): `{ expectSavedAt }` (a string, or null for
+    // none) is refused with 409 / code `edit_saved_since` when the stored
+    // edit carries another Save — as the Local Server's route and the cloud's
+    // conditional update do.
+    async upsertEdit(edit, opts) {
       const body = clone(withoutUndefined(edit))
       if (!body.project_id) throw invalid('An edit needs a project.')
       const project = liveProject(body.project_id)
       if (!project) throw notFound(body.project_id)
       const stored = body.id ? findById(store.edits, body.id) : null
+      if (stored && opts && Object.prototype.hasOwnProperty.call(opts, 'expectSavedAt')) {
+        const have = stored.snapshot && typeof stored.snapshot.saved_at === 'string' ? stored.snapshot.saved_at : null
+        if (have !== (opts.expectSavedAt ?? null)) throw refusal(409, EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE)
+      }
       if (stored) {
         if (stored.project_id !== body.project_id) throw forbidden('a edits row cannot move to another project')
         if ('shot_list_id' in body && body.shot_list_id !== stored.shot_list_id) {
@@ -1098,11 +1352,78 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       for (const planned of planProjectFolders(project || projectOf(projectId))) materialiseFolder(projectId, planned)
       return adapter.listFolders(projectId)
     },
+    // S4c: a shot's folder nests in its scene's (the scene found in the
+    // store, the scene's folder ensured first); an existing folder keeps
+    // its parent — the cloud adapter's rule, so the fake cloud re-files a
+    // project exactly as the real one does.
     async ensureEntityFolder(projectId, project, entityType, entity) {
-      const planned = planEntityFolder(project || projectOf(projectId), entityType, entity)
+      const scene = entityType === 'shot' && entity?.scene_id ? (store.scenes.find(s => s.id === entity.scene_id) || null) : null
+      const planned = planEntityFolder(project || projectOf(projectId), entityType, entity, scene)
       if (!planned) return null
+      const fk = ENTITY_FK_COLUMN[entityType]
+      const mine = store.folders.find(f => f.project_id === projectId && f[fk] && f[fk] === entity?.id)
+      if (mine) {
+        const parent = mine.parent_id ? store.folders.find(f => f.id === mine.parent_id) : null
+        const keptPath = parent ? `${parent.path ? parent.path + '/' : ''}${planned.folder.slug}` : planned.folder.path
+        if (mine.path !== keptPath) {
+          mine.slug = planned.folder.slug; mine.path = keptPath; mine.label = planned.folder.label; mine.updated_at = now()
+        }
+        return clone(mine)
+      }
       materialiseFolder(projectId, planned.category)
+      if (planned.parent) {
+        const sceneRow = await adapter.ensureEntityFolder(projectId, project, 'scene', scene)
+        if (sceneRow && sceneRow.path !== planned.folder.parentPath) {
+          planned.folder.parentPath = sceneRow.path
+          planned.folder.path = `${sceneRow.path}/${planned.folder.slug}`
+        }
+      }
       return clone(materialiseFolder(projectId, planned.folder))
+    },
+
+    // S4c: the one-time re-filing, in memory — the cloud adapter's shape and
+    // order (the scene's folder, the files' keys, then the folder row; the
+    // empty SHOTS category last), on the fixtures' own key shape
+    // (…/projects/<pid>/<folder path>/<name>). Nothing is deleted; a second
+    // run finds nothing to move.
+    async refileShotFolders(projectId, project, opts = {}) {
+      const progress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {}
+      const folders = store.folders.filter(f => f.project_id === projectId)
+      const pending = pendingShotRefiling({ folders, shots: store.shots, scenes: store.scenes })
+      const moved = []
+      for (const p of pending) {
+        progress({ shot: p.shot, name: p.folder.slug, done: moved.length, total: pending.length })
+        const sceneFolder = await adapter.ensureEntityFolder(projectId, project || projectOf(projectId), 'scene', p.scene)
+        const toPath = `${sceneFolder.path}/${p.folder.slug}`
+        const fromMark = `/projects/${projectId}/${p.folder.path}/`
+        const toMark = `/projects/${projectId}/${toPath}/`
+        let n = 0
+        for (const f of store.files) {
+          if (f.project_id !== projectId) continue
+          const mine = (f.shot_id && String(f.shot_id) === String(p.shot.id)) || (f.folder_id && f.folder_id === p.folder.id)
+          if (!mine) continue
+          if (typeof f.storage_path === 'string' && f.storage_path.includes(fromMark)) {
+            f.storage_path = f.storage_path.replace(fromMark, toMark)
+            n += 1
+          }
+          if (typeof f.thumbnail_url === 'string' && f.thumbnail_url.includes(fromMark)) {
+            const before = f.thumbnail_url
+            f.thumbnail_url = before.replace(fromMark, toMark)
+            // The generated picture follows its key, as the bucket's object does.
+            if (store.thumbnails.has(before)) { store.thumbnails.set(f.thumbnail_url, store.thumbnails.get(before)); store.thumbnails.delete(before) }
+          }
+        }
+        const row = store.folders.find(f => f.id === p.folder.id)
+        row.parent_id = sceneFolder.id
+        row.path = toPath
+        row.updated_at = now()
+        moved.push({ shotId: p.shot.id, name: p.folder.slug, from: p.folder.path, to: toPath, files: n })
+      }
+      let removedShotsCategory = false
+      const after = store.folders.filter(f => f.project_id === projectId)
+      const category = shotsCategoryRow(after)
+      if (category && shotsCategoryEmpty(after)) { remove(store.folders, category.id); removedShotsCategory = true }
+      return { moved, left: [], removedShotsCategory }
     },
     async writeProjectManifest(projectId, manifest) { store.manifests[projectId] = clone(manifest); return { ok: true } },
     async writeProjectRates(projectId, mirror) { store.ratesMirror[projectId] = clone(mirror); return { ok: true } },
@@ -1151,17 +1472,79 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async supportsPrivateProjects() { return true },
 
     // ── Bins (docs/BINS_DESIGN.md §4; adapters/index.js's contract) ──────────
+    // Since BC1 (0091) the fake cloud keeps the CLOUD's rules: a clip is a
+    // location plus a relative path, a removed clip's takes go with it (the
+    // CASCADE), a location in use cannot be removed (RESTRICT), the
+    // location's address has the database's shape, and a clip's picture is
+    // kept only while the company's remote-viewing switch is on (B4).
+    binsCapabilities() { return binsCaps },
     async listBins(projectId) {
       const answer = takesAnswer([])
       return {
         bins: clone(store.bins.filter(b => b.project_id === projectId)),
         binFiles: clone(binFilesWithOnline().filter(f => f.project_id === projectId)),
         binRoots: clone(store.binRoots.filter(r => r.project_id === projectId)),
+        binLocations: clone(store.binLocations),
         shotTakes: answer.shotTakes.filter(t => t.project_id === projectId),
         orphanTakes: answer.orphanTakes.filter(t => t.project_id === projectId),
         ffmpeg: false,
+        capabilities: binsCaps,
       }
     },
+    // ── Footage locations (BC1, 0091 §2; Audrey's B2) ────────────────────────
+    async listBinLocations() { return clone(store.binLocations) },
+    async createBinLocation(location) {
+      const name = String(location?.name ?? '').trim()
+      const unc_path = String(location?.unc_path ?? '').trim()
+      if (!name) throw invalid(BINS_SENTENCES.locationName)
+      if (!isUncPath(unc_path)) throw refusal(400, '23514', BINS_SENTENCES.locationShape)
+      if (store.binLocations.some(l => l.unc_path.toLowerCase() === unc_path.toLowerCase())) throw conflict(BINS_SENTENCES.locationExists)
+      const row = { id: location?.id || newId(), workspace_id: workspaceId, name, unc_path, added_by: by, created_at: now(), updated_at: now() }
+      store.binLocations.push(row)
+      return clone(row)
+    },
+    async updateBinLocation(id, fields) {
+      const row = findById(store.binLocations, id); if (!row) throw missing('footage location not found')
+      const p = { ...(fields || {}) }
+      if ('name' in p) { p.name = String(p.name ?? '').trim(); if (!p.name) throw invalid(BINS_SENTENCES.locationName) }
+      if ('unc_path' in p) {
+        p.unc_path = String(p.unc_path ?? '').trim()
+        if (!isUncPath(p.unc_path)) throw refusal(400, '23514', BINS_SENTENCES.locationShape)
+        if (store.binLocations.some(l => l.id !== id && l.unc_path.toLowerCase() === p.unc_path.toLowerCase())) throw conflict(BINS_SENTENCES.locationExists)
+      }
+      delete p.id; delete p.workspace_id; delete p.added_by; delete p.created_at
+      return clone(patch(store.binLocations, id, p))
+    },
+    async removeBinLocation(id) {
+      const row = findById(store.binLocations, id); if (!row) throw missing('footage location not found')
+      // ON DELETE RESTRICT: a clip never loses its address.
+      if (store.binFiles.some(f => f.location_id === id)) throw refusal(409, '23503', BINS_SENTENCES.locationInUse)
+      remove(store.binLocations, id)
+      return clone(row)
+    },
+    // ── The company's switch (B5a) ───────────────────────────────────────────
+    async getRemoteViewingEnabled() { return store.workspace.remote_viewing_enabled === true },
+    // BC2: read for the workspace, where no project is open (Settings).
+    async getWorkspaceRemoteViewing() { return store.workspace.remote_viewing_enabled === true },
+    async setRemoteViewingEnabled(_workspaceId, enabled) {
+      // workspaces_admin_update (0020): a workspace admin's verb.
+      if (appRole !== 'admin') throw forbidden(BINS_SENTENCES.switchAdminOnly)
+      store.workspace.remote_viewing_enabled = enabled === true
+      return store.workspace.remote_viewing_enabled
+    },
+    // A clip's picture is kept only while the switch is on (B4): refused
+    // before any byte, with the sentence the cloud answers.
+    async postBinFileThumbnail(_projectId, id, base64) {
+      const row = findById(store.binFiles, id); if (!row) throw notFound(id)
+      if (!base64 || typeof base64 !== 'string') throw invalid('base64 required')
+      if (store.workspace.remote_viewing_enabled !== true) throw refusal(403, 'remote_viewing_off', BINS_SENTENCES.remoteViewingOff)
+      const poster_path = `projects/${row.project_id}/bin_files/${id}/${Date.now()}-poster.jpg`
+      store.posters.set(id, `data:image/jpeg;base64,${base64}`)
+      patch(store.binFiles, id, { poster_path })
+      return { ok: true, poster_path }
+    },
+    // The cloud signs a poster per read; here the placeholder stands in.
+    async binFilePosterUrl(_projectId, row) { return row?.id ? (store.posters.get(row.id) ?? null) : null },
     async createBin(projectId, bin) { return clone(upsert(store.bins, { project_id: projectId, workspace_id: null, kind: 'other', color: null, parent_bin_id: null, sort_order: store.bins.length, created_by: by, ...bin, updated_by: by })) },
     async updateBin(_projectId, id, fields) { return clone(patch(store.bins, id, { ...fields, updated_by: by })) },
     async deleteBin(_projectId, id, { mode = 'remove', target = null } = {}) {
@@ -1169,17 +1552,23 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       let grew = true
       while (grew) { grew = false; for (const b of store.bins) if (!doomed.has(b.id) && doomed.has(b.parent_bin_id)) { doomed.add(b.id); grew = true } }
       const files = store.binFiles.filter(f => doomed.has(f.bin_id))
-      const movedFiles = []; const removedFiles = []
+      const movedFiles = []; const removedFiles = []; let removedTakes = []
       for (const f of files) {
         if (mode === 'move' && target) { f.bin_id = target; f.updated_at = now(); movedFiles.push(clone(f)) }
         else { removedFiles.push(clone(f)) }
       }
       // A 'move' with no target is a remove (review round 1: the files must not
-      // survive orphaned on a deleted bin id).
-      if (!(mode === 'move' && target)) store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
+      // survive orphaned on a deleted bin id). BC1: a removed clip's takes go
+      // with it, as 0091's CASCADE takes them; the answer carries them.
+      if (!(mode === 'move' && target)) {
+        const gone = new Set(removedFiles.map(f => f.id))
+        removedTakes = store.shotTakes.filter(t => gone.has(t.bin_file_id)).map(t => clone(t))
+        store.shotTakes = store.shotTakes.filter(t => !gone.has(t.bin_file_id))
+        store.binFiles = store.binFiles.filter(f => !doomed.has(f.bin_id))
+      }
       const removedBins = store.bins.filter(b => doomed.has(b.id)).map(b => clone(b))
       store.bins = store.bins.filter(b => !doomed.has(b.id))
-      return { removedBins, movedFiles, removedFiles }
+      return { ok: true, removedBins, movedFiles, removedFiles, removedTakes }
     },
     async reorderBins(_projectId, rows) {
       for (const r of rows || []) { const b = findById(store.bins, r.id); if (b) { b.parent_bin_id = r.parent_bin_id ?? null; b.sort_order = r.sort_order ?? b.sort_order } }
@@ -1188,29 +1577,100 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async pickBinFiles() { throw devWriteRefused('Picking files from disk') },
     async pickBinFolder() { throw devWriteRefused('Picking a folder from disk') },
     async prepareBinFiles() { throw devWriteRefused('Adding files from disk') },
-    async addBinFiles() { throw devWriteRefused('Adding files from disk') },
-    async updateBinFile(_projectId, id, fields) { return clone({ ...patch(store.binFiles, id, fields), online: true }) },
+    // BC2: the cloud's add_bin_files (0091), for the desktop signed in. An
+    // item is a REFERENCE — one of the company's footage locations plus a
+    // path inside it, the technical columns the adding computer read — never
+    // bytes; an item without one is answered 'invalid', as the function does.
+    // (Picking and preparing stay refused here: they are the desktop's.)
+    async addBinFiles(_projectId, binId, items, createSubBins = true) {
+      const bin = findById(store.bins, binId); if (!bin) throw missing('bin not found')
+      if (!Array.isArray(items) || items.length === 0) throw invalid('items required')
+      const MEDIA = ['video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other']
+      const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink']
+      const pos = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
+      const text = (v) => (typeof v === 'string' && v.trim() ? v : null)
+      const created = []; const bins = []; const results = []
+      for (const e of items) {
+        const rel = String(e?.relative_path ?? '').trim()
+        const loc = e?.location_id ? store.binLocations.find(l => l.id === e.location_id) : null
+        if (!loc || !rel) { results.push({ relative_path: e?.relative_path ?? null, status: 'invalid' }); continue }
+        let target = bin.id
+        if (createSubBins !== false && String(e.sub_bin ?? '').trim()) {
+          let parent = bin.id
+          for (const seg of String(e.sub_bin).split('/').map(s => s.trim()).filter(Boolean)) {
+            let child = store.bins
+              .filter(b => b.project_id === bin.project_id && (b.parent_bin_id ?? null) === parent && String(b.name).toLowerCase() === seg.toLowerCase())
+              .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
+            if (!child) {
+              const siblings = store.bins.filter(b => b.project_id === bin.project_id && (b.parent_bin_id ?? null) === parent)
+              child = upsert(store.bins, { project_id: bin.project_id, workspace_id: bin.workspace_id ?? null, name: seg, description: '', kind: 'footage', color: null, parent_bin_id: parent, sort_order: siblings.reduce((m, b) => Math.max(m, b.sort_order ?? 0), -1) + 1, created_by: by, updated_by: by })
+              bins.push(clone(child))
+            }
+            parent = child.id
+          }
+          target = parent
+        }
+        const isSeq = e.is_sequence === true
+        const name = String(e.original_name ?? '').trim() || rel.replace(/^.*\//, '')
+        const extOf = !isSeq && /\.[A-Za-z0-9]{1,12}$/.test(name) ? name.match(/(\.[A-Za-z0-9]{1,12})$/)[1] : ''
+        const order = store.binFiles.filter(f => f.bin_id === target).reduce((m, f) => Math.max(m, f.sort_order ?? 0), -1) + 1
+        const row = {
+          id: newId(), project_id: bin.project_id, workspace_id: bin.workspace_id ?? workspaceId, bin_id: target,
+          location_id: loc.id, relative_path: rel,
+          display_name: String(e.display_name ?? '').trim() || (isSeq ? name : name.replace(/\.[A-Za-z0-9]{1,12}$/, '')),
+          original_name: name, extension: String(e.extension || extOf).toLowerCase(), mime_type: text(e.mime_type),
+          is_sequence: isSeq, sequence_pattern: text(e.sequence_pattern),
+          frame_count: pos(e.frame_count) ? Math.round(e.frame_count) : null,
+          size_bytes: typeof e.size_bytes === 'number' && Number.isFinite(e.size_bytes) ? e.size_bytes : null,
+          mtime: e.mtime ?? null,
+          media_type: MEDIA.includes(e.media_type) ? e.media_type : isSeq ? 'sequence' : 'other',
+          tags: (Array.isArray(e.tags) ? e.tags : []).map(t => String(t).trim()).filter(Boolean).slice(0, 50),
+          scene_id: e.scene_id ?? null, shot_id: e.shot_id ?? null, slate: text(e.slate),
+          take_number: pos(e.take_number) ? Math.floor(e.take_number) : null, take_modifier: text(e.take_modifier),
+          camera: text(e.camera), roll: text(e.roll),
+          shoot_day: /^\d{4}-\d{2}-\d{2}$/.test(String(e.shoot_day ?? '')) ? e.shoot_day : null,
+          description: e.description ?? '', notes: e.notes ?? '',
+          review_flag: ['unflagged', 'select', 'reject'].includes(e.review_flag) ? e.review_flag : 'unflagged',
+          circled: e.circled === true, color: COLORS.includes(e.color) ? e.color : null,
+          duration_sec: pos(e.duration_sec), width: pos(e.width) ? Math.floor(e.width) : null, height: pos(e.height) ? Math.floor(e.height) : null,
+          fps: pos(e.fps), codec: text(e.codec), timecode_start: text(e.timecode_start),
+          probe_status: ['pending', 'done', 'failed', 'unavailable'].includes(e.probe_status) ? e.probe_status : 'pending',
+          sort_order: order, poster_path: null, added_by: by, added_at: now(), updated_at: now(),
+        }
+        store.binFiles.push(row)
+        created.push(clone(row))
+        results.push({ relative_path: rel, status: 'added', id: row.id, bin_id: target })
+      }
+      return { created, bins, results }
+    },
+    async updateBinFile(_projectId, id, fields) { return clone(withOnline(patch(store.binFiles, id, fields))) },
     async bulkUpdateBinFiles(_projectId, ids, fields) {
       const updated = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); updated.push(clone({ ...row, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { Object.assign(row, fields, { updated_at: now() }); updated.push(clone(withOnline(row))) } }
       return { updated }
     },
     async moveBinFiles(_projectId, ids, binId) {
       const moved = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); moved.push(clone({ ...row, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { row.bin_id = binId; row.updated_at = now(); moved.push(clone(withOnline(row))) } }
       return { moved }
     },
     async copyBinFiles(_projectId, ids, binId) {
       const created = []
-      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone({ ...copy, online: true })) } }
+      for (const id of ids || []) { const row = findById(store.binFiles, id); if (row) { const copy = { ...row, id: newId(), bin_id: binId, added_at: now(), updated_at: now() }; store.binFiles.push(copy); store.posters.set(copy.id, store.posters.get(id) ?? null); created.push(clone(withOnline(copy))) } }
       return { created }
     },
+    // Removes the ROWS only (B10). BC1: a removed clip's takes go with it
+    // (0091's CASCADE) and ride the answer as `removedTakes`; the provider
+    // snapshots the shots' takes first and puts them back on undo.
     async removeBinFiles(_projectId, ids) {
       const set = new Set(ids || [])
       const removed = store.binFiles.filter(f => set.has(f.id)).map(f => clone(f))
       store.binFiles = store.binFiles.filter(f => !set.has(f.id))
-      const affected = store.shotTakes.filter(t => set.has(t.bin_file_id)).map(t => t.shot_id)
-      return { removed, ...takesAnswer(affected) }
+      const removedTakes = store.shotTakes.filter(t => set.has(t.bin_file_id)).map(t => clone(t))
+      store.shotTakes = store.shotTakes.filter(t => !set.has(t.bin_file_id))
+      const affected = removedTakes.map(t => t.shot_id)
+      for (const s of new Set(affected)) normaliseTakes(s)
+      return { removed, removedTakes, ...takesAnswer(affected) }
     },
     async restoreBinFiles(_projectId, rows) {
       const restored = []; const skipped = []
@@ -1220,17 +1680,16 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         if (findById(store.binFiles, r.id)) { skipped.push({ id: r.id, reason: 'invalid' }); continue }
         const { online, ...row } = r
         store.binFiles.push(row) // the poster map is keyed by id and survives a remove
-        restored.push(clone({ ...row, online: true }))
+        restored.push(clone(withOnline(row)))
       }
       const affected = restored.flatMap(r => store.shotTakes.filter(t => t.bin_file_id === r.id).map(t => t.shot_id))
       for (const s of new Set(affected)) normaliseTakes(s)
       return { restored, skipped, ...takesAnswer(affected) }
     },
-    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); return clone({ ...row, online: true }) },
+    async probeBinFile(_projectId, id) { const row = findById(store.binFiles, id); if (!row) throw notFound(id); return clone(withOnline(row)) },
     binFileThumbnailUrl(_projectId, id) { return store.posters.get(id) ?? null },
     // No bytes to stream: the poster stands in for the frame (the panel's <img>).
     binFileStreamUrl(_projectId, id) { return store.posters.get(id) ?? null },
-    async postBinFileThumbnail() { throw devWriteRefused('Saving a decoded poster') },
     async binRelinkScan() { return { offline: [], candidates: [], truncated: false } },
     async binRelinkApply() { throw devWriteRefused('Relinking a drive') },
     async openBinFile() { throw devWriteRefused('Opening a file on this machine') },

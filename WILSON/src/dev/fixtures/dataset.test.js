@@ -26,7 +26,7 @@ import {
   ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
 import {
-  SCENES, SHOTS, BINS, BIN_FILES, BIN_ROOTS, SHOT_TAKES, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
+  SCENES, SHOTS, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES, SHOT_LISTS, SHOT_LIST_ITEMS, EDITS,
 } from './data/scenes'
 import { FOLDERS, FILES, THUMBNAILS, FILE_EVENTS } from './data/files'
 import {
@@ -189,25 +189,51 @@ describe('scenes, shots, bins and takes', () => {
     }
   })
 
-  it('bins nest, files sit in bins, roots exist, and takes join real shots and files with one primary each', () => {
-    expect(BINS.length).toBe(5)
+  it('bins nest, files sit in bins at a location, and takes join real shots and files with one primary each', () => {
+    // BC1 (0091): seven bins, sixteen files, one location, nine takes.
+    expect(BINS.length).toBe(7)
     for (const b of BINS) {
       if (b.parent_bin_id) expect(ids(BINS).has(b.parent_bin_id)).toBe(true)
       expect(BIN_KINDS).toContain(b.kind)
       if (b.color !== null) expect(COLORS).toContain(b.color)
+      expect(b.workspace_id).toBe(WORKSPACE.id)
     }
+    // GW3 added two H.264 proxies (rows 17 and 18) the gateway's door stub plays.
+    expect(BIN_FILES.length).toBe(18)
+    // The CLOUD shape: a location plus a relative path (forward slashes, no
+    // leading slash, no traversal, no drive letter), the picture's key under
+    // the row's own project, and NEVER an absolute source_path of one machine.
+    expect(BIN_LOCATIONS.length).toBe(1)
+    expect(BIN_LOCATIONS[0].unc_path).toMatch(/^\\\\[^\\/:*?"<>|]+(\\[^\\/:*?"<>|]+)+$/)
+    expect(BIN_LOCATIONS[0].workspace_id).toBe(WORKSPACE.id)
     for (const f of BIN_FILES) {
       expect(ids(BINS).has(f.bin_id)).toBe(true)
       expect(f.probe_status).toBe('done')
       expect(f.online).toBe(true)
       expect(f.__poster.startsWith('data:image/svg+xml')).toBe(true)
+      expect('source_path' in f).toBe(false)
+      expect(f.location_id).toBe(BIN_LOCATIONS[0].id)
+      expect(f.relative_path).not.toMatch(/(^\/|\/$|\/\/|\\|:)/)
+      expect(f.relative_path.split('/').some((s) => s === '.' || s === '..')).toBe(false)
+      expect(f.poster_path.startsWith(`projects/${f.project_id}/bin_files/${f.id}/`)).toBe(true)
+      expect(f.workspace_id).toBe(WORKSPACE.id)
       if (f.scene_id) expect(ids(SCENES).has(f.scene_id)).toBe(true)
       if (f.shot_id) expect(ids(SHOTS).has(f.shot_id)).toBe(true)
       expect(REVIEW_FLAGS).toContain(f.review_flag)
       expect(MEDIA_TYPES).toContain(f.media_type)
       if (f.color !== null) expect(COLORS).toContain(f.color)
+      if (f.is_sequence) {
+        expect(f.media_type).toBe('sequence')
+        expect(f.sequence_pattern).toContain('####')
+        expect(f.frame_count).toBeGreaterThan(1)
+        expect(f.relative_path.endsWith(f.extension)).toBe(false) // a sequence names its FOLDER
+      }
     }
-    expect(BIN_ROOTS.length).toBeGreaterThan(0)
+    expect(BIN_FILES.filter((f) => f.is_sequence).length).toBe(1)
+    // The signed-out desktop's known roots have no cloud shape (B12).
+    expect(BIN_ROOTS).toEqual([])
+    // One of the four new clips is a take on a shot (BC1's brief).
+    expect(SHOT_TAKES.some((t) => t.bin_file_id === BIN_FILES[12].id)).toBe(true)
     const byShot = new Map()
     for (const t of SHOT_TAKES) {
       expect(ids(SHOTS).has(t.shot_id)).toBe(true)
@@ -347,7 +373,9 @@ describe('folders and files', () => {
   })
 
   it('thirty-three files (one of them Legal, S4b), each in a real folder, with a thumbnail for every picture and video', () => {
-    expect(FILES.length).toBe(33)
+    // S4c: thirty-two, the Legal file, and two shot files under SHOTS/<shot>
+    // (the project stands for one from before S4c; the re-filing moves them).
+    expect(FILES.length).toBe(35)
     for (const f of FILES) {
       expect(ids(FOLDERS).has(f.folder_id), f.name).toBe(true)
       if (f.asset_id) expect(ids(ASSETS).has(f.asset_id)).toBe(true)

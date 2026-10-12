@@ -34,6 +34,9 @@ import '../rabbitShell.css'
 import { Dialog } from '../../../ui/Dialog'
 import { Button } from '../../../ui/Button'
 import { EmptyState } from '../../../ui/EmptyState'
+import { Tabs } from '../../../ui/Tabs'
+import { IconButton } from '../../../ui/IconButton'
+import TeamGallery from './TeamGallery'
 
 // ROLE_COLORS went in B1: the extraction moved it onto `.rb-role[data-role]`,
 // and the restyle drew every role in the same ink (a role is a category, not
@@ -85,6 +88,26 @@ const TEAM_GROUPABLE_FIELDS = [
 
 const SAVED_VIEWS_KEY = 'rabbit_team_saved_views'
 
+// FX3 (Audrey, 2026-10-11: "allow the user to change views from table/list to
+// gallery"): Table (the list as it was) or Gallery (TeamGallery.jsx), the kit
+// Tabs the Assets tab switches with, remembered per browser — how this person
+// likes to look, not a project setting. Both branches (the cloud roster and
+// the Local Server table) read the one key.
+const TEAM_VIEW_KEY = 'rabbit_team_view'
+const TEAM_BODY_ID = 'rabbit-team-panel'
+const TEAM_VIEW_ITEMS = [{ id: 'table', label: 'Table' }, { id: 'gallery', label: 'Gallery' }]
+function useTeamView() {
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(TEAM_VIEW_KEY) === 'gallery' ? 'gallery' : 'table' } catch { return 'table' }
+  })
+  const choose = useCallback((v) => {
+    const next = v === 'gallery' ? 'gallery' : 'table'
+    setView(next)
+    try { localStorage.setItem(TEAM_VIEW_KEY, next) } catch { /* storage refused: this visit only */ }
+  }, [])
+  return [view, choose]
+}
+
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
 export default function TeamView() {
@@ -105,6 +128,7 @@ export default function TeamView() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveName, setSaveName] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [view, setView] = useTeamView()
 
   const project = ctx?.project
   const cloudMode = ctx?.adapterMode === 'supabase'
@@ -293,6 +317,47 @@ export default function TeamView() {
       console.error('[TeamView] remove failed:', err)
     }
   }
+  // The one question before a removal, for the table's row and the gallery's
+  // card alike (FX3): the same words, asked once.
+  function confirmRemove(r) {
+    if (window.confirm(`Remove "${r.member.name}" from this project?`)) handleRemove(r.id)
+  }
+
+  // ── A member as a gallery card (FX3) ──
+  // The row's role select and remove. No picture is signed here: the Local
+  // Server has no Supabase, and a member's `profile_picture_url` on it is a
+  // path or an address no gallery may draw, so a card is the initials tile
+  // (the table draws the initials too). The Local Server's pictures are a
+  // named limit in walkthrough 66.
+  function localCard(r) {
+    const member = r.member
+    const name = member.name || 'Unnamed'
+    const role = r.role || 'member'
+    return {
+      key: r.id,
+      name,
+      role: member.title || '',
+      seatLabel: role.charAt(0).toUpperCase() + role.slice(1),
+      avatarUrl: member.avatar_url || member.profile_picture_url || null,
+      avatarOwner: null,
+      seat: (
+        <select
+          value={role}
+          onChange={(e) => handleRoleChange(r.id, e.target.value)}
+          aria-label={`Role for ${name}`}
+          className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
+          data-role={role}
+        >
+          <option value="member">Member</option>
+          <option value="manager">Manager</option>
+          <option value="reviewer">Reviewer</option>
+        </select>
+      ),
+      actions: (
+        <IconButton size="sm" Icon={UserMinus} danger title={`Remove ${name} from project`} onClick={() => confirmRemove(r)} />
+      ),
+    }
+  }
 
   async function handleRoleChange(assignmentId, role) {
     if (!ctx?.updateTeamAssignment) return
@@ -387,11 +452,7 @@ export default function TeamView() {
         <Td>
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm(`Remove "${member.name}" from this project?`)) {
-                handleRemove(r.id)
-              }
-            }}
+            onClick={() => confirmRemove(r)}
             className="p-1 rounded-control hover:bg-hover transition-colors"
             title="Remove from project"
             style={{ color: 'var(--color-danger)' }}
@@ -462,6 +523,12 @@ export default function TeamView() {
 
         <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
 
+        {/* Table / Gallery (FX3): the kit Tabs, after the grouping, where
+            the Assets tab has its switch. */}
+        <Tabs label="View" panelId={TEAM_BODY_ID} items={TEAM_VIEW_ITEMS} value={view} onChange={setView} />
+
+        <div style={{ width: 1, height: 16, backgroundColor: 'var(--color-rule)' }} />
+
         {/* Saved views */}
         <TeamSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSaveRequest={() => setShowSaveDialog(true)} />
 
@@ -498,7 +565,7 @@ export default function TeamView() {
       )}
 
       {/* ── Body ── */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" id={TEAM_BODY_ID} role="tabpanel" aria-label={view === 'gallery' ? 'Gallery' : 'Table'}>
         {teamAssignments.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3">
             <Users className="w-8 h-8" style={{ color: 'var(--color-ink-3)' }} />
@@ -506,6 +573,26 @@ export default function TeamView() {
               No team members assigned to this project yet.
             </span>
           </div>
+        ) : view === 'gallery' ? (
+          /* FX3: the same members, in the same order (sorted and filtered as
+             the table is), as cards; each with the row's role select and
+             remove. With Group by set, a heading per group as the table's,
+             folding the same way (review round 1, R1-10: the cards were one
+             run in the groups' order with nothing on screen saying why). */
+          groups ? (
+            groups.map(g => (
+              <section key={g.key}>
+                <button type="button" onClick={() => toggleGroup(g.key)} aria-expanded={!collapsedGroups.has(g.key)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-hover transition-colors"
+                  style={{ borderBottom: '1px solid var(--color-rule)' }}>
+                  <GroupHeadContent collapsed={collapsedGroups.has(g.key)} label={g.label} count={g.members.length} />
+                </button>
+                {!collapsedGroups.has(g.key) && <TeamGallery label={g.label} cards={g.members.map(localCard)} />}
+              </section>
+            ))
+          ) : (
+            <TeamGallery label="Project team" cards={sorted.map(localCard)} />
+          )
         ) : (
           <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: '0 2px' }}>
             <thead className="sticky top-0 z-10">
@@ -531,9 +618,7 @@ export default function TeamView() {
                         <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-hover transition-colors"
                           onClick={() => toggleGroup(g.key)}
                           style={{ borderBottom: '1px solid var(--color-rule)' }}>
-                          {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} /> : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
-                          <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{g.label}</span>
-                          <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{g.members.length}</span>
+                          <GroupHeadContent collapsed={collapsedGroups.has(g.key)} label={g.label} count={g.members.length} />
                         </div>
                       </td>
                     </tr>
@@ -609,6 +694,7 @@ function ProjectMembersPanel({ ctx }) {
   const [search, setSearch] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useRef(null)
+  const [view, setView] = useTeamView()
 
   const projectMembers = ctx?.projectMembers || []
   // 🚨 Session 29 added `ready`. `project.roster.manage` has no unstaffed
@@ -711,7 +797,17 @@ function ProjectMembersPanel({ ctx }) {
             <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>
               Project Roster
             </span>
-            <span className="ml-auto text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
+            {/* Table / Gallery (FX3): the kit Tabs the Assets tab switches
+                with, in the roster's own header beside the seats they show
+                (review round 1, R1-08: a toolbar of its own put them at the
+                page's left edge, 300px from the roster at 1280). They take
+                the header's whole height, sitting on its rule, so the active
+                tab's underline is the header's edge (R2-07: it floated 12px
+                above it) and the header keeps its height. */}
+            <span className="ml-auto self-stretch flex items-end -my-3">
+              <Tabs label="View" panelId={TEAM_BODY_ID} items={TEAM_VIEW_ITEMS} value={view} onChange={setView} />
+            </span>
+            <span className="text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
               {seated.length} seat{seated.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -768,7 +864,9 @@ function ProjectMembersPanel({ ctx }) {
             </div>
           )}
 
-          {/* Seats (or the unstaffed explainer) */}
+          {/* Seats (or the unstaffed explainer): the region the header's
+              Table / Gallery switches (FX3). */}
+          <div id={TEAM_BODY_ID} role="tabpanel" aria-label={view === 'gallery' ? 'Gallery' : 'Table'}>
           {seated.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
               <Users className="w-6 h-6" style={{ color: 'var(--color-ink-3)' }} />
@@ -776,6 +874,51 @@ function ProjectMembersPanel({ ctx }) {
                 No roster yet — everyone in the workspace can edit this project. Add members to restrict it.
               </span>
             </div>
+          ) : view === 'gallery' ? (
+            /* FX3: the same seats in the same order as cards, on the paper
+               inside the roster card; each card carries its row's controls
+               (the seat select, or the read-only seat; remove for a manager). */
+            <TeamGallery
+              label="Project roster"
+              cards={seated.map(pm => {
+                const m = dirById[pm.user_id]
+                const name = m?.display_name || m?.username || 'Unknown member'
+                const role = pm.project_role || 'member'
+                const roleDef = PROJECT_ROLE_OPTIONS.find(o => o.value === role) || PROJECT_ROLE_OPTIONS[0]
+                return {
+                  key: pm.user_id,
+                  name,
+                  // The row's second line, in the row's order and words —
+                  // "@username — Title" — so two people of one name stay two
+                  // (review rounds 1 and 2, R1-09, R2-08).
+                  role: [m?.username ? `@${m.username}` : null, m?.title].filter(Boolean).join(' — '),
+                  seatLabel: roleDef.label,
+                  avatarUrl: m?.avatar_url || null,
+                  // Whose picture it must be: the uploaders' {workspace}/{user}/… (R1-05).
+                  avatarOwner: m ? { workspaceId: m.workspace_id, userId: pm.user_id } : null,
+                  seat: canManage ? (
+                    <select
+                      value={role}
+                      onChange={e => handleSeatRoleChange(pm.user_id, e.target.value)}
+                      aria-label={`Seat for ${name}`}
+                      title={roleDef.desc}
+                      className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
+                      data-role={role}
+                    >
+                      {PROJECT_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <span className="rb-role px-1.5 py-0.5 text-dense rounded-control" data-role={role} title={roleDef.desc}>
+                      {roleDef.label}
+                    </span>
+                  ),
+                  actions: canManage ? (
+                    <IconButton size="sm" Icon={UserMinus} title={`Remove ${name} from roster`}
+                      onClick={() => handleSeatRemove(pm.user_id, name)} />
+                  ) : null,
+                }
+              })}
+            />
           ) : (
             seated.map(pm => {
               const m = dirById[pm.user_id]
@@ -826,6 +969,7 @@ function ProjectMembersPanel({ ctx }) {
               )
             })
           )}
+          </div>
         </div>
 
         {dir.error && (
@@ -973,6 +1117,21 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
 
         </div>
     </Dialog>
+  )
+}
+
+// ─── A group's heading: its chevron, its name, its count ───
+// One drawing for the Local Server table's group rows and the gallery's group
+// headings (FX3 review round 2, R2-09: the gallery's was a copy).
+function GroupHeadContent({ collapsed, label, count }) {
+  return (
+    <>
+      {collapsed
+        ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />
+        : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
+      <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{label}</span>
+      <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{count}</span>
+    </>
   )
 }
 

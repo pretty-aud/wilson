@@ -33,6 +33,8 @@ export default defineConfig({
   esbuild: { jsx: 'automatic' },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.{js,jsx}'],
+    // GW2 (2026-10-10): the file gateway's own suite (gateway/, Node built-ins
+    // only, ES modules) runs in the same `npx vitest run` from WILSON/.
+    include: ['src/**/*.test.{js,jsx}', 'gateway/**/*.test.{js,mjs}'],
   },
 })

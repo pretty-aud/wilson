@@ -1789,8 +1789,11 @@ describe('mono is for data: the status sentences P1 moved to the sans (R2-07)', 
       /<span className="([^"]*)"[^>]*>\{amb\.candidates\.length\} files with this name:/, 'sans'],
     ['src/tools/rabbit_v0.1.0/views/bins/RelinkBinsDialog.jsx',
       /<div className="([^"]*)"[^>]*>not found in that folder/, 'sans'],
+    // BC2: the refused line's phrase ("missing on disk", "not in any footage
+    // location yet", …) is chosen by refusedWords(); the span that carries
+    // it is the one pinned, and it is still the sans.
     ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
-      /<span className="([^"]*)"[^>]*> · missing on disk/, 'sans'],
+      /<span className="([^"]*)"[^>]*> · \{refusedWords\(it\)\}/, 'sans'],
     ['src/tools/rabbit_v0.1.0/views/bins/AddFilesDialog.jsx',
       /<span className="([^"]*)"[^>]*>\{` · already in /, 'sans'],
   ];
@@ -3113,7 +3116,10 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
     // filtered hex would pass everything above): every sheet counts the same.
     const plain = (f) => readFileSync(f, 'utf8');
     expect(cssCounts(CSS_FILES).map((r) => r.hits)).toEqual(cssCounts(CSS_FILES, plain).map((r) => r.hits));
-  });
+    // BC2: it scans every stylesheet twice — under a second alone, 6.2–7.5 s
+    // under the full suite (BC1 trap 16; BC2 measured it failing every full
+    // run at 296 files). The limit, not an assertion, is raised.
+  }, 20000);
 
   it('CONTROL: rabbitFiles.css (B4) is scanned with no exemption — a hex or an off-scale size written into it is caught on its real path', () => {
     // B3d's control, pointed at lane B4's sheet: the sheet as it is plus the

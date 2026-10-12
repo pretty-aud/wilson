@@ -60,6 +60,32 @@ export const TABLE_TO_COLLECTION = {
   // replaced: the merge would stand ready for events the database never
   // sends, and nothing would ever say so.
   milestones:         'milestones',
+  // Bins on the cloud (BC1, 0091 §8; Audrey's B7: "a flag or a take
+  // assignment appears for everyone without reloading"). The three project
+  // tables joined fn_realtime_broadcast's project_id arm, each with its
+  // trigger — the migration's post-conditions pin all three, so this merge
+  // never stands ready for an event the database does not send.
+  // bin_locations is a WORKSPACE table and is not broadcast (a location is
+  // named once; the client re-reads the list on open).
+  bins:               'bins',
+  bin_files:          'binFiles',
+  shot_takes:         'shotTakes',
+  // FX2 (0096): a task's items joined the project_id arm (sixteen tables);
+  // 0096's post-conditions pin it, so this merge never stands ready for an
+  // event the database does not send. NOT task_links (the URL links above).
+  task_items:         'taskItems',
+}
+
+// FX2 (0096): a broadcast row is the WHOLE table row, and task_items carries
+// five GENERATED columns (asset_id … experience_id) that no other backend has
+// and no reader uses; they are dropped so a live row has the shape a load
+// gives (the adapter selects without them).
+const TASK_ITEM_GENERATED = ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']
+function shapeTaskItem(table, row) {
+  if (table !== 'task_items' || !row || typeof row !== 'object') return row
+  const out = { ...row }
+  for (const k of TASK_ITEM_GENERATED) delete out[k]
+  return out
 }
 
 // 0061: `kind` is not a column on either edge table — it is implied by WHICH
@@ -93,11 +119,20 @@ export function stampKindFromTable(table, row) {
 // window, and only until its next reload. ProjectTasksView renders milestone
 // rows in array order, so this is a real position on a real screen.
 const bySortOrder = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+// BC1: the cloud's listBins orders bins and files by (sort_order, id) and
+// takes by (shot, position, id); a live insert lands where a reload would
+// put it. The id tie-break keeps two rows at one sort_order stable.
+const bySortOrderThenId = (a, b) => bySortOrder(a, b) || String(a.id).localeCompare(String(b.id))
+const byShotPositionId = (a, b) => String(a.shot_id).localeCompare(String(b.shot_id))
+  || ((a.position ?? 0) - (b.position ?? 0)) || String(a.id).localeCompare(String(b.id))
 
 const COLLECTION_ORDER = {
   phases:     bySortOrder,
   assets:     bySortOrder,
   milestones: byMilestoneDate,
+  bins:       bySortOrderThenId,
+  binFiles:   bySortOrderThenId,
+  shotTakes:  byShotPositionId,
 }
 
 // Collections whose rows can hide NOTHING when they are trashed, so a remote
@@ -247,8 +282,8 @@ function applyEventCore(bundle, evt, opts = {}) {
   const { table, op } = evt
   // 0061: stamp the dependency `kind` from the source table before anything
   // reads the row. Non-dependency tables pass through untouched.
-  const record    = stampKindFromTable(table, evt.record    ?? null)
-  const oldRecord = stampKindFromTable(table, evt.oldRecord ?? null)
+  const record    = shapeTaskItem(table, stampKindFromTable(table, evt.record    ?? null))
+  const oldRecord = shapeTaskItem(table, stampKindFromTable(table, evt.oldRecord ?? null))
   const pending   = typeof opts.pendingFields === 'function' ? opts.pendingFields : () => null
 
   // ── roster: lives outside the bundle — signal only ──────────────────────
@@ -297,7 +332,15 @@ function applyEventCore(bundle, evt, opts = {}) {
 
   if (op === 'INSERT') {
     if (!record?.id || isTrashed(record)) return noop
-    return { bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) }, effects: [] }
+    // FX2 (0096): a task names an item once (the unique key). A row this
+    // window holds for the same (task, kind, entity) under ANOTHER id — its
+    // own add that the database answered with a collaborator's row — gives
+    // way to the stored one, or the item would show twice.
+    const base = col === 'taskItems'
+      ? rows.filter(r => r.id === record.id || !(r.task_id === record.task_id
+        && r.entity_type === record.entity_type && r.entity_id === record.entity_id))
+      : rows
+    return { bundle: { ...bundle, [col]: upsertInto(base, record, pending(table, record.id), compare) }, effects: [] }
   }
 
   if (op === 'DELETE') {
