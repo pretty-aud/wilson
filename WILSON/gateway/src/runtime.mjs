@@ -40,7 +40,7 @@ import { SyncLoop } from './cloud/sync.mjs';
 import { Catalogue } from './cloud/catalogue.mjs';
 import { ReachChecker } from './cloud/reach.mjs';
 import { isEnrolToken, reachKeyOf } from './wire/formats.mjs';
-import { compareVersions } from './update/manifest.mjs';
+import { compareVersions, highestVersion } from './update/manifest.mjs';
 import { containerRootFor, locationRoot, parseUncPath } from './rules/mountRule.mjs';
 
 export const NO_CLOUD_MS = 60_000;
@@ -401,13 +401,28 @@ export class Gateway {
     this.doorCtx?.streams.dropDoor('inside');
   }
 
+  /**
+   * The version floors (§8): the cloud's, and since GW4 the last verified
+   * release manifest's (an incident's floor reaches honest gateways even
+   * before the cloud's is set; §10 row 14). A manifest's hard floor is also
+   * a floor for the outside door.
+   */
+  versionFloors() {
+    const m = this.updates.floors?.() || {};
+    return {
+      minimum: highestVersion(this.remote.minimumVersion, m.minimum, m.hard),
+      hard: highestVersion(this.remote.hardMinimumVersion, m.hard),
+    };
+  }
+
   #outsideWanted() {
     if (!this.enrolment) return 'closed_not_enrolled';
     if (this.revoked) return 'closed_revoked';
     if (!this.remote.switchOn) return 'closed_switch_off';
     if (!this.remote.outsideAddress) return 'closed_no_address';
     if (this.lastSeenAt === null || this.now() - this.lastSeenAt > NO_CLOUD_MS) return 'closed_no_cloud';
-    if (this.remote.minimumVersion && compareVersions(VERSION, this.remote.minimumVersion) < 0) return 'closed_minimum_version';
+    const { minimum } = this.versionFloors();
+    if (minimum && compareVersions(VERSION, minimum) < 0) return 'closed_minimum_version';
     return 'open';
   }
 
@@ -504,7 +519,7 @@ export class Gateway {
         office_ranges_refused: this.officeRanges.refused,
         cloud: this.client?.base ?? null,
         smb_dialect: dialects[0] ?? null,
-        minimum_version_ok: this.remote.minimumVersion ? compareVersions(VERSION, this.remote.minimumVersion) >= 0 : null,
+        minimum_version_ok: (() => { const { minimum } = this.versionFloors(); return minimum ? compareVersions(VERSION, minimum) >= 0 : null; })(),
         line: line.text,
       },
     };
@@ -666,11 +681,11 @@ export class Gateway {
         relay: this.doorCtx?.relay.worst() || null,
         sentence: this.choice?.sentence || null,
       },
-      outside: { state: this.outside.state, port: this.config?.outside.port, noCloudForMs: this.lastSeenAt ? this.now() - this.lastSeenAt : null, minimumVersion: this.remote.minimumVersion, reachOk: this.remote.reach?.ok, reachCheckedAt: this.remote.reach?.checkedAt },
+      outside: { state: this.outside.state, port: this.config?.outside.port, noCloudForMs: this.lastSeenAt ? this.now() - this.lastSeenAt : null, minimumVersion: this.versionFloors().minimum, reachOk: this.remote.reach?.ok, reachCheckedAt: this.remote.reach?.checkedAt },
       locations: [...this.locations.values()].map((l) => ({ name: l.name, unc: l.unc, state: l.state === 'unknown' ? null : l.state, since: l.since, mountAt: containerRootFor(l.unc) })),
       certificate: this.ownInside ? { kind: 'own', ownUntil: this.ownInside.notAfter } : st.leafNotAfter ? { kind: 'gateway', leafUntil: st.leafNotAfter, rootUntil: st.rootNotAfter, rootExpiryNotice: st.rootExpiryNotice, rootReplaced: this.rootReplacedFor || null } : null,
       update: (() => { const u = this.updates.state(); return { ...u, running: VERSION }; })(),
-      hardMinimum: !!(this.remote.hardMinimumVersion && compareVersions(VERSION, this.remote.hardMinimumVersion) < 0),
+      hardMinimum: (() => { const { hard } = this.versionFloors(); return !!(hard && compareVersions(VERSION, hard) < 0); })(),
       revoked: this.revoked,
       notEnrolled: !this.enrolment,
       secrets: this.secrets.status(),

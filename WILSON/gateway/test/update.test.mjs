@@ -22,7 +22,8 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 function manifestFor(archive, over = {}) {
   return Buffer.from(JSON.stringify({
     version: '1.1.0', published_at: '2026-10-10T08:00:00Z', minimum_version: '1.0.0', hard_minimum_version: null,
-    artefacts: { 'windows-x64': { url: 'https://releases.petalstudios.com/wilson-gateway/1.1.0/wilson-gateway-windows-x64.tar.gz', sha256: sha(archive), size: archive.length }, container: { image: 'ghcr.io/petal/wilson-gateway:1.1.0', digest: 'sha256:' + 'a'.repeat(64) } },
+    // GW4: the channel is GitHub Releases; an artefact is a release asset of the repository, the image is GitHub's registry's.
+    artefacts: { 'windows-x64': { url: 'https://github.com/pretty-aud/wilson/releases/download/gateway-v1.1.0/wilson-gateway-1.1.0-windows-x64.tar.gz', sha256: sha(archive), size: archive.length }, container: { image: 'ghcr.io/pretty-aud/wilson-gateway', digest: 'sha256:' + 'a'.repeat(64) } },
     notes: 'test', ...over,
   }));
 }
@@ -54,10 +55,11 @@ describe('the manifest (§8)', () => {
       expect(verifyManifest({ ...base, manifestBytes: bad, signatureText: sign(bad) }).ok, JSON.stringify(over)).toBe(false);
     }
   });
-  it('with NO compiled-in key (the slots are empty until GW4) every manifest is refused', () => {
-    expect(RELEASE_KEYS_WIRE).toEqual([]);
-    expect(compiledReleaseKeys()).toEqual([]);
-    expect(verifyManifest({ ...base, keys: undefined }).reason).toBe('no_release_key');
+  it('with no key every manifest is refused; GW4 compiled ONE in (slot 1), which refuses this test\'s keys', () => {
+    expect(verifyManifest({ ...base, keys: [] }).reason).toBe('no_release_key');
+    expect(RELEASE_KEYS_WIRE).toHaveLength(1);
+    expect(compiledReleaseKeys()).toHaveLength(1);
+    expect(verifyManifest({ ...base, keys: undefined }).reason).toBe('signature');
   });
   it('the artefact must match size and hash', () => {
     expect(verifyArtefact(archive, { sha256: sha(archive), size: archive.length })).toBe(true);
