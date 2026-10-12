@@ -44,10 +44,14 @@ function isItemKind(kind) {
   return ITEM_KINDS.includes(kind);
 }
 
+// Milliseconds, with the database's microseconds as a fraction (review
+// round 2, R2-7) — taskItemsModel.js's timeOf.
 function timeOf(v) {
   if (v == null || v === '') return 0;
   const t = Date.parse(v);
-  return Number.isFinite(t) ? t : 0;
+  if (!Number.isFinite(t)) return 0;
+  const m = /\.(\d{4,})/.exec(String(v));
+  return m ? t + Number(m[1].slice(3, 6).padEnd(3, '0')) / 1000 : t;
 }
 
 // ── The rules (taskItemsModel.js's, in the same words) ──────────────────
@@ -145,7 +149,7 @@ function itemShapeProblem(row) {
   if (!isIdString(row.entity_id)) return 'an item names its asset, scene, shot, level or experience by its id, as text';
   if (row.id != null && !isIdString(row.id)) return 'an item\'s own id is text';
   const p = row.position == null ? 0 : Number(row.position);
-  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number, 0 or more';
+  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number from 0 to 2147483647';
   if (row.created_at != null && (typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at)))) {
     return 'an item\'s created_at is a date';
   }
@@ -171,6 +175,30 @@ function entityExists(bundle, kind, id) {
   return Array.isArray(rows) && rows.some(r => r && String(r.id) === String(id));
 }
 
+// Review round 2 (R2-2): the read below runs on every project route, on the
+// desktop's main process. Scanning every item per task and every entity per
+// item made it quadratic (measured: 1.36 s at 5,000 tasks and 15,000 items,
+// with nothing to change). These indexes are built once per call.
+function knownIdsByKind(bundle) {
+  const out = {};
+  for (const kind of ITEM_KINDS) {
+    const rows = bundle && bundle[KIND_COLLECTION[kind]];
+    out[kind] = new Set((Array.isArray(rows) ? rows : []).filter(r => r && r.id != null).map(r => String(r.id)));
+  }
+  return out;
+}
+
+function itemsByTask(items) {
+  const out = new Map();
+  for (const i of Array.isArray(items) ? items : []) {
+    if (!i || i.task_id == null) continue;
+    const k = String(i.task_id);
+    const list = out.get(k);
+    if (list) list.push(i); else out.set(k, [i]);
+  }
+  return out;
+}
+
 function taskById(bundle, id) {
   return (Array.isArray(bundle && bundle.tasks) ? bundle.tasks : []).find(t => t && String(t.id) === String(id)) || null;
 }
@@ -178,12 +206,12 @@ function taskById(bundle, id) {
 /** Each named task's five fields set to its main items. True when one moved. */
 function syncTaskFields(bundle, taskIds) {
   if (!bundle || !Array.isArray(bundle.tasks)) return false;
-  const items = Array.isArray(bundle.taskItems) ? bundle.taskItems : [];
+  const byTask = itemsByTask(bundle.taskItems);
   const only = taskIds ? new Set([...taskIds].map(String)) : null;
   let changed = false;
   bundle.tasks = bundle.tasks.map(t => {
     if (!t || (only && !only.has(String(t.id)))) return t;
-    const fields = linkFieldsFromItems(itemsOfTask(items, t.id));
+    const fields = linkFieldsFromItems(byTask.get(String(t.id)) || []);
     let same = true;
     for (const f of LINK_FIELDS) if ((t[f] == null ? null : t[f]) !== fields[f]) { same = false; break; }
     if (same) return t;
@@ -203,11 +231,12 @@ function pruneDanglingTaskItems(bundle) {
   const touched = new Set();
   if (!bundle || !Array.isArray(bundle.taskItems)) return touched;
   const taskIds = new Set((bundle.tasks || []).filter(Boolean).map(t => String(t.id)));
+  const known = knownIdsByKind(bundle);
   const seen = new Set();
   const kept = [];
   for (const i of bundle.taskItems.slice().sort(compareItems)) {
     const ok = i && isItemKind(i.entity_type) && taskIds.has(String(i.task_id))
-      && entityExists(bundle, i.entity_type, i.entity_id);
+      && known[i.entity_type].has(String(i.entity_id));
     const key = ok ? `${i.task_id}|${i.entity_type}|${i.entity_id}` : null;
     if (!ok || seen.has(key)) {
       if (i && i.task_id != null) touched.add(String(i.task_id));
@@ -256,14 +285,16 @@ function reconcileTaskItemsOnRead(bundle, opts) {
   let dirty = false;
   if (!Array.isArray(bundle.taskItems)) { bundle.taskItems = []; dirty = true; }
   if (pruneDanglingTaskItems(bundle).size > 0) dirty = true;
+  const known = knownIdsByKind(bundle);
+  let byTask = itemsByTask(bundle.taskItems);
   for (const t of Array.isArray(bundle.tasks) ? bundle.tasks : []) {
     if (!t || t.id == null) continue;
     for (const f of LINK_FIELDS) {
       const kind = FIELD_KIND[f];
       const v = t[f];
       if (v == null || v === '') continue;
-      if (!entityExists(bundle, kind, v)) continue;
-      const mine = itemsOfTask(bundle.taskItems, t.id, kind);
+      if (!known[kind].has(String(v))) continue;
+      const mine = (byTask.get(String(t.id)) || []).filter(i => i.entity_type === kind).sort(compareItems);
       if (mine.length && String(mine[0].entity_id) === String(v)) continue;
       const make = (base) => ({
         id: stableItemId(projectId, t.id, kind, v),
@@ -272,6 +303,8 @@ function reconcileTaskItemsOnRead(bundle, opts) {
         ...base,
       });
       applyPlan(bundle, planSingleFieldWrite(bundle.taskItems, t.id, kind, v, null, make));
+      // A backfill (a bundle from before FX2: once, then written back).
+      byTask = itemsByTask(bundle.taskItems);
       dirty = true;
     }
   }

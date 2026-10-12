@@ -376,7 +376,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     const touched = store.taskItems.filter(i => i.entity_type === kind && i.entity_id === id).map(i => i.task_id)
     if (!touched.length) return
     store.taskItems = store.taskItems.filter(i => !(i.entity_type === kind && i.entity_id === id))
-    syncTaskItemColumns(store, touched)
+    syncTaskItemColumns(store, touched, [kind])
   }
 
   // ── Folders (shared by the folder methods and entity creation) ─────────────
@@ -720,14 +720,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         ...(item.created_at ? { created_at: item.created_at } : {}),
       })
       store.taskItems.push(row)
-      syncTaskItemColumns(store, [task.id])
+      syncTaskItemColumns(store, [task.id], [row.entity_type])
       return clone(row)
     },
     async deleteTaskItem(id) {
       const row = findById(store.taskItems, id)
       if (!row || !liveTaskOf(row.task_id)) return
       store.taskItems = store.taskItems.filter(i => i.id !== id)
-      syncTaskItemColumns(store, [row.task_id])
+      syncTaskItemColumns(store, [row.task_id], [row.entity_type])
     },
     async reorderTaskItems(projectId, taskId, kind, orderedIds) {
       if (!isItemKind(kind)) throw itemError('22023', `reorder_task_items: ${kind} is not a kind of item (asset, scene, shot, level, experience)`)
@@ -737,7 +737,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       if (!task || task.project_id !== projectId) return []
       const changes = planReorder(store.taskItems, taskId, kind, ids)
       store.taskItems = applyPositions(store.taskItems, changes)
-      syncTaskItemColumns(store, [taskId])
+      syncTaskItemColumns(store, [taskId], [kind])
       const moved = new Set(changes.map(c => c.id))
       return clone(store.taskItems.filter(i => moved.has(i.id)))
     },

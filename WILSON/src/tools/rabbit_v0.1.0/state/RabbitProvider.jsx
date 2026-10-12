@@ -130,7 +130,7 @@ import {
   LINK_FIELDS, FIELD_KIND, isItemKind,
   itemsOfTask, linkFieldsFromItems, withItemLinks, tasksAbout, nextPosition,
   planReorder, applyPositions, planSingleFieldWrite, linkFieldsIn, withoutLinkFields,
-  itemShapeProblem,
+  itemShapeProblem, linksInStep, mainAfterLinkWrite, KIND_LABEL,
 } from './taskItemsModel';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
@@ -294,16 +294,20 @@ export function RabbitProvider({ children }) {
   // answers the same array when nothing differs). The adapter's own flag,
   // read at the write: a load of a project whose backend has no items (a
   // cloud before 0096, Drive) is never re-read against an empty list.
+  //
+  // Review round 2 (R2-1): ONLY the tasks whose items the write changed. Every
+  // task re-read nulled the links of a task the backend had brought back
+  // before this bundle read its items (a bid version's open reviving it, an
+  // undo after a refetch): Save then recorded no links and the next open
+  // removed the task's items. A task whose items did not change keeps the
+  // links it came with — the backend's, kept in step by 0096 — and the
+  // places that bring a task back read its items (refreshItemsOfTasks).
+  // The flag is the adapter's, read when the write is made, not inside the
+  // state updater.
   const setBundle = useCallback((update) => {
-    setBundleState(prev => {
-      const next = typeof update === 'function' ? update(prev) : update;
-      if (!next || !Array.isArray(next.tasks)) return next;
-      if (next.tasks === prev?.tasks && next.taskItems === prev?.taskItems) return next;
-      const adapter = adapterRef.current;
-      if (typeof adapter?.taskItemsAvailable !== 'function' || adapter.taskItemsAvailable() !== true) return next;
-      const tasks = withItemLinks(next.tasks, next.taskItems || [], true);
-      return tasks === next.tasks ? next : { ...next, tasks };
-    });
+    const adapter = adapterRef.current;
+    const itemsOn = typeof adapter?.taskItemsAvailable === 'function' && adapter.taskItemsAvailable() === true;
+    setBundleState(prev => linksInStep(prev, typeof update === 'function' ? update(prev) : update, itemsOn));
   }, []);
   const [loadingProject, setLoadingProject] = useState(false);
   const [error, setError] = useState(null);
@@ -1966,8 +1970,17 @@ export function RabbitProvider({ children }) {
     // asset and reinstates the captured rows straight into local state
     // (no re-insert mutations). Local mode keeps the re-insert path.
     const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
+    // Review round 2 (R2-6): where the delete removes the row (the Local
+    // Server sweeps the asset's items in the same write), its items leave
+    // the screen with it; a soft delete keeps them, as the cloud does.
+    const sweepItems = !canSoftDelete && taskItemsOnRef.current;
     const result = await optimistic(
-      prev => ({ ...prev, assets: prev.assets.filter(a => a.id !== id), tasks: prev.tasks.filter(t => t.asset_id !== id) }),
+      prev => ({
+        ...prev,
+        assets: prev.assets.filter(a => a.id !== id),
+        tasks: prev.tasks.filter(t => t.asset_id !== id),
+        ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && i.entity_id === id)) } : {}),
+      }),
       () => adapterRef.current.deleteAsset(id, activeProjectId),
     );
     if (oldAsset) {
@@ -1980,6 +1993,7 @@ export function RabbitProvider({ children }) {
                 assets: [...prev.assets, oldAsset],
                 tasks:  [...prev.tasks, ...removedTasks],
               }));
+              await refreshItemsOfTasks(removedTasks.map(t => t.id));
             }]
           : [
               () => mutationsRef.current.addAsset(oldAsset),
@@ -2014,11 +2028,14 @@ export function RabbitProvider({ children }) {
     const goneTaskIds = new Set(removed.flatMap(r => r.tasks.map(t => t.id)));
     const assetItemsGone = (bundleRef.current.taskItems || [])
       .filter(i => (i.entity_type === 'asset' && idSet.has(i.entity_id)) || goneTaskIds.has(i.task_id)).map(i => ({ ...i }));
+    // R2-6, as deleteAsset.
+    const sweepItems = !canSoftDelete && taskItemsOnRef.current;
     const result = await optimistic(
       prev => ({
         ...prev,
         assets: prev.assets.filter(a => !idSet.has(a.id)),
         tasks:  prev.tasks.filter(t => !idSet.has(t.asset_id)),
+        ...(sweepItems ? { taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'asset' && idSet.has(i.entity_id))) } : {}),
       }),
       async () => {
         // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
@@ -2046,6 +2063,7 @@ export function RabbitProvider({ children }) {
               assets: [...prev.assets, ...removed.map(r => r.asset)],
               tasks:  [...prev.tasks, ...removed.flatMap(r => r.tasks)],
             }));
+            await refreshItemsOfTasks(removed.flatMap(r => r.tasks.map(t => t.id)));
           }]
         : [
             ...removed.slice().reverse().flatMap(r => [
@@ -4168,11 +4186,31 @@ export function RabbitProvider({ children }) {
     const wanted = Object.keys(links).filter(f => links[f] != null && links[f] !== '');
     if (wanted.length === 0) return addTaskRow(withoutLinkFields(task));
     return runBatch(async () => {
+      const batch = historyRef.current.batch;
+      const mark = batch ? batch.entries.length : 0;
       const created = await addTaskRow(withoutLinkFields(task));
-      for (const f of wanted) {
-        await mutationsRef.current.addTaskItem({
-          task_id: created.id, entity_type: FIELD_KIND[f], entity_id: links[f], position: 0,
-        });
+      try {
+        for (const f of wanted) {
+          await mutationsRef.current.addTaskItem({
+            task_id: created.id, entity_type: FIELD_KIND[f], entity_id: links[f], position: 0,
+          });
+        }
+      } catch (err) {
+        // Review round 2 (R2-4): a link the backend refused takes the new
+        // task back out, so the caller's "failed" is true (the agent's retry
+        // makes no second task) — and no undo step is left for it.
+        if (batch && historyRef.current.batch === batch) batch.entries.length = mark;
+        try {
+          await adapterRef.current.deleteTask(created.id, created.project_id || activeProjectIdRef.current);
+        } catch (undoErr) {
+          console.warn('[rabbit] a task whose link was refused was not taken back out:', undoErr?.message || undoErr);
+        }
+        setBundle(prev => ({
+          ...prev,
+          tasks: (prev.tasks || []).filter(t => t.id !== created.id),
+          taskItems: (prev.taskItems || []).filter(i => i.task_id !== created.id),
+        }));
+        throw err;
       }
       return { ...created, ...links };
     });
@@ -4239,6 +4277,23 @@ export function RabbitProvider({ children }) {
       if (Object.keys(rest).length) return updateTaskFields(id, rest);
       return (bundleRef.current.tasks || []).find(t => t.id === id);
     }
+    // Review round 2 (R2-3): a write that would make a row the project no
+    // longer shows the task's main one (the Tasks table's Asset cell set to
+    // none over [A, B-in-the-trash]; the Timeline's editor; the agent) is
+    // refused here, in words, BEFORE any field is written — the cloud refuses
+    // it anyway (a task whose main asset is trashed cannot be seen), and the
+    // editor's other fields went first.
+    for (const f of changed) {
+      const kind = FIELD_KIND[f];
+      if (!linkLandsOnGone(bundleRef.current, id, kind, links[f])) continue;
+      const title = (bundleRef.current.tasks || []).find(t => t.id === id)?.title || 'This task';
+      const word = KIND_LABEL[kind].toLowerCase();
+      const msg = links[f] == null || links[f] === ''
+        ? `“${title}”: its next ${word} is no longer in the project, so it cannot become the task's main ${word}. Remove that ${word} from the task's items first, or restore it.`
+        : `“${title}”: that ${word} is no longer in the project, so it cannot become the task's main ${word}.`;
+      setError(msg);
+      throw new Error(msg);
+    }
     return runBatch(async () => {
       let result;
       if (Object.keys(rest).length) result = await updateTaskFields(id, rest);
@@ -4282,6 +4337,7 @@ export function RabbitProvider({ children }) {
                 tasks:        [...prev.tasks, oldTask],
                 dependencies: [...prev.dependencies, ...removedDeps],
               }));
+              await refreshItemsOfTasks([id]);
             }]
           : [
               async () => {
@@ -4340,6 +4396,7 @@ export function RabbitProvider({ children }) {
                 tasks:        [...prev.tasks, ...rows],
                 dependencies: [...prev.dependencies, ...deps],
               }));
+              await refreshItemsOfTasks(rows.map(t => t.id));
             }]
           : [
               ...rows.slice().reverse().map(t => async () => {
@@ -4553,6 +4610,34 @@ export function RabbitProvider({ children }) {
   // The stored row takes the optimistic one's place: the backend answers the
   // row it holds, which is a collaborator's when they added the same item
   // first (under another id).
+  // Review round 2 (R2-1): a task row the backend brought back outside a
+  // load — a bid version's open reviving it (the backend re-made or un-hid
+  // its items: 0096 §7c's seed, the restore), an undo restoring it from the
+  // trash — arrives with no items in this bundle. Read the project's items
+  // and take these tasks' from the answer, so the Items table, ctx.tasks and
+  // the next edit see them. A failed read leaves the rows' own links standing.
+  async function refreshItemsOfTasks(taskIds) {
+    if (!taskItemsOnRef.current) return;
+    const ids = new Set((taskIds || []).filter(id => id != null).map(String));
+    if (ids.size === 0) return;
+    const a = adapterRef.current;
+    const pid = activeProjectIdRef.current;
+    if (!pid || typeof a?.listTaskItems !== 'function') return;
+    const visit = projectVisitRef.current;
+    let rows;
+    try {
+      rows = await a.listTaskItems(pid);
+    } catch (err) {
+      console.warn('[rabbit] the items of a task brought back were not read:', err?.message || err);
+      return;
+    }
+    if (projectVisitRef.current !== visit || activeProjectIdRef.current !== pid) return;
+    const theirs = (Array.isArray(rows) ? rows : []).filter(i => i && ids.has(String(i.task_id)));
+    const merge = (b) => ({ ...b, taskItems: [...(b.taskItems || []).filter(i => !ids.has(String(i.task_id))), ...theirs] });
+    setBundle(merge);
+    bundleRef.current = linksInStep(bundleRef.current, merge(bundleRef.current), true);
+  }
+
   function settleItemRow(localId, stored) {
     if (!stored || !stored.id) return;
     setBundle(prev => {
@@ -4655,6 +4740,15 @@ export function RabbitProvider({ children }) {
     }, visit);
     return result;
   }, [optimistic, activeProjectId]);
+
+  // Review round 2 (R2-3): would this single-field write leave a row the
+  // project no longer shows (the cloud: in the trash) as the task's main one?
+  function linkLandsOnGone(b, taskId, kind, value) {
+    const lands = mainAfterLinkWrite(b?.taskItems || [], taskId, kind, value);
+    if (lands == null) return false;
+    const rows = { asset: b?.assets, scene: b?.scenes, shot: b?.shots, level: b?.levels, experience: b?.experiences }[kind];
+    return !(rows || []).some(r => r && String(r.id) === String(lands));
+  }
 
   // 0096 §7b for one kind, as item writes (updateTask's single links). The
   // order the rule asks for is checked against the plan, never against
@@ -6525,7 +6619,7 @@ export function RabbitProvider({ children }) {
     phase:     { key: 'phases',     restore: 'restorePhase',     upsert: 'upsertPhase',     del: 'deletePhase' },
     milestone: { key: 'milestones', restore: 'restoreMilestone', upsert: 'upsertMilestone', del: 'deleteMilestone' },
   };
-  async function reviveBudgetRow(kind, row) {
+  async function reviveBudgetRow(kind, row, opts = {}) {
     const visit = projectVisitRef.current;
     const k = REVIVE[kind];
     const a = adapterRef.current;
@@ -6554,6 +6648,9 @@ export function RabbitProvider({ children }) {
     };
     setBundle(merge);
     bundleRef.current = merge(bundleRef.current);
+    // R2-1: the backend made or un-hid its items; read them (one read for a
+    // whole open: its caller passes items: false and reads once after).
+    if (kind === 'task' && opts.items !== false) await refreshItemsOfTasks([finalRow.id]);
     pushHistory({
       undoOps: [() => mutationsRef.current[k.del](finalRow.id)],
       redoOps: [() => reviveBudgetRow(kind, row)],
@@ -7120,8 +7217,23 @@ export function RabbitProvider({ children }) {
     if (countRows(plan.bringBack)) { await m.setAsideRows(false, plan.bringBack); still(); }
     for (const row of plan.phases.create) { await reviveBudgetRow('phase', row); still(); }
     for (const u of plan.phases.update) { await m.updatePhase(u.id, u.patch); still(); }
-    for (const row of plan.tasks.create) { await reviveBudgetRow('task', row); still(); }
-    for (const u of plan.tasks.update) { await m.updateTask(u.id, u.patch); still(); }
+    for (const row of plan.tasks.create) { await reviveBudgetRow('task', row, { items: false }); still(); }
+    if (plan.tasks.create.length) { await refreshItemsOfTasks(plan.tasks.create.map(r => r.id)); still(); }
+    for (const u of plan.tasks.update) {
+      // Review round 2 (R2-3): a link the version would set that makes a row
+      // the project no longer shows the task's main one (its saved "no
+      // asset" over [A, B-in-the-trash]) is left out and counted, as planOpen
+      // leaves out a link to a row that is gone: opening never stops half
+      // way for it, and the cloud would refuse it.
+      const patch = { ...u.patch };
+      if (taskItemsOnRef.current) {
+        for (const f of LINK_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(patch, f)) continue;
+          if (linkLandsOnGone(bundleRef.current, u.id, FIELD_KIND[f], patch[f])) { delete patch[f]; plan.droppedLinks += 1; }
+        }
+      }
+      if (Object.keys(patch).length) { await m.updateTask(u.id, patch); still(); }
+    }
     for (const row of plan.milestones.create) { await reviveBudgetRow('milestone', row); still(); }
     for (const u of plan.milestones.update) { await m.updateMilestone(u.id, u.patch); still(); }
     if (countRows(plan.setAside)) { await m.setAsideRows(true, plan.setAside); still(); }

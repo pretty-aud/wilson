@@ -1988,6 +1988,10 @@ function missing0096(error) {
 export const TASK_ITEMS_REFUSALS = Object.freeze({
   gate: 'You cannot change this task\'s items.',
   mainHidden: 'WILSON could not make that the task\'s main item: it is in the trash or out of your reach. Remove it from the task first, or restore it.',
+  // Review round 2 (R2-5): 0096 §7a locks the task row; a write of the task's
+  // single column from another tab locks it first and then its items, so two
+  // such writes can deadlock (40P01). Postgres takes one back whole.
+  collided: 'Someone changed this task at the same moment, so this change was not made. Try again.',
 });
 function taskItemsWriteError(error) {
   if (missing0096(error)) {
@@ -1997,6 +2001,7 @@ function taskItemsWriteError(error) {
   const text = String(error?.message || '');
   const words = error?.code === '42501' && /table "tasks"/.test(text) ? TASK_ITEMS_REFUSALS.mainHidden
     : error?.code === '42501' && /table "task_items"/.test(text) ? TASK_ITEMS_REFUSALS.gate
+    : error?.code === '40P01' ? TASK_ITEMS_REFUSALS.collided
     : null;
   const err = new Error(words || `[supabase] ${text || String(error)}`);
   if (error?.code) err.code = error.code;

@@ -149,6 +149,11 @@ describe('the writes', () => {
     globalThis.__testSupabase = makeClient({}, () => ({ data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "tasks"' } }))
     resetSupabaseAdapter()
     await expect(supabaseAdapter().reorderTaskItems('p1', 't1', 'asset', ['i2', 'i1'])).rejects.toMatchObject({ code: '42501', message: TASK_ITEMS_REFUSALS.mainHidden })
+    // Review round 2, R2-5: two writers of one task can deadlock (0096 §7a
+    // locks the task row); Postgres takes one back whole.
+    globalThis.__testSupabase = makeClient({ task_items: { delete: { data: null, error: { code: '40P01', message: 'deadlock detected' } } } })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().deleteTaskItem('i1')).rejects.toMatchObject({ code: '40P01', message: TASK_ITEMS_REFUSALS.collided })
   })
 
   it('deleteTaskItem deletes by id', async () => {

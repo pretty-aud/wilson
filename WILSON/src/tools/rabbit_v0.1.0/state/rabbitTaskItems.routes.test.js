@@ -141,6 +141,34 @@ describe('the read reconcile — a bundle from before FX2, and every read after'
   })
 })
 
+// Review round 2, R2-2: the read reconcile runs on every project route, on
+// the desktop's main process. It was quadratic (1.36 s at 5,000 tasks and
+// 15,000 items with nothing to change); once per collection it is ~30 ms. The
+// bound is loose on purpose (a loaded machine); the old code fails it.
+describe('the read reconcile scales with the bundle', () => {
+  it('5,000 tasks and 15,000 items, already in step, reconcile in well under half a second', () => {
+    const T = 5000
+    const assets = Array.from({ length: 1500 }, (_, i) => ({ id: `a${i}` }))
+    const scenes = Array.from({ length: 200 }, (_, i) => ({ id: `s${i}` }))
+    const tasks = []
+    const taskItems = []
+    for (let t = 0; t < T; t++) {
+      const a0 = `a${t % 1500}`, a1 = `a${(t + 1) % 1500}`, s0 = `s${t % 200}`
+      tasks.push({ id: `t${t}`, project_id: PID, asset_id: a0, scene_id: s0, shot_id: null, level_id: null, experience_id: null })
+      taskItems.push({ id: `i${t}a`, task_id: `t${t}`, entity_type: 'asset', entity_id: a0, position: 0, created_at: '2026-10-01T00:00:00Z' })
+      taskItems.push({ id: `i${t}b`, task_id: `t${t}`, entity_type: 'asset', entity_id: a1, position: 1, created_at: '2026-10-01T00:00:00Z' })
+      taskItems.push({ id: `i${t}s`, task_id: `t${t}`, entity_type: 'scene', entity_id: s0, position: 0, created_at: '2026-10-01T00:00:00Z' })
+    }
+    const b = { project: { id: PID }, assets, scenes, shots: [], levels: [], experiences: [], tasks, taskItems }
+    const t0 = performance.now()
+    const dirty = items.reconcileTaskItemsOnRead(b, { projectId: PID, now: '2026-10-12T00:00:00Z' })
+    const ms = performance.now() - t0
+    expect(dirty).toBe(false)
+    expect(b.taskItems).toHaveLength(15000)
+    expect(ms).toBeLessThan(500)
+  })
+})
+
 describe('the four routes', () => {
   function seeded() {
     const b = bundleOf({ tasks: [{ id: 'T1', project_id: PID, asset_id: 'A1' }] })

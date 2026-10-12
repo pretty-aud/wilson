@@ -54,10 +54,16 @@ export function isItemKind(kind) {
   return ITEM_KINDS.includes(kind)
 }
 
+// Milliseconds since the epoch, with the database's microseconds kept as a
+// fraction (review round 2, R2-7): Postgres orders created_at to the
+// microsecond and Date.parse stops at the millisecond, so two items made in
+// one millisecond were ordered by id here and by time there.
 function timeOf(v) {
   if (v == null || v === '') return 0
   const t = Date.parse(v)
-  return Number.isFinite(t) ? t : 0
+  if (!Number.isFinite(t)) return 0
+  const m = /\.(\d{4,})/.exec(String(v))
+  return m ? t + Number(m[1].slice(3, 6).padEnd(3, '0')) / 1000 : t
 }
 
 /** 0096's order: position, then created_at, then id. */
@@ -150,6 +156,77 @@ export function withItemLinks(tasks, items, available = true) {
 }
 
 /**
+ * Review round 2 (R2-1): the ids of the tasks whose items differ between two
+ * lists — a row added, removed or replaced (rows are never changed in
+ * place). The provider re-reads only these tasks' single links from their
+ * items; every other task row keeps the links it came with (the backend's,
+ * kept in step by 0096 and its twins), so a task the backend brought back
+ * before this bundle read its items keeps its links.
+ */
+export function tasksWithChangedItems(prevItems, nextItems) {
+  const out = new Set()
+  if (prevItems === nextItems) return out
+  const before = new Map()
+  for (const i of Array.isArray(prevItems) ? prevItems : []) if (i && i.id != null) before.set(String(i.id), i)
+  const seen = new Set()
+  for (const i of Array.isArray(nextItems) ? nextItems : []) {
+    if (!i || i.id == null) continue
+    const id = String(i.id)
+    seen.add(id)
+    const was = before.get(id)
+    if (was === i) continue
+    if (i.task_id != null) out.add(String(i.task_id))
+    if (was && was.task_id != null) out.add(String(was.task_id))
+  }
+  for (const [id, was] of before) if (!seen.has(id) && was && was.task_id != null) out.add(String(was.task_id))
+  return out
+}
+
+/**
+ * The named tasks with their five single links read from their items (null
+ * for a kind a task has no item of); every other task as it is. The same
+ * array when nothing differs.
+ */
+export function withItemLinksFor(tasks, items, taskIds) {
+  if (!Array.isArray(tasks) || !taskIds || taskIds.size === 0) return tasks
+  const byTask = indexItemsByTask(items)
+  let changed = false
+  const out = tasks.map(t => {
+    if (!t || !taskIds.has(String(t.id))) return t
+    const fields = linkFieldsFromItems(byTask.get(String(t.id)))
+    for (const f of LINK_FIELDS) {
+      if ((t[f] ?? null) !== fields[f]) { changed = true; return { ...t, ...fields } }
+    }
+    return t
+  })
+  return changed ? out : tasks
+}
+
+/**
+ * The provider's every bundle write, where the backend keeps items: the
+ * tasks whose items the write changed read their links from them.
+ */
+export function linksInStep(prev, next, itemsOn) {
+  if (!itemsOn || !next || !Array.isArray(next.tasks)) return next
+  const touched = tasksWithChangedItems(prev?.taskItems, next.taskItems)
+  if (touched.size === 0) return next
+  const tasks = withItemLinksFor(next.tasks, next.taskItems || [], touched)
+  return tasks === next.tasks ? next : { ...next, tasks }
+}
+
+/**
+ * Review round 2 (R2-3): the entity a single-field write (0096 §7b) leaves
+ * as the task's main item of a kind — the value itself when one is given;
+ * when the field is cleared, the item after the main one (the main goes), or
+ * none.
+ */
+export function mainAfterLinkWrite(items, taskId, kind, value) {
+  if (value != null && value !== '') return value
+  const mine = itemsOfTask(items, taskId, kind)
+  return mine.length > 1 ? mine[1].entity_id : null
+}
+
+/**
  * The tasks ABOUT one item — the relation lists and per-row counts (the
  * scene, shot, level, experience and asset windows; the tables' task
  * counts): every task that names it, main or not. Without items, the single
@@ -200,7 +277,9 @@ export function nextPosition(items, taskId, kind) {
     const p = Number(i.position) || 0
     if (p > max) max = p
   }
-  return max + 1
+  // Never past the cloud's INTEGER (review round 2, R2-7): at the ceiling a
+  // new item ties there and sorts after by its later created_at.
+  return Math.min(max + 1, MAX_ITEM_POSITION)
 }
 
 /**
@@ -323,7 +402,7 @@ export function itemShapeProblem(row) {
   if (!isIdString(row.entity_id)) return 'an item names its asset, scene, shot, level or experience by its id, as text'
   if (row.id != null && !isIdString(row.id)) return 'an item\'s own id is text'
   const p = row.position == null ? 0 : Number(row.position)
-  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number, 0 or more'
+  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number from 0 to 2147483647'
   if (row.created_at != null && (typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at)))) {
     return 'an item\'s created_at is a date'
   }

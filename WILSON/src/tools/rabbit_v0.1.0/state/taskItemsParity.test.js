@@ -22,6 +22,8 @@ const ITEMS = [
   row('s1', 'scene', 'S1', 0), row('s2', 'scene', 'S2', 0, '2026-10-11T09:00:00Z'),
   row('h1', 'shot', 'H1', 3), row('l1', 'level', 'L1', 0), row('x1', 'experience', 'X1', 1),
   row('o1', 'asset', 'AO', 0, undefined, 'task-2'),
+  // Review round 2, R2-7: one millisecond, two microseconds.
+  row('m1', 'asset', 'AM1', 5, '2026-10-12T06:17:56.123789+00:00'), row('m2', 'asset', 'AM2', 5, '2026-10-12T06:17:56.123456+00:00'),
 ]
 // A fixed maker, so both sides mint the same row.
 const maker = () => { let n = 0; return (base) => ({ id: `made-${++n}`, project_id: 'p', created_at: '2026-10-11T12:00:00Z', ...base }) }

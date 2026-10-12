@@ -11,7 +11,7 @@ import {
   compareItems, itemsOfTask, mainItemOf, linkFieldsFromItems, withItemLinks,
   tasksAbout, taskCountsByEntity, nextPosition, planReorder, applyPositions,
   planSingleFieldWrite, seedItemsFor, linkFieldsIn, withoutLinkFields, itemShapeProblem,
-  indexItemsByTask,
+  indexItemsByTask, linksInStep, tasksWithChangedItems, mainAfterLinkWrite,
 } from './taskItemsModel'
 
 const T = 'task-1'
@@ -40,6 +40,11 @@ describe("0096's order: position, then created_at, then id", () => {
   })
   it('breaks a full tie by id, in code-unit order (Postgres orders uuids byte-wise)', () => {
     expect([it_('b', 'asset', 'x', 0), it_('a', 'asset', 'y', 0)].sort(compareItems).map(i => i.id)).toEqual(['a', 'b'])
+    // Review round 2, R2-7: the database orders created_at to the
+    // microsecond; two items made in one millisecond keep its order here.
+    const early = it_('z', 'asset', 'x', 0, '2026-10-12T06:17:56.123456+00:00')
+    const late = it_('a', 'asset', 'y', 0, '2026-10-12T06:17:56.123789+00:00')
+    expect([late, early].sort(compareItems).map(i => i.id)).toEqual(['z', 'a'])
   })
 })
 
@@ -90,6 +95,44 @@ describe('withItemLinks — what ctx.tasks shows', () => {
   })
   it('a task with no item of a kind reads null for that kind — never the stale stored value', () => {
     expect(withItemLinks([{ id: 'lonely', asset_id: 'A9' }], [], true)[0].asset_id).toBeNull()
+  })
+})
+
+// Review round 2, R2-1 and R2-3: the provider's bundle rule and the gone-row
+// rule, pure.
+describe('linksInStep — only the tasks whose items changed read their links from them', () => {
+  const a1 = it_('a1', 'asset', 'A1', 0)
+  const a2 = it_('a2', 'asset', 'A2', 1)
+  const prev = { tasks: [{ id: T, asset_id: 'A1' }, { id: 'back', asset_id: 'AB', scene_id: 'SB' }], taskItems: [a1, a2] }
+  it('a task brought back with no items read keeps its row\'s links', () => {
+    const next = { ...prev, tasks: [...prev.tasks, { id: 'new', asset_id: 'AN' }] }
+    expect(linksInStep(prev, next, true)).toBe(next)
+  })
+  it('a task whose items changed reads them (a removed main hands over; the last removed reads null)', () => {
+    const once = linksInStep(prev, { ...prev, taskItems: [a2] }, true)
+    expect(once.tasks[0].asset_id).toBe('A2')
+    expect(once.tasks[1]).toBe(prev.tasks[1])
+    const twice = linksInStep(once, { ...once, taskItems: [] }, true)
+    expect(twice.tasks[0].asset_id).toBeNull()
+  })
+  it('without items on the backend, nothing is touched', () => {
+    const next = { ...prev, taskItems: [] }
+    expect(linksInStep(prev, next, false)).toBe(next)
+  })
+  it('tasksWithChangedItems names the tasks of rows added, removed and replaced', () => {
+    const b2 = { ...a2, position: 0 }
+    expect([...tasksWithChangedItems([a1, a2], [a1, b2, it_('x', 'scene', 'S', 0, undefined, 'other')])].sort()).toEqual(['other', T])
+    expect([...tasksWithChangedItems([a1, a2], [a1, a2])]).toEqual([])
+  })
+})
+
+describe('mainAfterLinkWrite — the row a single-field write leaves as main', () => {
+  const items = [it_('a1', 'asset', 'A1', 0), it_('a2', 'asset', 'A2', 1)]
+  it('a value is the main; a clear hands main to the next, or to none', () => {
+    expect(mainAfterLinkWrite(items, T, 'asset', 'A9')).toBe('A9')
+    expect(mainAfterLinkWrite(items, T, 'asset', null)).toBe('A2')
+    expect(mainAfterLinkWrite(items.slice(0, 1), T, 'asset', '')).toBeNull()
+    expect(mainAfterLinkWrite(items, T, 'scene', null)).toBeNull()
   })
 })
 
@@ -212,5 +255,7 @@ describe('the patch helpers and the shape check', () => {
   it('the next position is after the last of the kind', () => {
     expect(nextPosition([it_('a', 'asset', 'A', 0), it_('b', 'asset', 'B', 4)], T, 'asset')).toBe(5)
     expect(nextPosition([], T, 'asset')).toBe(0)
+    // Review round 2, R2-7: never past the cloud's INTEGER.
+    expect(nextPosition([it_('a', 'asset', 'A', 2147483647)], T, 'asset')).toBe(2147483647)
   })
 })

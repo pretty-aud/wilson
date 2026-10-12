@@ -201,11 +201,15 @@ export function createStore() {
 }
 
 /** Every task's three cloud columns set to its main items (0096 §7a's rule). */
-export function syncTaskItemColumns(store, taskIds = null) {
+// `kinds`: the kinds a write touched (0096 §7a recomputes the column of the
+// item's kind only; review round 2, R2-7). Null: every column (a load's
+// reconcile, as 0096's backfill and post-condition 10h).
+export function syncTaskItemColumns(store, taskIds = null, kinds = null) {
   const only = taskIds ? new Set(taskIds) : null
+  const which = kinds ? COLUMN_KINDS.filter(k => kinds.includes(k)) : COLUMN_KINDS
   for (const t of store.tasks) {
     if (only && !only.has(t.id)) continue
-    for (const kind of COLUMN_KINDS) {
+    for (const kind of which) {
       const main = mainItemOf(store.taskItems, t.id, kind)
       t[KIND_FIELD[kind]] = main ? main.entity_id : null
     }

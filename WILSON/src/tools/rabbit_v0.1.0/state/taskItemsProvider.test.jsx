@@ -247,6 +247,172 @@ describe('R1-1: the rows behind ctx.tasks keep their links in step with the item
   })
 })
 
+// Review round 2. R2-1 (high): round 1's bundle wrapper re-read EVERY task
+// row's links from the items, so a task the backend brought back while its
+// items were not in the bundle (a bid version's open reviving it; Ctrl+Z of
+// a trashed task after a refetch) read no links; Save recorded none and the
+// next open removed its items. Now only tasks whose items changed are
+// re-read, and a task the backend brings back has its items read.
+const freeBudget = () => {
+  const proj = fx.store.projects.find(p => p.id === PROJECT_ID)
+  proj.budget_active = false; proj.budget_active_version_id = null; proj.budget_finalized = false; proj.open_budget_version_id = null
+}
+const linksOf = (t) => [t?.asset_id ?? null, t?.scene_id ?? null, t?.shot_id ?? null]
+const snapLinks = (v, id) => linksOf((fx.store.budgetVersions.find(x => x.id === v.id).snapshot.tasks || []).find(t => t.id === id))
+const MAINS = () => [A(7), SC(4), SH(10)]
+
+describe('R2-1: a task the backend brings back keeps its links, and the bid snapshot records them', () => {
+  it('Edit this version revives a trashed task: its items are read, Save records its links, the next open keeps its items', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-before', roleRates: {} }) })
+    expect(snapLinks(v, T18)).toEqual(MAINS())
+    // Another window put T18 in the trash; a later read does not see its items.
+    { const i = fx.store.tasks.findIndex(x => x.id === T18); fx.store.tasks[i] = { ...fx.store.tasks[i], deleted_at: new Date().toISOString() } }
+    await run(() => ctx.reloadActiveProject())
+    expect(task(T18)).toBeUndefined()
+    await run(() => ctx.openBudgetVersion(v.id, { roleRates: {} }))
+    expect(linksOf(task(T18))).toEqual(MAINS())
+    expect(kinds(T18, 'asset')).toEqual([A(7), A(12)])
+    await run(() => ctx.saveBudgetVersion(v.id, { roleRates: {} }))
+    expect(snapLinks(v, T18)).toEqual(MAINS())
+    await run(() => ctx.reloadActiveProject())
+    await run(() => ctx.openBudgetVersion(v.id, { roleRates: {} }))
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12)])
+    expect(storeKinds(T18, 'scene')).toEqual([SC(4)])
+    expect(storeKinds(T18, 'shot')).toEqual([SH(10)])
+  })
+
+  it('Ctrl+Z of a trashed task after a refetch: its items are read, and Save as new version records its links', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    await run(() => ctx.deleteTask(T18))
+    await run(() => ctx.reloadActiveProject())
+    await run(() => ctx.undo())
+    expect(linksOf(task(T18))).toEqual(MAINS())
+    expect(kinds(T18, 'asset')).toEqual([A(7), A(12)])
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-after-undo', roleRates: {} }) })
+    expect(snapLinks(v, T18)).toEqual(MAINS())
+  })
+
+  it('a desktop-shaped backend (no restoreTask, no patchTask): the revived task keeps its main items through Save and the next open', async () => {
+    freeBudget()
+    const a = fx.rabbitAdapter()
+    delete a.restoreTask; delete a.patchTask
+    await mount(a)
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-desk', roleRates: {} }) })
+    // An earlier session deleted T18 on the desktop: the row and its items went.
+    fx.store.tasks = fx.store.tasks.filter(x => x.id !== T18)
+    fx.store.taskItems = fx.store.taskItems.filter(i => i.task_id !== T18)
+    await run(() => ctx.reloadActiveProject())
+    await run(() => ctx.openBudgetVersion(v.id, { roleRates: {} }))
+    expect(linksOf(task(T18))).toEqual(MAINS())
+    await run(() => ctx.saveBudgetVersion(v.id, { roleRates: {} }))
+    expect(snapLinks(v, T18)).toEqual(MAINS())
+    await run(() => ctx.reloadActiveProject())
+    await run(() => ctx.openBudgetVersion(v.id, { roleRates: {} }))
+    expect(storeKinds(T18, 'asset')[0]).toBe(A(7))
+    expect(storeKinds(T18, 'scene')).toEqual([SC(4)])
+    expect(storeKinds(T18, 'shot')).toEqual([SH(10)])
+  })
+})
+
+// R2-3: a link write from another editor (the Tasks table's Asset cell, the
+// Timeline's editor, the agent, a version's open) that would make a row the
+// project no longer shows the task's main one. The cloud refuses it; before
+// it was refused part way, after the editor's other fields were written.
+const trashAsset = async (n) => {
+  const i = fx.store.assets.findIndex(x => x.id === A(n))
+  fx.store.assets[i] = { ...fx.store.assets[i], deleted_at: new Date().toISOString() }
+  await run(() => ctx.reloadActiveProject())
+}
+describe('R2-3: a link write never makes a gone row the main one', () => {
+  it('clearing the main asset while the next is in the trash refuses in words naming the task, and writes nothing', async () => {
+    await mount(fx.rabbitAdapter())
+    await trashAsset(12)
+    expect(kinds(T18, 'asset')).toEqual([A(7), A(12)])
+    let err = null
+    await act(async () => { try { await ctx.updateTask(T18, { title: 'Half saved?', asset_id: null }) } catch (e) { err = e } })
+    expect(err?.message).toMatch(/Glass and rain rig test/)
+    expect(err?.message).toMatch(/no longer in the project/)
+    expect(fx.store.tasks.find(t => t.id === T18).title).toBe('Glass and rain rig test')
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12)])
+  })
+
+  it('a version whose task had no asset, opened over [A7, A12 in the trash], opens whole and leaves the clear out', async () => {
+    freeBudget()
+    await mount(fx.rabbitAdapter())
+    for (const it of itemsOfTask(ctx.taskItems, T18, 'asset')) await run(() => ctx.removeTaskItem(it.id))
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-no-asset', roleRates: {} }) })
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A(7) }))
+    await run(() => ctx.addTaskItem({ task_id: T18, entity_type: 'asset', entity_id: A(12) }))
+    await trashAsset(12)
+    let err = null
+    await act(async () => { try { await ctx.openBudgetVersion(v.id, { roleRates: {} }) } catch (e) { err = e } })
+    expect(err).toBeNull()
+    expect(storeKinds(T18, 'asset')).toEqual([A(7), A(12)])
+    expect(fx.store.projects.find(p => p.id === PROJECT_ID).open_budget_version_id).toBe(v.id)
+  })
+})
+
+// R2-4: addTask writes the row, then each link as an item; a refused link
+// left a bare task behind while the caller (the agent) heard "failed".
+describe('R2-4: addTask is whole', () => {
+  it('a link the backend refuses takes the new task back out, and the refusal is said', async () => {
+    await mount(fx.rabbitAdapter())
+    let err = null
+    await act(async () => { try { await ctx.addTask({ id: 'r2-bare', title: 'Agent task', asset_id: 'f1c70000-0005-4000-8000-0000000009ff' }) } catch (e) { err = e } })
+    expect(err).not.toBeNull()
+    expect(task('r2-bare')).toBeUndefined()
+    const stored = fx.store.tasks.find(t => t.id === 'r2-bare')
+    expect(!stored || !!stored.deleted_at).toBe(true)
+  })
+})
+
+// R2-6: on a backend whose delete removes the row (the Local Server), the
+// asset's items leave every task there at once; the screen kept them as
+// "No longer in the project" rows the backend no longer had.
+describe('R2-6: deleting an asset where the backend removes rows', () => {
+  it('takes its items off the screen at once', async () => {
+    const a = fx.rabbitAdapter()
+    delete a.restoreAsset
+    await mount(a)
+    expect(kinds(T18, 'asset')).toEqual([A(7), A(12)])
+    await run(() => ctx.deleteAsset(A(12)))
+    expect(kinds(T18, 'asset')).toEqual([A(7)])
+  })
+
+  it('and a bulk delete the same', async () => {
+    const a = fx.rabbitAdapter()
+    delete a.restoreAsset
+    await mount(a)
+    await run(() => ctx.deleteAssets([A(12)]))
+    expect(kinds(T18, 'asset')).toEqual([A(7)])
+  })
+})
+
+// R2-1, the narrowing alone: when the items of a task brought back cannot be
+// read (offline), its row keeps the backend's links, so a Save records them.
+describe('R2-1: a task whose items could not be read keeps its row\'s links for the bid snapshot', () => {
+  it('Ctrl+Z after a refetch with the items read failing: Save as new version records the links', async () => {
+    freeBudget()
+    const a = fx.rabbitAdapter()
+    await mount(a)
+    await run(() => ctx.deleteTask(T18))
+    await run(() => ctx.reloadActiveProject())
+    a.listTaskItems = async () => { throw new Error('offline') }
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await run(() => ctx.undo())
+    let v
+    await run(async () => { v = await ctx.createBudgetVersion({ name: 'V-offline', roleRates: {} }) })
+    expect(snapLinks(v, T18)).toEqual(MAINS())
+  })
+})
+
 describe('addTask: a new task\'s links become its first items', () => {
   it('an asset and a scene become items (one undo step for all of it)', async () => {
     await mount(fx.rabbitAdapter())
