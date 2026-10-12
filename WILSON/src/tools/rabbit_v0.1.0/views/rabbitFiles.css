@@ -2179,6 +2179,12 @@
     gap: 4px;
     background-color: var(--color-backdrop);
   }
+  /* Where nothing hovers the kit shows the slot at rest (FX8-KR-2): no scrim
+     over the picture then, the two buttons in its corner on their raised
+     paper (FX8 review round 2, R2-02). */
+  @media (hover: none) {
+    .ui-hover-actions.rb-ent-thumb-acts { inset: auto 6px 6px auto; background-color: transparent; }
+  }
   /* 🚨 Each button on the raised paper, so its glyph reads on ANY picture:
      through the scrim over a light one, the kit's transparent button left
      Change at 2.54:1 and Remove at 2.76:1 (B4c review round one, measured);

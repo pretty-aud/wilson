@@ -985,11 +985,11 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // right of their own headers (review R05). Widths are the sheet's
 // (`.rb-task-table-wrap`): px for the columns whose content has a known
 // width (982px with the checkbox), and the title takes the rest up to its
-// maximum (360px), never less than 272px; past the maximum Asset, Phase and
+// maximum (360px), never less than 256px; past the maximum Asset, Phase and
 // Assignee share what is left (FX8: "the cell/section for the title is sooo
-// wide"). Below 1254px of table the view scrolls sideways (only at
-// Electron's 1024px floor) rather than wrapping a date mid-token (V1-06) or
-// starving the title. A row's buttons sit in the title cell, right after its
+// wide"). Below 1238px of table the view scrolls sideways (only at
+// Electron's 1024px floor, a scrollbar of up to 18px allowed for at 1280)
+// rather than wrapping a date mid-token (V1-06) or starving the title. A row's buttons sit in the title cell, right after its
 // words (FX8, the kit's RowTitle): there is no actions column.
 function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [

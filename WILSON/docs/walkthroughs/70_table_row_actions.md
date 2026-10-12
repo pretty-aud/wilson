@@ -10,9 +10,11 @@
    table:** Open first, then the row's own (Tasks and Assets: the edit
    history; Scenes and Shots: the shot-list ⋯; an edit's shots: the edit's
    ⋯), Delete last. The gap is the same everywhere: the first button starts
-   10px after the title's last letter, and the buttons sit 2px apart. They
-   show when you point at the row or Tab into it, as before; on a phone or
-   a tablet, which cannot point, they show all the time. The columns at the
+   10px after the title's last letter (a one- or two-letter title keeps a
+   28px target, so there it is about 17px), and the buttons sit 2px apart.
+   They show when you point at the row or Tab into it, as before, and stay
+   while a ⋯ menu you opened is open; on a phone or a tablet, which cannot
+   point, they show all the time. The columns at the
    row's far end that held them are gone. A scene band's button (the Shots
    table's page icon, an edit's ⋯) sits right after the band's words too.
 3. **The title column is narrower.** In Tasks, Assets, Levels and
@@ -110,10 +112,11 @@ comes off the title column (Tasks at 1440: 350px).
   keyboard inside it, in every table. An edit's shots were always shown;
   they now follow the same rule. On a screen that cannot point (a phone, a
   tablet) they show all the time.
-- **Nothing new scrolls sideways.** Tasks' narrowest width is now 1,244px,
-  10px under the 1,254 it was, so it fits a 1280 window with the list's
-  scrollbar showing (before, it scrolled sideways there by 8px). Assets
-  (1,236px) and Levels (716px) are what they were. The Shots table still
+- **Nothing new scrolls sideways.** Tasks' narrowest width is now 1,238px,
+  16px under the 1,254 it was, so it fits a 1280 window beside the list's
+  scrollbar, at any width up to 18px (before, it scrolled sideways there by
+  8px beside the 10px one Chromium draws). Assets (1,236px) and Levels
+  (716px) are what they were. The Shots table still
   scrolls sideways at 1280 and 1440, as before, 20px less.
 - **The rows are the heights they were:** Tasks 32px, Assets and Levels
   36px, Scenes, Shots and an edit's shots 44px.
@@ -141,7 +144,12 @@ comes off the title column (Tasks at 1440: 350px).
 - **The galleries are not tables and changed only their names:** the Board
   card has Open and Delete; an asset card shows Open and its picture
   button while pointed at; a scene or shot card has the ⋯ and Delete (the
-  whole card opens it); a level or experience card has Delete.
+  whole card opens it); a level or experience card has Delete. The shot
+  gallery's scene head reads its name, its shot count and runtime, then
+  the page icon (the table's band puts the icon before the runtime).
+- **On a phone or a tablet** the row checkboxes, and the Assets cards'
+  buttons and a row's picture button, still show only once tapped (older
+  than this session; `docs/OUTSTANDING.md`).
 - **Other tables keep their buttons at the row's end**: the Budget's
   expenses (Edit, a pencil, opens an *Edit expense* form with Save and
   Cancel, and the whole row opens it too; Delete), Talent's lines (Delete),

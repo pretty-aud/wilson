@@ -2775,7 +2775,12 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                             onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
                         </HoverActions>
                       )}
-                      <span className="rb-scene-band-rest" onClick={() => toggleGroup(g.key)}>
+                      <span className="rb-scene-band-rest" onClick={e => {
+                        toggleGroup(g.key)
+                        // The keyboard's place stays the band's, as the toggle across
+                        // the whole band kept it (review round 2, R2-10: it fell to <body>).
+                        e.currentTarget.parentElement.querySelector('.rb-scene-group-toggle')?.focus({ preventScroll: true })
+                      }}>
                         {groupFrames > 0 && (
                           <span className="rb-scene-group-frames">
                             {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames

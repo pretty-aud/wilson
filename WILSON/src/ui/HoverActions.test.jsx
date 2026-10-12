@@ -66,4 +66,11 @@ describe('HoverActions', () => {
     // Only there: the resting rule still hides them for a mouse.
     expect(code).toMatch(/\.ui-hover-actions \{[^}]*opacity: 0;/)
   })
+
+  // FX8-KR-3 (FX8 review round 2, R2-03): the kit Menu takes focus into its
+  // portalled list, and the pointer goes there too, so neither the row's
+  // hover nor its focus held the slot — the open menu hung from nothing.
+  it('keeps a slot whose menu is open', () => {
+    expect(css).toContain('.ui-hover-actions:has([aria-expanded="true"]) { opacity: 1; }')
+  })
 })

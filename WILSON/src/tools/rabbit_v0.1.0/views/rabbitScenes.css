@@ -640,8 +640,9 @@
   /* In a row's title (FX8, the kit's RowTitle) the words keep their 6px
      pull to the left and stop at the words box on the right, so the buttons
      sit the kit's 4px past the words' own 6px, as in every table; the field
-     that replaces them, the same. */
-  .rb-scene-name-cell .ui-row-title .rb-scene-inline { margin-right: 0; }
+     that replaces them, the same. A one-letter name is still a 28px target,
+     as the kit makes a words button (review round 2, R2-06). */
+  .rb-scene-name-cell .ui-row-title .rb-scene-inline { margin-right: 0; min-width: var(--control-sm); }
   .rb-scene-name-cell .ui-row-title .ui-input.rb-scene-inline-input[data-size="sm"] { width: calc(100% + 6px); margin-right: 0; }
 
   /* Status: the kit's StatusDot, then the words in the ink from the one
@@ -865,11 +866,16 @@
   .rb-scene-mark { display: block; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   /* A nested shot's actions show with ITS row. The row holding the whole
      nest is a <tr> too, so the kit's reveal would light every nested row's
-     at once. */
-  .rb-scene-nest-row:hover .rb-scene-nest-table .ui-hover-actions:not(:focus-within),
-  .rb-scene-nest-row:focus-within .rb-scene-nest-table .ui-hover-actions:not(:focus-within) { opacity: 0; }
-  .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:hover .ui-hover-actions:not(:focus-within),
-  .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:focus-within .ui-hover-actions { opacity: 1; }
+     at once. Only where something hovers (FX8 review round 2, R2-01): on a
+     touch screen the kit shows every row's at rest (FX8-KR-2), and a tap's
+     leftover hover or focus here hid the other rows' again. A slot whose
+     menu is open keeps its button (R2-03, the kit's rule). */
+  @media (hover: hover) {
+    .rb-scene-nest-row:hover .rb-scene-nest-table .ui-hover-actions:not(:focus-within):not(:has([aria-expanded="true"])),
+    .rb-scene-nest-row:focus-within .rb-scene-nest-table .ui-hover-actions:not(:focus-within):not(:has([aria-expanded="true"])) { opacity: 0; }
+    .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:hover .ui-hover-actions:not(:focus-within),
+    .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:focus-within .ui-hover-actions { opacity: 1; }
+  }
 
   /* The nested bulk bar: above the shots, held under the table's header as
      the list scrolls (it was held at the top), in the bulk bar's shape. */
@@ -972,7 +978,9 @@
      words, so its words take what they need and no more — the shot table's
      toggle and an edit's band name — and the rest of the band (its runtime)
      comes after the button. The shot table's rest still opens and closes
-     the scene on a click, as the toggle across the whole band did. */
+     the scene on a click, as the toggle across the whole band did; it never
+     shrinks under its runtime (the toggle's name is cut first, review round
+     2, R2-04). */
   .rb-scene-group-head > .rb-scene-group-toggle,
   .rb-scene-group-head > .rb-scene-cut-band-name { flex: 0 1 auto; }
   /* 6px after the words, then the kit's 4px: the 10px a row's words leave. */
@@ -981,7 +989,7 @@
   .rb-scene-group-head > .ui-hover-actions.rb-scene-band-acts { flex: none; }
   .rb-scene-band-rest {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 0 auto;
     align-items: center;
     align-self: stretch;
     min-width: 0;
@@ -1281,6 +1289,12 @@
     justify-content: center;
     gap: 4px;
     background-color: var(--color-backdrop);
+  }
+  /* Where nothing hovers the kit shows the slot at rest (FX8-KR-2): no scrim
+     over the picture then, the two buttons in its corner on their raised
+     paper (FX8 review round 2, R2-02). */
+  @media (hover: none) {
+    .ui-hover-actions.rb-scene-detail-thumb-acts { inset: auto 6px 6px auto; background-color: transparent; }
   }
   /* Each button on the raised paper, so its glyph reads over ANY picture
      (B4c measured 2.54:1 through the scrim alone over a light one; 7.85 on

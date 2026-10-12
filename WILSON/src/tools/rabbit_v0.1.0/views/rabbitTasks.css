@@ -186,12 +186,13 @@
     --rb-task-phase-min: 124px;
     --rb-task-assignee-min: 124px;
     /* A title's words and its three 28px buttons (open, history, delete):
-       never less than 262px — the 158px the words had at 1280, the 4px and
-       the 88px of buttons, and their cell's 12px — never more than 360px.
-       262 so the table (1244px) fits a 1280 window with the list's
-       scrollbar (1246px of scroller; FX8 review round 1, R1-02: at 272 it
-       scrolled sideways there, as it did at 1254 before). */
-    --rb-task-title-min: 262px;
+       never less than 256px — 152px of words, the 4px and the 88px of
+       buttons, and their cell's 12px — never more than 360px. 256 so the
+       table (1238px) fits a 1280 window beside the list's scrollbar, any
+       width up to 18px (FX8 review round 1, R1-02: at 272 it scrolled
+       sideways beside a 10px one, as it did at 1254 before; round 2, R2-08:
+       262 left 2px, and Windows' classic scrollbar is 17). */
+    --rb-task-title-min: 256px;
     --rb-task-title-max: 360px;
     --rb-task-fixed: calc(var(--rb-task-col-check) + var(--rb-task-col-status) + var(--rb-task-col-priority)
       + var(--rb-task-asset-min) + var(--rb-task-phase-min) + var(--rb-task-assignee-min)
@@ -210,9 +211,9 @@
      the toolbar's first button starts on; it is the query container the
      columns measure (`100cqw`). */
   .rb-task-table-wrap > .ui-table-scroll { padding: 0 12px; container-type: inline-size; }
-  /* 982px of fixed columns + a 262px title: below this the table scrolls
+  /* 982px of fixed columns + a 256px title: below this the table scrolls
      sideways instead of wrapping a date mid-token (V1-06). It fits a 1280
-     window (1256px of scroller, 1246 while the list's scrollbar shows);
+     window (1256px of scroller, 1238 or more beside a scrollbar up to 18px);
      only Electron's 1024px floor scrolls. */
   .rb-task-table { min-width: calc(var(--rb-task-fixed) + var(--rb-task-title-min)); }
 

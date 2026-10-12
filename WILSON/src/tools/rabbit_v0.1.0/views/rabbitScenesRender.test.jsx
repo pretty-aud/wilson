@@ -270,7 +270,11 @@ describe('surface 6a', () => {
     expect(open.closest('.ui-hover-actions').previousElementSibling).toBe(toggle)
     expect(toggle.textContent).not.toMatch(/frames/)
     fireEvent.click(head.querySelector('.rb-scene-band-rest'))
-    expect(within(shotTable().querySelector('tr.rb-scene-group-row')).getByRole('button', { name: /^Lighthouse, dawn/ }).getAttribute('aria-expanded')).toBe('false')
+    const toggled = within(shotTable().querySelector('tr.rb-scene-group-row')).getByRole('button', { name: /^Lighthouse, dawn/ })
+    expect(toggled.getAttribute('aria-expanded')).toBe('false')
+    // Review round 2 (R2-10): the keyboard's place is the band's toggle, as
+    // when the toggle was the whole band (it fell to <body>).
+    expect(document.activeElement).toBe(toggled)
   })
 
   it('a row\'s status is the kit StatusDot beside a kit CellSelect, its tone from the one STATUS map (R3-11)', () => {

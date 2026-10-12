@@ -254,15 +254,19 @@ describe('FX8: the title columns — the title takes what the others leave up to
     close(w1920.title, 360)
     close(w1920.px('var(--rb-task-col-assignee)'), 124 + (1896 - 1342) / 3)
     const w1024 = at(1000, SB)
-    close(w1024.title, 262); expect(w1024.sideways).toBe(true)
-    // The table's minimum: 982 + a 262px title, 10px under the 1254 it was
+    close(w1024.title, 256); expect(w1024.sideways).toBe(true)
+    // The table's minimum: 982 + a 256px title, 16px under the 1254 it was
     // (982 + the 72px actions column + a 200px title), which scrolled
-    // sideways at 1280 while the list's scrollbar showed.
-    close(w1024.tableW, 1244)
+    // sideways at 1280 while the list's scrollbar showed. Round 2 (R2-08):
+    // room for any scrollbar up to 18px — Windows' classic one is 17.
+    close(w1024.tableW, 1238)
+    expect(at(1256, 17).sideways).toBe(false)
+    expect(at(1256, 18).sideways).toBe(false)
   })
-  it('CONTROL: the title\'s old 272px minimum scrolls sideways at 1280 while the list scrolls', () => {
-    const px = widthAt(tasks.replace(/--rb-task-title-min: 262px;/, '--rb-task-title-min: 272px;'), '.rb-task-table-wrap', 1256)
-    expect(layout(px, TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
+  it('CONTROL: the title\'s old minimums scroll sideways at 1280 beside a scrollbar — 272 beside the 10px one, 262 beside a 17px one', () => {
+    const withMin = (n) => widthAt(tasks.replace(/--rb-task-title-min: 256px;/, `--rb-task-title-min: ${n}px;`), '.rb-task-table-wrap', 1256)
+    expect(layout(withMin(272), TASK_COLS, TASK_MIN, 1256, SB).sideways).toBe(true)
+    expect(layout(withMin(262), TASK_COLS, TASK_MIN, 1256, 17).sideways).toBe(true)
   })
   it('CONTROL: the arithmetic reads the sheet — without the spare share the title runs on past its maximum', () => {
     const px = widthAt(tasks.replace(/--rb-task-spare: [^;]+;/, '--rb-task-spare: 0px;'), '.rb-task-table-wrap', 1896)
@@ -339,9 +343,75 @@ describe('FX8 review round 1: every row title\'s words fill the kit\'s words box
     expect(before).not.toBe(now)
     expect(fills('rabbitFiles.css', before)).toEqual(['.ui-row-title .rb-asset-cell-text { width: 100%; }'])
   })
-  it('a words button is never under the kit\'s 28px however short the name (R1-05); the Tasks title cell draws its rings inside the dense row (R1-08)', () => {
+  it('a words button is never under the kit\'s 28px however short the name (R1-05), nor the scenes\' words span (R2-06); the Tasks title cell draws its rings inside the dense row (R1-08)', () => {
     const kit = cssCode(readFileSync(join(here, '../../../index.css'), 'utf8'))
     expect(kit).toMatch(/\.ui-row-title-words > button \{ min-width: var\(--control-sm\); \}/)
+    expect(rulesOf(read('rabbitScenes.css')).find(({ sel }) => sel === '.rb-scene-name-cell .ui-row-title .rb-scene-inline').body).toMatch(/min-width: var\(--control-sm\);/)
     expect(read('rabbitTasks.css')).toMatch(/\.rb-task-table-wrap \.ui-table\.rb-task-table \.ui-row-title :focus-visible \{ outline-offset: -2px; \}/)
+  })
+})
+
+/* ── 5. the bands (review rounds 1 and 2, R1-06, R2-04, R2-05) ───────────────
+   The render tests see the DOM order; these pin the layout that puts a
+   band's button right after its words. */
+describe('FX8: a band\'s button sits right after its words, its runtime last', () => {
+  const sheet = () => read('rabbitScenes.css')
+  const body = (css, sel) => rulesOf(css).find(({ sel: s }) => s === sel)?.body || ''
+  const pins = (css) => [
+    /flex: 0 1 auto;/.test(body(css, '.rb-scene-group-head > .rb-scene-group-toggle,\n  .rb-scene-group-head > .rb-scene-cut-band-name')) || 'the words take only what they need',
+    /padding-right: 6px;/.test(body(css, '.rb-scene-group-head > .rb-scene-group-toggle:has(+ .rb-scene-band-acts),\n  .rb-scene-group-head > .rb-scene-cut-band-name:has(+ .rb-scene-band-acts)')) || '6px after the words, then the kit\'s 4px',
+    /flex: none;/.test(body(css, '.rb-scene-group-head > .ui-hover-actions.rb-scene-band-acts')) || 'the button never shrinks',
+    /flex: 1 0 auto;/.test(body(css, '.rb-scene-band-rest')) || 'the rest takes the band and never shrinks under its runtime',
+  ].filter((x) => x !== true)
+  it('the rules hold', () => {
+    expect(pins(sheet())).toEqual([])
+  })
+  it('CONTROL: each rule taken away is caught', () => {
+    const css = sheet()
+    expect(pins(css.replace('flex: 1 0 auto;', 'flex: 1 1 auto;'))).toEqual(['the rest takes the band and never shrinks under its runtime'])
+    expect(pins(css.replace(/(\.rb-scene-group-head > \.rb-scene-cut-band-name:has\(\+ \.rb-scene-band-acts\) \{ )padding-right: 6px;/, '$1padding-right: 12px;'))).toEqual(['6px after the words, then the kit\'s 4px'])
+    expect(pins(css.replace('.rb-scene-group-head > .rb-scene-cut-band-name { flex: 0 1 auto; }', '.rb-scene-group-head > .rb-scene-cut-band-name { flex: 1 1 auto; }'))).toEqual(['the words take only what they need'])
+  })
+})
+
+/* ── 6. a screen that cannot hover (FX8-KR-2; review round 2, R2-01, R2-02) ──
+   The kit shows every HoverActions at rest where nothing hovers. A lane
+   rule that hides one again must say it is for a hovering screen, and a
+   slot laid over a picture gives the picture back there. */
+/** The text inside every `@media <query> { … }` block, comments out. */
+const mediaBlocks = (css, query) => {
+  const code = cssCode(css)
+  const out = []
+  let at = code.indexOf(`@media ${query}`)
+  while (at >= 0) {
+    let i = code.indexOf('{', at) + 1
+    let depth = 1
+    const start = i
+    for (; i < code.length && depth; i++) { if (code[i] === '{') depth++; else if (code[i] === '}') depth-- }
+    out.push(code.slice(start, i - 1))
+    at = code.indexOf(`@media ${query}`, i)
+  }
+  return out
+}
+/** Lane rules that set a HoverActions slot's opacity to 0 outside `(hover: hover)`. */
+const hidesOnTouch = (css) => {
+  let rest = cssCode(css)
+  for (const b of mediaBlocks(css, '(hover: hover)')) rest = rest.replace(b, '')
+  return rulesOf(rest).filter(({ sel, body }) => /\.ui-hover-actions/.test(sel) && /opacity:\s*0\s*;/.test(body)).map(({ sel }) => sel)
+}
+describe('FX8: where nothing can hover, every row\'s buttons stay shown', () => {
+  it('no FX8 table\'s sheet hides a HoverActions slot outside a hovering screen (the nested shots\' isolation is inside `(hover: hover)`)', () => {
+    for (const f of ['rabbitScenes.css', 'rabbitFiles.css', 'rabbitTasks.css']) expect(hidesOnTouch(read(f)), f).toEqual([])
+    expect(mediaBlocks(read('rabbitScenes.css'), '(hover: hover)').join('\n')).toMatch(/\.rb-scene-nest-row:hover \.rb-scene-nest-table \.ui-hover-actions/)
+  })
+  it('CONTROL: the nest\'s rule outside the media block is caught', () => {
+    const css = read('rabbitScenes.css').replace('@media (hover: hover) {\n    .rb-scene-nest-row:hover', '@media (min-width: 1px) {\n    .rb-scene-nest-row:hover')
+    expect(hidesOnTouch(css).length).toBe(1)
+  })
+  it('the item windows\' picture slots drop their scrim and sit in the picture\'s corner where nothing hovers', () => {
+    const scenes = mediaBlocks(read('rabbitScenes.css'), '(hover: none)').join('\n')
+    expect(scenes).toMatch(/\.ui-hover-actions\.rb-scene-detail-thumb-acts \{ inset: auto 6px 6px auto; background-color: transparent; \}/)
+    const files = mediaBlocks(read('rabbitFiles.css'), '(hover: none)').join('\n')
+    expect(files).toMatch(/\.ui-hover-actions\.rb-ent-thumb-acts \{ inset: auto 6px 6px auto; background-color: transparent; \}/)
   })
 })
