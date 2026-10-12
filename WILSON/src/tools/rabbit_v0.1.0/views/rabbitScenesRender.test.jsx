@@ -3571,6 +3571,21 @@ describe('FX1: the number fields of the shot rows and the popups', () => {
     expect(within(dialog).getByRole('spinbutton', { name: 'Scene number' }).value).toBe('0')
   })
 
+  it('R1-06: the tables\' fields wear the tables\' sizing (rb-scene-frames: 76px, right-aligned) and the popups\' fields do not', () => {
+    page({ shots: BIG() })
+    const variantOf = (el) => el.closest('.rb-scene-number').classList.contains('rb-scene-frames')
+    openScene('Lighthouse, dawn')
+    expect(['The door', 'The cold lamp'].map((n) => variantOf(within(rowOf(n)).getByRole('spinbutton', { name: `Frames for ${n}` })))).toEqual([true, true])
+    toShots()
+    expect(['The door', 'The cold lamp'].map((n) => variantOf(within(rowOf(n)).getByRole('spinbutton', { name: `Frames for ${n}` })))).toEqual([true, true])
+    let dialog = openShotPopup()
+    expect(['Shot number', 'Frame count'].map((name) => variantOf(within(dialog).getByRole('spinbutton', { name })))).toEqual([false, false])
+    escape()
+    fireEvent.click(screen.getByRole('tab', { name: 'Scenes' }))
+    dialog = openScenePopup()
+    expect(variantOf(within(dialog).getByRole('spinbutton', { name: 'Scene number' }))).toBe(false)
+  })
+
   it('a reviewer\'s fields are disabled with no chevrons, and a six-digit figure still reads five figures and an ellipsis', () => {
     const { ctx } = page({ shots: BIG(), ...seat('reviewer') })
     openScene('Lighthouse, dawn')

@@ -22,12 +22,15 @@
  *
  * Each picture is `<prefix><nn>-<state>-<W>x<H>.png` (the viewport, one CSS
  * pixel a pixel) and, for the close-ups, `<prefix><nn>-<state>-zoom-<W>x<H>.png`
- * (the frames column at twice the size). Needs the worktree's own dev server
- * with the dev fixtures (VITE_DEV_FIXTURES=1, VITE_DEV_AUTOLOGIN=tester;
- * `fx1-worktree` in .claude/launch.json). Changes nothing that outlives the
- * page: the fixture store is in memory and the browser context is fresh per
- * run. Animations and transitions are off and the caret is transparent, in
- * this page only. A state whose control is not found stops the run and says
+ * (the frames column at twice the size). Last, unphotographed, a seven-digit
+ * figure in the cut at rest and focused (the tables' field holds six whole).
+ * Needs the worktree's own dev server with the dev fixtures
+ * (VITE_DEV_FIXTURES=1, VITE_DEV_AUTOLOGIN=tester; `fx1-worktree` in
+ * .claude/launch.json), and refuses to write anything unless the fixtures
+ * badge says they are on. Changes nothing that outlives the page: the
+ * fixture store is in memory and the browser context is fresh per run.
+ * Animations and transitions are off and the caret is transparent, in this
+ * page only. A state whose control is not found stops the run and says
  * which.
  */
 import { chromium } from '@playwright/test';
@@ -225,6 +228,11 @@ try {
     }
   };
 
+  // The script writes frame counts and starts an edit: only ever on the dev
+  // fixtures' in-memory store, never on a server signed in to real data
+  // (FX1 review round 1, R1-12). The badge's switch says they are on.
+  await must(page.getByRole('button', { name: 'Turn dev fixtures off', exact: true }), 'the dev fixtures badge (fixtures ON) — refusing to write to this server');
+
   // ── Salt Hours, Scenes: the scene table ──
   await click(page.locator('.rb-summary-card, button', { hasText: 'Salt Hours' }).first(), 'Salt Hours');
   await click(tab('Scenes'), 'the Scenes tab');
@@ -313,6 +321,17 @@ try {
   await field('Frames for The compass (cut ').scrollIntoViewIfNeeded();
   await field('Frames for The compass (cut ').hover();
   await shot('edit-cut', field('Frames for The compass (cut '));
+
+  // Seven figures (review round 1, R1-02): the tables' field holds six whole;
+  // at rest the cap reads the first five, focused the figure scrolls inside
+  // the field, as any field's text does. Measured, not photographed.
+  await setTo('Frames for The door (cut ', 1234567);
+  await park();
+  console.log(`  ${W}x${H} — seven figures, in the cut:`);
+  print([await measure('cut-seven', 'Frames for The door (cut ')]);
+  await field('Frames for The door (cut ').click();
+  print([await measure('cut-7-focus', 'Frames for The door (cut ')]);
+  await field('Frames for The door (cut ').evaluate((el) => el.blur());
 } finally {
   await browser.close();
   if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));

@@ -709,6 +709,11 @@
   }
   .rb-scene-number > .ui-input.rb-scene-number-input::-webkit-inner-spin-button,
   .rb-scene-number > .ui-input.rb-scene-number-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  /* The chevrons lie over the field, not in it, so the pointer on one is off
+     the field's own :hover: the kit's hover edge is kept for the whole
+     field (review round 1, R1-03; the browser's spinner, inside the input,
+     kept it). The kit's value, pinned against it by §10 of the test. */
+  .rb-scene-number:hover > .ui-input.rb-scene-number-input:not(:disabled) { border-color: color-mix(in srgb, var(--color-ink) 28%, transparent); }
   /* The cap: the field's text kept and not drawn, five figures and the
      ellipsis over it in the same box, font and ink — the kit's disabled ink
      on a disabled field. */
@@ -730,6 +735,12 @@
     color: var(--color-ink);
   }
   .rb-scene-number-input:disabled + .rb-scene-number-cap { color: var(--color-ink-3); }
+  /* Forced colours (Windows High Contrast) paint the field's text whatever
+     its fill says, so the hidden figure would show around the cap: there
+     the field shows its own text and no cap (R1-09). */
+  @media (forced-colors: active) {
+    .rb-scene-number-cap { display: none; }
+  }
   /* The chevrons: one step each, the second ink, the ink and the hover fill
      under the pointer. */
   .rb-scene-number-step {
@@ -760,14 +771,18 @@
   .rb-scene-number-btn:hover { color: var(--color-ink); background-color: var(--color-hover); }
   .rb-scene-number-btn > svg { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); }
   /* Frames, in the three tables: sized to "12345…" and the chevrons' room
-     (4 + 48 + 22 inside the two hairlines: 76px), the figure right-aligned
-     under its header, its cell 6px a side (the thumbnail's) so the column
-     keeps its 88 — the scene table's 1280 and the nest's 1440 (S3b, R1-03)
-     hold as they were. */
+     (4 + 48 + 22 inside the two hairlines: 76px; six figures whole, seven
+     or more scroll inside it), the figure right-aligned in the field — 17px
+     left of its header's right edge, the chevrons' room (24 before) — its
+     cell 6px a side (the thumbnail's) so the column keeps its 88: the scene
+     table's 1280 and the nest's 1440 (S3b, R1-03) hold as they were. An
+     edit's missing shot has no field: its dash keeps the numeric cells'
+     12px from the edge. */
   .rb-scene-number.rb-scene-frames { --rb-scene-number-pad: 4px; width: 76px; margin-left: auto; }
   .rb-scene-number.rb-scene-frames > .ui-input.rb-scene-number-input { text-align: right; }
   .rb-scene-number.rb-scene-frames > .rb-scene-number-cap { justify-content: flex-end; }
   .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell { padding-right: 6px; padding-left: 6px; }
+  .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell > .rb-scene-cut-none { margin-right: 6px; }
   /* The two dates: the kit's small field, its picker dark (it was an inline
      colorScheme), an empty one's pattern in the third ink — while it can be
      changed: a disabled one (S3b step 7, a reviewer's) is the kit's, whose

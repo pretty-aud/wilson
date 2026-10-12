@@ -11,7 +11,7 @@
 // measures the rest.
 // =============================================================================
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { useState } from 'react'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import NumberField from './NumberField'
@@ -35,12 +35,14 @@ function Frames({ start, log, disabled = false }) {
       placeholder="0" />
   )
 }
-/** The scene number, as the scene popup holds it: no min, a refused figure writes nothing. */
-function SceneNumber({ start, log }) {
+/** The scene number, as the scene popup holds it: no min, a refused figure
+    writes nothing. `calls` counts every onChange, refused or not. */
+function SceneNumber({ start, log, calls = [] }) {
   const [n, setN] = useState(start)
   return (
     <NumberField value={n ?? ''}
       onChange={e => {
+        calls.push(e.target.value)
         const v = parseInt(e.target.value, 10)
         if (Number.isFinite(v) && v >= 0) { log.push(v); setN(v) }
       }}
@@ -65,6 +67,9 @@ describe('FX1: five figures and an ellipsis, the whole figure on focus', () => {
     expect(document.activeElement).toBe(el)
     expect([wrapOf(el).getAttribute('data-capped'), capOf(el)]).toEqual([null, null])
     expect(shown(el)).toBe('123456')
+    // The title stays while focused: past six figures the tables' field
+    // scrolls, and the title is then the one place the whole number reads.
+    expect(el.title).toBe('123456')
     act(() => el.blur())
     expect(shown(el)).toBe('12345…')
     expect(el.title).toBe('123456')
@@ -170,5 +175,110 @@ describe('FX1: the field\'s own chevrons', () => {
     expect(screen.queryByRole('button')).toBeNull()
     expect(wrapOf(el).querySelector('.rb-scene-number-step')).toBeNull()
     expect(shown(el)).toBe('12345…')
+  })
+
+  it('R1-06: a press on either chevron keeps the focus in the field', () => {
+    render(<Frames start={240} log={[]} />)
+    for (const b of [down(), up()]) {
+      act(() => document.body.focus())
+      expect(fireEvent.mouseDown(b), b.getAttribute('aria-label')).toBe(false)
+      expect(document.activeElement, b.getAttribute('aria-label')).toBe(field())
+    }
+  })
+})
+
+/* Review round 1's corrections: the held chevron (R1-05), the focus a
+   disabled field cannot keep (R1-04), the figure typed with leading zeros
+   (R1-07). */
+describe('FX1 review round 1: holding, disabling, leading zeros', () => {
+  const up = () => screen.getByRole('button', { name: 'Increase Frames for The door' })
+  const down = () => screen.getByRole('button', { name: 'Decrease Frames for The door' })
+  afterEach(() => vi.useRealTimers())
+
+  it('R1-05: a held chevron steps once on the press, again after 400ms, then every 50ms, and stops when it is let go', () => {
+    vi.useFakeTimers()
+    const log = []
+    render(<Frames start={2000} log={log} />)
+    fireEvent.pointerDown(up(), { button: 0 })
+    expect(log).toEqual([2001])
+    act(() => vi.advanceTimersByTime(399))
+    expect(log).toEqual([2001])
+    act(() => vi.advanceTimersByTime(1))
+    expect(log).toEqual([2001, 2002])
+    act(() => vi.advanceTimersByTime(150))
+    expect(log).toEqual([2001, 2002, 2003, 2004, 2005])
+    fireEvent.pointerUp(up(), { button: 0 })
+    // The pointer's own click after its press steps nothing more (detail 1).
+    fireEvent.click(up(), { detail: 1 })
+    act(() => vi.advanceTimersByTime(1000))
+    expect([log.length, field().value]).toEqual([5, '2005'])
+  })
+
+  it('R1-05: the repeat also stops when the pointer leaves the chevron, when the field blurs, and at min; a right button does nothing', () => {
+    vi.useFakeTimers()
+    const log = []
+    render(<Frames start={2} log={log} />)
+    fireEvent.pointerDown(up(), { button: 0 })
+    fireEvent.pointerLeave(up())
+    act(() => vi.advanceTimersByTime(1000))
+    expect(log).toEqual([3])
+    fireEvent.pointerDown(up(), { button: 0 })
+    act(() => field().focus())
+    act(() => field().blur())
+    act(() => vi.advanceTimersByTime(1000))
+    expect(log).toEqual([3, 4])
+    // Held down from 4: 3 on the press, 2, 1, 0, then nothing — min is 0.
+    fireEvent.pointerDown(down(), { button: 0 })
+    act(() => vi.advanceTimersByTime(5000))
+    expect(log).toEqual([3, 4, 3, 2, 1, 0])
+    fireEvent.pointerUp(down(), { button: 0 })
+    fireEvent.pointerDown(up(), { button: 2 })
+    act(() => vi.advanceTimersByTime(1000))
+    expect(log).toEqual([3, 4, 3, 2, 1, 0])
+  })
+
+  it('R1-05: a held Decrease under a caller that refuses the figure (a scene number at 0) offers it once, writes nothing and stops', () => {
+    vi.useFakeTimers()
+    const log = []
+    const calls = []
+    render(<SceneNumber start={0} log={log} calls={calls} />)
+    const minus = screen.getByRole('button', { name: 'Decrease Scene number' })
+    fireEvent.pointerDown(minus, { button: 0 })
+    act(() => vi.advanceTimersByTime(2000))
+    expect([calls, log, field('Scene number').value]).toEqual([['-1'], [], '0'])
+  })
+
+  it('R1-04: a field disabled while it had the focus is capped again once it is enabled', () => {
+    const log = []
+    const { rerender } = render(<Frames start={123456} log={log} />)
+    act(() => field().focus())
+    expect(shown(field())).toBe('123456')
+    rerender(<Frames start={123456} log={log} disabled />)
+    rerender(<Frames start={123456} log={log} />)
+    expect(shown(field())).toBe('12345…')
+  })
+
+  it('R1-07: a figure typed with leading zeros is stored as its number and, on blur, shown as it is stored — capped past five figures', () => {
+    const log = []
+    render(<Frames start={240} log={log} />)
+    const el = field()
+    act(() => el.focus())
+    fireEvent.change(el, { target: { value: '00000001' } })
+    expect(log).toEqual([1])
+    act(() => el.blur())
+    expect(el.value).toBe('1')
+    act(() => el.focus())
+    fireEvent.change(el, { target: { value: '000123456' } })
+    act(() => el.blur())
+    expect([el.value, shown(el), el.title]).toEqual(['123456', '12345…', '123456'])
+  })
+
+  it('CONTROL: a figure spelt as stored is left alone on blur, and so is a blank', () => {
+    const log = []
+    render(<Frames start={null} log={log} />)
+    const el = field()
+    act(() => el.focus())
+    act(() => el.blur())
+    expect([el.value, log]).toEqual(['', []])
   })
 })

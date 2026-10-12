@@ -1284,6 +1284,8 @@ describe('FX1: the cut\'s frame count is the number field', () => {
     pickEdit('edit-1')
     const el = screen.getByRole('spinbutton', { name: 'Frames for The climb (cut 1)' })
     expect([shownBy(el), el.value, el.title]).toEqual(['12345…', '123456', '123456'])
+    // The tables' sizing (R1-06): 76px, right-aligned, as the shot table's.
+    expect(el.closest('.rb-scene-number').classList.contains('rb-scene-frames')).toBe(true)
     act(() => el.focus())
     expect(shownBy(el)).toBe('123456')
     act(() => el.blur())
