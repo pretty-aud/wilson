@@ -825,3 +825,28 @@ describe('the four 0091 tables have entries, and each is EXACTLY its row shape',
     expect(COLUMN_ALLOWLIST.bin_files.has('poster_path')).toBe(true)
   })
 })
+
+describe('task_items: a task’s items (FX2, migration 0096)', () => {
+  // The five GENERATED columns carry an item's same-project foreign keys, and
+  // Postgres refuses a non-DEFAULT value in one: a key from a realtime echo or
+  // an RPC answer reaching an upsert would take the whole request with it.
+  it('has an entry, and it names no generated column', () => {
+    expect(COLUMN_ALLOWLIST.task_items, 'task_items has no COLUMN_ALLOWLIST entry').toBeDefined()
+    for (const g of ['asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id']) {
+      expect(COLUMN_ALLOWLIST.task_items.has(g), g).toBe(false)
+    }
+  })
+
+  it('keeps every field the provider sends', () => {
+    const created = { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'shot', entity_id: 'h1', position: 2, created_at: '2026-10-11T00:00:00Z' }
+    expect(toColumns('task_items', created)).toEqual(created)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('drops a generated column a stored row carries back, and warns', () => {
+    const echoed = { id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0, asset_id: 'a1', scene_id: null }
+    expect(toColumns('task_items', echoed)).toEqual({ id: 'i1', task_id: 't1', project_id: 'p1', entity_type: 'asset', entity_id: 'a1', position: 0 })
+    expect(warn).toHaveBeenCalled()
+    expect(warn.mock.calls[0][0]).toContain('public.task_items')
+  })
+})

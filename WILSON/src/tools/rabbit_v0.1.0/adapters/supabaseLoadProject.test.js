@@ -100,6 +100,8 @@ const CLOUD_BUNDLE_KEYS = [
   'shotLists', 'shotListItems', 'edits',
   // 0090 (post-overhaul S5b): the set-aside rows, split out by the loader.
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
+  // 0096 (FX2): a task's items; the read doubles as the 0096 probe.
+  'taskItems',
   // 0091 (BC1): bins, bin files, takes and the company's locations ride the
   // load; binRoots is answered [] (the signed-out desktop's known roots have
   // no cloud shape). An omitted key would reset the Bins tab on every load.

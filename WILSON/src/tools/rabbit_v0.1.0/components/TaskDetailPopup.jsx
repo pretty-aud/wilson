@@ -3,8 +3,9 @@
 // ============================================================
 //
 // Two-column layout:
-//   LEFT  — collapsible file/relation panels (assets, shots,
-//           scenes, levels, experiences)
+//   LEFT  — the task's ITEMS (FX2, 0096: the assets, scenes, shots, levels
+//           and experiences it is about, the scene window's Assets table in
+//           the same parts), then the files of its main asset, shot and scene
 //   RIGHT — task properties, description, notes
 //
 // The header + status accent bar spans the full width of both
@@ -31,6 +32,8 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
+// FX2 (0096): the Items table, in the scene window's relation parts.
+import { TaskItemsTable } from './RelationsPanel'
 import { useRemovalAsk } from './RemovalQuestion'
 import { Dialog, Button, Field, EmptyState, StatusBanner, StatusDot, statusMeta, Switch } from '../../../ui'
 // Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
@@ -197,7 +200,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const scenesOn = project?.scenes_enabled
   const levelsOn = project?.levels_enabled
   const experiencesOn = project?.experiences_enabled
-  const hasLeftColumn = linkedAsset || linkedShot || scenesOn || levelsOn || experiencesOn
+  // FX2 (0096): where the backend keeps a task's items, the Items table on
+  // the left holds every link and the five pickers under Placement go (one
+  // add control, Hick). Without items — a cloud before 0096, Drive, the
+  // Dashboard's cross-project window (no project bundle) — the window is as
+  // it was.
+  const itemsHere = ctx?.taskItemsAvailable === true && Array.isArray(ctx?.taskItems)
+  const hasLeftColumn = itemsHere || linkedAsset || linkedShot || scenesOn || levelsOn || experiencesOn
 
   return (
     <>
@@ -242,9 +251,13 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
       >
         <div className="rb-task-detail-body">
 
-          {/* ── LEFT COLUMN — files & relations ── */}
+          {/* ── LEFT COLUMN — the items, then the files ── */}
           {hasLeftColumn && (
+            <div className="rb-task-detail-side">
             <div className="rb-task-detail-files">
+              {itemsHere && (
+                <TaskItemsTable task={task} ctx={ctx} canWrite={canWrite} writeReason={writeReason} />
+              )}
               {/* Asset files */}
               {linkedAsset && (
                 <CollapsibleSection
@@ -340,9 +353,12 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                 <EmptyState
                   compact
                   Icon={FolderOpen}
-                  title="Link an asset, scene, or shot to see files here"
+                  title={itemsHere
+                    ? "Add an asset, scene or shot to see its files here"
+                    : "Link an asset, scene, or shot to see files here"}
                 />
               )}
+            </div>
             </div>
           )}
 
@@ -380,6 +396,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
             </PropertyGroup>
 
             <PropertyGroup title="Placement">
+              {!itemsHere && (<>
               <Field label="Asset">
                 {task.asset_id && !assets.some(a => a.id === task.asset_id) ? (
                   // Current asset not in ctx.assets (the Dashboard's
@@ -401,6 +418,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   </select>
                 )}
               </Field>
+              </>)}
               <Field label="Phase">
                 <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
                   className="ui-input rb-task-prop"
@@ -409,6 +427,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
                 </select>
               </Field>
+              {!itemsHere && (<>
 
               {/* ── Conditional relation fields ── */}
               {scenesOn && (
@@ -466,6 +485,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   </select>
                 </Field>
               )}
+              </>)}
             </PropertyGroup>
 
             <PropertyGroup title="People">

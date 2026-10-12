@@ -60,6 +60,8 @@ const BUNDLE_KEYS = [
   'shotLists', 'shotListItems', 'edits',
   // Post-overhaul S5b (0090): the rows the open bid version does not hold.
   'setAsideTasks', 'setAsidePhases', 'setAsideMilestones', 'setAsideDependencies',
+  // FX2 (0096): a task's items.
+  'taskItems',
 ]
 
 // The S3a contract's nine shot-list methods plus review round 1's two

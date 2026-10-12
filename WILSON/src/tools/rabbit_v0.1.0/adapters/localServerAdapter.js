@@ -23,6 +23,8 @@ import { splitSetAside } from '../state/setAside';
 // the cookie main sets would carry these too, and both arms being present is
 // the point — see src/lib/localServerFetch.js.
 import { localFetch } from '../../../lib/localServerFetch.js';
+// FX2 (0096): a task's items, in the order the cloud reads them.
+import { compareItems } from '../state/taskItemsModel.js';
 
 const BASE = '/api/rabbit';
 
@@ -110,6 +112,18 @@ function cmpCodeUnits(a, b) {
 function sortByCreatedThenId(rows) {
   return [...(rows || [])].sort((a, b) => cmpCodeUnits(a?.created_at, b?.created_at) || cmpCodeUnits(a?.id, b?.id))
 }
+// FX2 (0096): the cloud's read order for a task's items: task, kind, then
+// position, created_at, id.
+function sortTaskItems(rows) {
+  return (Array.isArray(rows) ? rows.slice() : []).sort((a, b) => {
+    const ta = String(a?.task_id ?? ''), tb = String(b?.task_id ?? '');
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    const ka = String(a?.entity_type ?? ''), kb = String(b?.entity_type ?? '');
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return compareItems(a, b);
+  });
+}
+
 function sortByPositionThenId(rows) {
   return [...(rows || [])].sort((a, b) => ((Number(a?.position) || 0) - (Number(b?.position) || 0)) || cmpCodeUnits(a?.id, b?.id))
 }
@@ -207,6 +221,11 @@ export function localServerAdapter() {
         shotLists:       sortByCreatedThenId(bundle.shotLists),
         shotListItems:   sortByPositionThenId(bundle.shotListItems),
         edits:           sortByCreatedThenId(bundle.edits),
+        // FX2 (0096): a task's items. Same reason as every key above; the
+        // server backfills them from the tasks' single fields on read
+        // (electron/rabbitTaskItems.cjs) and keeps those fields in step.
+        // Sorted as the cloud orders them: task, kind, then 0096's order.
+        taskItems:       sortTaskItems(bundle.taskItems),
       });
     },
 
@@ -262,6 +281,30 @@ export function localServerAdapter() {
       body:    JSON.stringify(link),
     }),
     deleteTaskLink: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/task-links/${id}`, { method: 'DELETE' }),
+
+    // ── A task's items (FX2, 0096's twin: electron/rabbitTaskItems.cjs) ──
+    // Not the URL links above. The server keeps each task's five single
+    // fields equal to its main item of each kind, as 0096's triggers do.
+    taskItemsAvailable: () => true,
+    listTaskItems: async (projectId) =>
+      sortTaskItems(await jfetch(`${BASE}/projects/${projectId}/task-items`)),
+    // Adds one item, or answers the stored row when the task already names
+    // it (the cloud's ON CONFLICT DO NOTHING, then a read).
+    addTaskItem: (item) => jfetch(`${BASE}/projects/${item.project_id}/task-items`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(item),
+    }),
+    deleteTaskItem: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/task-items/${id}`, { method: 'DELETE' }),
+    // reorder_task_items' twin: the named ids first, the rest after, dense
+    // from 0; answers the rows that moved.
+    reorderTaskItems: (projectId, taskId, kind, orderedIds) =>
+      jfetch(`${BASE}/projects/${projectId}/task-items/reorder`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ task_id: taskId, entity_type: kind, ids: Array.isArray(orderedIds) ? orderedIds : [] }),
+      }),
 
     // ── Files ─────────────────────────────────────────────────
     // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a

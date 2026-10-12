@@ -78,6 +78,32 @@ after her report.
 
 ## Broken features
 
+### The scene window's SHOTS / ASSETS / TASKS line counts no asset
+**MEASURED (FX2, 2026-10-12, on the test data, port 5291).** Scenes → The
+storm's window: after Sea Spray Comp is linked in the window's own Assets
+table (*Assets (1)*), the line under SHOTS / ASSETS / TASKS still reads
+`3 / 0 / 2`. `ScenesView.jsx` → `assetCountByScene` counts `a.scene_id`, a
+field no asset has: since 0084 an asset names its scenes in `scene_ids`. So
+the count is 0 for every scene, on every backend. Fix shape: count each
+asset once for each id in its `scene_ids` (and decide whether an asset linked
+only to one of the scene's shots counts too). Found in passing by FX2, which
+changed only the TASKS count beside it.
+
+### On the desktop, a deleted asset's tasks come back when the project is read again
+**INFERRED (FX2, 2026-10-12; read from `electron/main.cjs` and
+`RabbitProvider.jsx`, not seen in the desktop app).** The provider's
+`deleteAsset` takes the asset's tasks off the screen with it on every
+backend, as the cloud's `ON DELETE CASCADE` deletes them (0034). The Local
+Server's asset DELETE route removes the asset and its managed files only: the
+tasks stay in the bundle, and the next read of the project shows them again.
+Before FX2 they came back pointing at an asset that no longer exists; since
+FX2 the asset leaves their items, so each comes back under its next asset, or
+under no asset if that was its only one. Settle it by deleting an asset that
+has tasks in the desktop app and opening the project again. Fix shape: the
+route removes the tasks whose `asset_id` is the asset (with their
+dependencies and items, as the generic task DELETE does), and the provider's
+undo, which re-inserts them on the desktop, is unchanged.
+
 ### The Tasks table's Bid days field hides a figure's first characters behind the browser's arrows
 **MEASURED (FX1, 2026-10-12).** Playwright on the dev fixtures at
 1440x900, the browser's spinner read through the DevTools protocol (the
@@ -165,7 +191,11 @@ FKs of 0084 allow it), then `edits`, with `active_shot_list_id` set last;
 `folders` after the files; the budget tables in their own order (versions,
 lines, actuals, expenses, overrides); comments, asset versions, milestones,
 levels, experiences and the team after their parents — and the archive
-button waiting until the list is empty.
+button waiting until the list is empty. Since FX2 (0096) the runner carries a task's items
+about an asset, a scene or a shot (`task_items`, after the takes); its items
+about a level or an experience stay with the levels and experiences, counted
+in the report and named in the same line (*levels and experiences named on
+tasks*, `NOT_CARRIED` → `taskLevelItems`).
 
 ### The cloud's own address CHECK admits control and formatting characters
 **INFERRED (BC2 review round 2 deferred it; BC3 review rounds 1 and 2 widened
@@ -1596,7 +1626,9 @@ own `fs` guidance for Windows does, and give the three tests the time-outs a
 loaded Windows runner needs. *(FX4, 2026-10-12, MEASURED in its five full
 runs on Windows: the PowerShell check-state test every time, and once each
 `acme.test.mjs`'s "an expired certificate … is renewed within a tick",
-`doorsInside.test.mjs`'s "a real TLS client is cut before it" and, outside
+`doorsInside.test.mjs`'s "a real TLS client is cut before it",
+`doorsOutside.test.mjs`'s "a response still streaming when its authority
+runs out is cut" and, outside
 the gateway, `src/tools/otter_v0.3.1/quizWiring.test.js`'s whole-tree scan
 "nothing anywhere still calls the retired per-course route" (5 s); each
 passed alone.)*
@@ -1622,6 +1654,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul FX4 (2026-10-12; `po/fx4-edits-update-in-place` into `feat/post-overhaul-edit-versioning`) — an edit changes in place (Audrey: "when i make changes to an edit, it should start to edit the current selected edit"): a change to a saved edit asks nothing, Save edit writes into it, Save as… is the only new version, the list's "Save edit as…" reads "Save as…" again; the edit write made conditional on every backend; client-only, no migration; walkthrough 67; two review rounds | **one entry under Broken features:** *the gateway's reach-proof test races the gateway's own sync, and fails CI now and then* (MEASURED: two of FX4's CI runs, one on a commit with no product code; not FX4's code). A dated FX4 line on FX3's gateway-load entry (the tests seen timing out under load in FX4's full runs). **S3c-05** gains an FX4 note (Save edit from the leave question saves a saved edit's changes into it) | **S3c-09, struck through:** untrue since BC1 (`0b38077c`) — the cloud's Scenes tab binds Ctrl+Z (FX4's review round 1, R1-04); Help's Undo card corrected. Comment markers: 4 → 4. |
+| Post-overhaul FX2 (2026-10-12; `po/fx2-task-multi-links` into `feat/post-overhaul-edit-versioning`) — a task relates to many items (assets, scenes, shots, levels, experiences): item 1 measured before building (the brief's table name was taken; the cloud never had a level or experience column), migration 0096 and suite 99 on wilson-dev (`task_items`, the single columns kept in step both ways), the adapters, the Local Server, the fixtures, the provider, the task window's Items table, walkthrough 65; two review rounds, the second finding that round 1's bundle wrapper nulled a revived task's links | **two entries under Broken features, both found in passing and not FX2's:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (MEASURED) and *on the desktop, a deleted asset's tasks come back when the project is read again* (INFERRED); the migration entry gains a sentence (a task's asset, scene and shot items move; its level and experience items stay with the levels and experiences) | **nothing.** Every finding of the two rounds (six in round 1, seven in round 2, one High each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-fx2-2026-10-11.md`). Comment markers: 4 → 4. |
 | Post-overhaul FX1 (2026-10-12; `po/fx1-shot-frame-count` into `feat/post-overhaul-edit-versioning`) — the shot's frame-count field (Audrey's "the chevrons are covering up the numbers"): every number field of the shot rows and the popups is `views/scenes/NumberField.jsx`, the browser's spinner put away, its own chevrons clear of the figure, five figures and an ellipsis past that; display only, no migration; two review rounds | **two entries under Broken features:** *the Tasks table's Bid days field hides a figure's first characters behind the browser's arrows* (MEASURED: 12.5 reads 2.5 while focused; found while measuring where else FX1's defect lives; the Tasks lane's), and *a held number field fills R.A.B.B.I.T.'s undo history* (MEASURED by review round 2: ten undo steps, one per step of a hold; the browser's spinner did it too; `RabbitProvider`'s). A dated note on P1-03 (Home's document keydown listener): until FX3's fix reached FX1's branch it also cancelled the arrow keys in every number field and select, and Enter after one of them left the page from a shot's Frames field (MEASURED by FX1's review round 1). | **P1-03, marked FIXED**: by FX3 (`35265888`), which merged into the integration branch before FX1; measured by FX1 after its merge (`b531a799`): the arrow keys step the Scenes number fields and Enter stays on the page. Comment markers: 4 → 4, still pairing. |
 | Post-overhaul FX3 (2026-10-12; `po/fx3-banner-version-bar-team-gallery` into `feat/post-overhaul-edit-versioning`) — the status banner back under every item's title, the Timeline's bid version bar under the project title ("Bid ver."), "Save edit as…" on the Scenes tab, the Team tab's Table / Gallery with signed profile pictures (walkthrough 66); two review rounds | **one entry under Broken features:** *the gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM* (MEASURED in this session's full runs; not the session's code). Everything FX3 leaves undone otherwise is a named limit or a question in its hand-off (`docs/sessions/handoffs/po-fx3-2026-10-12.md`), none of it broken | nothing. Comment markers: 4 → 4. |
 | Post-overhaul GW4 (2026-10-11; `po/gw4-gateway-release` into `feat/post-overhaul-edit-versioning`) — the file gateway's release and install stories: the release signing key (its public half in slot 1, its private half in one Desktop file for Audrey) and the channel on GitHub Releases, the release workflow and its one dry run (a draft left for Audrey), the outside door's free certificate (ACME TLS-ALPN-01) proven against Pebble in CI, the two install stories as Help pages, the hardening guide, walkthrough 63; two review rounds, both security attacks on the release path | **nothing.** Every finding of the two rounds (six in round 1, eleven in round 2; five Medium in all) was fixed in the session or is written down in the hand-off (`docs/sessions/handoffs/po-gw4-2026-10-11.md`): its "Deferred" (Authenticode in an approved environment, a second release key, an administrator's check of an MSI), its "For GW5" (two other workflows' token, the pushed image run) and its "Known limits"; what is Audrey's (the key's secret and its environment, three repository settings, the draft, the first tag, the rehearsal) is in its "Waiting on Audrey" | **nothing.** Comment markers: 4 → 4. |

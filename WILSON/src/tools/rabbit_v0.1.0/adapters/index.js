@@ -35,7 +35,9 @@ import { devFixtures } from '../../../dev/devFixtures';
  * @property {object[]} assets
  * @property {object[]} tasks
  * @property {object[]} dependencies
- * @property {object[]} taskLinks
+ * @property {object[]} taskLinks      a task's URL links (0000)
+ * @property {object[]} taskItems      a task's items: the assets, scenes,
+ *   shots, levels and experiences it is about (FX2, 0096)
  * @property {object[]} files
  * @property {object[]} assetVersions
  * @property {object[]} comments

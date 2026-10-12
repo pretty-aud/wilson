@@ -269,6 +269,19 @@ describe('what the migration does not carry', () => {
   })
 })
 
+describe('the items on tasks the runner leaves behind (FX2, 0096)', () => {
+  it('names the level and experience items, never the asset, scene and shot items it carries', () => {
+    const taskItems = [
+      { entity_type: 'asset' }, { entity_type: 'scene' }, { entity_type: 'shot' },
+      { entity_type: 'level' }, { entity_type: 'experience' }, { entity_type: 'level' },
+    ]
+    expect(notCarriedOf({ taskItems })).toEqual([{ key: 'taskLevelItems', label: 'levels and experiences named on tasks', count: 3 }])
+    expect(notCarriedOf({ taskItems: taskItems.slice(0, 3) })).toEqual([])
+    expect(notCarriedLabel('taskLevelItems', 1)).toBe('level or experience named on a task')
+    expect(NOT_CARRIED.some(([key]) => key === 'taskItems')).toBe(false)
+  })
+})
+
 describe('bins arrive parents first', () => {
   it('a child never precedes its parent; an orphan comes to the top; a cycle is broken, not looped on', () => {
     const bins = [

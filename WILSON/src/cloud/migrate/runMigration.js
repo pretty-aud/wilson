@@ -162,6 +162,47 @@ async function insertOrSkip(table, row, ours = null) {
   throw new Error(`${table}: ${error.message}`)
 }
 
+// FX2 (0096): the kinds of a task's item the runner carries — the rows it
+// carries (levels and experiences are NOT_CARRIED).
+const ITEMS_CARRIED = new Set(['asset', 'scene', 'shot'])
+
+// FX2 review round 1 (R1-2): a desktop task goes up WITHOUT its scene, shot,
+// level and experience links. The cloud has no level or experience column (a
+// key it does not know refuses the whole insert, PGRST204), and the tasks land
+// before the scenes and shots (BC3) while tasks_scene_fk / tasks_shot_fk are
+// not deferrable (23503); FX2's desktop writes all five keys on a task whose
+// main item changed. The task's scenes and shots arrive as its items after the
+// shots, and 0096 §7a sets the two columns from them; its asset stays on the
+// row (the assets are in first) and 0096 seeds that item. Every other key goes
+// up as it always has.
+export function taskRowForCloud(t) {
+  const row = withoutSetAside(t)
+  if (!row || typeof row !== 'object') return row
+  const { scene_id: _scene, shot_id: _shot, level_id: _level, experience_id: _experience, ...rest } = row
+  return rest
+}
+
+// The items a project's move carries (and counts): the bundle's own, plus one
+// for a scene or a shot a task row names that no item does (a bundle no Local
+// Server reconciled), so taskRowForCloud's dropping the column loses nothing.
+export function itemsToCarry(bundle) {
+  const items = Array.isArray(bundle?.taskItems) ? bundle.taskItems.filter(i => i && typeof i === 'object') : []
+  const named = new Set(items.map(i => `${i.task_id}|${i.entity_type}|${i.entity_id}`))
+  const extra = []
+  for (const t of Array.isArray(bundle?.tasks) ? bundle.tasks : []) {
+    if (!t || t.id == null) continue
+    for (const [field, kind] of [['scene_id', 'scene'], ['shot_id', 'shot']]) {
+      const id = t[field]
+      if (id == null || id === '') continue
+      const key = `${t.id}|${kind}|${id}`
+      if (named.has(key)) continue
+      named.add(key)
+      extra.push({ task_id: t.id, entity_type: kind, entity_id: id, position: 0 })
+    }
+  }
+  return [...items, ...extra]
+}
+
 // ── BC3 (B9): the bins' reads and writes ──────────────────────────────────
 
 // PostgREST answers at most `max_rows` (1,000 in supabase/config.toml) and
@@ -268,6 +309,10 @@ function makeReport() {
     // `orphans`: takes of a shot or clip removed on this computer — not
     // carried, not counted in `total`, not an error (ORPHAN_TAKES).
     shotTakes:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0, orphans: 0 },
+    // FX2 (0096): a task's items (the assets, scenes and shots it is about).
+    // `leftBehind`: its levels and experiences, which the runner does not
+    // carry (NOT_CARRIED), so their items stay here too.
+    taskItems:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
     posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
     // What the bundles hold that the runner does not carry (notCarriedOf),
     // summed over the projects: `[{ key, label, count }]`.
@@ -434,6 +479,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       report.assets.total += (bundle.assets ?? []).length
       report.tasks.total  += (bundle.tasks  ?? []).length
       report.files.total  += (bundle.files  ?? []).length
+      // FX2 (0096): the items, as the real run will take them.
+      for (const it of itemsToCarry(bundle)) {
+        report.taskItems.total++
+        if (!ITEMS_CARRIED.has(it?.entity_type)) report.taskItems.leftBehind++
+      }
       const links = countLinks(bundle.dependencies)
       report.taskLinks.total  += links.task
       report.phaseLinks.total += links.phase
@@ -581,7 +631,7 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
     }
     for (const t of bundle.tasks ?? []) {
       try {
-        const r = await insertOrSkip('tasks', withoutSetAside(t))
+        const r = await insertOrSkip('tasks', taskRowForCloud(t))
         r.status === 'inserted' ? bumpInserted(report.tasks) : bumpSkipped(report.tasks)
       } catch (err) {
         report.errors.push({ scope: 'task', projectId, id: t.id, message: err.message })
@@ -879,6 +929,30 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } catch (err) {
         report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: err.message })
         report.shotTakes.failed++
+      }
+    }
+    // FX2 (0096): a task's items, after every row they can name is in — the
+    // tasks and assets (above), the scenes and shots (BC3, above). A task's
+    // FIRST asset is in already (0096's seed makes it from the task's
+    // asset_id), so the desktop's copy answers 23505 and reads as skipped;
+    // its scenes and shots, which went up without their columns
+    // (taskRowForCloud), land here and 0096 §7a sets the columns; every item
+    // keeps its id and position. Levels and experiences are not carried, so
+    // their items stay on this computer and are counted.
+    for (const it of itemsToCarry(bundle)) {
+      report.taskItems.total++
+      if (!ITEMS_CARRIED.has(it?.entity_type)) { report.taskItems.leftBehind++; continue }
+      try {
+        const r = await insertOrSkip('task_items', toColumns('task_items', {
+          ...(it.id != null ? { id: it.id } : {}), task_id: it.task_id, project_id: projectId,
+          entity_type: it.entity_type, entity_id: it.entity_id,
+          position: Number.isInteger(it.position) && it.position >= 0 ? it.position : 0,
+          ...(it.created_at ? { created_at: it.created_at } : {}),
+        }))
+        r.status === 'inserted' ? report.taskItems.inserted++ : report.taskItems.skipped++
+      } catch (err) {
+        report.errors.push({ scope: 'task_item', projectId, id: it.id, message: err.message })
+        report.taskItems.failed++
       }
     }
     // Pictures: only while the company's switch is on (B4) — asked once;

@@ -285,9 +285,13 @@ describe('applyRealtimeEvent — robustness', () => {
     // trigger's project_id arm — the migration's post-conditions pin the
     // three arms and the three triggers, so this widening is the trigger's
     // too. Scenes, shots, levels and experiences are still NOT here.
+    //
+    // FX2 (0096): task_items joined the project_id arm the same way (its
+    // post-conditions 10g and suite 99 probes 14 and 16 pin the arm and the
+    // trigger). Scenes, shots, levels and experiences are still NOT here.
     expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
       'asset_versions', 'assets', 'bin_files', 'bins', 'comments', 'files', 'milestones',
-      'phase_dependencies', 'phases', 'shot_takes', 'task_dependencies', 'task_links', 'tasks',
+      'phase_dependencies', 'phases', 'shot_takes', 'task_dependencies', 'task_items', 'task_links', 'tasks',
     ])
   })
 })

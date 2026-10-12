@@ -41,8 +41,13 @@ function sortBySortOrder(a, b) {
 // (see schema.sql) so we can warn when the user marks an asset
 // "approved" while child tasks are still in flight.
 export function selectAssetDerivedStatus(tasks, assetId) {
-  const list = selectTasksByAsset(tasks, assetId);
-  if (list.length === 0) return 'not_started';
+  return assetStatusOfTasks(selectTasksByAsset(tasks, assetId));
+}
+
+// FX2 (0096): the same roll-up over a list already chosen — the tasks ABOUT
+// an asset (any of their items), which the provider reads from the items.
+export function assetStatusOfTasks(list) {
+  if (!Array.isArray(list) || list.length === 0) return 'not_started';
   if (list.every(isTaskDone)) {
     if (list.some(t => t.status === 'final')) return 'final';
     return 'approved';
@@ -58,10 +63,14 @@ export function selectAssetDerivedStatus(tasks, assetId) {
  * but at least one task on the asset is not yet done.
  */
 export function selectAssetStatusWarning(asset, tasks) {
+  return assetWarningOfTasks(asset, asset ? selectTasksByAsset(tasks, asset.id) : []);
+}
+
+// FX2 (0096): the same check over a list already chosen (the tasks about it).
+export function assetWarningOfTasks(asset, list) {
   if (!asset) return false;
   if (!['approved', 'final'].includes(asset.status)) return false;
-  const list = selectTasksByAsset(tasks, asset.id);
-  return list.some(t => !isTaskDone(t));
+  return (Array.isArray(list) ? list : []).some(t => !isTaskDone(t));
 }
 
 // ─── Budget rollup ──────────────────────────────────────────

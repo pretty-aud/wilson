@@ -39,6 +39,9 @@ const {
   pruneDanglingShotListItems,
   cascadeSceneOrShotDelete,
 } = require('./rabbitShotLists.cjs');
+// FX2 (0096's twin): a task's items — bundle.taskItems, each task's five
+// single fields kept equal to its main item of each kind.
+const rabbitTaskItems = require('./rabbitTaskItems.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -1470,6 +1473,14 @@ function startLocalServer(distPath) {
         if (ensureShotListKeys(bundle)) dirty = true;
         if (pruneDanglingShotListItems(bundle)) dirty = true;
       } catch (e) { console.error('shot list backfill failed:', e.message); }
+      // FX2 (0096's twin): a bundle from before a task's items gains them
+      // from each task's single fields (deterministic ids, so a failed
+      // write-back mints the same rows next read); dangling items go, as the
+      // cloud's CASCADE drops them; every task's five single fields are its
+      // main items. Converges: once in step it changes nothing.
+      try {
+        if (rabbitTaskItems.reconcileTaskItemsOnRead(bundle, { projectId })) dirty = true;
+      } catch (e) { console.error('task items reconcile failed:', e.message); }
       // Demo sprint (2026-09-10): a demo folder must stay COPYABLE. folder_root
       // is stored absolute (the project POST writes <root>/<slug>), so a folder
       // moved or copied elsewhere would keep pointing at where it USED to be —
@@ -1596,6 +1607,8 @@ function startLocalServer(distPath) {
         tasks:           [],
         dependencies:    [],
         taskLinks:       [],
+        // FX2 (0096's twin): a task's items.
+        taskItems:       [],
         files:           [],
         assetVersions:   [],
         comments:        [],
@@ -1999,11 +2012,14 @@ function startLocalServer(distPath) {
         const livePhases = (bundle.phases || []).filter(p => !isAside(p));
         const liveDeps = (bundle.dependencies || []).filter(d => !asideIds.has(String(d.predecessor_id)) && !asideIds.has(String(d.successor_id)));
         const liveLinks = (bundle.taskLinks || []).filter(l => !asideIds.has(String(l.task_id)));
-        // tasks.json — tasks + dependencies + task links
+        const liveItems = (bundle.taskItems || []).filter(i => i && !asideIds.has(String(i.task_id)));
+        // tasks.json — tasks + dependencies + task links + (FX2) the items
+        // each task is about
         writeJSON(path.join(dbDir, 'tasks.json'), {
           tasks:        liveTasks,
           dependencies: liveDeps,
           taskLinks:    liveLinks,
+          taskItems:    liveItems,
         });
         // timeline.json — phases + scheduling data
         writeJSON(path.join(dbDir, 'timeline.json'), {
@@ -2525,6 +2541,11 @@ function startLocalServer(distPath) {
       // `set_aside_at: null` would otherwise bring a set-aside row back
       // unasked; the stamp is dropped from every ordinary body here.
       const scheduleRow = !!(opts && opts.scheduleRow);
+      // FX2 (0096's twin): `taskItems: taskItemHooks` (tasks, scenes, shots,
+      // levels, experiences). A task write runs 0096 §7b / §7c's rules on the
+      // task's items (onWrite); a hard DELETE takes every item the row ends
+      // and hands "main" to the next item (onRemoved), in the same write.
+      const taskItemHooks = (opts && opts.taskItems) || null;
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -2533,13 +2554,16 @@ function startLocalServer(distPath) {
         const body = { ...req.body };
         if (scheduleRow) delete body.set_aside_at;
         const row = rabbitTouch({ ...body, project_id: req.params.projectId });
+        const prior = taskItemHooks ? bundle[bundleKey].find(x => x.id === row.id) : null;
+        const before = prior ? { ...prior } : null;
         const result = rabbitUpsertInto(bundle[bundleKey], row);
         if (folderEntityType) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, result);
           materializeFolderDirs(bundle);
         }
+        if (taskItemHooks) taskItemHooks.onWrite(bundleKey, bundle, before, result);
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json(result);
+        res.json(taskItemHooks ? (bundle[bundleKey].find(x => x.id === result.id) || result) : result);
       });
       // PATCH
       expressApp.patch(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
@@ -2551,6 +2575,7 @@ function startLocalServer(distPath) {
         if (idx < 0) return rabbitNotFound(res, entityName);
         const patch = { ...req.body };
         if (scheduleRow) delete patch.set_aside_at;
+        const before = taskItemHooks ? { ...arr[idx] } : null;
         arr[idx] = { ...arr[idx], ...patch, id: req.params.id, updated_at: new Date().toISOString() };
         if (folderEntityType) {
           // A rename moves the folder ROW here and CREATES the new directory
@@ -2561,8 +2586,9 @@ function startLocalServer(distPath) {
           ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, arr[idx]);
           materializeFolderDirs(bundle);
         }
+        if (taskItemHooks) taskItemHooks.onWrite(bundleKey, bundle, before, arr[idx]);
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json(arr[idx]);
+        res.json(taskItemHooks ? (bundle[bundleKey].find(x => x.id === req.params.id) || arr[idx]) : arr[idx]);
       });
       // DELETE
       expressApp.delete(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
@@ -2603,6 +2629,7 @@ function startLocalServer(distPath) {
             }
           }
         }
+        if (taskItemHooks) taskItemHooks.onRemoved(bundleKey, bundle, req.params.id);
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(unlinked ? { ok: true, swept, unlinked } : { ok: true, swept });
       });
@@ -2804,11 +2831,16 @@ function startLocalServer(distPath) {
         }
       }
       rabbitRemoveFrom(bundle.assets, req.params.id);
+      // FX2 (0096's twin): the asset leaves every task's items, and a task
+      // that had it as its main asset takes its next asset as main.
+      rabbitTaskItems.afterRowRemoved(bundle);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true });
+    // FX2 (0096's twin): the item hooks the generic routes call.
+    const taskItemHooks = rabbitTaskItems.makeTaskItemHooks({ newId: uuidv4 });
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true, scheduleRow: true, taskItems: taskItemHooks });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
@@ -2881,10 +2913,10 @@ function startLocalServer(distPath) {
     // side-effects before this session).
     // Post-overhaul S3a, rule 8: deleting a scene or a shot takes it out of
     // every shot list and unlinks the tasks that named it (0084's FKs).
-    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene' });
-    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot' });
-    rabbitSubentityRoutes('levels',          'levels',      'level');
-    rabbitSubentityRoutes('experiences',     'experiences', 'experience');
+    rabbitSubentityRoutes('scenes',          'scenes',      'scene', { shotListLinks: 'scene', taskItems: taskItemHooks });
+    rabbitSubentityRoutes('shots',           'shots',       'shot',  { shotListLinks: 'shot', taskItems: taskItemHooks });
+    rabbitSubentityRoutes('levels',          'levels',      'level', { taskItems: taskItemHooks });
+    rabbitSubentityRoutes('experiences',     'experiences', 'experience', { taskItems: taskItemHooks });
     // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
     // Not a dependency endpoint, so no sweep — a milestone has no edges.
     rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true, scheduleRow: true });
@@ -4479,6 +4511,11 @@ function startLocalServer(distPath) {
     // electron/rabbitShotLists.cjs. Same placement rule as the bins: after the
     // /api/rabbit missing-folder guard, BEFORE the static/SPA fallback. Uses
     // the default-touch writeRabbitBundle so scenes.json is re-mirrored.
+    // FX2 (0096's twin): GET / POST /task-items, POST /task-items/reorder,
+    // DELETE /task-items/:itemId.
+    rabbitTaskItems.mountRabbitTaskItems(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitNotFound, uuidv4,
+    });
     mountRabbitShotLists(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitNotFound, uuidv4,
     });

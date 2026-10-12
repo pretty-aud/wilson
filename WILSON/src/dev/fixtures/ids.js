@@ -30,6 +30,8 @@ const KINDS = {
   binLocation: '0029',
   // GW1 (2026-10-10, migration 0093): the file gateway and its enrolment tokens.
   gateway: '002a', gatewayToken: '002b',
+  // FX2 (2026-10-11, migration 0096): a task's items.
+  taskItem: '002c',
 }
 
 export function fid(kind, n) {

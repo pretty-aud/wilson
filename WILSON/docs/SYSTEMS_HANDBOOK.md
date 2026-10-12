@@ -4991,6 +4991,50 @@ of a session — this section is limits by design, that file is faults.
   lose in one request and deletes in another (a take assigned in between is
   lost, said in the hand-off).
 
+**A task's items (FX2, migration 0096 — 2026-10-11)**
+
+- **A task relates to many items through `task_items`: assets, scenes,
+  shots, levels and experiences, ordered within each kind. The single
+  columns stay.** `tasks.asset_id`, `scene_id` and `shot_id` are each the
+  task's MAIN item of that kind (the first by position, then created_at,
+  then id), kept in step in both directions by triggers
+  (`fn_task_items_sync_task` on the items, `fn_tasks_sync_items` and
+  `fn_tasks_seed_items` on the tasks, under the transaction-local flag
+  `wilson.task_items_sync`). A writer of a single column (the beta, a
+  template applied to an asset, a bid version opened, the agent) moves an
+  item the task already has to first, replaces the main item with a new one,
+  or removes the main item when it clears the column. `tasks` has no level
+  or experience column: on the cloud those live only as items, and the
+  provider derives all five single fields from the items. The Local Server
+  (`electron/rabbitTaskItems.cjs`) and the fixtures run the same rules.
+- **RLS.** Reads hop to `projects` and `tasks` under the caller's own RLS (a
+  private project's items stay hidden; a task the caller cannot see hides its
+  items); writes add `has_active_membership` and `can_write_project` (a
+  reviewer reads and never writes). The task and each kind's row are
+  same-project composite foreign keys, `ON DELETE CASCADE`. A client may
+  UPDATE `position` only (a column grant); `reorder_task_items` is SECURITY
+  INVOKER. The table is on the project's live channel (`fn_realtime_broadcast`,
+  sixteen tables), pinned by suites 72 and 99. §7a locks the task row before
+  it reads the main item (two writers of one task's items take turns; a
+  single-column write from an older tab can deadlock with one, and Postgres
+  takes one back whole). 0096 refuses to run again after a later migration is
+  recorded, and refuses a broadcast body that is neither 0091's nor its own
+  (review round 1).
+- **A client ahead of its database (no 0096) reads no items and refuses every
+  items write with code `task_items_unavailable`**: the load's read of
+  `public.task_items` is the probe, and nothing is stripped (0096 adds no
+  column to a table the client upserts).
+- **The client re-reads a task's single links from its items only when a
+  write changes that task's items**; a task the backend brings back outside a
+  load (a bid version's open, an undo from the trash) keeps its row's links
+  and has its items read (review round 2). No editor makes a row the project
+  no longer shows a task's main one.
+- **Known limits, by design:** sums and grouped rows (the Budget, the
+  Timeline, the Tasks table's groups) count a task once, under its main item;
+  lists and per-row counts name every item. A bid version keeps the main
+  items only; templates name no items; the edit history sees an item change
+  only as a change of the task's main asset, scene or shot.
+
 **Security-adjacent**
 
 - ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by

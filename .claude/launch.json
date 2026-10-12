@@ -178,6 +178,18 @@
       "port": 5289
     },
     {
+      "name": "fx2-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/festive-lalande-047db5/WILSON",
+        "--port",
+        "5291",
+        "--strictPort"
+      ],
+      "port": 5291
+    },
+    {
       "_comment": "FX3 (the status banner under every item's title, the bid version bar under the project title, \"Save edit as\u2026\", the Team tab's gallery): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the switches are set in the process environment, which Vite ranks above .env files (as v1-auth does), and the Supabase URL is a placeholder on a closed local port (the client throws at import without one; the fixtures answer every read, so nothing reaches a real project). /rabbit is Salt Hours; ?fixtures=game turns levels and experiences on.",
       "name": "fx3-worktree",
       "runtimeExecutable": "cmd",
