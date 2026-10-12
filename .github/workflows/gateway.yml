@@ -79,8 +79,11 @@ jobs:
       - name: Install dependencies (vitest)
         shell: bash
         run: |
-          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm.log"; s=${PIPESTATUS[0]}
-          if [ "$s" -ne 0 ]; then tail -25 "$RUNNER_TEMP/npm.log" | sed 's/^/::error::npm ci: /'; exit "$s"; fi
+          # `shell: bash` is -eo pipefail: a failed npm ci must be caught by `||`,
+          # or the step exits before its echo (FX5's review). Ten lines: the
+          # runner keeps a step's first ten error annotations.
+          s=0; npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm.log" || s=${PIPESTATUS[0]}
+          if [ "$s" -ne 0 ]; then tail -10 "$RUNNER_TEMP/npm.log" | sed 's/^/::error::npm ci: /'; exit "$s"; fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -229,8 +232,8 @@ jobs:
           grep -q "\"peer\":\"$LAN\"" /tmp/gw-host.served || fail 'the real peer address is not in the log'
           if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then fail 'the office door served its own host'; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
           post state '{"switch_on":false}'
-          for i in $(seq 1 30); do has 'outside_closed' && break; sleep 1; done
-          has 'outside_closed' || fail 'the outside door did not close in 30 s with the switch off'
+          for i in $(seq 1 30); do has 'outside_closed {"reason":"closed_switch_off"' && break; sleep 1; done
+          has 'outside_closed {"reason":"closed_switch_off"' || fail 'the outside door did not close in 30 s with the switch off'
           grep 'outside_closed' /tmp/gw-host.log | tail -1
           if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then fail 'the outside door still answers with the switch off'; else echo "switch off: the outside port refuses (curl exit $?)"; fi
           docker rm -f gw-host

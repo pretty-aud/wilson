@@ -28,11 +28,16 @@
 # that check, run 200 times against a log holding its line, said it was missing
 # twice; through a file, never. rls.yml met the same with `echo | grep -q`.
 #
-# Why one annotation of many lines. A job's log needs admin rights; its
-# annotations are public (GW2's trap 3), but GitHub keeps ten error
-# annotations a step, so one line each would show ten of forty (the ACME job's
-# Pebble log did, 2026-10-12). The lines go in one annotation, %, CR and LF
-# escaped as workflow commands require.
+# Why one annotation of many lines, and its last 4,000 characters. A job's
+# log needs admin rights; its annotations are public (GW2's trap 3). The
+# runner (actions/runner, ExecutionContext.cs) keeps the FIRST ten error
+# annotations of a step (_maxCountPerIssueType) and the FIRST 4,096
+# characters of each message (_maxIssueMessageLength): one line each showed
+# the oldest ten of forty (the ACME job's Pebble log, 2026-10-12), and forty
+# gateway lines in one message would lose the newest. So the lines go in one
+# annotation, cut from the FRONT to the newest 4,000 characters at a line
+# boundary, then %, CR and LF escaped (and, in the title, : and , too) as
+# workflow commands require.
 # =============================================================================
 
 gw_label=$1
@@ -51,20 +56,34 @@ has() { docker logs "$gw_name" > "$gw_log" 2>&1 && grep -q -- "$1" "$gw_log"; }
 fail() { gw_why=$1; exit 1; }
 
 annotate() {
-  local body
+  local body title=$1 cut
   body=$(cat)
   [ -n "$body" ] || return 0
+  if [ "${#body}" -gt 4000 ]; then
+    cut=${body: -4000}
+    body="[earlier lines cut: the runner keeps 4,096 characters]"$'\n'"${cut#*$'\n'}"
+  fi
   body=${body//'%'/'%25'}
   body=${body//$'\r'/'%0D'}
   body=${body//$'\n'/'%0A'}
-  printf '::error title=%s::%s\n' "$1" "$body"
+  title=${title//'%'/'%25'}
+  title=${title//$'\r'/'%0D'}
+  title=${title//$'\n'/'%0A'}
+  title=${title//':'/'%3A'}
+  title=${title//','/'%2C'}
+  printf '::error title=%s::%s\n' "$title" "$body"
 }
 
 gw_report() {
-  local status=$1 step
+  local status=$1 step mark i
   [ "$status" -eq 0 ] && return 0
-  sleep 0.3 # tee writes what it has read, the step's last line included
-  step=$(tail -n 25 "$gw_out") # before this report's own lines reach the file
+  # The step's lines are read once tee has written them all: this mark is the
+  # last line the step prints before its report, so up to 5 s are given for it
+  # to reach the file, and the lines before it are the step's.
+  mark="--- $gw_label: the step failed (exit $status); its annotations follow"
+  printf '%s\n' "$mark"
+  for i in $(seq 1 50); do grep -qxF -- "$mark" "$gw_out" && break; sleep 0.1; done
+  step=$(awk -v m="$mark" '$0 == m { exit } { print }' "$gw_out" | tail -n 25)
   printf '%s\n' "${gw_why:-exit $status}" | annotate "$gw_label failed"
   printf '%s\n' "$step" | annotate "$gw_label step (last 25 lines)"
   if [ -n "$gw_name" ]; then
