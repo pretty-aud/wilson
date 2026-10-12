@@ -1206,6 +1206,12 @@ function itemName(kind, row, rows) {
 
 const GONE_WORDS = 'No longer in the project'
 
+// "assets, scenes or shots": the kinds a project's picker offers, in words.
+function kindsInWords(kinds) {
+  const words = kinds.map(k => KIND_LABEL_PLURAL[k].toLowerCase())
+  return words.length < 2 ? (words[0] || 'assets') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`
+}
+
 export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null }) {
   const [collapsed, setCollapsed] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -1258,7 +1264,7 @@ export function TaskItemsTable({ task, ctx, canWrite = true, writeReason = null 
         )}
       >
         {items.length === 0 ? (
-          <p className="rb-rel-empty">No items yet. Add the assets, scenes, shots, levels or experiences this task is about.</p>
+          <p className="rb-rel-empty">{`No items yet. Add the ${kindsInWords(pickerKinds(ctx, items))} this task is about.`}</p>
         ) : groups.map(g => {
           const Glyph = ITEM_GLYPH[g.kind]
           return (

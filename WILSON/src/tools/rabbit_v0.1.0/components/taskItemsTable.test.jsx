@@ -83,6 +83,17 @@ describe('the Items table', () => {
     for (const label of ['Asset', 'Scene', 'Shot']) expect(screen.queryByText(label, { selector: 'label, span.ui-field-label' })).toBeNull()
   })
 
+  it('an empty table says what to add, naming only the kinds the project offers', () => {
+    open(ctxOf({ taskItems: [] }))
+    expect(table().querySelector('.rb-rel-empty').textContent).toBe('No items yet. Add the assets, scenes or shots this task is about.')
+    cleanup(); _resetOverlaysForTests()
+    open(ctxOf({ taskItems: [], project: { id: 'p1', scenes_enabled: false, levels_enabled: true, experiences_enabled: true } }))
+    expect(table().querySelector('.rb-rel-empty').textContent).toBe('No items yet. Add the assets, levels or experiences this task is about.')
+    cleanup(); _resetOverlaysForTests()
+    open(ctxOf({ taskItems: [], project: { id: 'p1', scenes_enabled: false, levels_enabled: false, experiences_enabled: false } }))
+    expect(table().querySelector('.rb-rel-empty').textContent).toBe('No items yet. Add the assets this task is about.')
+  })
+
   it('without items (a cloud before 0096; the Dashboard) the window is as it was', () => {
     open(ctxOf({ taskItemsAvailable: false }))
     expect(table()).toBeNull()
