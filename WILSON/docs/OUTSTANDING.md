@@ -78,6 +78,32 @@ after her report.
 
 ## Broken features
 
+### The scene window's SHOTS / ASSETS / TASKS line counts no asset
+**MEASURED (FX2, 2026-10-12, on the test data, port 5291).** Scenes → The
+storm's window: after Sea Spray Comp is linked in the window's own Assets
+table (*Assets (1)*), the line under SHOTS / ASSETS / TASKS still reads
+`3 / 0 / 2`. `ScenesView.jsx` → `assetCountByScene` counts `a.scene_id`, a
+field no asset has: since 0084 an asset names its scenes in `scene_ids`. So
+the count is 0 for every scene, on every backend. Fix shape: count each
+asset once for each id in its `scene_ids` (and decide whether an asset linked
+only to one of the scene's shots counts too). Found in passing by FX2, which
+changed only the TASKS count beside it.
+
+### On the desktop, a deleted asset's tasks come back when the project is read again
+**INFERRED (FX2, 2026-10-12; read from `electron/main.cjs` and
+`RabbitProvider.jsx`, not seen in the desktop app).** The provider's
+`deleteAsset` takes the asset's tasks off the screen with it on every
+backend, as the cloud's `ON DELETE CASCADE` deletes them (0034). The Local
+Server's asset DELETE route removes the asset and its managed files only: the
+tasks stay in the bundle, and the next read of the project shows them again.
+Before FX2 they came back pointing at an asset that no longer exists; since
+FX2 the asset leaves their items, so each comes back under its next asset, or
+under no asset if that was its only one. Settle it by deleting an asset that
+has tasks in the desktop app and opening the project again. Fix shape: the
+route removes the tasks whose `asset_id` is the asset (with their
+dependencies and items, as the generic task DELETE does), and the provider's
+undo, which re-inserts them on the desktop, is unchanged.
+
 ### The signed-out desktop's bins freeze the window on a share whose server does not answer
 **MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
 (`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,
@@ -131,7 +157,11 @@ FKs of 0084 allow it), then `edits`, with `active_shot_list_id` set last;
 `folders` after the files; the budget tables in their own order (versions,
 lines, actuals, expenses, overrides); comments, asset versions, milestones,
 levels, experiences and the team after their parents — and the archive
-button waiting until the list is empty.
+button waiting until the list is empty. Since FX2 (0096) the runner carries a task's items
+about an asset, a scene or a shot (`task_items`, after the takes); its items
+about a level or an experience stay with the levels and experiences, counted
+in the report and named in the same line (*levels and experiences named on
+tasks*, `NOT_CARRIED` → `taskLevelItems`).
 
 ### The cloud's own address CHECK admits control and formatting characters
 **INFERRED (BC2 review round 2 deferred it; BC3 review rounds 1 and 2 widened
