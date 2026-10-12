@@ -9,8 +9,11 @@
 // row's status chip can never disagree. The band drops the badge's tint (her
 // second word, the same day: "remove the green bar the text is in ... leave
 // just the color dot and the color line below the title") and adds only its
-// geometry (`.ui-status-banner`: full width, 28px, the gutter) and one hairline
-// of the tone across its foot — no 2px edge, no colour of its own.
+// geometry (`.ui-status-banner`: full width, 28px, the gutter) and one 3px
+// line of the tone across its foot — no colour of its own. The line was a 1px
+// hairline until FX6 (Audrey, 2026-10-12: "lets make the line thicker it
+// feels to thin"); its weight is set in that one rule and nowhere else, so
+// every popup follows it.
 // It follows the status it is given: re-rendered with another status (a change
 // in the popup, an undo) it recolours with the row.
 //
