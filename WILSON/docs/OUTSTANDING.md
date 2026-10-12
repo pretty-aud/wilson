@@ -88,7 +88,8 @@ marks lose their meaning under a High Contrast theme:
   `rgb(0, 0, 0)` on the black one, the same as the ground, so the dot is
   gone. Beside a word (the badge, the popups' status banner, the Items
   table) the word still says the status. Where the dot stands ALONE the
-  status is lost to a sighted High Contrast user: READ in code, a
+  status is lost to a sighted High Contrast user: INFERRED from the code
+  (not opened under forced colours), a
   project's card in the Summary gallery (`ProjectSummaryView.jsx`,
   `<StatusDot status={st} />` beside the title, no status word) and the
   item picker's rows (`components/RelationsPanel.jsx`, `rb-rel-pick-row`:

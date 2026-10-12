@@ -3,7 +3,7 @@
  * FX6: the status line under an item popup's title, photographed and
  * measured — post-overhaul FX6 (2026-10-12).
  *
- *   node scripts/fx6-shots.mjs <port> --out <dir> --phase before|after|candidates|forced [--size 1440x900] [--chosen 3]
+ *   node scripts/fx6-shots.mjs <port> --out <dir> --phase before|after|candidates|forced [--size 1440x900] [--chosen 3] [--expect 3]
  *
  *   before / after  the six item popups — asset, task, scene, shot, level,
  *                   experience — each measured: the line's width, style and
@@ -35,6 +35,12 @@
  *   forced          the task popup under forced colours (Windows High
  *                   Contrast, emulated by Chromium): the line still drawn,
  *                   in a system colour.
+ *   --expect N      (after, forced) stop unless every popup's line MEASURES
+ *                   N px solid in its tone (the dot's colour), or in the
+ *                   word's colour under forced colours: the end-to-end check
+ *                   of the weight, which sees the page around each popup,
+ *                   Tailwind's own classes and the focus as they are (review
+ *                   round 2, R2-01; the unit tests read stylesheets only).
  *
  * Each file is `po-fx6-<phase>-<nn>-<state>-<W>x<H>.png`.
  *
@@ -52,16 +58,17 @@ import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
-const PORT = args.find((a, i) => !a.startsWith('-') && !['--out', '--size', '--phase', '--chosen'].includes(args[i - 1])) || '5294';
+const PORT = args.find((a, i) => !a.startsWith('-') && !['--out', '--size', '--phase', '--chosen', '--expect'].includes(args[i - 1])) || '5294';
 const OUT = flag('--out');
 const PHASE = flag('--phase');
 const PHASES = ['before', 'after', 'candidates', 'forced'];
 if (!OUT || !PHASES.includes(PHASE)) {
-  console.error('usage: fx6-shots.mjs <port> --out <dir> --phase before|after|candidates|forced [--size WxH] [--chosen N]');
+  console.error('usage: fx6-shots.mjs <port> --out <dir> --phase before|after|candidates|forced [--size WxH] [--chosen N] [--expect N]');
   process.exit(1);
 }
 const [W, H] = (flag('--size') || '1440x900').split('x').map(Number);
 const CHOSEN = flag('--chosen') ? Number(flag('--chosen')) : null;
+const EXPECT = flag('--expect') ? Number(flag('--expect')) : null;
 const WEIGHTS = [2, 3, 4];
 mkdirSync(OUT, { recursive: true });
 
@@ -139,12 +146,29 @@ try {
         aboveWord: Math.round((word.top - r.top) * 10) / 10,
         wordToLine: Math.round((r.bottom - line - word.bottom) * 10) / 10,
         forcedColors: matchMedia('(forced-colors: active)').matches,
+        lineWidth: cs.borderBottomWidth,
+        lineStyle: cs.borderBottomStyle,
+        lineColor: cs.borderBottomColor,
+        toneColor: getComputedStyle(b.querySelector('.ui-status-dot')).backgroundColor,
+        ink: getComputedStyle(b.querySelector(':scope > span:not(.ui-status-dot)')).color,
       };
     });
     if (!m) throw new Error(`${label}: no banner to measure`);
-    console.log(`  ${label}: ${JSON.stringify(m)}`);
+    const { lineWidth, lineStyle, lineColor, toneColor, ink, ...shown } = m;
+    console.log(`  ${label}: ${JSON.stringify(shown)}`);
+    // --expect N (review round 2, R2-01): the one check that sees the page
+    // around a popup, Tailwind's own classes and the focus as they are. The
+    // line must MEASURE N px solid, in the status's tone (the dot's colour)
+    // or, under forced colours, in the word's.
+    if (EXPECT != null) {
+      const want = m.forcedColors ? ink : toneColor;
+      if (lineWidth !== `${EXPECT}px` || lineStyle !== 'solid' || lineColor !== want) {
+        unexpected.push(`${label}: ${lineWidth} ${lineStyle} ${lineColor}, expected ${EXPECT}px solid ${want}`);
+      }
+    }
     return m;
   };
+  const unexpected = [];
 
   if (PHASE === 'before' || PHASE === 'after') {
     await open();
@@ -183,7 +207,12 @@ try {
     if (!m.forcedColors) throw new Error('forced colours are not active in this page');
     await shot('task');
     await closeDialog();
-  } else {
+  }
+  if (EXPECT != null && (PHASE === 'after' || PHASE === 'forced')) {
+    if (unexpected.length) throw new Error(`the line is not what --expect ${EXPECT} says:\n${unexpected.join('\n')}`);
+    console.log(`  --expect ${EXPECT}: every popup measured ${EXPECT}px solid in its ${PHASE === 'forced' ? 'word\'s colour' : 'tone'}`);
+  }
+  if (PHASE === 'candidates') {
     // ── The candidates ──────────────────────────────────────────────────
     await open();
     await click(tab('Tasks'), 'the Tasks tab');
@@ -345,6 +374,14 @@ try {
         }
         return { lines: measured, drawnHere };
       }, { WEIGHTS, ground });
+      // The dark sheet's copy sits outside the popup and its page, so a rule
+      // keyed on them would change the live line and not the copy (review
+      // round 2, R2-04): its mark must be the live measurement, or the run
+      // stops. The light ground has no live banner to measure: its copy is
+      // the measurement, and the sheet says so.
+      if (ground === 'dark' && drawnHere !== DRAWN) {
+        throw new Error(`the dark sheet's copy draws ${drawnHere}px where the live banner draws ${DRAWN}px: a rule reaches one and not the other`);
+      }
       // The line against its ground, as WCAG computes contrast (an alpha
       // colour composited over the ground first).
       const rgba = (c) => { const v = c.match(/[\d.]+/g).map(Number); return { r: v[0], g: v[1], b: v[2], a: v[3] ?? 1 }; };

@@ -39,8 +39,9 @@ The pictures are in `docs/sessions/handoffs/img/`, taken by
 04 shot, 05 level, 06 experience; `po-fx6-candidates-01-task-top-<size>.png`
 (the task window's top at 2, 3 and 4px, one above the other),
 `po-fx6-candidates-02-tones-dark-<size>.png` (every status colour at each
-weight), `po-fx6-candidates-03-tones-light-<size>.png` (the same on the
-light orange ground) and `po-fx6-forced-01-task-<size>.png` (Windows High
+weight), `po-fx6-candidates-03-tones-light-<size>.png` (the three weights
+on the light orange ground, where the app itself draws the line 1px, as
+its first line says) and `po-fx6-forced-01-task-<size>.png` (Windows High
 Contrast).
 
 ---
@@ -96,7 +97,7 @@ word (`po-fx6-forced-01-task-1440x900.png`, Chromium's imitation of it).
   two of the file gateway's own tests failed under the full run's load on
   Windows and passed alone (a known entry in `docs/OUTSTANDING.md`, not
   this work); 357 / 8,597 (2 skipped) after the change and 357 / 8,598
-  (2 skipped) after the first review round's corrections, all passing.
+  (2 skipped) after each review round's corrections, all passing.
 
 ---
 
@@ -114,8 +115,8 @@ word (`po-fx6-forced-01-task-1440x900.png`, Chromium's imitation of it).
 
 ## 5. The question, when you test
 
-1. **The line's weight.** It is 3px now. Pictures 7 and 8 show 2, 3 and
-   4px side by side, in every status colour. Judge it on an *In progress*
+1. **The line's weight.** It is 3px now. The pictures in steps 7 and 8
+   show 2, 3 and 4px side by side, in every status colour. Judge it on an *In progress*
    (orange) or a *Waiting to start* (grey) item, where it looks thinnest.
    Keep 3px, or make it thicker (4px) or thinner (2px)?
 
@@ -131,9 +132,10 @@ three weights side by side in every status colour on both grounds, and the
 task window under Chromium's High Contrast imitation. A status changed in
 the task window recolours the thicker bar at once (checked in Chromium).
 The weight is set in one place in the app's stylesheet and every window
-uses it; the automated tests hold that, and fail if a window hands the
-banner anything but its status, or if a rule in the app's stylesheets
-that names the banner, or that reaches it in a window as the app draws
-it, gives the line another weight or a second line. Nothing was run signed in to a
+uses it. The automated tests fail if a window hands the banner anything
+but its status, or if a rule in the app's stylesheets could give the line
+another weight, a second line, or take it away. They read the
+stylesheets only; the picture script reads the running app, and it stops
+unless all six windows measure the line at 3px in their status's colour. Nothing was run signed in to a
 real project, the desktop app was not opened, and a real Windows High
 Contrast theme was not tried (Chromium's imitation was).
