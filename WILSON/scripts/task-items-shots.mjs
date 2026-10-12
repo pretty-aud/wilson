@@ -10,8 +10,10 @@
  * Move down, Remove); the one picker over every kind, then its search; a
  * second scene added and moved first; the question before a task's LAST item
  * goes; the scene's own window listing every task about it; and, on the
- * `?fixtures=game` variant, a task about a level and an experience. Each file
- * is `<prefix><nn>-<state>-<W>x<H>.png`.
+ * `?fixtures=game` variant, a task about a level and an experience; then, on
+ * a fresh page, a task whose second asset was deleted (trashed): its main
+ * asset's Move down and Remove greyed with the reason (review round 1, R1-3).
+ * Each file is `<prefix><nn>-<state>-<W>x<H>.png`.
  *
  * Needs the worktree's own dev server with VITE_DEV_AUTOLOGIN=tester and
  * VITE_DEV_FIXTURES=1. Changes nothing that outlives the page (the fixture
@@ -35,7 +37,7 @@ mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 let n = 0;
 try {
-  for (const variant of ['film', 'game']) {
+  for (const variant of ['film', 'game', 'trash']) {
     const page = await browser.newPage({ viewport: { width: W, height: H } });
     await page.clock.setFixedTime(new Date('2026-10-11T14:02:00'));
     page.on('pageerror', (e) => console.error(`  pageerror: ${e.message}`));
@@ -138,6 +140,23 @@ try {
       await must(page.locator('.rb-rel-panel').getByText(/^Tasks \(\d+\)$/), 'the scene window\'s Tasks');
       await page.mouse.move(W - 40, H - 40);
       await shot('scene-window-tasks');
+    } else if (variant === 'trash') {
+      // 11. Sea Spray Comp deleted (the test data trashes it, as the cloud
+      // does): task 18's main asset cannot be removed or moved down while the
+      // gone row is next, and says why.
+      await click(page.getByRole('tab', { name: 'Assets', exact: true }).first(), 'the Assets tab')
+      await sleep(600)
+      const assetRow = page.locator('tr, [role="row"]', { hasText: 'Sea Spray Comp' }).first()
+      await must(assetRow, 'the Sea Spray Comp row')
+      await assetRow.hover()
+      await click(assetRow.getByRole('button', { name: 'Delete Sea Spray Comp' }), 'Delete Sea Spray Comp')
+      await sleep(600)
+      await click(page.getByRole('tab', { name: 'Tasks', exact: true }).first(), 'the Tasks tab')
+      await sleep(500)
+      const win = await openTask('Glass and rain rig test')
+      await must(items(win).getByText('No longer in the project'), 'the gone row')
+      await items(win).locator('.rb-rel-item', { hasText: 'Lighthouse Interior' }).first().hover()
+      await shot('gone-row-guard')
     } else {
       // 9. ?fixtures=game: a task about a level and an experience.
       const win = await openTask('Practical lamp rig');
