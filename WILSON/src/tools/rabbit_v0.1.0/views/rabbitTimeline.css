@@ -754,6 +754,15 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .rb-tl-ver-bar[data-mode="viewing"] { background-color: color-mix(in srgb, var(--color-ink-3) 14%, transparent); }
+  /* FX7 (Audrey, 2026-10-12: "bid ver and project should be same sizing and
+     color"): "Bid ver." and the project title bar's PROJECT above it are the
+     one kit label (`ui-field-label`) in one column, so the dropdown starts at
+     the x the project's name starts at. The width is the title bar's, in
+     the label's own em (rabbitShell.css, `.rb-ctx > .ui-toolbar-slot >
+     .ui-field-label`, which says how it was measured): change both or
+     neither. Only the width is set here; the size, weight, case and ink
+     stay the kit's. */
+  .rb-tl-ver-bar > .ui-field-label { min-width: 5.1em; }
   /* Where room runs out (review round 2, R2-06): the dropdown gives way
      first — a native select is as wide as its widest option, so it sat at its
      320px cap in every state, and the cap narrows with the window: 320px from
@@ -768,8 +777,8 @@
      one (MEASURED: the dropdown fell to 38px). */
   .rb-tl-ver-bar .rb-tl-ver-select { flex: 0 1 auto; min-width: 140px; max-width: clamp(140px, calc(100vw - 960px), 320px); }
   /* The state in words, the Summary's save row's inks (rabbitBudget.css,
-     `rb-bv-open-*`): the second ink, the open version's name in the ink at
-     600, "Unsaved changes" in the ink. It gives way first, and within it only
+     `rb-bv-open-*`): the second ink, the open version's name in the ink (at
+     400 here since FX7, below), "Unsaved changes" in the ink. It gives way first, and within it only
      the NAME (review round 1, R1-05): "Open:", the state after the name and a
      viewed version's date are whole pieces (`flex: none`, their spaces kept),
      so the ellipsis lands in the name — as one clipped line the state went
@@ -792,7 +801,12 @@
   /* A long state (the rates not read yet, or not readable) gives way with
      the name, each by its width, so neither collapses to nothing (R2-06). */
   .rb-tl-ver-tail[data-long="true"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .rb-tl-ver-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--color-ink); }
+  /* FX7 (review round 1, R1-02; Audrey: "if anything project should stand
+     out more"): the version's name is the ink at 400 here, so the project's
+     name above it, the Title step at 600, is the one bold name on the two
+     rows; the ink still sets it off from the second-ink words around it.
+     The Budget tab's save row keeps its own name at 600. */
+  .rb-tl-ver-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-ink); }
   .rb-tl-ver-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .rb-tl-ver-status[data-dirty="true"] { color: var(--color-ink); }
   /* In the words, centred on them (Tailwind's preflight makes every svg a

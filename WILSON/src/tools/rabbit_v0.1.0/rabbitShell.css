@@ -136,8 +136,24 @@
 
   /* ═══ ProjectContextBar: the kit's Toolbar ═══════════════════════════════ */
   .rb-ctx { background-color: var(--color-paper); }
-  .rb-ctx-icon { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
-  .rb-ctx-eyebrow { color: var(--color-ink-3); }
+  /* FX7 (Audrey, 2026-10-12: "bid ver and project should be same sizing and
+     color ... lets remove the folder icon before the word project"): PROJECT
+     is the kit's label, as the Timeline's "Bid ver." under it is, on the
+     gutter with nothing before it; the folder icon and the third-ink
+     eyebrow are gone. The two labels share one column, so the project's name
+     and the bid version's dropdown start at the same x (the gutter, the
+     column, the 8px gap both rows keep). MEASURED in Chromium (Geist, the
+     Label step at 600, its 0.06em tracking): PROJECT 55.4px, BID VER. 50.5px
+     at 11px, so PROJECT is 5.03em; the column is 5.1em (56.1px at 11px), in
+     the label's own em so it grows with the label (review round 1, R1-04:
+     with a 12px label the first cut's fixed column put the name 4.4px right
+     of the dropdown). The same width is the version bar's
+     (rabbitTimeline.css, `.rb-tl-ver-bar > .ui-field-label`): change both or
+     neither. Size, weight, case and ink stay the kit's. The bar's own two
+     slots only (R1-05; both are `.ui-toolbar-slot`), not the switcher's menu
+     under them. Every rule that reaches the two rows is listed in
+     rabbitTimelineCss.test.js (FX7), which says how to change one. */
+  .rb-ctx > .ui-toolbar-slot > .ui-field-label { min-width: 5.1em; }
   .rb-ctx-title { min-width: 0; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rb-ctx-title[data-empty="true"] { color: var(--color-ink-3); }
   .rb-ctx-chevron { width: var(--icon-sm); height: var(--icon-sm); }
