@@ -264,7 +264,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
   // ones (and ours once published); a test may publish a higher release while
   // ours is uploading (`publishBefore`) or as ours is published
   // (`publishDuring`), or add an asset to our draft (`extraAsset`).
-  async function fakeGitHub({ tagStatus = 404, releases = [], listStatus = 200, tamper = null, extraAsset = null, publishBefore = null, publishDuring = null } = {}) {
+  async function fakeGitHub({ tagStatus = 404, releases = [], listStatus = 200, tamper = null, extraAsset = null, publishBefore = null, publishDuring = null, draftByTag = false } = {}) {
     const http = await import('node:http');
     const calls = [];
     const assets = new Map();
@@ -282,6 +282,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
         calls.push({ method: req.method, path: u.pathname, auth: req.headers.authorization || null, query: u.search });
         const json = (status, v) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
         const base = `http://127.0.0.1:${server.address().port}`;
+        if (req.method === 'GET' && draftByTag && ours && /\/releases\/tags\//.test(u.pathname) && decodeURIComponent(u.pathname.split('/').pop()) === ours.tag_name) return json(200, { id: 77, draft: ours.draft, tag_name: ours.tag_name });
         if (req.method === 'GET' && /\/releases\/tags\//.test(u.pathname)) return json(tagStatus, tagStatus === 200 ? { id: 5, draft: false, tag_name: decodeURIComponent(u.pathname.split('/').pop()) } : { message: tagStatus === 404 ? 'Not Found' : 'Server Error' });
         if (req.method === 'GET' && u.pathname === '/repos/pretty-aud/wilson/releases') {
           if (listStatus !== 200) return json(listStatus, { message: 'Server Error' });
@@ -506,6 +507,15 @@ describe('github-release against a fake GitHub API on loopback', () => {
       expect(r.stdout).toContain('::notice title=Published::');
       // The list was read three times: before the draft, before the publish, after it.
       expect(gh.calls.filter((c) => c.method === 'GET' && c.path === '/repos/pretty-aud/wilson/releases')).toHaveLength(3);
+    } finally { await done(); }
+  }, 30_000);
+  it('a GitHub that answered the lookup by tag with our own draft would not stop the publish (the check before it looks by version only)', async () => {
+    const { r, gh, done } = await realRun({ draftByTag: true });
+    try {
+      expect(r.code, r.stdout + r.stderr).toBe(0);
+      expect(gh.published()).toEqual({ draft: false, make_latest: 'true' });
+      // CONTROL: the check before the draft still looks by tag (ours does not exist yet there).
+      expect(gh.calls.filter((c) => c.method === 'GET' && c.path.includes('/releases/tags/'))).toHaveLength(1);
     } finally { await done(); }
   }, 30_000);
   it('a higher release published while this one uploads: refused just before the publish, left a draft (review round 2, finding 3)', async () => {

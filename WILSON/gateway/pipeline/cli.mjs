@@ -201,11 +201,14 @@ const highestOf = (releases) => releases.reduce((h, r) => (!h || compareVersions
  * version is above every published gateway release: published, it becomes
  * Latest, and a lower one would drop the floors the higher one set (review
  * rounds 1 and 2). Answers the highest published gateway release, or null.
+ * `tagCheck: false` skips the lookup by tag (once our own draft has the tag:
+ * GitHub answers that lookup for published releases only, as documented, and
+ * the version check below catches a published release of this version).
  */
-async function releasable({ API, repo, tag, version }) {
-  const existing = await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
-  if (existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
-  if (existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
+async function releasable({ API, repo, tag, version, tagCheck = true }) {
+  const existing = tagCheck ? await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } }) : null;
+  if (existing && existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
+  if (existing && existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
   let releases;
   try { releases = await publishedGatewayReleases(API, repo); } catch (e) { fail(`could not read the repository's releases (${String(e.message).slice(0, 200)}); nothing was made. Run the job again.`); }
   const highest = highestOf(releases);
@@ -293,7 +296,7 @@ async function githubRelease(dir) {
   }
   // Again just before publishing: another release may have been published
   // while this one was built and approved.
-  await releasable({ API, repo, tag, version });
+  await releasable({ API, repo, tag, version, tagCheck: false });
   const pub = await api('PATCH', `${API}/repos/${repo}/releases/${rel.id}`, { body: { draft: false, make_latest: 'true' } });
   // And after: two runs approved together can both pass the check (review
   // round 2, finding 3). If a higher gateway release is published now, this
