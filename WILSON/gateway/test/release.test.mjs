@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RELEASE_KEYS_WIRE, RELEASE_KEY_SLOTS, CHANNEL_URL, ARTEFACT_URL_PREFIX, CONTAINER_IMAGE, compiledReleaseKeys,
   verifyManifest, artefactUrlOk, highestVersion, FUTURE_SLACK_MS,
@@ -351,6 +352,19 @@ describe('the gateway\'s update check against the loopback channel (Updates)', (
     await u2.readFailure();
     expect(await u2.check('daily')).toEqual({ state: 'updating', version: '9.0.0' });
     expect(asked2).toHaveLength(1);
+  });
+  it('a swap the updater refused at its own check is read back while it is in flight: "updating" becomes "failed"', async () => {
+    const dir = tmp();
+    let t = Date.parse('2026-10-11T12:00:00Z');
+    const u = make(dir, { now: () => t, askUpdater: async () => ({ ok: true, accepted: true }) });
+    // CONTROL: an older failure (from before this update was asked for) changes nothing.
+    fs.writeFileSync(path.join(dir, 'update-failed.json'), JSON.stringify({ version: null, reason: 'old', at: new Date(t - 60_000).toISOString() }));
+    expect(await u.check('test')).toEqual({ state: 'updating', version: '9.0.0' });
+    expect(await u.refreshFailure()).toEqual({ state: 'updating', version: '9.0.0' });
+    t += 5_000;
+    fs.writeFileSync(path.join(dir, 'update-failed.json'), JSON.stringify({ version: null, reason: 'verification failed (stale)', running: '0.1.0', at: new Date(t).toISOString() }));
+    expect(await u.refreshFailure()).toEqual({ state: 'failed', version: '9.0.0', reason: 'verification failed (stale)' });
+    expect(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.mjs'), 'utf8')).toMatch(/setInterval\(\(\) => \{ gw\.updates\.refreshFailure\(\)\.catch\(\(\) => \{\}\); \}, 15_000\)\.unref\(\);/);
   });
   it('no release key: updates are off and nothing is fetched', async () => {
     const before = srv.hits.length;

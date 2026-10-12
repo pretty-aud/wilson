@@ -98,6 +98,22 @@ export class Updates {
     } catch { /* none */ }
   }
 
+  /**
+   * While an update is in flight: the updater takes the swap at once and does
+   * it in the background, and when its own check refuses the copy (the
+   * signature, the hash, a stale manifest) it writes update-failed.json
+   * WITHOUT restarting this gateway, which would otherwise say "updating" until
+   * its next start. cli.mjs calls this every 15 s (GW4).
+   */
+  async refreshFailure() {
+    if (this.current.state !== 'updating' || !this.askedAt) return this.current;
+    try {
+      const f = JSON.parse(await fs.promises.readFile(path.join(this.o.stateDir, 'update-failed.json'), 'utf8'));
+      if (Date.parse(f.at) >= this.askedAt) this.current = { state: 'failed', version: String(f.version || this.current.version), reason: String(f.reason || 'unknown').slice(0, 120) };
+    } catch { /* none */ }
+    return this.current;
+  }
+
   check(why) {
     if (!this.running) this.running = this.#check(why).finally(() => { this.running = null; });
     return this.running;
@@ -168,6 +184,7 @@ export class Updates {
     }
     this.current = { state: 'updating', version: v.manifest.version };
     if (!this.o.askUpdater) return this.current;
+    this.askedAt = this.now();
     try {
       const r = await this.o.askUpdater({ type: 'swap', artefact: name, manifest: manifestBytes.toString('base64'), signature: signatureText });
       if (r && r.ok === false) this.current = { state: 'failed', version: v.manifest.version, reason: String(r.reason || 'refused').slice(0, 120) };
