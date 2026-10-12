@@ -38,13 +38,16 @@ import { useRabbit } from '../state/RabbitProvider'
 // predecessor warning (Track A bundle A2, 2026-09-06). The private copy that
 // used to sit at the bottom of this file is gone on purpose.
 import { isDone } from '../state/dependencyStatus'
+import { tasksAbout } from '../state/taskItemsModel'
 
 export default function AssetStatusWarningModal({ asset, onClose }) {
   const ctx = useRabbit()
   const tasks = ctx?.tasks || []
   if (!asset) return null
 
-  const childTasks = tasks.filter(t => t.asset_id === asset.id)
+  // FX2 (0096): every task ABOUT the asset (any of its items) is one of its
+  // tasks for this warning; without items, the task's single asset.
+  const childTasks = tasksAbout(tasks, ctx?.taskItems, 'asset', asset.id, ctx?.taskItemsAvailable === true)
   const pending = childTasks.filter(t => !isDone(t))
 
   async function handleBumpBack() {

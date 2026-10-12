@@ -356,6 +356,8 @@ function ReportTable({ r }) {
           {r.binLocations && <Row label="footage locations" bucket={r.binLocations} />}
           {r.binFiles && <Row label="clips" bucket={r.binFiles} />}
           {r.shotTakes && <Row label="takes" bucket={r.shotTakes} />}
+          {/* FX2 (0096): a task's items. */}
+          {r.taskItems && <Row label="items on tasks" bucket={r.taskItems} />}
           {posters && <Row label="pictures" bucket={posters} />}
         </tbody>
       </table>

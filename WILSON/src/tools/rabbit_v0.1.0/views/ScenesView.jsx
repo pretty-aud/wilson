@@ -52,6 +52,9 @@ import MenuButton from './scenes/MenuButton'
 import ListConfirm from './scenes/ListConfirm'
 import { deleteQuestion, ARCHIVED_ADD_REASON } from './scenes/membershipCopy'
 import { sortShotLists } from '../state/shotListModel'
+// FX2 (0096): a scene's task count, and an asset window's tasks, count every
+// task ABOUT it (any of its items).
+import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
 // Post-overhaul S3c: an edit on screen — its cut, its bands, its tiles.
 import { useEditSession } from './scenes/useEditSession'
 import EditTable from './scenes/EditTable'
@@ -617,14 +620,13 @@ export default function ScenesView({ pageActive = false } = {}) {
     return map
   }, [assets])
 
-  const taskCountByScene = useMemo(() => {
-    const map = {}
-    for (const t of tasks) {
-      if (!t.scene_id) continue
-      map[t.scene_id] = (map[t.scene_id] || 0) + 1
-    }
-    return map
-  }, [tasks])
+  // FX2 (0096): every task ABOUT the scene counts (a task about two scenes
+  // counts in both rows: a per-row count, never added into a total); without
+  // items, the task's single scene, as before.
+  const taskCountByScene = useMemo(
+    () => taskCountsByEntity(tasks, ctx?.taskItems, 'scene', ctx?.taskItemsAvailable === true),
+    [tasks, ctx?.taskItems, ctx?.taskItemsAvailable],
+  )
 
   // In List order a scene's shots keep the list's order (S3b step 2); in any
   // other sort, shot-number order as before.
@@ -4644,7 +4646,7 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, can
   return (
     <AssetDetailPopup
       asset={asset}
-      tasks={(ctx?.tasks || []).filter(t => t.asset_id === asset.id)}
+      tasks={tasksAbout(ctx?.tasks || [], ctx?.taskItems, 'asset', asset.id, ctx?.taskItemsAvailable === true)}
       phase={(ctx?.phases || []).find(p => p.id === asset.phase_id)}
       ctx={ctx}
       thumbRevision={thumbRevision}

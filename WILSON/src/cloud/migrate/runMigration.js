@@ -162,6 +162,10 @@ async function insertOrSkip(table, row, ours = null) {
   throw new Error(`${table}: ${error.message}`)
 }
 
+// FX2 (0096): the kinds of a task's item the runner carries — the rows it
+// carries (levels and experiences are NOT_CARRIED).
+const ITEMS_CARRIED = new Set(['asset', 'scene', 'shot'])
+
 // ── BC3 (B9): the bins' reads and writes ──────────────────────────────────
 
 // PostgREST answers at most `max_rows` (1,000 in supabase/config.toml) and
@@ -268,6 +272,10 @@ function makeReport() {
     // `orphans`: takes of a shot or clip removed on this computer — not
     // carried, not counted in `total`, not an error (ORPHAN_TAKES).
     shotTakes:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0, orphans: 0 },
+    // FX2 (0096): a task's items (the assets, scenes and shots it is about).
+    // `leftBehind`: its levels and experiences, which the runner does not
+    // carry (NOT_CARRIED), so their items stay here too.
+    taskItems:     { total: 0, inserted: 0, skipped: 0, failed: 0, leftBehind: 0 },
     posters:       { total: 0, uploaded: 0, skipped: 0, failed: 0, switchOff: 0 },
     // What the bundles hold that the runner does not carry (notCarriedOf),
     // summed over the projects: `[{ key, label, count }]`.
@@ -434,6 +442,11 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       report.assets.total += (bundle.assets ?? []).length
       report.tasks.total  += (bundle.tasks  ?? []).length
       report.files.total  += (bundle.files  ?? []).length
+      // FX2 (0096): the items, as the real run will take them.
+      for (const it of bundle.taskItems ?? []) {
+        report.taskItems.total++
+        if (!ITEMS_CARRIED.has(it?.entity_type)) report.taskItems.leftBehind++
+      }
       const links = countLinks(bundle.dependencies)
       report.taskLinks.total  += links.task
       report.phaseLinks.total += links.phase
@@ -879,6 +892,29 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
       } catch (err) {
         report.errors.push({ scope: 'shot_take', projectId, id: t.id, message: err.message })
         report.shotTakes.failed++
+      }
+    }
+    // FX2 (0096): a task's items, after every row they can name is in — the
+    // tasks and assets (above), the scenes and shots (BC3, above). A task's
+    // FIRST asset, scene and shot are in already (0096's seed makes them
+    // from the task's columns), so the desktop's copy of each answers 23505
+    // and reads as skipped; the task's other items land here, each keeping
+    // its id and position. Levels and experiences are not carried, so their
+    // items stay on this computer and are counted.
+    for (const it of bundle.taskItems ?? []) {
+      report.taskItems.total++
+      if (!ITEMS_CARRIED.has(it?.entity_type)) { report.taskItems.leftBehind++; continue }
+      try {
+        const r = await insertOrSkip('task_items', toColumns('task_items', {
+          id: it.id, task_id: it.task_id, project_id: projectId,
+          entity_type: it.entity_type, entity_id: it.entity_id,
+          position: Number.isInteger(it.position) && it.position >= 0 ? it.position : 0,
+          ...(it.created_at ? { created_at: it.created_at } : {}),
+        }))
+        r.status === 'inserted' ? report.taskItems.inserted++ : report.taskItems.skipped++
+      } catch (err) {
+        report.errors.push({ scope: 'task_item', projectId, id: it.id, message: err.message })
+        report.taskItems.failed++
       }
     }
     // Pictures: only while the company's switch is on (B4) — asked once;
