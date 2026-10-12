@@ -4,7 +4,7 @@
 //
 // Everything about lists the Scenes tab does, in one place outside the
 // 3,500-line ScenesView: the bar (ShotListBar), its More menu, the questions
-// its verbs ask, the picker, the New / Save as… / Edit details dialog, Add
+// its verbs ask, the picker, the New / Save edit as… / Edit details dialog, Add
 // from another list, and the one place their refusals are shown. ScenesView
 // renders it between its tiles and its toolbar and hands it the list on
 // screen (useViewedShotList) and the seats (useProjectAccess).
@@ -276,7 +276,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     return out
   }
   // Post-overhaul S3c, step 5 (D13–D15): the edit's verbs on the bar, where
-  // the list's Save / Save as… / Set active stand in List order — so the bar
+  // the list's Save / Save edit as… / Set active stand in List order — so the bar
   // never offers two Saves at once. Save edit is there whenever an edit is on
   // screen (it does not jump in on the first change): greyed with the reason
   // on a saved edit, and on a draft the kit Button's attention — the signal
@@ -348,7 +348,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
     : { scenes: (ctx?.scenesOf?.(row.id) || []).length, shots: (ctx?.shotsOf?.(row.id) || []).length })
   const target = dialog?.row
 
-  // ── New shot list, Save as…, Edit details (step 5) ──
+  // ── New shot list, Save edit as…, Edit details (step 5) ──
   const formSource = dialog?.kind === 'form' ? (dialog.mode === 'details' ? dialog.row : list) : null
   // Where a new list starts by default: the list on screen; with none, what
   // the tab shows — every scene and shot (the project's first list, D11's
@@ -368,7 +368,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
       close()
       return
     }
-    // New / Save as…: the new list becomes the one on screen. It becomes the
+    // New / Save edit as…: the new list becomes the one on screen. It becomes the
     // ACTIVE one only when the project has none and this person may make one
     // active (the first-list rule) — in one undo step with its making. An
     // activation the backend refuses does not unmake the list: it is said in
@@ -380,7 +380,7 @@ export default function ShotLists({ ctx, viewed, gate, userId, error, onError, r
         title,
         version,
         summary,
-        // Save as… is always 'screen' (the form fixes it).
+        // Save edit as… is always 'screen' (the form fixes it).
         ...(from === 'screen' ? { from: formSource.id } : from === 'all' ? { fromAll: true } : {}),
       })
       if (!activeId && gate.activate) {

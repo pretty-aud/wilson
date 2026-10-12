@@ -38,7 +38,7 @@ import { v4 as uuidv4 } from 'uuid'
 // kit Dialog in <body>.
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
-  StatusDot, StatusBadge, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
   SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
@@ -59,6 +59,9 @@ import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
 import { useEditSession } from './scenes/useEditSession'
 import EditTable from './scenes/EditTable'
 import { framesToTimecode } from './scenes/timecode'
+// Post-overhaul FX1: every number field of the rows and popups — its own
+// chevrons clear of the figure, five figures and an ellipsis past that.
+import NumberField from './scenes/NumberField'
 // …and (step 4) the cut's own verbs, the first-change question (D13).
 import { useEditChanges } from './scenes/useEditChanges'
 import AddShotsDialog from './scenes/AddShotsDialog'
@@ -2445,14 +2448,14 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                 <Td numeric className="rb-scene-dur-cell" data-empty={(shot.frame_count || 0) > 0 ? undefined : 'true'}>
                                   {framesToTimecode(shot.frame_count || 0, fps)}
                                 </Td>
-                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26) */}
+                                {/* Frames: the kit's small field, its rest, hover and focus the sheet's (R3-26),
+                                    as the number field (FX1): its own chevrons, five figures and an ellipsis */}
                                 <Td numeric className="rb-scene-frames-cell">
-                                  <input type="number" min={0} value={shot.frame_count ?? ''}
+                                  <NumberField min={0} value={shot.frame_count ?? ''}
                                     onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
                                     disabled={!canWrite}
                                     aria-label={`Frames for ${shotName}`}
-                                    className="ui-input rb-scene-frames"
-                                    data-size="sm"
+                                    className="rb-scene-frames"
                                     placeholder="0" />
                                 </Td>
                                 <Td align="right" className="rb-scene-acts-cell">
@@ -2952,10 +2955,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       {framesToTimecode(shot.frame_count || 0, fps)}
                     </Td>
 
-                    {/* Frame count (editable): the kit's small field */}
+                    {/* Frame count (editable): the kit's small field, as the number field (FX1) */}
                     <Td numeric className="rb-scene-frames-cell">
-                      <input
-                        type="number"
+                      <NumberField
                         min={0}
                         value={shot.frame_count ?? ''}
                         onChange={e => {
@@ -2964,8 +2966,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         }}
                         disabled={!canWrite}
                         aria-label={`Frames for ${shotName}`}
-                        className="ui-input rb-scene-frames"
-                        data-size="sm"
+                        className="rb-scene-frames"
                         placeholder="0"
                       />
                     </Td>
@@ -3182,8 +3183,8 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
 // window. The header keeps the scene's glyph, its name and its code: the name
 // is the H2 title, read-only — the "Scene name" field below is still where it
 // is edited (C1: the two stay two) — and names the Dialog. The status is the
-// kit's StatusBadge, where the 3px status-coloured rule under the header said
-// it (R3-11). The kit brings the named ✕ (the old one had no name), Escape
+// kit's StatusBanner across the popup under the title (FX3; it was a
+// StatusBadge from R3-11 until then). The kit brings the named ✕ (the old one had no name), Escape
 // (Q17) and the backdrop, which closed it before and still does. The body
 // keeps its two columns — RelationsPanel's sidebar, then the properties — and
 // every section, field and button in its old order.
@@ -3342,7 +3343,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
               <Badge className="rb-scene-detail-code">{sceneCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
@@ -3504,14 +3505,12 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Scene number</FieldLabel>
-                    <input type="number" value={scene.scene_number ?? ''} onChange={e => {
+                    <NumberField value={scene.scene_number ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
                     }}
                       disabled={!canWrite}
-                      aria-label="Scene number"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm" />
+                      aria-label="Scene number" />
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Runtime</FieldLabel>
@@ -3842,7 +3841,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
               <Badge className="rb-scene-detail-code">{shotCode}</Badge>
             </span>
           )}
-          subtitle={<StatusBadge status={status} />}
+          band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onBeforeClose={requestClose}
           onClose={onClose}
@@ -4008,25 +4007,21 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Shot number</FieldLabel>
-                    <input type="number" value={shot.shot_number ?? ''} onChange={e => {
+                    <NumberField value={shot.shot_number ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
                     }}
                       disabled={!canWrite}
-                      aria-label="Shot number"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm" />
+                      aria-label="Shot number" />
                   </div>
                   <div className="rb-scene-prop">
                     <FieldLabel>Frame count</FieldLabel>
-                    <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
+                    <NumberField min={0} value={shot.frame_count ?? ''} onChange={e => {
                       const n = parseInt(e.target.value, 10)
                       handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                     }}
                       disabled={!canWrite}
                       aria-label="Frame count"
-                      className="ui-input rb-scene-prop-number"
-                      data-size="sm"
                       placeholder="0" />
                   </div>
                   <div className="rb-scene-prop">

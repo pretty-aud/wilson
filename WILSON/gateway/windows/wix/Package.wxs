@@ -21,7 +21,9 @@
     * the token and the cloud's address asked for; the service enrols itself
       at its first start; at the end the addresses the office door uses and the
       certificate's fingerprint are shown
-  Unsigned until D14 is decided (GW4): SmartScreen warns; walkthrough 61 says so.
+  D14, her ruling of 2026-10-11: unsigned for now (SmartScreen warns, and the install story says
+  how to pass it); the release workflow's Authenticode steps sign the host and this MSI once a
+  certificate secret is set (gateway-release.yml, GW4).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"

@@ -20,7 +20,9 @@ const instructions = dockerfile.split('\n').filter((l) => /^[A-Z]+\s/.test(l));
 
 describe('the image (container/Dockerfile)', () => {
   it('a minimal Node 24 base with no shell, run as its non-root user, never root', () => {
-    expect(instructions.find((l) => l.startsWith('FROM '))).toBe('FROM gcr.io/distroless/nodejs24-debian12:nonroot');
+    // GW4: pinned by digest (GW2's "For GW4"), the tag kept for the reader.
+    expect(instructions.find((l) => l.startsWith('FROM '))).toMatch(/^FROM gcr\.io\/distroless\/nodejs24-debian12:nonroot@sha256:[0-9a-f]{64}$/);
+    expect(instructions.filter((l) => l.startsWith('FROM '))).toHaveLength(1);
     const users = instructions.filter((l) => l.startsWith('USER '));
     expect(users).toEqual(['USER 65532:65532']);
   });

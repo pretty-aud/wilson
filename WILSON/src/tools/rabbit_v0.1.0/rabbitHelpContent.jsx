@@ -21,6 +21,16 @@ import { LOCATION_QUESTION as LOCATION_QUESTION_WORDS, LEAVE_FOR_NOW as LEAVE_FO
 // verbatim) and the card's own words, from the pure module the Settings card
 // reads (it imports nothing, so no client is built here).
 import { GATEWAY_CERT_PARAGRAPH, IT_WORKS as IT_WORKS_WORDS } from '../../components/settings/gatewayWords';
+// GW4: the two install stories, the ONE text the card's tabs under Add a
+// gateway also show (gatewayWords.js), as two Help pages of their own; and the
+// hardening guide they point to.
+import { NAS_STORY, WINDOWS_STORY, HARDENING_GUIDE_URL } from '../../components/settings/gatewayWords';
+
+/** One install story as a Help page: the steps in order, then the notes after them. */
+export const GATEWAY_STORY_PAGES = Object.freeze({
+  'rabbit-gateway-nas': { title: 'The file gateway on a NAS', tab: 'On a NAS', story: NAS_STORY },
+  'rabbit-gateway-windows': { title: 'The file gateway on a Windows PC', tab: 'On a Windows PC', story: WINDOWS_STORY },
+});
 
 // The Bins tab's keyboard, as BinsView's document handler binds it (and the
 // preview's Space). UI overhaul Q10 ("no shortcut bar anywhere") removed the
@@ -46,6 +56,15 @@ export const BINS_SHORTCUTS = [
   { keys: [['Ctrl', 'Shift', 'Z'], ['Ctrl', 'Y']], does: 'Redo' },
 ];
 
+// FX3: the Team tab's gallery (TeamGallery.jsx), as the Bins grid moves.
+const TEAM_GALLERY_SHORTCUTS = [
+  { keys: [['←'], ['→'], ['↑'], ['↓']], does: 'Move from card to card (↑ and ↓ by a row)' },
+  { keys: [['Home'], ['End']], does: 'First and last card' },
+  { keys: [['Enter']], does: 'Go into the card: its seat, then its remove' },
+  { keys: [['Esc']], does: 'Back out to the card' },
+  { keys: [['Alt', '↓'], ['Space']], does: 'Open the seat to choose one (arrows and letters alone never change it)' },
+];
+
 function KeyCombos({ keys, range, surface }) {
   return (
     <span className="inline-flex items-center gap-1 flex-wrap">
@@ -67,6 +86,10 @@ export const RABBIT_HELP_SIDEBAR_ITEMS = [
   { id: 'rabbit-assets',       label: 'Assets' },
   { id: 'rabbit-scenes',       label: 'Scenes & shot lists' },
   { id: 'rabbit-bins',         label: 'Bins' },
+  // GW4: the file gateway's two install stories, beside the Bins page whose
+  // File gateway card names them.
+  { id: 'rabbit-gateway-nas',     label: 'File gateway on a NAS' },
+  { id: 'rabbit-gateway-windows', label: 'File gateway on Windows' },
   { id: 'rabbit-timeline',     label: 'Timeline' },
   { id: 'rabbit-phases',       label: 'Phases & tasks' },
   { id: 'rabbit-dependencies', label: 'Dependencies' },
@@ -343,7 +366,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>New shot list</span> — Starts a list from the one on screen, from every scene and shot, or empty.</li>
               <li>• <span className={T.listBold}>Shot lists…</span> — Every list, to open one; also "Not in any list" (the scenes and shots no list holds) and Archived….</li>
               <li>• <span className={T.listBold}>Save</span> — Records that the list was saved as it is now: the bar says "Saved" with the date until the list next changes.</li>
-              <li>• <span className={T.listBold}>Save as…</span> — A new list from this one, by default the same title at the next version.</li>
+              <li>• <span className={T.listBold}>Save edit as…</span> — Saves the list on screen as a new shot list: by default the same title at the next version. (While an edit is on screen its own Save edit takes this place.)</li>
               <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
               <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
             </ul>
@@ -503,7 +526,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
               File gateway: Add a gateway shows a token once, the WILSON
               cloud&apos;s address, and the two install stories step by step,
               On a NAS and On a Windows PC, with the mount line for each of
-              the company&apos;s footage locations already written out. The
+              the company&apos;s footage locations already written out; Help has
+              both as pages of their own, File gateway on a NAS and File gateway
+              on Windows. The installer and the image come from the WILSON file
+              gateway releases on GitHub. The
               gateway appears on the card within ten seconds of starting; the
               admin who made the token then types the fingerprint it printed,
               which unlocks Download certificate.
@@ -656,6 +682,62 @@ export function RabbitHelpContent({ helpPage, theme }) {
     </div>
   );
 
+  // GW4: an install story, in the order the admin does it (Goal-Gradient: the
+  // steps numbered, each opening on its own bold lead), the browser's four
+  // facts inside the step where they bite, then the notes that follow it.
+  const storyPage = GATEWAY_STORY_PAGES[helpPage];
+  if (storyPage) {
+    const { title, tab, story } = storyPage;
+    return (
+      <div className="space-y-5">
+        <section>
+          <h3 className={T.sectionTitle}>{title}</h3>
+          <p className={`${T.bodyText} mb-4`}>
+            {story.intro} A workspace admin starts in App settings, Storage,
+            File gateway: Add a gateway shows a token once, the WILSON cloud&apos;s
+            address and these same steps under {tab}, with the mount line for
+            each of the company&apos;s footage locations written out.
+          </p>
+          <div className="space-y-3">
+            <div className={T.card}>
+              <h4 className={T.cardTitle}>Step by step</h4>
+              <ol className={`${T.listItem} list-decimal pl-5 space-y-2`}>
+                {story.steps.map((s) => (
+                  <li key={s.lead}>
+                    <span className={T.listBold}>{s.lead}</span> {s.text}
+                    {s.items && (
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        {s.items.map((it) => (
+                          <li key={it.lead}><span className={T.listBold}>{it.lead}</span> {it.text}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+            {story.after.map((a) => (
+              <div key={a.lead} className={T.card}>
+                <p className={T.listItem}><span className={T.listBold}>{a.lead}</span> {a.text}</p>
+              </div>
+            ))}
+            <div className={T.card}>
+              <h4 className={T.cardTitle}>Keeping it safe</h4>
+              <p className={T.listItem}>
+                What the gateway&apos;s computer must do, what an admin must never
+                do, and what to do when something goes wrong are in the{' '}
+                <a href={HARDENING_GUIDE_URL} target="_blank" rel="noreferrer" className="underline">hardening guide</a>.
+                Turning on viewing from outside the office is the moment a
+                workspace leaves TPN Gold Shield eligibility; WILSON never sells
+                the gateway as TPN-compliant.
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   if (helpPage === 'rabbit-timeline') return (
     <div className="space-y-5">
       <section>
@@ -693,9 +775,10 @@ export function RabbitHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Bid versions</h4>
             <p className={T.listItem}>
-              For project managers and workspace admins, a{' '}
-              <span className={T.listBold}>Bid version</span> bar sits under the
-              zoom toolbar. Its dropdown shows{' '}
+              For project managers and workspace admins, the bid version bar,
+              labelled <span className={T.listBold}>Bid ver.</span>, sits right
+              under the project title, the first row of the Timeline: first the
+              project you are in, then the version you are working off. Its dropdown shows{' '}
               <span className={T.listBold}>Current</span> (the live schedule:
               the open version's, when one is open), every saved version newest
               first, then <span className={T.listBold}>Manage versions…</span>.
@@ -990,6 +1073,21 @@ export function RabbitHelpContent({ helpPage, theme }) {
             </p>
             <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
               {BINS_SHORTCUTS.map((s) => (
+                <React.Fragment key={s.does}>
+                  <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
+                  <dd className={T.listItem}>{s.does}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </div>
+          {/* FX3: the Team tab's gallery. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Team gallery: the keyboard</h4>
+            <p className={`${T.bodyText} mb-2`}>
+              On the Team tab with Gallery chosen. The gallery is one stop for Tab (on the Local Server, grouped by something, one stop per group); the keys act on the card with the ring.
+            </p>
+            <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
+              {TEAM_GALLERY_SHORTCUTS.map((s) => (
                 <React.Fragment key={s.does}>
                   <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
                   <dd className={T.listItem}>{s.does}</dd>

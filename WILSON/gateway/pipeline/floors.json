@@ -1,0 +1,5 @@
+{
+  "_why": "The floors the next release's stable.json carries (design §8; §10 row 14). An honest gateway below minimum_version closes its outside door; below hard_minimum_version it also says it must be updated before it can serve. Raise them only in an incident (docs/gateway/HARDENING.md, the incident procedure), never above the release being tagged: pipeline/lib.mjs floorsFor refuses that.",
+  "minimum_version": null,
+  "hard_minimum_version": null
+}

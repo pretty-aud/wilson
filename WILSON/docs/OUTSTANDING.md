@@ -104,6 +104,40 @@ route removes the tasks whose `asset_id` is the asset (with their
 dependencies and items, as the generic task DELETE does), and the provider's
 undo, which re-inserts them on the desktop, is unchanged.
 
+### The Tasks table's Bid days field hides a figure's first characters behind the browser's arrows
+**MEASURED (FX1, 2026-10-12).** Playwright on the dev fixtures at
+1440x900, the browser's spinner read through the DevTools protocol (the
+input's user-agent shadow root). `ProjectTasksView`'s bid-days cell
+(`rb-task-cell-number`, an `<input type="number">` in 13px Geist Mono,
+7.8px a character) is 52px with 6px of padding a side, and the browser's
+spinner takes 15px of the 40 left: the figure has 25px, three characters.
+**12.5** reads **2.5** while the field is focused (the spinner shows and the
+figure scrolls to its end); pointed at, it reads **12…** with the spinner
+beside it; at rest the lane's ellipsis reads **120.5** as **12…** (FX1's
+review round 2 corrected "or pointed at"). The same defect as the shot's frame count that
+FX1 fixed (walkthrough 64), outside FX1's brief (the shots table and the
+shot popup). FX1's `views/scenes/NumberField.jsx` — the spinner put away,
+the field's own chevrons in room its padding keeps, an ellipsis past five
+figures — is the fix shape; serving this field means promoting it to the
+kit (FX1's hand-off, kit request FX1-KR-1). Owner: the Tasks lane
+(`rabbitTasks.css`, `ProjectTasksView.jsx`).
+
+### A held number field fills R.A.B.B.I.T.'s undo history: holding for a second leaves nothing earlier to undo
+**MEASURED (FX1 review round 2, R2-08, 2026-10-12).** Every step of a held
+chevron on a Scenes number field is one `updateShot` write and one undo
+entry (`RabbitProvider`'s `pushHistory`), and the history keeps
+`HISTORY_CAP = 10`. With the field's chevrons at their round-one pace (13
+steps in 1.5 s) ten Ctrl+Z took a held 2000 → 2013 back only to 2003, and
+the two edits made before the hold (another shot's frame count, and this
+one's) could no longer be undone; at the pace FX1 shipped, the browser's
+own (24 steps in 1.5 s, measured by `scripts/shot-number-fields-shots.mjs`),
+a hold of 0.7 s fills it (the press, the first repeat at 250 ms, then one
+every 50 ms). The browser's spinner did the same before
+FX1, at that same pace: not a regression, and not FX1's to change. Fix
+shape: coalesce consecutive `updateShot` entries for the same shot and key
+in `pushHistory`, or run a hold inside `runBatch` so it is one undo step.
+Owner: `RabbitProvider.jsx` (the undo history).
+
 ### The signed-out desktop's bins freeze the window on a share whose server does not answer
 **MEASURED (BC2, 2026-10-09).** The Local Server's bins routes
 (`/api/rabbit/bins/*` in `electron/rabbitBins.cjs`: the list's online check,
@@ -1571,6 +1605,26 @@ non-zero wherever receipts predate 0076.
    literal defect this entry marks fixed. New desktop uploads are gated
    correctly; only the existing ones are stranded.
 
+### The gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM
+**MEASURED (FX3, 2026-10-11/12, on the gateway as it was at `2c31d5db`, before GW4 merged).** In three of four full `npx vitest run`s
+on Windows (the dev server and Playwright running beside them), one to
+three gateway tests failed, and each passed alone every time
+(`gateway/test/platform.test.mjs` 63/63 and `runtime.test.mjs` with it;
+`doorsOutside.test.mjs` with `platform` 82/82): `platform.test.mjs`'s
+"Windows, for real: the owners read by PowerShell … check-state refuses this
+folder" (7.6 s, 11.0 s), `runtime.test.mjs`'s "an outside viewing: journal
+start and end, posted as one row" (5.0 s) and `doorsOutside.test.mjs`'s
+"/v1/health is { ok: true }" (9.9 s) and its GW3 nonce proof (6.9 s). The
+runtime run also reported an **unhandled rejection**: `EPERM: operation not
+permitted, rename '…\.journal.rewrite' -> '…\journal'` from
+`gateway/src/journal/journal.mjs` (the rewrite's `fsp.rename`). The time-outs
+are the suite's (a PowerShell spawn and a loopback server under load); the
+EPERM is **INFERRED** to be able to happen on a real Windows gateway too (a
+rename over a file another process holds open, an antivirus scan say), where
+nothing catches it. Settle it: retry the rename on EPERM / EBUSY as Node's
+own `fs` guidance for Windows does, and give the three tests the time-outs a
+loaded Windows runner needs.
+
 ---
 
 ## Session log
@@ -1580,6 +1634,9 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | Post-overhaul FX2 (2026-10-12; `po/fx2-task-multi-links` into `feat/post-overhaul-edit-versioning`) — a task relates to many items (assets, scenes, shots, levels, experiences): item 1 measured before building (the brief's table name was taken; the cloud never had a level or experience column), migration 0096 and suite 99 on wilson-dev (`task_items`, the single columns kept in step both ways), the adapters, the Local Server, the fixtures, the provider, the task window's Items table, walkthrough 65; two review rounds, the second finding that round 1's bundle wrapper nulled a revived task's links | **two entries under Broken features, both found in passing and not FX2's:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (MEASURED) and *on the desktop, a deleted asset's tasks come back when the project is read again* (INFERRED); the migration entry gains a sentence (a task's asset, scene and shot items move; its level and experience items stay with the levels and experiences) | **nothing.** Every finding of the two rounds (six in round 1, seven in round 2, one High each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-fx2-2026-10-11.md`). Comment markers: 4 → 4. |
+| Post-overhaul FX1 (2026-10-12; `po/fx1-shot-frame-count` into `feat/post-overhaul-edit-versioning`) — the shot's frame-count field (Audrey's "the chevrons are covering up the numbers"): every number field of the shot rows and the popups is `views/scenes/NumberField.jsx`, the browser's spinner put away, its own chevrons clear of the figure, five figures and an ellipsis past that; display only, no migration; two review rounds | **two entries under Broken features:** *the Tasks table's Bid days field hides a figure's first characters behind the browser's arrows* (MEASURED: 12.5 reads 2.5 while focused; found while measuring where else FX1's defect lives; the Tasks lane's), and *a held number field fills R.A.B.B.I.T.'s undo history* (MEASURED by review round 2: ten undo steps, one per step of a hold; the browser's spinner did it too; `RabbitProvider`'s). A dated note on P1-03 (Home's document keydown listener): until FX3's fix reached FX1's branch it also cancelled the arrow keys in every number field and select, and Enter after one of them left the page from a shot's Frames field (MEASURED by FX1's review round 1). | **P1-03, marked FIXED**: by FX3 (`35265888`), which merged into the integration branch before FX1; measured by FX1 after its merge (`b531a799`): the arrow keys step the Scenes number fields and Enter stays on the page. Comment markers: 4 → 4, still pairing. |
+| Post-overhaul FX3 (2026-10-12; `po/fx3-banner-version-bar-team-gallery` into `feat/post-overhaul-edit-versioning`) — the status banner back under every item's title, the Timeline's bid version bar under the project title ("Bid ver."), "Save edit as…" on the Scenes tab, the Team tab's Table / Gallery with signed profile pictures (walkthrough 66); two review rounds | **one entry under Broken features:** *the gateway's tests fail under the full suite's load on Windows, and its journal's rewrite once threw an unhandled EPERM* (MEASURED in this session's full runs; not the session's code). Everything FX3 leaves undone otherwise is a named limit or a question in its hand-off (`docs/sessions/handoffs/po-fx3-2026-10-12.md`), none of it broken | nothing. Comment markers: 4 → 4. |
+| Post-overhaul GW4 (2026-10-11; `po/gw4-gateway-release` into `feat/post-overhaul-edit-versioning`) — the file gateway's release and install stories: the release signing key (its public half in slot 1, its private half in one Desktop file for Audrey) and the channel on GitHub Releases, the release workflow and its one dry run (a draft left for Audrey), the outside door's free certificate (ACME TLS-ALPN-01) proven against Pebble in CI, the two install stories as Help pages, the hardening guide, walkthrough 63; two review rounds, both security attacks on the release path | **nothing.** Every finding of the two rounds (six in round 1, eleven in round 2; five Medium in all) was fixed in the session or is written down in the hand-off (`docs/sessions/handoffs/po-gw4-2026-10-11.md`): its "Deferred" (Authenticode in an approved environment, a second release key, an administrator's check of an MSI), its "For GW5" (two other workflows' token, the pushed image run) and its "Known limits"; what is Audrey's (the key's secret and its environment, three repository settings, the draft, the first tag, the rehearsal) is in its "Waiting on Audrey" | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul GW3 (2026-10-11; `po/gw3-gateway-web` into `feat/post-overhaul-edit-versioning`) — the file gateway in the web app: the two halves reconciled first (the workspace id in both answers, the reach PROOF on both halves proven by the design's `proof_vector`, a new or next root landing at sync, a viewing's fraction as the gateway's coverage; migration 0095 and suite 98 on wilson-dev), then the Bins tab in a browser playing through a gateway (the adapter, `canStream`, the hand-over, the overlay through the outside door, one clip's viewings, the words and Help, walkthrough 62), measured against GW2's real executable with the fake cloud on loopback; two review rounds | **nothing.** Every finding of the two rounds (sixteen in round 1, eighteen in round 2, two Medium each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-gw3-2026-10-11.md`). The office door is not played from the gateway's own computer (by design), the install stories are GW4's, the attack on the player GW5's | **one entry removed from Broken features:** *the cloud's reach check and GW2's gateway disagree* — closed by item 0.2: the gateway's outside `/v1/health` answers `nonce_proof` (never `nonce_echo`), the cloud reads only the proof, and both halves prove the same `proof_vector` in one `npx vitest run`. GW2's pin on this log is loosened to "GW2's row is in the log" so this row sits on top. Comment markers: 4 → 4. |
 | Post-overhaul GW2 (2026-10-10; `po/gw2-gateway-service` into `feat/post-overhaul-edit-versioning`) — the file gateway program (`WILSON/gateway/`: the two doors, the tickets, the share rules, the cloud client against a fake cloud, the Windows service and its MSI, the container, CI); two review rounds, both security attacks on the program | **nothing.** Every finding of the two rounds was fixed in the session or is a named limit in the hand-off's "Known limits". Where GW1's functions and the gateway differ (first: neither of GW1's answers carries the workspace id, so the gateway would refuse every ticket) is GW3's planned work, listed in the hand-off's "For GW3": neither half is merged with the other, and nothing a person uses calls either yet | nothing. Comment markers: 4 → 4. |
 | Post-overhaul GW1 (2026-10-10; `po/gw1-gateway-cloud` into `feat/post-overhaul-edit-versioning`) — the file gateway's cloud side: migration 0093 and suite 96 (on wilson-dev), the five gateway functions (on wilson-dev), App settings → Storage → File gateway, the file drawer's *Viewed from outside* and the Bins inspector's admin line; two review rounds | **one entry under Broken features:** *the cloud's reach check and GW2's gateway disagree* (MEASURED by both halves' tests, review round 2: GW2's gateway answers `nonce_echo`, the cloud reads only `nonce_proof`; fails safe, nothing published). What GW1 leaves undone otherwise is the gateway program (GW2) and playing in a browser (GW3), and its known limits are in its hand-off (`docs/sessions/handoffs/po-gw1-2026-10-10.md`), none of them broken | **nothing removed;** two fix shapes re-pointed: BC3's *a location's address admits control characters* and *no sample rate or channel count in the cloud* each said *a migration (0093 or later)*, and 0093 is now the file gateway's, so they say 0095 |
@@ -1733,7 +1790,7 @@ defines them; a row's "owner" is who acts first.
 
 - ~~**P1-01 · Enter toggles the pet.** MEASURED. `App.jsx` ~1404–1417: Enter on any focused button toggles the pet and never presses the button (every kit Dialog, drawer, picker; Space works). Owner: Audrey (C5), then a session. From A4-1, B3d, B4c-6, B5b-27.~~ — FIXED by post-overhaul S2a (2026-09-30, branch `po/s2a-settings-placement`, ruling C12): a bare Shift tap toggles the pet (`src/lib/companionHotkey.js`) and Enter presses the focused control, measured in the running app in all three tools (`05bf5fe`, hardened by `edb7fa9` and `07d34d6`). What is left of the class is in the S2a section at the end of this file.
 - **P1-02 · Space opens O.T.T.E.R.'s Search from any focused control** that is not a field, and can stack Search over an open Dialog or Drawer (`Otter.jsx` global shortcuts). MEASURED. From A4-2. S2a (2026-09-30): the same on the Help and Settings buttons S2a added to O.T.T.E.R.'s strip; Enter presses them (MEASURED, S2a review round 1).
-- **P1-03 · Home's document keydown listener runs on every page** (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3. S2a (2026-09-30): now that Enter presses the focused control everywhere else, this is the one place Enter can still do something different (after an arrow key on any page, Enter can open a Home destination). It also strands a kit Dialog: Search, left open when ArrowDown+Enter went to /dog, stayed registered, so on D.O.G. `overlayOpen()` was true, the Shift tap was dead and Tab never moved focus (the hidden dialog's trap found no visible control) until she went back and closed Search. MEASURED by S2a's review round 1 (B-R1-09). Owner: Audrey (Home is fonts-only under C3), or the kit (a Dialog on a hidden page should neither count nor trap).
+- ~~**P1-03 · Home's document keydown listener runs on every page**~~ — FIXED by post-overhaul FX3 (`35265888`, its review round 2, R2-01, 2026-10-12): Home's handler acts only when `currentPage === 'home'`; measured by FX1 below. (`Home.jsx:134-197`): ArrowDown+Enter in O.T.T.E.R.'s Search went to /dog; it can swallow an Escape. MEASURED. From A4-3. S2a (2026-09-30): now that Enter presses the focused control everywhere else, this is the one place Enter can still do something different (after an arrow key on any page, Enter can open a Home destination). It also strands a kit Dialog: Search, left open when ArrowDown+Enter went to /dog, stayed registered, so on D.O.G. `overlayOpen()` was true, the Shift tap was dead and Tab never moved focus (the hidden dialog's trap found no visible control) until she went back and closed Search. MEASURED by S2a's review round 1 (B-R1-09). Owner: Audrey (Home is fonts-only under C3), or the kit (a Dialog on a hidden page should neither count nor trap). FX1 (2026-10-12): until FX3's fix reached FX1's branch, the same listener cancelled ArrowUp / ArrowDown in every number field and select on every page (the Scenes tab's frame counts and scene and shot numbers never stepped by keyboard, a Status select did not move), and Enter after one of them left the page: in a shot's Frames field ArrowUp then Enter opened `/settings`, ArrowDown then Enter `/dog` (MEASURED by FX1's review round 1, R1-01, and re-run by the session). After the merge (`b531a799`), in Playwright on the dev fixtures: in the shot table's Frames field and the shot popup's Frame count, ArrowUp twice took 2000 to 2002, ArrowDown back to 2001, and Enter stayed on `/rabbit`.
 - **P1-04 · D.O.G.'s document keys act behind its overlays** (Alt toggles Full deck; ←/→ switch the page). MEASURED. Needs a C1 ruling. From A4-4. S2a (2026-09-30) narrowed D.O.G.'s Enter only (`enterGenerates.js`: never on another page, never over a drawer, dialog or kit overlay). Alt, ←/→ and Ctrl+Z/Y also have no page check (`DeckOutlineGenerator.jsx` ~3206–3290), and D.O.G. stays mounted, so they act from every page: Ctrl+Z on O.T.T.E.R.'s page, outside a field, undoes D.O.G.'s last text edit unseen. INFERRED from the code; would settle it: a text edit in D.O.G., then Ctrl+Z on another page, then back. S2a gave D.O.G. its `currentPage`, so each handler can gate on it in one line.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
 - **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32.

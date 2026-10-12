@@ -188,6 +188,26 @@
         "--strictPort"
       ],
       "port": 5291
+    },
+    {
+      "_comment": "FX3 (the status banner under every item's title, the bid version bar under the project title, \"Save edit as\u2026\", the Team tab's gallery): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the switches are set in the process environment, which Vite ranks above .env files (as v1-auth does), and the Supabase URL is a placeholder on a closed local port (the client throws at import without one; the fixtures answer every read, so nothing reaches a real project). /rabbit is Salt Hours; ?fixtures=game turns levels and experiences on.",
+      "name": "fx3-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_AUTOLOGIN=tester&& set VITE_DEV_FIXTURES=1&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/amazing-bartik-d9546c/WILSON --port 5292 --strictPort"
+      ],
+      "port": 5292
+    },
+    {
+      "_comment": "FX1 (the shot's frame-count field, display only, no migration): this worktree's dev server on the bundle's port, as the dev fixtures' tester. No .env.local: the four VITE_ variables are set in the process environment, which Vite ranks above .env files (v1-auth's recipe); the Supabase pair is a placeholder the client needs to construct (a closed local port, nothing real is reached), since the fixtures answer every read and write in memory. R.A.B.B.I.T., Salt Hours, Scenes: the frame counts of the scene table's nested shots, the shot table and an edit's cut, and the number fields of the scene and shot popups (walkthrough 64; scripts/shot-number-fields-shots.mjs photographs them).",
+      "name": "fx1-worktree",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_FIXTURES=1&& set VITE_DEV_AUTOLOGIN=tester&& set VITE_SUPABASE_URL=http://127.0.0.1:9&& set VITE_SUPABASE_ANON_KEY=fixtures-only&& npx vite C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/keen-jemison-976d9b/WILSON --port 5290 --strictPort"
+      ],
+      "port": 5290
     }
   ]
 }

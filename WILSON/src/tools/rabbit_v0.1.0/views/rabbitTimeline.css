@@ -723,9 +723,10 @@
     color: var(--color-ink-2);
   }
 
-  /* ═══ The bid version bar (TimelineVersions.jsx) — stage 2, S5d ═══════════
-     Post-overhaul S5d: the zoom toolbar's second row, past the money gate
-     only (F10): the dropdown, the state in words, the verbs at the right.
+  /* ═══ The bid version bar (TimelineVersions.jsx) — stage 2, S5d; FX3 ══════
+     The Timeline's FIRST row, under the project title (FX3, below; S5d drew
+     it as the zoom toolbar's second row), past the money gate only (F10):
+     the dropdown, the state in words, the verbs at the right.
      MEASURED: the first row has 18px left at 1280 with six Group-by tabs and
      the "Shot list:" label (116 grouped by phase with four), and the smallest
      control that says "● Unsaved" and saves is about 290px, so the bar is a
@@ -734,7 +735,15 @@
      (28px) with 4px either side, a hairline under it like the toolbar's, the
      gantt's ground; while a version is VIEWED it takes the kit Banner's info
      tint (the expression `.ui-banner[data-tone="info"]` paints) and its words
-     say so — the mode is never told by colour alone. Tokens only. */
+     say so — the mode is never told by colour alone. Tokens only.
+     FX3 (Audrey, 2026-10-11: "move that to right under the project title ...
+     first you see the project you are in then below is what version you are
+     working off of"): the Timeline's FIRST row, directly under R.A.B.B.I.T.'s
+     project title bar (ProjectContextBar, the chrome every tab shares), and
+     the toolbar closes up where it was. Its label starts on the page gutter,
+     the title bar's own left edge (her second word, the same day: "move the
+     bid version more to the left. make it say 'bid ver.'"; the first cut
+     indented it under "PROJECT"). The rest of the row is S5d's, unchanged. */
   .rb-tl-ver-bar {
     display: flex;
     align-items: center;

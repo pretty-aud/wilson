@@ -44,7 +44,7 @@ import {
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, Badge, CellSelect, statusMeta,
+  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -1839,9 +1839,9 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
           />
         </span>
       )}
-      // The status, where the 3px status-coloured rule under the header used
-      // to say it (R4-05; B2's TaskDetailPopup does the same).
-      subtitle={<StatusBadge status={asset.status || 'not_started'} />}
+      // The status banner across the popup under the title (FX3; every item
+      // popup draws the same one). It reads the live asset.
+      band={<StatusBanner status={asset.status || 'not_started'} />}
       // The backdrop closed it before, and still does.
       dismissOnBackdrop
       onClose={onClose}

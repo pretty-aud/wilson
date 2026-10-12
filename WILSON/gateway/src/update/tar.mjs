@@ -28,12 +28,22 @@ const octal = (buf, start, len) => {
   return s === '' ? 0 : parseInt(s, 8);
 };
 
-/** A safe relative POSIX name, or null. */
+// Names Windows gives another meaning (review round 1, finding 5; the updater
+// writes as LocalSystem): a `:` names an alternate data stream, `<>"|?*` are
+// refused or wildcards, a trailing dot or space is dropped (two names, one
+// file), and a device name is a device, with any extension. And a segment
+// shaped like an 8.3 short name (`LONGFI~1.MJS`) can BE another entry where
+// short names are made (review round 2, note 9).
+const WINDOWS_RESERVED_CHARS = /[<>:"|?*]/;
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
+
+/** A safe relative POSIX name that means one plain file on Windows too, or null. */
 export function safeEntryName(name) {
   if (typeof name !== 'string' || !name || name.length > 255) return null;
   if (name.includes('\\') || name.includes('\0') || name.startsWith('/') || /^[A-Za-z]:/.test(name)) return null;
   const segs = name.split('/').filter((s, i, a) => !(s === '' && i === a.length - 1)); // a trailing slash on a dir
   if (segs.length === 0 || segs.some((s) => s === '' || s === '.' || s === '..' || /[\u0000-\u001f]/.test(s))) return null;
+  if (segs.some((s) => WINDOWS_RESERVED_CHARS.test(s) || /[. ]$/.test(s) || WINDOWS_DEVICE.test(s.split('.')[0].trimEnd()) || /~[0-9]/.test(s))) return null;
   return segs.join('/');
 }
 
@@ -41,6 +51,7 @@ export function safeEntryName(name) {
 export function readTar(input, { gzip = true } = {}) {
   const buf = gzip ? zlib.gunzipSync(input, { maxOutputLength: MAX_UNPACKED }) : Buffer.from(input);
   const out = [];
+  const folded = new Set(); // names as Windows compares them: two that fold together are one file (review round 2, note 9)
   let off = 0;
   let total = 0;
   while (off + BLOCK <= buf.length) {
@@ -60,6 +71,8 @@ export function readTar(input, { gzip = true } = {}) {
     if (type !== '0' && type !== '5') throw new Error(`tar: entry type ${JSON.stringify(type)} refused (${rawName})`);
     const name = safeEntryName(rawName);
     if (!name) throw new Error(`tar: unsafe name ${JSON.stringify(rawName)}`);
+    if (folded.has(name.toUpperCase())) throw new Error(`tar: ${JSON.stringify(name)} is another entry's name in another case`);
+    folded.add(name.toUpperCase());
     if (out.length >= MAX_ENTRIES) throw new Error('tar: too many entries');
     off += BLOCK;
     if (type === '5') {

@@ -136,6 +136,11 @@ export function freshPipeKey(stateDir) {
   return file;
 }
 
+// D14, her ruling of 2026-10-11: the installer ships unsigned for now. Petal
+// never says the gateway is signed until it is (GW4); the install story says
+// the same words (Help, walkthrough 63).
+export const SMARTSCREEN_SUMMARY = 'Windows SmartScreen warned about this installer because it is not signed yet (More info, then Run anyway, is the way past it); a signed build will stop the warning later.';
+
 export function summaryText({ status, result, waitedS }) {
   const lines = ['WILSON Gateway is installed.', ''];
   if (result && !result.ok) lines.push(`The enrolment did not work: ${result.error}`, 'Make a new token in WILSON (Settings, Storage, File gateway) and run, in an administrator prompt:', '  wilson-gateway enrol <token>', '');
@@ -149,7 +154,7 @@ export function summaryText({ status, result, waitedS }) {
   for (const r of status?.doors?.inside?.refused || []) lines.push(`  not used: ${r.address} on ${r.iface} (${r.reason})`);
   if (status?.health_line) lines.push('', 'Now:', `  ${status.health_line.replace(/\*\*/g, '')}`);
   if (!status) lines.push(`The gateway had not reported within ${waitedS} s. Run \`wilson-gateway doctor\` in an administrator prompt in a minute.`);
-  lines.push('', 'Next: give it the share’s login (an administrator prompt): wilson-gateway share-login \\\\server\\share', 'Windows SmartScreen warned about this installer because it is not signed yet; that is expected for this test build.');
+  lines.push('', 'Next: give it the share’s login (an administrator prompt): wilson-gateway share-login \\\\server\\share', SMARTSCREEN_SUMMARY);
   return lines.join('\r\n') + '\r\n';
 }
 

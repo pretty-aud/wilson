@@ -132,6 +132,13 @@ export default function Home({ onNavigate, currentPage }) {
 
   // ── Keyboard navigation ──
   const handleKeyDown = useCallback((e) => {
+    // 🚨 Home stays mounted, hidden, under every other page (App.jsx's
+    // PageSurface), and this listens on `document`: without this line ↑ ↓
+    // were taken from every page (preventDefault — a closed select could not
+    // be opened with Alt+↓ anywhere) and an Enter after one of them opened
+    // Home's first item, D.O.G., from wherever the person was (post-overhaul
+    // FX3 review round 2, R2-01, MEASURED on R.A.B.B.I.T.'s Team gallery).
+    if (currentPage !== 'home') return
     if (!resourcesOpen) {
       // Single-column mode: arrows move through main items
       if (e.key === 'ArrowDown') {
@@ -182,6 +189,7 @@ export default function Home({ onNavigate, currentPage }) {
       handleResourceItemClick(resourcesItems[selectedIndex])
     }
   }, [
+    currentPage,
     selectedIndex,
     activeColumn,
     resourcesOpen,
