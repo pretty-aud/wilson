@@ -103,3 +103,49 @@ describe('walkthrough 61\'s GW4 note', () => {
     expect(wt61).toMatch(/ends \*up to date\*, not \*updates off\s+until a release key is set\*/);
   });
 });
+
+describe('the GW4 hand-off (docs/sessions/handoffs/po-gw4-2026-10-11.md), held to the code', () => {
+  const handoff = read(WILSON, 'docs', 'sessions', 'handoffs', 'po-gw4-2026-10-11.md');
+  const outstanding = read(WILSON, 'docs', 'OUTSTANDING.md');
+  const wt63 = read(WILSON, 'docs', 'walkthroughs', '63_file_gateway_release_and_rehearsal.md');
+  const guide = read(WILSON, 'docs', 'gateway', 'HARDENING.md');
+  it('is in the protocol\'s order (§4), with "For GW5", "Deferred" and "Known limits" after §3, as the post-overhaul hand-offs place them', () => {
+    const heads = [...handoff.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(heads).toEqual([
+      '1. Where you are', '2. State, measured, not remembered', '3. Done and verified',
+      'For GW5 (what to attack in the release path)', 'Deferred', 'Known limits',
+      '4. In flight', '5. Traps hit', '6. Waiting on Audrey', '7. Next session\'s first three steps', '8. Auto-memory: none.',
+    ]);
+    expect(handoff).not.toMatch(/\{\{[A-Z0-9_]+\}\}/); // no placeholder left
+    expect((handoff.match(/<!--/g) || []).length).toBe(0);
+  });
+  it('says which model ran the session and its two review rounds', () => {
+    expect(handoff).toContain('Claude Opus 5.5 (`claude-opus-5-5`)');
+    expect(handoff).toContain('**The two reviewer subagents ran on `model: "opus"` (Opus 5.5), not Fable**');
+    expect(handoff).toMatch(/### Review round 1 \(one reviewer on `model: "opus"`/);
+    expect(handoff).toMatch(/### Review round 2 \(one reviewer on `model: "opus"`/);
+  });
+  it('names the release key\'s FILE and its public half, and no document carries a private key', () => {
+    // Named where the state is told (§2) and where Audrey is asked (§6).
+    for (const [from, to] of [['## 2. State', '## 3. Done'], ['## 6. Waiting on Audrey', '## 7. ']]) {
+      expect(handoff.slice(handoff.indexOf(from), handoff.indexOf(to)), from).toContain('`C:\\Users\\Audrey\\Desktop\\WILSON walkthroughs\\Post-overhaul\\00_GATEWAY_RELEASE_KEY.txt`');
+    }
+    expect(handoff).toContain(`**kid \`${RELEASE_KEYS_WIRE[0].kid}\`, public key \`${RELEASE_KEYS_WIRE[0].public_key}\`**`);
+    // An Ed25519 private key as PKCS#8 in base64 always begins so; none in anything GW4 wrote.
+    for (const [name, text] of Object.entries({ handoff, wt63, guide, design, outstanding })) expect(text, name).not.toMatch(/MC4CAQAwBQYDK2VwBCIEI[A-Za-z0-9+/]{10}/);
+  });
+  it('the dry run it reports is the walkthrough\'s, and its throwaway key is the job\'s public half only', () => {
+    for (const [from, to] of [['## 2. State', '## 3. Done'], ['## 6. Waiting on Audrey', '## 7. ']]) {
+      expect(handoff.slice(handoff.indexOf(from), handoff.indexOf(to)), from).toContain('**gateway-dry-run-38189270049**');
+    }
+    expect(wt63).toContain('**gateway-dry-run-38189270049**');
+    expect(handoff).toContain('`x3oa92MEtCDdCAd4XFj+M/LA9sF8jYQ3dz6zB7xcuLo=`');
+  });
+  it('OUTSTANDING\'s session log has GW4\'s row on top, and the comment markers stay four', () => {
+    const log = outstanding.slice(outstanding.indexOf('## Session log'));
+    const rows = log.split('\n').filter((l) => l.startsWith('| Post-overhaul') || l.startsWith('| Track') || l.startsWith('| UI'));
+    expect(rows[0]).toMatch(/^\| Post-overhaul GW4 \(2026-10-11; `po\/gw4-gateway-release` into `feat\/post-overhaul-edit-versioning`\)/);
+    expect(rows[1]).toMatch(/^\| Post-overhaul GW3 /);
+    expect((outstanding.match(/<!--/g) || []).length).toBe(4);
+  });
+});
