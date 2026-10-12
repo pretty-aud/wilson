@@ -203,7 +203,8 @@ try {
           const bar = document.querySelector('.rb-tl-ver-bar');
           // The project title bar (ProjectContextBar, the chrome every tab shares).
           const title = document.querySelector('.ui-toolbar.rb-ctx');
-          const eyebrow = document.querySelector('.rb-ctx-eyebrow');
+          // FX7: PROJECT is the kit's label now (it was the eyebrow).
+          const eyebrow = document.querySelector('.rb-ctx .ui-field-label') || document.querySelector('.rb-ctx-eyebrow');
           const label = bar?.querySelector('.ui-field-label');
           const tb = [...document.querySelectorAll('.ui-toolbar')].find((t) => t.querySelector('[aria-label="Detail zoom"]'));
           const verbs = bar?.querySelector('.rb-tl-ver-verbs');
