@@ -26,8 +26,22 @@ export const DEFAULT_LIMITS = Object.freeze({
   perPersonStreams: 8,
   perPersonRequestsPerMinute: 600,
   outsideBytesPerHourPerPerson: 30e9,
-  outside: Object.freeze({ newConnectionsPerMinutePerPeer: 60, handshakesPerSecondPerPeer: 20 }),
-  inside: Object.freeze({ newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40 }),
+  // connectionsPerPeer caps the connections ONE peer address may hold OPEN at
+  // once, not the rate it opens them (GW5, finding 1): the per-minute and
+  // per-second caps above bound the RATE, but a peer that opens at its rate and
+  // keeps each connection alive (a cheap request every idle window) accumulates
+  // without bound up to the global pool, so one outside address could fill the
+  // whole outside pool and one LAN host the whole global pool — starving every
+  // other viewer and the office, which §10 row 10 and F11 say cannot happen.
+  // The reserve below protects the inside door from the outside door; it does
+  // nothing for one inside host against other inside hosts. This cap does: one
+  // peer holds at most this many of its door's pool (100 of 300 outside, 100 of
+  // 400 inside), so it takes several distinct addresses to exhaust a door — the
+  // distributed case the design already concedes to the company's router (§10
+  // row 10's residual). A NAT'd remote office is one outside key (R2-5's
+  // tension), so the cap is generous: 100 concurrent is ~16 viewers at once.
+  outside: Object.freeze({ newConnectionsPerMinutePerPeer: 60, handshakesPerSecondPerPeer: 20, connectionsPerPeer: 100 }),
+  inside: Object.freeze({ newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 100 }),
   connections: 400,
   streams: 200,
   insideReserve: 0.25,
@@ -57,7 +71,7 @@ const CEILING = { headerTimeoutMs: 10_000, handshakeTimeoutMs: 10_000, idleMs: 6
 // the tests call without them to exercise a limit in a few requests. A
 // renewal's body must hold a 4096-character ticket.
 const FLOOR = { perPersonStreams: 1, perPersonRequestsPerMinute: 60, outsideBytesPerHourPerPerson: 1e9, connections: 16, streams: 8, headerTimeoutMs: 1_000, handshakeTimeoutMs: 1_000, idleMs: 1_000, bodyBytes: 6 * 1024, streamMaxMs: 60_000, authFailuresPerConnection: 1, requestsPerConnection: 10 };
-const DOOR_FLOOR = { newConnectionsPerMinutePerPeer: 4, handshakesPerSecondPerPeer: 1 };
+const DOOR_FLOOR = { newConnectionsPerMinutePerPeer: 4, handshakesPerSecondPerPeer: 1, connectionsPerPeer: 8 };
 
 /**
  * The config's `limits` over the defaults. A value that is not a positive
@@ -77,7 +91,7 @@ export function resolveLimits(overrides = {}, { floors = false } = {}) {
     out[k] = k in CEILING ? Math.min(v, CEILING[k]) : v;
   }
   for (const door of ['inside', 'outside']) {
-    for (const k of ['newConnectionsPerMinutePerPeer', 'handshakesPerSecondPerPeer']) {
+    for (const k of ['newConnectionsPerMinutePerPeer', 'handshakesPerSecondPerPeer', 'connectionsPerPeer']) {
       const v = o?.[door]?.[k];
       if (v === undefined) continue;
       if (!Number.isSafeInteger(v) || v <= 0) { ignored.push(`${door}.${k}`); continue; }
@@ -193,11 +207,18 @@ export class Pools {
   snapshot() { return JSON.parse(JSON.stringify(this.used)); }
 }
 
-/** The per-door, per-peer connection limiters (new connections a minute, handshakes a second). */
+/**
+ * The per-door, per-peer limiters: the rate of new connections a minute and
+ * handshakes a second, AND `concurrency`, the connections one peer may hold
+ * open at once (GW5, finding 1; released by the door on socket close). A
+ * limits object hand-built without `connectionsPerPeer` (some tests) falls
+ * back to the default cap rather than leaving a peer uncapped.
+ */
 export function peerLimiters(limits, now = Date.now) {
   const make = (door) => ({
     connections: new FixedWindow({ limit: limits[door].newConnectionsPerMinutePerPeer, windowMs: 60_000, now }),
     handshakes: new FixedWindow({ limit: limits[door].handshakesPerSecondPerPeer, windowMs: 1_000, now }),
+    concurrency: new Concurrency({ limit: limits[door].connectionsPerPeer ?? DEFAULT_LIMITS[door].connectionsPerPeer }),
   });
   return { inside: make('inside'), outside: make('outside') };
 }

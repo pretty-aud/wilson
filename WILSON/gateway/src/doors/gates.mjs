@@ -36,8 +36,13 @@ export function makeInsideGate({ peers, limiters, pools, counters }) {
     }
     const key = normalizeIp(peer) || String(peer);
     if (!limiters.connections.hit(key).ok || !limiters.handshakes.hit(key).ok) { counters.rate += 1; return { admit: false, reason: 'rate' }; }
-    if (!pools.openConnection('inside')) { counters.pool += 1; return { admit: false, reason: 'pool' }; }
-    return { admit: true, release: () => pools.closeConnection('inside') };
+    // One peer holds at most connectionsPerPeer open at once (GW5, finding 1):
+    // the rate limits above bound how fast it opens, not how many it keeps, so
+    // without this one LAN host fills the whole pool and starves the office.
+    const relPeer = limiters.concurrency.acquire(key);
+    if (!relPeer) { counters.rate += 1; return { admit: false, reason: 'rate' }; }
+    if (!pools.openConnection('inside')) { relPeer(); counters.pool += 1; return { admit: false, reason: 'pool' }; }
+    return { admit: true, release: () => { pools.closeConnection('inside'); relPeer(); } };
   };
 }
 
@@ -45,7 +50,11 @@ export function makeOutsideGate({ limiters, pools, counters }) {
   return (socket) => {
     const key = outsidePeerKey(socket.remoteAddress);
     if (!limiters.connections.hit(key).ok || !limiters.handshakes.hit(key).ok) { counters.rate += 1; return { admit: false, reason: 'rate' }; }
-    if (!pools.openConnection('outside')) { counters.pool += 1; return { admit: false, reason: 'pool' }; }
-    return { admit: true, release: () => pools.closeConnection('outside') };
+    // One peer (an IPv6 /64 is one, R2-4) holds at most connectionsPerPeer open
+    // at once (GW5, finding 1): otherwise one address fills the outside pool.
+    const relPeer = limiters.concurrency.acquire(key);
+    if (!relPeer) { counters.rate += 1; return { admit: false, reason: 'rate' }; }
+    if (!pools.openConnection('outside')) { relPeer(); counters.pool += 1; return { admit: false, reason: 'pool' }; }
+    return { admit: true, release: () => { pools.closeConnection('outside'); relPeer(); } };
   };
 }
