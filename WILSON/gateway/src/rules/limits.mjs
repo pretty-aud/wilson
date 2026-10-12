@@ -41,9 +41,11 @@ export const DEFAULT_LIMITS = Object.freeze({
   // connections × insideReserve = 100, so the cap is 32, under a third of it —
   // one inside host cannot eat the whole reserve while the outside door is full
   // (round 1 found 100 == the reserve, so one host still starved the office).
-  // resolveLimits clamps the cap to the door's hard max so a config value can
-  // never silently disable it (finding D). A NAT'd remote office is one outside
-  // key (R2-5's tension), so the outside cap is generous: 100 is ~16 viewers.
+  // resolveLimits caps the value at a third of the resolved share for EVERY
+  // config (so a smaller `connections` cannot re-open the starvation, and a
+  // config value can never silently disable the cap — review round 2, A/D). A
+  // NAT'd remote office is one outside key (R2-5's tension), so the outside cap
+  // is generous: 100 is ~16 viewers.
   outside: Object.freeze({ newConnectionsPerMinutePerPeer: 60, handshakesPerSecondPerPeer: 20, connectionsPerPeer: 100 }),
   inside: Object.freeze({ newConnectionsPerMinutePerPeer: 120, handshakesPerSecondPerPeer: 40, connectionsPerPeer: 32 }),
   connections: 400,
@@ -100,20 +102,33 @@ export function resolveLimits(overrides = {}, { floors = false } = {}) {
     if (typeof o.insideReserve === 'number' && o.insideReserve >= 0.1 && o.insideReserve <= 0.9) out.insideReserve = o.insideReserve;
     else ignored.push('insideReserve');
   }
-  // The most connections one peer could ever hold on a door, whatever the
-  // config: the whole pool inside (it may burst past its reserve when the
-  // outside door is idle), the outside door's hard max outside. A
-  // connectionsPerPeer above it is meaningless and would read as "no cap", so
-  // it is clamped down and reported (GW5 review round 1, finding D).
-  const doorHardMax = { inside: out.connections, outside: Math.floor(out.connections * (1 - out.insideReserve)) };
   for (const door of ['inside', 'outside']) {
     for (const k of ['newConnectionsPerMinutePerPeer', 'handshakesPerSecondPerPeer', 'connectionsPerPeer']) {
       const v = o?.[door]?.[k];
       if (v === undefined) continue;
       if (!Number.isSafeInteger(v) || v <= 0) { ignored.push(`${door}.${k}`); continue; }
       if (floors && v < DOOR_FLOOR[k]) { ignored.push(`${door}.${k} (at least ${DOOR_FLOOR[k]})`); continue; }
-      if (k === 'connectionsPerPeer' && v > doorHardMax[door]) { out[door][k] = doorHardMax[door]; ignored.push(`${door}.connectionsPerPeer (clamped to ${doorHardMax[door]})`); continue; }
       out[door][k] = v;
+    }
+  }
+  // connectionsPerPeer must SUBDIVIDE a door's guaranteed share for EVERY config,
+  // not only the defaults (GW5 review round 2, findings A and D): round 1 fixed
+  // the default (inside 32 < the reserve 100) but hardcoded it, so a smaller
+  // `connections` (or a lower insideReserve) made the cap equal or exceed the
+  // reserve again, re-opening the finding-A starvation; and round 1's clamp
+  // clamped only to the whole door share, which is "no cap". Each door's cap is
+  // now capped at a third of its guaranteed share — the inside door's is the
+  // reserve (connections × insideReserve), the outside door's is its hard max
+  // (connections × (1 − insideReserve)) — floored at DOOR_FLOOR. The default
+  // (32 inside, 100 outside) is below these at the default pool, so it is kept
+  // there and auto-tightens for a smaller pool; an explicit config value above
+  // the ceiling is clamped and reported.
+  const share = { inside: Math.floor(out.connections * out.insideReserve), outside: Math.floor(out.connections * (1 - out.insideReserve)) };
+  for (const door of ['inside', 'outside']) {
+    const ceiling = Math.max(DOOR_FLOOR.connectionsPerPeer, Math.floor(share[door] / 3));
+    if (out[door].connectionsPerPeer > ceiling) {
+      if (o?.[door]?.connectionsPerPeer !== undefined) ignored.push(`${door}.connectionsPerPeer (at most ${ceiling}, a third of the ${door === 'inside' ? 'inside reserve' : 'outside share'})`);
+      out[door].connectionsPerPeer = ceiling;
     }
   }
   return { limits: out, ignored };

@@ -194,8 +194,17 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   const release = ctx.perPersonStreams.acquire(authority.sub);
   if (!release) { closeHandle(); return deny(429, 'streams', { headers: { 'Retry-After': '5' } }); }
   if (!ctx.pools.openStream(door)) { release(); closeHandle(); return deny(429, 'pool', { headers: { 'Retry-After': '5' } }); }
+  // Pools.closeStream is NOT idempotent — a second close decrements a DIFFERENT
+  // stream's slot (the floor-at-zero only hides it for the last open stream),
+  // which would corrupt the pool count (review round 2, finding E). So the
+  // stream slot is released through a once-guard, as perPersonStreams' release
+  // and closeHandle already are. Today the catch and done() are mutually
+  // exclusive (handed/finished), but this makes the three releases safe to call
+  // twice whatever a later edit does.
+  let streamSlotClosed = false;
+  const closeStreamSlot = () => { if (!streamSlotClosed) { streamSlotClosed = true; ctx.pools.closeStream(door); } };
   if (door === 'outside' && ctx.outsideBytes.remaining(authority.sub) <= 0) {
-    release(); ctx.pools.closeStream(door); closeHandle();
+    release(); closeStreamSlot(); closeHandle();
     return deny(429, 'bytes_budget', { headers: { 'Retry-After': String(ctx.outsideBytes.retryAfterS(authority.sub)) } });
   }
   // The serve phase, guarded: once the stream slot, the pool slot and the file
@@ -203,8 +212,8 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
   // journal write in viewings.begin, writeHead, createReadStream) must release
   // all three, not leak them to the handler's 500 (GW5 review round 1, finding
   // E). `done()` releases them on the normal path; the catch covers the window
-  // before `done` is wired. Both are idempotent (the released flag, the pool's
-  // floor-at-zero, closeHandle's guard), so neither double-frees.
+  // before `done` is wired. All three releases are once-guarded (release's
+  // released flag, closeStreamSlot, closeHandle), so neither path double-frees.
   let handed = false;
   try {
     const viewing = door === 'outside'
@@ -218,7 +227,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     res.writeHead(plan.status);
     if (plan.length === 0) {
       res.end();
-      release(); ctx.pools.closeStream(door); closeHandle();
+      release(); closeStreamSlot(); closeHandle();
       return undefined;
     }
 
@@ -241,7 +250,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
       finished = true;
       clearInterval(live);
       release();
-      ctx.pools.closeStream(door);
+      closeStreamSlot();
       if (viewing) ctx.viewings.served(viewing, { start: plan.start, bytes: sent });
       ctx.log('clip_served', { door, status: plan.status, jti: stream.jti, bytes: sent, peer: source.address, via: source.via });
     };
@@ -253,7 +262,7 @@ export async function serveClip(ctx, req, res, { door, clipId, extraHeaders = {}
     handed = true;
     return undefined;
   } catch (e) {
-    if (!handed) { release(); ctx.pools.closeStream(door); closeHandle(); }
+    if (!handed) { release(); closeStreamSlot(); closeHandle(); }
     throw e;
   }
 }
