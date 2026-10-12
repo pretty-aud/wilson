@@ -1394,7 +1394,8 @@ function TaskItemPickerOverlay({ ctx, items, rows, onPick, onClose }) {
         <IconButton size="sm" Icon={X} title="Close" onClick={onClose} />
       </div>
       <PickerSearch value={search} onChange={setSearch}
-        placeholder="Search assets, scenes, shots…" label="Search the project's items" />
+        placeholder={`Search ${kinds.map(k => KIND_LABEL_PLURAL[k].toLowerCase()).join(', ')}…`}
+        label="Search the project's items" />
       {scopeOn && (
         <div className="rb-rel-pick-scope">
           <Switch checked={showAllLists} onChange={setShowAllLists} label="Show all lists" />

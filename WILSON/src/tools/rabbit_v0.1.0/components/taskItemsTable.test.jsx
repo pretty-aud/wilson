@@ -114,6 +114,23 @@ describe('the verbs', () => {
     expect([...pick.querySelectorAll('.rb-rel-pick-row')].map(b => b.textContent)).toEqual(["Father's boat"])
   })
 
+  it('the search names the kinds the picker offers (in a game project, its levels and experiences too)', () => {
+    open(ctxOf())
+    fireEvent.click(within(table()).getByRole('button', { name: 'Add an item' }))
+    expect(within(document.querySelector('.rb-rel-items-pick')).getByLabelText("Search the project's items").getAttribute('placeholder'))
+      .toBe('Search assets, scenes, shots…')
+    cleanup(); _resetOverlaysForTests()
+    open(ctxOf({
+      project: { id: 'p1', scenes_enabled: true, levels_enabled: true, experiences_enabled: true },
+      levels: [{ id: 'l1', name: 'Lamp Room', status: 'in_progress' }], experiences: [{ id: 'e1', name: 'First Light', status: 'in_progress' }],
+    }))
+    fireEvent.click(within(table()).getByRole('button', { name: 'Add an item' }))
+    const pick = document.querySelector('.rb-rel-items-pick')
+    expect(within(pick).getByLabelText("Search the project's items").getAttribute('placeholder'))
+      .toBe('Search assets, scenes, shots, levels, experiences…')
+    expect([...pick.querySelectorAll('.rb-rel-kind')].map(g => g.getAttribute('aria-label'))).toEqual(['Assets', 'Scenes', 'Shots', 'Levels', 'Experiences'])
+  })
+
   it('Escape in the picker closes the picker, not the window', () => {
     const onClose = vi.fn()
     render(<TaskDetailPopup taskId="t1" ctx={ctxOf()} onClose={onClose} />)
