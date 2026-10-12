@@ -1297,6 +1297,14 @@ describe('FX1: the cut\'s frame count is the number field', () => {
     // No edit question: a shot's own fields are not the cut's order (D3, D13).
     expect(screen.queryByRole('dialog')).toBeNull()
   })
+  it('R2-02: a zero in the cut steps no lower and writes nothing (the cut\'s min); it steps up', () => {
+    const { ctx } = page({ shots: SHOTS().map((s) => (s.id === 'sh2' ? { ...s, frame_count: 0 } : s)) })
+    pickEdit('edit-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease Frames for The cold lamp (cut 5)' }))
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Increase Frames for The cold lamp (cut 5)' }))
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh2', { frame_count: 1 })
+  })
   it('a reviewer\'s cut has disabled fields with no chevrons, the six-digit count still capped; a change that reaches one (jsdom fires it) writes nothing', () => {
     perms.current = { role: 'user', ready: true, can: () => false, userId: 'u-1' }
     const { ctx } = page({ shots: BIG(), adapterMode: 'supabase', myProjectRole: 'reviewer', projectIsStaffed: true })

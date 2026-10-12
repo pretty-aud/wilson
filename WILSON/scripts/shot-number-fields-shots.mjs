@@ -23,12 +23,15 @@
  * Each picture is `<prefix><nn>-<state>-<W>x<H>.png` (the viewport, one CSS
  * pixel a pixel) and, for the close-ups, `<prefix><nn>-<state>-zoom-<W>x<H>.png`
  * (the frames column at twice the size). Last, unphotographed, a seven-digit
- * figure in the cut at rest and focused (the tables' field holds six whole).
+ * figure in the cut at rest and focused (the tables' field holds six whole),
+ * and a chevron held for 1.5 s: the steps it took (the browser's spinner took
+ * 23 to 25 in the app, FX1 review round 2; fewer than 20 is flagged).
  * Needs the worktree's own dev server with the dev fixtures
  * (VITE_DEV_FIXTURES=1, VITE_DEV_AUTOLOGIN=tester; `fx1-worktree` in
- * .claude/launch.json), and refuses to write anything unless the fixtures
- * badge says they are on. Changes nothing that outlives the page: the
- * fixture store is in memory and the browser context is fresh per run.
+ * .claude/launch.json), and changes nothing in the app unless the fixtures
+ * badge says they are on (it stops before its first write; --out and --json
+ * are still written). Changes nothing that outlives the page: the fixture
+ * store is in memory and the browser context is fresh per run.
  * Animations and transitions are off and the caret is transparent, in this
  * page only. A state whose control is not found stops the run and says
  * which.
@@ -332,6 +335,21 @@ try {
   await field('Frames for The door (cut ').click();
   print([await measure('cut-7-focus', 'Frames for The door (cut ')]);
   await field('Frames for The door (cut ').evaluate((el) => el.blur());
+
+  // A chevron held for 1.5 s (review round 2, R2-01): the steps it takes.
+  const held = 'Frames for The path, wide (cut ';
+  await setTo(held, 1000);
+  await field(held).hover();
+  const chevron = page.locator(`button[aria-label^="Increase ${held}"]`).first();
+  const cb = await (await must(chevron, 'the Increase chevron of The path, wide')).boundingBox();
+  await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+  await page.mouse.down();
+  await sleep(1500);
+  await page.mouse.up();
+  await sleep(300);
+  const steps = Number(await field(held).inputValue()) - 1000;
+  report.hold = { ms: 1500, steps };
+  console.log(`  ${W}x${H} — a chevron held 1.5 s: ${steps} steps${steps < 20 ? '  ⚠ fewer than 20 (the browser took 23–25)' : ''}`);
 } finally {
   await browser.close();
   if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));

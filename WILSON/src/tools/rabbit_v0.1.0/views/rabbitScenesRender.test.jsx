@@ -3571,6 +3571,18 @@ describe('FX1: the number fields of the shot rows and the popups', () => {
     expect(within(dialog).getByRole('spinbutton', { name: 'Scene number' }).value).toBe('0')
   })
 
+  it('R2-02: a zero steps no lower and writes nothing in the nest and in the shot popup\'s Frame count, as in the shot table (each call site\'s min)', () => {
+    const { ctx } = page()
+    openScene('Lighthouse, dawn')
+    step(rowOf('The cold lamp'), 'Decrease', 'Frames for The cold lamp')
+    const dialog = openShotPopup('The cold lamp')
+    step(dialog, 'Decrease', 'Frame count')
+    expect(ctx.updateShot).not.toHaveBeenCalled()
+    // CONTROL: the same field steps up from its zero.
+    step(dialog, 'Increase', 'Frame count')
+    expect(ctx.updateShot).toHaveBeenLastCalledWith('sh2', { frame_count: 1 })
+  })
+
   it('R1-06: the tables\' fields wear the tables\' sizing (rb-scene-frames: 76px, right-aligned) and the popups\' fields do not', () => {
     page({ shots: BIG() })
     const variantOf = (el) => el.closest('.rb-scene-number').classList.contains('rb-scene-frames')

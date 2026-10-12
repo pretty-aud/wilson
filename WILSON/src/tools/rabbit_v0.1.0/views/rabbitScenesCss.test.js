@@ -965,10 +965,14 @@ describe('FX1: the number fields on the sheet', () => {
     expect(declaredValue(sheet, HOVER, 'border-color')).toBe(declaredValue(indexCss, kit, 'border-color'))
     expect(gt(specificity(HOVER), specificity(kit))).toBeGreaterThan(0)
   })
-  it('R1-09: under forced colours the field shows its own text and no cap', () => {
+  it('R1-09 / R2-03: under forced colours the field shows its own text and no cap, and a figure too long for it ends in the field\'s own ellipsis', () => {
     const block = forcedBlock(sheet)
     expect(block, 'the forced-colors block').not.toBeNull()
     expect(declaredValue(block, '.rb-scene-number-cap', 'display')).toBe('none')
+    expect(declaredValue(block, FIELD, 'text-overflow')).toBe('ellipsis')
+  })
+  it('R2-06: the cap is never part of a selection — a drag over the row copies the field\'s whole number alone', () => {
+    expect(declaredValue(sheet, '.rb-scene-number-cap', 'user-select')).toBe('none')
   })
   it('R1-10: an edit\'s missing shot keeps its dash 12px in, as the numeric cells\' figures are', () => {
     expect(declaredValue(sheet, `${CELL} > .rb-scene-cut-none`, 'margin-right')).toBe('6px')
@@ -983,13 +987,14 @@ describe('FX1: the number fields on the sheet', () => {
       ['.rb-scene-number-cap', 'left'], ['.rb-scene-number-cap', 'right'], [FRAMES, 'width'], [CELL, 'padding-left'], [CELL, 'padding-right'],
       [FIELD, 'font-variant-numeric'], ['.rb-scene-number-cap', 'font-variant-numeric'], ['.rb-scene-number-cap', 'top'],
       ['.rb-scene-number-btn', 'color'], ['.rb-scene-number-btn > svg', 'width'], ['.rb-scene-number-btn:hover', 'background-color'],
-      [HOVER, 'border-color'], [`${CELL} > .rb-scene-cut-none`, 'margin-right'],
+      [HOVER, 'border-color'], [`${CELL} > .rb-scene-cut-none`, 'margin-right'], ['.rb-scene-number-cap', 'user-select'],
     ]
     for (const [sel, prop] of OUT) expect(declaredValue(withDeclaration(sheet, sel, prop, null), sel, prop), `${sel} { ${prop} }`).toBe(null)
     expect(roomOf(64)).toBeLessThan(MEASURED.six)
     // The forced-colors rule, taken out, no longer reads; the chevrons' ink
     // made transparent is not the second ink.
     expect(forcedBlock(sheet.replace(/@media\s*\(\s*forced-colors\s*:\s*active\s*\)/, '@media (prefers-contrast: more)'))).toBeNull()
+    expect(declaredValue(forcedBlock(withDeclaration(sheet, FIELD, 'text-overflow', null)), FIELD, 'text-overflow')).toBe(null)
     expect(declaredValue(withDeclaration(sheet, '.rb-scene-number-btn', 'color', 'transparent'), '.rb-scene-number-btn', 'color')).not.toBe('var(--color-ink-2)')
   })
 })

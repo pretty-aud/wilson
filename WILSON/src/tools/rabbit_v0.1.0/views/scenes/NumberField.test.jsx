@@ -18,8 +18,10 @@ import NumberField from './NumberField'
 
 afterEach(cleanup)
 
-/** The frame count, as the shot table holds it: min 0, a blank or a refusal is 0. */
-function Frames({ start, log, disabled = false }) {
+/** The frame count, as the shot table holds it: min 0, a blank or a refusal
+    is 0. `onStep` runs inside each write — a test's stand-in for the time a
+    write's re-render takes. */
+function Frames({ start, log, disabled = false, onStep }) {
   const [n, setN] = useState(start)
   return (
     <NumberField min={0} value={n ?? ''}
@@ -27,6 +29,7 @@ function Frames({ start, log, disabled = false }) {
         const v = parseInt(e.target.value, 10)
         const next = Number.isFinite(v) && v >= 0 ? v : 0
         log.push(next)
+        onStep?.()
         setN(next)
       }}
       disabled={disabled}
@@ -162,7 +165,7 @@ describe('FX1: the field\'s own chevrons', () => {
     expect(shown(el)).toBe('123456')
   })
 
-  it('the chevrons are not tab stops (the arrow keys step a focused field, as before)', () => {
+  it('the chevrons are not tab stops', () => {
     render(<Frames start={240} log={[]} />)
     expect([up(), down()].map((b) => [b.getAttribute('type'), b.getAttribute('tabindex')])).toEqual([['button', '-1'], ['button', '-1']])
   })
@@ -193,15 +196,17 @@ describe('FX1: the field\'s own chevrons', () => {
 describe('FX1 review round 1: holding, disabling, leading zeros', () => {
   const up = () => screen.getByRole('button', { name: 'Increase Frames for The door' })
   const down = () => screen.getByRole('button', { name: 'Decrease Frames for The door' })
-  afterEach(() => vi.useRealTimers())
+  // The page's clock is the fake one: the beat is reckoned against it.
+  const fakeClock = () => { vi.useFakeTimers(); vi.spyOn(performance, 'now').mockImplementation(() => Date.now()) }
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
-  it('R1-05: a held chevron steps once on the press, again after 400ms, then every 50ms, and stops when it is let go', () => {
-    vi.useFakeTimers()
+  it('R1-05 / R2-01: a held chevron steps once on the press, again 250ms later, then every 50ms, and stops when it is let go', () => {
+    fakeClock()
     const log = []
     render(<Frames start={2000} log={log} />)
     fireEvent.pointerDown(up(), { button: 0 })
     expect(log).toEqual([2001])
-    act(() => vi.advanceTimersByTime(399))
+    act(() => vi.advanceTimersByTime(249))
     expect(log).toEqual([2001])
     act(() => vi.advanceTimersByTime(1))
     expect(log).toEqual([2001, 2002])
@@ -214,31 +219,28 @@ describe('FX1 review round 1: holding, disabling, leading zeros', () => {
     expect([log.length, field().value]).toEqual([5, '2005'])
   })
 
-  it('R1-05: the repeat also stops when the pointer leaves the chevron, when the field blurs, and at min; a right button does nothing', () => {
-    vi.useFakeTimers()
+  it('R1-05: the repeat stops when the field blurs and at min; a right button does nothing', () => {
+    fakeClock()
     const log = []
-    render(<Frames start={2} log={log} />)
-    fireEvent.pointerDown(up(), { button: 0 })
-    fireEvent.pointerLeave(up())
-    act(() => vi.advanceTimersByTime(1000))
-    expect(log).toEqual([3])
+    render(<Frames start={3} log={log} />)
     fireEvent.pointerDown(up(), { button: 0 })
     act(() => field().focus())
     act(() => field().blur())
     act(() => vi.advanceTimersByTime(1000))
-    expect(log).toEqual([3, 4])
+    expect(log).toEqual([4])
+    fireEvent.pointerUp(up(), { button: 0 })
     // Held down from 4: 3 on the press, 2, 1, 0, then nothing — min is 0.
     fireEvent.pointerDown(down(), { button: 0 })
     act(() => vi.advanceTimersByTime(5000))
-    expect(log).toEqual([3, 4, 3, 2, 1, 0])
+    expect(log).toEqual([4, 3, 2, 1, 0])
     fireEvent.pointerUp(down(), { button: 0 })
     fireEvent.pointerDown(up(), { button: 2 })
     act(() => vi.advanceTimersByTime(1000))
-    expect(log).toEqual([3, 4, 3, 2, 1, 0])
+    expect(log).toEqual([4, 3, 2, 1, 0])
   })
 
   it('R1-05: a held Decrease under a caller that refuses the figure (a scene number at 0) offers it once, writes nothing and stops', () => {
-    vi.useFakeTimers()
+    fakeClock()
     const log = []
     const calls = []
     render(<SceneNumber start={0} log={log} calls={calls} />)
@@ -280,5 +282,107 @@ describe('FX1 review round 1: holding, disabling, leading zeros', () => {
     act(() => el.focus())
     act(() => el.blur())
     expect([el.value, log]).toEqual(['', []])
+  })
+})
+
+/* Review round 2's corrections: the hold at the browser's pace and on its
+   terms (R2-01), its release pinned for both chevrons (R2-02), what round 1
+   added that nothing pinned (R2-14), a touch's first tap (R2-15). */
+describe('FX1 review round 2: the hold\'s pace, its release, its cleanup, a first tap', () => {
+  const up = () => screen.getByRole('button', { name: 'Increase Frames for The door' })
+  const down = () => screen.getByRole('button', { name: 'Decrease Frames for The door' })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  it('R2-01: the beat is kept against the page\'s clock — a write whose re-render takes 40ms of its 50 does not stretch the next — 26 steps or more in a 1.5 s hold', () => {
+    vi.useFakeTimers()
+    // The page's clock runs on by `lag` while each write re-renders: what
+    // the hold reads with performance.now(), the timers do not see.
+    let lag = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now() + lag)
+    const log = []
+    render(<Frames start={0} log={log} onStep={() => { lag += 40 }} />)
+    const start = performance.now()
+    fireEvent.pointerDown(up(), { button: 0 })
+    while (performance.now() - start < 1500) act(() => vi.advanceTimersByTime(1))
+    fireEvent.pointerUp(up(), { button: 0 })
+    // The press, then one at 250ms and every 50ms to 1500: 27 at most.
+    expect(log.length).toBeGreaterThanOrEqual(26)
+    expect(log.length).toBeLessThanOrEqual(27)
+  })
+
+  it('R2-01 / R2-02: either chevron, held, keeps counting when the pointer slides off it, as the browser\'s spinner did, and stops when it is let go on it, let go anywhere else, or cancelled', () => {
+    const RELEASES = [
+      ['let go on the chevron', (b) => fireEvent.pointerUp(b, { button: 0 })],
+      ['let go elsewhere', () => fireEvent.pointerUp(document.body, { button: 0 })],
+      ['cancelled', () => fireEvent(window, new Event('pointercancel'))],
+    ]
+    for (const [which, chevron, sign] of [['Increase', up, 1], ['Decrease', down, -1]]) {
+      for (const [how, release] of RELEASES) {
+        cleanup()
+        vi.useFakeTimers()
+        vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+        const log = []
+        render(<Frames start={100} log={log} />)
+        const b = chevron()
+        fireEvent.pointerDown(b, { button: 0 })
+        act(() => vi.advanceTimersByTime(300))
+        fireEvent.pointerLeave(b)
+        act(() => vi.advanceTimersByTime(100))
+        expect(log, `${which}, slid off`).toEqual([1, 2, 3, 4, 5].map((k) => 100 + sign * k))
+        release(b)
+        act(() => vi.advanceTimersByTime(1000))
+        expect(log.length, `${which}, ${how}`).toBe(5)
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+      }
+    }
+  })
+
+  it('R2-14: a press on one chevron while the other is held takes over — only the newest repeats', () => {
+    vi.useFakeTimers()
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+    const log = []
+    render(<Frames start={100} log={log} />)
+    fireEvent.pointerDown(up(), { button: 0 })
+    act(() => vi.advanceTimersByTime(300))
+    fireEvent.pointerDown(down(), { button: 0 })
+    act(() => vi.advanceTimersByTime(300))
+    fireEvent.pointerUp(down(), { button: 0 })
+    act(() => vi.advanceTimersByTime(1000))
+    expect(log).toEqual([101, 102, 103, 102, 101, 100])
+  })
+
+  it('R2-14: a field unmounted or disabled mid-hold takes the window\'s listeners away and steps no more', () => {
+    for (const end of ['unmount', 'disable']) {
+      cleanup()
+      vi.useFakeTimers()
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+      const added = vi.spyOn(window, 'addEventListener')
+      const removed = vi.spyOn(window, 'removeEventListener')
+      const log = []
+      const { rerender, unmount } = render(<Frames start={100} log={log} />)
+      fireEvent.pointerDown(up(), { button: 0 })
+      const listener = added.mock.calls.find(([type]) => type === 'pointerup')?.[1]
+      expect(listener, end).toBeTypeOf('function')
+      removed.mockClear()
+      if (end === 'unmount') unmount()
+      else rerender(<Frames start={100} log={log} disabled />)
+      expect(removed.mock.calls.filter(([type, fn]) => fn === listener).map(([type]) => type).sort(), end).toEqual(['pointercancel', 'pointerup'])
+      act(() => vi.advanceTimersByTime(1000))
+      expect(log, end).toEqual([101])
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('R2-15: a click whose press landed elsewhere — a touch\'s first tap, the chevrons not yet showing — steps once; a click after the chevron\'s own press does not', () => {
+    const log = []
+    render(<Frames start={240} log={log} />)
+    fireEvent.click(up(), { detail: 1 })
+    expect(log).toEqual([241])
+    fireEvent.pointerDown(down(), { button: 0 })
+    fireEvent.pointerUp(down(), { button: 0 })
+    fireEvent.click(down(), { detail: 1 })
+    expect(log).toEqual([241, 240])
   })
 })

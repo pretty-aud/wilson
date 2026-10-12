@@ -729,6 +729,9 @@
     overflow: hidden;
     white-space: nowrap;
     pointer-events: none;
+    /* Never part of a selection: a drag over the row copies the field's
+       whole number, not the cap's five figures as well (R2-06). */
+    user-select: none;
     font-family: var(--font-sans);
     font-size: var(--text-dense);
     font-variant-numeric: tabular-nums;
@@ -737,9 +740,13 @@
   .rb-scene-number-input:disabled + .rb-scene-number-cap { color: var(--color-ink-3); }
   /* Forced colours (Windows High Contrast) paint the field's text whatever
      its fill says, so the hidden figure would show around the cap: there
-     the field shows its own text and no cap (R1-09). */
+     the field shows its own text and no cap (R1-09), and a figure too long
+     for the field ends in the field's own ellipsis rather than a sliver of
+     its next digit (review round 2, R2-03: 1234567 read "123456" and a
+     sliver of the 7; now "12345…"). */
   @media (forced-colors: active) {
     .rb-scene-number-cap { display: none; }
+    .rb-scene-number > .ui-input.rb-scene-number-input { text-overflow: ellipsis; }
   }
   /* The chevrons: one step each, the second ink, the ink and the hover fill
      under the pointer. */
