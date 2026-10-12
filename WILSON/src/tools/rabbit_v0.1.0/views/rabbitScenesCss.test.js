@@ -70,7 +70,7 @@ const FILES = {
     min: 3000,
     staged: [],
   },
-  // …and New shot list / Save as… / Edit details.
+  // …and New shot list / Save edit as… / Edit details.
   form: {
     file: './scenes/ShotListForm.jsx',
     prefix: 'rb-scene-',

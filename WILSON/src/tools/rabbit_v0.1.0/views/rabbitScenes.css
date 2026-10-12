@@ -1499,7 +1499,7 @@
   .rb-scene-lists-entry:hover > .rb-scene-lists-entry-note,
   .rb-scene-lists-entry[data-selected="true"] > .rb-scene-lists-entry-note { color: var(--color-ink-2); }
 
-  /* ═══ New shot list, Save as…, Edit details (post-overhaul S3b, step 5) ═══
+  /* ═══ New shot list, Save edit as…, Edit details (post-overhaul S3b, step 5) ═══
      views/scenes/ShotListForm.jsx: the kit Dialog at the form width, the
      kit's Field stack and Switch. The toggle with the name the list will
      take under it, in the second ink — or the refusal, in the danger ink. */

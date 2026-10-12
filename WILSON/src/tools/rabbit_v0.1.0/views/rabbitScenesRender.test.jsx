@@ -1778,7 +1778,7 @@ describe('S3b step 3: the list bar', () => {
     expect(b.querySelector('.ui-status').getAttribute('data-status')).toBe('active')
     expect(b.querySelector('.rb-scene-lists-note').textContent).toBe('Never saved')
     // Set active is hidden on the active list; no button on the bar is filled.
-    expect(barControls()).toEqual(['New shot list', 'Shot lists…', 'Save', 'Save as…', 'More shot list actions'])
+    expect(barControls()).toEqual(['New shot list', 'Shot lists…', 'Save', 'Save edit as…', 'More shot list actions'])
     expect([...b.querySelectorAll('.ui-btn')].map((x) => x.getAttribute('data-variant'))).toEqual(['secondary', 'secondary', 'ghost', 'ghost'])
   })
 
@@ -1787,7 +1787,7 @@ describe('S3b step 3: the list bar', () => {
     page(TWO_LISTS())
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
     expect(bar().querySelector('.ui-status')).toBeNull()
-    expect(barControls()).toEqual(['Show the active list', 'New shot list', 'Shot lists…', 'Save', 'Save as…', 'Set active', 'More shot list actions'])
+    expect(barControls()).toEqual(['Show the active list', 'New shot list', 'Shot lists…', 'Save', 'Save edit as…', 'Set active', 'More shot list actions'])
     fireEvent.click(within(bar()).getByRole('button', { name: 'Active: Shoot · v1' }))
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Shoot · v1')
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Cliff path'])
@@ -1864,7 +1864,7 @@ describe('S3b step 3: the list bar', () => {
       remember('list-b', 'u-1')
       page({ ...TWO_LISTS(), ...seat(role) })
       expect(greyed('New shot list'), role).toBeNull()
-      expect(greyed('Save as…'), role).toBeNull()
+      expect(greyed('Save edit as…'), role).toBeNull()
       expect(greyed('Set active').getAttribute('title'), role).toBe('Only a project manager or a workspace admin can make a shot list active or archive one.')
       expect(barMenu().find(([w]) => w === 'Archive'), role).toEqual(['Archive', true])
       cleanup()
@@ -1916,9 +1916,9 @@ describe('S3b step 3: the list bar', () => {
     expect(bar().querySelector('.rb-scene-lists-name').textContent).toBe('Pickups · v1')
     expect(bar().querySelector('.ui-status').textContent).toBe('Withdrawn')
     expect(rowNames(sceneTable())).toEqual(['Lighthouse, dawn', 'Harbour café'])
-    // Read-only: no Save, no Set active; Save as… may start a new list from
+    // Read-only: no Save, no Set active; Save edit as… may start a new list from
     // it, and the More menu restores it. The mark's line is still there.
-    expect(barControls()).toEqual(['Open', 'Restore', 'New shot list', 'Shot lists…', 'Save as…', 'More shot list actions'])
+    expect(barControls()).toEqual(['Open', 'Restore', 'New shot list', 'Shot lists…', 'Save edit as…', 'More shot list actions'])
     fireEvent.click(within(line).getByRole('button', { name: 'Restore' }))
     await waitFor(() => expect(ctx.restoreWithdrawn).toHaveBeenCalledTimes(1))
     // R.A.B.B.I.T. leaves the screen; then the tab unmounts.
@@ -2178,7 +2178,7 @@ describe('S3b step 4: the picker', () => {
   })
 })
 
-/* ── post-overhaul S3b, step 5: New shot list, Save as…, Edit details ───────
+/* ── post-overhaul S3b, step 5: New shot list, Save edit as…, Edit details ───────
    One kit Dialog at the form width: Title, "Same title, next version" (D14),
    Summary, and — for a new list — Start from (linked, not copied, D1 + D3). */
 const formDialog = (name) => screen.getByRole('dialog', { name })
@@ -2186,7 +2186,7 @@ const titleField = (dialog) => within(dialog).getByRole('textbox', { name: 'Titl
 const takes = (dialog) => dialog.querySelector('.rb-scene-listform-takes')
 const create = (dialog, verb) => within(dialog).getByRole('button', { name: verb })
 
-describe('S3b step 5: New shot list, Save as…, Edit details', () => {
+describe('S3b step 5: New shot list, Save edit as…, Edit details', () => {
   it('New shot list: the kit Dialog at the form width, its title the list on screen\'s, selected; off the toggle, a taken "Title · v1" is refused before anything is sent', async () => {
     const { ctx } = page(TWO_LISTS())
     fireEvent.click(within(bar()).getByRole('button', { name: 'New shot list' }))
@@ -2242,9 +2242,9 @@ describe('S3b step 5: New shot list, Save as…, Edit details', () => {
     await waitFor(() => expect(ctx.addShotList).toHaveBeenLastCalledWith({ title: 'Scratch', version: 1, summary: null }))
   })
 
-  it('Save as…: the same dialog, fixed to the list on screen with the toggle on — a new version of it, linked', async () => {
+  it('Save edit as…: the same dialog, fixed to the list on screen with the toggle on — a new version of it, linked', async () => {
     const { ctx } = page(TWO_LISTS())
-    fireEvent.click(within(bar()).getByRole('button', { name: 'Save as…' }))
+    fireEvent.click(within(bar()).getByRole('button', { name: 'Save edit as…' }))
     const dialog = formDialog('Save as a new version')
     expect(dialog.querySelector('.ui-dialog-subtitle').textContent).toBe('A new list from “Shoot · v1”: the same scenes and shots, linked — not copied.')
     expect(within(dialog).getByRole('switch', { name: 'Same title, next version' }).getAttribute('aria-checked')).toBe('true')

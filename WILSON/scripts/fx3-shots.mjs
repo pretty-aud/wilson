@@ -252,6 +252,14 @@ try {
       const saveAs = bar.getByRole('button', { name: /^Save (edit )?as…$/ }).first();
       await must(saveAs, 'the bar\'s Save as… / Save edit as…');
       console.log(`  the button reads: "${(await saveAs.textContent()).trim()}"`);
+      // The bar must still hold every control on one line (no overflow, no wrap).
+      console.log(`  the bar: ${JSON.stringify(await bar.evaluate((b) => {
+        const r = b.getBoundingClientRect();
+        const btns = [...b.querySelectorAll('button')].map((x) => x.getBoundingClientRect());
+        return { w: Math.round(r.width), scrollW: b.scrollWidth, clientW: b.clientWidth, h: Math.round(r.height),
+          rows: new Set(btns.map((x) => Math.round(x.top))).size,
+          saveAsW: Math.round([...b.querySelectorAll('button')].find((x) => /^Save (edit )?as…$/.test(x.textContent.trim())).getBoundingClientRect().width) };
+      }))}`);
       await saveAs.hover();
       await shot('bar', { hover: false });
       await saveAs.click();

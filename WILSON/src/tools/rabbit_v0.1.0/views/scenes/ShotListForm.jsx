@@ -1,5 +1,5 @@
 // ============================================================
-// RABBIT — New shot list, Save as…, Edit details (post-overhaul S3b, step 5)
+// RABBIT — New shot list, Save edit as…, Edit details (post-overhaul S3b, step 5)
 // ============================================================
 //
 // One kit Dialog at the form width for the three. Its fields, in order:
@@ -7,13 +7,13 @@
 //             replaces it)
 //   "Same title, next version"  (D14) — on, the title is the list's and the
 //             version the next free one (nextShotListVersion); off, a title
-//             of the person's own at v1. On by default for Save as…; never
+//             of the person's own at v1. On by default for Save edit as…; never
 //             shown for Edit details, which does not re-version.
 //   Summary   "What this shot list is"
 //   Start from (New only): the list on screen — the SAME scenes and shots,
 //             linked, not copied (D1 + D3) — every scene and shot in the
 //             project (`fromAll`, the default when there is no list on
-//             screen to start from), or empty. Save as… is always the list
+//             screen to start from), or empty. Save edit as… is always the list
 //             on screen.
 // The name the list will take reads under the toggle ("Shoot · v2"), and a
 // refusal reads there before anything is sent: shotListModel's own
