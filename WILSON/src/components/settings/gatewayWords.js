@@ -30,50 +30,93 @@ export const GATEWAY_CERT_PARAGRAPH = [
   ' that says "trust certificates for the gateway\'s names", and a certificate for its names signed by that root. Browsers do not trust the root until you tell them to, once per computer: download it from this page (it comes from WILSON\'s cloud, so you never click past a warning) and install it as a trusted root. That is two minutes per computer, or one Group Policy for a Windows domain. From then on every browser on that computer trusts the gateway, and the gateway renews its own certificate for years without you. People outside the office use a different, public certificate (below), so nothing is installed on their computers.',
 ]
 
-// ── §11, verbatim ────────────────────────────────────────────────────────────
-// Each step: { lead, text, items? }. `lead` is the bold opening words; a step
-// item with `mounts: true` is where the card lists the computed mount lines.
+// ── The two install stories (GW4, 2026-10-11) ────────────────────────────────
+// GATEWAY_DESIGN.md §11 wrote them for the design's reader; these are the
+// built gateway's, as the admin reads them, in the ONE text both places show:
+// the card's two tabs under Add a gateway (GatewaySettings.jsx) and Help's two
+// pages, File gateway on a NAS and File gateway on Windows
+// (rabbitHelpContent.jsx). Each: { intro, steps: [{ lead, text, items? }],
+// after: [{ lead, text }] }; a step item with `mounts: true` is where the card
+// lists the mount lines it computes for the company's own locations.
+//
+// What they say that §11 did not (the GW4 brief, item 4): the release on
+// GitHub (the MSI and the image by digest); the MSI is NOT signed yet (D14,
+// her ruling of 2026-10-11), so SmartScreen warns and More info, then Run
+// anyway, passes it; GW3's four things a browser's user must be told (the
+// certificate, Chrome's question, the gateway's own computer, what plays), in
+// the Bins tab's own words (binLocations.js holds them; gatewayWords imports
+// nothing, so they are copied here and gatewayWords.test.js holds the copies
+// to the originals); a domain's computer account (connect_without_login); the
+// DHCP reservation for the forward; nothing ever in front of 8443; the NAS's
+// reverse proxy with the gateway's root pinned; the free certificate and
+// Let's Encrypt's terms; a stopped install and its log.
 
-// `intro` leaves out §11's framing sentence ("Read as the admin reads it, on
-// the Settings card…"), which speaks to the design's reader, not the admin.
-// `after` is §11's closing paragraphs, each with its bold lead.
+// GW3's sentences, word for word (bins/binLocations.js; held equal by the test).
+export const BROWSER_CERTIFICATE_SENTENCE = 'On the office network, the gateway\'s certificate must be installed on this computer (Settings, Storage).'
+export const BROWSER_CHROME_SENTENCE = 'Chrome will ask whether WILSON may reach devices on your network; allow it once.'
+export const BROWSER_OWN_COMPUTER_SENTENCE = 'On the gateway\'s own computer the office door does not answer its own host: use another computer on the office network, or the outside door while the switch is on.'
+export const BROWSER_FORMAT_SENTENCE = 'This clip\'s format does not play in a browser; the desktop app plays it.'
+
+/** Where a release is, for both stories: the public repository's Releases page. */
+export const GATEWAY_RELEASES_PAGE = 'github.com/pretty-aud/wilson/releases'
+/** The hardening guide (docs/gateway/HARDENING.md), linked from Help. */
+export const HARDENING_GUIDE_URL = 'https://github.com/pretty-aud/wilson/blob/main/WILSON/docs/gateway/HARDENING.md'
+
+// Step 5 of both stories is the same step: one object, two stories.
+const TRUST_STEP = {
+  lead: 'Trust it, once per office computer.',
+  text: 'Choose Download certificate on the card, then on each computer that will play clips:',
+  items: [
+    { lead: 'The certificate:', text: `on Windows, open the file → Install Certificate → Local Machine → Place all certificates in the following store → Trusted Root Certification Authorities. On a Mac, open it in Keychain Access → System → double-click it → Trust → Always Trust. A Windows domain does it once with Group Policy (Computer Configuration → Windows Settings → Security Settings → Public Key Policies → Trusted Root Certification Authorities). A computer without it says, in the Bins tab: ${BROWSER_CERTIFICATE_SENTENCE} When the gateway makes a new certificate (a year before the old one ends, or when its office address moves to another network), the card offers the new one beside the old: install it the same way.` },
+    { lead: 'Chrome\'s question:', text: `the first time this browser reaches the gateway, the Bins tab says: ${BROWSER_CHROME_SENTENCE} Allowed once, Chrome remembers it for WILSON; blocked, every clip reads as unreachable until you allow it again (the icon left of the address → Site settings).` },
+    { lead: 'The gateway\'s own computer:', text: BROWSER_OWN_COMPUTER_SENTENCE },
+    { lead: 'What plays:', text: `MP4 and M4V, WebM, a .mov the browser can decode (H.264, not ProRes or DNx), the usual audio formats and stills, and a frame sequence as its middle frame. Proxies play in the browser; masters play in the desktop app, and the inspector says so: ${BROWSER_FORMAT_SENTENCE}` },
+  ],
+}
+
+const OUTSIDE_NOTE_TEXT = 'turn on Allow files to be viewed from outside the office network on the card and read the sentence under it. Then choose one way in. Forward port 8444 on your router to the gateway and type your public name or address on the card. Or, for a free certificate, forward port 443 to the gateway\'s port 8444 and type a name that points at your public address, with port 443: the gateway asks Let\'s Encrypt for a certificate for that name when the switch first comes on (about a minute; asking means accepting Let\'s Encrypt\'s Subscriber Agreement) and renews it by itself. Or run a tunnel (Cloudflare Tunnel, Tailscale Funnel or ngrok) on the gateway\'s computer, pointed at https://127.0.0.1:8444, name it in the gateway\'s config.json as its declared proxy (the hardening guide gives the line), and type the tunnel\'s public name on the card: that company\'s servers then carry your footage, which is yours to choose. Give the gateway\'s computer a fixed address on the router first (a DHCP reservation), so the forward keeps pointing at it. Press Check reach: the line says what it found, in words, and the address is given to people\'s browsers only once the check has found your gateway there. Whatever you choose points at port 8444, never 8443: the office door closes anything that looks like a proxy or a tunnel, and the card turns amber if one is aimed at it. Never put a reverse proxy, a tunnel or any other program in front of port 8443.'
+
 export const NAS_STORY = {
-  intro: 'Synology DSM 7.2 with Container Manager is the worked example; QNAP\'s Container Station and TrueNAS Apps have the same five steps with their own names.',
+  intro: 'Synology DSM 7.2 with Container Manager is the worked example; QNAP\'s Container Station and TrueNAS Apps have the same five steps under their own names. About ten minutes, then two minutes for each office computer.',
   steps: [
-    { lead: 'Get the image.', text: 'Container Manager → Registry → search wilson-gateway → download it by the digest this page shows (wilson-gateway@sha256:…), which is the exact image Petal signed; the moving stable tag is for trying it out. (About a minute.)' },
-    { lead: 'Make the folders.', text: 'File Station → docker → new folder wilson-gateway. That is where the gateway keeps its settings, its certificates and its journal; nothing of your footage goes there.' },
+    { lead: 'Get the image.', text: `The latest WILSON file gateway release (${GATEWAY_RELEASES_PAGE}) names its image by digest: ghcr.io/pretty-aud/wilson-gateway@sha256: and 64 letters and digits. Over SSH, as an administrator of the NAS: sudo docker pull ghcr.io/pretty-aud/wilson-gateway@sha256:… with the release's digest, which is exactly the image its signed version list names. Container Manager can fetch it too (Image → Add → Add From URL: ghcr.io/pretty-aud/wilson-gateway, the release's version as the tag); check that the digest it shows is the release's. (About a minute.)` },
+    { lead: 'Make the folders.', text: 'File Station → docker → new folder wilson-gateway. That is where the gateway keeps its settings, its certificates and its journal; nothing of your footage goes there. The container runs as its own user (uid 65532), which must be able to write that folder: over SSH, sudo chown 65532:65532 /volume1/docker/wilson-gateway.' },
     {
       lead: 'Create the container.', text: 'Container Manager → Container → Create → the image → Advanced settings:',
       items: [
-        { lead: 'Network:', text: 'Use the same network as Docker Host. This is the one setting that is not optional: on Docker\'s ordinary bridge network the gateway would see every browser as the same address and could not tell the office from a tunnel, so it keeps its office door closed and this page tells you to change the setting (review round 2). No port settings are needed; the gateway listens on the NAS\'s own address, 8443 for the office door and 8444 for the outside door (closed until you turn the switch on).' },
-        { lead: 'Volumes:', text: 'your footage share\'s folder, read-only, at the path WILSON tells you. For the location Footage (\\\\nas\\footage) that is /volume1/footage → /locations/nas/footage, read-only (the host and share names are written in lower case; folders below the share keep their own spelling). One line per footage location; the health line names any that is missing. And docker/wilson-gateway → /data: the gateway\'s own files only, readable by the gateway\'s user, where the NAS\'s administrator can see what is in flight and nothing else (no footage, no tickets).', mounts: true },
-        { lead: 'Environment:', text: 'WILSON_ENROL_TOKEN = the token on this page (it works once, for 24 hours).' },
+        { lead: 'Network:', text: 'Use the same network as Docker Host. This is the one setting that is not optional: on Docker\'s ordinary bridge network the gateway would see every browser as the same address and could not tell the office from a tunnel, so it keeps its office door closed and the card tells you to change the setting. No port settings are needed; the gateway listens on the NAS\'s own address, 8443 for the office door and 8444 for the outside door (closed until you turn the switch on).' },
+        { lead: 'Volumes:', text: 'your footage share\'s folder, read-only, at the path WILSON gives it. For the location Footage (\\\\nas\\footage) that is /volume1/footage → /locations/nas/footage, read-only (the host and share names are written in lower case; folders below the share keep their own spelling). One line per footage location; the card writes yours out, and the health line names any that is missing. And docker/wilson-gateway → /data: the gateway\'s own files only (no footage, no tickets).', mounts: true },
+        { lead: 'Environment:', text: 'WILSON_ENROL_TOKEN = the token the card shows (it works once, for 24 hours), and WILSON_CLOUD_URL = the WILSON cloud address beside it.' },
         { lead: 'Restart policy:', text: 'always.' },
       ],
     },
-    { lead: 'Start it.', text: 'Within ten seconds the gateway appears on this page with its name and seen just now; the token on this page disappears. The container\'s log prints the gateway\'s certificate fingerprint on its first lines: type or paste it into the box beside the new gateway on this page, which proves the gateway you see is the one you started, and unlocks Download certificate. If the gateway does not appear, the log says why in one line (the token was used or expired; /data is not writable; a location is not mounted; the network is a bridge).' },
-    { lead: 'Trust it, once per office computer.', text: 'Download certificate here, then on each computer: Windows: open the file → Install Certificate → Local Machine → Place all certificates in the following store → Trusted Root Certification Authorities. macOS: open it in Keychain Access → System → double-click → Trust → Always Trust. A Windows domain does it once with Group Policy (the path in §3). Then open WILSON in that computer\'s browser, allow Chrome\'s local-network question once, and press Space on a clip.' },
+    { lead: 'Start it.', text: 'Within ten seconds the gateway appears on the card with its name and seen just now, and the token disappears. The container\'s log prints the gateway\'s certificate fingerprint on its first lines: type or paste it into the box beside the new gateway, which proves the gateway you see is the one you started and unlocks Download certificate. If the gateway does not appear, the log says why in one line (the token was used or expired; /data is not writable; a location is not mounted; the network is a bridge).' },
+    TRUST_STEP,
   ],
   after: [
-    { lead: 'For viewing from outside the office', text: ' (only if you want it): turn on Allow files to be viewed from outside the office network on this page and read the sentence under it. Then either forward port 8444 on your router to the NAS and type your public name or address here, or forward port 443 to 8444 and type a name that points at your public address to get a free certificate, or run a tunnel and declare it here. Press Check reach. The line tells you what it found, in words, and the address is given to people\'s browsers only once the check has found your gateway there. Whatever you choose points at port 8444, never 8443: the office door closes anything that looks like a proxy or a tunnel, and this page turns amber if one is aimed at it. Never put the NAS\'s reverse proxy, a tunnel or any other program in front of port 8443.' },
-    { lead: 'The NAS side of the share', text: ': the container reads the folder directly, so no share login is needed. Keep SMB at 3 with signing and encryption on for the office computers that read the same share (Control Panel → File Services → SMB → Advanced), and leave SMB 1 off.' },
-    { lead: '', text: 'What it costs the NAS: one small process; no transcoding; the bytes it serves are the bytes it reads, so a NAS that can serve the share can serve the gateway. Measured on a laptop (Appendix A): 337 MB/s over TLS, which is the NAS\'s disk and link, not the gateway.' },
+    { lead: 'From outside the office.', text: `Only if you want it: ${OUTSIDE_NOTE_TEXT}` },
+    { lead: 'Behind the NAS\'s own reverse proxy.', text: 'Only for a proxy that can check the certificate of the program behind it. In the gateway\'s config.json (in docker/wilson-gateway) set "outside": { "behind_local_proxy": true }, so the outside door listens on the NAS\'s loopback only; point the proxy at https://127.0.0.1:8444 and have it check the certificate there against the gateway\'s own root (the file Download certificate gives you) under the NAS\'s host name, which that certificate carries; and keep its connections to the gateway open (the gateway counts the proxy as one visitor). A proxy that cannot check the certificate would hand your footage to whatever program took that port first: use the router forward instead. The proxy holds the public certificate itself, so the free one is off behind it.' },
+    { lead: 'The NAS side of the share.', text: 'The container reads the folder directly, so no share login is needed. Keep SMB at 3 with signing and encryption on for the office computers that read the same share (Control Panel → File Services → SMB → Advanced), and leave SMB 1 off.' },
+    { lead: 'Updates.', text: 'A container does not update itself. When a release is out, the card says it is available: pull it by its digest as in step 1, then recreate the container with the same settings (the /data folder keeps the gateway, its fingerprint and its enrolment).' },
+    { lead: 'What it costs the NAS.', text: 'One small process; no transcoding; the bytes it serves are the bytes it reads, so a NAS that can serve the share can serve the gateway. Measured on a laptop: 337 MB/s over TLS, which is the disk and the link, not the gateway.' },
   ],
 }
 
 export const WINDOWS_STORY = {
-  intro: null,
+  intro: 'Any Windows 10 or 11 PC, or a Windows server, that stays on in the office. About ten minutes, then two minutes for each office computer.',
   steps: [
-    { lead: 'Run the installer', text: '(WILSON Gateway Setup.msi, signed by Petal Studios) as an administrator. It installs two services: the gateway, which runs as a Windows-managed service account with no password and no administrator rights (NT SERVICE\\WilsonGateway), and a small updater that swaps in new versions. It asks for the enrolment token on this page, shows which of this PC\'s network addresses the office door will use (its wired or wireless addresses, never a VPN adapter), and prints the gateway\'s certificate fingerprint at the end. (Two minutes.)' },
-    { lead: 'Confirm the fingerprint.', text: 'On this page, beside the new gateway, type or paste the fingerprint the installer printed. That proves the gateway you see here is the one you installed, and unlocks Download certificate.' },
-    { lead: 'Give it the share\'s login.', text: 'The gateway reads your footage at its network address, as any computer does, with an account you choose. Make a read-only user for it on the server (on a Synology: Control Panel → User → create wilson-gateway, read-only on the footage share, nothing else), then in an administrator prompt: wilson-gateway share-login \\\\nas\\footage, which asks for that user\'s name and password once and hands them to the running gateway, which keeps them where only it can read them. One line per server. (An administrator of this PC could recover that login; it is read-only on the footage share and nothing else.)' },
-    { lead: 'See it appear.', text: 'Within ten seconds the gateway appears on this page with its name, seen just now, and each footage location\'s reach. Not connected beside a location means step 3 is still owed for that server.' },
-    { lead: 'Trust it, once per office computer,', text: 'exactly as the NAS story\'s step 5.' },
-    { lead: 'Keep the PC on and awake', text: '(Power settings: never sleep when plugged in). The gateway updates itself; this page shows its version and up to date; if an update fails it says so and keeps the old version running.' },
+    { lead: 'Run the installer', text: `(WILSON-Gateway-Setup-<version>.msi, from the latest WILSON file gateway release at ${GATEWAY_RELEASES_PAGE}) as an administrator. It is not signed yet, so Windows SmartScreen says Windows protected your PC: choose More info, then Run anyway. A signed build will stop that warning later. The installer sets up two services: the gateway, which runs as a Windows-managed service account with no password and no administrator rights (NT SERVICE\\WilsonGateway), and a small updater that swaps in new versions. It asks for the enrolment token and the WILSON cloud address the card shows, and at the end shows which of this PC's network addresses the office door uses (its wired or wireless addresses, never a VPN adapter) and the gateway's certificate fingerprint. (Two minutes.)` },
+    { lead: 'Confirm the fingerprint.', text: 'Beside the new gateway on the card, type or paste the fingerprint the installer showed. That proves the gateway you see is the one you installed, and unlocks Download certificate.' },
+    { lead: 'Give it the share\'s login.', text: 'The gateway reads your footage at its network address, as any computer does, with an account you choose. Make a read-only user for it on the server (on a Synology: Control Panel → User → create wilson-gateway, read-only on the footage share, nothing else), then in an administrator prompt: wilson-gateway share-login \\\\nas\\footage, which asks for that user\'s name and password once and hands them to the running gateway, which keeps them where only it can read them. One line per server. Until then the gateway never contacts that server: anyone in the company can name a location, so a server is contacted only once an administrator of this PC agrees. (An administrator of this PC could recover that login; it is read-only on the footage share and nothing else.)' },
+    { lead: 'See it appear.', text: 'Within ten seconds the gateway appears on the card with its name, seen just now, and each footage location\'s reach. Not connected beside a location means step 3 is still owed for that server. In an administrator prompt, wilson-gateway doctor says the same on this PC.' },
+    TRUST_STEP,
+    { lead: 'Keep the PC on and awake', text: '(Power settings: never sleep when plugged in). The gateway checks for a new version once a day and updates itself; the card shows its version and up to date, and if an update fails it says so and keeps the old version running. An administrator can always install a newer .msi over it by hand, and wilson-gateway rollback, in an administrator prompt, puts the previous version back.' },
   ],
   after: [
-    { lead: 'For viewing from outside the office', text: ': as the NAS story, with the forward pointing at this PC\'s address (give it a DHCP reservation on the router first), at port 8444 and never 8443, and no tunnel or proxy ever in front of 8443.' },
-    { lead: 'What the installer does not do', text: ': it does not open any port in the Windows firewall for the outside door (it opens 8443 for the local network only); the outside door\'s firewall rule is added when you turn the switch on and set an outside address, and removed when you turn it off, and the page says so.' },
+    { lead: 'From outside the office.', text: `As on a NAS, with the forward pointing at this PC: ${OUTSIDE_NOTE_TEXT}` },
+    { lead: 'In a Windows domain.', text: 'When the share is readable by this PC\'s own computer account, list the server in the gateway\'s settings file instead of running share-login: in C:\\ProgramData\\WILSON Gateway\\config.json, "connect_without_login": ["nas"] (the nas of \\\\nas\\footage; at most 16 servers), then restart the WilsonGateway service. The gateway contacts only the servers listed there or given a share login.' },
+    { lead: 'What the installer does not do.', text: 'It does not open any port in the Windows firewall for the outside door (it opens 8443 for the local network only). The outside door\'s firewall rule is added when you turn the switch on and set an outside address, and removed when you turn it off.' },
+    { lead: 'If the installer stops.', text: 'C:\\ProgramData\\WILSON Gateway must be a real folder holding only what this PC\'s administrators or the gateway made: the installer refuses a link there, or a file another account left, and names it in its log. To keep the log, run it from an administrator prompt as msiexec /i WILSON-Gateway-Setup-<version>.msi /l*v install.log; remove what the log names, then run the installer again.' },
   ],
 }
 

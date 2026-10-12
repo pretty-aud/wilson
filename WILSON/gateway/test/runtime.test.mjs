@@ -315,6 +315,44 @@ describe('the switch, end to end (§9 point 4)', () => {
       expect(W.gw.healthLine().text).toContain('below 99.0.0 for viewing from outside');
     } finally { await W.close(); }
   });
+  it('GW4: the last verified manifest\'s floors join the cloud\'s: its minimum (or hard minimum) closes the outside door, its hard minimum says this version must be updated', async () => {
+    const floors = { minimum: null, hard: null };
+    const W = await world({ gw: { updates: { state: () => ({ state: 'up_to_date' }), check: async () => {}, floors: () => floors } } });
+    try {
+      await switchOn(W);
+      // CONTROL: no floor anywhere, the outside door stays open.
+      await W.gw.tickNow();
+      expect(W.gw.outsideState).toBe('open');
+      floors.minimum = '99.0.0';
+      await W.gw.tickNow();
+      expect(W.gw.outsideState).toBe('closed_minimum_version');
+      expect(W.gw.healthLine().text).toContain('below 99.0.0 for viewing from outside');
+      floors.minimum = null;
+      await W.gw.tickNow();
+      await waitFor(() => W.gw.outsideState === 'open');
+      floors.hard = '98.0.0';
+      await W.gw.tickNow();
+      expect(W.gw.outsideState).toBe('closed_minimum_version');
+      expect(W.gw.healthLine().warnings.map((w) => w.text)).toContain('this version must be updated before it can serve');
+      expect(W.gw.versionFloors()).toEqual({ minimum: '98.0.0', hard: '98.0.0' });
+      // The cloud's floor still counts, and the higher of the two wins.
+      W.cloud.state.minimumVersion = '99.5.0';
+      await W.gw.syncNow();
+      expect(W.gw.versionFloors()).toEqual({ minimum: '99.5.0', hard: '98.0.0' });
+    } finally { await W.close(); }
+  });
+  it('GW4, review round 2: the channel\'s trouble reaches the health line and the sync\'s line, in place of "up to date"', async () => {
+    const channel = { lastOkAt: null, failure: { kind: 'refused', since: Date.now(), words: 'it cannot be read' } };
+    const W = await world({ gw: { updates: { state: () => ({ state: 'up_to_date' }), check: async () => {}, floors: () => ({ minimum: null, hard: null }), channel: () => channel } } });
+    try {
+      expect(W.gw.healthLine().text).toContain('updates: the latest release’s version list was refused: it cannot be read');
+      await W.gw.syncNow();
+      expect(JSON.stringify(W.cloud.state.gateways.get(W.cloud.onlyGateway()).lastReport)).toContain('updates: the latest release’s version list was refused: it cannot be read');
+      // CONTROL: a good channel says up to date.
+      channel.failure = null;
+      expect(W.gw.healthLine().text).toContain('up to date');
+    } finally { await W.close(); }
+  });
   it('a 401 on sync (Forget) closes both doors and says so', async () => {
     const W = await world();
     try {
