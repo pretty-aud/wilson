@@ -5014,11 +5014,21 @@ of a session — this section is limits by design, that file is faults.
   same-project composite foreign keys, `ON DELETE CASCADE`. A client may
   UPDATE `position` only (a column grant); `reorder_task_items` is SECURITY
   INVOKER. The table is on the project's live channel (`fn_realtime_broadcast`,
-  sixteen tables), pinned by suites 72 and 99.
+  sixteen tables), pinned by suites 72 and 99. §7a locks the task row before
+  it reads the main item (two writers of one task's items take turns; a
+  single-column write from an older tab can deadlock with one, and Postgres
+  takes one back whole). 0096 refuses to run again after a later migration is
+  recorded, and refuses a broadcast body that is neither 0091's nor its own
+  (review round 1).
 - **A client ahead of its database (no 0096) reads no items and refuses every
   items write with code `task_items_unavailable`**: the load's read of
   `public.task_items` is the probe, and nothing is stripped (0096 adds no
   column to a table the client upserts).
+- **The client re-reads a task's single links from its items only when a
+  write changes that task's items**; a task the backend brings back outside a
+  load (a bid version's open, an undo from the trash) keeps its row's links
+  and has its items read (review round 2). No editor makes a row the project
+  no longer shows a task's main one.
 - **Known limits, by design:** sums and grouped rows (the Budget, the
   Timeline, the Tasks table's groups) count a task once, under its main item;
   lists and per-row counts name every item. A bid version keeps the main

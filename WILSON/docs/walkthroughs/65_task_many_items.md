@@ -139,6 +139,14 @@ and experiences turned on)
   hand-off's question 9).
 - **A bid version keeps each task's main items only.** Opening an older
   version makes its saved main items the main ones again and removes nothing.
+  A link it cannot make (one that would leave a row no longer in the project
+  as a task's main one) is left out, as a link to a deleted row always was,
+  and nothing on screen counts what was left out.
+- **Any editor that would make a row no longer in the project a task's main
+  one says so and writes nothing** (the Tasks table's Asset cell set to none,
+  the Timeline's editor): *"Glass and rain rig test": its next asset is no
+  longer in the project…*. The window's Items table greys those verbs
+  instead (§1 step 12).
 - **Templates name no items** (they never named an asset): a template
   applied to an asset gives each of its tasks that one asset.
 - **The edit history** shows a change of main item as the task's asset,
