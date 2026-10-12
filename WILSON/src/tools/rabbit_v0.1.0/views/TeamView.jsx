@@ -34,7 +34,6 @@ import '../rabbitShell.css'
 import { Dialog } from '../../../ui/Dialog'
 import { Button } from '../../../ui/Button'
 import { EmptyState } from '../../../ui/EmptyState'
-import { Toolbar } from '../../../ui/Toolbar'
 import { Tabs } from '../../../ui/Tabs'
 import { IconButton } from '../../../ui/IconButton'
 import TeamGallery from './TeamGallery'
@@ -318,6 +317,47 @@ export default function TeamView() {
       console.error('[TeamView] remove failed:', err)
     }
   }
+  // The one question before a removal, for the table's row and the gallery's
+  // card alike (FX3): the same words, asked once.
+  function confirmRemove(r) {
+    if (window.confirm(`Remove "${r.member.name}" from this project?`)) handleRemove(r.id)
+  }
+
+  // ── A member as a gallery card (FX3) ──
+  // The row's role select and remove. No picture is signed here: the Local
+  // Server has no Supabase, and a member's `profile_picture_url` on it is a
+  // path or an address no gallery may draw, so a card is the initials tile
+  // (the table draws the initials too). The Local Server's pictures are a
+  // named limit in walkthrough 66.
+  function localCard(r) {
+    const member = r.member
+    const name = member.name || 'Unnamed'
+    const role = r.role || 'member'
+    return {
+      key: r.id,
+      name,
+      role: member.title || '',
+      seatLabel: role.charAt(0).toUpperCase() + role.slice(1),
+      avatarUrl: member.avatar_url || member.profile_picture_url || null,
+      avatarOwner: null,
+      seat: (
+        <select
+          value={role}
+          onChange={(e) => handleRoleChange(r.id, e.target.value)}
+          aria-label={`Role for ${name}`}
+          className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
+          data-role={role}
+        >
+          <option value="member">Member</option>
+          <option value="manager">Manager</option>
+          <option value="reviewer">Reviewer</option>
+        </select>
+      ),
+      actions: (
+        <IconButton size="sm" Icon={UserMinus} danger title={`Remove ${name} from project`} onClick={() => confirmRemove(r)} />
+      ),
+    }
+  }
 
   async function handleRoleChange(assignmentId, role) {
     if (!ctx?.updateTeamAssignment) return
@@ -412,11 +452,7 @@ export default function TeamView() {
         <Td>
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm(`Remove "${member.name}" from this project?`)) {
-                handleRemove(r.id)
-              }
-            }}
+            onClick={() => confirmRemove(r)}
             className="p-1 rounded-control hover:bg-hover transition-colors"
             title="Remove from project"
             style={{ color: 'var(--color-danger)' }}
@@ -538,41 +574,27 @@ export default function TeamView() {
             </span>
           </div>
         ) : view === 'gallery' ? (
-          /* FX3: the same members, in the same order (sorted, grouped and
-             filtered as the table is), as cards; each with the row's role
-             select and remove. */
-          <TeamGallery
-            label="Project team"
-            cards={processed.map(r => {
-              const member = r.member
-              const name = member.name || 'Unnamed'
-              const role = r.role || 'member'
-              return {
-                key: r.id,
-                name,
-                role: member.title || '',
-                seatLabel: role.charAt(0).toUpperCase() + role.slice(1),
-                avatarUrl: member.avatar_url || member.profile_picture_url || null,
-                seat: (
-                  <select
-                    value={role}
-                    onChange={(e) => handleRoleChange(r.id, e.target.value)}
-                    aria-label={`Role for ${name}`}
-                    className="ui-input rb-role cursor-pointer" data-size="sm" data-surface="dark"
-                    data-role={role}
-                  >
-                    <option value="member">Member</option>
-                    <option value="manager">Manager</option>
-                    <option value="reviewer">Reviewer</option>
-                  </select>
-                ),
-                actions: (
-                  <IconButton size="sm" Icon={UserMinus} danger title={`Remove ${name} from project`}
-                    onClick={() => { if (window.confirm(`Remove "${member.name}" from this project?`)) handleRemove(r.id) }} />
-                ),
-              }
-            })}
-          />
+          /* FX3: the same members, in the same order (sorted and filtered as
+             the table is), as cards; each with the row's role select and
+             remove. With Group by set, a heading per group as the table's,
+             folding the same way (review round 1, R1-10: the cards were one
+             run in the groups' order with nothing on screen saying why). */
+          groups ? (
+            groups.map(g => (
+              <section key={g.key}>
+                <button type="button" onClick={() => toggleGroup(g.key)} aria-expanded={!collapsedGroups.has(g.key)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-hover transition-colors"
+                  style={{ borderBottom: '1px solid var(--color-rule)' }}>
+                  {collapsedGroups.has(g.key) ? <ChevronRight className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} /> : <ChevronDown className="w-3 h-3" style={{ color: 'var(--color-ink-3)' }} />}
+                  <span className="text-label font-semibold uppercase" style={{ color: 'var(--color-ink)' }}>{g.label}</span>
+                  <span className="text-caption font-mono" style={{ color: 'var(--color-ink-3)' }}>{g.members.length}</span>
+                </button>
+                {!collapsedGroups.has(g.key) && <TeamGallery label={g.label} cards={g.members.map(localCard)} />}
+              </section>
+            ))
+          ) : (
+            <TeamGallery label="Project team" cards={sorted.map(localCard)} />
+          )
         ) : (
           <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: '0 2px' }}>
             <thead className="sticky top-0 z-10">
@@ -770,13 +792,7 @@ function ProjectMembersPanel({ ctx }) {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-paper)' }}>
-      {/* Table / Gallery (FX3): the kit Toolbar and Tabs the Assets tab
-          switches with. The roster had no toolbar; this is its one control. */}
-      <Toolbar>
-        <Tabs label="View" panelId={TEAM_BODY_ID} items={TEAM_VIEW_ITEMS} value={view} onChange={setView} />
-      </Toolbar>
-      <div className="flex-1 overflow-auto" id={TEAM_BODY_ID} role="tabpanel" aria-label={view === 'gallery' ? 'Gallery' : 'Table'}>
+    <div className="h-full overflow-auto" style={{ backgroundColor: 'var(--color-paper)' }}>
       <div className="max-w-2xl mx-auto px-6 py-6">
         {/* ── Roster card ── */}
         <div className="rounded-control" style={{ backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}>
@@ -785,7 +801,14 @@ function ProjectMembersPanel({ ctx }) {
             <span className="text-label uppercase font-semibold" style={{ color: 'var(--color-ink)' }}>
               Project Roster
             </span>
-            <span className="ml-auto text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
+            {/* Table / Gallery (FX3): the kit Tabs the Assets tab switches
+                with, in the roster's own header beside the seats they show
+                (review round 1, R1-08: a toolbar of its own put them at the
+                page's left edge, 300px from the roster at 1280). */}
+            <span className="ml-auto flex items-center">
+              <Tabs label="View" panelId={TEAM_BODY_ID} items={TEAM_VIEW_ITEMS} value={view} onChange={setView} />
+            </span>
+            <span className="text-dense font-mono" style={{ color: 'var(--color-ink-3)' }}>
               {seated.length} seat{seated.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -842,7 +865,9 @@ function ProjectMembersPanel({ ctx }) {
             </div>
           )}
 
-          {/* Seats (or the unstaffed explainer) */}
+          {/* Seats (or the unstaffed explainer): the region the header's
+              Table / Gallery switches (FX3). */}
+          <div id={TEAM_BODY_ID} role="tabpanel" aria-label={view === 'gallery' ? 'Gallery' : 'Table'}>
           {seated.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
               <Users className="w-6 h-6" style={{ color: 'var(--color-ink-3)' }} />
@@ -864,9 +889,13 @@ function ProjectMembersPanel({ ctx }) {
                 return {
                   key: pm.user_id,
                   name,
-                  role: m?.title || '',
+                  // The row's second line: the title and the @username, so
+                  // two people of one name stay two (review round 1, R1-09).
+                  role: [m?.title, m?.username ? `@${m.username}` : null].filter(Boolean).join(' · '),
                   seatLabel: roleDef.label,
                   avatarUrl: m?.avatar_url || null,
+                  // Whose picture it must be: the uploaders' {workspace}/{user}/… (R1-05).
+                  avatarOwner: m ? { workspaceId: m.workspace_id, userId: pm.user_id } : null,
                   seat: canManage ? (
                     <select
                       value={role}
@@ -940,6 +969,7 @@ function ProjectMembersPanel({ ctx }) {
               )
             })
           )}
+          </div>
         </div>
 
         {dir.error && (
@@ -947,7 +977,6 @@ function ProjectMembersPanel({ ctx }) {
             Directory unavailable: {dir.error}
           </div>
         )}
-      </div>
       </div>
     </div>
   )

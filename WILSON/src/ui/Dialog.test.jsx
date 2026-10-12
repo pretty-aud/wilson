@@ -45,10 +45,22 @@ describe('Dialog', () => {
     // coloured line is the one line under the title (Audrey, 2026-10-11).
     expect(d.querySelector('.ui-dialog-head').dataset.band).toBe('true')
     expect(kit).toMatch(/\.ui-dialog-head\[data-band="true"\] \{ border-bottom: 0; padding-bottom: 0; \}/)
+    // R1-13: the band describes the dialog, so it is read with the title.
+    expect(slot.id).toBeTruthy()
+    expect(d.getAttribute('aria-describedby')).toBe(slot.id)
     rerender(<Dialog title="Mara" onClose={() => {}}>body</Dialog>)
     expect(d.querySelector('.ui-dialog-band')).toBeNull()
     expect(d.querySelector('.ui-dialog-head').hasAttribute('data-band')).toBe(false)
+    expect(d.hasAttribute('aria-describedby')).toBe(false)
     expect([...d.children].map((c) => c.className)).toEqual(['ui-dialog-head', 'ui-dialog-body'])
+  })
+  it('a caller\'s own aria-describedby stays, after the band\'s; without a band, it is untouched', () => {
+    const { rerender } = render(<Dialog title="Mara" onClose={() => {}} aria-describedby="mine" band={<span>FINAL</span>}>body</Dialog>)
+    const d = screen.getByRole('dialog', { name: 'Mara' })
+    const bandId = d.querySelector('.ui-dialog-band').id
+    expect(d.getAttribute('aria-describedby')).toBe(`${bandId} mine`)
+    rerender(<Dialog title="Mara" onClose={() => {}} aria-describedby="mine">body</Dialog>)
+    expect(d.getAttribute('aria-describedby')).toBe('mine')
   })
 
   it('shows the error INSIDE the footer', () => {

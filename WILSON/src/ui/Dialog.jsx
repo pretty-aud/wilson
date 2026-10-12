@@ -30,7 +30,7 @@
 // trades a working keyboard path for a broken one.
 // =============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
 import { pushModal, isTopModal, focusableWithin } from './overlay'
 
@@ -78,6 +78,7 @@ export function Dialog({
   const tryCloseRef = useRef(tryClose); tryCloseRef.current = tryClose
 
   const surfaceRef = useRef(null)
+  const bandId = useId()
 
   // 🚨 CAPTURED IN RENDER, NOT IN THE EFFECT. React applies a child's
   // `autoFocus` during the COMMIT, which is before any effect runs — so an
@@ -257,6 +258,11 @@ export function Dialog({
            it was overwritten with undefined here, because this prop comes
            after the spread (A4-KR-1). */
         aria-label={typeof title === 'string' ? title : rest['aria-label']}
+        /* The band describes the dialog (FX3 review round 1, R1-13): opened,
+           it is read with the title ("Mara, dialog, Approved"), where it
+           would otherwise come after the Close button. A caller's own
+           description stays, after it. */
+        aria-describedby={[band ? bandId : null, rest['aria-describedby']].filter(Boolean).join(' ') || undefined}
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}
         style={{ ...rest.style, width: px }}
@@ -280,7 +286,7 @@ export function Dialog({
             <X aria-hidden="true" />
           </button>
         </div>
-        {band && <div className="ui-dialog-band">{band}</div>}
+        {band && <div className="ui-dialog-band" id={bandId}>{band}</div>}
         <div className="ui-dialog-body">{children}</div>
         {(footer || error) && (
           <div className="ui-dialog-foot">

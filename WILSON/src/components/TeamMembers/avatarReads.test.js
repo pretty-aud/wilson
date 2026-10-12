@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.stubEnv('VITE_SUPABASE_URL', 'https://proj.supabase.co')
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: { storage: { from: () => { throw new Error('the default client is not used here') } } } }))
 
-const { avatarObjectPath, signAvatarPaths, _resetAvatarReadsForTests, _avatarSignCallsForTests, AVATAR_BUCKET } = await import('./avatarReads')
+const { avatarObjectPath, signAvatarPaths, _resetAvatarReadsForTests, _avatarSignCallsForTests, _authChangedForTests, AVATAR_BUCKET } = await import('./avatarReads')
+const OWNER = { workspaceId: 'ws1', userId: 'u1' }
 
 const BASE = 'https://proj.supabase.co'
 const PUBLIC = (p) => `${BASE}/storage/v1/object/public/user-avatars/${p}`
@@ -25,20 +26,41 @@ function clientFor({ answer, fail = false, throws = false } = {}) {
 
 beforeEach(() => _resetAvatarReadsForTests())
 
-describe('avatarObjectPath: only a path inside our own bucket', () => {
-  it('reads the object path out of our public URL, decoded, without its query', () => {
-    expect(avatarObjectPath(PUBLIC('ws1/u1/1700-me.png'))).toBe('ws1/u1/1700-me.png')
-    expect(avatarObjectPath(PUBLIC('ws1/u1/my%20face.png?t=1'))).toBe('ws1/u1/my face.png')
+describe('avatarObjectPath: only the uploaders\' path in our own bucket, and only this member\'s', () => {
+  it('reads {workspace}/{user}/{file} out of our public URL, without its query or fragment', () => {
+    expect(avatarObjectPath(PUBLIC('ws1/u1/1700-me.png'), OWNER)).toBe('ws1/u1/1700-me.png')
+    expect(avatarObjectPath(PUBLIC('ws1/u1/1700-my_face.png?t=1#x'), OWNER)).toBe('ws1/u1/1700-my_face.png')
   })
   it('refuses another host, another bucket, a data URI, nothing, and a path with an empty or a dot segment', () => {
     for (const url of [
       'https://evil.example/storage/v1/object/public/user-avatars/ws1/u1/a.png',
+      'https://proj.supabase.co.evil.example/storage/v1/object/public/user-avatars/ws1/u1/a.png',
       `${BASE}/storage/v1/object/public/rabbit-files/ws1/u1/a.png`,
       'data:image/png;base64,AAAA',
       null, undefined, '',
       PUBLIC('ws1//a.png'), PUBLIC('ws1/../u2/a.png'), PUBLIC('ws1/./a.png'), PUBLIC(''),
       PUBLIC('ws1/%E0%A4%A.png'), // a malformed escape
-    ]) expect(avatarObjectPath(url), String(url)).toBeNull()
+    ]) expect(avatarObjectPath(url, OWNER), String(url)).toBeNull()
+  })
+  it('review round 1, R1-05: an allowlist, not a denylist — the uploaders\' alphabet and shape only', () => {
+    for (const url of [
+      PUBLIC('ws1/u1/..%5C..%5Cx.png'),      // backslashes: one segment to split('/'), a path to the URL parser
+      PUBLIC('ws1/u1/%252e%252e'),          // double-encoded dots: '%2e%2e' after one decode
+      PUBLIC('ws1/u1/a%2Fb.png'),           // an encoded slash: four segments
+      PUBLIC('ws1/u1/my%20face.png'),       // a space: never written (the uploaders write _)
+      PUBLIC('ws1/u1/caf%C3%A9.png'),       // outside [A-Za-z0-9._-]
+      PUBLIC('ws1/u1/..'), PUBLIC('ws1/u1/.'),
+      PUBLIC('ws1/u1/sub/a.png'),           // not three parts
+      PUBLIC('ws1/a.png'),
+    ]) expect(avatarObjectPath(url, OWNER), String(url)).toBeNull()
+  })
+  it('R1-05: only THIS member\'s object — not another member\'s, not another workspace\'s, and nothing without an owner', () => {
+    expect(avatarObjectPath(PUBLIC('ws1/u2/b.png'), OWNER)).toBeNull()
+    expect(avatarObjectPath(PUBLIC('ws2/u1/a.png'), OWNER)).toBeNull()
+    expect(avatarObjectPath(PUBLIC('ws1/u1/a.png'), null)).toBeNull()
+    expect(avatarObjectPath(PUBLIC('ws1/u1/a.png'), { workspaceId: 'ws1' })).toBeNull()
+    // CONTROL: the same URL is read for its owner.
+    expect(avatarObjectPath(PUBLIC('ws1/u1/a.png'), OWNER)).toBe('ws1/u1/a.png')
   })
 })
 
@@ -95,5 +117,55 @@ describe('signAvatarPaths: one batched call, cached, signed URLs only', () => {
     const { client, createSignedUrls } = clientFor()
     expect((await signAvatarPaths([], { client })).size).toBe(0)
     expect(createSignedUrls).not.toHaveBeenCalled()
+  })
+  it('a row for a path that was not asked for is not kept (asked for later, it is signed afresh, not served from the cache)', async () => {
+    const { client } = clientFor({ answer: () => ({ path: 'ws1/u9/planted.png', signedUrl: SIGNED('ws1/u9/planted.png'), error: null }) })
+    expect((await signAvatarPaths(['ws1/a.png'], { client })).size).toBe(0)
+    const refused = clientFor({ fail: true })
+    expect((await signAvatarPaths(['ws1/u9/planted.png'], { client: refused.client })).size).toBe(0)
+    expect(refused.createSignedUrls).toHaveBeenCalledTimes(1)
+  })
+  it('R1-07: a link past its hour is never handed out, even when signing it again fails', async () => {
+    let t = 5_000_000
+    const now = () => t
+    const ok = clientFor()
+    expect((await signAvatarPaths(['ws1/a.png'], { client: ok.client, now })).get('ws1/a.png')).toBe(SIGNED('ws1/a.png'))
+    t += 61 * 60 * 1000
+    const refused = clientFor({ fail: true })
+    expect((await signAvatarPaths(['ws1/a.png'], { client: refused.client, now })).size).toBe(0)
+  })
+})
+
+describe('review round 1, R1-06: the cache is the signed-in person\'s', () => {
+  it('another person signing in (or a sign-out) empties it: the next ask signs under the new session', async () => {
+    _authChangedForTests('user-a')
+    const { client, createSignedUrls } = clientFor()
+    await signAvatarPaths(['ws1/a.png'], { client })
+    await signAvatarPaths(['ws1/a.png'], { client })
+    expect(createSignedUrls).toHaveBeenCalledTimes(1)
+    _authChangedForTests('user-a') // the same person again (a token refresh): kept
+    await signAvatarPaths(['ws1/a.png'], { client })
+    expect(createSignedUrls).toHaveBeenCalledTimes(1)
+    _authChangedForTests('user-b')
+    await signAvatarPaths(['ws1/a.png'], { client })
+    expect(createSignedUrls).toHaveBeenCalledTimes(2)
+    _authChangedForTests(null) // signed out
+    await signAvatarPaths(['ws1/a.png'], { client })
+    expect(createSignedUrls).toHaveBeenCalledTimes(3)
+  })
+  it('a call still in flight for the person before writes nothing into the cache of the person after', async () => {
+    _authChangedForTests('user-a')
+    let release
+    const gate = new Promise((r) => { release = r })
+    const slow = clientFor({ answer: (p) => ({ path: p, signedUrl: SIGNED(p), error: null }) })
+    slow.createSignedUrls.mockImplementationOnce(async (paths) => { await gate; return { data: paths.map((p) => ({ path: p, signedUrl: SIGNED(p), error: null })), error: null } })
+    const pending = signAvatarPaths(['ws1/a.png'], { client: slow.client })
+    _authChangedForTests('user-b')
+    release()
+    expect((await pending).size).toBe(0)
+    // …and user B's own ask signs afresh.
+    const b = clientFor()
+    expect((await signAvatarPaths(['ws1/a.png'], { client: b.client })).get('ws1/a.png')).toBe(SIGNED('ws1/a.png'))
+    expect(b.createSignedUrls).toHaveBeenCalledTimes(1)
   })
 })

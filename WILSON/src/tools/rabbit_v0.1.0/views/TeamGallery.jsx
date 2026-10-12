@@ -11,25 +11,31 @@
 // gap, the same 144px picture well on the paper, the same body and foot), so
 // the two galleries read as one kind of thing. On the card, in the order the
 // list reads: the profile picture (or the initials tile where there is none),
-// the name, the role (the member's title) and the seat, with the list's own
-// controls in the foot: the seat select and the remove, far right, as in the
-// row. Nothing here decides who may do what: the caller hands each card the
-// same controls its row has (a read-only seat for a non-manager, no remove).
+// the name, the role (the member's title, with their @username in the cloud)
+// and the seat, with the list's own controls in the foot: the seat select and
+// the remove, far right, as in the row. Nothing here decides who may do what:
+// the caller hands each card the same controls its row has (a read-only seat
+// for a non-manager, no remove).
 //
 // The picture is a SIGNED read (avatarReads.js): never a bucket path in an
 // <img src>, one signing call for the whole gallery, cached, and the pictures
 // load lazily.
 //
-// Keyboard, as the Bins grid: the gallery is one tab stop (the current card);
-// the arrows move by one card or by one row (the grid's real column count,
-// read from its computed tracks), Home and End to the ends; Enter goes into
-// the card (its first control), Escape comes back out to the card. There is
-// no selection: the list has none.
+// Keyboard, as the Bins grid: the gallery is ONE tab stop — the current card;
+// its controls leave the tab order until the card is entered (review round 1,
+// R1-02: every card's select and remove were tab stops, so leaving a roster
+// of fifty took a hundred Tabs). The arrows move by one card or by one row
+// (the grid's real column count, read from its computed tracks), Home and
+// End to the ends; Enter goes into the card (its first control), Escape comes
+// back out to the card, and Tab past the card's last control leaves it.
+// Inside a card the arrows never change a seat by themselves (R1-03: on
+// Windows a closed select takes ↑ ↓ as a new value, and a seat is a
+// permission): open the seat with Alt+↓ or Space to choose. There is no
+// selection: the list has none.
 // ============================================================
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Card } from '../../../ui/Card'
-import { focusableWithin } from '../../../ui/overlay'
 import { useAvatarImages } from '../../../components/TeamMembers/avatarReads'
 
 /** Two initials from a name ("Mara Okonkwo" → "MO"), or "?". */
@@ -38,37 +44,55 @@ function initialsOf(name) {
   return s || '?'
 }
 
+const CONTROLS = 'button, select, input, textarea, a[href]'
+const SELECT_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'])
+const controlsOf = (card) => [...card.querySelectorAll(CONTROLS)].filter((el) => !el.disabled)
+
 /**
- * cards: [{ key, name, role, seatLabel, avatarUrl, seat, actions }]
- *   seat     the seat control or label, as the row draws it
- *   actions  the row's other controls (remove), or null
+ * cards: [{ key, name, role, seatLabel, avatarUrl, avatarOwner, seat, actions }]
+ *   avatarOwner  { workspaceId, userId }: whose picture the URL must be
+ *   seat         the seat control or label, as the row draws it
+ *   actions      the row's other controls (remove), or null
  */
 export default function TeamGallery({ cards, label = 'Members' }) {
   const listRef = useRef(null)
   const [current, setCurrent] = useState(null)
-  const { srcFor, markFailed } = useAvatarImages(cards.map((c) => c.avatarUrl))
-  const keys = cards.map((c) => c.key)
+  const [entered, setEntered] = useState(null)
+  const { srcFor, onFailed } = useAvatarImages(cards.map((c) => ({ url: c.avatarUrl, owner: c.avatarOwner })))
+  const keys = cards.map((c) => String(c.key))
   const active = keys.includes(current) ? current : (keys[0] ?? null)
 
-  const focusCard = useCallback((key) => {
-    setCurrent(key)
-    const el = [...(listRef.current?.querySelectorAll('[data-team-card]') || [])].find((n) => n.dataset.teamCard === String(key))
-    el?.focus()
-  }, [])
+  // The controls of every card but the entered one are out of the tab order.
+  // Set on the DOM after every render: they are the caller's elements, and a
+  // re-render may have made new ones.
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    for (const card of list.querySelectorAll('[data-team-card]')) {
+      const inside = card.dataset.teamCard === entered
+      for (const el of card.querySelectorAll(CONTROLS)) el.tabIndex = inside ? 0 : -1
+    }
+  })
+
+  const cardEl = useCallback((key) => (
+    [...(listRef.current?.querySelectorAll('[data-team-card]') || [])].find((n) => n.dataset.teamCard === key) || null
+  ), [])
 
   function onKeyDown(e) {
     const card = e.target?.closest?.('[data-team-card]')
     if (!card || !listRef.current?.contains(card)) return
     if (e.target !== card) {
-      // Inside a card: Escape comes back out to it.
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); card.focus() }
+      // Inside a card: Escape comes back out to it; the arrows never change a
+      // closed seat select by themselves (Alt+↓ or Space opens it).
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEntered(null); card.focus(); return }
+      if (e.target.tagName === 'SELECT' && SELECT_KEYS.has(e.key) && !e.altKey) e.preventDefault()
       return
     }
     const i = keys.indexOf(card.dataset.teamCard)
     if (i < 0) return
     if (e.key === 'Enter') {
-      const first = focusableWithin(card)[0]
-      if (first) { e.preventDefault(); first.focus() }
+      const first = controlsOf(card)[0]
+      if (first) { e.preventDefault(); setEntered(keys[i]); first.focus() }
       return
     }
     // The grid's REAL column count, as the Bins grid reads it.
@@ -79,27 +103,40 @@ export default function TeamGallery({ cards, label = 'Members' }) {
     }[e.key]
     if (to === undefined) return
     e.preventDefault()
-    focusCard(keys[Math.max(0, Math.min(keys.length - 1, to))])
+    const next = keys[Math.max(0, Math.min(keys.length - 1, to))]
+    setCurrent(next)
+    cardEl(next)?.focus()
   }
 
   return (
     <div ref={listRef} className="rb-team-gallery" role="list" aria-label={label} onKeyDown={onKeyDown}>
       {cards.map((c) => {
-        const src = srcFor(c.avatarUrl)
+        const key = String(c.key)
+        const src = srcFor(c.avatarUrl, c.avatarOwner)
         return (
           <Card
-            key={c.key}
+            key={key}
             pad={false}
             className="rb-team-card"
             role="listitem"
-            tabIndex={c.key === active ? 0 : -1}
+            tabIndex={key === active ? 0 : -1}
             aria-label={[c.name, c.role, c.seatLabel].filter(Boolean).join(', ')}
-            data-team-card={c.key}
-            onFocus={(e) => { if (e.target === e.currentTarget) setCurrent(c.key) }}
+            data-team-card={key}
+            onFocus={(e) => {
+              setCurrent(key)
+              // Focus on one of its controls (a click, Enter): the card is entered.
+              if (e.target !== e.currentTarget) setEntered(key)
+            }}
+            onBlur={(e) => {
+              // Leaving the card altogether (Tab past its last control, a click
+              // elsewhere): its controls leave the tab order again.
+              if (!e.currentTarget.contains(e.relatedTarget)) setEntered((k) => (k === key ? null : k))
+            }}
           >
             <div className="rb-team-card-media" aria-hidden="true">
               {src ? (
                 <img
+                  key={src}
                   className="rb-team-card-img"
                   src={src}
                   alt=""
@@ -107,15 +144,16 @@ export default function TeamGallery({ cards, label = 'Members' }) {
                   decoding="async"
                   referrerPolicy="no-referrer"
                   draggable={false}
-                  onError={() => markFailed(c.avatarUrl)}
+                  onError={() => onFailed(c.avatarUrl, c.avatarOwner)}
                 />
               ) : (
                 <span className="rb-team-card-initials">{initialsOf(c.name)}</span>
               )}
             </div>
             <div className="rb-team-card-body">
-              <span className="rb-team-card-name text-dense">{c.name}</span>
-              <span className="rb-team-card-role text-dense">{c.role || '—'}</span>
+              {/* Clipped to one line each; the whole of it on the hover. */}
+              <span className="rb-team-card-name text-dense" title={c.name}>{c.name}</span>
+              <span className="rb-team-card-role text-dense" title={c.role || undefined}>{c.role || '—'}</span>
             </div>
             <div className="rb-team-card-foot">
               {c.seat}

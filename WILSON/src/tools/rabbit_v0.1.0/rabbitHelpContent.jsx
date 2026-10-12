@@ -46,6 +46,15 @@ export const BINS_SHORTCUTS = [
   { keys: [['Ctrl', 'Shift', 'Z'], ['Ctrl', 'Y']], does: 'Redo' },
 ];
 
+// FX3: the Team tab's gallery (TeamGallery.jsx), as the Bins grid moves.
+const TEAM_GALLERY_SHORTCUTS = [
+  { keys: [['←'], ['→'], ['↑'], ['↓']], does: 'Move from card to card (↑ and ↓ by a row)' },
+  { keys: [['Home'], ['End']], does: 'First and last card' },
+  { keys: [['Enter']], does: 'Go into the card: its seat, then its remove' },
+  { keys: [['Esc']], does: 'Back out to the card' },
+  { keys: [['Alt', '↓'], ['Space']], does: 'Open the seat to choose one (the arrows alone never change it)' },
+];
+
 function KeyCombos({ keys, range, surface }) {
   return (
     <span className="inline-flex items-center gap-1 flex-wrap">
@@ -343,7 +352,7 @@ export function RabbitHelpContent({ helpPage, theme }) {
               <li>• <span className={T.listBold}>New shot list</span> — Starts a list from the one on screen, from every scene and shot, or empty.</li>
               <li>• <span className={T.listBold}>Shot lists…</span> — Every list, to open one; also "Not in any list" (the scenes and shots no list holds) and Archived….</li>
               <li>• <span className={T.listBold}>Save</span> — Records that the list was saved as it is now: the bar says "Saved" with the date until the list next changes.</li>
-              <li>• <span className={T.listBold}>Save edit as…</span> — A new list from this one, by default the same title at the next version.</li>
+              <li>• <span className={T.listBold}>Save edit as…</span> — Saves the list on screen as a new shot list: by default the same title at the next version. (While an edit is on screen its own Save edit takes this place.)</li>
               <li>• <span className={T.listBold}>Set active</span> — Makes the list on screen the one every other tab shows.</li>
               <li>• <span className={T.listBold}>More</span> — Add from another list…, Edit details…, Clear this list (only before it is first saved), Withdraw and Archive.</li>
             </ul>
@@ -991,6 +1000,21 @@ export function RabbitHelpContent({ helpPage, theme }) {
             </p>
             <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
               {BINS_SHORTCUTS.map((s) => (
+                <React.Fragment key={s.does}>
+                  <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
+                  <dd className={T.listItem}>{s.does}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          </div>
+          {/* FX3: the Team tab's gallery. */}
+          <div className={T.card}>
+            <h4 className={T.cardTitle}>Team gallery: the keyboard</h4>
+            <p className={`${T.bodyText} mb-2`}>
+              On the Team tab with Gallery chosen. The gallery is one stop for Tab; the keys act on the card with the ring.
+            </p>
+            <dl className="grid gap-x-4 gap-y-1.5 items-center" style={{ gridTemplateColumns: 'max-content 1fr' }}>
+              {TEAM_GALLERY_SHORTCUTS.map((s) => (
                 <React.Fragment key={s.does}>
                   <dt><KeyCombos keys={s.keys} range={s.range} surface={theme === 'dark' ? 'dark' : 'light'} /></dt>
                   <dd className={T.listItem}>{s.does}</dd>

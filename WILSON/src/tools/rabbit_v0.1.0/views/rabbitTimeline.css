@@ -723,9 +723,10 @@
     color: var(--color-ink-2);
   }
 
-  /* ═══ The bid version bar (TimelineVersions.jsx) — stage 2, S5d ═══════════
-     Post-overhaul S5d: the zoom toolbar's second row, past the money gate
-     only (F10): the dropdown, the state in words, the verbs at the right.
+  /* ═══ The bid version bar (TimelineVersions.jsx) — stage 2, S5d; FX3 ══════
+     The Timeline's FIRST row, under the project title (FX3, below; S5d drew
+     it as the zoom toolbar's second row), past the money gate only (F10):
+     the dropdown, the state in words, the verbs at the right.
      MEASURED: the first row has 18px left at 1280 with six Group-by tabs and
      the "Shot list:" label (116 grouped by phase with four), and the smallest
      control that says "● Unsaved" and saves is about 290px, so the bar is a

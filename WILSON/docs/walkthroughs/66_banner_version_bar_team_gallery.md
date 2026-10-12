@@ -70,7 +70,7 @@ Before: the bar was its own row under the zoom toolbar (before-versionbar 01–0
 |---|----|----------------|
 | 13 | Open the Scenes tab | The shot-list bar reads **Save edit as…** where it read *Save as…*; everything still fits on one line, down to a 1024-wide window. (before/after-saveas 01) |
 | 14 | Click it | The same dialog as before: *Save as a new version*, its title and its **Save new version** unchanged. (02) |
-| 15 | Help → R.A.B.B.I.T. → the shot-list card | **Save edit as…** in its list of the bar's verbs. |
+| 15 | Help → R.A.B.B.I.T. → the shot-list card | **Save edit as…** in its list of the bar's verbs: it saves the list on screen as a new shot list. |
 
 The Budget's and the Timeline's **Save as new version…** keep their name.
 
@@ -80,17 +80,20 @@ Before: the roster as a list only (before-team 01).
 
 | # | Do | You should see |
 |---|----|----------------|
-| 16 | Open the Team tab | **Table** and **Gallery** at the top left; **Table** chosen; the roster list exactly as it was. (after-team 01) |
-| 17 | Click **Gallery** | One card per person, in the list's order (managers, then members, then reviewers, by name): the picture, the name, the role, and in the card's foot the seat dropdown and the remove button. (02) |
-| 18 | Press **Tab** until the first card is ringed, then the **arrow keys** | The ring moves card to card; up and down move by a row. **Home** and **End** go to the ends. (03) |
-| 19 | Press **Enter** on a card | You are in the card: its seat dropdown is ringed. **Escape** brings you back out to the card. (04) |
-| 20 | Change a seat in a card; remove someone (it asks first, as the list does) | The same as in the list. |
-| 21 | Leave the tab and come back, or reload | Still **Gallery**: the choice is kept on this computer. |
-| 22 | As a reviewer on the project (cloud) | The cards show the seat as a label, with no dropdown and no remove, as the list does. |
+| 16 | Open the Team tab | **Table** and **Gallery** in the roster's own header, beside the seat count; **Table** chosen; the roster list exactly as it was. (after-team 01) |
+| 17 | Click **Gallery** | One card per person inside the roster, in the list's order (managers, then members, then reviewers, by name): the picture, the name, the title with their @username, and in the card's foot the seat dropdown and the remove button. A long name or title shows whole when you hover it. (02) |
+| 18 | Press **Tab** until the first card is ringed, then the **arrow keys** | The ring moves card to card; up and down move by a row. **Home** and **End** go to the ends. The whole gallery is one stop for Tab: the next Tab leaves it. (03) |
+| 19 | Press **Enter** on a card | You are in the card: its seat dropdown is ringed, and Tab goes on to its remove. **Escape** brings you back out to the card. (04) |
+| 20 | In the card, press **↓** on the seat | Nothing changes: the arrows never change a seat by themselves. **Alt+↓** (or **Space**) opens it to choose. |
+| 21 | Change a seat in a card; remove someone (it asks first, as the list does) | The same as in the list. |
+| 22 | Leave the tab and come back, or reload | Still **Gallery**: the choice is kept on this computer. |
+| 23 | As a reviewer on the project (cloud) | The cards show the seat as a label, with no dropdown and no remove, as the list does. |
+| 24 | Help → R.A.B.B.I.T. → Shortcuts & tips | A *Team gallery: the keyboard* card with these keys. |
 
 On the Local Server the Team tab's table has the same **Table / Gallery**
-switch after its grouping, and the same cards (with the role dropdown and
-the remove the table has).
+switch after its grouping, and cards with the table's role dropdown and
+remove; with **Group** set, the gallery shows a heading per group, folding
+as the table's do. Its cards show initials only (§4).
 
 ---
 
@@ -108,7 +111,10 @@ the picture area, cropped from its top third where a face is.
 ## 3. The numbers, measured
 
 - **Tests:** 336 test files / 8,097 tests (2 skipped) at the start; 339 /
-  8,132 (2 skipped) at the end of the four items, all passing.
+  8,132 (2 skipped) at the end of the four items, all passing; 340 / 8,147
+  after the first review round's corrections (one of the file gateway's own
+  tests fails under the full run's load on Windows and passes alone: an
+  entry in `docs/OUTSTANDING.md`, not this work).
 - **The banner:** 28px tall, edge to edge, its dot on the title's left
   edge; the line is 1px. In every window: the title row, then the banner,
   then the details (asset 1152px wide, task 960, scene, shot, level and
@@ -138,6 +144,11 @@ the picture area, cropped from its top third where a face is.
 - **There is no member sheet to open.** A row in the Team list opens
   nothing, so a card opens nothing either; **Enter** takes you into the
   card's controls.
+- **On the Local Server the gallery shows initials, never a picture.** A
+  member's picture there is a file on the computer or an address the app
+  cannot read safely, and nothing in the Local Server's Team tab draws one
+  today (its table shows initials too). Showing it needs a way to read a
+  member's picture from the Local Server first.
 
 ---
 
@@ -150,12 +161,19 @@ the picture area, cropped from its top third where a face is.
 2. **The line's weight.** It is 1px. The one before the overhaul was
    thicker (about 3px); the app's rule since the overhaul is no line of 2px
    or more except a short list you approved by hand. Keep 1px, or add the
-   banner's line to that list at 2 or 3px?
+   banner's line to that list at 2 or 3px? (A status with no colour of its
+   own, *Not started*, *Waiting to start* or *Omitted*, draws the line in
+   grey, a little darker than the window's other rules.)
 3. **The Team gallery's width.** The cards sit inside the roster's column
    (three a row). Keep, or let the gallery use the whole width (five or six
    a row)?
-4. **Save edit as…'s dialog** is still titled *Save as a new version*.
-   Rename it to match ("Save edit as a new version")?
+4. **"Save edit as…" sits next to "Save edit".** Your button now reads
+   *Save edit as…* and makes a new **shot list** from the list on screen.
+   While an edit is on screen, the bar's other button, **Save edit**, saves
+   that **edit** as its next version, and *Save edit as…* steps aside. The
+   two names are close while the two buttons do different things. Keep
+   *Save edit as…*, or call the list's button *Save list as…*? Its dialog
+   is still titled *Save as a new version*; rename that to match either way?
 5. **The other avatars** (§4): sign them all and make the bucket private?
 
 ---
@@ -169,8 +187,11 @@ on the Timeline, the four bar states with their measurements, the Scenes
 bar and its dialog, the Team list, the gallery, the arrows and Enter. The
 Timeline's rows probe (`timeline-rows-probe.mjs`) passes at both sizes.
 The signed pictures, the one request, the hour's cache, a picture that
-cannot be read, one that fails to load, a reviewer's cards and the Local
-Server's gallery were checked by automated tests against a stand-in for
-storage, not against a real bucket: the test data's pictures are generated
-in the page. Nothing was run signed in to a real project, and the desktop
+cannot be read, one that fails to load (signed once more, then the
+initials), a picture naming someone else's file, a sign-out emptying the
+cache, a reviewer's cards and the Local Server's gallery and its groups were
+checked by automated tests against a stand-in for storage, not against a
+real bucket: the test data's pictures are generated in the page. A task's
+status changed in its window and taken back by the app's own undo was
+checked through the real data layer on the test data, as well as by hand. Nothing was run signed in to a real project, and the desktop
 app was not opened.
