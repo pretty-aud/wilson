@@ -620,6 +620,11 @@
      the column's own content scrolls under it; the files column fills it. */
   .rb-task-detail-side { position: relative; display: flex; flex: 0 0 400px; min-width: 0; min-height: 0; }
   .rb-task-detail-side > .rb-task-detail-files { flex: 1 1 auto; min-width: 0; }
+  /* FX2: the Items table sits above the files. A section's own overflow
+     (hidden) lets a flex item shrink to nothing, so at 1280x700 the files
+     were crushed under the table: each part keeps its height and the column
+     scrolls. */
+  .rb-task-detail-files > * { flex-shrink: 0; }
   .rb-task-detail-props {
     flex: 1;
     min-width: 0;
