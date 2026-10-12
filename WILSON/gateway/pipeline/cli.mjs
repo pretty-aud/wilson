@@ -198,6 +198,7 @@ async function githubRelease(dir) {
   if (!dryRun) {
     const existing = await fetch(`${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'wilson-gateway-release' } });
     if (existing.status === 200) fail(`${tag} is released already; a release is never replaced. Tag the next version.`);
+    if (existing.status !== 404) fail(`could not tell whether ${tag} is released already (GitHub answered ${existing.status}); nothing was made. Run the job again.`);
   }
   const rel = await api('POST', `${API}/repos/${repo}/releases`, {
     body: { tag_name: tag, target_commitish: env.GITHUB_SHA, name: env.RELEASE_NAME, body, draft: true, prerelease: dryRun, make_latest: 'false' },
@@ -214,7 +215,7 @@ async function githubRelease(dir) {
   for (const n of files.keys()) if (!served.has(n)) fail(`read back: ${n} is not among the release's assets`);
   const keys = dryRun ? [signingKeyFromWire({ kid: 'dryrun', public_key: env.PUBLIC_KEY })?.key].filter(Boolean) : compiledReleaseKeys();
   if (!keys.length) fail('read back: no key to verify the signature with');
-  const r = readBack({ assets: served, version, keys });
+  const r = readBack({ assets: served, version, tag, keys });
   for (const s of r.sums) notice(`Asset ${s.name}`, `${s.size} bytes, sha256 ${s.sha256}`);
   notice('stable.json as served (base64)', served.get(MANIFEST_NAME).toString('base64'));
   notice('stable.json.sig as served', served.get(SIGNATURE_NAME).toString('utf8'));

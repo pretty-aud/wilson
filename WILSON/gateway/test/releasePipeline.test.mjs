@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import {
   planRelease, stampVersion, checkArtefact, floorsFor, makeManifest, privateKeyFromSecret, signManifest, readBack,
   artefactName, msiName, MANIFEST_NAME, SIGNATURE_NAME, TAG_RE,
@@ -112,6 +113,16 @@ describe('stable.json and its signature', () => {
     expect(s.kid).toBeNull();
     expect(verifyManifest({ manifestBytes: mb, signatureText: s.signature, keys: [publicKey], runningVersion: '0.0.0', platformKey: 'windows-x64', now: Date.parse('2026-10-11T10:00:00Z') }).ok).toBe(true);
   });
+  it('the signed manifest is checked as a gateway checks it before it leaves the job: a shape or a date a gateway would refuse is never signed', () => {
+    const { privateKey } = crypto.generateKeyPairSync('ed25519');
+    const base = JSON.parse(makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 }).toString());
+    const elsewhere = { ...base, artefacts: { ...base.artefacts, 'windows-x64': { ...base.artefacts['windows-x64'], url: 'https://evil.example/wilson-gateway-0.0.0-windows-x64.tar.gz' } } };
+    expect(() => signManifest(Buffer.from(JSON.stringify(elsewhere)), privateKey, { dryRun: true })).toThrow(/does not verify for windows-x64 \(shape\)/);
+    const future = { ...base, published_at: new Date(Date.now() + 3 * 86_400_000).toISOString() };
+    expect(() => signManifest(Buffer.from(JSON.stringify(future)), privateKey, { dryRun: true })).toThrow(/does not verify for windows-x64 \(future\)/);
+    // CONTROL: the same key signs the manifest as made.
+    expect(signManifest(Buffer.from(JSON.stringify(base)), privateKey, { dryRun: true }).signature).toMatch(/^[A-Za-z0-9+/]{86}==$/);
+  });
   it('a REAL release refuses a key that is in no slot (gateways would refuse its manifests)', () => {
     const mb = makeManifest({ version: '1.2.3', tag: 'gateway-v1.2.3', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors: floors0 });
     const other = crypto.generateKeyPairSync('ed25519').privateKey;
@@ -145,19 +156,37 @@ describe('the read-back: the release as GitHub serves it, held to its manifest',
     [SIGNATURE_NAME, Buffer.from(crypto.sign(null, mb, privateKey).toString('base64'))],
   ]);
   it('every asset served as made: ok, with each one\'s size and SHA-256', () => {
-    const r = readBack({ assets: assets(), version: '0.0.0', keys: [publicKey] });
+    const r = readBack({ assets: assets(), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] });
     expect(r).toMatchObject({ ok: true, problems: [] });
     expect(r.sums.map((s) => s.name)).toEqual([msiName('0.0.0'), artefactName('0.0.0'), MANIFEST_NAME, SIGNATURE_NAME]);
   });
   it('a tampered artefact, a missing MSI, another key, a flipped manifest byte: each named', () => {
     const t = assets(); const a = Buffer.from(artefact); a[0] ^= 1; t.set(artefactName('0.0.0'), a);
-    expect(readBack({ assets: t, version: '0.0.0', keys: [publicKey] }).problems).toEqual(["the artefact's SHA-256 is not the manifest's"]);
+    expect(readBack({ assets: t, version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual(["the artefact's SHA-256 is not the manifest's"]);
     const m = assets(); m.delete(msiName('0.0.0'));
-    expect(readBack({ assets: m, version: '0.0.0', keys: [publicKey] }).problems).toEqual([`${msiName('0.0.0')} is not an asset`]);
+    expect(readBack({ assets: m, version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual([`${msiName('0.0.0')} is not an asset`]);
     const other = crypto.generateKeyPairSync('ed25519').publicKey;
-    expect(readBack({ assets: assets(), version: '0.0.0', keys: [other] }).problems.join()).toContain('(signature)');
+    expect(readBack({ assets: assets(), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [other] }).problems.join()).toContain('(signature)');
     const f = assets(); const fm = Buffer.from(mb); fm[20] ^= 1; f.set(MANIFEST_NAME, fm);
-    expect(readBack({ assets: f, version: '0.0.0', keys: [publicKey] }).ok).toBe(false);
+    expect(readBack({ assets: f, version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).ok).toBe(false);
+  });
+  it('a manifest for another version, or naming another release\'s artefact, is named (gateways download what it names)', () => {
+    const resigned = (bytes) => {
+      const x = assets();
+      x.set(MANIFEST_NAME, bytes);
+      x.set(SIGNATURE_NAME, Buffer.from(crypto.sign(null, bytes, privateKey).toString('base64')));
+      return x;
+    };
+    const floors = { minimum_version: null, hard_minimum_version: null };
+    const v1 = makeManifest({ version: '0.0.1', tag: 'gateway-dry-run-9', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
+    expect(readBack({ assets: resigned(v1), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual([
+      'stable.json says 0.0.1, the release is 0.0.0',
+      `the manifest's artefact URL is not this release's ${artefactName('0.0.0')}`,
+    ]);
+    const elsewhere = makeManifest({ version: '0.0.0', tag: 'gateway-dry-run-8', publishedAt: '2026-10-11T10:00:00.000Z', artefact, containerDigest: DIGEST, floors });
+    expect(readBack({ assets: resigned(elsewhere), version: '0.0.0', tag: 'gateway-dry-run-9', keys: [publicKey] }).problems).toEqual([
+      `the manifest's artefact URL is not this release's ${artefactName('0.0.0')}`,
+    ]);
   });
 });
 
@@ -170,7 +199,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
       execFile(process.execPath, [path.join(GW, 'pipeline', 'cli.mjs'), 'github-release', '--dir', env.DIR], { env: { ...process.env, ...env }, timeout: 30_000 }, (err, stdout, stderr) => resolve({ code: err ? err.code ?? 1 : 0, stdout, stderr }));
     });
   });
-  async function fakeGitHub() {
+  async function fakeGitHub({ tagStatus = 404 } = {}) {
     const http = await import('node:http');
     const calls = [];
     const assets = new Map();
@@ -184,7 +213,7 @@ describe('github-release against a fake GitHub API on loopback', () => {
         calls.push({ method: req.method, path: u.pathname, auth: req.headers.authorization || null, query: u.search });
         const json = (status, v) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
         const base = `http://127.0.0.1:${server.address().port}`;
-        if (req.method === 'GET' && /\/releases\/tags\//.test(u.pathname)) return json(404, { message: 'Not Found' });
+        if (req.method === 'GET' && /\/releases\/tags\//.test(u.pathname)) return json(tagStatus, tagStatus === 200 ? { id: 5, draft: false, tag_name: decodeURIComponent(u.pathname.split('/').pop()) } : { message: tagStatus === 404 ? 'Not Found' : 'Server Error' });
         if (req.method === 'POST' && u.pathname === '/repos/pretty-aud/wilson/releases') {
           const b = JSON.parse(body.toString());
           calls.at(-1).create = b;
@@ -245,6 +274,22 @@ describe('github-release against a fake GitHub API on loopback', () => {
       expect(gh.published()).toBeNull();
       expect(gh.calls.find((c) => c.create)?.create).toMatchObject({ tag_name: 'gateway-v1.2.3', draft: true, prerelease: false });
     } finally { await gh.close(); }
+  });
+  it('a REAL release of a tag released before is refused before anything is made; so is a tag GitHub cannot answer for', async () => {
+    for (const [tagStatus, said] of [
+      [200, 'gateway-v1.2.3 is released already; a release is never replaced. Tag the next version.'],
+      [502, 'could not tell whether gateway-v1.2.3 is released already (GitHub answered 502)'],
+    ]) {
+      const gh = await fakeGitHub({ tagStatus });
+      try {
+        const { dir } = releaseDir('1.2.3', { tag: 'gateway-v1.2.3' });
+        const r = await runCli(env(gh, { DIR: dir, DRY_RUN: 'false', VERSION: '1.2.3', TAG: 'gateway-v1.2.3', RELEASE_NAME: 'WILSON file gateway 1.2.3', PUBLIC_KEY: '' }));
+        expect(r.code, String(tagStatus)).not.toBe(0);
+        expect(r.stdout).toContain(said);
+        expect(gh.calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /repos/pretty-aud/wilson/releases/tags/gateway-v1.2.3']);
+        expect(gh.published()).toBeNull();
+      } finally { await gh.close(); }
+    }
   });
   it('refuses to release any other repository', async () => {
     const gh = await fakeGitHub();
@@ -311,6 +356,29 @@ describe('the workflow (gateway-release.yml), as written', () => {
     expect(cli).toContain("{ draft: false, make_latest: 'true' }");
     expect(cli.indexOf("{ draft: false, make_latest: 'true' }")).toBeGreaterThan(cli.indexOf('const r = readBack('));
     expect(cli).toMatch(/if \(dryRun\) \{\n\s+notice\('Dry run'/);
+  });
+  it.runIf(process.platform === 'win32')('the MSI build packs the host -HostExe names as it is (build.ps1\'s own step, run by PowerShell on a scratch folder)', () => {
+    const build = read(GW, 'windows', 'wix', 'build.ps1');
+    const from = build.indexOf('# 1. The host');
+    const to = build.indexOf('# 2. node.exe');
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'gw4-host-'));
+    try {
+      const prebuilt = path.join(dir, 'prebuilt.exe');
+      fs.writeFileSync(prebuilt, 'the prebuilt, perhaps signed, host');
+      const q = (p) => `'${p.replace(/'/g, "''")}'`;
+      const script = [
+        "$ErrorActionPreference = 'Stop'",
+        `$HostExe = ${q(prebuilt)}`,
+        `$stage = ${q(path.join(dir, 'stage'))}`,
+        `$gateway = ${q(path.join(dir, 'no-gateway-here'))}`, // building the host from source would fail here
+        build.slice(from, to),
+      ].join('\n');
+      const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+      expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+      expect(fs.readFileSync(path.join(dir, 'stage', 'host', 'WilsonGatewayHost.exe'), 'utf8')).toBe('the prebuilt, perhaps signed, host');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('the pipeline\'s scripts are not shipped: not in the image, not in the MSI', () => {
     expect(read(GW, '.dockerignore').split('\n').map((s) => s.trim())).toContain('pipeline');

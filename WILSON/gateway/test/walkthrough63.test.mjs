@@ -118,6 +118,22 @@ describe('walkthrough 63 (the releases and the rehearsal)', () => {
     expect((platform.match(/\[CLI, 'run'\]/g) || []).length).toBe(1);
     expect(platform).toContain('WILSON_GATEWAY_STATE_DIR: notADir');
   });
+  it('every mention of a release, the workflow and its environment is spelled as the pipeline spells it', () => {
+    const names = [...wt.matchAll(/\*\*WILSON [^*]*?(\d+\.\d+\.\d+)\*\*/g)];
+    expect(names.length).toBeGreaterThanOrEqual(4);
+    for (const [said, version] of names) {
+      const p = planRelease({ event: 'push', refType: 'tag', refName: `gateway-v${version}`, dryRunInput: '', runId: '1', packageVersion: version });
+      expect(said).toBe(`**${p.releaseName}**`);
+    }
+    const workflowName = /^name: (.+)$/m.exec(workflow)[1];
+    const bold = [...wt.matchAll(/\*\*(Gateway release[^*]*)\*\*/g)].map((m) => m[1]);
+    expect(bold.length).toBeGreaterThanOrEqual(2);
+    for (const b of bold) expect(b).toBe(workflowName);
+    const env = /^\s+environment: (\S+)$/m.exec(workflow)[1];
+    const ticked = [...wt.matchAll(/`([^`\s]*gateway-release[^`\s]*)`/g)].map((m) => m[1]);
+    expect(ticked.filter((t) => t === env).length).toBeGreaterThanOrEqual(2);
+    for (const t of ticked) expect([env, '.github/workflows/gateway-release.yml', 'po/gw4-gateway-release']).toContain(t);
+  });
   it('says what this computer did not do', () => {
     expect(wt).toMatch(/\*\*Not done here, by rule:\*\*\s+installing the MSI or either service, adding or changing a firewall rule,\s+clicking a Windows dialog, a public name or port 443 on this PC, and any\s+real release: steps 1 to 32 are yours\./);
     expect((wt.match(/<!--/g) || []).length).toBe(0);

@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,11 +18,12 @@ import { RELEASE_HOSTS } from '../src/update/releaseFetch.mjs';
 import { LETS_ENCRYPT_DIRECTORY } from '../src/acme/client.mjs';
 import { renewAt } from '../src/acme/manager.mjs';
 import { outsideCertificateWarning } from '../src/rules/health.mjs';
-import { CONTAINER_IMAGE, RELEASE_REPOSITORY } from '../src/update/manifest.mjs';
+import { CONTAINER_IMAGE, RELEASE_REPOSITORY, RELEASE_KEYS_WIRE } from '../src/update/manifest.mjs';
 import { SKEW_S } from '../src/wire/ticket.mjs';
 import { SMARTSCREEN_SUMMARY } from '../src/installer.mjs';
 import { msiName } from '../pipeline/lib.mjs';
 import { containerRootFor } from '../src/rules/mountRule.mjs';
+import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WILSON = path.join(HERE, '..', '..');
@@ -157,5 +159,50 @@ describe('the install stories say what the code does (GW4 item 4)', () => {
   it('the environment the container is given is the names the gateway reads', () => {
     const runtime = read(WILSON, 'gateway', 'src', 'runtime.mjs');
     for (const v of ['WILSON_ENROL_TOKEN', 'WILSON_CLOUD_URL']) { expect(runtime, v).toContain(`env.${v}`); expect(nas, v).toContain(v); }
+  });
+});
+
+describe('what the guide tells an admin to check or do is the code\'s', () => {
+  it('docker inspect\'s user is the Dockerfile\'s USER', () => {
+    const user = /^USER (\d+:\d+)$/m.exec(dockerfile)?.[1];
+    expect(user).toBe('65532:65532');
+    expect(guide).toContain(`\`docker inspect\` shows \`"User": "${user}"\``);
+  });
+  it('the NAS\'s reverse proxy and a tunnel forward to the OUTSIDE door on loopback, never to the office door', () => {
+    const outside = `\`https://127.0.0.1:${DEFAULT_CONFIG.outside.port}\``;
+    const s7 = guide.slice(guide.indexOf('## 7. '), guide.indexOf('## 8. '));
+    const rows = s7.split('\n').filter((l) => /^\| \*\*(The NAS's reverse proxy|A tunnel)\*\*/.test(l));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toContain(outside);
+    expect(guide).not.toContain(`127.0.0.1:${DEFAULT_CONFIG.inside.port}`);
+  });
+  it('the incident procedure: Forget and Cancel are the card\'s own buttons, the floors the version list\'s, the key as the slots allow', () => {
+    const card = read(WILSON, 'src', 'components', 'settings', 'GatewaySettings.jsx');
+    const s9 = guide.slice(guide.indexOf('## 9. '), guide.indexOf('## 10. '));
+    expect(card).toMatch(/onClick=\{\(\) => onForget\(gw\)\}[^>]*>\s*Forget\s*<\/Button>/);
+    expect(card).toContain('onClick={() => cancelToken(t.id)}>Cancel</Button>');
+    expect(s9).toContain('| **Forget** it on the card at once:');
+    expect(s9).toContain('| **Cancel** it on the card before it is used.');
+    const floors = JSON.parse(read(WILSON, 'gateway', 'pipeline', 'floors.json'));
+    expect(Object.keys(floors)).toEqual(expect.arrayContaining(['minimum_version', 'hard_minimum_version']));
+    expect(s9).toContain('publishes a fixed release whose version list sets the minimum and hard minimum above the bad version');
+    // One key is built in and the second slot is empty, so the procedure cannot "sign with the second key".
+    expect(RELEASE_KEYS_WIRE).toHaveLength(1);
+    expect(guide).not.toMatch(/signs with the second release key/);
+    expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one (the second slot is empty today, §10)');
+    expect(guide).toContain('- **One release key is built in today.** The second slot is empty');
+  });
+  it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
+    const s11 = guide.slice(guide.indexOf('## 11. '));
+    const ids = [...s11.matchAll(/^\| ([A-Z]{2}-\d+(?:\.\d+)?(?:, [A-Z]{2}-\d+(?:\.\d+)?)*) \(/gm)].map((m) => m[1]);
+    expect(ids).toEqual(['TS-2', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
+    expect(s11).toContain('| TS-2 (segmentation, default deny) |');
+  });
+  it('names the one signal TPN\'s list would flag, and the office door\'s certificate does carry the office address', () => {
+    const s10 = guide.slice(guide.indexOf('## 10. '), guide.indexOf('## 11. '));
+    expect(s10).toContain("- **The office door's certificate names private addresses.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates");
+    const root = makeRoot({ hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    const leaf = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    expect(new crypto.X509Certificate(leaf.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
   });
 });

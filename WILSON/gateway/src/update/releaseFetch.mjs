@@ -46,7 +46,16 @@ function requestOnce(u, { timeoutMs, deadlineAt, transport, onResponse }) {
     const left = deadlineAt - Date.now();
     if (!(left > 0)) { reject(new ReleaseFetchError('the download took longer than allowed', 'deadline')); return; }
     let timer = null;
+    let response = null;
+    let ours = null; // a refusal of ours that ended the request: the timeout, the deadline
     const settle = (fn) => (v) => { clearTimeout(timer); fn(v); };
+    // Node ends a body cut short with an error of its own ("aborted", a
+    // reset): it is named here, so the admin reads what happened rather than
+    // Node's word. A refusal of ours (too large, a timeout) is kept as it is.
+    const failed = (e) => settle(reject)(ours ?? (e instanceof ReleaseFetchError || !response || response.complete
+      ? e
+      : new ReleaseFetchError(`${u.hostname}: the answer was cut short`, 'truncated')));
+    const end = (e) => { ours = e; req.destroy(e); };
     const req = https.request(u, {
       method: 'GET',
       headers: { 'user-agent': `wilson-gateway/${VERSION}`, accept: '*/*', 'accept-encoding': 'identity' },
@@ -55,10 +64,10 @@ function requestOnce(u, { timeoutMs, deadlineAt, transport, onResponse }) {
       ...(transport?.ca ? { ca: transport.ca } : {}),
       ...(transport?.port ? { port: transport.port } : {}),
       timeout: timeoutMs,
-    }, (res) => { onResponse(res).then(settle(resolve), settle(reject)); });
-    timer = setTimeout(() => req.destroy(new ReleaseFetchError('the download took longer than allowed', 'deadline')), left);
-    req.on('timeout', () => req.destroy(new ReleaseFetchError(`${u.hostname}: no answer within ${Math.round(timeoutMs / 1000)} s`, 'timeout')));
-    req.on('error', settle(reject));
+    }, (res) => { response = res; onResponse(res).then(settle(resolve), failed); });
+    timer = setTimeout(() => end(new ReleaseFetchError('the download took longer than allowed', 'deadline')), left);
+    req.on('timeout', () => end(new ReleaseFetchError(`${u.hostname}: no answer within ${Math.round(timeoutMs / 1000)} s`, 'timeout')));
+    req.on('error', failed);
     req.end();
   });
 }
@@ -111,6 +120,7 @@ export async function releaseFetch(url, { maxBytes, timeoutMs = 30_000, deadline
           if (n > maxBytes) { res.destroy(); throw new ReleaseFetchError(`${u.hostname}: larger than ${maxBytes} bytes`, 'too_large'); }
           if (onChunk) await onChunk(chunk); else chunks.push(chunk);
         }
+        // Node 24 throws "aborted" before here (named above); kept for a Node that ends the stream instead.
         if (!res.complete) throw new ReleaseFetchError(`${u.hostname}: the answer was cut short`, 'truncated');
         return { body: onChunk ? null : Buffer.concat(chunks), bytes: n };
       },

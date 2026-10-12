@@ -157,9 +157,9 @@ export function signManifest(manifestBytes, privateKey, { dryRun }) {
  * and SHA-256, the Windows artefact the one the manifest names, the signature
  * over the served stable.json verified with `keys`.
  *
- * @param o { assets: Map<name, Buffer>, version, keys: KeyObject[] }
+ * @param o { assets: Map<name, Buffer>, version, tag, keys: KeyObject[] }
  */
-export function readBack({ assets, version, keys }) {
+export function readBack({ assets, version, tag, keys }) {
   const problems = [];
   const manifestBytes = assets.get(MANIFEST_NAME);
   const signature = assets.get(SIGNATURE_NAME)?.toString('utf8') ?? '';
@@ -173,6 +173,8 @@ export function readBack({ assets, version, keys }) {
   const m = verdict?.manifest ?? JSON.parse(manifestBytes.toString('utf8'));
   if (m.version !== version) problems.push(`stable.json says ${m.version}, the release is ${version}`);
   const win = m.artefacts?.['windows-x64'];
+  // Gateways download what the manifest names: it must be THIS release's artefact.
+  if (win?.url !== `${ARTEFACT_URL_PREFIX}${tag}/${artefactName(version)}`) problems.push(`the manifest's artefact URL is not this release's ${artefactName(version)}`);
   const art = assets.get(artefactName(version));
   if (!art) problems.push(`${artefactName(version)} is not an asset`);
   else {

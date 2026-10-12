@@ -189,6 +189,45 @@ describe('releaseFetch: GitHub\'s redirects, and nowhere else', () => {
     await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, transport: srv.transport })).rejects.toMatchObject({ code: 'too_large' });
     srv.state.override = null;
   });
+  it('a length declared past the cap is refused at once, before the body (a body that then stalls does not wait out the timeout)', async () => {
+    srv.state.override = ({ host, res }) => {
+      if (host !== 'release-assets.githubusercontent.com') return undefined;
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': 10_000_000 });
+      res.write(Buffer.alloc(10)); // and then nothing: the connection stays open
+      return true;
+    };
+    const t0 = Date.now();
+    await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 1000, timeoutMs: 4000, transport: srv.transport })).rejects.toMatchObject({ code: 'too_large' });
+    expect(Date.now() - t0).toBeLessThan(3000);
+    srv.state.override = null;
+  });
+  it('an answer cut short is refused and named so (the length unmet, a chunked body never ended, a reset), not in Node\'s own word', async () => {
+    try {
+      for (const how of ['length', 'chunked', 'reset']) {
+        srv.state.override = ({ host, res }) => {
+          if (host !== 'release-assets.githubusercontent.com') return undefined;
+          res.writeHead(200, how === 'chunked' ? { 'content-type': 'application/octet-stream' } : { 'content-type': 'application/octet-stream', 'content-length': 5000 });
+          res.write(Buffer.alloc(1000), () => setTimeout(() => {
+            // A reset is sent on the TCP socket under the TLS one (the TLS socket's own handle cannot reset).
+            if (how === 'reset') (res.socket._parent ?? res.socket).resetAndDestroy();
+            else res.socket.destroy();
+          }, 20));
+          return true;
+        };
+        await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, transport: srv.transport }), how)
+          .rejects.toMatchObject({ code: 'truncated', message: 'release-assets.githubusercontent.com: the answer was cut short' });
+      }
+      // CONTROL: our own refusals keep their names (a stall is a timeout, the whole fetch's limit the deadline).
+      srv.state.override = ({ host, res }) => {
+        if (host !== 'release-assets.githubusercontent.com') return undefined;
+        res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': 5000 });
+        res.write(Buffer.alloc(1000));
+        return true;
+      };
+      await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, timeoutMs: 800, transport: srv.transport })).rejects.toMatchObject({ code: 'timeout' });
+      await expect(releaseFetch(srv.assetUrl(ARTEFACT), { maxBytes: 50_000, timeoutMs: 10_000, deadlineMs: 800, transport: srv.transport })).rejects.toMatchObject({ code: 'deadline' });
+    } finally { srv.state.override = null; }
+  });
   it('a status other than 200 at the end is refused', async () => {
     await expect(releaseFetch('https://github.com/pretty-aud/wilson/releases/download/gateway-v9.0.0/missing', { maxBytes: 10, transport: srv.transport })).rejects.toMatchObject({ code: 'status' });
   });

@@ -35,8 +35,8 @@ const cleanups = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()(); });
 
 /** The outside door on loopback with the ACME hook, answering "door" to a request. */
-async function outsideDoor(acme, { cert = selfSignedFor(['door.local']) } = {}) {
-  const d = createDoorServer({ door: 'outside', host: '127.0.0.1', port: 0, tls: { cert: cert.certPem, key: cert.keyPem }, limits: DEFAULT_LIMITS, gate: () => ({ admit: true }), handler: (_q, r) => r.end('door'), acme });
+async function outsideDoor(acme, { cert = selfSignedFor(['door.local']), onEvent } = {}) {
+  const d = createDoorServer({ door: 'outside', host: '127.0.0.1', port: 0, tls: { cert: cert.certPem, key: cert.keyPem }, limits: DEFAULT_LIMITS, gate: () => ({ admit: true }), handler: (_q, r) => r.end('door'), acme, ...(onEvent ? { onEvent } : {}) });
   await d.listen();
   cleanups.push(() => d.close());
   return d;
@@ -143,11 +143,21 @@ describe('the outside door\'s hooks: TLS-ALPN-01 answered without touching a bro
     expect(plain).toMatchObject({ ok: true, alpn: false, cn: 'release test' });
   });
   it('acme-tls/1 for a name with no pending challenge, or over TLS 1.2 (the certificate is chosen before ALPN there), is refused', async () => {
-    const d = await outsideDoor(pendingFor(NAME));
+    const events = [];
+    const d = await outsideDoor(pendingFor(NAME), { onEvent: (e, detail) => events.push(`${e}:${detail.reason ?? ''}`) });
     expect((await handshake(d.port, { servername: 'other.example.test', ALPNProtocols: [ACME_TLS_ALPN] })).ok).toBe(false);
     expect((await handshake(d.port, { ALPNProtocols: [ACME_TLS_ALPN], maxVersion: 'TLSv1.2' })).ok).toBe(false);
+    // In TLS 1.2 the door ends an acme-tls/1 connection before the client's
+    // handshake completes, whatever the door chose, so the client's failure
+    // alone proves nothing: the door's own events say it REFUSED both, and
+    // answered no challenge.
+    expect(events).toEqual(['acme_alpn_refused:no_challenge', 'acme_alpn_refused:tls12']);
     // CONTROL: TLS 1.2 for a browser is fine.
     expect(await handshake(d.port, { ALPNProtocols: ['http/1.1'], maxVersion: 'TLSv1.2' })).toMatchObject({ ok: true, alpn: 'http/1.1' });
+    // CONTROL: a validator in TLS 1.3 is answered, and the door says so.
+    expect(await handshake(d.port, { ALPNProtocols: [ACME_TLS_ALPN] })).toMatchObject({ ok: true, alpn: 'acme-tls/1' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(events.at(-1)).toBe('acme_challenge_answered:');
   });
   it('acme-tls/1 offered among other protocols is a browser\'s offer, not a validator\'s', async () => {
     const d = await outsideDoor(pendingFor(NAME));
@@ -447,5 +457,30 @@ describe('the running gateway: the free certificate on the outside door, end to 
       req.end();
     });
     expect(status).toBe(200);
+  }, 30_000);
+  it('switch off with a name at 443: nothing is asked of the CA, however many ticks (F15: only while the outside door is open)', async () => {
+    const { Gateway } = await import('../src/runtime.mjs');
+    const { createFakeCloud } = await import('./fakeCloud.mjs');
+    const stateDir = tmp();
+    fs.writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify({ outside: { port: 0 } }));
+    const cloud = createFakeCloud({});
+    const fake = await startFakeAcme({ doorFor: () => null });
+    cleanups.push(() => fake.close());
+    const gw = new Gateway({
+      env: { WILSON_CLOUD_URL: cloud.base, WILSON_ENROL_TOKEN: cloud.newToken() }, stateDir, hostname: 'studio-nas', fetchImpl: cloud.fetch, secrets: plainSecrets,
+      netInterfaces: () => ({ lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true, netmask: '255.0.0.0', cidr: '127.0.0.1/8' }] }), print: () => {},
+      tickMs: 3_600_000, addressMs: 3_600_000, eventsMs: 3_600_000, statusMs: 3_600_000, enrolPollMs: 3_600_000,
+      outsideHosts: ['127.0.0.1'], acmeDirectoryUrl: fake.directoryUrl, acmeTransport: fake.transport, acmeSleep: async () => {},
+    });
+    await gw.start();
+    cleanups.push(async () => { await gw.stop(); });
+    cloud.state.switchOn = false;
+    cloud.state.outsideAddress = { host: NAME, port: 443 };
+    await gw.syncNow();
+    expect(gw.acmeName()).toBe(NAME); // the name applies; only the switch holds the attempt back
+    for (let i = 0; i < 5; i++) { await gw.tickNow(); await gw.acme.running; }
+    expect(gw.outsideState).not.toBe('open');
+    expect(gw.acme.running).toBeFalsy();
+    expect({ accounts: fake.accounts.size, orders: fake.orders.size, validations: fake.log.length }).toEqual({ accounts: 0, orders: 0, validations: 0 });
   }, 30_000);
 });
