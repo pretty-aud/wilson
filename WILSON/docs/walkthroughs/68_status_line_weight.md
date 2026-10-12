@@ -17,9 +17,10 @@ controller merges, on your word.
 
 - **2px** is the weight the app already uses to say "this one is chosen":
   the underline under the selected tab (the **Table / Gallery** switch over
-  the task window's files has one) and the edge of a selected row. At 2px
-  the status line reads as one more of those.
-- **4px** is the heaviest thing in the window. It catches the eye before
+  the task window's files has one, and for an *In progress* item it is the
+  very same orange) and the edge of a selected row. At 2px the status line
+  reads as one more of those.
+- **4px** is the heaviest line in the window. It catches the eye before
   the item's name does.
 - **3px** reads as the bar you asked to have back ("a color banner/bar
   that was the color of the status"). It is the weight these windows drew
@@ -50,7 +51,7 @@ Contrast).
 |---|----|----------------|
 | 1 | Assets: open **Shooting Script v4**'s details | Under the title, **● FINAL**, then a green bar across the whole window, then the details. (after-01; before-01 has the thin line) |
 | 2 | Tasks: open **Lock the shooting script**'s details | The same: **● FINAL** and the green bar. (02) |
-| 3 | In that window, change **Status** to **Blocked**, then to **In progress** | The bar turns pink-red, then orange, at once, and stays as thick. |
+| 3 | In that window, change **Status** to **Blocked**, then **In progress**, then **Waiting to start** | The bar turns pink-red, then orange, then grey, at once, and stays as thick. Orange and grey are where the same 3px looks thinnest (they stand out least from the dark window): judge the weight on those. |
 | 4 | Scenes: a scene's details; Shots: a shot's details | The same bar on both. (03, 04) |
 | 5 | Add `?fixtures=game`. Levels: a level's details; Experiences: an experience's | The same bar; *In progress* is orange. (05, 06) |
 | 6 | Scroll a long window's details | The bar stays under the title; only the details scroll. |
@@ -59,8 +60,8 @@ Contrast).
 
 The light-ground picture (`-03-tones-light-`) is for completeness: no
 window draws the banner on the light orange ground today. If one ever
-does, the line there is the light page's own rule colour, at the same
-3px, because the light ground shows no status colours.
+does, the line there stays the light page's thin rule (1px): the light
+ground shows no status colours, so there is no coloured bar to thicken.
 
 ---
 
@@ -94,7 +95,8 @@ word (`po-fx6-forced-01-task-1440x900.png`, Chromium's imitation of it).
 - **Tests:** 357 test files / 8,593 tests (2 skipped) at the start, where
   two of the file gateway's own tests failed under the full run's load on
   Windows and passed alone (a known entry in `docs/OUTSTANDING.md`, not
-  this work); 357 / 8,597 (2 skipped) after the change, all passing.
+  this work); 357 / 8,597 (2 skipped) after the change and 357 / 8,598
+  (2 skipped) after the first review round's corrections, all passing.
 
 ---
 
@@ -103,15 +105,19 @@ word (`po-fx6-forced-01-task-1440x900.png`, Chromium's imitation of it).
 - **Under High Contrast the status dot disappears.** The theme paints over
   every filled shape, so the dot beside the word is gone there (the word
   and the line stay). That is true of the status dot everywhere in the
-  app, not only here.
+  app, not only here, and where a dot stands without a word (a project's
+  card on the Summary, the rows of the item picker) the status is gone
+  with it. It is filed in the list of things still broken
+  (`docs/OUTSTANDING.md`) for a session of its own.
 
 ---
 
 ## 5. The question, when you test
 
 1. **The line's weight.** It is 3px now. Pictures 7 and 8 show 2, 3 and
-   4px side by side, in every status colour. Keep 3px, or make it thicker
-   (4px) or thinner (2px)?
+   4px side by side, in every status colour. Judge it on an *In progress*
+   (orange) or a *Waiting to start* (grey) item, where it looks thinnest.
+   Keep 3px, or make it thicker (4px) or thinner (2px)?
 
 ---
 
@@ -125,7 +131,9 @@ three weights side by side in every status colour on both grounds, and the
 task window under Chromium's High Contrast imitation. A status changed in
 the task window recolours the thicker bar at once (checked in Chromium).
 The weight is set in one place in the app's stylesheet and every window
-uses it; the automated tests hold that, and fail if any window, page or
-rule gives the line a weight of its own. Nothing was run signed in to a
+uses it; the automated tests hold that, and fail if a window hands the
+banner anything but its status, or if a rule in the app's stylesheets
+that names the banner, or that reaches it in a window as the app draws
+it, gives the line another weight or a second line. Nothing was run signed in to a
 real project, the desktop app was not opened, and a real Windows High
 Contrast theme was not tried (Chromium's imitation was).

@@ -3147,7 +3147,9 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
 
      All eighteen were judged by hand and the list is in `ui-audit.mjs`'s
      comment for that row. This RATCHETS so the population cannot grow
-     unnoticed while the judgment stands. */
+     unnoticed while the judgment stands. (FX6, 2026-10-12: nineteen, and
+     not all 2px: the status banner's 3px line joined, judged by Audrey in
+     her own words, at the end of the list.) */
   /* 🚨 A SET, NOT A COUNT. Round one: `toBeLessThanOrEqual(18)` lets anyone
      delete the Tabs underline and add a fresh 2px defect elsewhere while the
      suite stays green and the hand-judged list in `ui-audit.mjs` is silently
@@ -3204,8 +3206,10 @@ describe('the stylesheets: the rows that must be zero (T3)', () => {
        and, the day before, what she asked to bring back: "a color
        banner/bar that was the color of the status". 3px of the three
        weights rendered on every tone (2, 3, 4; walkthrough 68). EXACT:
-       the light-surface rule sets the line's colour only, so a width there
-       (or on any other selector that names the banner) is a defect. */
+       the light-surface rule keeps the light page's 1px rule (no status
+       colour is drawn there, so no bar: review round 1, R1-03), so 2px or
+       more there, or on any other selector that names the banner, is a
+       defect. */
     ['src/index.css', '.ui-status-banner', 'exact'],
   ];
   /* The selector of the rule that holds the declaration at `offset`: it sits

@@ -78,6 +78,39 @@ after her report.
 
 ## Broken features
 
+### Under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined
+**MEASURED (FX6, 2026-10-12, in Chromium's emulation of forced colours,
+Playwright `forcedColors: 'active'`, on the test data, port 5294).** Two kit
+marks lose their meaning under a High Contrast theme:
+- **The status dot** (`.ui-status-dot`, `src/index.css`) is a filled box
+  whose colour is a `background-color`, which forced colours repaint in the
+  canvas colour: measured `rgb(255, 255, 255)` on the white palette and
+  `rgb(0, 0, 0)` on the black one, the same as the ground, so the dot is
+  gone. Beside a word (the badge, the popups' status banner, the Items
+  table) the word still says the status. Where the dot stands ALONE the
+  status is lost to a sighted High Contrast user: READ in code, a
+  project's card in the Summary gallery (`ProjectSummaryView.jsx`,
+  `<StatusDot status={st} />` beside the title, no status word) and the
+  item picker's rows (`components/RelationsPanel.jsx`, `rb-rel-pick-row`:
+  the dot and the item's name). The Dashboard cards' 3px status edge
+  (`.dash-card-edge`, a stretched StatusDot) is the same box: INFERRED to
+  vanish the same way.
+- **Every kit tab is underlined** (`.ui-tab`): the unselected tab's
+  `border-bottom: 2px solid transparent` is repainted in the text colour,
+  so the selected tab's underline no longer tells it apart (measured on the
+  task window's files Table / Gallery: both `2px rgb(0, 0, 0)`; visible in
+  `docs/sessions/handoffs/img/po-fx6-forced-01-task-1440x900.png`). The
+  selected tab's heavier word still does.
+
+Not FX6's code (FX6 measured them while checking its own line, which stays
+3px in the text colour there). Settle it with one
+`@media (forced-colors: active)` block in the kit: the dot drawn in a
+system colour (say `background-color: CanvasText`, or a `forced-color-adjust:
+none` that keeps the tone) and `.ui-tab:not([data-active="true"])` given
+`border-bottom-color: Canvas`; then re-measure in the emulation and on a real
+Windows High Contrast theme, which no session has tried. Found by FX6's
+review round 1 (R1-04).
+
 ### The scene window's SHOTS / ASSETS / TASKS line counts no asset
 **MEASURED (FX2, 2026-10-12, on the test data, port 5291).** Scenes → The
 storm's window: after Sea Spray Comp is linked in the window's own Assets
@@ -1660,7 +1693,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **nothing new.** A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
+| Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **one entry under Broken features:** *under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined* (MEASURED in Chromium's emulation; not FX6's code; found by its review round 1, R1-04). A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX4 (2026-10-12; `po/fx4-edits-update-in-place` into `feat/post-overhaul-edit-versioning`) — an edit changes in place (Audrey: "when i make changes to an edit, it should start to edit the current selected edit"): a change to a saved edit asks nothing, Save edit writes into it, Save as… is the only new version, the list's "Save edit as…" reads "Save as…" again; the edit write made conditional on every backend; client-only, no migration; walkthrough 67; two review rounds | **one entry under Broken features:** *the gateway's reach-proof test races the gateway's own sync, and fails CI now and then* (MEASURED: two of FX4's CI runs, one on a commit with no product code; not FX4's code). A dated FX4 line on FX3's gateway-load entry (the tests seen timing out under load in FX4's full runs). **S3c-05** gains an FX4 note (Save edit from the leave question saves a saved edit's changes into it) | **S3c-09, struck through:** untrue since BC1 (`0b38077c`) — the cloud's Scenes tab binds Ctrl+Z (FX4's review round 1, R1-04); Help's Undo card corrected. Comment markers: 4 → 4. |
 | Post-overhaul FX2 (2026-10-12; `po/fx2-task-multi-links` into `feat/post-overhaul-edit-versioning`) — a task relates to many items (assets, scenes, shots, levels, experiences): item 1 measured before building (the brief's table name was taken; the cloud never had a level or experience column), migration 0096 and suite 99 on wilson-dev (`task_items`, the single columns kept in step both ways), the adapters, the Local Server, the fixtures, the provider, the task window's Items table, walkthrough 65; two review rounds, the second finding that round 1's bundle wrapper nulled a revived task's links | **two entries under Broken features, both found in passing and not FX2's:** *the scene window's SHOTS / ASSETS / TASKS line counts no asset* (MEASURED) and *on the desktop, a deleted asset's tasks come back when the project is read again* (INFERRED); the migration entry gains a sentence (a task's asset, scene and shot items move; its level and experience items stay with the levels and experiences) | **nothing.** Every finding of the two rounds (six in round 1, seven in round 2, one High each) was fixed in the session or is a named limit in the hand-off's "Known limits" (`docs/sessions/handoffs/po-fx2-2026-10-11.md`). Comment markers: 4 → 4. |
 | Post-overhaul FX1 (2026-10-12; `po/fx1-shot-frame-count` into `feat/post-overhaul-edit-versioning`) — the shot's frame-count field (Audrey's "the chevrons are covering up the numbers"): every number field of the shot rows and the popups is `views/scenes/NumberField.jsx`, the browser's spinner put away, its own chevrons clear of the figure, five figures and an ellipsis past that; display only, no migration; two review rounds | **two entries under Broken features:** *the Tasks table's Bid days field hides a figure's first characters behind the browser's arrows* (MEASURED: 12.5 reads 2.5 while focused; found while measuring where else FX1's defect lives; the Tasks lane's), and *a held number field fills R.A.B.B.I.T.'s undo history* (MEASURED by review round 2: ten undo steps, one per step of a hold; the browser's spinner did it too; `RabbitProvider`'s). A dated note on P1-03 (Home's document keydown listener): until FX3's fix reached FX1's branch it also cancelled the arrow keys in every number field and select, and Enter after one of them left the page from a shot's Frames field (MEASURED by FX1's review round 1). | **P1-03, marked FIXED**: by FX3 (`35265888`), which merged into the integration branch before FX1; measured by FX1 after its merge (`b531a799`): the arrow keys step the Scenes number fields and Enter stays on the page. Comment markers: 4 → 4, still pairing. |

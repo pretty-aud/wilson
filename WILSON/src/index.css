@@ -1251,17 +1251,18 @@ select option {
      is in ... leave just the color dot and the color line below the title")
      and adds its geometry and one line of the tone across its foot. The
      gutter puts its dot on the title's left edge.
-     🚨 THE LINE IS 3px, AND THIS RULE IS THE ONLY PLACE ITS WEIGHT IS SET
-     (FX6). FX3 drew it at 1px; Audrey, 2026-10-12: "lets make the line
-     thicker it feels to thin", after asking on 2026-10-11 for "a color
+     🚨 THE STATUS LINE IS 3px, AND THIS RULE IS THE ONLY PLACE ITS WEIGHT
+     IS SET (FX6). FX3 drew it at 1px; Audrey, 2026-10-12: "lets make the
+     line thicker it feels to thin", after asking on 2026-10-11 for "a color
      banner/bar that was the color of the status". 3px of the three weights
      rendered on every tone (2, 3, 4; walkthrough 68): 2px is the kit's
      indicator mark (the Tabs underline, the selected edge; the task popup's
-     own files tabs draw it a few rows below this band), so a 2px line reads
-     as one more indicator; 4px is the heaviest mark in the popup and
-     outweighs the title; 3px reads as the bar, is the weight of the app's
-     other status bar (the Dashboard cards' `.dash-card-edge`) and is the
-     weight the popups drew before the overhaul. It is on typeScale.test.js's
+     own files tabs draw it a few rows below this band, in the same signal
+     orange as an In progress line), so a 2px line reads as one more
+     indicator; 4px is the heaviest line in the popup and outweighs the
+     title; 3px reads as the bar, is the weight of the app's other status
+     bar (the Dashboard cards' `.dash-card-edge`) and is the weight the
+     popups drew before the overhaul. It is on typeScale.test.js's
      hand-judged list with her words. The band stays 28px (border-box): the
      word sits centred, 7px above and 7px clear of the line, and the body
      does not move.
@@ -1269,7 +1270,12 @@ select option {
      border into the system's text colour and keep its width, so the line
      still shows there with the tone gone (measured in Chromium, FX6: 3px
      solid, the palette's text colour); a bar drawn as a background or a
-     shadow would be painted out. */
+     shadow would be painted out.
+     On the light ground the line is no status bar: no status colour is
+     drawn there (plan §3.2), so it stays the light page's 1px rule (FX6
+     review round 1, R1-03: a 3px line in the rule's colour would be a
+     structural edge of 2px or more, the defect class). No popup draws the
+     banner on the light ground today: Dialog is always dark. */
   .ui-status-banner {
     display: flex;
     width: 100%;
@@ -1279,7 +1285,7 @@ select option {
     background-color: transparent;
     border-bottom: 3px solid var(--status-color, var(--color-ink-3));
   }
-  .ui-status-banner[data-surface="light"] { background-color: transparent; border-bottom-color: var(--color-rule-light); }
+  .ui-status-banner[data-surface="light"] { background-color: transparent; border-bottom-color: var(--color-rule-light); border-bottom-width: 1px; }
 
   /* ── Kbd: Label step mono, hairline, 3px, min-width 18px, centred ──── */
   .ui-kbd {

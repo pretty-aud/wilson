@@ -17,12 +17,21 @@
  *                        popups' own: `paper-raised`);
  *                     03 every tone at every weight on the light ground
  *                        (`ground-light`; no window uses it today).
- *                   Each band is the open popup's banner, cloned: its tone,
- *                   status and word set from the ONE status map (StatusDot.jsx,
- *                   imported from this dev server), and its weight written
- *                   on that copy alone. The line's colour against its ground
- *                   is measured and printed (contrast, as WCAG computes it).
- *                   `--chosen N` marks the weight the stylesheet now draws.
+ *                   Each band is a copy of the open popup's band, re-toned by
+ *                   ONE function (`retone`): its tone, status and word from
+ *                   the one status map (StatusDot.jsx, imported from this dev
+ *                   server), its weight written on that copy alone. CONTROL,
+ *                   before any sheet: the popup's own Status is set to every
+ *                   status it offers, and each time the live banner must
+ *                   equal `retone` of that status byte for byte, with the
+ *                   same computed line; a difference stops the run (review
+ *                   round 1, R1-01: the first control compared one status,
+ *                   the popup's own, which re-toned nothing). The column
+ *                   marked "what the app now draws" is the weight MEASURED on
+ *                   the live banner (and on a light copy for the light
+ *                   sheet), never a flag; `--chosen N` only asserts it. The
+ *                   line's colour against its ground is printed as WCAG
+ *                   computes contrast.
  *   forced          the task popup under forced colours (Windows High
  *                   Contrast, emulated by Chromium): the line still drawn,
  *                   in a system colour.
@@ -32,10 +41,10 @@
  * Needs the worktree's own dev server with VITE_DEV_AUTOLOGIN=tester and
  * VITE_DEV_FIXTURES=1 (the `fx6-worktree` entry in .claude/launch.json).
  * Changes nothing that outlives the page: the fixture store is in memory, the
- * browser context is fresh per run, and the candidate sheets are drawn over
- * the page in this page only. Animations and transitions are off and the
- * caret transparent. A state whose control is not found stops the run and
- * says which; a sheet whose band does not match the real one stops it too.
+ * browser context is fresh per run, the control puts the task's status back,
+ * and the candidate sheets are drawn over the page in this page only.
+ * Animations and transitions are off and the caret transparent. A state
+ * whose control is not found stops the run and says which.
  */
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -179,109 +188,140 @@ try {
     await open();
     await click(tab('Tasks'), 'the Tasks tab');
     await rowAction('View task details', 'a task\'s details');
-    const report = await page.evaluate(async ({ WEIGHTS, CHOSEN }) => {
+    // ONE re-tone, defined once in the page, used by the control and by every
+    // sheet: a copy of the band as it was when the popup opened, its tone,
+    // status and word from the one status map, its surface, and (when given)
+    // its weight written on the copy alone.
+    await page.evaluate(async () => {
       const { STATUS, STATUS_TONES, statusMeta } = await import('/src/ui/StatusDot.jsx');
-      // One status per tone, the first the map gives it (the map's order is
-      // the app's): the word on each row is the app's own.
-      const rows = STATUS_TONES.map((tone) => {
-        const key = Object.keys(STATUS).find((k) => STATUS[k].tone === tone);
-        return { tone, key, label: statusMeta(key).label };
-      });
       const real = [...document.querySelectorAll('.ui-dialog')].pop();
-      const realBanner = real.querySelector('.ui-dialog-band > .ui-status-banner');
       const strip = (node) => { node.removeAttribute('id'); node.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id')); return node; };
-      // A copy of the real band, re-toned from the map: the dot, the word and
-      // the data attributes the stylesheet keys on, nothing else.
-      const band = (row, weight, surface) => {
-        const b = strip(real.querySelector('.ui-dialog-band').cloneNode(true));
-        const s = b.querySelector('.ui-status-banner');
-        const dot = s.querySelector('.ui-status-dot');
-        s.dataset.tone = row.tone; s.dataset.status = row.key; s.dataset.surface = surface;
-        dot.dataset.tone = row.tone; dot.dataset.surface = surface;
-        s.querySelector(':scope > span:not(.ui-status-dot)').textContent = row.label;
-        s.style.borderBottomWidth = `${weight}px`;
-        return b;
+      window.__fx6 = {
+        STATUS, STATUS_TONES, statusMeta, strip,
+        band: real.querySelector('.ui-dialog-band').cloneNode(true),
+        head: real.querySelector('.ui-dialog-head').cloneNode(true),
+        retone(status, surface, weight) {
+          const b = strip(this.band.cloneNode(true));
+          const s = b.querySelector('.ui-status-banner');
+          const dot = s.querySelector('.ui-status-dot');
+          const m = statusMeta(status);
+          s.dataset.tone = m.tone; s.dataset.status = status; s.dataset.surface = surface;
+          dot.dataset.tone = m.tone; dot.dataset.surface = surface;
+          s.querySelector(':scope > span:not(.ui-status-dot)').textContent = m.label;
+          if (weight != null) s.style.borderBottomWidth = `${weight}px`;
+          return b;
+        },
       };
-      // CONTROL: a copy re-toned to the real banner's own status, at the
-      // stylesheet's own weight, is the real banner byte for byte; so every
-      // other copy differs from what the app draws by its tone and weight only.
-      const own = rows.find((r) => r.key === realBanner.dataset.status) || { tone: realBanner.dataset.tone, key: realBanner.dataset.status, label: statusMeta(realBanner.dataset.status).label };
-      const probe = band(own, 0, realBanner.dataset.surface).querySelector('.ui-status-banner');
-      probe.style.removeProperty('border-bottom-width');
-      if (probe.getAttribute('style') === '') probe.removeAttribute('style');
-      const controlOk = probe.outerHTML === realBanner.outerHTML;
+    });
+    // CONTROL: every status the popup offers, set through its own Status
+    // field; each time the live banner must BE `retone` of that status, byte
+    // for byte, with the same computed line. Then the status goes back.
+    const status = anyDialog().getByRole('combobox', { name: 'Status' }).first();
+    await must(status, 'the task popup\'s Status');
+    const original = await status.inputValue();
+    const options = await status.evaluate((s) => [...s.options].map((o) => o.value).filter(Boolean));
+    const bad = [];
+    const tones = new Set();
+    let drawn = null;
+    for (const v of options) {
+      await status.selectOption(v);
+      await sleep(250);
+      const r = await page.evaluate((v) => {
+        const live = [...document.querySelectorAll('.ui-dialog')].pop().querySelector('.ui-dialog-band > .ui-status-banner');
+        const copy = window.__fx6.retone(v, live.dataset.surface, null);
+        // Measured beside the live band, under the same dialog, then removed
+        // before anything can render.
+        live.parentElement.after(copy);
+        const a = getComputedStyle(live);
+        const b = getComputedStyle(copy.querySelector('.ui-status-banner'));
+        const out = {
+          same: copy.querySelector('.ui-status-banner').outerHTML === live.outerHTML,
+          live: `${a.borderBottomWidth} ${a.borderBottomStyle} ${a.borderBottomColor}`,
+          copy: `${b.borderBottomWidth} ${b.borderBottomStyle} ${b.borderBottomColor}`,
+          tone: live.dataset.tone,
+          word: live.textContent.trim(),
+        };
+        copy.remove();
+        return out;
+      }, v);
+      tones.add(r.tone);
+      drawn = drawn ?? r.live.split(' ')[0];
+      if (!r.same || r.live !== r.copy || r.live.split(' ')[0] !== drawn) bad.push(`${v}: ${JSON.stringify(r)}`);
+    }
+    await status.selectOption(original);
+    await sleep(250);
+    console.log(`  control: ${options.length} statuses (${[...tones].join(', ')}), each live banner = its re-toned copy: ${bad.length === 0} — the line drawn ${drawn}`);
+    if (bad.length) throw new Error(`a re-toned copy does not match the live banner:\n${bad.join('\n')}`);
+    if (tones.size !== 5) throw new Error(`the control reached ${tones.size} of the 5 tones`);
+    if (CHOSEN != null && drawn !== `${CHOSEN}px`) throw new Error(`--chosen ${CHOSEN}, but the app draws ${drawn}`);
+    const DRAWN = parseFloat(drawn);
 
-      const label = (text) => {
+    // 01 — the task popup's top, once per weight, at its real width.
+    await page.evaluate(({ WEIGHTS, DRAWN }) => {
+      const { strip } = window.__fx6;
+      const real = [...document.querySelectorAll('.ui-dialog')].pop();
+      const s = document.createElement('div');
+      s.id = 'fx6-sheet';
+      Object.assign(s.style, { position: 'fixed', inset: '0', zIndex: '2147483647', overflow: 'hidden', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'var(--color-paper)' });
+      document.body.appendChild(s);
+      const width = Math.round(real.getBoundingClientRect().width);
+      for (const w of WEIGHTS) {
         const l = document.createElement('div');
-        l.textContent = text;
+        l.textContent = w === DRAWN ? `${w} px · what the app now draws` : `${w} px`;
         Object.assign(l.style, { fontSize: 'var(--text-label)', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '600', textTransform: 'uppercase', color: 'var(--color-ink-2)', whiteSpace: 'nowrap' });
-        return l;
-      };
-      const weightName = (w) => (w === CHOSEN ? `${w} px · what the app now draws` : `${w} px`);
-      const sheet = (ground) => {
-        document.getElementById('fx6-sheet')?.remove();
-        const s = document.createElement('div');
-        s.id = 'fx6-sheet';
-        Object.assign(s.style, { position: 'fixed', inset: '0', zIndex: '2147483647', overflow: 'hidden', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: ground === 'light' ? 'var(--color-ground-light)' : 'var(--color-paper)' });
-        if (ground === 'light') s.dataset.surface = 'light';
-        document.body.appendChild(s);
-        return s;
-      };
-      const out = { controlOk, own: own.key, rows, sheets: {} };
-
-      // 01 — the task popup's top, once per weight, at its real width.
-      {
-        const s = sheet('dark');
-        const width = Math.round(real.getBoundingClientRect().width);
-        for (const w of WEIGHTS) {
-          s.appendChild(label(weightName(w)));
-          const d = strip(real.cloneNode(true));
-          d.querySelector('.ui-dialog-foot')?.remove();
-          // A copied <select> shows its first option (React sets the value as
-          // a property, which a copy does not carry): give each copy the
-          // value the real field shows, so the copy's Status reads Final too.
-          const from = real.querySelectorAll('select, input, textarea');
-          d.querySelectorAll('select, input, textarea').forEach((f, i) => {
-            if (f.type === 'checkbox' || f.type === 'radio') f.checked = from[i].checked;
-            else if (f.type !== 'file') f.value = from[i].value;
-          });
-          d.querySelector('.ui-status-banner').style.borderBottomWidth = `${w}px`;
-          Object.assign(d.style, { width: `${width}px`, height: `${Math.floor((innerHeight - 48 - WEIGHTS.length * 24) / WEIGHTS.length) - 8}px`, maxHeight: 'none', boxShadow: 'none', overflow: 'hidden', flexShrink: '0' });
-          s.appendChild(d);
-        }
-        out.sheets.taskTop = width;
+        s.appendChild(l);
+        const d = strip(real.cloneNode(true));
+        d.querySelector('.ui-dialog-foot')?.remove();
+        // A copied <select> shows its first option (React sets the value as a
+        // property, which a copy does not carry): give each copy the value the
+        // real field shows, so the copy's Status reads what the banner says.
+        const from = real.querySelectorAll('select, input, textarea');
+        d.querySelectorAll('select, input, textarea').forEach((f, i) => {
+          if (f.type === 'checkbox' || f.type === 'radio') f.checked = from[i].checked;
+          else if (f.type !== 'file') f.value = from[i].value;
+        });
+        d.querySelector('.ui-status-banner').style.borderBottomWidth = `${w}px`;
+        Object.assign(d.style, { width: `${width}px`, height: `${Math.floor((innerHeight - 48 - WEIGHTS.length * 24) / WEIGHTS.length) - 8}px`, maxHeight: 'none', boxShadow: 'none', overflow: 'hidden', flexShrink: '0' });
+        s.appendChild(d);
       }
-      return out;
-    }, { WEIGHTS, CHOSEN });
-    console.log(`  rows: ${report.rows.map((r) => `${r.tone}=${r.label}`).join(', ')}`);
-    console.log(`  control (a copy at the real banner's own status and weight IS the real banner): ${report.controlOk} (${report.own})`);
-    if (!report.controlOk) throw new Error('a copied band does not match the real banner: the sheets would not show what the app draws');
+    }, { WEIGHTS, DRAWN });
     await shot('task-top', { hover: false });
 
     // 02 / 03 — every tone at every weight, dark ground then light ground.
     for (const ground of ['dark', 'light']) {
-      const lines = await page.evaluate(async ({ WEIGHTS, CHOSEN, ground }) => {
-        const { STATUS, STATUS_TONES, statusMeta } = await import('/src/ui/StatusDot.jsx');
-        const rows = STATUS_TONES.map((tone) => {
-          const key = Object.keys(STATUS).find((k) => STATUS[k].tone === tone);
-          return { tone, key, label: statusMeta(key).label };
-        });
+      const { lines, drawnHere } = await page.evaluate(({ WEIGHTS, ground }) => {
+        const { STATUS, STATUS_TONES, strip } = window.__fx6;
+        // One status per tone, the first the map gives it (the map's order is
+        // the app's): the word on each row is the app's own.
+        const rows = STATUS_TONES.map((tone) => Object.keys(STATUS).find((k) => STATUS[k].tone === tone));
         const real = [...document.querySelectorAll('.ui-dialog')].filter((d) => !d.closest('#fx6-sheet')).pop();
-        const strip = (node) => { node.removeAttribute('id'); node.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id')); return node; };
         document.getElementById('fx6-sheet')?.remove();
         const s = document.createElement('div');
         s.id = 'fx6-sheet';
         Object.assign(s.style, { position: 'fixed', inset: '0', zIndex: '2147483647', overflow: 'hidden', padding: '24px', display: 'grid', gridTemplateColumns: `repeat(${WEIGHTS.length}, minmax(0, 1fr))`, columnGap: '24px', rowGap: '12px', alignContent: 'start', backgroundColor: ground === 'light' ? 'var(--color-ground-light)' : 'var(--color-paper)' });
         if (ground === 'light') s.dataset.surface = 'light';
         document.body.appendChild(s);
-        for (const w of WEIGHTS) {
+        const surface = ground === 'light' ? 'light' : 'dark';
+        // What the app draws on this ground: a copy at the stylesheet's own
+        // weight, measured in the sheet.
+        const probe = window.__fx6.retone(rows[0], surface, null);
+        s.appendChild(probe);
+        const drawnHere = parseFloat(getComputedStyle(probe.querySelector('.ui-status-banner')).borderBottomWidth);
+        probe.remove();
+        const ink = ground === 'light' ? 'var(--color-ink-light)' : 'var(--color-ink-2)';
+        const label = (text, span) => {
           const l = document.createElement('div');
-          l.textContent = w === CHOSEN ? `${w} px · what the app now draws` : `${w} px`;
-          Object.assign(l.style, { fontSize: 'var(--text-label)', lineHeight: '1', letterSpacing: '0.06em', fontWeight: '600', textTransform: 'uppercase', color: ground === 'light' ? 'var(--color-ink-light)' : 'var(--color-ink-2)', whiteSpace: 'nowrap' });
-          s.appendChild(l);
+          l.textContent = text;
+          Object.assign(l.style, { fontSize: 'var(--text-label)', lineHeight: '1.3', letterSpacing: '0.06em', fontWeight: '600', textTransform: 'uppercase', color: ink });
+          if (span) l.style.gridColumn = '1 / -1'; else l.style.whiteSpace = 'nowrap';
+          return l;
+        };
+        if (!WEIGHTS.includes(drawnHere)) {
+          s.appendChild(label(`On this ground the app draws the line ${drawnHere} px: no status colour is drawn here, so there is no bar, only the page's rule`, true));
         }
+        for (const w of WEIGHTS) s.appendChild(label(w === drawnHere ? `${w} px · what the app now draws` : `${w} px`));
         const measured = [];
-        for (const row of rows) {
+        for (const key of rows) {
           for (const w of WEIGHTS) {
             // The window: on the dark ground the popup's own surface (a shallow
             // copy of the real dialog: its class, its border, its paper); on the
@@ -290,27 +330,21 @@ try {
             const cell = ground === 'dark' ? strip(real.cloneNode(false)) : document.createElement('div');
             Object.assign(cell.style, { width: 'auto', maxWidth: 'none', maxHeight: 'none', boxShadow: 'none', paddingBottom: '16px' });
             if (ground === 'light') { cell.dataset.surface = 'light'; cell.style.color = 'var(--color-ink-light)'; }
-            const head = strip(real.querySelector('.ui-dialog-head').cloneNode(true));
+            const head = strip(window.__fx6.head.cloneNode(true));
             if (ground === 'light') {
               head.querySelector('.ui-dialog-title').style.color = 'var(--color-ink-light)';
               head.querySelector('button')?.remove();
             }
-            const b = strip(real.querySelector('.ui-dialog-band').cloneNode(true));
-            const st = b.querySelector('.ui-status-banner');
-            const dot = st.querySelector('.ui-status-dot');
-            const surface = ground === 'light' ? 'light' : 'dark';
-            st.dataset.tone = row.tone; st.dataset.status = row.key; st.dataset.surface = surface;
-            dot.dataset.tone = row.tone; dot.dataset.surface = surface;
-            st.querySelector(':scope > span:not(.ui-status-dot)').textContent = row.label;
-            st.style.borderBottomWidth = `${w}px`;
+            const b = window.__fx6.retone(key, surface, w);
             cell.append(head, b);
             s.appendChild(cell);
+            const st = b.querySelector('.ui-status-banner');
             const cs = getComputedStyle(st);
-            measured.push({ tone: row.tone, word: row.label, weight: w, width: cs.borderBottomWidth, color: cs.borderBottomColor, ground: getComputedStyle(ground === 'dark' ? cell : s).backgroundColor });
+            measured.push({ tone: st.dataset.tone, word: st.textContent.trim(), weight: w, width: cs.borderBottomWidth, color: cs.borderBottomColor, ground: getComputedStyle(ground === 'dark' ? cell : s).backgroundColor });
           }
         }
-        return measured;
-      }, { WEIGHTS, CHOSEN, ground });
+        return { lines: measured, drawnHere };
+      }, { WEIGHTS, ground });
       // The line against its ground, as WCAG computes contrast (an alpha
       // colour composited over the ground first).
       const rgba = (c) => { const v = c.match(/[\d.]+/g).map(Number); return { r: v[0], g: v[1], b: v[2], a: v[3] ?? 1 }; };
@@ -322,7 +356,7 @@ try {
         console.log(`  ${ground} ground ${m.ground}: ${m.tone} (${m.word}) line ${m.color} — ${((hi + 0.05) / (lo + 0.05)).toFixed(2)}:1`);
       }
       const widths = [...new Set(lines.map((m) => `${m.weight}→${m.width}`))];
-      console.log(`  ${ground} ground widths drawn: ${widths.join(', ')}`);
+      console.log(`  ${ground} ground: the app draws ${drawnHere}px; the candidates drawn ${widths.join(', ')}`);
       await shot(`tones-${ground}`, { hover: false });
     }
   }
