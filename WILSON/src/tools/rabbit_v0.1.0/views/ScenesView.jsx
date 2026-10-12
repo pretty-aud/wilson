@@ -24,7 +24,7 @@ import { useState, useMemo, useCallback, useRef, useEffect, Fragment } from 'rea
 import { createPortal } from 'react-dom'
 import {
   Film, Plus, Search, X, LayoutGrid, Filter,
-  Layers, ChevronDown, ChevronRight, Trash2, Edit3, Eye,
+  Layers, ChevronDown, ChevronRight, Trash2, Edit3, FileText,
   Table as TableIcon, ArrowUpDown, Save,
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
@@ -38,7 +38,7 @@ import { v4 as uuidv4 } from 'uuid'
 // kit Dialog in <body>.
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
-  StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, Dialog, Badge, Banner,
+  StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
   SectionTitle,
 } from '../../../ui'
 import './rabbitScenes.css'
@@ -1897,7 +1897,7 @@ function BigTile({ label, value }) {
 
 
 // ─── A row's shot-list menu (post-overhaul S3b) ───
-// One named button between View details and Delete that holds the row's
+// One named button between Open and Delete that holds the row's
 // shot-list verbs as WORDS — Move up / Move down in List order, Remove from
 // this list, Add to list… in the "Not in any list" view — so the trash keeps
 // its place and a removal is never a second lookalike icon beside a delete.
@@ -2084,7 +2084,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
             <Th>Description</Th>
             <Th width="var(--rb-scene-col-runtime)" numeric>Runtime</Th>
             <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
-            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
           </Row>
         )}
       >
@@ -2179,19 +2178,33 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   {sc.scene_number ?? '—'}
                 </Td>
 
-                {/* Name: the row's anchor, 600 in the ink (it was orange) */}
+                {/* Name: the row's anchor, 600 in the ink (it was orange).
+                    FX8: the row's buttons right after its words, in the one
+                    order — Open (the page icon), the shot-list menu, Delete
+                    last — on hover and on focus (the kit's RowTitle); they
+                    sat in an actions column at the row's far end. */}
                 <Td className="rb-scene-name-cell">
-                  <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
-                    <InlineText
-                      value={sc.name || ''}
-                      placeholder="Untitled scene"
-                      strong
-                      label={`Name for ${name}`}
-                      title={nameTitle?.(sc.id)}
-                      readOnly={!canWrite}
-                      onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
-                    />
-                  </span>
+                  <RowTitle actions={<>
+                    <IconButton size="sm" Icon={FileText} title={`Open ${name}`}
+                      onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
+                    <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
+                    <GatedAction allowed={canWrite}>
+                      <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`}
+                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
+                    </GatedAction>
+                  </>}>
+                    <span className="rb-scene-name" onClick={() => onOpenDetail(sc.id)}>
+                      <InlineText
+                        value={sc.name || ''}
+                        placeholder="Untitled scene"
+                        strong
+                        label={`Name for ${name}`}
+                        title={nameTitle?.(sc.id)}
+                        readOnly={!canWrite}
+                        onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
+                      />
+                    </span>
+                  </RowTitle>
                 </Td>
 
                 {/* Status: the kit's StatusDot beside a CellSelect, the words
@@ -2255,20 +2268,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   {fmtNumber(totals.totalFrames)}
                 </Td>
 
-                {/* Actions: the kit HoverActions — on hover AND on focus
-                    (Q17(b)), one reserved slot the same width in every row
-                    of all three tables (R3-24) */}
-                <Td align="right" className="rb-scene-acts-cell">
-                  <HoverActions className="rb-scene-acts">
-                    <IconButton size="sm" Icon={Eye} title="View details"
-                      onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }} />
-                    <RowMore name={name} items={rowMenu?.('scene', sc, scenes.map(s => s.id))} />
-                    <GatedAction allowed={canWrite}>
-                      <IconButton size="sm" Icon={Trash2} danger title="Delete scene"
-                        onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }} />
-                    </GatedAction>
-                  </HoverActions>
-                </Td>
               </Row>
 
               {/* Nested shots: one row across the table, indented as before,
@@ -2283,7 +2282,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                   onDragLeave={drag ? drag.leave('nest', sc.id, inScene) : undefined}
                   onDrop={drag ? drag.drop('nest', sc.id, inScene) : undefined}
                 >
-                  <Td colSpan={12} className="rb-scene-nest-cell">
+                  <Td colSpan={11} className="rb-scene-nest-cell">
                     <div className="rb-scene-nest">
                       {/* Nested-shot bulk action bar */}
                       {(() => {
@@ -2383,13 +2382,22 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                   {drag && <Grip drag={drag} kind="shot" id={shot.id} name={shotName} />}
                                   {shot.shot_number ?? '—'}
                                 </Td>
-                                {/* Name */}
+                                {/* Name, and the row's buttons right after it (FX8, the kit's RowTitle) */}
                                 <Td className="rb-scene-name-cell">
-                                  <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
-                                    label={`Name for ${shotName}`}
-                                    title={nameTitle?.(shot.id)}
-                                    readOnly={!canWrite}
-                                    onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
+                                  <RowTitle actions={<>
+                                    <IconButton size="sm" Icon={FileText} title={`Open ${shotName}`} onClick={() => onOpenShotDetail(shot.id)} />
+                                    <RowMore name={shotName} items={rowMenu?.('shot', shot, sceneShots.map(s => s.id))} />
+                                    <GatedAction allowed={canWrite}>
+                                      <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shotName}`}
+                                        onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                                    </GatedAction>
+                                  </>}>
+                                    <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm" strong
+                                      label={`Name for ${shotName}`}
+                                      title={nameTitle?.(shot.id)}
+                                      readOnly={!canWrite}
+                                      onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
+                                  </RowTitle>
                                 </Td>
                                 {/* Takes (milestone 2) */}
                                 {takes?.supports && (
@@ -2455,16 +2463,6 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                                     aria-label={`Frames for ${shotName}`}
                                     className="rb-scene-frames"
                                     placeholder="0" />
-                                </Td>
-                                <Td align="right" className="rb-scene-acts-cell">
-                                  <HoverActions className="rb-scene-acts">
-                                    <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
-                                    <RowMore name={shotName} items={rowMenu?.('shot', shot, sceneShots.map(s => s.id))} />
-                                    <GatedAction allowed={canWrite}>
-                                      <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
-                                        onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
-                                    </GatedAction>
-                                  </HoverActions>
                                 </Td>
                               </Row>
                             )
@@ -2648,8 +2646,9 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
     return <EmptyState Icon={Clapperboard} title="No shots yet" body="Create a scene first, then add shots." />
   }
 
-  // What a group's band and an Add shot row span: every column.
-  const span = takes?.supports ? 16 : 15
+  // What a group's band and an Add shot row span: every column (FX8: no
+  // actions column; a row's buttons are in its name cell).
+  const span = takes?.supports ? 15 : 14
 
   return (
     <div className="rb-scene-table-wrap" data-thumb={thumbSize}>
@@ -2710,7 +2709,6 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
             <Th width="var(--rb-scene-col-frames)" numeric>Frames</Th>
             <Th width="var(--rb-scene-col-date)">Start</Th>
             <Th width="var(--rb-scene-col-date)">End</Th>
-            <Th width="var(--rb-scene-col-acts)" align="right"><span className="sr-only">Actions</span></Th>
           </Row>
         )}
       >
@@ -2736,7 +2734,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
             <Fragment key={g.key}>
               {/* A group's band (none for ungrouped): one row across the
                   table on the raised paper. Its toggle is a button now (it
-                  was a clickable div), and Scene details sits BESIDE it, not
+                  was a clickable div), and the scene's Open sits BESIDE it, not
                   inside it. A scene's status is the kit's StatusDot (the 3px
                   accent in its colour is gone, R3-11); names in the ink. */}
               {isGrouped && (
@@ -2765,16 +2763,30 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         <span className="rb-scene-group-count">
                           ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
                         </span>
+                      </button>
+                      {/* FX8 (review round 1, R1-06): the scene's Open right
+                          after the band's words, shown on pointing and on
+                          focus as a row's buttons are; it sat at the band's
+                          far end. The rest of the band still opens and closes
+                          it on a click (the toggle is the keyboard's way). */}
+                      {g.scene && (
+                        <HoverActions className="rb-scene-band-acts">
+                          <IconButton size="sm" Icon={FileText} title={`Open ${g.label}`}
+                            onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
+                        </HoverActions>
+                      )}
+                      <span className="rb-scene-band-rest" onClick={e => {
+                        toggleGroup(g.key)
+                        // The keyboard's place stays the band's, as the toggle across
+                        // the whole band kept it (review round 2, R2-10: it fell to <body>).
+                        e.currentTarget.parentElement.querySelector('.rb-scene-group-toggle')?.focus({ preventScroll: true })
+                      }}>
                         {groupFrames > 0 && (
                           <span className="rb-scene-group-frames">
                             {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
                           </span>
                         )}
-                      </button>
-                      {g.scene && (
-                        <IconButton size="sm" Icon={Eye} title="Scene details"
-                          onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }} />
-                      )}
+                      </span>
                     </span>
                   </Td>
                 </Row>
@@ -2849,17 +2861,27 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       {shot.shot_number ?? '—'}
                     </Td>
 
-                    {/* Name: the row's anchor, 600 in the ink */}
+                    {/* Name: the row's anchor, 600 in the ink; the row's
+                        buttons right after it (FX8, the kit's RowTitle) */}
                     <Td className="rb-scene-name-cell">
-                      <InlineText
-                        value={shot.name || ''}
-                        placeholder="Untitled shot"
-                        strong
-                        label={`Name for ${shotName}`}
-                        title={nameTitle?.(shot.id)}
-                        readOnly={!canWrite}
-                        onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
-                      />
+                      <RowTitle actions={<>
+                        <IconButton size="sm" Icon={FileText} title={`Open ${shotName}`} onClick={() => onOpenShotDetail(shot.id)} />
+                        <RowMore name={shotName} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
+                        <GatedAction allowed={canWrite}>
+                          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${shotName}`}
+                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
+                        </GatedAction>
+                      </>}>
+                        <InlineText
+                          value={shot.name || ''}
+                          placeholder="Untitled shot"
+                          strong
+                          label={`Name for ${shotName}`}
+                          title={nameTitle?.(shot.id)}
+                          readOnly={!canWrite}
+                          onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
+                        />
+                      </RowTitle>
                     </Td>
 
                     {/* Takes (milestone 2) */}
@@ -2996,18 +3018,6 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         data-empty={shot.end_date ? undefined : 'true'}
                       />
                     </Td>
-
-                    {/* Actions: the kit HoverActions, the one slot width (R3-24) */}
-                    <Td align="right" className="rb-scene-acts-cell">
-                      <HoverActions className="rb-scene-acts">
-                        <IconButton size="sm" Icon={Eye} title="View details" onClick={() => onOpenShotDetail(shot.id)} />
-                        <RowMore name={shotName} items={rowMenu?.('shot', shot, g.shots.map(s => s.id))} />
-                        <GatedAction allowed={canWrite}>
-                          <IconButton size="sm" Icon={Trash2} danger title="Delete shot"
-                            onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })} />
-                        </GatedAction>
-                      </HoverActions>
-                    </Td>
                   </Row>
                 )
               })}
@@ -3056,7 +3066,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 // take chips keep the 20px height ScenesView always handed them (B6 §4).
 // A group's head is the shot table's band in the gallery's shape: the glyph
 // and the count in the third ink, the name at 600 in the ink (they were
-// orange), the named kit IconButton for Scene details, then a hairline.
+// orange), the named kit IconButton that opens the scene, then a hairline.
 function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, canWrite = false, rowMenu, nameTitle, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
   // The sheet sizes the cards (`.rb-scene-gallery[data-card]`, the same three
   // widths and their 16:9 heights); these are what BinPoster is handed.
@@ -3093,7 +3103,7 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision =
                 </span>
               )}
               {g.scene && (
-                <IconButton size="sm" Icon={Eye} title="Scene details" onClick={() => onOpenSceneDetail(g.sceneId)} />
+                <IconButton size="sm" Icon={FileText} title={`Open ${g.label}`} onClick={() => onOpenSceneDetail(g.sceneId)} />
               )}
               <span className="rb-scene-gallery-rule" aria-hidden="true" />
             </div>
@@ -3253,7 +3263,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   useEffect(() => {
     if (!scene && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
   }, [scene, leaveAsk])
-  // What opened this popup — a row's "View details" — captured in render, as
+  // What opened this popup — a row's Open — captured in render, as
   // the kit Dialog captures it (an effect would read the popup's own focus).
   // The delete question asked from here is handed it (ConfirmDialog).
   const openerRef = useRef(null)
@@ -4223,7 +4233,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 // Cancel from every path, as it does from a row.
 //
 // 🚨 …and on close, focus goes back to `returnTo` when a popup asked: what
-// opened the popup, the row's "View details". The kit Dialog hands focus to
+// opened the popup, the row's Open. The kit Dialog hands focus to
 // what had it when the question opened — the popup's own Delete, gone with
 // the popup — so every close from that path dropped focus to <body>. Only
 // when focus has fallen there, and only while the opener is in the page (a

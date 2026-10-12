@@ -135,7 +135,7 @@ try {
   // ── The shot popup's Folder line ───────────────────────────────────────
   await click(tab('Scenes'), 'the Scenes tab');
   const sceneRow = page.locator('tr', { hasText: 'Lighthouse, dawn' }).first();
-  await click(sceneRow.getByRole('button', { name: 'View details', exact: true }), 'the scene\'s View details');
+  await click(sceneRow.getByRole('button', { name: /^Open / }), 'the scene\'s Open');
   const scenePopup = page.getByRole('dialog', { name: 'Lighthouse, dawn' });
   await must(scenePopup, 'the scene popup');
   await shot('scene-popup-folder');
@@ -146,7 +146,7 @@ try {
   await open('?fixtures=game');
   await click(tab('Levels'), 'the Levels tab');
   const levelRow = page.locator('tr', { hasText: 'Lamp Room' }).first();
-  await click(levelRow.getByRole('button', { name: 'View details', exact: true }), 'the level\'s View details');
+  await click(levelRow.getByRole('button', { name: /^Open / }), 'the level\'s Open');
   const levelPopup = page.getByRole('dialog', { name: 'Lamp Room' });
   await must(levelPopup.locator('.rb-ent-detail-files'), 'the level popup\'s Files section');
   await levelPopup.locator('.rb-ent-detail-files').scrollIntoViewIfNeeded();
@@ -155,7 +155,7 @@ try {
   await sleep(300);
   await click(tab('Experiences'), 'the Experiences tab');
   const xRow = page.locator('tr', { hasText: 'The Storm' }).first();
-  await click(xRow.getByRole('button', { name: 'View details', exact: true }), 'the experience\'s View details');
+  await click(xRow.getByRole('button', { name: /^Open / }), 'the experience\'s Open');
   const xPopup = page.getByRole('dialog', { name: 'The Storm' });
   await must(xPopup.locator('.rb-ent-detail-files'), 'the experience popup\'s Files section');
   await xPopup.locator('.rb-ent-detail-files').scrollIntoViewIfNeeded();

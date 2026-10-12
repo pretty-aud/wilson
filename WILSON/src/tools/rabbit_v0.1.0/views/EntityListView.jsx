@@ -54,14 +54,14 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus, Search, X, Filter,
-  ChevronDown, ChevronRight, Trash2, Eye,
+  ChevronDown, ChevronRight, Trash2, FileText,
   ArrowUpDown, Save,
   BookmarkPlus, CheckSquare, Square, MinusSquare, Upload,
   ImagePlus, ImageOff,
 } from 'lucide-react'
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
-  Card, HoverActions, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
+  Card, HoverActions, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
 } from '../../../ui'
 import './rabbitFiles.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -540,10 +540,11 @@ export default function EntityListView({ entity }) {
 // The kit's Table: a real <table> with a fixed layout and 36px rows, so the
 // header and the cells share one grid (R4-01, R4-42). Its columns are the
 // ones it always had, in the same order: the checkbox, Name (the row's
-// anchor), Status, the two counts (numeric cells, R4-17), Description and
-// the actions. The fixed widths are rabbitFiles.css's custom properties,
-// read by the header cells; Name and Description share what is left, as
-// their two flex-[2] columns did.
+// anchor, its buttons right after its words since FX8 — the actions column
+// is gone), Status, the two counts (numeric cells, R4-17) and Description.
+// The fixed widths are rabbitFiles.css's custom properties, read by the
+// header cells; Name takes what is left up to its maximum (360px) and
+// Description the rest (FX8; the two had shared it).
 function EntityTable({ entity, items, assetCountById, taskCountById, ctx, onOpenDetail, onRequestDelete }) {
   const [selected, setSelected] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
@@ -606,12 +607,14 @@ function EntityTable({ entity, items, assetCountById, taskCountById, ctx, onOpen
                     : <Square aria-hidden="true" />}
               </button>
             </Th>
+            {/* FX8: the name takes what the others leave up to its maximum,
+                Description the rest (the sheet's widths); a row's buttons sit
+                in the name cell, right after its words — no actions column. */}
             <Th>Name</Th>
             <Th width="var(--rb-ent-status)">Status</Th>
             <Th width="var(--rb-ent-assets)" numeric>Assets</Th>
             <Th width="var(--rb-ent-tasks)" numeric>Tasks</Th>
-            <Th>Description</Th>
-            <Th width="var(--rb-ent-acts)"><span className="sr-only">Actions</span></Th>
+            <Th width="var(--rb-ent-desc)">Description</Th>
           </Row>
         )}
       >
@@ -681,14 +684,22 @@ function EntityRow({ entity, item, assetCount, taskCount, onUpdate, onOpenDetail
         </button>
       </Td>
 
-      {/* Name — inline editable, the row's anchor (R4-03) */}
+      {/* Name — inline editable, the row's anchor (R4-03). FX8: the row's
+          buttons right after its words, in the one order — Open (the page
+          icon), Delete last — shown on the row's hover and on focus (the
+          kit's RowTitle). */}
       <Td className="rb-ent-ctl-cell">
-        <InlineText
-          value={item.name || ''}
-          placeholder={`Untitled ${entity.noun}`}
-          label="Name"
-          onCommit={v => onUpdate({ name: v })}
-        />
+        <RowTitle actions={<>
+          <IconButton size="sm" Icon={FileText} title={`Open ${name}`} onClick={onOpenDetail} />
+          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onRequestDelete} />
+        </>}>
+          <InlineText
+            value={item.name || ''}
+            placeholder={`Untitled ${entity.noun}`}
+            label="Name"
+            onCommit={v => onUpdate({ name: v })}
+          />
+        </RowTitle>
       </Td>
 
       {/* Status — the kit's StatusDot beside the kit's CellSelect (R4-05) */}
@@ -722,13 +733,6 @@ function EntityRow({ entity, item, assetCount, taskCount, onUpdate, onOpenDetail
         />
       </Td>
 
-      {/* Actions: the kit's HoverActions, on hover and on focus as before */}
-      <Td align="right" className="rb-ent-acts-cell">
-        <HoverActions className="rb-ent-acts">
-          <IconButton size="sm" Icon={Eye} title="View details" onClick={onOpenDetail} />
-          <IconButton size="sm" Icon={Trash2} danger title={`Delete ${entity.noun}`} onClick={onRequestDelete} />
-        </HoverActions>
-      </Td>
     </Row>
   )
 }
@@ -851,7 +855,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const [showCreateTask, setShowCreateTask] = useState(false)
   const [nestedTaskId, setNestedTaskId] = useState(null)
   const [nestedAssetId, setNestedAssetId] = useState(null)
-  // What opened this popup — the row's "View details" — captured in render,
+  // What opened this popup — the row's Open — captured in render,
   // as the kit Dialog captures it (an effect would read the popup's own
   // focus). The delete question asked from here is handed it (below).
   const openerRef = useRef(null)
@@ -1181,7 +1185,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 // review round two). The kit Dialog hands it to what had it when the
 // question opened — the popup's own Delete, gone with the popup — so every
 // close from that path dropped focus to <body>. `returnTo` is what opened
-// the popup, the row's "View details": taken while it is in the page and
+// the popup, the row's Open: taken while it is in the page and
 // focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
 // on Cancel, so that does nothing). A delete takes the row, and its button,
 // with it — as a row's own delete question does.

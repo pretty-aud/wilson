@@ -338,6 +338,8 @@ const KIT_ROOT = {
   Badge: 'ui-badge', Banner: 'ui-banner', Card: 'ui-card', CellSelect: 'ui-cell-select', Dialog: 'ui-dialog', Drawer: 'ui-drawer',
   EmptyState: 'ui-empty', Field: 'ui-field', HoverActions: 'ui-hover-actions', Panel: 'ui-panel', Spinner: 'ui-spinner',
   StatusBadge: 'ui-status', StatusDot: 'ui-status-dot', Tabs: 'ui-tabs', Toolbar: 'ui-toolbar',
+  // Post-overhaul FX8: a lane's class on the kit RowTitle (`rb-asset-name`).
+  RowTitle: 'ui-row-title',
   // Skeleton rows with a `rows` count above 0, else the inline spinner.
   Loading: (t, own) => {
     const at = own.search(/\srows=/)

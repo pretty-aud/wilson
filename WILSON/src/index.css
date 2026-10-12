@@ -2162,6 +2162,34 @@ select option {
   :where(tr, li, .ui-hover-host):hover .ui-hover-actions,
   :where(tr, li, .ui-hover-host):focus-within .ui-hover-actions,
   .ui-hover-actions:focus-within { opacity: 1; }
+  /* A slot whose menu is open keeps its button: the kit Menu takes focus
+     into its own portalled list and the pointer goes with it, so neither
+     the row's hover nor its focus holds the slot, and the menu hung from
+     nothing (FX8-KR-3; FX8 review round 2, R2-03). */
+  .ui-hover-actions:has([aria-expanded="true"]) { opacity: 1; }
+  /* A screen with no pointer that hovers (a phone, a tablet) never shows
+     them, and they were still there to be tapped unseen: shown at rest
+     there (FX8-KR-2; FX8 review round 1, R1-09). A desktop's mouse is
+     untouched. */
+  @media (hover: none) {
+    .ui-hover-actions { opacity: 1; }
+  }
+
+  /* ── RowTitle (FX8-KR-1) ────────────────────────────────────────────────
+     A row's words, then its HoverActions 4px after them, in every table
+     whose rows open an item's window. The words box takes what the words
+     need up to the cell and is cut by their own ellipsis; the slot never
+     shrinks. A field in the words (an inline rename) takes the cell and the
+     buttons wait at its end. A flex row, so the slot is a block: no line box
+     grows the row (the old actions cells' 36.8px). */
+  .ui-row-title { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .ui-row-title-words { display: block; flex: 0 1 auto; min-width: 0; }
+  /* Words that open a rename are a target: never under the kit's small
+     control however short the name (one letter was 21px; FX8 review round
+     1, R1-05). */
+  .ui-row-title-words > button { min-width: var(--control-sm); }
+  .ui-row-title-words:has(input) { flex: 1 1 auto; }
+  .ui-row-title-acts { flex: none; }
 
   /* ═══════════════════════════════════════════════════════════════════════
      SHELL — App.jsx's own chrome (F2). Not kit components: one app renders

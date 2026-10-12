@@ -618,21 +618,23 @@ describe('R1-03: the nested shots end inside the window they did', () => {
   })
 
   // Post-overhaul S3b: the actions slot grew from two buttons to three (the
-  // row's shot-list menu), 84 to 112px. The scene table's fixed columns and
-  // its description's floor must still fit 1280 inside the gutters, or the
-  // table scrolls sideways there; the nest above keeps its 1440 by giving
-  // its name column the same 28px.
+  // row's shot-list menu), 84 to 112px; the nest above kept its 1440 by
+  // giving its name column the same 28px. FX8 moved the three into the name
+  // cell, right after the words (the kit's RowTitle): the name column holds
+  // them in 92px — the kit's 4px and three 28px buttons 2px apart — beside
+  // the 192px the name always had, and the 112px column is gone. The scene
+  // table's fixed columns and its description's floor must still fit 1280
+  // inside the gutters, or the table scrolls sideways there.
   const sceneTableMin = () => rulesOf(sheet).find(({ sel }) => sel === '.ui-table.rb-scene-table-scenes').body.match(/min-width:\s*([^;]+);/)[1]
-  it('S3b: the scene table, its description at its floor, fits a 1280px window inside the two gutters', () => {
-    expect(px('var(--rb-scene-col-acts)')).toBe(112)
+  it('FX8: the name column is the 192px the name had plus its three buttons, there is no actions column, and the scene table, its description at its floor, fits a 1280px window inside the two gutters', () => {
+    expect(own['--rb-scene-col-acts']).toBeUndefined()
+    expect(sheet).not.toMatch(/--rb-scene-col-acts/)
+    expect(px('var(--rb-scene-col-name)')).toBe(192 + 2 * 12 + 4 + 3 * 28 + 2 * 2)
+    expect(px('var(--rb-scene-col-nest-name)')).toBe(144 + 4 + 3 * 28 + 2 * 2)
     expect(px(sceneTableMin()) + 2 * px('var(--spacing-gutter)')).toBeLessThanOrEqual(1280)
   })
-  it('CONTROL: with the description\'s floor back at 128px beside the 112px slot, the table passes 1280', () => {
-    const was = own['--rb-scene-col-desc']
-    own['--rb-scene-col-desc'] = '128px'
-    try {
-      expect(px(sceneTableMin()) + 2 * px('var(--spacing-gutter)')).toBeGreaterThan(1280)
-    } finally { own['--rb-scene-col-desc'] = was }
+  it('CONTROL: the 112px actions column kept beside the wider name column puts the scene table past 1280', () => {
+    expect(px(sceneTableMin()) + 112 + 2 * px('var(--spacing-gutter)')).toBeGreaterThan(1280)
   })
 })
 

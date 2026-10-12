@@ -78,6 +78,38 @@ after her report.
 
 ## Broken features
 
+### On a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped
+**MEASURED (FX8 review round 2, R2-09, 2026-10-12; Chromium with touch
+emulated, `hasTouch: true`, which makes `(hover: none)` match).** FX8-KR-2
+shows the kit's HoverActions at rest on a screen that cannot hover; four
+lane-drawn reveals are not HoverActions and still wait for a hover or a
+focus: the row checkboxes `.rb-task-check`, `.rb-asset-check`,
+`.rb-ent-check` and `.rb-budget-check` (`opacity: 0` until `:hover` /
+`:focus-within` / ticked), and in `ProjectAssetsView.jsx` the row's Remove
+thumbnail and the gallery card's Open and picture buttons, which React
+mounts only while its `hovered` state (`onMouseEnter`) is set. On a phone or
+a tablet they are invisible, and the checkboxes tappable unseen. Older than
+FX8. Fix shape: the four checkbox reveals in the same `@media (hover: none)`;
+the Assets card's and thumbnail's buttons drawn always and revealed by CSS
+(the kit's HoverActions) instead of mounted on a mouse event.
+
+### Levels and Experiences have no write gate: a seat that cannot write sees a live Delete, rename and status
+**INFERRED (FX8 review round 1, R1-04, 2026-10-12; read from the code, not
+run as a reviewer).** `views/EntityListView.jsx` (Levels and Experiences)
+reads no write permission anywhere: no `canWrite`, no `GatedAction`, no
+`canOnProject`. A row's Delete (`Delete <name>`, FX8 moved it beside the
+name; it was in the row's last column, as live), its rename, its status
+select and the toolbar's New are drawn and clickable for every seat. Tasks
+and Assets hide Delete from a seat that cannot write; Scenes and Shots grey
+it with the reason (S3b step 7, Session 29's "keep button gray and explain
+why"). The provider's `deleteLevel` writes optimistically, so a reviewer's
+delete would vanish the row and come back with whatever the cloud's refusal
+says. Settle it by signing in as a staffed project's reviewer on the cloud
+(the fixtures have no such seat for these pages) and deleting a level. Fix
+shape: the Scenes rows' gate (`GatedAction allowed={canWrite}` with the
+reason) on every write control of the two pages. Older than FX8; FX8 left
+the controls' behaviour as it was.
+
 ### Under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined
 **MEASURED (FX6, 2026-10-12, in Chromium's emulation of forced colours,
 Playwright `forcedColors: 'active'`, on the test data, port 5294).** Two kit
@@ -1705,6 +1737,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul FX8 (2026-10-12; `po/fx8-table-row-actions` into `feat/post-overhaul-edit-versioning`) — the tables' row buttons (Audrey: "lets have uniformity and have the same icon ... lets move them all closer to the title of the items in the tables"): one page icon opens an item's window everywhere ("Open <name>"), every row's buttons right after its title in one order (Open, the row's own, Delete last) through the kit's RowTitle (FX8-KR-1), the actions columns gone, the title column at most 360px in Tasks, Assets, Levels and Experiences with the other columns taking the rest (walkthrough 70); two review rounds | **two entries under Broken features, found by the review rounds and older than FX8:** *Levels and Experiences have no write gate* (INFERRED, round 1); *on a touch screen the row checkboxes and the Assets cards' buttons stay invisible until tapped* (MEASURED, round 2). The rows FX8 measured and left (the Shots table's sideways scroll, walkthrough 47 Q185; the nested shots' at 1280, P1-63; the Budget's expenses, Talent, Team, Files, relations and shot-list window rows) are tracked where they were or are walkthrough 70's questions | nothing |
 | Post-overhaul FX6 (2026-10-12; `po/fx6-status-line-weight` into `feat/post-overhaul-edit-versioning`) — the status line under every item popup's title, thicker (Audrey: "lets make the line thicker it feels to thin"): 3px, from 2, 3 and 4px rendered on every tone on both grounds at 1280 and 1440, set in the kit's one `.ui-status-banner` rule, on `typeScale.test.js`'s hand-judged list with her words; client only, no migration; walkthrough 68; two review rounds | **one entry under Broken features:** *under forced colours (Windows High Contrast) a status dot is painted out, and every kit tab is underlined* (MEASURED in Chromium's emulation; not FX6's code; found by its review round 1, R1-04). A dated FX6 line on FX3's gateway-load entry (`release.test.mjs`'s two tests in the first full run at the cut; not FX6's code) | nothing. Comment markers: 4 → 4. |
 | Post-overhaul FX7 (2026-10-12; `po/fx7-timeline-header-labels` into `feat/post-overhaul-edit-versioning`) — the Timeline's PROJECT and Bid ver. labels (Audrey: "bid ver and project should be same sizing and color. if anything project should stand out more. lets remove the folder icon before the word project"): both the kit's `ui-field-label` in one column (5.1em of the label, 56.1px at 11px), so the project's name and the dropdown start at one x; no folder icon (the project title bar, every tab); the name a step above the dropdown and, since review round 1, above the version's name in the bar's words (now regular weight; the Budget tab's row keeps its bold); client only, no migration; walkthrough 69; two review rounds (every finding fixed, or named in the hand-off) | **nothing new.** A dated FX7 line on FX3's gateway-load entry (an `acme.test.mjs` test failing once in the merged tree's full run, passing alone; not FX7's code). Nothing broken was found in FX7's own work. Walkthrough 69's one question (keep the version's name regular on the Timeline, or bold again) and the figures band's own TIMELINE title (its icon, the darker grey; a section title in `TimelineView.jsx`, left as it is) are choices, recorded in the hand-off (`docs/sessions/handoffs/po-fx7-2026-10-12.md`) | **nothing.** Comment markers: 4 → 4. |
 | Post-overhaul FX4 (2026-10-12; `po/fx4-edits-update-in-place` into `feat/post-overhaul-edit-versioning`) — an edit changes in place (Audrey: "when i make changes to an edit, it should start to edit the current selected edit"): a change to a saved edit asks nothing, Save edit writes into it, Save as… is the only new version, the list's "Save edit as…" reads "Save as…" again; the edit write made conditional on every backend; client-only, no migration; walkthrough 67; two review rounds | **one entry under Broken features:** *the gateway's reach-proof test races the gateway's own sync, and fails CI now and then* (MEASURED: two of FX4's CI runs, one on a commit with no product code; not FX4's code). A dated FX4 line on FX3's gateway-load entry (the tests seen timing out under load in FX4's full runs). **S3c-05** gains an FX4 note (Save edit from the leave question saves a saved edit's changes into it) | **S3c-09, struck through:** untrue since BC1 (`0b38077c`) — the cloud's Scenes tab binds Ctrl+Z (FX4's review round 1, R1-04); Help's Undo card corrected. Comment markers: 4 → 4. |

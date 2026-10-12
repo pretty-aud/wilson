@@ -314,7 +314,11 @@
        mark     the nested row's 14px clapperboard, 6px a side       ->  26
        thumb    the size's 16:9 box, 6px a side                      -> +12
        num      "999" in the 13px mono; "#"                          ->  56
-       name     the 192px the name always had                        -> 216
+       name     the 192px the name always had, then the kit's 4px and
+                the row's three 28px buttons 2px apart — Open, the
+                row's shot-list menu (post-overhaul S3b) and Delete —
+                right after its words (FX8: they were an actions
+                column at the row's far end, 112, R3-24's one slot)  -> 308
        takes    the 176px the strip always had: three 26px posters,
                 "+n" and the count                                   -> 200
        status   the dot, 8px and "Needs revisions" (97) with its caret -> 160
@@ -326,13 +330,10 @@
                 digits at 100fps and up)                             -> 120
        frames   the 76px number field (FX1), its cell 6px a side     ->  88
        date     the date field and its picker glyph (120)            -> 144
-       acts     three 28px IconButtons 2px apart — View details, the
-                row's shot-list menu (post-overhaul S3b) and Delete — one
-                reserved slot, the same width in every row of all three
-                tables (R3-24); it was two, 84                       -> 112
      The description takes the rest: in the scene table never under 100px
-     (its sum, 1216px, fits 1280 with room for a scrollbar — S3b took the
-     28px the actions slot grew by from the description's floor, 128); in the shot
+     (its sum fits 1280 with room for a scrollbar — S3b took the 28px the
+     actions slot grew by from the description's floor, 128; FX8's name
+     cell holds the buttons in 92px of the 112 their column took); in the shot
      table, as the old flex row's did, whatever is left, down to its padding
      at 1440, so Duration and Frames stay in view there as they were (the
      shot table's fixed columns are 1756px with Takes; below a table's sum it
@@ -348,14 +349,15 @@
      edge; the old row overflowed by 16):
        num      "9999" in the 13px mono (31)                          ->  56
        name     the old row's 160 and its gap, less the 28px the
-                actions slot grew by in S3b (R1-03's 1440 holds)      -> 144
+                actions slot grew by in S3b (R1-03's 1440 holds), and
+                the row's buttons right after the words (FX8, +92)    -> 236
        takes    three 22px posters and the count (143)                -> 172
        type     "Exterior" (46) with its caret                        ->  88
        framing  "EWS" at the Label step (27) with its caret; no
                 header holds it open                                  ->  72
      The rest are the tables' own. With Takes at the small size the nest's
-     columns come to 1384px: at 1440 it ends at 1436, its actions inside
-     the window, its description down to nothing, as the old row's was. */
+     columns came to 1384px, at 1440 its description down to nothing; FX8's
+     buttons in the name cell take 20px less than the actions column did. */
   .rb-scene-table-wrap {
     --rb-scene-thumb-h: 36px;
     --rb-scene-thumb-w: calc(var(--rb-scene-thumb-h) * 16 / 9);
@@ -368,8 +370,8 @@
     --rb-scene-col-nest-thumb: calc(var(--rb-scene-nest-w) + 12px);
     --rb-scene-col-num: 56px;
     --rb-scene-col-nest-num: 56px;
-    --rb-scene-col-name: 216px;
-    --rb-scene-col-nest-name: 144px;
+    --rb-scene-col-name: 308px;
+    --rb-scene-col-nest-name: 236px;
     --rb-scene-col-takes: 200px;
     --rb-scene-col-nest-takes: 172px;
     --rb-scene-col-status: 160px;
@@ -383,11 +385,10 @@
     --rb-scene-col-runtime: 120px;
     --rb-scene-col-frames: 88px;
     --rb-scene-col-date: 144px;
-    --rb-scene-col-acts: 112px;
     --rb-scene-nest-min: calc(var(--rb-scene-col-check) + var(--rb-scene-col-mark) + var(--rb-scene-col-nest-thumb)
       + var(--rb-scene-col-nest-num) + var(--rb-scene-col-nest-name) + var(--rb-scene-col-status)
       + var(--rb-scene-col-time) + var(--rb-scene-col-nest-type) + var(--rb-scene-col-nest-framing)
-      + var(--rb-scene-col-move) + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-move) + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames));
     position: relative;
     display: flex;
     flex: 1 1 auto;
@@ -396,8 +397,9 @@
   }
   /* The scroller is the query container its full-width rows measure: a
      group's band and its Add shot span the scroller's width, not the
-     table's, so a scene's runtime and Scene details sit at the window's right
-     edge as they did (the old band was as wide as the container). */
+     table's, so a scene's runtime sits at the window's right edge as it did
+     (the old band was as wide as the container); its Open sits right after
+     its words since FX8. */
   .rb-scene-table-wrap > .ui-table-scroll { container-type: inline-size; }
   .rb-scene-table-wrap[data-thumb="md"] { --rb-scene-thumb-h: 54px; }
   .rb-scene-table-wrap[data-thumb="lg"] { --rb-scene-thumb-h: 72px; }
@@ -406,7 +408,7 @@
   .rb-scene-table-wrap > .ui-table-scroll { padding: 0 var(--spacing-gutter); }
   /* Tab and Shift+Tab scroll the next control to the scroller's edge, and
      the kit Table's head is sticky INSIDE this scroller: Shift+Tab up a
-     scrolled table left Add shot, a group band's toggle and Scene details
+     scrolled table left Add shot, a group band's toggle and its Open
      UNDER the head at 1280x700 (review round two, R2-03; WCAG 2.4.11), and a
      stop Tabbed to at the bottom edge lost up to 3px of its ring. The top keeps
      the head's height clear — the kit's `--table-head`, which its sticky
@@ -423,21 +425,20 @@
     min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-expand) + var(--rb-scene-col-thumb)
       + var(--rb-scene-col-num) + var(--rb-scene-col-name) + var(--rb-scene-col-status) + var(--rb-scene-col-time)
       + var(--rb-scene-col-type) + var(--rb-scene-col-desc) + var(--rb-scene-col-runtime)
-      + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-frames));
   }
   .ui-table.rb-scene-table-shots {
     min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-thumb) + var(--rb-scene-col-num)
       + var(--rb-scene-col-name) + var(--rb-scene-col-status) + var(--rb-scene-col-time) + var(--rb-scene-col-type)
       + var(--rb-scene-col-framing) + var(--rb-scene-col-move)
-      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2
-      + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2);
   }
   .ui-table.rb-scene-table-shots[data-takes="true"] {
     min-width: calc(var(--rb-scene-col-check) + var(--rb-scene-col-thumb) + var(--rb-scene-col-num)
       + var(--rb-scene-col-name) + var(--rb-scene-col-takes) + var(--rb-scene-col-status)
       + var(--rb-scene-col-time) + var(--rb-scene-col-type) + var(--rb-scene-col-framing)
       + var(--rb-scene-col-move) + var(--rb-scene-col-runtime)
-      + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2 + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-frames) + var(--rb-scene-col-date) * 2);
   }
   .ui-table.rb-scene-nest-table { min-width: var(--rb-scene-nest-min); }
   .ui-table.rb-scene-nest-table[data-takes="true"] { min-width: calc(var(--rb-scene-nest-min) + var(--rb-scene-col-nest-takes)); }
@@ -491,7 +492,6 @@
   .rb-scene-table .ui-tr > .ui-td.rb-scene-frames-cell,
   .rb-scene-table .ui-tr > .ui-td.rb-scene-date-cell,
   .rb-scene-table .ui-tr > .ui-td.rb-scene-takes-cell { padding-top: 4px; padding-bottom: 3px; }
-  .rb-scene-table .ui-tr > .ui-td.rb-scene-acts-cell { padding: 4px 12px 3px; }
 
   /* A row is the kit Row: `selected` its one selection (R3-38 — it was an
      orange tint AND a full orange border), and the lane's hover (0,3,0), so
@@ -637,6 +637,13 @@
   }
   /* The name's wrapper keeps the click it always had. */
   .rb-scene-name { display: block; min-width: 0; }
+  /* In a row's title (FX8, the kit's RowTitle) the words keep their 6px
+     pull to the left and stop at the words box on the right, so the buttons
+     sit the kit's 4px past the words' own 6px, as in every table; the field
+     that replaces them, the same. A one-letter name is still a 28px target,
+     as the kit makes a words button (review round 2, R2-06). */
+  .rb-scene-name-cell .ui-row-title .rb-scene-inline { margin-right: 0; min-width: var(--control-sm); }
+  .rb-scene-name-cell .ui-row-title .ui-input.rb-scene-inline-input[data-size="sm"] { width: calc(100% + 6px); margin-right: 0; }
 
   /* Status: the kit's StatusDot, then the words in the ink from the one
      STATUS map (R3-11: the text in the status colour and a 19%-alpha border
@@ -797,9 +804,6 @@
   .ui-input.rb-scene-date { color-scheme: dark; }
   .ui-input.rb-scene-date[data-empty="true"]:not(:disabled) { color: var(--color-ink-3); }
 
-  /* The actions' slot as a block (the kit's is inline-flex, and a line box
-     would grow the row), its buttons at the cell's right edge. */
-  .rb-scene-acts-cell > .ui-hover-actions.rb-scene-acts { display: flex; justify-content: flex-end; }
 
   /* A hovered or ticked row lifts its quiet ink: the third measures 4.34:1
      on the hover fill and 4.17 on the selected tint (the Tasks rows' rule);
@@ -858,16 +862,20 @@
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-move-cell { width: var(--rb-scene-col-move); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-dur-cell { width: var(--rb-scene-col-runtime); }
   .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-frames-cell { width: var(--rb-scene-col-frames); }
-  .rb-scene-nest-table .ui-tr > .ui-td.rb-scene-acts-cell { width: var(--rb-scene-col-acts); }
   /* The clapperboard that marks a nested row, in the third ink (#57534e). */
   .rb-scene-mark { display: block; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); }
   /* A nested shot's actions show with ITS row. The row holding the whole
      nest is a <tr> too, so the kit's reveal would light every nested row's
-     at once. */
-  .rb-scene-nest-row:hover .rb-scene-nest-table .ui-hover-actions:not(:focus-within),
-  .rb-scene-nest-row:focus-within .rb-scene-nest-table .ui-hover-actions:not(:focus-within) { opacity: 0; }
-  .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:hover .ui-hover-actions:not(:focus-within),
-  .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:focus-within .ui-hover-actions { opacity: 1; }
+     at once. Only where something hovers (FX8 review round 2, R2-01): on a
+     touch screen the kit shows every row's at rest (FX8-KR-2), and a tap's
+     leftover hover or focus here hid the other rows' again. A slot whose
+     menu is open keeps its button (R2-03, the kit's rule). */
+  @media (hover: hover) {
+    .rb-scene-nest-row:hover .rb-scene-nest-table .ui-hover-actions:not(:focus-within):not(:has([aria-expanded="true"])),
+    .rb-scene-nest-row:focus-within .rb-scene-nest-table .ui-hover-actions:not(:focus-within):not(:has([aria-expanded="true"])) { opacity: 0; }
+    .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:hover .ui-hover-actions:not(:focus-within),
+    .rb-scene-nest-row .rb-scene-nest-table .ui-tr.rb-scene-row:focus-within .ui-hover-actions { opacity: 1; }
+  }
 
   /* The nested bulk bar: above the shots, held under the table's header as
      the list scrolls (it was held at the top), in the bulk bar's shape. */
@@ -922,7 +930,8 @@
   /* ═══ The shot table's groups (surface 6a) ════════════════════════════════
      A group's band: one row across the table on the raised paper (a #292524
      band with a 3px accent in the scene's status colour, the name orange,
-     before). The toggle is the band; Scene details sits beside it. A scene's
+     before). The toggle is the band's words; the scene's Open sits beside
+     them (FX8), and the rest of the band opens and closes it too. A scene's
      status is the kit's StatusDot. */
   .rb-scene-group-row > .ui-td { background-color: var(--color-paper-raised); }
   .rb-scene-group-row:hover > .ui-td { background-color: var(--color-hover); }
@@ -965,6 +974,27 @@
     color: var(--color-ink-3);
   }
   .rb-scene-group-frames { margin-left: auto; padding-right: 8px; }
+  /* FX8 (review round 1, R1-06): a band's button sits right after its
+     words, so its words take what they need and no more — the shot table's
+     toggle and an edit's band name — and the rest of the band (its runtime)
+     comes after the button. The shot table's rest still opens and closes
+     the scene on a click, as the toggle across the whole band did; it never
+     shrinks under its runtime (the toggle's name is cut first, review round
+     2, R2-04). */
+  .rb-scene-group-head > .rb-scene-group-toggle,
+  .rb-scene-group-head > .rb-scene-cut-band-name { flex: 0 1 auto; }
+  /* 6px after the words, then the kit's 4px: the 10px a row's words leave. */
+  .rb-scene-group-head > .rb-scene-group-toggle:has(+ .rb-scene-band-acts),
+  .rb-scene-group-head > .rb-scene-cut-band-name:has(+ .rb-scene-band-acts) { padding-right: 6px; }
+  .rb-scene-group-head > .ui-hover-actions.rb-scene-band-acts { flex: none; }
+  .rb-scene-band-rest {
+    display: flex;
+    flex: 1 0 auto;
+    align-items: center;
+    align-self: stretch;
+    min-width: 0;
+    cursor: pointer;
+  }
   .rb-scene-group-row:hover .rb-scene-group-count,
   .rb-scene-group-row:hover .rb-scene-group-frames,
   .rb-scene-band:hover .rb-scene-group-count { color: var(--color-ink-2); }
@@ -1085,9 +1115,9 @@
 
   /* A shot group's head: the shot table's band in the gallery's shape. Its
      glyph, name and counts wear the band's classes (the glyph and the name
-     were orange, the counts #57534e); Scene details is the named kit
-     IconButton (a bare 20px button before); then a hairline to the edge (it
-     was #292524, 1.1:1). */
+     were orange, the counts #57534e); the scene's Open (the page icon, FX8)
+     is the named kit IconButton (a bare 20px button before); then a
+     hairline to the edge (it was #292524, 1.1:1). */
   .rb-scene-gallery-group { display: flex; flex-direction: column; gap: 12px; }
   .rb-scene-gallery-head {
     display: flex;
@@ -1259,6 +1289,12 @@
     justify-content: center;
     gap: 4px;
     background-color: var(--color-backdrop);
+  }
+  /* Where nothing hovers the kit shows the slot at rest (FX8-KR-2): no scrim
+     over the picture then, the two buttons in its corner on their raised
+     paper (FX8 review round 2, R2-02). */
+  @media (hover: none) {
+    .ui-hover-actions.rb-scene-detail-thumb-acts { inset: auto 6px 6px auto; background-color: transparent; }
   }
   /* Each button on the raised paper, so its glyph reads over ANY picture
      (B4c measured 2.54:1 through the scrim alone over a light one; 7.85 on
@@ -1731,12 +1767,14 @@
      EditTable: the shot table's band and row, the CUT position first (an
      editor's event numbers) — and, from step 6, the cell a row is dragged
      by (the grip at its left). Its columns are the shot table's tokens,
-     plus the cut's. */
+     plus the cut's. A row's buttons sit in its Shot cell, right after the
+     name (FX8, the kit's RowTitle), and a band's menu right after its words:
+     there is no actions column. */
   .rb-scene-cut { --rb-scene-col-cut: 64px; }
   .ui-table.rb-scene-table-cut {
     min-width: calc(var(--rb-scene-col-cut) + var(--rb-scene-col-thumb)
       + var(--rb-scene-col-num) + var(--rb-scene-col-name) + var(--rb-scene-col-status)
-      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames) + var(--rb-scene-col-acts));
+      + var(--rb-scene-col-runtime) + var(--rb-scene-col-frames));
   }
   /* The band: the shot table's band, its words in a plain span (no toggle:
      a cut is read whole), at the toggle's padding. */
@@ -1772,8 +1810,10 @@
     color: var(--color-ink);
   }
   .rb-scene-cut-row[data-missing="true"] .rb-scene-cut-name { font-weight: 400; color: var(--color-ink-3); }
+  /* In the row's title (FX8, the kit's RowTitle): 6px after the words, as
+     every table's words pad themselves, so its buttons sit where theirs do. */
+  .ui-row-title .rb-scene-cut-name { padding-right: 6px; }
   .rb-scene-cut-none { color: var(--color-ink-3); }
-  .rb-scene-cut-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
 
   /* ═══ Drag-and-drop (post-overhaul S3c, step 6; D16) ══════════════════════
      A row is dragged by the cell its number is in — the cut's position, the

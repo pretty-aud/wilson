@@ -158,7 +158,7 @@ try {
   await click(tab('Shots'), 'the Shots content tab');
   const lightning = page.locator('tr.rb-scene-row', { has: page.getByRole('button', { name: 'Select Lightning, wide', exact: true }) }).first();
   await lightning.hover();
-  await click(lightning.getByRole('button', { name: 'Delete shot', exact: true }), 'Delete shot');
+  await click(lightning.getByRole('button', { name: /^Delete / }), 'Delete shot');
   await click(button('Delete', dialog('Delete shot?')), 'Delete');
   await editSelect().selectOption(savedEdit);
   await park();
@@ -177,7 +177,7 @@ try {
   await shot('leave-page');
   await click(button('Keep editing', leaveQ()), 'Keep editing');
   await page.keyboard.press('Escape');
-  await click(cutRow('The door').getByRole('button', { name: 'View details of The door', exact: true }), 'The door\'s details');
+  await click(cutRow('The door').getByRole('button', { name: 'Open The door', exact: true }), 'The door\'s details');
   const door = dialog('The door');
   await must(door, 'the shot popup');
   await click(door.getByRole('button', { name: 'Show in Bins' }).first(), 'Show in Bins');
@@ -218,7 +218,7 @@ try {
   await click(tab('Shots'), 'the Shots content tab');
   const doorRow = page.locator('tr.rb-scene-row', { has: page.getByRole('button', { name: 'Select The door', exact: true }) }).first();
   await doorRow.hover();
-  await click(doorRow.getByRole('button', { name: 'View details', exact: true }), 'The door\'s details');
+  await click(doorRow.getByRole('button', { name: 'Open The door', exact: true }), 'The door\'s details');
   const pop = dialog('The door');
   await click(button('Add new task', pop), 'Add new task');
   await page.getByPlaceholder('Task title…').fill('Grade the doorway');

@@ -186,7 +186,7 @@ describe('VideoPreview in its hosts — ONE Escape closes the player and never t
       fileUrl: async () => null,
     }
     render(<ProjectAssetsView />)
-    fireEvent.click(screen.getByRole('button', { name: 'View asset details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Storyboards' }))
     const popup = screen.getByRole('dialog', { name: 'Storyboards' })
     fireEvent.click(within(popup).getByRole('button', { name: 'Play cut.mp4' }))
     const player = screen.getByRole('dialog', { name: 'cut.mp4' })

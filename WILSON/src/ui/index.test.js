@@ -28,6 +28,8 @@ export const COMPONENTS = [
   // F2 — the shell and data primitives
   'PageHeader', 'Table', 'Th', 'Td', 'Row', 'Toolbar', 'SectionTitle', 'Card',
   'Tabs', 'Panel', 'Drawer', 'Stat', 'HoverActions',
+  // Post-overhaul FX8 (FX8-KR-1)
+  'RowTitle',
 ]
 
 describe('src/ui inventory', () => {
